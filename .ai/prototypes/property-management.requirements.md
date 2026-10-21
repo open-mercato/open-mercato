@@ -660,6 +660,22 @@ Acceptance criteria:
 - Each version's invoices match it — same product and rate — and link to sales.
 - A proposed extension appears as its own version with no invoices until it takes effect.
 
+### US-E7 — End a lease early
+**As a** building manager
+**I want to** end a lease before its term and decide how the month already invoiced is settled
+**So that** billing stops on the right day and the tenant is charged according to our rules.
+
+Acceptance criteria:
+- *End lease* is reachable from the lease detail and from the refused delete dialog.
+- The last day may be in the past, today or in the future; for a future day, monthly invoices
+  continue until then.
+- The month containing the last day is settled by prorating it, crediting it entirely, or keeping it
+  billed in full; the choice is pre-set to the organization's sales default and can be changed.
+- Before confirming, the dialog shows what will happen: the credit memo amount and the invoice it
+  applies to, or that no credit is issued.
+- The unit reads as available from the day after the last day; the lease and its invoices stay on
+  record.
+
 ### US-F1 — See and narrow every booking
 **As a** building manager
 **I want to** see every bookable unit booking across every location, and narrow it quickly

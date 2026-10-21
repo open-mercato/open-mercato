@@ -70,7 +70,7 @@
 <div class="doc-toolbar">
   <div class="screen-menu-wrap">
     <button class="btn btn-outline btn-sm" id="screen-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false">
-      <svg><use href="#ic-menu"/></svg> Screens <span class="screen-menu-total">45</span>
+      <svg><use href="#ic-menu"/></svg> Screens <span class="screen-menu-total">46</span>
     </button>
     <div class="screen-menu" id="screen-menu" role="menu" aria-label="Screens" hidden>
     <div class="screen-menu-group" data-surface="backoffice">
@@ -122,7 +122,7 @@
       <button class="screen-menu-head" type="button" aria-expanded="false">
         <svg class="screen-menu-icon"><use href="#ic-layout-dashboard"/></svg>
         <span class="screen-menu-label">Backoffice · Leases</span>
-        <span class="screen-menu-count">6</span>
+        <span class="screen-menu-count">7</span>
         <svg class="screen-menu-caret"><use href="#ic-chevron-down"/></svg>
       </button>
       <div class="screen-menu-items" hidden>
@@ -132,6 +132,7 @@
         <a href="#s17" data-screen="s17">17 Leases · Extend</a>
         <a href="#s18" data-screen="s18">18 Leases · Proposal sent</a>
         <a href="#s19" data-screen="s19">19 Leases · Delete (refused)</a>
+        <a href="#s44" data-screen="s44">44 Leases · End lease</a>
       </div>
     </div>
     <div class="screen-menu-group" data-surface="backoffice">
@@ -3714,6 +3715,7 @@
             </div>
             <div class="page-actions row wrap">
               <a class="btn btn-outline" href="#s5c" data-goto="s5c"><svg><use href="#ic-map"/></svg> Show on floor plan</a>
+              <button class="btn btn-outline" type="button" data-goto="s44"><svg><use href="#ic-logout"/></svg> End lease</button>
               <button class="btn btn-primary" type="button" data-goto="s17"><svg><use href="#ic-send"/></svg> Extend lease</button>
             </div>
           </div>
@@ -4399,7 +4401,7 @@
           <span class="t-hint">Esc to close</span>
           <div class="row">
             <button class="btn btn-outline" type="button" data-goto="s16">Close</button>
-            <button class="btn btn-primary" type="button" data-goto="/backend/facilities/leases/L-2024-018/end">End lease instead</button>
+            <button class="btn btn-primary" type="button" data-goto="s44">End lease instead</button>
           </div>
         </div>
       </div>
@@ -4407,7 +4409,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Delete is refused for any lease that has been invoiced: its sales order and invoices must keep pointing at a lease. The dialog says why and offers the action the manager most likely wants — ending the lease — instead of a confirmation that cannot succeed.</span></div>
-    <div class="note"><b>2</b><span>Ending early cancels the lease's recurring order; the month already invoiced is settled as the manager chooses (prorate, credit in full, or keep, pre-set to the organization's sales default), so ending is the safe way out of a tenancy. Ending has no screen in this prototype, so the button toasts.</span></div>
+    <div class="note"><b>2</b><span>Ending early cancels the lease's recurring order; the month already invoiced is settled as the manager chooses (prorate, credit in full, or keep, pre-set to the organization's sales default), so ending is the safe way out of a tenancy. The button opens the End lease dialog (screen 44).</span></div>
     <div class="note"><b>3</b><span>A lease with nothing invoiced yet — for example one created before billing is switched on — can still be deleted; that version of this dialog asks for the reference to be typed, the same bar as deleting a building (screen 13). An open proposal is withdrawn rather than deleted.</span></div>
     <div class="note"><b>4</b><span>Every dialog here takes ⌘/Ctrl+Enter to submit and Escape to cancel.</span></div>
   </div>
@@ -8338,6 +8340,231 @@
     <div class="note"><b>5</b><span>Open the bell: sending the proposal created a portal notification for the company's users who can see leases ("New lease proposal: Office 206"), and it links straight to this page. A reminder follows three days before the deadline.</span></div>
   </div>
 </section>
+<section class="screen" id="s44">
+  <div class="screen-meta">
+    <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
+    <h2>44. Leases — end a lease early</h2>
+    <p>The manager ends a lease before its term and decides how the month already invoiced is settled.</p>
+    <div class="screen-refs"><span class="ref">§Epic E</span><span class="ref">US-E7</span></div>
+  </div>
+
+<div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/facilities/leases/L-2024-018/end?delete=1</span>
+    </div>
+    <div class="app app-tall modal-scrim">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark" aria-hidden="true">AC</span> <span class="ellipsis">Acme Corp</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Facilities</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-map"/></svg> Floor Plan</a>
+            <a class="nav-item" href="#s10" data-goto="s10"><svg><use href="#ic-building"/></svg> Buildings</a>
+            <a class="nav-item active" href="#s14" data-goto="s14" aria-current="page"><svg><use href="#ic-door"/></svg> Leases</a>
+            <a class="nav-item" href="#s20" data-goto="s20"><svg><use href="#ic-calendar"/></svg> Bookings</a>
+            <a class="nav-item" href="#s42" data-goto="s42"><svg><use href="#ic-settings"/></svg> Settings</a>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <a href="/backend" data-goto="/backend" aria-label="Home"><svg><use href="#ic-home"/></svg></a><svg><use href="#ic-chevron-right"/></svg>
+              <a href="#s1" data-goto="s1">Facilities</a><svg><use href="#ic-chevron-right"/></svg>
+              <a href="#s14" data-goto="s14">Leases</a><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here" aria-current="page">L-2024-018</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+
+                <main class="page">
+          <div class="page-head">
+            <div>
+              <div class="row wrap" style="gap:0.5rem">
+                <h1 class="t-page-title">Lease L-2024-018</h1>
+                <span class="badge badge-neutral"><span class="dot"></span>Active</span>
+                <span class="badge badge-warning"><svg><use href="#ic-clock"/></svg> Ends in 27 days</span>
+              </div>
+              <p>Office 202 · Harbor Point · Nordic Design Studio</p>
+            </div>
+            <div class="page-actions row wrap">
+              <a class="btn btn-outline" href="#s5c" data-goto="s5c"><svg><use href="#ic-map"/></svg> Show on floor plan</a>
+              <button class="btn btn-primary" type="button" data-goto="s17"><svg><use href="#ic-send"/></svg> Extend lease</button>
+            </div>
+          </div>
+
+          <div class="alert alert-warning">
+            <svg><use href="#ic-clock"/></svg>
+            <div><span class="alert-title">This lease ends in 27 days</span><div class="t-hint">30 Sep 2026. No extension has been proposed yet — the tenant has nothing to answer.</div></div>
+          </div>
+
+          <div class="card card-pad">
+            <div class="col stack-4">
+              <div class="row-4 wrap">
+                <div class="field">
+                  <label>Building</label>
+                  <span class="t-body">Harbor Point</span>
+                </div>
+                <div class="field">
+                  <label>Unit</label>
+                  <span class="t-body">202 · 2nd Floor — West Wing</span>
+                </div>
+              </div>
+              <div class="field">
+                <label>Tenant <span class="req">*</span></label>
+                <span class="t-body strong"><button type="button" class="crm-link" data-goto="/backend/customers/companies/cmp-nordic-design-studio">Nordic Design Studio<svg><use href="#ic-external"/></svg></button></span>
+              </div>
+              <div class="field">
+                <label>Product</label>
+                <div class="row"><svg><use href="#ic-lock"/></svg><span class="t-body">Private office — up to 10 people</span></div>
+                <span class="t-hint">Recorded on the lease when it was signed. It stays on the lease — and on every invoice billed under it — even if the unit's product changes later.</span>
+              </div>
+              <div class="field">
+                <label>Sales order</label>
+                <span class="t-body"><button type="button" class="crm-link" data-goto="/backend/sales/orders/SO-2024-0412">SO-2024-0412<svg><use href="#ic-external"/></svg></button></span>
+                <span class="t-hint">Created when Nordic Design Studio approved proposal SQ-2024-0388 in their portal. Each month's invoice is issued against this order.</span>
+              </div>
+              <div class="row-4 wrap">
+                <div class="field">
+                  <label>Lease start</label>
+                  <span class="t-body">1 Oct 2024</span>
+                </div>
+                <div class="field">
+                  <label>Lease end</label>
+                  <span class="t-body">30 Sep 2026</span>
+                  <span class="t-hint">24-month term. Change it with Extend lease or End lease.</span>
+                </div>
+                <div class="field">
+                  <label for="pm-field-32">Monthly rate <span class="req">*</span></label>
+                  <div class="input-group">
+                    <input id="pm-field-32" class="input" type="number" value="3600" style="max-width:9rem" />
+                    <span class="addon">zł / month</span>
+                  </div>
+                </div>
+              </div>
+              <div class="field">
+                <label>Primary contact</label>
+                <div class="row"><svg><use href="#ic-mail"/></svg><span class="t-body"><button type="button" class="crm-link" data-goto="/backend/customers/people/ppl-marta-kowalska">Marta Kowalska<svg><use href="#ic-external"/></svg></button> · marta.kowalska@nordicdesignstudio.example</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="t-table-title">History</h2>
+                <p class="t-hint">Every version of the lease's product, term and rate, and the invoices billed under each</p>
+              </div>
+            </div>
+            <div class="scroll-x">
+              <table class="table table-compact">
+                <thead><tr><th>Date</th><th>Event</th><th>Product</th><th>Term</th><th class="right">Rate</th><th>Invoices</th></tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="t-mono">1 Oct 2024</td>
+                    <td><span class="badge badge-neutral">Approved</span></td>
+                    <td>Private office — up to 10 people</td>
+                    <td>1 Oct 2024 — 30 Sep 2026</td>
+                    <td class="right num">3,600 zł / month</td>
+                    <td><button type="button" class="crm-link" data-goto="/backend/sales/invoices?lease=L-2024-018">24 invoices · Oct 2024 — Sep 2026<svg><use href="#ic-external"/></svg></button></td>
+                  </tr>
+                  <tr>
+                    <td class="t-mono">12 Sep 2024</td>
+                    <td><span class="badge badge-neutral">Proposed</span></td>
+                    <td>Private office — up to 10 people</td>
+                    <td>1 Oct 2024 — 30 Sep 2026</td>
+                    <td class="right num">3,600 zł / month</td>
+                    <td><span class="t-hint">None — proposals are not billed</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <button class="btn btn-destructive-outline" type="button" data-goto="s19"><svg><use href="#ic-trash"/></svg> Delete lease</button>
+            <div class="row">
+              <button class="btn btn-outline" type="button" data-goto="s14">Cancel</button>
+              <button class="btn btn-primary" type="button" data-goto="s14"><svg><use href="#ic-check"/></svg> Save changes</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="end-lease-title">
+        <div class="modal-head">
+          <div class="col" style="gap:0.25rem">
+            <h3 class="t-section" id="end-lease-title">End lease L-2024-018</h3>
+            <span class="t-hint">Office 202 · Nordic Design Studio · 1 Oct 2024 — 30 Sep 2026 · 3,600 zł / month</span>
+          </div>
+        </div>
+        <div class="modal-body col stack-4">
+          <div class="field">
+            <label for="end-lease-date">Last day of the lease <span class="req">*</span></label>
+            <input class="input" id="end-lease-date" type="text" value="15 Sep 2026" style="max-width:11rem" />
+            <span class="t-hint">Billing stops after this day. It may be in the past, today or later — for a later date, monthly invoices continue until then.</span>
+          </div>
+          <fieldset class="field" style="border:0;padding:0;margin:0">
+            <legend class="t-label" style="margin-bottom:0.5rem">September is already invoiced (INV-2026-0901, 1–30 Sep, 3,600 zł). Settle it by…</legend>
+            <label class="check-field" for="settle-prorate">
+              <input type="radio" id="settle-prorate" name="end-lease-settlement" value="prorate" data-choice-group="settlement" />
+              <span><span class="t-label">Prorating it</span><span class="t-hint">Credit the days after the end date.</span></span>
+            </label>
+            <label class="check-field" for="settle-credit" style="margin-top:0.5rem">
+              <input type="radio" id="settle-credit" name="end-lease-settlement" value="credit_full" data-choice-group="settlement" />
+              <span><span class="t-label">Crediting the whole invoice</span><span class="t-hint">The tenant pays nothing for September.</span></span>
+            </label>
+            <label class="check-field" for="settle-keep" style="margin-top:0.5rem">
+              <input type="radio" id="settle-keep" name="end-lease-settlement" value="keep" data-choice-group="settlement" checked />
+              <span><span class="t-label">Keeping the invoice <span class="badge badge-neutral">Organization default</span></span><span class="t-hint">September stays billed in full.</span></span>
+            </label>
+          </fieldset>
+          <div class="alert alert-info" data-choice-panel="settlement:prorate" hidden>
+            <svg><use href="#ic-info"/></svg>
+            <div><span class="alert-title">Credit memo for 1,800 zł</span><div class="t-hint">15 of September's 30 days are unused: half of INV-2026-0901 is credited. No invoice for October.</div></div>
+          </div>
+          <div class="alert alert-info" data-choice-panel="settlement:credit_full" hidden>
+            <svg><use href="#ic-info"/></svg>
+            <div><span class="alert-title">Credit memo for 3,600 zł</span><div class="t-hint">All of INV-2026-0901 is credited. No invoice for October.</div></div>
+          </div>
+          <div class="alert alert-info" data-choice-panel="settlement:keep">
+            <svg><use href="#ic-info"/></svg>
+            <div><span class="alert-title">No credit memo</span><div class="t-hint">INV-2026-0901 stays at 3,600 zł. No invoice for October.</div></div>
+          </div>
+          <p class="t-hint" style="margin:0">Office 202 reads as available on the floor plan from 16 Sep. The lease and its invoices stay on record.</p>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint">Esc to cancel · ⌘↵ to confirm</span>
+          <div class="row">
+            <button class="btn btn-outline" type="button" data-goto="s16">Cancel</button>
+            <button class="btn btn-primary" type="button" data-goto="s14">End lease</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Ending a lease cancels its recurring sales order from the day after the last day. The dialog asks the one question the organization's rules may answer differently: what happens to the month already invoiced. The choice is pre-set to the organization's sales default (here <em>Keep</em>) and can be changed for this lease.</span></div>
+    <div class="note"><b>2</b><span>The preview under the choices says exactly what sales will do — the credit memo amount and the invoice it applies to — so nobody has to work out the proration by hand. Pick another option to see its preview.</span></div>
+    <div class="note"><b>3</b><span>The last day may be in the future, for a tenant giving notice: billing then continues month by month until it, and the final month is settled the same way when it comes due (prorated, not issued, or issued in full).</span></div>
+    <div class="note"><b>4</b><span>Reached from <em>End lease</em> on the lease detail (screen 16) and from the refused delete (screen 19). Ending at the term's own end needs no dialog — the recurring order simply completes.</span></div>
+    <div class="note"><b>5</b><span>The dialog takes ⌘/Ctrl+Enter to confirm and Escape to cancel.</span></div>
+  </div>
+</section>
+
 
 
 

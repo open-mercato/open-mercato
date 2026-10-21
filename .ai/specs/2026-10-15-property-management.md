@@ -6,7 +6,7 @@
 | **Created** | 2026-10-15 |
 | **Module** | `property_management` (new, `packages/core/src/modules/property_management`) |
 | **Touches** | `catalog` (enricher + form-field widget, additive), `sales` (commands consumed; **depends on recurring orders, `.ai/specs/2026-10-21-sales-recurring-orders.md`, proposed in #7765**), `customer_accounts` / portal (pages, nav, customer-role features), `notifications` (additive `createForCustomerUsers` — see Portal notifications), `scheduler` (optional peer), `dictionaries` |
-| **Source** | Clickable prototype `.ai/prototypes/property-management/` (45 screens) and `.ai/prototypes/property-management.requirements.md` (Epics A–K, US-A1 … US-K1, incl. US-I5) |
+| **Source** | Clickable prototype `.ai/prototypes/property-management/` (46 screens) and `.ai/prototypes/property-management.requirements.md` (Epics A–K, US-A1 … US-K1, incl. US-E7, US-I5) |
 
 ## TLDR
 
@@ -102,7 +102,7 @@ The prototype's requirements are the authoritative story list (`.ai/prototypes/p
 | Stories | Capability | Phase |
 |---------|-----------|-------|
 | US-D1 … D4, D7, US-G1 … G7, G9 | Buildings, floors, spaces, units, common areas, archive | 1 |
-| US-E1 … E6, US-K1 | Leases, versions, extension offers, settings | 2 |
+| US-E1 … E7, US-K1 | Leases, versions, extension offers, ending early, settings | 2 |
 | US-F1, US-G7 (booking side) | Bookings, product/price snapshot | 3 |
 | US-D5, US-D6, US-G8, availability switches | Opening hours, availability cascade | 4 |
 | US-E6 (invoices), §Lease product and history | Lease billing through recurring orders | 5 |

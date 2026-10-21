@@ -1076,3 +1076,6 @@
   .doc-toolbar { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 1.5rem); }
   .proto-toolbar { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 1.5rem); }
 }
+/* End lease dialog: one settlement preview per radio choice (prepareChoicePanels). */
+[data-choice-panel][hidden] { display: none !important; }
+.check-field input[type="radio"] { width: 1rem; height: 1rem; margin: 0.1875rem 0 0; accent-color: var(--primary); flex: none; }

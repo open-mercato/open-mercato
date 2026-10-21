@@ -41,6 +41,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 | 41 | Floor — edit the West Wing (from "Edit floor" on the floor plan) |
 | 42 | Settings — sales channel, cancelled-booking status, lease-ending, reminder and proposal-expiry lead times |
 | 43 | Customer portal — approve or decline a lease proposal (on My leases) |
+| 44 | Leases — end a lease early, choosing how the invoiced month is settled |
 
 ## Limitations
 

@@ -1155,6 +1155,21 @@
     });
   }
 
+  function prepareChoicePanels() {
+    document.querySelectorAll('input[type="radio"][data-choice-group]').forEach(function (radio) {
+      var scope = radio.closest('.screen') || document;
+      var group = radio.getAttribute('data-choice-group');
+      function apply() {
+        var checked = scope.querySelector('input[type="radio"][data-choice-group="' + group + '"]:checked');
+        scope.querySelectorAll('[data-choice-panel^="' + group + ':"]').forEach(function (panel) {
+          panel.hidden = !checked || panel.getAttribute('data-choice-panel') !== group + ':' + checked.value;
+        });
+      }
+      radio.addEventListener('change', apply);
+      apply();
+    });
+  }
+
   function prepareProposalToggles() {
     document.querySelectorAll('[data-proposal-toggle]').forEach(function (box) {
       var scope = box.closest('.screen') || document;
@@ -1570,6 +1585,7 @@
     prepareFloorLayout();
     prepareSwitches();
     prepareProposalToggles();
+    prepareChoicePanels();
     prepareAvailabilityToggles();
     prepareCategoryProducts();
     prepareLayoutForms();
