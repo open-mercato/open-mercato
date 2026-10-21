@@ -353,6 +353,23 @@ quota. Now:
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
 
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
 ### AI pending actions are owner-scoped, and confirm re-checks the tool's features (#3806)
 
 `GET /api/ai_assistant/ai/actions/:id`, `POST .../confirm` and `POST .../cancel` now answer `404 pending_action_not_found` to every user except the one who created the pending action, including participants of a shared conversation. `AiPendingActionRepository.getById`, `setStatus` and `listPendingForAgent` match `createdByUserId` against the context's `userId`; a missing or non-UUID `userId` matches nothing, and only an explicit `userId: null` (system work such as the expiry sweeper) skips the owner filter.
