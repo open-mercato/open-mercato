@@ -906,7 +906,7 @@ export function isHelpRequest(args: string[]): boolean {
 // generic help branch. Without an entry here, `mercato init --help` runs a full install.
 const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
   init: [
-    'Usage: mercato init [--reinstall|-r] [--no-examples] [--stresstest [--lite] [--count=<n>]]',
+    'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
     'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
   ],
   'agentic:init': [
@@ -975,6 +975,7 @@ export async function run(argv = process.argv) {
         delete process.env.OM_INIT_REINSTALL
       }
       const skipExamples = initArgs.includes('--no-examples')
+      const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
       const stressTestLite =
@@ -1015,6 +1016,7 @@ export async function run(argv = process.argv) {
       }
       console.log(`🔄 Reinstall mode: ${reinstall ? 'enabled' : 'disabled'}`)
       console.log(`🎨 Example content: ${skipExamples ? 'skipped (--no-examples)' : 'enabled'}`)
+      console.log(`👤 Demo accounts (admin@/employee@): ${skipDemoUsers ? 'skipped (--no-demo-users)' : 'enabled'}`)
       console.log(
         `🏋️ Stress test dataset: ${
           stressTestEnabled
@@ -1205,10 +1207,10 @@ export async function run(argv = process.argv) {
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
-      if (adminEmailDerived && derivedSecrets.adminPassword) {
+      if (!skipDemoUsers && adminEmailDerived && derivedSecrets.adminPassword) {
         process.env.OM_INIT_ADMIN_PASSWORD = derivedSecrets.adminPassword
       }
-      if (employeeEmailDerived && derivedSecrets.employeePassword) {
+      if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
@@ -1229,12 +1231,15 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+      ]
+      if (!skipDemoUsers) {
         // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
         // the derived admin@/employee@ demo accounts. Standalone callers of
         // `mercato auth setup` must opt in themselves; without this flag the
         // setup command no longer seeds those accounts by default.
-        '--include-demo-users',
-      ]
+        // `--no-demo-users` opts a caller (e.g. a production `init`) out of them.
+        setupArgs.push('--include-demo-users')
+      }
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
       }
@@ -1388,8 +1393,10 @@ export async function run(argv = process.argv) {
         createdPasswords.set(value.toLowerCase(), passwordValue)
       }
       pushUser('Superadmin', '👑', email, password)
-      pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
-      pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+      if (!skipDemoUsers) {
+        pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
+        pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+      }
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
@@ -2783,12 +2790,14 @@ export async function run(argv = process.argv) {
     : rest
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
-    await cmd.run(rest)
+    const commandExitCode = await runWithCapturedExitCode(async () => {
+      await cmd.run(rest)
+    })
     if (modName !== 'deploy' || cmdName !== 'railway') {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }
-    return 0
+    return commandExitCode
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
     return 1
