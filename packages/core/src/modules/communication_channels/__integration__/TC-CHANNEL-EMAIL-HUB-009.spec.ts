@@ -60,11 +60,11 @@ test.describe('TC-CHANNEL-EMAIL-HUB-009: set-primary row action follows channel 
 
       liveChannel = await seedConnectedChannel(request, adminToken, {
         displayName: liveName,
-        externalIdentifier: `hub-007-live-${stamp}@test-seed.local`,
+        externalIdentifier: `hub-009-live-${stamp}@test-seed.local`,
       })
       disconnectedChannel = await seedConnectedChannel(request, adminToken, {
         displayName: disconnectedName,
-        externalIdentifier: `hub-007-gone-${stamp}@test-seed.local`,
+        externalIdentifier: `hub-009-gone-${stamp}@test-seed.local`,
       })
       await disconnectSeededChannel(request, adminToken, disconnectedChannel)
 
