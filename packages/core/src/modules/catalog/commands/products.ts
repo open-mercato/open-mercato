@@ -286,16 +286,17 @@ type ProductDeleteSnapshots = {
 
 const PRODUCT_DELETE_CACHE_ALIASES: readonly string[] = [
   "catalog.product",
+  "catalog.offer",
   "catalog.variant",
   "catalog.price",
   "catalog.product.unit.conversion",
   "catalog.optionschema",
 ];
 
-// catalog.products.update can create, edit, or remove offers (the `offers` field),
-// and its undo restores the pre-update offer set — both must invalidate the offers
-// list cache alongside the product cache alias (issue #7721).
-const PRODUCT_UPDATE_CACHE_ALIASES: readonly string[] = [
+// Shared by create, update, and delete/undo: all three write catalog_product_offers
+// rows (syncOffers / restoreOffersFromSnapshot), so each must also invalidate the
+// offers list cache alongside the product cache alias (issue #7721).
+const PRODUCT_OFFER_CACHE_ALIASES: readonly string[] = [
   "catalog.product",
   "catalog.offer",
 ];
@@ -1665,6 +1666,7 @@ const createProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
+      context: { cacheAliases: [...PRODUCT_OFFER_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
@@ -2199,7 +2201,7 @@ const updateProductCommand: CommandHandler<
           after,
         } satisfies ProductUndoPayload,
       },
-      context: { cacheAliases: [...PRODUCT_UPDATE_CACHE_ALIASES] },
+      context: { cacheAliases: [...PRODUCT_OFFER_CACHE_ALIASES] },
     };
   },
   undo: async ({ logEntry, ctx }) => {
