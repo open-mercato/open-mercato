@@ -17,8 +17,8 @@
 // Outputs go to $GITHUB_OUTPUT for later workflow steps.
 //
 // Env: GITHUB_REPOSITORY, GH_TOKEN, GITHUB_REF_NAME, GITHUB_API_URL; OM_RELEASE_ROOT overrides the
-// repo root. Tests pin `--latest <version|none>` (skips the registry lookup), `--released
-// <tag,…|none>` (skips the GitHub Release lookup) and `--date <YYYY-MM-DD>`.
+// repo root. Tests pin `--latest <version|none>` and `--published <name,…|none>` (skip the
+// registry lookups), `--released <tag,…|none>` (skips the GitHub Release lookup) and `--date`.
 
 import { execFile, execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -57,6 +57,7 @@ const { positionals, values: flags } = parseArgs({
     'dist-tag': { type: 'string' },
     latest: { type: 'string' },
     released: { type: 'string' },
+    published: { type: 'string' },
     date: { type: 'string' },
   },
 })
@@ -201,6 +202,26 @@ async function latestOnRegistry(): Promise<string | null> {
   return highestLatest(await Promise.all(publishedPackages().map((pkg) => latestOf(pkg.name))))
 }
 
+async function isPublished(name: string, version: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('npm', ['view', `${name}@${version}`, 'version'], { encoding: 'utf8' })
+    return stdout.trim() === version
+  } catch (error) {
+    const stderr = String((error as { stderr?: string }).stderr ?? '')
+    if (stderr.includes('E404')) return false
+    fail(`cannot read ${name}@${version} from npm: ${(error as Error).message}`)
+  }
+}
+
+async function publishedAt(version: string): Promise<string[]> {
+  if (flags.published !== undefined) {
+    return flags.published === 'none' ? [] : flags.published.split(',').map((item) => item.trim())
+  }
+  const packages = publishedPackages()
+  const published = await Promise.all(packages.map((pkg) => isPublished(pkg.name, version)))
+  return packages.filter((_, index) => published[index]).map((pkg) => pkg.name)
+}
+
 async function isReleased(tag: string): Promise<boolean> {
   if (flags.released !== undefined) return flags.released.split(',').map((item) => item.trim()).includes(tag)
   return github().hasRelease(tag)
@@ -226,6 +247,18 @@ async function prepare() {
   }
 
   log(`${branch}: releasing ${version}${bumped ? ` (patch bump from ${manifestVersion})` : ''} under "${distTag}"`)
+  // An untagged version is only ever unpublished — the tag is created before anything is built.
+  // Packages already on npm mean its tag was deleted: shipping from the current tip would mix
+  // revisions inside one immutable version, so stop and have the tag restored.
+  if (!bumped) {
+    const published = await publishedAt(version)
+    if (published.length > 0) {
+      fail(
+        `${version} has no tag, but ${published.join(', ')} ${published.length === 1 ? 'is' : 'are'} already on npm. ` +
+          `Recreate ${tag} at the commit it was published from to resume it; never re-release it from the line tip.`,
+      )
+    }
+  }
   if (bumped) stampReleaseSet(version)
   const head = git('rev-parse', 'HEAD')
   let notes = flags['notes-file'] ? readFileSync(flags['notes-file'], 'utf8') : ''

@@ -74,14 +74,21 @@ test('release publishes under the dist-tag the line resolved, then creates the G
 
   assert.match(
     source,
-    /publish-packages\.sh --tag "\$DIST_TAG"/,
-    'A patch to an older line must not move `latest`: publish under the resolved dist-tag',
+    /publish-packages\.sh --tag "\$DIST_TAG" --reconcile-tag/,
+    'A patch to an older line must not move `latest`: publish under the resolved dist-tag, and point it at packages a failed attempt already published',
   )
   assert.match(source, /DIST_TAG: \$\{\{ steps\.prepare\.outputs\.distTag \}\}/)
   assert.ok(
     stepIndex(source, 'Publish packages to npm') < stepIndex(source, 'Changelog PR and GitHub Release'),
     'The GitHub Release marks a version done, so it comes only after every package is published',
   )
+})
+
+test('a resumed dry run rehearses the tagged commit the real run would ship', () => {
+  const { parsed } = readWorkflow(releasePath)
+  const checkout = parsed.jobs.release.steps.find((step) => step.name === 'Check out the release commit')
+
+  assert.equal(checkout.if, "${{ !inputs.dry_run || steps.prepare.outputs.resumed == 'true' }}")
 })
 
 test('release dry runs never publish', () => {

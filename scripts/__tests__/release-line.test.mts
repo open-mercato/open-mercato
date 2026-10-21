@@ -312,11 +312,20 @@ test('prepare --dry-run bumps a released line to its next patch under latest-X.Y
 test('prepare --dry-run ships a fresh line as committed and moves latest', async () => {
   const { root, git } = fixtureRepo('0.10.0')
   git('tag', 'v0.9.0')
-  const result = await runLine(root, ['prepare', '--dry-run', '--branch', 'release/v0.10.x', '--latest', '0.9.0', '--released', 'none', '--date', '2026-10-21'])
+  const result = await runLine(root, ['prepare', '--dry-run', '--branch', 'release/v0.10.x', '--latest', '0.9.0', '--released', 'none', '--published', 'none', '--date', '2026-10-21'])
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.outputs.version, '0.10.0')
   assert.equal(result.outputs.bumped, 'false')
   assert.equal(result.outputs.distTag, 'latest')
+})
+
+test('prepare refuses an untagged version that already has packages on npm', async () => {
+  const { root, git } = fixtureRepo('0.9.2')
+  git('tag', 'v0.9.0')
+  git('tag', 'v0.9.1')
+  const result = await runLine(root, ['prepare', '--dry-run', '--branch', 'release/v0.9.x', '--latest', '0.9.1', '--released', 'v0.9.1', '--published', '@open-mercato/core'])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /0\.9\.2 has no tag, but @open-mercato\/core is already on npm\. Recreate v0\.9\.2/)
 })
 
 test('prepare resumes a tagged but unreleased version from its tagged commit, not the line tip', async () => {

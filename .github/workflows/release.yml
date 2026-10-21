@@ -98,8 +98,10 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node scripts/release-line.mts prepare ${{ inputs.dry_run && '--dry-run' || '' }}
 
+      # A dry run keeps its locally stamped tree, except when resuming: then the rehearsal must
+      # build the tagged commit the real run would ship.
       - name: Check out the release commit
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run || steps.prepare.outputs.resumed == 'true' }}
         env:
           SHA: ${{ steps.prepare.outputs.sha }}
         run: |
@@ -129,7 +131,7 @@ jobs:
         env:
           DIST_TAG: ${{ steps.prepare.outputs.distTag }}
         run: |
-          ./scripts/publish-packages.sh --tag "$DIST_TAG" 2>&1 | tee -a "$RUNNER_TEMP/release-output.txt"
+          ./scripts/publish-packages.sh --tag "$DIST_TAG" --reconcile-tag 2>&1 | tee -a "$RUNNER_TEMP/release-output.txt"
           echo "published=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload release log

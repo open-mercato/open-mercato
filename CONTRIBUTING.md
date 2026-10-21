@@ -174,7 +174,7 @@ Running a workflow: Actions → pick it → *Run workflow* → *Use workflow fro
 | A run failed after its bump commit but before tagging (manifest `0.9.2`, no tag) | ships `0.9.2` from the line tip |
 | A run failed after tagging (tag `v0.9.2`, no GitHub Release yet) | **resumes** `0.9.2` from the tagged commit, even if backports landed since — they ship in `0.9.3` |
 
-Release commits the bump, tags it, and only then builds and publishes that tagged commit. The **GitHub Release is created last** and is what marks a version done; the changelog PR to `main` is opened just before it. To abandon a tagged-but-unreleased version instead of resuming it, delete its tag.
+Release commits the bump, tags it, and only then builds and publishes that tagged commit. The **GitHub Release is created last** and is what marks a version done; the changelog PR to `main` is opened just before it. A tagged-but-unreleased version can only be resumed, never abandoned: its tag pins the code some packages may already have been published from. Release refuses to ship an untagged version that already has packages on npm, so deleting the tag does not get around this.
 
 Between releases a line's manifests show the **last released** version. Only the newest line moves npm `latest` — judged by the highest `latest` across every published package, so a half-finished publish of a newer line still counts; a patch to an older line publishes under `latest-X.Y` (`yarn add @open-mercato/core@latest-0.9`) and its GitHub Release is not marked latest. If npm cannot be read the release stops rather than guess. Only one Release runs at a time, across all lines.
 
