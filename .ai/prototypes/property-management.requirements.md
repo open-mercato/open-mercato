@@ -165,12 +165,14 @@ and the booking and lease notifications in the portal's bell.
   same form:
   - **Lease proposal** → `proposed` → `active` (approved) / `declined` / `expired` → `ended`. It
     creates a sales quote that the customer's portal user approves or declines. The unit is
-    reserved while the proposal is open. Approval converts the quote to the lease's sales order
-    and invoices the first month. A declined proposal can still be approved until its deadline.
+    reserved while the proposal is open. Approval converts the quote — recurrence included — to the
+    lease's recurring sales order. A declined proposal can still be approved until its deadline.
   - **Direct lease** → `active` on save → `ended`. For a lease agreed elsewhere: saving creates the
-    sales order directly and invoices the first month.
-  Either way the lease points to its sales order. A lease can be **ended early** by setting its end
-  date; anything already invoiced after that date is credited (billing is in advance). Notice
+    recurring sales order directly.
+  Either way the lease points to its recurring sales order, which sales invoices monthly on each
+  anniversary of the start date. A term is a whole number of months. A lease can be **ended early**
+  by setting its end date; the manager chooses how the month already invoiced is settled —
+  prorated, credited in full, or kept — pre-set to the organization's sales default. Notice
   periods and handover stay outside this module. Deleting the record is only for something entered
   in error before anything was invoiced, never for a tenant moving out, and the delete dialog says
   so.
@@ -256,15 +258,18 @@ and the booking and lease notifications in the portal's bell.
   that price (§Sales documents); how it is paid (invoice, card) is decided in sales, out of this
   module's scope.
 - **Sales documents** = this module creates sales documents but does not own them. Activating a
-  lease creates a sales order directly (the quote step is optional in sales and skipped): one line
-  for the lease's product, quantity = months, unit price = monthly rate; rent is billed in advance — the first month as soon as the lease gets its order, then each month's invoice on the invoice issue day at the start of that month; ending a lease early credits the part of a month already invoiced. This module issues those invoices
-  against the order, so every invoice carries the lease version's product and rate. Each confirmed
+  lease creates a **recurring sales order** (monthly, one period per month of the term, starting on
+  the lease start; `.ai/specs/2026-10-21-sales-recurring-orders.md`) with one line: the lease's
+  product at the monthly rate. Sales issues each invoice on the anniversary of the start date, in
+  advance for the month that starts that day, so every invoice carries the lease version's product
+  and rate. A rate change or an extension starts a new recurring order; ending early cancels the
+  recurrence with the chosen settlement. Each confirmed
   booking creates its own sales order (product and price as booked, no quote); cancelling the
   booking moves that order to the configured cancelled status. Order and invoice numbers are shown
   on the lease and the Bookings list and link to sales.
 - **Settings** = one per organization: the sales channel lease and booking documents are created in
-  (required — leases cannot be activated nor units booked until it is set), the invoice issue day
-  (1–28, default 1), the sales order status for cancelled bookings, the lease-ending threshold
+  (required — leases cannot be activated nor units booked until it is set), the sales order status
+  for cancelled bookings, the lease-ending threshold
   (default 60 days), the booking reminder lead time (default 60 minutes) and the default proposal
   expiry (default 14 days, changeable per proposal).
 - **Credits are out of scope** = plan credits, credit balances and buying credits are not part of
@@ -334,8 +339,8 @@ entries to the same bell.)
 
 ### Epic K — Configure how leases and bookings are billed
 Leases and bookings become sales documents. A manager sets, once for the organization, which sales
-channel those documents go to, when the monthly lease invoices are issued, and the lead times that
-drive the lease-ending warning and booking reminders.
+channel those documents go to and the lead times that drive the lease-ending warning, booking
+reminders and proposal expiry. When invoices are issued is decided by sales recurring orders.
 
 ## User Stories
 
@@ -569,7 +574,7 @@ Acceptance criteria:
   as the floor plan and the tenant's portal.
 - The list can be narrowed by status (active, ending soon, proposed, ended, unit unavailable) and by
   building, and searched fulltext across every column.
-- Every rate matches that tenant's monthly invoice, which this module issues against the lease's
+- Every rate matches that tenant's monthly invoice, which sales issues from the lease's recurring
   sales order.
 - An active lease whose unit sits in something unavailable (unit, space, floor or building) is
   flagged "Unit unavailable" with the end date, alongside its status.
@@ -581,13 +586,15 @@ approve in their portal
 **So that** a lease agreed elsewhere starts at once, and a new one waits for the customer's approval.
 
 Acceptance criteria:
-- Building, unit, tenant, start, end and rate are required; a "Send as a proposal" checkbox on the
-  same form picks the path. A proposal also states how many days it stays open (prefilled from
+- Building, unit, tenant, start, term (whole months — the end date is shown, not typed) and rate are
+  required; a "Send as a proposal" checkbox on the
+  same form picks the path. A proposal's start date must be on or after its response deadline (a
+  proposal cannot be accepted once its lease has started). A proposal also states how many days it stays open (prefilled from
   Settings, default 14); when they pass, it expires and the unit is released.
 - Only units free for the whole term — no lease and no other open proposal — can be picked.
 - The tenant is a CRM Company record, not free text.
-- A direct lease is saved at once and becomes active as soon as its sales order is created
-  (moments later, in the background); the first month is then invoiced.
+- A direct lease is saved at once and becomes active as soon as its recurring sales order is
+  created (moments later, in the background); sales invoices it monthly from the start date.
 - A proposal creates a sales quote, reserves the unit (the floor plan marks it Proposed) and bills
   nothing until the customer approves.
 
@@ -597,8 +604,10 @@ Acceptance criteria:
 **So that** the records the rest of the product reads from stay right.
 
 Acceptance criteria:
-- Dates and rate are editable; the unit and the tenant are not — moving a tenant to another unit,
-  or a lease to another company, is a new lease (the lease was signed for that unit's product).
+- The rate is editable (it takes effect from the next billing anniversary, as a new recurring
+  order); the start date only before the first invoice; the term changes through End lease or
+  Extend lease. The unit and the tenant are not editable — moving a tenant to another unit, or a
+  lease to another company, is a new lease (the lease was signed for that unit's product).
 - There is a direct path from the lease to its office on the floor plan.
 - Delete is separated from save and confirmed separately.
 
@@ -902,8 +911,8 @@ Acceptance criteria:
   response deadline.
 - Approve and decline need the permission to answer for the company; other users see the proposal
   read-only.
-- Approving makes the lease active, creates its sales order and issues the first month's invoice;
-  the screen says so before the click.
+- Approving makes the lease active and creates its recurring sales order, invoiced monthly from the
+  start date; the screen says so before the click.
 - Declining releases the unit; the proposal can still be approved until its deadline.
 
 ### US-J1 — See what needs my attention from anywhere in the portal
@@ -931,8 +940,8 @@ Acceptance criteria:
 
 ### US-K1 — Configure billing and lead times
 **As a** building manager
-**I want to** choose the sales channel, the invoice issue day, the status for cancelled booking
-orders, the lease-ending threshold and the booking reminder time in one place
+**I want to** choose the sales channel, the status for cancelled booking orders, the lease-ending
+threshold, the booking reminder time and the proposal expiry in one place
 **So that** leases and bookings turn into sales documents the way my organization bills, and every
 warning uses the same numbers.
 
@@ -940,8 +949,8 @@ Acceptance criteria:
 - Settings is reachable from the Facilities group in the sidebar.
 - The sales channel has no default; until it is set, activating a lease or confirming a booking
   is refused with a message linking to Settings.
-- The invoice issue day accepts 1–28. All dates and times are the building's local time; there is
-  no time-zone setting.
+- There is no invoice-day setting: sales issues lease invoices on each anniversary of the lease
+  start. All dates and times are the building's local time; there is no time-zone setting.
 - The cancelled-booking status is chosen from the existing sales order statuses.
 - Changing the lease-ending threshold changes the floor plan, Leases list, lease detail and portal
   warnings together.

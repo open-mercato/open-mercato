@@ -3592,8 +3592,12 @@
                   <input id="pm-field-10" class="input" type="text" value="1 Oct 2026" style="max-width:11rem" />
                 </div>
                 <div class="field">
-                  <label for="pm-field-11">Lease end <span class="req">*</span></label>
-                  <input id="pm-field-11" class="input" type="text" value="30 Sep 2028" style="max-width:11rem" />
+                  <label for="pm-field-11">Term <span class="req">*</span></label>
+                  <div class="input-group">
+                    <input id="pm-field-11" class="input" type="number" min="1" value="24" style="max-width:6rem" />
+                    <span class="addon">months</span>
+                  </div>
+                  <span class="t-hint">Ends 30 Sep 2028. Billed monthly on the 1st — the start date's anniversary.</span>
                 </div>
                 <div class="field">
                   <label for="pm-field-12">Monthly rate <span class="req">*</span></label>
@@ -3619,7 +3623,7 @@
               </div>
               <div class="alert alert-info" data-direct-only hidden>
                 <svg><use href="#ic-info"/></svg>
-                <div><span class="alert-title">The lease starts straight away</span><div class="t-hint">Saving starts the lease: its sales order is created in the background, the lease turns active within moments (the list shows <em>Activating…</em> until then), and the first month is invoiced.</div></div>
+                <div><span class="alert-title">The lease starts straight away</span><div class="t-hint">Saving starts the lease: its recurring sales order is created in the background and the lease turns active within moments (the list shows <em>Activating…</em> until then). Sales invoices it monthly, on each anniversary of the start date.</div></div>
               </div>
               <div class="field">
                 <label>Primary contact</label>
@@ -3644,7 +3648,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Two paths, one form. Unchecked, saving creates the lease as <em>active</em>: its sales order is created directly and the first month is invoiced at once — for a lease agreed off-line. Checked, it creates a <em>proposal</em>: a sales quote the customer's portal user approves (screen 43) or declines; approving converts the quote to the order and invoices the first month. Untick the box to see the direct path.</span></div>
+    <div class="note"><b>1</b><span>Two paths, one form. Unchecked, saving creates the lease as <em>active</em>: its recurring sales order — monthly, one period per month of the term — is created directly, and sales invoices it on each anniversary of the start date — for a lease agreed off-line. Checked, it creates a <em>proposal</em>: a sales quote the customer's portal user approves (screen 43) or declines; approving converts the quote, recurrence included, to the recurring order that sales then invoices monthly. Untick the box to see the direct path.</span></div>
     <div class="note"><b>2</b><span>The unit picker only offers units free for the whole term — no lease and no other open proposal on it — so the form cannot produce two overlapping leases on one unit. A company, on the other hand, can hold any number of leases.</span></div>
     <div class="note"><b>3</b><span>The tenant is a CRM Company record, not typed text — which is what makes every tenant name elsewhere in the backoffice a working link (§CRM integration).</span></div>
     <div class="note"><b>4</b><span>The form shows the proposal on the list (L-2026-014, Vantage Legal Group taking office 206) so the expected content is legible; in production it would start blank.</span></div>
@@ -3747,12 +3751,13 @@
               </div>
               <div class="row-4 wrap">
                 <div class="field">
-                  <label for="pm-field-15">Lease start <span class="req">*</span></label>
-                  <input id="pm-field-15" class="input" type="text" value="1 Oct 2024" style="max-width:11rem" />
+                  <label>Lease start</label>
+                  <span class="t-body">1 Oct 2024</span>
                 </div>
                 <div class="field">
-                  <label for="pm-field-16">Lease end <span class="req">*</span></label>
-                  <input id="pm-field-16" class="input" type="text" value="30 Sep 2026" style="max-width:11rem" />
+                  <label>Lease end</label>
+                  <span class="t-body">30 Sep 2026</span>
+                  <span class="t-hint">24-month term. Change it with Extend lease or End lease.</span>
                 </div>
                 <div class="field">
                   <label for="pm-field-17">Monthly rate <span class="req">*</span></label>
@@ -3820,9 +3825,9 @@
     <div class="note"><b>2</b><span>"Extend lease" is the primary action on a lease that is ending, sitting next to Save rather than buried in a menu — it is the thing a manager opened this lease to do.</span></div>
     <div class="note"><b>3</b><span>The expiry banner leads with the days left and states plainly that nothing has been proposed. "Ending soon" without "and nobody has acted on it" is only half the information.</span></div>
     <div class="note"><b>4</b><span>"Show on floor plan" goes to the same office's panel (screen 5c) — the two views of this lease, one spatial and one contractual.</span></div>
-    <div class="note"><b>5</b><span>The tenant and the unit are read-only: moving a lease to another company or another unit is not an edit, it is a new lease — the lease was signed for this unit's product. Dates and rate are editable because those are ordinary corrections; each correction becomes a new version in History.</span></div>
-    <div class="note"><b>6</b><span>Ending a lease early is <em>End lease</em> (§Lease lifecycle): it sets the end date, and anything already invoiced after it is credited, since rent is billed in advance. Shortening the end date is not a plain edit for that reason; notice periods and handover stay outside this module.</span></div>
-    <div class="note"><b>7</b><span>The lease records the product it was signed for — "Private office — up to 10 people" — and keeps it even if Office 202's product changes later. History lists every version of the lease's product, term and rate, each with the invoices billed under it. This lease began as a proposal: Nordic Design Studio approved quote SQ-2024-0388 in their portal, which converted it to sales order SO-2024-0412 (one line for that product at the monthly rate) and issued the first invoice; on the 1st of each month since, this module has issued that month's invoice against the order. The order and invoices are sales records outside this prototype, so their links toast.</span></div>
+    <div class="note"><b>5</b><span>The tenant and the unit are read-only: moving a lease to another company or another unit is not an edit, it is a new lease — the lease was signed for this unit's product. The rate is editable — a correction takes effect from the next billing anniversary as a new recurring order and becomes a new version in History. The start date is fixed once invoiced, and the term changes through Extend lease or End lease.</span></div>
+    <div class="note"><b>6</b><span>Ending a lease early is <em>End lease</em> (§Lease lifecycle): it sets the end date and cancels the lease's recurring order from the next day; the month already invoiced is settled as the manager chooses — prorated, credited in full, or kept — with the organization's default pre-selected. Shortening the end date is not a plain edit for that reason; notice periods and handover stay outside this module.</span></div>
+    <div class="note"><b>7</b><span>The lease records the product it was signed for — "Private office — up to 10 people" — and keeps it even if Office 202's product changes later. History lists every version of the lease's product, term and rate, each with the invoices billed under it. This lease began as a proposal: Nordic Design Studio approved quote SQ-2024-0388 in their portal, which converted it to SO-2024-0412 — a monthly recurring sales order starting 1 Oct 2024 for 24 months, one line for that product at the monthly rate; sales has invoiced it on the 1st of each month since — the anniversary of the start. The order and invoices are sales records outside this prototype, so their links toast.</span></div>
   </div>
 </section>
 <section class="screen" id="s17">
@@ -4124,12 +4129,13 @@
               </div>
               <div class="row-4 wrap">
                 <div class="field">
-                  <label for="pm-field-25">Lease start <span class="req">*</span></label>
-                  <input id="pm-field-25" class="input" type="text" value="1 Oct 2024" style="max-width:11rem" />
+                  <label>Lease start</label>
+                  <span class="t-body">1 Oct 2024</span>
                 </div>
                 <div class="field">
-                  <label for="pm-field-26">Lease end <span class="req">*</span></label>
-                  <input id="pm-field-26" class="input" type="text" value="30 Sep 2026" style="max-width:11rem" />
+                  <label>Lease end</label>
+                  <span class="t-body">30 Sep 2026</span>
+                  <span class="t-hint">24-month term. Change it with Extend lease or End lease.</span>
                 </div>
                 <div class="field">
                   <label for="pm-field-27">Monthly rate <span class="req">*</span></label>
@@ -4305,12 +4311,13 @@
               </div>
               <div class="row-4 wrap">
                 <div class="field">
-                  <label for="pm-field-30">Lease start <span class="req">*</span></label>
-                  <input id="pm-field-30" class="input" type="text" value="1 Oct 2024" style="max-width:11rem" />
+                  <label>Lease start</label>
+                  <span class="t-body">1 Oct 2024</span>
                 </div>
                 <div class="field">
-                  <label for="pm-field-31">Lease end <span class="req">*</span></label>
-                  <input id="pm-field-31" class="input" type="text" value="30 Sep 2026" style="max-width:11rem" />
+                  <label>Lease end</label>
+                  <span class="t-body">30 Sep 2026</span>
+                  <span class="t-hint">24-month term. Change it with Extend lease or End lease.</span>
                 </div>
                 <div class="field">
                   <label for="pm-field-32">Monthly rate <span class="req">*</span></label>
@@ -4385,7 +4392,7 @@
         <div class="modal-body">
           <div class="alert alert-warning">
             <svg><use href="#ic-warn"/></svg>
-            <div><span class="alert-title">Delete is only for a lease entered by mistake</span><div class="t-hint">Once anything has been invoiced, the lease stays on record with its sales order and invoices. To finish a tenancy, end the lease: set its end date, and anything already invoiced after that date is credited.</div></div>
+            <div><span class="alert-title">Delete is only for a lease entered by mistake</span><div class="t-hint">Once anything has been invoiced, the lease stays on record with its sales order and invoices. To finish a tenancy, end the lease: set its end date and choose how the month already invoiced is settled — prorated, credited in full, or kept.</div></div>
           </div>
         </div>
         <div class="modal-foot">
@@ -4400,7 +4407,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Delete is refused for any lease that has been invoiced: its sales order and invoices must keep pointing at a lease. The dialog says why and offers the action the manager most likely wants — ending the lease — instead of a confirmation that cannot succeed.</span></div>
-    <div class="note"><b>2</b><span>Ending early credits the part of any month already invoiced after the end date (billing is in advance), so ending is the safe way out of a tenancy. Ending has no screen in this prototype, so the button toasts.</span></div>
+    <div class="note"><b>2</b><span>Ending early cancels the lease's recurring order; the month already invoiced is settled as the manager chooses (prorate, credit in full, or keep, pre-set to the organization's sales default), so ending is the safe way out of a tenancy. Ending has no screen in this prototype, so the button toasts.</span></div>
     <div class="note"><b>3</b><span>A lease with nothing invoiced yet — for example one created before billing is switched on — can still be deleted; that version of this dialog asks for the reference to be typed, the same bar as deleting a building (screen 13). An open proposal is withdrawn rather than deleted.</span></div>
     <div class="note"><b>4</b><span>Every dialog here takes ⌘/Ctrl+Enter to submit and Escape to cancel.</span></div>
   </div>
@@ -8101,7 +8108,7 @@
   <div class="screen-meta">
     <span class="surface-tag" data-surface="backoffice"><svg><use href="#ic-layout-dashboard"/></svg> Backoffice</span>
     <h2>42. Settings</h2>
-    <p>The manager chooses the sales channel lease and booking documents are created in, when monthly invoices are issued, the lease-ending and booking-reminder lead times, and how long lease proposals stay open.</p>
+    <p>The manager chooses the sales channel lease and booking documents are created in, the lease-ending and booking-reminder lead times, and how long lease proposals stay open.</p>
     <div class="screen-refs"><span class="ref">§Settings</span><span class="ref">US-K1</span></div>
   </div>
 
@@ -8160,15 +8167,7 @@
               <div class="field">
                 <label for="pm-channel">Sales channel <span class="req">*</span></label>
                 <select class="select" id="pm-channel" style="max-width:20rem"><option selected>Acme Corp — Workspace</option><option>Acme Corp — Events</option></select>
-                <span class="t-hint">Every lease order, booking order and monthly invoice is created in this channel, so it sets their numbering and pricing. Until one is chosen, leases cannot be created or proposed and units cannot be booked.</span>
-              </div>
-              <div class="field">
-                <label for="pm-issue-day">Invoice issue day <span class="req">*</span></label>
-                <div class="input-group">
-                  <input class="input" id="pm-issue-day" type="number" min="1" max="28" value="1" style="max-width:7rem" />
-                  <span class="addon">of the month</span>
-                </div>
-                <span class="t-hint">The day each month's lease invoice is issued — at the start of the month it pays for. 1–28, so every month has it.</span>
+                <span class="t-hint">Every lease order, booking order and their invoices are created in this channel, so it sets their numbering and pricing. Until one is chosen, leases cannot be created or proposed and units cannot be booked.</span>
               </div>
               <div class="field">
                 <label for="pm-cancel-status">Status for cancelled bookings <span class="req">*</span></label>
@@ -8238,7 +8237,7 @@
     <div class="notes">
     <div class="note"><b>1</b><span>One page per organization, not per building: a tenant with offices in two buildings gets invoices in one channel and the same "ending soon" warning everywhere.</span></div>
     <div class="note"><b>2</b><span>The sales channel is the only setting without a default. A fresh install shows it empty, and creating or proposing a lease, or confirming a booking, stops with "Choose a sales channel in Facilities → Settings" and a link here, rather than creating orders in a channel nobody picked.</span></div>
-    <div class="note"><b>3</b><span>Lease billing runs inside this module: a lease gets its sales order either directly (direct lease) or when the customer approves its proposal quote (screens 15, 43), the first month is invoiced at once, and on the issue day it creates that month's invoice against the order. Bookings each create their own order without a quote (screen 20). Payment collection stays in sales.</span></div>
+    <div class="note"><b>3</b><span>Lease billing is a sales recurring order: a lease gets one either directly (direct lease) or when the customer approves its proposal quote (screens 15, 43), and sales issues each month's invoice on the anniversary of the lease start. There is no invoice-day setting here; the settlement default for leases ended early is a sales setting. Bookings each create their own one-off order without a quote (screen 20). Payment collection stays in sales.</span></div>
     <div class="note"><b>4</b><span>The cancelled-booking status is picked from the sales order statuses that already exist; this module does not add its own.</span></div>
     <div class="note"><b>5</b><span>The 60-day warning is the same number screens 5c, 16 and 33 use. Changing it here moves all of them together.</span></div>
     <div class="note"><b>6</b><span>Proposal expiry is a default, not a rule: the new-lease and extension forms (screens 15 and 17) prefill it and the manager can change it per proposal. The proposal's quote gets the matching "valid until" date in sales.</span></div>
@@ -8308,7 +8307,7 @@
             </div>
             <div class="alert alert-info">
               <svg><use href="#ic-info"/></svg>
-              <div><span class="alert-title">Approving starts the lease</span><div class="t-hint">Office 206 is yours from 1 Oct 2026, and the first month's invoice is issued straight away.</div></div>
+              <div><span class="alert-title">Approving starts the lease</span><div class="t-hint">Office 206 is yours from 1 Oct 2026 for 24 months, invoiced monthly from that day.</div></div>
             </div>
           </div>
           <div class="card-foot">
@@ -8334,7 +8333,7 @@
     <div class="notes">
     <div class="note"><b>1</b><span>The customer's side of proposal L-2026-014 (screens 14–15): Vantage Legal Group's portal user sees the proposed office above the lease they already hold at Foundry Yard — pending proposals first, then active leases.</span></div>
     <div class="note"><b>2</b><span>Approve and Decline need the <code class="t-mono">portal.property_leases.manage</code> feature, which only the company's portal admin has by default; other users of the company see the proposal without the buttons.</span></div>
-    <div class="note"><b>3</b><span>Approving accepts sales quote SQ-2026-0514: it becomes the lease's sales order, the lease becomes active, Office 206 turns Occupied on the floor plan from 1 Oct, and the first month is invoiced. Declining marks the quote rejected and releases the office; the customer can still approve until 15 Sep. Neither result has its own screen here, so both buttons toast.</span></div>
+    <div class="note"><b>3</b><span>Approving accepts sales quote SQ-2026-0514: it becomes the lease's sales order, the lease becomes active, Office 206 turns Occupied on the floor plan from 1 Oct, and sales invoices it monthly from that day. Declining marks the quote rejected and releases the office; the customer can still approve until 15 Sep. Neither result has its own screen here, so both buttons toast.</span></div>
     <div class="note"><b>4</b><span>Office 210 is shown briefly because this screen is about the proposal; its full card looks like those on screen 31.</span></div>
     <div class="note"><b>5</b><span>Open the bell: sending the proposal created a portal notification for the company's users who can see leases ("New lease proposal: Office 206"), and it links straight to this page. A reminder follows three days before the deadline.</span></div>
   </div>

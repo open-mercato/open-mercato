@@ -39,7 +39,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 | 39 | Floor — make a floor unavailable |
 | 40 | Building — archive (blocked while leases and bookings run) |
 | 41 | Floor — edit the West Wing (from "Edit floor" on the floor plan) |
-| 42 | Settings — sales channel, invoice issue day, cancelled-booking status, lease-ending and reminder lead times |
+| 42 | Settings — sales channel, cancelled-booking status, lease-ending, reminder and proposal-expiry lead times |
 | 43 | Customer portal — approve or decline a lease proposal (on My leases) |
 
 ## Limitations
