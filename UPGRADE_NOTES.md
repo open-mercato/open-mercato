@@ -130,15 +130,24 @@ attachments of a record and any count derived from them stops at 100.
 
 ### `POST /api/attachments/transfer` accepts at most 100 `attachmentIds` (#7672)
 
-`POST /api/attachments/transfer` used to accept an `attachmentIds` array of any length and load every
-listed attachment in one request. The array is now limited to `100` ids, the same ceiling as the
-attachment list. A request with more ids answers `400 { error: "Invalid payload" }` and transfers
-nothing. The URL and the response shape are unchanged.
+`POST /api/attachments/transfer` used to accept an `attachmentIds` array of any length and load and
+update every listed attachment in one request. The array is now limited to `100` ids, the same
+ceiling as the attachment list `pageSize`. A request with more ids answers
+`400 { error: "Invalid payload" }` and transfers nothing. The URL and the response shapes are
+unchanged. This change ships under the Emergency Security Exception (see
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#attachment-transfer-id-limit-2026-10-21)),
+so there is no release in which longer arrays keep working.
 
-**Action for module authors:** a caller that moves more than 100 attachments at once must split the
-ids into chunks of at most `100` and send one request per chunk. The built-in callers (product and
-variant media on create, the checkout link template logo) send ids taken from the attachment list,
-which is itself capped at 100, so they are not affected.
+**Action for module authors and API clients:** a caller that moves more than 100 attachments at once
+must split the ids into chunks of at most `100` and send one request per chunk. Backend pages can
+call `transferAttachmentsInChunks` from `@open-mercato/core/modules/attachments/lib/transferClient`,
+which chunks by the same limit and returns the ids of any chunk that failed. The built-in callers
+already comply: product and variant create transfer draft media in chunks and warn the user when
+some media stay on the draft (#7728), and the checkout link template sends a single logo id.
+
+**Action for operators:** no data migration is needed and earlier transfers are untouched. After
+upgrading, look for `400` responses on `POST /api/attachments/transfer` in access logs to find
+integrations that still send more than 100 ids.
 
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
