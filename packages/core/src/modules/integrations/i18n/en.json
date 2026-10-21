@@ -53,6 +53,7 @@
   "integrations.detail.logs.level.error": "Error",
   "integrations.detail.logs.level.info": "Info",
   "integrations.detail.logs.level.warn": "Warning",
+  "integrations.detail.logs.noPermission": "You do not have permission to view the logs of this integration.",
   "integrations.detail.logs.title": "Operation Logs",
   "integrations.detail.notFound": "Integration not found.",
   "integrations.detail.runActivity.lastRefreshed": "Last refreshed",

@@ -504,6 +504,7 @@
   "auth.email.resetPassword.subject": "Restablecer tu contraseña",
   "auth.email.resetPassword.title": "Restablecer tu contraseña",
   "auth.login.brandName": "Open Mercato",
+  "auth.login.errors.crossSiteRequest": "Esta solicitud de inicio de sesión no procede de esta aplicación. Abre la página de inicio de sesión e inténtalo de nuevo.",
   "auth.login.errors.generic": "Se produjo un error. Inténtalo de nuevo.",
   "auth.login.errors.invalidCredentials": "Correo electrónico o contraseña no válidos",
   "auth.login.errors.permissionDenied": "No tienes permiso para acceder a esta área. Ponte en contacto con tu administrador.",
