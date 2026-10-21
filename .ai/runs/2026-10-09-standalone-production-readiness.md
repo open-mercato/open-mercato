@@ -89,7 +89,7 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 
 - [x] 5.1 Merge current develop, preserve upstream harness cases, and reconcile production coverage as OMH-240 — 71c9fa4b8
 - [x] 5.2 Document the readiness scanner in the canonical production checklist — 10290f032
-- [ ] 5.3 Validate the merged documentation and harness surfaces, review, and publish the existing PR
+- [x] 5.3 Validate the merged documentation and harness surfaces, review, and publish the existing PR — 333f55024
 
 ## October 21 follow-up evidence
 
@@ -97,7 +97,7 @@ Publish one provider-neutral, TLS-first production-readiness checklist and make 
 - Added the scanner repository link to the canonical production-readiness page in `10290f032`, accurately distinguishing read-only local review from deployed-environment checks. No scanner package installation is suggested.
 - Runner: local. Immutable dependency installation completed with warnings (optional `better-sqlite3` native build failed); focused production/catalog/schema/count checks pass 15/15, source-link inventory regeneration/check passes, and agent-instruction budgets pass.
 - Package build, generation, second package build, i18n synchronization/usage, and typechecking pass. Final documentation build/tests pass 23/23. The create-app suite passes 911/911 with 4 skipped. The final focused production/catalog/schema/count/context-budget checks pass 16/16. The full repository test gate passes all 48 tasks with temporary-directory variables outside the checkout, and the production application build passes. The isolated environment-resolution test also passes 10/10.
-- PR publication and the final tracker summary remain pending.
+- Published the prepared updates to PR #7125 without rewriting history. GitHub reports the head mergeable; published-head CI remains a separate merge gate.
 - Independent scoped code review approved the merged changes and scanner wording with no findings. Follow-up `10aee0de2` preserves the tighter upstream compatibility budgets, adjusting only OMH-057 by one 4-KiB increment for the added root-routing text; its exact-context budget regression passes.
 
 Final local verification for the follow-up:
@@ -113,4 +113,4 @@ Final local verification for the follow-up:
 | `yarn test` | Pass: 48/48 tasks |
 | `yarn build:app` | Pass |
 
-Template parity, source-link inventory parity, instruction budgets, docs 23/23, focused contracts 16/16, and create-app 911 passed / 4 skipped also pass. The original live-release limitation above is unchanged; this follow-up does not claim a fresh live harness release. Phase 5.3 remains unchecked until the existing PR branch is updated and its final review/report is published.
+Template parity, source-link inventory parity, instruction budgets, docs 23/23, focused contracts 16/16, and create-app 911 passed / 4 skipped also pass. The original live-release limitation above is unchanged; this follow-up does not claim a fresh live harness release. Phase 5.3 is complete. [Final published-head review evidence](https://github.com/open-mercato/open-mercato/pull/7125#pullrequestreview-5599205936) records the clean code verdict, all configured gate results, and the distinction between local verification and pending CI. The review is a GitHub COMMENT because the authenticated user is also the PR author; no formal self-approval is claimed.
