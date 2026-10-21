@@ -1,35 +1,31 @@
 name: Release
 
-# Publishes the next version of ONE release line (CONTRIBUTING.md § Releasing). Run it from the
+# Starts the next version of ONE release line (CONTRIBUTING.md § Releasing). Run it from the
 # `release/vX.Y.x` branch you want to ship — the "Use workflow from" picker is the only input that
 # matters. `main` is never released directly: cut a line from it with release-cut.yml.
 #
-# Bump first, then build: `scripts/release-line.mts prepare` picks the version (a fresh line's
+# Bump first, then publish: `scripts/release-line.mts prepare` picks the version (a fresh line's
 # x.y.0 as committed, otherwise the next patch past every taken tag), stamps the release set and
-# CHANGELOG.md, commits that bump to the line and tags it. The rest of the job builds and
-# publishes exactly the tagged commit, so the tag, the tarballs and the branch always agree.
+# CHANGELOG.md, commits that bump to the line and tags it `vX.Y.Z` as the release app. That tag
+# starts release-publish.yml AT the tagged commit — so the npm provenance it signs names exactly
+# the commit it builds — which builds, publishes and creates the GitHub Release.
 #
-# A version is done once its GitHub Release exists, and that Release is the last thing created.
-# Until then a re-run resumes the tagged version from the tagged commit — never a newer line tip —
-# and publish-packages.sh skips packages already on npm, so a half-finished release finishes
-# without mixing revisions. Only the newest line moves `latest` (judged across every published
-# package); an older line publishes under `latest-X.Y`.
+# This workflow publishes nothing. A dry run rehearses the build and the release notes instead.
+# A version is done once its GitHub Release exists; a run that finds the line's newest tag without
+# one stops and points at the Release publish run to re-run for that tag.
 
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Compute and build the release without committing, publishing or tagging anything'
+        description: 'Compute the version and rehearse the build without committing, tagging or publishing anything'
         required: false
         default: false
         type: boolean
 
 permissions:
   contents: read
-  id-token: write  # required for npm provenance attestation
 
-# One release at a time across every line: each run reads npm's `latest` before publishing, so two
-# lines released together could both resolve `latest` and move it backwards.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -37,33 +33,19 @@ concurrency:
 jobs:
   release:
     name: Release ${{ github.ref_name }}
-    # GitHub-hosted on purpose — do NOT move this job to a Blacksmith runner.
-    # `scripts/publish-packages.sh` publishes with `npm publish --provenance`, and
-    # npm's sigstore verification only accepts `github-hosted` runners; a
-    # `self-hosted` runner (which is how Blacksmith registers) fails the publish
-    # with a 422.
-    # Guarded by scripts/__tests__/npm-provenance-runners.test.mjs.
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # workflow_dispatch reads this file from the ref it runs on: dispatch from the line's BRANCH.
     if: startsWith(github.ref, 'refs/heads/release/v')
-    # Requires approval from the 'production' environment — prevents a single
-    # compromised account from publishing unilaterally. Configure reviewers at:
-    # Settings → Environments → production → Required reviewers
-    environment: production
-    # The root postinstall initializes husky wherever a .git directory exists; nothing here
-    # commits locally, but keep hooks out of a publishing job regardless.
     env:
       HUSKY: '0'
-      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
           # The line's current tip, not the dispatch SHA: "Re-run jobs" replays the dispatch SHA,
-          # which predates a bump commit an earlier attempt already pushed to the line. prepare
-          # then picks the commit to build (the tagged one when resuming).
+          # which predates a bump commit an earlier attempt already pushed to the line.
           ref: ${{ github.ref_name }}
           fetch-depth: 0  # every v* tag: the next version is chosen from them
 
@@ -72,19 +54,9 @@ jobs:
         with:
           node-version: '24.19.0'
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Configure npm authentication
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-          echo "access=public" >> .npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Commits through the GitHub API as the release app, which sits on the `release/v*`
-      # ruleset's bypass list. The npm dist-tag lookup fails closed: if the registry cannot be
-      # read the release stops rather than risk moving `latest` backwards.
+      # Commits and tags through the GitHub API as the release app, which sits on the `release/v*`
+      # ruleset's bypass list. A tag the app creates triggers release-publish.yml; one created with
+      # GITHUB_TOKEN would not.
       - name: Mint the release token
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -92,76 +64,40 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Bump the release line
+      - name: Bump and tag the release line
         id: prepare
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: node scripts/release-line.mts prepare ${{ inputs.dry_run && '--dry-run' || '' }}
 
-      # A dry run keeps its locally stamped tree, except when resuming: then the rehearsal must
-      # build the tagged commit the real run would ship.
-      - name: Check out the release commit
-        if: ${{ !inputs.dry_run || steps.prepare.outputs.resumed == 'true' }}
+      # The rehearsal builds what would ship: the locally stamped tree for a fresh dry run, the
+      # tagged commit when the line has a tagged-but-unreleased version.
+      - name: Check out the tagged commit
+        if: ${{ inputs.dry_run && steps.prepare.outputs.resumed == 'true' }}
         env:
           SHA: ${{ steps.prepare.outputs.sha }}
         run: |
           git fetch --no-tags origin "$SHA"
           git checkout --force --detach "$SHA"
 
+      - name: Enable Corepack
+        if: ${{ inputs.dry_run }}
+        run: corepack enable
+
       - name: Install dependencies
+        if: ${{ inputs.dry_run }}
         run: yarn install --immutable
 
       - name: Verify version alignment
+        if: ${{ inputs.dry_run }}
         run: ./scripts/check-version-alignment.sh --reference package.json
 
-      - name: Build packages
-        # `shell: bash` adds `-o pipefail`, so a failure upstream of `tee` still fails the step
-        shell: bash
+      - name: Rehearse the build
+        if: ${{ inputs.dry_run }}
         run: |
-          {
-            yarn build:packages
-            yarn generate
-            yarn build:packages
-          } 2>&1 | tee "$RUNNER_TEMP/release-output.txt"
-
-      - name: Publish packages to npm
-        id: publish
-        if: ${{ !inputs.dry_run }}
-        shell: bash
-        env:
-          DIST_TAG: ${{ steps.prepare.outputs.distTag }}
-        run: |
-          ./scripts/publish-packages.sh --tag "$DIST_TAG" --reconcile-tag 2>&1 | tee -a "$RUNNER_TEMP/release-output.txt"
-          echo "published=true" >> "$GITHUB_OUTPUT"
-
-      - name: Upload release log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-log
-          path: ${{ runner.temp }}/release-output.txt
-          if-no-files-found: ignore
-
-      # The changelog PR first, the GitHub Release last: the Release marks the version done, so a
-      # re-run after it moves on to the next patch.
-      # App tokens live one hour and the build can take most of that, so mint a fresh one.
-      - name: Mint a fresh release token
-        id: announce-token
-        if: steps.publish.outputs.published == 'true'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      - name: Changelog PR and GitHub Release
-        id: announce
-        if: steps.publish.outputs.published == 'true'
-        env:
-          GH_TOKEN: ${{ steps.announce-token.outputs.token }}
-          VERSION: ${{ steps.prepare.outputs.version }}
-          SHA: ${{ steps.prepare.outputs.sha }}
-          DIST_TAG: ${{ steps.prepare.outputs.distTag }}
-        run: node scripts/release-line.mts announce --version "$VERSION" --sha "$SHA" --dist-tag "$DIST_TAG"
+          yarn build:packages
+          yarn generate
+          yarn build:packages
 
       - name: Preview the GitHub Release
         if: ${{ inputs.dry_run }}
@@ -177,22 +113,21 @@ jobs:
           VERSION: ${{ steps.prepare.outputs.version }}
           DIST_TAG: ${{ steps.prepare.outputs.distTag }}
           CHANGELOG_SOURCE: ${{ steps.prepare.outputs.changelog }}
-          PUBLISHED: ${{ steps.publish.outputs.published }}
-          CHANGELOG_PR: ${{ steps.announce.outputs.changelogPr }}
+          RESUMED: ${{ steps.prepare.outputs.resumed }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH_RUNS: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/release-publish.yml
         run: |
           {
-            echo "## 🚀 Release ${VERSION} from ${GITHUB_REF_NAME}"
+            echo "## 🏷️ v${VERSION} from ${GITHUB_REF_NAME}"
             echo ""
-            echo "- Dist-tag: \`${DIST_TAG}\`"
+            echo "- Dist-tag (as of now): \`${DIST_TAG}\`"
             echo "- Changelog entry: ${CHANGELOG_SOURCE}"
             echo ""
-            if [ "$PUBLISHED" = "true" ]; then
-              echo "Published under \`${DIST_TAG}\` and tagged \`v${VERSION}\`."
-              if [ -n "$CHANGELOG_PR" ]; then
-                echo ""
-                echo "Merge the changelog PR on main: ${CHANGELOG_PR}"
-              fi
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry run — nothing was committed, tagged or published."
+            elif [ "$RESUMED" = "true" ]; then
+              echo "⚠️ \`v${VERSION}\` is already tagged but has no GitHub Release. Finish it by re-running its [Release publish run](${PUBLISH_RUNS}), or dispatch Release publish from tag \`v${VERSION}\`."
             else
-              echo "⚠️ Nothing was published (dry run, or the run stopped before publishing). Re-run to finish — it resumes the same version from the same commit."
+              echo "Tagged \`v${VERSION}\`. [Release publish](${PUBLISH_RUNS}) builds and publishes it — approve the \`production\` deployment there."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

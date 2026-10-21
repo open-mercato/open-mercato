@@ -8,7 +8,10 @@
 //                                        stamps the release set + CHANGELOG.md, commits the bump
 //                                        to the line and tags it BEFORE anything is built — or
 //                                        resumes the line's tagged-but-unreleased version.
-//   announce  (Release, after publish)   the PR carrying the changelog entry back to main, then
+//   verify    (Release publish, at a tag) checks the tag names the committed version and sits on
+//                                        its release line, skips an already released version and
+//                                        resolves the dist-tag right before publishing.
+//   announce  (Release publish, last)    the PR carrying the changelog entry back to main, then
 //                                        the GitHub Release — which marks the version done.
 //
 // The release set is the root manifest, every public packages/* manifest and every apps/*
@@ -59,6 +62,7 @@ const { positionals, values: flags } = parseArgs({
     released: { type: 'string' },
     published: { type: 'string' },
     date: { type: 'string' },
+    tag: { type: 'string' },
   },
 })
 const command = positionals[0]
@@ -241,7 +245,7 @@ async function prepare() {
 
   if (resumed) {
     const sha = git('rev-parse', `${tag}^{commit}`)
-    log(`${branch}: ${tag} is tagged at ${sha.slice(0, 12)} but has no GitHub Release — resuming it from that commit under "${distTag}"`)
+    log(`${branch}: ${tag} is tagged at ${sha.slice(0, 12)} but has no GitHub Release — finish it by re-running its Release publish run (or dispatch Release publish from ${tag}); nothing new is tagged`)
     emit({ version, bumped, resumed, distTag, sha, previousTag: previousTag ?? '', changelog: 'existing' })
     return
   }
@@ -279,7 +283,7 @@ async function prepare() {
       log(`committed the bump to ${branch} as ${sha.slice(0, 12)}`)
     }
     await gh.ensureTag(tag, sha)
-    log(`tagged ${tag} at ${sha.slice(0, 12)} — a re-run resumes from here until the GitHub Release exists`)
+    log(`tagged ${tag} at ${sha.slice(0, 12)} — Release publish takes it from here, at that commit`)
   }
   emit({ version, bumped, resumed, distTag, sha, previousTag: previousTag ?? '', changelog: entry.source })
 }
@@ -350,6 +354,28 @@ async function announce() {
   emit({ released: created, changelogPr })
 }
 
-const commands: Record<string, () => Promise<void>> = { cut, prepare, announce }
-const run = commands[command ?? ''] ?? fail(`unknown command "${command ?? ''}" — expected cut, prepare or announce`)
+async function verify() {
+  const tag = flags.tag ?? process.env.GITHUB_REF_NAME ?? ''
+  const version = tag.startsWith('v') ? tag.slice(1) : ''
+  const line = releaseBranchFor(version) ?? fail(`"${tag}" is not a vX.Y.Z release tag`)
+  const manifestVersion = readManifest('package.json').version
+  if (manifestVersion !== version) fail(`${tag} points at a commit whose root manifest is ${manifestVersion}, not ${version}`)
+  const head = git('rev-parse', 'HEAD')
+  try {
+    git('merge-base', '--is-ancestor', head, `origin/${line}`)
+  } catch {
+    fail(`${tag} (${head.slice(0, 12)}) is not on ${line}; only the Release workflow tags release commits`)
+  }
+  if (await isReleased(tag)) {
+    log(`${tag} already has a GitHub Release — nothing to publish`)
+    emit({ version, released: true, distTag: '' })
+    return
+  }
+  const distTag = resolveStableDistTag(version, await latestOnRegistry())
+  log(`publishing ${version} from ${head.slice(0, 12)} on ${line} under "${distTag}"`)
+  emit({ version, released: false, distTag })
+}
+
+const commands: Record<string, () => Promise<void>> = { cut, prepare, verify, announce }
+const run = commands[command ?? ''] ?? fail(`unknown command "${command ?? ''}" — expected cut, prepare, verify or announce`)
 await run()

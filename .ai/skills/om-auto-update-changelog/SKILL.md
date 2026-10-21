@@ -12,7 +12,7 @@ Read `UPGRADE_NOTES.md` and parse headings shaped as:
 ## <from> → <to> (<date-or-unreleased>)
 ```
 
-The candidate for the release is the section whose `<from>` equals the changelog release immediately below `{version}`. Comparison is semantic-version equality, not substring matching.
+The candidate for the release is the section whose `<from>` equals the changelog release immediately below `{version}`. Comparison is semantic-version equality, not substring matching. Patch releases shipped from a `release/vX.Y.x` line carry no upgrade window or companion skill: skip them on both sides, so for `0.10.0` the release immediately below is `0.9.0`, not a `0.9.z` patch entry carried back to `main`.
 
 - No candidate means this release has no downstream upgrade notes. Continue with the external changelog-only workflow.
 - Exactly one candidate means the section belongs to this release. Set `<to>` to `{version}` and replace `(unreleased)` with `({date})`. An already aligned heading is an idempotent no-op.

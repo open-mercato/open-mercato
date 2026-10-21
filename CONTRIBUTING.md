@@ -155,15 +155,46 @@ release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
 Two channels ship packages to npm:
 
 - **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
-- **Stable releases** — three maintainer-run workflows, below. Only maintainers dispatch them; agents never do.
+- **Stable releases** — the maintainer-run workflows below. Only maintainers run them; agents never do.
 
-| Workflow | Run from | What it does |
+### The workflows
+
+| Workflow | Started by | What it does |
 |---|---|---|
-| **Release cut** (`release-cut.yml`) | `main` | With `main` at `X.Y.Z`: creates `release/vX.Y.x` at `main`'s tip, ensures the `backport release/vX.Y.x` and `backport main` labels, hands `main`'s leading `# Unreleased` changelog section to the line, and opens `chore(release): open X.(Y+1).0 on main`. Publishes nothing. |
-| **Release** (`release.yml`) | a `release/vX.Y.x` branch | Bumps first, then builds that exact commit: picks the version, stamps every public package, `apps/*` and the root manifest plus `CHANGELOG.md`, commits that to the line, builds, publishes to npm, tags `vX.Y.Z`, creates the GitHub Release and opens `docs(changelog): add the X.Y.Z entry` on `main`. Requires the `production` environment approval. |
-| **Backport** (`backport.yml`) | — (on PR merge/label) | Cherry-picks a merged PR labelled `backport <branch>` into a PR on that branch. A conflict opens a draft with the conflict committed and instructions on the original PR. |
+| **Release cut** (`release-cut.yml`) | a maintainer, from `main` | With `main` at `X.Y.Z`: creates `release/vX.Y.x` at `main`'s tip, ensures the `backport release/vX.Y.x` and `backport main` labels, hands `main`'s leading `# Unreleased` changelog section to the line, and opens `chore(release): open X.(Y+1).0 on main`. Publishes nothing. |
+| **Release** (`release.yml`) | a maintainer, from a `release/vX.Y.x` branch | Picks the next version, stamps every public package, `apps/*`, the root manifest and `CHANGELOG.md`, commits that bump to the line and tags it `vX.Y.Z`. Publishes nothing — the tag starts Release publish. With `dry_run` it only rehearses the build and previews the release notes. |
+| **Release publish** (`release-publish.yml`) | the `vX.Y.Z` tag (automatically) | Runs **at the tagged commit**, so npm provenance attests exactly the code it ships. Waits for the `production` approval, checks the tag, resolves the dist-tag, builds, publishes to npm, opens `docs(changelog): add the X.Y.Z entry` on `main`, then creates the GitHub Release. |
+| **Backport** (`backport.yml`) | merging or labelling a PR | Cherry-picks a merged PR labelled `backport <branch>` into a PR on that branch. A conflict opens a draft with the conflict committed and instructions on the original PR. |
 
-Running a workflow: Actions → pick it → *Run workflow* → *Use workflow from* = the branch → tick `dry_run` to rehearse → *Run workflow*. Or `gh workflow run release.yml --ref release/v0.9.x -f dry_run=true`.
+All four act as the **Open Mercato Assistant** GitHub App, so the PRs, commits and tags they create trigger CI and each other. Running a workflow by hand: Actions → pick it → *Run workflow* → *Use workflow from* = the branch → tick `dry_run` to rehearse → *Run workflow* (or `gh workflow run release.yml --ref release/v0.9.x -f dry_run=true`).
+
+### Step by step: ship a patch
+
+1. **Fix on `main`.** Open the fix PR against `main` with a category label (`bug`, `security`, …) and `backport release/v0.9.x`. Merge it.
+2. **Merge the backport.** Backport opens the same change as a PR into `release/v0.9.x`, authored by Open Mercato Assistant. Wait for CI, check the fix still makes sense in the line's code, approve and merge. Repeat steps 1–2 for every fix that should ship.
+3. **Rehearse.** Actions → **Release** → *Use workflow from* `release/v0.9.x` → tick `dry_run` → *Run workflow*. The summary shows the version (`0.9.1`), the dist-tag, and the changelog source; the log previews the GitHub Release text.
+4. **Release.** Run **Release** again without `dry_run`. It commits `chore(release): 0.9.1` to the line and tags `v0.9.1`.
+5. **Approve the publish.** The tag starts **Release publish** (Actions → Release publish → the `v0.9.1` run). Approve the `production` deployment; it builds, publishes `0.9.1` to npm, opens the changelog PR and creates the GitHub Release.
+6. **Merge the changelog PR** `docs(changelog): add the 0.9.1 entry` on `main`.
+7. **Check.** `npm view @open-mercato/core dist-tags` shows the new version under `latest` (or `latest-0.9` if a newer line exists), and the GitHub Release `v0.9.1` lists the published packages.
+
+### Step by step: ship the next minor
+
+1. **Curate the notes (optional).** Add a leading `# Unreleased` section to `CHANGELOG.md` on `main` (`om-auto-update-changelog` drafts it); the cut hands it to the new line. Without it, the minor ships with generated notes.
+2. **Rehearse the cut.** Actions → **Release cut** → from `main` → tick `dry_run`. The summary names the new line (`release/v0.10.x`) and the version `main` moves to (`0.11.0`).
+3. **Cut.** Run **Release cut** without `dry_run`. It creates `release/v0.10.x` and opens `chore(release): open 0.11.0 on main`.
+4. **Merge the bump PR** `chore(release): open 0.11.0 on main`. Features keep landing on `main`; the line takes only backports from here.
+5. **Stabilise** the line with backports, as in the patch steps 1–2.
+6. **Release** from `release/v0.10.x` (dry run first), approve **Release publish**, merge the changelog PR — patch steps 3–7. `0.10.0` ships and moves `latest`.
+
+### When something goes wrong
+
+- **Release publish failed** (build, npm, the changelog PR or the GitHub Release): open that run and **Re-run jobs**. It rebuilds the same tagged commit, skips packages already on npm, points the dist-tag at them, and reuses existing PRs. Nothing is done twice.
+- **Release reports "already tagged but has no GitHub Release"**: an earlier publish never finished. Re-run that Release publish run, or Actions → Release publish → *Use workflow from* the tag `vX.Y.Z` → *Run workflow*. Backports merged since ship in the next patch.
+- **Never delete a release tag to start over.** A tagged version may already be partly on npm, and npm versions are immutable. Release refuses to re-ship an untagged version that already has packages on npm; restore the tag at its original commit and resume.
+- **Release cut refuses to re-run** because `main` moved after the line was cut: merge the existing `chore/open-vX.Y.0` PR, or delete the new line to cut again from the current `main`.
+- **A backport conflicts, or the fix belongs elsewhere on the line**: the backport PR is an ordinary branch. Reset it to the line and write the fix where the code lives there (force-push, same PR), or close the draft and open a hand-written PR against the line. If the bug does not exist on the line, do not label the PR at all.
+- **A hotfix cannot wait for `main`**: PR it directly against `release/vX.Y.x`, label it `backport main`, merge and release. Backport forward-ports it so later minors keep it.
 
 ### How Release picks the version and dist-tag
 
@@ -172,13 +203,11 @@ Running a workflow: Actions → pick it → *Run workflow* → *Use workflow fro
 | Manifest `0.10.0`, no tag `v0.10.0` (fresh line) | ships `0.10.0` as committed |
 | Manifest `0.9.0`, tag `v0.9.0` with its GitHub Release | bumps to `0.9.1` first, then ships |
 | A run failed after its bump commit but before tagging (manifest `0.9.2`, no tag) | ships `0.9.2` from the line tip |
-| A run failed after tagging (tag `v0.9.2`, no GitHub Release yet) | **resumes** `0.9.2` from the tagged commit, even if backports landed since — they ship in `0.9.3` |
+| Tag `v0.9.2` exists but has no GitHub Release | nothing new — finish `v0.9.2` by re-running its Release publish run |
 
-Release commits the bump, tags it, and only then builds and publishes that tagged commit. The **GitHub Release is created last** and is what marks a version done; the changelog PR to `main` is opened just before it. A tagged-but-unreleased version can only be resumed, never abandoned: its tag pins the code some packages may already have been published from. Release refuses to ship an untagged version that already has packages on npm, so deleting the tag does not get around this.
+A version is **done once its GitHub Release exists**; that Release is created last, after every package is published and the changelog PR is open. Between releases a line's manifests show the **last released** version.
 
-Between releases a line's manifests show the **last released** version. Only the newest line moves npm `latest` — judged by the highest `latest` across every published package, so a half-finished publish of a newer line still counts; a patch to an older line publishes under `latest-X.Y` (`yarn add @open-mercato/core@latest-0.9`) and its GitHub Release is not marked latest. If npm cannot be read the release stops rather than guess. Only one Release runs at a time, across all lines.
-
-Every step is re-runnable: `publish-packages.sh` skips versions already on npm, and an existing tag, branch, PR or GitHub Release is reused. A release that dies half-way is finished by running it again. Release cut refuses a re-run once `main` has moved past the commit its line was cut from — merge the existing `chore/open-vX.Y.0` PR, or delete the line to cut again.
+Only the newest line moves npm `latest`, judged by the highest `latest` across every published package (so a half-finished publish of a newer line still counts). A patch to an older line publishes under `latest-X.Y` (`yarn add @open-mercato/core@latest-0.9`) and its GitHub Release is not marked latest. Release publish resolves this right before publishing, one publish at a time across all lines, and stops if npm cannot be read.
 
 ### Changelog
 
@@ -188,26 +217,7 @@ Release resolves the entry in this order:
 2. a leading `# Unreleased` on the line — renamed to `# X.Y.Z (date)` (Release cut moved it there from `main`, so curated notes for a minor survive and never ship twice);
 3. otherwise **GitHub's generated release notes** since the previous tag on that line, grouped by category label via [`.github/release.yml`](.github/release.yml).
 
-Curate a minor's notes as a leading `# Unreleased` section on `main` before the cut (`om-auto-update-changelog` drafts it). Patches usually ship with the generated notes, so **every PR needs a category label** (`feature`, `bug`, `security`, `enterprise`, `refactor`, `dependencies`, `documentation`) — it decides the PR's section. Bookkeeping PRs carry `skip-changelog`.
-
-### Runbooks
-
-**Patch (a fix for the current line)**
-1. PR the fix against `main`, labelled `backport release/v0.9.x`. Merge it.
-2. Backport opens the PR into `release/v0.9.x`. Wait for CI, review that the fix fits the line's code, merge. Repeat for every fix that should ship.
-3. Run **Release** from `release/v0.9.x`. `0.9.1` is on npm.
-4. Merge the `docs(changelog): add the 0.9.1 entry` PR on `main`.
-
-**Next minor**
-1. Run **Release cut** from `main` with `dry_run`, check the summary, then run it for real.
-2. Merge `chore(release): open 0.11.0 on main`.
-3. Stabilize the new line with backports.
-4. Run **Release** from `release/v0.10.x` — `0.10.0` ships and moves `latest`.
-5. Merge the changelog PR on `main`.
-
-**Hotfix that cannot wait for `main`**: PR directly against `release/vX.Y.x`, label it `backport main`, merge, release. Backport forward-ports it so later minors keep it.
-
-**Backport conflicts, or the fix belongs elsewhere on the line**: the backport PR is an ordinary branch. Reset it to the line and write the fix where the code lives there (force-push, same PR), or close the draft and open a hand-written PR against the line. If the bug does not exist on the line, do not label the PR at all.
+Patches usually ship with the generated notes, so **every PR needs a category label** (`feature`, `bug`, `security`, `enterprise`, `refactor`, `dependencies`, `documentation`) — it decides the PR's section. Bookkeeping PRs carry `skip-changelog`. Patch releases carry no `UPGRADE_NOTES.md` window or upgrade companion skill; minors do, as before.
 
 ### Rules for contributors and agents
 
@@ -215,12 +225,14 @@ Curate a minor's notes as a leading `# Unreleased` section on `main` before the 
 - **A fix users of a released line need** gets `backport release/vX.Y.x` (newest line: `git branch -r --list 'origin/release/v*'`). Default for high-priority bugs, security fixes and regressions that exist on that line; never for features or refactors.
 - **Label the issue at triage and the PR when opening it** — only the PR's label triggers Backport. Agents copy it from issue to PR; label normalization never strips `backport …`.
 - **Review backport PRs as real PRs**: CI green *and* the change still makes sense in the line's code — a clean cherry-pick into a different context is the dangerous case. `qa-approved` is not copied to a backport.
+- **Never create or delete `v*` tags by hand** — Release creates them, and a tag starts a publish.
 
 ### One-time setup (maintainers)
 
-1. **Release GitHub App** (required) — **Open Mercato Assistant**, owned by the `open-mercato` org and installed on this repository only, with repository permissions **Contents, Pull requests, Issues and Workflows: read & write** (webhook off). The release workflows mint a one-hour token from it on every run (`actions/create-github-app-token`), so nothing expires and no personal account is involved. Store its **Client ID** as the repository variable `RELEASE_APP_CLIENT_ID` and a generated **private key** as the secret `RELEASE_APP_PRIVATE_KEY`. `GITHUB_TOKEN` is not enough — PRs it opens trigger no CI, and it cannot bypass the ruleset below. PRs the app opens are authored by the app, so any maintainer can approve them.
-2. **Ruleset `release lines`** (Settings → Rules → New branch ruleset), target `release/v*`: bypass list = the **Open Mercato Assistant** app (and admins), mode *Always*; Restrict creations ✅, Restrict deletions ✅, Block force pushes ✅, Restrict updates ❌; Require a pull request ✅ (1 approval); Require status checks ✅ with the CI jobs, "Do not require status checks on creation" ✅; Require signed commits ❌.
-3. **`production` environment** with required reviewers (already gates Release).
+1. **Release GitHub App** (required) — **Open Mercato Assistant**, owned by the `open-mercato` org and installed on this repository only, with repository permissions **Contents, Pull requests, Issues and Workflows: read & write** (webhook off). The release workflows mint a one-hour token from it on every run (`actions/create-github-app-token`), so nothing expires and no personal account is involved. Store its **Client ID** as the repository variable `RELEASE_APP_CLIENT_ID` and a generated **private key** as the secret `RELEASE_APP_PRIVATE_KEY`. `GITHUB_TOKEN` is not enough — PRs and tags it creates trigger no workflows, and it cannot bypass the ruleset below. PRs the app opens are authored by the app, so any maintainer can approve them.
+2. **Ruleset `release lines`** (Settings → Rules → New branch ruleset), target `release/v*`: bypass list = the **Open Mercato Assistant** app (and admins), mode *Always*; Restrict creations ✅, Restrict deletions ✅, Block force pushes ✅, Restrict updates ❌; Require a pull request ✅ (1 approval, dismiss stale approvals ✅); Require status checks ✅ with the CI jobs, "Do not require status checks on creation" ✅; Require signed commits ❌.
+3. **`production` environment** (Settings → Environments → production): required reviewers (the approval click before every publish), and *Deployment branches and tags* → **Selected branches and tags** with the tag rule `v*` — Release publish runs on tags. The `release/v*` branch rule is no longer needed.
+4. **Tag ruleset** (recommended; Settings → Rules → New tag ruleset), target `v*`: Restrict creations, updates and deletions ✅, bypass list = the **Open Mercato Assistant** app, mode *Always*. Only Release can then create the tags that start a publish.
 
 ## Helpful Resources
 

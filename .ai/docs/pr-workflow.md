@@ -29,7 +29,8 @@ line with `git branch -r --list 'origin/release/v*'`.
   Backport copies category, priority, risk, `needs-qa` and `skip-qa`; it never copies
   `qa-approved`, so the QA gate applies to the line again.
 - Auto-skills never push to `release/v*`, never merge into it outside a reviewed PR, and never
-  dispatch Release cut or Release — those are maintainer actions.
+  dispatch Release cut, Release or Release publish, and never create or delete `v*` tags (a tag
+  starts a publish) — those are maintainer actions.
 - Versions, workspace manifests' `version` fields and released `CHANGELOG.md` entries are never
   edited by hand; a PR that does is a review blocker.
 

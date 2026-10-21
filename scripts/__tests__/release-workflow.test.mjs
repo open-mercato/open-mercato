@@ -7,6 +7,7 @@ import { changelogSection } from '../lib/release-line.mts'
 
 const workflowPath = (name) => path.resolve('.github/workflows', name)
 const releasePath = workflowPath('release.yml')
+const publishPath = workflowPath('release-publish.yml')
 const cutPath = workflowPath('release-cut.yml')
 const backportPath = workflowPath('backport.yml')
 const ciPath = workflowPath('ci.yml')
@@ -33,20 +34,12 @@ function readWorkflow(file) {
   return { source, parsed: parse(source) }
 }
 
-test('release runs only from a release line, never from main or a push', () => {
-  const { parsed } = readWorkflow(releasePath)
+test('release runs only from a release line, by hand, and publishes nothing itself', () => {
+  const { parsed, source } = readWorkflow(releasePath)
 
   assert.deepEqual(Object.keys(parsed.on), ['workflow_dispatch'], 'Release must have exactly one trigger: a human')
   assert.equal(parsed.jobs.release.if, "startsWith(github.ref, 'refs/heads/release/v')")
-  assert.equal(parsed.jobs.release.environment, 'production', 'Publishing stays behind the production environment')
-})
-
-test('release bumps and tags the line before building, and builds exactly that commit', () => {
-  const { source } = readWorkflow(releasePath)
-
-  assert.ok(stepIndex(source, 'Bump the release line') < stepIndex(source, 'Check out the release commit'))
-  assert.ok(stepIndex(source, 'Check out the release commit') < stepIndex(source, 'Build packages'))
-  assert.ok(stepIndex(source, 'Verify version alignment') < stepIndex(source, 'Build packages'))
+  assert.doesNotMatch(source, /publish-packages|npm publish|id-token/, 'Publishing happens only in release-publish.yml, at the tag')
   assert.match(source, /node scripts\/release-line\.mts prepare/)
   assert.doesNotMatch(source, /git push/, 'Release writes to GitHub only through scripts/release-line.mts')
 })
@@ -62,44 +55,58 @@ test('release starts from the line tip so a re-run picks up an earlier bump comm
   )
 })
 
-test('release runs one line at a time so `latest` never moves backwards', () => {
+test('a release dry run rehearses the build, and the tagged commit when resuming', () => {
   const { parsed } = readWorkflow(releasePath)
+  const steps = parsed.jobs.release.steps
+  const tagged = steps.find((step) => step.name === 'Check out the tagged commit')
 
-  assert.equal(parsed.concurrency.group, 'release', 'Two lines published together could both resolve `latest`')
-  assert.equal(parsed.concurrency['cancel-in-progress'], false)
+  assert.equal(tagged.if, "${{ inputs.dry_run && steps.prepare.outputs.resumed == 'true' }}")
+  for (const name of ['Install dependencies', 'Rehearse the build', 'Preview the GitHub Release']) {
+    assert.equal(steps.find((step) => step.name === name).if, '${{ inputs.dry_run }}', `${name} runs only for a rehearsal`)
+  }
 })
 
-test('release publishes under the dist-tag the line resolved, then creates the GitHub Release', () => {
-  const { source } = readWorkflow(releasePath)
+test('release publish runs at the tag, so npm provenance attests the commit it ships', () => {
+  const { parsed, source } = readWorkflow(publishPath)
+  const job = parsed.jobs.publish
+  const checkout = job.steps.find((step) => step.name === 'Checkout code')
 
+  assert.deepEqual(parsed.on.push, { tags: ['v*'] })
+  assert.ok('workflow_dispatch' in parsed.on, 'A failed publish is resumable by dispatching from the same tag')
+  assert.equal(job.if, "startsWith(github.ref, 'refs/tags/v')")
+  assert.equal(checkout.with?.ref, undefined, 'Checking out anything but the run commit would make provenance attest other code')
+  assert.equal(parsed.permissions['id-token'], 'write')
+  assert.equal(job.environment, 'production', 'Publishing stays behind the production environment')
+  assert.match(source, /--sha "\$GITHUB_SHA"/, 'The GitHub Release targets the commit this run built')
+})
+
+test('release publish verifies the tag before building and resolves the dist-tag right before publishing', () => {
+  const { source } = readWorkflow(publishPath)
+
+  assert.match(source, /node scripts\/release-line\.mts verify/)
+  assert.ok(stepIndex(source, 'Verify the tag and resolve the dist-tag') < stepIndex(source, 'Install dependencies'))
+  assert.ok(stepIndex(source, 'Verify version alignment') < stepIndex(source, 'Build packages'))
   assert.match(
     source,
     /publish-packages\.sh --tag "\$DIST_TAG" --reconcile-tag/,
     'A patch to an older line must not move `latest`: publish under the resolved dist-tag, and point it at packages a failed attempt already published',
   )
-  assert.match(source, /DIST_TAG: \$\{\{ steps\.prepare\.outputs\.distTag \}\}/)
+  assert.match(source, /DIST_TAG: \$\{\{ steps\.verify\.outputs\.distTag \}\}/)
   assert.ok(
     stepIndex(source, 'Publish packages to npm') < stepIndex(source, 'Changelog PR and GitHub Release'),
     'The GitHub Release marks a version done, so it comes only after every package is published',
   )
 })
 
-test('a resumed dry run rehearses the tagged commit the real run would ship', () => {
-  const { parsed } = readWorkflow(releasePath)
-  const checkout = parsed.jobs.release.steps.find((step) => step.name === 'Check out the release commit')
+test('release publish runs one version at a time so `latest` never moves backwards', () => {
+  const { parsed } = readWorkflow(publishPath)
 
-  assert.equal(checkout.if, "${{ !inputs.dry_run || steps.prepare.outputs.resumed == 'true' }}")
+  assert.equal(parsed.concurrency.group, 'release-publish', 'Two lines published together could both resolve `latest`')
+  assert.equal(parsed.concurrency['cancel-in-progress'], false)
 })
 
-test('release dry runs never publish', () => {
-  const { parsed } = readWorkflow(releasePath)
-  const publish = parsed.jobs.release.steps.find((step) => step.name === 'Publish packages to npm')
-
-  assert.equal(publish.if, '${{ !inputs.dry_run }}')
-})
-
-test('release workflow keeps its log out of the working tree', () => {
-  const { source } = readWorkflow(releasePath)
+test('release publish keeps its log out of the working tree', () => {
+  const { source } = readWorkflow(publishPath)
 
   assert.doesNotMatch(
     source,
@@ -109,12 +116,13 @@ test('release workflow keeps its log out of the working tree', () => {
   assert.match(source, /\$RUNNER_TEMP\/release-output\.txt/)
 })
 
-test('release workflow pipes through a pipefail shell', () => {
-  const { source } = readWorkflow(releasePath)
-
-  for (const [, block] of source.matchAll(/- name: [^\n]+\n((?:\s{8}[^\n]*\n)+)/g)) {
-    if (!block.includes('| tee')) continue
-    assert.match(block, /shell: bash/, 'Steps piping into tee must opt into pipefail via `shell: bash`')
+test('release workflows pipe through a pipefail shell', () => {
+  for (const file of [releasePath, publishPath]) {
+    const { source } = readWorkflow(file)
+    for (const [, block] of source.matchAll(/- name: [^\n]+\n((?:\s{8}[^\n]*\n)+)/g)) {
+      if (!block.includes('| tee')) continue
+      assert.match(block, /shell: bash/, 'Steps piping into tee must opt into pipefail via `shell: bash`')
+    }
   }
 })
 
@@ -128,7 +136,7 @@ test('release cut runs only from main and only by hand', () => {
 })
 
 test('workflows that open PRs use a release app token so CI runs on them', () => {
-  for (const file of [releasePath, cutPath, backportPath]) {
+  for (const file of [releasePath, publishPath, cutPath, backportPath]) {
     const { source } = readWorkflow(file)
     assert.match(source, /uses: actions\/create-github-app-token@[0-9a-f]{40} /, `${path.basename(file)} must mint an app token from a SHA-pinned action`)
     assert.match(source, /client-id: \$\{\{ vars\.RELEASE_APP_CLIENT_ID \}\}/)

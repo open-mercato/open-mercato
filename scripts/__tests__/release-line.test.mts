@@ -375,6 +375,37 @@ test('prepare commits the bump, then tags it before anything is built', async ()
   }
 })
 
+test('verify accepts a tag that names the committed version on its line, and resolves the dist-tag then', async () => {
+  const { root, git } = fixtureRepo('0.9.1')
+  git('update-ref', 'refs/remotes/origin/release/v0.9.x', 'HEAD')
+  const result = await runLine(root, ['verify', '--tag', 'v0.9.1', '--latest', '0.10.0', '--released', 'none'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.outputs, { version: '0.9.1', released: 'false', distTag: 'latest-0.9' })
+})
+
+test('verify skips a version whose GitHub Release already exists', async () => {
+  const { root, git } = fixtureRepo('0.9.1')
+  git('update-ref', 'refs/remotes/origin/release/v0.9.x', 'HEAD')
+  const result = await runLine(root, ['verify', '--tag', 'v0.9.1', '--released', 'v0.9.1'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.outputs.released, 'true')
+})
+
+test('verify refuses a tag whose commit carries another version', async () => {
+  const { root, git } = fixtureRepo('0.9.0')
+  git('update-ref', 'refs/remotes/origin/release/v0.9.x', 'HEAD')
+  const result = await runLine(root, ['verify', '--tag', 'v0.9.1', '--latest', '0.9.0', '--released', 'none'])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /root manifest is 0\.9\.0, not 0\.9\.1/)
+})
+
+test('verify refuses a tag that is not on its release line', async () => {
+  const { root } = fixtureRepo('0.9.1')
+  const result = await runLine(root, ['verify', '--tag', 'v0.9.1', '--latest', '0.9.0', '--released', 'none'])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /is not on release\/v0\.9\.x/)
+})
+
 test('announce opens the changelog PR before the GitHub Release that marks the version done', async () => {
   const { root } = fixtureRepo('0.9.0')
   const mainSha = 'a'.repeat(40)
