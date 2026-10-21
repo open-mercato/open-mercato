@@ -572,6 +572,78 @@ describe('prepareMutation', () => {
     expect(em.__store.length).toBe(1)
   })
 
+  it('reuses an approval when patch keys are reordered', async () => {
+    const container = makeContainer(mockEm())
+    const tool = makeTool({
+      name: 'catalog.update_product',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: { title: 'Old title', sku: 'OLD' },
+      }),
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const first = await prepareMutation({
+      agent, tool, toolCallArgs: { productId: 'p-1', patch: { title: 'New title', sku: 'NEW' } },
+    }, { ...baseCtx, container })
+    const second = await prepareMutation({
+      agent, tool, toolCallArgs: { productId: 'p-1', patch: { sku: 'NEW', title: 'New title' } },
+    }, { ...baseCtx, container })
+    expect(second.pendingAction.id).toBe(first.pendingAction.id)
+  })
+
+  it.each([false, true])('creates a fresh approval after the record changes (bulk=%s)', async (isBulk) => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    let recordVersion = 'v-1'
+    let title = 'Bug Alpha'
+    const tool = makeTool({
+      name: isBulk ? 'catalog.bulk_update_products' : 'catalog.update_product',
+      isMutation: true,
+      isBulk,
+      loadBeforeRecord: async () => {
+        const record = {
+          recordId: 'p-1',
+          entityType: 'catalog.product',
+          recordVersion,
+          before: { title },
+        }
+        return record
+      },
+      loadBeforeRecords: async () => [{
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        label: title,
+        recordVersion,
+        before: { title },
+      }],
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const patch = { title: 'Bug Alpha SINGLE' }
+    const toolCallArgs = isBulk
+      ? { records: [{ recordId: 'p-1', patch }] }
+      : { productId: 'p-1', patch }
+    const input = { agent, tool, toolCallArgs }
+    const ctx = { ...baseCtx, container }
+    const first = await prepareMutation(input, ctx)
+
+    recordVersion = 'v-2'
+    title = 'Bug Alpha MANUAL'
+    const second = await prepareMutation(input, ctx)
+    const retry = await prepareMutation(input, ctx)
+
+    expect(second.pendingAction.id).not.toBe(first.pendingAction.id)
+    expect(second.pendingAction.normalizedInput).toEqual(toolCallArgs)
+    const diff = isBulk ? second.pendingAction.records?.[0].fieldDiff : second.pendingAction.fieldDiff
+    expect(diff).toEqual([{ field: 'title', before: 'Bug Alpha MANUAL', after: 'Bug Alpha SINGLE' }])
+    expect(isBulk ? second.pendingAction.records?.[0].recordVersion : second.pendingAction.recordVersion).toBe('v-2')
+    expect(retry.pendingAction.id).toBe(second.pendingAction.id)
+    expect(em.__store).toHaveLength(2)
+    expect(first.pendingAction.status).toBe('pending')
+  })
+
   it('enforces tenant scoping: persisted row carries ctx.tenantId + ctx.organizationId', async () => {
     const em = mockEm()
     const container = makeContainer(em)

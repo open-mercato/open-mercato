@@ -440,7 +440,19 @@ export async function prepareMutation(
     agentId: agent.id,
     conversationId,
     toolName: tool.name,
-    normalizedInput,
+    normalizedInput: {
+      toolCallArgs: normalizedInput,
+      preview: {
+        targetEntityType,
+        targetRecordId,
+        recordVersion,
+        fieldDiff: [...fieldDiff].sort((left, right) => left.field.localeCompare(right.field)),
+        records: records?.map((record) => ({
+          ...record,
+          fieldDiff: [...record.fieldDiff].sort((left, right) => left.field.localeCompare(right.field)),
+        })).sort((left, right) => left.recordId.localeCompare(right.recordId)) ?? null,
+      },
+    },
   })
 
   const pendingAction = await repo.create(
