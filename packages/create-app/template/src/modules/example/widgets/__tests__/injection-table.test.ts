@@ -13,6 +13,7 @@ const originalCrudFormFlagValue = process.env[CRUDFORM_FLAG_NAME]
 const moduleRoot = path.join(__dirname, '..', '..')
 
 const CROSS_MODULE_SPOT_IDS = [
+  'calendar:customers.event-types',
   'crud-form:customers.person:fields',
   'crud-form:customers.customer_entity:fields',
   'data-table:customers.people:columns',
@@ -38,6 +39,7 @@ const EXAMPLE_OWN_SPOT_IDS = [
   'crud-form:example.todo',
   'widget:example.injection.crud-validation:addon',
   'example:phase-c-handlers',
+  'example:override-probe',
   'menu:sidebar:main',
   'menu:topbar:profile-dropdown',
 ] as const

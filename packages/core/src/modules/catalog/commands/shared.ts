@@ -89,6 +89,24 @@ export function commandActorScope(ctx: CommandRuntimeContext): RequireScope {
   }
 }
 
+export type CommandScopeWhere = {
+  tenantId?: string
+  organizationId?: { $in: string[] }
+}
+
+export function commandScopeWhere(
+  ctx: Pick<CommandRuntimeContext, 'auth' | 'organizationScope'>,
+): CommandScopeWhere {
+  const where: CommandScopeWhere = {}
+  const tenantId = ctx.auth ? ctx.auth.tenantId ?? null : ctx.organizationScope?.tenantId ?? null
+  if (tenantId) where.tenantId = tenantId
+  const allowedIds = ctx.organizationScope?.allowedIds
+  if (ctx.auth?.isSuperAdmin !== true && Array.isArray(allowedIds)) {
+    where.organizationId = { $in: [...allowedIds] }
+  }
+  return where
+}
+
 function applyScopeToWhere(where: Record<string, unknown>, scope: RequireScope): void {
   if (scope.tenantId != null) where.tenantId = scope.tenantId
   if (scope.organizationId != null) where.organizationId = scope.organizationId
