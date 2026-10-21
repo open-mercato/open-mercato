@@ -4,8 +4,8 @@ We’re excited to collaborate with folks building on top of Open Mercato. This 
 
 ## Branch Model
 
-- `main` – release-ready code. Every commit is tagged and deployable. Keep PRs targeting `main` limited to hotfixes or release prep approved by maintainers.
-- `develop` – nightly builds and upcoming release work. Base regular feature work off `develop` so it can soak in automation and shared testing.
+- `main` – the trunk and always the next minor release. Every PR targets `main`; each push publishes a nightly snapshot.
+- `release/vX.Y.x` – one branch per released minor, taking fixes only through backports. See [Releasing](#releasing).
 - Topic branches – create a dedicated branch per change using the format `feat/<concise-feature-name>` (for example `feat/customer-export`). Use other prefixes when appropriate (`fix/`, `chore/`, `docs/`).
 
 ## Development Setup
@@ -29,7 +29,7 @@ brew install node@24   # or: nvm install 24 && nvm use 24
 corepack enable        # uses the Yarn version pinned in package.json
 
 git clone https://github.com/open-mercato/open-mercato.git
-cd open-mercato && git checkout develop
+cd open-mercato
 yarn install
 yarn infra:up                                 # PostgreSQL, Redis, Meilisearch (see starters/README.md)
 cp apps/mercato/.env.example apps/mercato/.env # the defaults work with yarn infra:up
@@ -72,7 +72,7 @@ yarn dev --watch=popular                                 # the most frequently c
 
 ## Working on Features
 
-- Branch from `develop`, keeping it up to date via `git pull --rebase origin develop`.
+- Branch from `main`, keeping it up to date via `git pull --rebase origin main`.
 - Keep commits scoped and descriptive. Squash locally if it clarifies the story.
 - Follow module conventions from [`AGENTS.md`](AGENTS.md) and prefer the `packages/` workspace for new code.
 - Document user-facing copy in the locale dictionaries and keep translations in sync.
@@ -90,7 +90,8 @@ This ensures design decisions are documented and the codebase remains well-under
 
 ## Pull Requests
 
-- Open PRs against `develop` unless you are coordinating a release hotfix.
+- Open PRs against `main`. If users of a released line need the fix, add the `backport release/vX.Y.x` label (see [Releasing](#releasing)).
+- Give every PR a category label (`feature`, `bug`, `security`, …) — it decides the PR's section in generated release notes.
 - Describe the user impact, architectural notes, and testing performed (lint, unit, integration, CLI).
 - Ensure the branch merges cleanly and CI is green before requesting review.
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
@@ -127,7 +128,7 @@ Contributions to every other package and app in this repository are welcome — 
 
 ### Package Previews
 
-PRs do not publish npm canary packages automatically. Maintainers can publish pkg.pr.new package previews for a PR by dispatching the `Package Previews` workflow manually with the PR number — run it from the Actions tab, with `gh workflow run package-previews.yml --ref develop -f pr_number=<PR>`, or via the `om-auto-publish-pr` skill. To publish a fresh preview after more commits, re-run the dispatch with the same PR number.
+PRs do not publish npm canary packages automatically. Maintainers can publish pkg.pr.new package previews for a PR by dispatching the `Package Previews` workflow manually with the PR number — run it from the Actions tab, with `gh workflow run package-previews.yml --ref main -f pr_number=<PR>`, or via the `om-auto-publish-pr` skill. To publish a fresh preview after more commits, re-run the dispatch with the same PR number.
 
 The legacy npm canary snapshot path is still available for comparison by dispatching the `NPM Snapshot Preview` workflow manually with the PR number on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence. Both preview workflows are restricted to same-repository PR branches.
 
@@ -137,72 +138,86 @@ The fastest way to a working dev environment on Windows is the starter: double-c
 
 ## Releasing
 
+Open Mercato ships from **release lines**:
+
+```
+main             0.9.0 ──cut──▶ 0.10.0 (features) ──cut──▶ 0.11.0 …
+                         │                          │
+release/v0.9.x           └─ 0.9.0 ─ 0.9.1 ─ 0.9.2 (fixes only)
+release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
+```
+
+- **`main` is always the next minor.** Features and fixes land there.
+- **Each released minor lives on `release/vX.Y.x`** and takes fixes only, so a fix ships as a patch without whatever features `main` has gathered since.
+- **Versions are never chosen by hand.** A cut moves `main` to the next minor; a release from a line ships its `x.y.0` once, then patches. Never edit a manifest version, or a released `CHANGELOG.md` entry, by hand.
+- **Fixes flow `main` → line** through the `backport release/vX.Y.x` label. The rare hotfix made on a line first flows back through `backport main`.
+
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `develop` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag. Fully automatic; nothing to do. Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
-- **Stable releases** — a maintainer-driven two-stage flow off `main`, described below.
+- **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
+- **Stable releases** — three maintainer-run workflows, below. Only maintainers dispatch them; agents never do.
 
-Stable releases are split across two workflows on purpose. `main` is protected, so a workflow cannot push a version bump to it directly; the bump lands through a normal PR, and the publishing workflow only ever pushes a tag.
+| Workflow | Run from | What it does |
+|---|---|---|
+| **Release cut** (`release-cut.yml`) | `main` | With `main` at `X.Y.Z`: creates `release/vX.Y.x` at `main`'s tip, ensures the `backport release/vX.Y.x` and `backport main` labels, hands `main`'s leading `# Unreleased` changelog section to the line, and opens `chore(release): open X.(Y+1).0 on main`. Publishes nothing. |
+| **Release** (`release.yml`) | a `release/vX.Y.x` branch | Bumps first, then builds that exact commit: picks the version, stamps every public package, `apps/*` and the root manifest plus `CHANGELOG.md`, commits that to the line, builds, publishes to npm, tags `vX.Y.Z`, creates the GitHub Release and opens `docs(changelog): add the X.Y.Z entry` on `main`. Requires the `production` environment approval. |
+| **Backport** (`backport.yml`) | — (on PR merge/label) | Cherry-picks a merged PR labelled `backport <branch>` into a PR on that branch. A conflict opens a draft with the conflict committed and instructions on the original PR. |
 
-### Stage 0 — land the changelog
+Running a workflow: Actions → pick it → *Run workflow* → *Use workflow from* = the branch → tick `dry_run` to rehearse → *Run workflow*. Or `gh workflow run release.yml --ref release/v0.9.x -f dry_run=true`.
 
-Add the `# <version> (YYYY-MM-DD)` section to [`CHANGELOG.md`](CHANGELOG.md) and merge it to `main`. The release workflow reads its GitHub Release notes from this section and **fails without it**, so this comes first. The `om-auto-update-changelog` skill drafts the entry.
+### How Release picks the version and dist-tag
 
-### Stage 1 — `Release Prepare`
+| State of the line | Result |
+|---|---|
+| Manifest `0.10.0`, no tag `v0.10.0` (fresh line) | ships `0.10.0` as committed |
+| Manifest `0.9.0`, tag `v0.9.0` exists | bumps to `0.9.1` first, then ships |
+| A run failed after its bump commit (manifest `0.9.2`, no tag) | ships `0.9.2` — re-running finishes the release, nothing is skipped |
 
-Dispatch **Release Prepare** from the Actions tab with a `patch`, `minor` or `major` bump:
+Between releases a line's manifests show the **last released** version. Only the newest line moves npm `latest`; a patch to an older line publishes under `latest-X.Y` (`yarn add @open-mercato/core@latest-0.9`) and its GitHub Release is not marked latest. If npm cannot be read the release stops rather than guess.
 
-```bash
-gh workflow run release-prepare.yml --ref main -f bump=patch
-```
+Every step is re-runnable: taken tags are skipped, `publish-packages.sh` skips versions already on npm, and an existing GitHub Release, branch or PR is reused. A release that dies half-way is finished by running it again.
 
-It bumps every public package, the app workspaces (`apps/*`) and the root manifest, pushes `release/v<version>`, and opens a PR against `main`. It publishes nothing. The PR body confirms whether the changelog entry exists. Review and merge it as usual.
+### Changelog
 
-> Opening the PR automatically requires _Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests"_. Without it the branch is still pushed and the job summary links straight to the compare page — one click instead of zero.
+Release resolves the entry in this order:
 
-### Stage 2 — `Release`
+1. an existing `# X.Y.Z` heading on the line — kept as written;
+2. a leading `# Unreleased` on the line — renamed to `# X.Y.Z (date)` (Release cut moved it there from `main`, so curated notes for a minor survive and never ship twice);
+3. otherwise **GitHub's generated release notes** since the previous tag on that line, grouped by category label via [`.github/release.yml`](.github/release.yml).
 
-With the bump on `main`, dispatch **Release**:
+Curate a minor's notes as a leading `# Unreleased` section on `main` before the cut (`om-auto-update-changelog` drafts it). Patches usually ship with the generated notes, so **every PR needs a category label** (`feature`, `bug`, `security`, `enterprise`, `refactor`, `dependencies`, `documentation`) — it decides the PR's section. Bookkeeping PRs carry `skip-changelog`.
 
-```bash
-gh workflow run release.yml --ref main
-```
+### Runbooks
 
-The job requires approval from the `production` environment, then runs in a deliberate order — every reversible step before the irreversible one:
+**Patch (a fix for the current line)**
+1. PR the fix against `main`, labelled `backport release/v0.9.x`. Merge it.
+2. Backport opens the PR into `release/v0.9.x`. Wait for CI, review that the fix fits the line's code, merge. Repeat for every fix that should ship.
+3. Run **Release** from `release/v0.9.x`. `0.9.1` is on npm.
+4. Merge the `docs(changelog): add the 0.9.1 entry` PR on `main`.
 
-1. **Preflight** — version alignment across packages and app workspaces, the version is not already on npm, and the changelog section exists. Nothing has happened yet if any of these fail.
-2. **Build** — `build:packages`, `generate`, `build:packages`.
-3. **Tag** — pushes `v<version>`. A tag is cheap to delete; an npm version is not.
-4. **Publish** — `publish-packages.sh` with npm provenance, skipping anything already published.
-5. **GitHub Release** — notes built from the changelog section plus the published-package table.
+**Next minor**
+1. Run **Release cut** from `main` with `dry_run`, check the summary, then run it for real.
+2. Merge `chore(release): open 0.11.0 on main`.
+3. Stabilize the new line with backports.
+4. Run **Release** from `release/v0.10.x` — `0.10.0` ships and moves `latest`.
+5. Merge the changelog PR on `main`.
 
-### Resuming a failed release
+**Hotfix that cannot wait for `main`**: PR directly against `release/vX.Y.x`, label it `backport main`, merge, release. Backport forward-ports it so later minors keep it.
 
-If publishing fails partway, packages are already on npm and cannot be republished — npm is ahead of git, and the repository has to catch up. Both stages take the same `resume` flag for this, which relaxes the guards that would otherwise refuse an already-published version.
+**Backport conflicts, or the fix belongs elsewhere on the line**: the backport PR is an ordinary branch. Reset it to the line and write the fix where the code lives there (force-push, same PR), or close the draft and open a hand-written PR against the line. If the bug does not exist on the line, do not label the PR at all.
 
-If the version bump never landed on `main`, run the whole flow again with `resume: true`:
+### Rules for contributors and agents
 
-```bash
-gh workflow run release-prepare.yml --ref main -f bump=patch -f resume=true
-# merge the recovery PR, then
-gh workflow run release.yml --ref main -f resume=true
-```
+- **Every PR targets `main`.** Never push to `release/v*`; open a PR against one only for the can't-wait hotfix.
+- **A fix users of a released line need** gets `backport release/vX.Y.x` (newest line: `git branch -r --list 'origin/release/v*'`). Default for high-priority bugs, security fixes and regressions that exist on that line; never for features or refactors.
+- **Label the issue at triage and the PR when opening it** — only the PR's label triggers Backport. Agents copy it from issue to PR; label normalization never strips `backport …`.
+- **Review backport PRs as real PRs**: CI green *and* the change still makes sense in the line's code — a clean cherry-pick into a different context is the dangerous case. `qa-approved` is not copied to a backport.
 
-If the bump is already on `main` and only publishing failed, just the second command is needed.
+### One-time setup (maintainers)
 
-In resume mode, `Release Prepare` skips the "not on npm yet" and "tag does not exist" checks and marks the PR as a recovery; `Release` skips the same npm preflight, skips packages that already published, reuses the existing tag, and refreshes the release notes instead of failing.
-
-> `resume` disables the guard that prevents double-publishing. Use it only when a run died *after* npm publish — on a normal release it removes a check you want.
-
-### Local equivalents
-
-`yarn release:{patch,minor,major}` bump, build and publish from a working copy; `yarn release:existing` publishes the version already in the root `package.json`. None of them tag or push — prefer the workflows. Useful for inspection:
-
-```bash
-yarn release:bump patch                 # bump manifests only, no build or publish
-yarn release:check-unpublished 0.6.8    # is this version already on npm?
-./scripts/changelog-section.sh 0.6.8    # preview the release notes body
-```
+1. **`RELEASE_TOKEN` secret** (required): a fine-grained PAT or GitHub App token for this repository only, with **Contents, Pull requests, Issues and Workflows: read & write**. `GITHUB_TOKEN` is not enough — PRs it opens trigger no CI, and it cannot bypass the ruleset below. Prefer a bot account (a personal token cannot approve its own PRs) and set a renewal reminder.
+2. **Ruleset `release lines`** (Settings → Rules → New branch ruleset), target `release/v*`: bypass list = the token owner (and admins), mode *Always*; Restrict creations ✅, Restrict deletions ✅, Block force pushes ✅, Restrict updates ❌; Require a pull request ✅ (1 approval); Require status checks ✅ with the CI jobs, "Do not require status checks on creation" ✅; Require signed commits ❌.
+3. **`production` environment** with required reviewers (already gates Release).
 
 ## Helpful Resources
 
