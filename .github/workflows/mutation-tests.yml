@@ -29,7 +29,6 @@ on:
   pull_request:
     branches:
       - main
-      - develop
   # Lets a maintainer execute the mutate job on demand against a known file, which
   # is the only way to exercise the runner path (install → build → stryker → report
   # → enforce) when no pull request happens to touch an in-scope file. Keep it: it

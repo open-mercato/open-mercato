@@ -72,19 +72,21 @@ env:
   # explicitly allows them.
   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
+# `release/v*` are the release lines (CONTRIBUTING.md § Releasing): backport PRs into them must
+# run the same checks as PRs into main, or a backport merges untested.
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
-# `develop`, and while it is absent from these lists no job is scheduled for them at all.
-# Drop the entry once its stack has landed on `develop`.
+# `main`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `main`.
 on:
   push:
     branches:
       - main
-      - develop
+      - 'release/v*'
       - feat/wms
   pull_request:
     branches:
       - main
-      - develop
+      - 'release/v*'
       - feat/wms
 
 # Cancel any in-progress run on the same branch when a new push arrives.

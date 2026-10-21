@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
+import { parse } from 'yaml'
+import { changelogSection } from '../lib/release-line.mjs'
 
-const releasePath = path.resolve('.github/workflows/release.yml')
-const preparePath = path.resolve('.github/workflows/release-prepare.yml')
+const workflowPath = (name) => path.resolve('.github/workflows', name)
+const releasePath = workflowPath('release.yml')
+const cutPath = workflowPath('release-cut.yml')
+const backportPath = workflowPath('backport.yml')
+const ciPath = workflowPath('ci.yml')
 const changelogPath = path.resolve('CHANGELOG.md')
-const changelogSectionPath = path.resolve('scripts/changelog-section.sh')
 
 const VERSION_HEADING = /^# (\d+\.\d+\.\d+) \(/
 
@@ -25,75 +28,115 @@ function stepIndex(workflow, stepName) {
   return index
 }
 
-test('release workflow never pushes to the protected main branch', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+function readWorkflow(file) {
+  const source = fs.readFileSync(file, 'utf8')
+  return { source, parsed: parse(source) }
+}
 
-  assert.doesNotMatch(workflow, /git commit/, 'Release must not create commits on main')
-  assert.doesNotMatch(workflow, /^\s+git push\s*$/m, 'Release must not push branches')
-  assert.match(workflow, /git push origin "\$TAG"/, 'Release must push only the release tag')
+test('release runs only from a release line, never from main or a push', () => {
+  const { parsed } = readWorkflow(releasePath)
+
+  assert.deepEqual(Object.keys(parsed.on), ['workflow_dispatch'], 'Release must have exactly one trigger: a human')
+  assert.equal(parsed.jobs.release.if, "startsWith(github.ref, 'refs/heads/release/v')")
+  assert.equal(parsed.jobs.release.environment, 'production', 'Publishing stays behind the production environment')
 })
 
-test('release workflow tags before publishing to npm', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+test('release bumps the line before building and builds exactly the bump commit', () => {
+  const { source } = readWorkflow(releasePath)
 
+  assert.ok(stepIndex(source, 'Bump the release line') < stepIndex(source, 'Check out the bump commit'))
+  assert.ok(stepIndex(source, 'Check out the bump commit') < stepIndex(source, 'Build packages'))
+  assert.ok(stepIndex(source, 'Verify version alignment') < stepIndex(source, 'Build packages'))
+  assert.match(source, /node scripts\/release-line\.mjs prepare/)
+  assert.doesNotMatch(source, /git push/, 'Release writes to GitHub only through scripts/release-line.mjs')
+})
+
+test('release publishes under the dist-tag the line resolved, then tags', () => {
+  const { source } = readWorkflow(releasePath)
+
+  assert.match(
+    source,
+    /publish-packages\.sh --tag "\$DIST_TAG"/,
+    'A patch to an older line must not move `latest`: publish under the resolved dist-tag',
+  )
+  assert.match(source, /DIST_TAG: \$\{\{ steps\.prepare\.outputs\.distTag \}\}/)
   assert.ok(
-    stepIndex(workflow, 'Create git tag') < stepIndex(workflow, 'Publish packages to npm'),
-    'Tagging is reversible and must happen before the irreversible npm publish',
+    stepIndex(source, 'Publish packages to npm') < stepIndex(source, 'Tag, GitHub Release and changelog PR'),
+    'An untagged version is what lets a re-run finish a half-published release, so tag after publishing',
   )
 })
 
-test('release workflow guards against republishing an existing version', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+test('release dry runs never publish', () => {
+  const { parsed } = readWorkflow(releasePath)
+  const publish = parsed.jobs.release.steps.find((step) => step.name === 'Publish packages to npm')
 
-  const guardIndex = stepIndex(workflow, 'Verify the version is not published yet')
-  assert.ok(
-    guardIndex < stepIndex(workflow, 'Build packages'),
-    'The npm version guard must run before any build or publish work',
-  )
-  assert.match(workflow, /check-version-unpublished\.sh/)
+  assert.equal(publish.if, '${{ !inputs.dry_run }}')
 })
 
 test('release workflow keeps its log out of the working tree', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+  const { source } = readWorkflow(releasePath)
 
   assert.doesNotMatch(
-    workflow,
+    source,
     /tee -?a? ?"?release-output\.txt/,
     'The release log must be written outside the repository so it can never be committed',
   )
-  assert.match(workflow, /\$RUNNER_TEMP\/release-output\.txt/)
+  assert.match(source, /\$RUNNER_TEMP\/release-output\.txt/)
 })
 
 test('release workflow pipes through a pipefail shell', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+  const { source } = readWorkflow(releasePath)
 
-  for (const [, block] of workflow.matchAll(/- name: [^\n]+\n((?:\s{8}[^\n]*\n)+)/g)) {
+  for (const [, block] of source.matchAll(/- name: [^\n]+\n((?:\s{8}[^\n]*\n)+)/g)) {
     if (!block.includes('| tee')) continue
     assert.match(block, /shell: bash/, 'Steps piping into tee must opt into pipefail via `shell: bash`')
   }
 })
 
-test('release workflow gates on a changelog entry before publishing', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+test('release cut runs only from main and only by hand', () => {
+  const { parsed, source } = readWorkflow(cutPath)
 
-  const extractIndex = stepIndex(workflow, 'Extract changelog entry')
-  assert.ok(
-    extractIndex < stepIndex(workflow, 'Build packages'),
-    'A missing changelog entry must fail before anything is built or published',
-  )
-  assert.match(workflow, /changelog-section\.sh/)
+  assert.deepEqual(Object.keys(parsed.on), ['workflow_dispatch'])
+  assert.equal(parsed.jobs.cut.if, "github.ref == 'refs/heads/main'")
+  assert.match(source, /node scripts\/release-line\.mjs cut/)
+  assert.doesNotMatch(source, /publish-packages|npm publish/, 'Cutting a line never releases anything')
 })
 
-test('release notes embed the changelog section from disk', () => {
-  const workflow = fs.readFileSync(releasePath, 'utf8')
+test('workflows that open PRs use RELEASE_TOKEN so CI runs on them', () => {
+  for (const file of [releasePath, cutPath, backportPath]) {
+    const { source } = readWorkflow(file)
+    assert.match(source, /secrets\.RELEASE_TOKEN/, `${path.basename(file)} must use RELEASE_TOKEN`)
+  }
+})
 
-  assert.match(
-    workflow,
-    /readFileSync\(\s*\n?\s*path\.join\(process\.env\.RUNNER_TEMP, 'changelog-section\.md'\)/,
-    'Changelog prose must be read from disk, never interpolated into the script',
-  )
-  assert.match(workflow, /BODY_LIMIT = 125000/, 'Release bodies must respect the GitHub size limit')
-  assert.match(workflow, /updateRelease/, 'Re-running a release should refresh notes, not fail')
+test('backport never runs with secrets on a fork event and pins its action', () => {
+  const { parsed, source } = readWorkflow(backportPath)
+
+  assert.ok(parsed.on.pull_request, 'Backport must use pull_request')
+  assert.equal(parsed.on.pull_request_target, undefined, 'pull_request_target would hand secrets to fork events')
+  assert.match(parsed.jobs.backport.if, /head\.repo\.full_name == github\.repository/)
+  assert.match(source, /korthout\/backport-action@[0-9a-f]{40} /, 'A third-party action given a write token is pinned by SHA')
+  assert.match(source, /label_pattern: '\^backport \(main\|release\/v\\d\+\\\.\\d\+\\\.x\)\$'/)
+  const copied = new RegExp(parsed.jobs.backport.steps.find((step) => step.with?.copy_labels_pattern).with.copy_labels_pattern)
+  assert.ok(copied.test('bug') && copied.test('priority-high') && copied.test('risk-low'))
+  assert.ok(!copied.test('qa-approved'), 'QA approval vouched for main, not the line; it must not be copied')
+})
+
+test('CI runs on release lines so backports never merge untested', () => {
+  const { parsed } = readWorkflow(ciPath)
+
+  assert.ok(parsed.on.push.branches.includes('release/v*'))
+  assert.ok(parsed.on.pull_request.branches.includes('release/v*'))
+  assert.ok(!parsed.on.push.branches.includes('develop'), 'develop is retired; main is the trunk')
+})
+
+test('release lines own the release/ namespace', () => {
+  const offenders = fs
+    .readdirSync(path.resolve('.github/workflows'))
+    .filter((name) => name.endsWith('.yml'))
+    .filter((name) => /release\/v\$|release\/v\$\{/.test(fs.readFileSync(workflowPath(name), 'utf8')))
+
+  assert.deepEqual(offenders, [], 'Bookkeeping branches belong under chore/, never inside release/v*')
 })
 
 test('CHANGELOG.md never repeats a version heading', () => {
@@ -109,84 +152,42 @@ test('CHANGELOG.md never repeats a version heading', () => {
   assert.deepEqual(
     duplicates,
     [],
-    `Duplicate version heading(s): ${duplicates.join(', ')}. scripts/changelog-section.sh scans for the first "# <version> (" and exits at the next "# " line, so a second heading for the same version silently truncates the release notes — and still exits 0, so nothing downstream can tell half the notes from all of them. This collides when a release is cut from main while develop holds an in-progress draft for the same version (#5014, #5017); reconcile the two sections into one instead of letting the merge keep both.`,
+    `Duplicate version heading(s): ${duplicates.join(', ')}. The release tooling reads the first "# <version>" section and stops at the next "# " line, so a second heading for the same version silently truncates the release notes (#5014, #5017). Reconcile the two sections into one.`,
   )
 })
 
-test('changelog-section.sh round-trips the section it extracts', () => {
-  const lines = readChangelogLines()
+test('the release tooling reads the newest CHANGELOG.md section whole', () => {
+  const changelog = fs.readFileSync(changelogPath, 'utf8')
+  const lines = changelog.split('\n')
 
   const startIndex = lines.findIndex((line) => VERSION_HEADING.test(line))
-  assert.notEqual(startIndex, -1, 'CHANGELOG.md must open with a `# <version> (<date>)` section')
+  assert.notEqual(startIndex, -1, 'CHANGELOG.md must hold a `# <version> (<date>)` section')
 
   const version = lines[startIndex].match(VERSION_HEADING)[1]
   const nextHeadingIndex = lines.findIndex((line, index) => index > startIndex && line.startsWith('# '))
-  const body = lines.slice(startIndex + 1, nextHeadingIndex === -1 ? undefined : nextHeadingIndex)
+  const body = lines
+    .slice(startIndex + 1, nextHeadingIndex === -1 ? undefined : nextHeadingIndex)
+    .join('\n')
+    .trim()
+    .replace(/\n+---$/, '')
+    .trim()
 
-  const trimTrailingBlanks = () => {
-    while (body.length > 0 && body[body.length - 1].trim() === '') body.pop()
-  }
-  while (body.length > 0 && body[0].trim() === '') body.shift()
-  trimTrailingBlanks()
-  if (body[body.length - 1] === '---') {
-    body.pop()
-    trimTrailingBlanks()
-  }
-
-  const result = spawnSync('bash', [changelogSectionPath, version, '--changelog', changelogPath], { encoding: 'utf8' })
-
+  const section = changelogSection(changelog, version)
+  assert.equal(section?.heading, lines[startIndex])
   assert.equal(
-    result.status,
-    0,
-    `changelog-section.sh ${version} exited ${result.status}; release.yml feeds this straight into the GitHub Release body. stderr: ${result.stderr}`,
-  )
-  assert.equal(
-    result.stdout,
-    `${body.join('\n')}\n`,
-    `changelog-section.sh ${version} did not return the section CHANGELOG.md actually holds for that version. It must emit every line up to the next "# " heading, with the trailing "---" separator and surrounding blank lines stripped — anything shorter is the silent truncation that publishes half a release's notes (#5017).`,
+    section?.body,
+    body,
+    `changelogSection(${version}) must return every line up to the next "# " heading — anything shorter publishes half a release's notes (#5017).`,
   )
 })
 
-test('release prepare workflow opens a PR instead of pushing to main', () => {
-  const workflow = fs.readFileSync(preparePath, 'utf8')
+test('generated release notes config parses and groups by category label', () => {
+  const config = parse(fs.readFileSync(path.resolve('.github/release.yml'), 'utf8'))
 
-  assert.match(workflow, /gh pr create/, 'Version bumps must land through a pull request')
-  assert.match(workflow, /git push origin "\$BRANCH"/, 'Prepare must push the release branch only')
-  assert.doesNotMatch(workflow, /git push origin main/)
-  assert.doesNotMatch(workflow, /git add -A/, 'Staging must stay scoped to tracked manifest changes')
-})
-
-test('release prepare targets main explicitly', () => {
-  const workflow = fs.readFileSync(preparePath, 'utf8')
-
-  assert.match(workflow, /--base main \\/, 'The PR base must be pinned to main, not the repo default')
-  assert.match(workflow, /--head "\$BRANCH"/)
-  assert.match(workflow, /compare\/main\.\.\.\$BRANCH/, 'The fallback compare link must also target main')
-})
-
-test('both release stages share the same resume escape hatch', () => {
-  const release = fs.readFileSync(releasePath, 'utf8')
-  const prepare = fs.readFileSync(preparePath, 'utf8')
-
-  for (const [name, workflow] of [['release', release], ['release-prepare', prepare]]) {
-    assert.match(workflow, /resume:\n\s+description:/, `${name} must expose a resume input`)
-    assert.match(workflow, /if: \$\{\{ !inputs\.resume \}\}/, `${name} must gate a guard on resume`)
+  assert.ok(config.changelog.exclude.labels.includes('skip-changelog'))
+  assert.ok(config.changelog.exclude.authors.includes('dependabot[bot]'))
+  const grouped = config.changelog.categories.flatMap((category) => category.labels)
+  for (const label of ['feature', 'security', 'bug', 'enterprise', 'refactor', 'dependencies', 'documentation', '*']) {
+    assert.ok(grouped.includes(label), `${label} must have a section`)
   }
-
-  // Recovery means npm is deliberately ahead of git, so neither the npm guard nor the
-  // tag guard should block the catch-up bump PR
-  const gatedGuards = prepare.match(/if: \$\{\{ !inputs\.resume \}\}/g) ?? []
-  assert.equal(gatedGuards.length, 2, 'Prepare must skip both the npm and tag guards when resuming')
-})
-
-test('release prepare survives a token that cannot open PRs', () => {
-  const workflow = fs.readFileSync(preparePath, 'utf8')
-
-  assert.match(workflow, /if PR_URL=\$\(gh pr create/, 'PR creation must be a conditional, not a hard failure')
-  assert.match(workflow, /GITHUB_STEP_SUMMARY/, 'Both branches must report where the release stands')
-  assert.match(
-    workflow,
-    /Allow GitHub Actions to create and approve pull requests/,
-    'The fallback must name the setting that unblocks automatic PR creation',
-  )
 })
