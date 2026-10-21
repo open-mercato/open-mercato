@@ -20,12 +20,17 @@ test.describe('Required customer field labels fit their controls', () => {
           await expect.poll(async () => control.evaluate((element) => {
             const label = element.closest('label')
             if (!label) return false
+            const textNode = label.lastChild
+            if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return false
             const range = document.createRange()
-            range.selectNodeContents(label)
+            range.selectNodeContents(textNode)
             const content = range.getBoundingClientRect()
+            const checkbox = element.getBoundingClientRect()
             const border = label.getBoundingClientRect()
             return content.left >= border.left && content.right <= border.right
               && content.top >= border.top && content.bottom <= border.bottom
+              && checkbox.left >= border.left && checkbox.right <= border.right
+              && checkbox.top >= border.top && checkbox.bottom <= border.bottom
           })).toBe(true)
         }
       }
