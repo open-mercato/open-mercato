@@ -67,8 +67,8 @@ function isReceiptChecked(delivery: PushNotificationDelivery): boolean {
  * have re-registered a fresh token in place since then, so it is pruned only while its current token
  * still ends with the delivery's `token_snapshot`.
  */
-function stillHoldsDeadToken(device: UserDevice | undefined, delivery: PushNotificationDelivery): device is UserDevice {
-  if (!device?.pushToken || !delivery.tokenSnapshot) return false
+function stillHoldsDeadToken(device: UserDevice, delivery: PushNotificationDelivery): boolean {
+  if (!device.pushToken || !delivery.tokenSnapshot) return false
   return device.pushToken.slice(-delivery.tokenSnapshot.length) === delivery.tokenSnapshot
 }
 
@@ -223,12 +223,12 @@ export async function checkPushReceipts(
         if (!outcome.unregistered) continue
         delivery.lastError = DEVICE_UNREGISTERED
         const device = devicesById.get(delivery.userDeviceId)
-        if (!stillHoldsDeadToken(device, delivery)) {
+        if (!device || !stillHoldsDeadToken(device, delivery)) {
           logger.info('Push receipt reported an unregistered token the device no longer holds; device kept', {
             tenantId: scope.tenantId,
             deliveryId: delivery.id,
             userDeviceId: delivery.userDeviceId,
-            reason: device ? 'token_rotated' : 'device_inactive',
+            reason: !device ? 'device_inactive' : device.pushToken ? 'token_rotated' : 'no_token',
           })
           continue
         }
