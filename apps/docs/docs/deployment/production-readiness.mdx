@@ -131,6 +131,12 @@ Record the owner and evidence for each item. Do not paste secret values into tic
     - [ ] Define how workers, scheduled jobs, and inbound traffic are paused when rolling back incompatible data or job formats.
     - [ ] Test rollback or restore in a non-production environment, then document the decision, timing, validation, and follow-up after any real rollback.
 
+## Readiness scanner
+
+Use the [Open Mercato Readiness Scanner](https://github.com/open-mercato/mercato-readiness-scanner) to review a standalone app for production-readiness gaps before go-live. It performs read-only checks of local configuration and documentation without opening live `.env*` files, running application scripts, or contacting services, and can export Markdown and JSON reports with remediation guidance. Follow the scanner repository's README for setup and usage.
+
+Use its findings alongside this checklist. Static checks cannot prove that deployed TLS, backups, restore procedures, alerts, or provider settings work; operators must verify those items in the deployed environment.
+
 ## Provider runbooks
 
 - [VPS / Docker Compose](../installation/vps) — host setup, Compose services, nginx, volumes, and host-level operations.
