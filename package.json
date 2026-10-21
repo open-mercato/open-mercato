@@ -214,7 +214,7 @@
     "turbo": "^2.10.12",
     "typescript": "7.0.2",
     "typescript-js": "npm:typescript@6.0.3",
-    "vite": "8.2.2",
+    "vite": "8.2.4",
     "yaml": "2.9.0"
   },
   "resolutions": {

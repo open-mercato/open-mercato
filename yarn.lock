@@ -29698,7 +29698,7 @@ __metadata:
     turbo: "npm:^2.10.12"
     typescript: "npm:7.0.2"
     typescript-js: "npm:typescript@6.0.3"
-    vite: "npm:8.2.2"
+    vite: "npm:8.2.4"
     yaml: "npm:2.9.0"
     zod: "npm:^4.4.3"
   dependenciesMeta:
@@ -37047,9 +37047,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vite@npm:8.2.2":
-  version: 8.2.2
-  resolution: "vite@npm:8.2.2"
+"vite@npm:8.2.4":
+  version: 8.2.4
+  resolution: "vite@npm:8.2.4"
   dependencies:
     fsevents: "npm:~2.3.3"
     lightningcss: "npm:^1.33.0"
@@ -37100,7 +37100,7 @@ __metadata:
       optional: true
   bin:
     vite: bin/vite.js
-  checksum: 10/65cd73267ea2fd49736e51e91681ddc5cbee3af880f20ce5c8df3d4c97d811a11e3ca62d3899fc8ac98ec442b5bc6f55a5d7625ac574ab68c7e3e541e543f264
+  checksum: 10/7b82d1d22a186006aaae83e9c7cd1d8271cc1dc09d85422aa129b14f5ddb4c476ed4445f2ba61b053d4b7cfeaaf4753a70dbb8eccbc2121128310e667ed15d3f
   languageName: node
   linkType: hard
 
