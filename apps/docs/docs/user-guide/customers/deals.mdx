@@ -32,6 +32,36 @@ The deals workspace delivers kanban-style pipeline management alongside structur
 
 ![Deal summary view](/screenshots/open-mercato-log-deal-activity.png)
 
+## Configure terminal deal statuses
+
+Open **Settings → Customers → Deal settings** (`/backend/config/customers/deals`) to configure which status values mean won, lost, or closed without an outcome. Reading the vocabulary requires `customers.deals.view`; saving or resetting it requires `customers.deals.manage`. The vocabulary applies to the whole tenant, including its organizations.
+
+Enter comma-separated aliases in each group. The first value is the preferred spelling for new writes; the remaining values recognize alternative spellings. For example:
+
+```json
+{
+  "won": ["signed", "win", "won"],
+  "lost": ["declined", "lost", "loose"],
+  "closed": ["archived", "closed"]
+}
+```
+
+Each group accepts 1–20 distinct values, each 1–50 characters after trimming. Groups cannot overlap, and `open` and `in_progress` remain active statuses. Built-in aliases retain their meaning: `win`/`won` always mean won, `lost`/`loose` always mean lost, and `closed` remains terminal, even when omitted from a custom group. Dictionary labels remain independently localizable; changing a label does not change its outcome.
+
+The list, Kanban, map, aggregates, closure controls, and AI deal updates use the same vocabulary. Selecting a won or lost alias matches every alias of that outcome. Selecting a closed alias matches all terminal outcomes. Unknown values remain active. Existing deals are not rewritten when settings change, so retain any custom historical aliases that existing deals still use. Closing by a won/lost status also records the closure outcome and selects a matching terminal pipeline stage when available; reopening clears closure details.
+
+**Save** creates a tenant override. **Reset** removes the override and uses the environment default, or the built-in vocabulary when no valid environment default exists. Settings changes support undo. A conflict message means someone saved a newer version; reload before saving again.
+
+Operators can set a server-side default for tenants without an override:
+
+```dotenv
+OM_CUSTOMERS_DEAL_STATUS_VOCABULARY='{"won":["signed","win","won"],"lost":["declined","lost","loose"],"closed":["archived","closed"]}'
+```
+
+Resolution order is the tenant's `customers/dealStatusVocabulary` module configuration, then `OM_CUSTOMERS_DEAL_STATUS_VOCABULARY`, then the built-in groups `win`/`won`, `lost`/`loose`, and `closed`. Instance module-configuration rows are ignored. Invalid tenant configuration falls back to the environment; invalid environment JSON or values fall back to built-ins. Database failures surface as errors. Restart the server after changing its environment.
+
+API clients can read or update `/api/customers/settings/deal-status-vocabulary`. GET returns `{ vocabulary, source, updatedAt }`, where `source` is `tenant`, `env`, or `default`. PUT accepts `{ "vocabulary": { ... } }`; `{ "vocabulary": null }` resets the tenant override. Send the latest `updatedAt` in `x-om-ext-optimistic-lock-expected-updated-at` when updating. A stale version returns HTTP 409; reset preserves a record version for subsequent updates. Scope comes from the authenticated tenant.
+
 ## Collaborate on deal timelines
 
 - **Highlights** display the key metrics at the top of the deal page: stage, probability, value, and expected close. Use the inline `Edit deal details` action to tweak them.

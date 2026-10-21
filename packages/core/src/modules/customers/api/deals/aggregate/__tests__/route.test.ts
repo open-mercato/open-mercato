@@ -191,3 +191,20 @@ describe('customers deals aggregate route', () => {
     expect(values).toEqual(expect.arrayContaining(['win', 'won']))
   })
 })
+
+it('expands the authenticated tenant vocabulary in aggregate filters', async () => {
+  const originalResolve = container.resolve.getMockImplementation()!
+  const vocabulary = { won: ['accepted'], lost: ['declined'], closed: ['archived'] }
+  container.resolve.mockImplementation((name: string) => name === 'moduleConfigService'
+    ? { getRecord: async () => ({ source: 'tenant', tenantId, value: vocabulary, updatedAt: '2026-10-18T00:00:00.000Z' }) }
+    : originalResolve(name))
+  executeMock.mockReset().mockResolvedValue([])
+  try {
+    const response = await GET(new Request('http://localhost/api/customers/deals/aggregate?status=accepted'))
+    expect(response.status).toBe(200)
+    const bindings = executeMock.mock.calls.flatMap((call: unknown[]) => Array.isArray(call[1]) ? call[1] : [])
+    expect(bindings).toEqual(expect.arrayContaining(['accepted', 'win', 'won']))
+  } finally {
+    container.resolve.mockImplementation(originalResolve)
+  }
+})

@@ -888,3 +888,5 @@ export const personCompanyLinkDeleteSchema = scopedSchema
 export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
 export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>
 export type PersonCompanyLinkDeleteInput = z.infer<typeof personCompanyLinkDeleteSchema>
+
+export { dealStatusVocabularySchema, saveDealStatusVocabularySchema } from './dealStatusVocabulary'

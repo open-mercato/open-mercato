@@ -576,3 +576,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Discord AI Proposals (2026-10-13)
 
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+## Tenant Deal Status Vocabulary (2026-10-18)
+
+Additive tenant config/API/helper arguments; existing aliases and default exports remain. New writes use preferred aliases. [Compatibility and migration details](UPGRADE_NOTES.md#tenant-configurable-deal-status-vocabulary-5546).

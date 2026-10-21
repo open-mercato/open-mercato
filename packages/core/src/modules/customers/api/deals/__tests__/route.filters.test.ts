@@ -389,3 +389,30 @@ describe('customers deals list filters', () => {
     expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
   })
 })
+
+it('uses a tenant vocabulary for both plain and advanced status filters', async () => {
+  const vocabulary = { won: ['accepted'], lost: ['declined'], closed: ['archived'] }
+  const ctx = {
+    auth: { tenantId, orgId: organizationId },
+    container: {
+      resolve: () => ({
+        getRecord: async () => ({ value: vocabulary, source: 'tenant', tenantId, updatedAt: '2026-10-18T00:00:00.000Z' }),
+      }),
+    },
+  } as unknown as CrudCtx
+  const plain = await buildDealListFilters(dealListQuerySchema.parse({ status: 'accepted' }), ctx)
+  expect(plain.status).toEqual({ $in: ['accepted', 'win', 'won'] })
+  const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+  const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+  const utils = await import('../../utils')
+  const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+  try {
+    const tree = makeRuleTree({ field: 'status', operator: 'is', value: 'accepted' })
+    await buildDealListFilters(dealListQuerySchema.parse(serializeTree(tree)), ctx)
+    const filters = (spy.mock.calls[0]![0] as { filters: Record<string, unknown> }).filters
+    expect(JSON.stringify(filters)).toContain('accepted')
+    expect(JSON.stringify(filters)).toContain('won')
+  } finally {
+    spy.mockRestore()
+  }
+})

@@ -9,6 +9,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
 import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
 import { loadDealsSummaryQueryRows } from '../../../lib/dealsSummaryQueries'
+import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import {
   computeDelta,
   convertSumsToBase,
@@ -142,6 +143,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
+  const resolvedVocabulary = await resolveDealStatusVocabulary(container, effectiveTenantId)
 
   const today = new Date()
   const currentQuarter = getQuarterWindow(today)
@@ -163,6 +165,7 @@ export async function GET(req: Request) {
       currentQuarter,
       previousQuarter,
       seriesStart,
+      vocabulary: resolvedVocabulary.source === 'default' ? undefined : resolvedVocabulary.vocabulary,
     })
 
   const attentionIds = new Set<string>()

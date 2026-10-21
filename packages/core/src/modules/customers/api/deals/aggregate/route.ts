@@ -23,7 +23,8 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
-import { expandDealStatusAliases } from '../../../lib/dealStatus'
+import { expandDealStatusAliases, type DealStatusVocabulary } from '../../../lib/dealStatus'
+import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -67,9 +68,11 @@ function buildDealsAggregateCacheKey(params: {
   currencyScopeOrganizationId: string | null
   organizationIds: string[]
   query: AggregateQuery
+  vocabulary: DealStatusVocabulary
 }): string {
   const signature = {
     tenantId: params.tenantId,
+    vocabulary: params.vocabulary,
     currencyScopeOrganizationId: params.currencyScopeOrganizationId,
     organizationIds: normalizeStringSet(params.organizationIds),
     pipelineId: params.query.pipelineId ?? null,
@@ -218,6 +221,7 @@ export async function GET(req: Request) {
   if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const { vocabulary } = await resolveDealStatusVocabulary(container, effectiveTenantId)
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
   const aggregateCache = isDealsAggregateCacheEligible(params) && isCrudCacheEnabled()
     ? resolveCrudCache(container)
@@ -228,6 +232,7 @@ export async function GET(req: Request) {
         currencyScopeOrganizationId: orgFilterIds[0] ?? null,
         organizationIds: orgFilterIds,
         query: parsed.data,
+        vocabulary,
       })
     : null
 
@@ -327,7 +332,7 @@ export async function GET(req: Request) {
   }
   if (parsed.data.status && parsed.data.status.length) {
     // Non-empty input always expands to a non-empty set, so this always narrows.
-    const expandedStatuses = expandDealStatusAliases(parsed.data.status)
+    const expandedStatuses = expandDealStatusAliases(parsed.data.status, vocabulary)
     const placeholders = expandedStatuses.map(() => '?').join(',')
     where.push(`status IN (${placeholders})`)
     values.push(...expandedStatuses)

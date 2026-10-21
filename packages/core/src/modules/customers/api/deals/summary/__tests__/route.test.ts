@@ -21,6 +21,8 @@ const getRatesMock = jest.fn()
 const resolveBaseCurrencyMock = jest.fn()
 const fetchStuckDealIdsMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
+const resolveDealStatusVocabularyMock = jest.fn()
+const resolveOrganizationScopeForRequestMock = jest.fn()
 
 const em = {
   getConnection: () => ({ execute: executeMock }),
@@ -44,10 +46,11 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({
-    tenantId,
-    filterIds: [organizationId],
-  })),
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveOrganizationScopeForRequestMock(...args),
+}))
+
+jest.mock('../../../../lib/dealStatusVocabulary', () => ({
+  resolveDealStatusVocabulary: (...args: unknown[]) => resolveDealStatusVocabularyMock(...args),
 }))
 
 jest.mock('../../../../lib/stuckDeals', () => ({
@@ -124,6 +127,12 @@ describe('customers deals summary route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     getAuthFromRequestMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({ tenantId, filterIds: [organizationId] })
+    resolveDealStatusVocabularyMock.mockResolvedValue({
+      vocabulary: { won: ['win', 'won'], lost: ['lost', 'loose'], closed: ['closed'] },
+      source: 'default',
+      updatedAt: null,
+    })
     getRatesMock.mockResolvedValue(new Map())
     resolveBaseCurrencyMock.mockResolvedValue({ status: 'resolved', code: 'USD' })
     fetchStuckDealIdsMock.mockResolvedValue([])
@@ -141,6 +150,39 @@ describe('customers deals summary route', () => {
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
     expect(response.status).toBe(401)
     expect(executeMock).not.toHaveBeenCalled()
+    expect(resolveDealStatusVocabularyMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['tenant', 'env'])('resolves %s outcome vocabulary for the effective authenticated tenant', async (source) => {
+    const effectiveTenantId = '44444444-4444-4444-8444-444444444444'
+    resolveOrganizationScopeForRequestMock.mockResolvedValueOnce({ tenantId: effectiveTenantId, filterIds: [organizationId] })
+    resolveDealStatusVocabularyMock.mockResolvedValueOnce({
+      vocabulary: { won: ['signed'], lost: ['declined'], closed: ['archived'] },
+      source,
+      updatedAt: null,
+    })
+    executeMock.mockResolvedValue([])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary?tenantId=untrusted'))
+
+    expect(response.status).toBe(200)
+    expect(resolveDealStatusVocabularyMock).toHaveBeenCalledWith(container, effectiveTenantId)
+    expect(executeMock.mock.calls[2][1]).toEqual(expect.arrayContaining([effectiveTenantId, organizationId, 'signed', 'win', 'won']))
+    expect(executeMock.mock.calls[3][1]).toContain('declined')
+    expect(executeMock.mock.calls[4][1]).toContain('signed')
+    expect(executeMock.mock.calls[0][1]).toEqual([effectiveTenantId, organizationId, 'open', 'in_progress'])
+  })
+
+  it('keeps the original literal predicates when there is no configuration override', async () => {
+    executeMock.mockResolvedValue([])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+
+    expect(response.status).toBe(200)
+    expect(String(executeMock.mock.calls[2][0])).toContain("status = 'win' OR closure_outcome = 'won'")
+    expect(String(executeMock.mock.calls[3][0])).toContain("status IN ('lost', 'loose') OR closure_outcome = 'lost'")
+    expect(executeMock.mock.calls[2][1]).not.toContain('won')
+    expect(executeMock.mock.calls[4][1]).toEqual([tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
   })
 
   // A null `orgId` is how an all-organizations selection reaches this route (the super-admin
