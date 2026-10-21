@@ -20,6 +20,8 @@ const listSchema = z
     status: z.enum(JOURNAL_ENTRY_STATUSES).optional(),
     entryType: z.enum(JOURNAL_ENTRY_TYPES).optional(),
     periodId: z.string().uuid().optional(),
+    sourceEntityType: z.string().optional(),
+    sourceEntityId: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -57,6 +59,9 @@ const crud = makeCrudRoute({
       'entry_type',
       'description',
       'reference',
+      'source_entity_type',
+      'source_entity_id',
+      'source_kind',
       'currency_code',
       'exchange_rate',
       'status',
@@ -80,6 +85,8 @@ const crud = makeCrudRoute({
         ...(query.status ? { status: { $eq: query.status } } : {}),
         ...(query.entryType ? { entry_type: { $eq: query.entryType } } : {}),
         ...(query.periodId ? { period_id: { $eq: query.periodId } } : {}),
+        ...(query.sourceEntityType ? { source_entity_type: { $eq: query.sourceEntityType } } : {}),
+        ...(query.sourceEntityId ? { source_entity_id: { $eq: query.sourceEntityId } } : {}),
       }
       if (!query.search) return base
       const needle = `%${escapeLikePattern(query.search)}%`

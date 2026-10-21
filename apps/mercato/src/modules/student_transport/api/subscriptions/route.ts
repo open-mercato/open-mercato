@@ -56,7 +56,8 @@ const crud = makeCrudRoute({
       'duration', 'plan_id', 'plan_snapshot', 'customer_id', 'customer_snapshot', 'school_customer_id',
       'school_snapshot', 'student_name', 'student_grade', 'guardian_name', 'guardian_phone', 'pickup_point',
       'dropoff_point', 'transport_route_id', 'route_snapshot', 'vehicle_id', 'vehicle_snapshot', 'driver_id',
-      'driver_snapshot', 'start_date', 'end_date', 'period_price', 'currency_code', 'tax_rate', 'notes',
+      'driver_snapshot', 'start_date', 'end_date', 'period_price', 'currency_code', 'tax_rate', 'sales_order_id',
+      'sales_invoice_id', 'last_invoiced_period_from', 'last_invoiced_period_to', 'notes',
       'created_at', 'updated_at',
     ],
     sortFieldMap: {

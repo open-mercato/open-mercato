@@ -521,6 +521,12 @@ export interface ValidateCredentialsResult {
   errorCodes?: Record<string, string>
 }
 
+export interface VerifyWebhookSubscriptionInput {
+  query: Record<string, string>
+  credentials: Record<string, unknown>
+  scope: TenantScope
+}
+
 // ── The adapter contract ─────────────────────────────────────
 
 export interface ChannelAdapter {
@@ -564,6 +570,17 @@ export interface ChannelAdapter {
    * tenant-scoped work.
    */
   verifyWebhook(input: VerifyWebhookInput): Promise<InboundMessage>
+  /**
+   * Optional GET-based subscription handshake used by providers such as the
+   * WhatsApp Cloud API: the provider calls the webhook URL once with
+   * `hub.mode=subscribe`, a shared token and a challenge, and expects the
+   * challenge echoed verbatim on success.
+   *
+   * SECURITY CONTRACT (fail-closed): implementations MUST throw when the token
+   * does not match. The generic webhook route iterates candidate channels and
+   * only echoes a challenge for the candidate whose credentials verified.
+   */
+  verifyWebhookSubscription?(input: VerifyWebhookSubscriptionInput): Promise<{ challenge: string }>
   getStatus(input: GetMessageStatusInput): Promise<MessageStatus>
   convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent>
   normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage>

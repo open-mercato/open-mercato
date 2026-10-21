@@ -25,6 +25,31 @@ export const HR_APPROVAL_TARGETS: ApprovalTargetOption[] = [
     labelKey: 'hr_management.approvals.targets.attendanceRecord',
     fallbackLabel: 'Attendance record',
   },
+  {
+    value: 'hr_employee_loan',
+    labelKey: 'hr_management.approvals.targets.employeeLoan',
+    fallbackLabel: 'Employee loan',
+  },
+  {
+    value: 'hr_employee_penalty',
+    labelKey: 'hr_management.approvals.targets.employeePenalty',
+    fallbackLabel: 'Employee penalty',
+  },
+  {
+    value: 'hr_employee_incentive',
+    labelKey: 'hr_management.approvals.targets.employeeIncentive',
+    fallbackLabel: 'Employee incentive',
+  },
+  {
+    value: 'hr_payroll_run',
+    labelKey: 'hr_management.approvals.targets.payrollRun',
+    fallbackLabel: 'Payroll run',
+  },
+  {
+    value: 'fleet_vehicle_assignment',
+    labelKey: 'hr_management.approvals.targets.fleetAssignment',
+    fallbackLabel: 'Fleet vehicle custody',
+  },
 ]
 
 /** The label for a stored `entityType`, falling back to the raw value for an unknown target. */

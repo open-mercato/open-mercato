@@ -94,6 +94,14 @@ export const endSubscriptionSchema = z.object({
   reason: z.string().trim().max(2000).optional().nullable(),
 })
 
+export const invoiceSubscriptionSchema = z.object({
+  id: z.string().uuid(),
+  periodFrom: z.string().min(1).optional(),
+  periodTo: z.string().min(1).optional(),
+  dueAt: z.string().min(1).optional(),
+  channelId: z.string().uuid().optional().nullable(),
+})
+
 // ── Attendance ───────────────────────────────────────────────────────────────
 
 export const recordAttendanceSchema = z.object({

@@ -44,6 +44,12 @@ type SubscriberContext = {
 
 const POSTGRES_UNIQUE_VIOLATION = '23505'
 
+const CHAT_PROVIDER_KEYS = new Set(['whatsapp', 'discord', 'slack', 'telegram'])
+
+function resolveInteractionType(providerKey: string | null): string {
+  return providerKey && CHAT_PROVIDER_KEYS.has(providerKey) ? 'message' : 'email'
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────
 
 export default async function handler(
@@ -145,6 +151,22 @@ export default async function handler(
 
   const normalized = normalizeAddresses(rawAddresses as string[])
 
+  let senderPhone: string | null = null
+  if (normalized.length === 0 && typeof link.messageId === 'string') {
+    const messageRow = (await findOneWithDecryption(
+      em,
+      'Message' as any,
+      { id: link.messageId, tenantId } as any,
+      undefined,
+      dscope,
+    )) as { senderIdentifier?: string | null } | null
+    const rawSender = messageRow?.senderIdentifier
+    if (typeof rawSender === 'string') {
+      const digits = rawSender.replace(/[^\d]/g, '')
+      if (digits.length >= 6) senderPhone = digits
+    }
+  }
+
   // ── (4) Optional explicit crmPersonId hint ────────────────────────────
   //
   // The outbound compose route stores `crmPersonId` in channelMetadata so the
@@ -170,7 +192,7 @@ export default async function handler(
   }
 
   // Early exit: no addresses AND no hint → nothing to link.
-  if (normalized.length === 0 && !crmPersonId) {
+  if (normalized.length === 0 && !crmPersonId && !senderPhone) {
     // Before giving up, try threading-inheritance (TC-CRM-EMAIL-005).
     await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
     return
@@ -180,6 +202,20 @@ export default async function handler(
   const matched = await findPeopleByAddresses(em, normalized, tenantId, organizationId)
   const personIdSet = new Set<string>(matched.map((m) => m.id))
   if (crmPersonId) personIdSet.add(crmPersonId)
+
+  if (senderPhone) {
+    const phoneCandidates = (await findWithDecryption(
+      em,
+      CustomerEntity,
+      { tenantId, organizationId, kind: 'person', deletedAt: null } as any,
+      { limit: 500 },
+      dscope,
+    )) as Array<{ id: string; primaryPhone?: string | null }>
+    for (const candidate of phoneCandidates) {
+      const digits = (candidate.primaryPhone ?? '').replace(/[^\d]/g, '')
+      if (digits.length >= 6 && digits === senderPhone) personIdSet.add(candidate.id)
+    }
+  }
 
   if (personIdSet.size === 0) {
     // Try threading-inheritance before giving up.
@@ -223,7 +259,7 @@ export default async function handler(
       linkId,
       tenantId,
       organizationId,
-      interactionType: 'email',
+      interactionType: resolveInteractionType(providerKey),
       title: subject,
       body: bodyText,
       authorUserId: channelUserId,
@@ -331,7 +367,7 @@ async function handleThreadingInheritance(
         linkId,
         tenantId,
         organizationId,
-        interactionType: 'email',
+        interactionType: resolveInteractionType(providerKey),
         title: subject,
         body: bodyText,
         authorUserId: channelUserId,
@@ -402,7 +438,9 @@ async function handleThreadingInheritance(
       externalMessageId: { $in: matchedParentIds },
       tenantId,
       organizationId,
-      interactionType: 'email',
+      interactionType: resolveInteractionType(
+        typeof _link.providerKey === 'string' ? _link.providerKey : null,
+      ),
       deletedAt: null,
     } as any,
     undefined,
@@ -431,7 +469,7 @@ async function handleThreadingInheritance(
       linkId,
       tenantId,
       organizationId,
-      interactionType: 'email',
+      interactionType: resolveInteractionType(providerKey),
       title: subject,
       body: null,
       authorUserId: channelUserId,

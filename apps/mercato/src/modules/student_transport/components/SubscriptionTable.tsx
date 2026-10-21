@@ -57,6 +57,9 @@ export type StudentSubscriptionRow = {
   end_date?: string | null
   period_price: string
   currency_code: string
+  sales_invoice_id?: string | null
+  last_invoiced_period_from?: string | null
+  last_invoiced_period_to?: string | null
   updated_at?: string | null
   updatedAt?: string | null
 }

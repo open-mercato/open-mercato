@@ -1,15 +1,19 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { HrApprovalRequest } from '../../data/entities'
-import { createApprovalRequestSchema, updateApprovalRequestSchema } from '../../data/validators'
-import { createHrCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
+import { createHrCrudOpenApi, createPagedListResponseSchema } from '../openapi'
 import { HR_APPROVAL_REQUEST_ENTITY_ID } from '../../commands/hr'
 import '../../commands/hr'
 
-const rawBodySchema = z.object({}).passthrough()
+/**
+ * Read-only view of the approval queue.
+ *
+ * Lifecycle fields (`status`, `current_step_order`, `decided_at`) are written by the
+ * approval engine and nothing else. An editable request row bypassed the action log and
+ * the target effect, and could be created already approved, so this surface exposes GET
+ * only; submit and the four decisions have their own action routes.
+ */
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
@@ -28,9 +32,6 @@ const listSchema = z.object({
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['hr.read'] },
-  POST: { requireAuth: true, requireFeatures: ['hr.write'] },
-  PUT: { requireAuth: true, requireFeatures: ['hr.write'] },
-  DELETE: { requireAuth: true, requireFeatures: ['hr.write'] },
 }
 
 export const metadata = { path: '/hr_management/approval-requests', ...routeMetadata }
@@ -63,33 +64,9 @@ const crud = makeCrudRoute({
     }),
     transformItem: (item) => ({ ...item, updatedAt: item.updated_at ?? null }),
   },
-  actions: {
-    create: {
-      commandId: 'hr_management.approval_requests.create',
-      schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => { const { translate } = await resolveTranslations(); return parseScopedCommandInput(createApprovalRequestSchema, raw ?? {}, ctx, translate) },
-      response: ({ result }) => ({ id: result?.id ?? null, updatedAt: result?.updatedAt?.toISOString?.() ?? null }),
-      status: 201,
-    },
-    update: {
-      commandId: 'hr_management.approval_requests.update',
-      schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => { const { translate } = await resolveTranslations(); return parseScopedCommandInput(updateApprovalRequestSchema, raw ?? {}, ctx, translate) },
-      response: () => ({ ok: true }),
-    },
-    delete: {
-      commandId: 'hr_management.approval_requests.delete',
-      schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }) => { const { translate } = await resolveTranslations(); return { id: resolveCrudRecordId(parsed, ctx, translate) } },
-      response: () => ({ ok: true }),
-    },
-  },
 })
 
 export const GET = crud.GET
-export const POST = crud.POST
-export const PUT = crud.PUT
-export const DELETE = crud.DELETE
 
 const itemSchema = z.object({
   id: z.string().uuid(),
@@ -110,9 +87,9 @@ const itemSchema = z.object({
 })
 
 export const openApi = createHrCrudOpenApi({
-  resourceName: 'Approval request', pluralName: 'Approval requests', querySchema: listSchema,
+  resourceName: 'Approval request',
+  pluralName: 'Approval requests',
+  description: 'The approval queue, written by the approval engine and exposed read-only.',
+  querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(itemSchema),
-  create: { schema: createApprovalRequestSchema, description: 'Creates a approval request.' },
-  update: { schema: updateApprovalRequestSchema, responseSchema: defaultOkResponseSchema, description: 'Updates a approval request.' },
-  del: { schema: z.object({ id: z.string().uuid() }), responseSchema: defaultOkResponseSchema, description: 'Soft-deletes a approval request.' },
 })

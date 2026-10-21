@@ -86,6 +86,12 @@ export const cancelRentalSchema = z.object({
   reason: z.string().trim().max(2000).optional().nullable(),
 })
 
+export const invoiceRentalSchema = z.object({
+  id: z.string().uuid(),
+  channelId: z.string().uuid().optional().nullable(),
+  dueAt: dateTimeSchema.optional().nullable(),
+})
+
 export const recordRentalCheckSchema = z.object({
   contractId: z.string().uuid(),
   // The lifecycle checks belong to handover/return; this path records the
@@ -103,5 +109,6 @@ export type UpdateRentalContractInput = z.infer<typeof updateRentalContractSchem
 export type HandoverRentalInput = z.infer<typeof handoverRentalSchema>
 export type ReturnRentalInput = z.infer<typeof returnRentalSchema>
 export type CancelRentalInput = z.infer<typeof cancelRentalSchema>
+export type InvoiceRentalInput = z.infer<typeof invoiceRentalSchema>
 export type RecordRentalCheckInput = z.infer<typeof recordRentalCheckSchema>
 export type RentalCustomerSnapshot = z.infer<typeof customerSnapshotSchema>

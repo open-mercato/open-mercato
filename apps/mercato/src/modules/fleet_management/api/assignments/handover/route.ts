@@ -13,7 +13,7 @@ import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createVehicleAssignmentSchema } from '../../../data/validators'
-import { FLEET_VEHICLE_ENTITY_ID } from '../../../commands/fleet'
+import { FLEET_VEHICLE_RESOURCE_KIND } from '../../../commands/fleet'
 import '../../../commands/assignments'
 
 const logger = createLogger('fleet_management')
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       req,
       auth: { userId, tenantId: context.tenantId, organizationId: context.organizationId },
       input: {
-        resourceKind: FLEET_VEHICLE_ENTITY_ID,
+        resourceKind: FLEET_VEHICLE_RESOURCE_KIND,
         resourceId: input.vehicleId,
         operation: 'update',
         mutationPayload: input,
@@ -71,11 +71,17 @@ export async function POST(req: Request) {
     if (!guarded.ok) return guarded.response
     const commandInput = guarded.modifiedPayload ? createVehicleAssignmentSchema.parse(guarded.modifiedPayload) : input
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<typeof commandInput, { assignmentId: string; vehicleId: string; assignedAt: Date }>(
+    const { result } = await commandBus.execute<typeof commandInput, { assignmentId: string; vehicleId: string; assignedAt: Date; pendingApproval: boolean }>(
       'fleet_management.assignments.handover', { input: commandInput, ctx: context.ctx },
     )
     await guarded.runAfterSuccess()
-    return NextResponse.json({ ok: true, assignmentId: result.assignmentId, vehicleId: result.vehicleId, assignedAt: result.assignedAt.toISOString() }, { status: 201 })
+    return NextResponse.json({
+      ok: true,
+      assignmentId: result.assignmentId,
+      vehicleId: result.vehicleId,
+      assignedAt: result.assignedAt.toISOString(),
+      pendingApproval: result.pendingApproval,
+    }, { status: 201 })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const interceptorRejection = getCommandInterceptorHttpRejection(err)

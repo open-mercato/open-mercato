@@ -25,11 +25,16 @@ export const VEHICLE_STATUS_VALUES: VehicleStatus[] = ['active', 'maintenance', 
 export type VehicleRow = {
   id: string
   plate_number: string
-  vin: string
+  vin?: string | null
+  sequence_number?: string | null
   make: string
   model: string
   year: number
   capacity: number
+  color?: string | null
+  vehicle_type?: string | null
+  current_odometer?: number | null
+  notes?: string | null
   status: VehicleStatus
   telematics_device_id?: string | null
   updated_at?: string | null

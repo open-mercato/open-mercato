@@ -90,6 +90,7 @@ const listSchema = z
     search: z.string().optional(),
     id: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
+    dealId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
     channelIds: z
       .string()
@@ -130,6 +131,9 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   }
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
+  }
+  if (query.dealId) {
+    filters.deal_id = { $eq: query.dealId }
   }
   // Singular wins over plural, mirroring how `api/channels/route.ts` resolves `id` before `ids`.
   // An all-malformed `channelIds` narrows to no channel filter rather than an empty-set filter, so
@@ -221,6 +225,7 @@ const mapUpdateResponse = (entity: any) => {
     metadata,
     externalReference: entity?.externalReference ?? null,
     customerReference: entity?.customerReference ?? null,
+    dealId: entity?.dealId ?? null,
     comment: entity?.comments ?? null,
     statusEntryId: (entity as any)?.statusEntryId ?? null,
     status: (entity as any)?.status ?? null,
@@ -403,6 +408,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     'payment_method_code',
     'payment_method_snapshot',
     'customer_reference',
+    'deal_id',
     'metadata',
     'external_reference',
     'currency_code',
@@ -518,6 +524,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           channelId: item.channel_id ?? null,
           externalReference: item.external_reference ?? null,
           customerReference: item.customer_reference ?? null,
+          dealId: item.deal_id ?? null,
           placedAt: item.placed_at ?? null,
           expectedDeliveryAt: item.expected_delivery_at ?? null,
           comment: item.comments ?? null,
@@ -633,6 +640,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     shippingAddressId: z.string().uuid().nullable(),
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
+    dealId: z.string().uuid().nullable().optional(),
     comment: z.string().nullable().optional(),
     placedAt: z.string().nullable().optional(),
     expectedDeliveryAt: z.string().nullable().optional(),

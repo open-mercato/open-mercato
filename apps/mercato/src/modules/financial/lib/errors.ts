@@ -29,6 +29,20 @@ export const FINANCIAL_ERROR_CODES = [
   'opening_balances_not_balanced',
   'opening_balances_already_posted',
   'statement_range_invalid',
+  'posting_accounts_missing',
+  'posting_period_missing',
+  'posting_source_not_found',
+  'posting_source_invalid',
+  'vendor_not_found',
+  'vendor_invoice_not_found',
+  'vendor_invoice_not_draft',
+  'vendor_invoice_not_posted',
+  'vendor_invoice_has_payments',
+  'allocation_exceeds_payment',
+  'payment_exceeds_invoice',
+  'withholding_not_available',
+  'withholding_category_not_found',
+  'payment_not_found',
 ] as const
 
 export type FinancialErrorCode = (typeof FINANCIAL_ERROR_CODES)[number]
@@ -61,6 +75,20 @@ const FALLBACK_MESSAGES: Record<FinancialErrorCode, string> = {
   opening_balances_not_balanced: 'Opening balances must net to zero: total debits must equal total credits.',
   opening_balances_already_posted: 'Opening balances have already been posted for this organization.',
   statement_range_invalid: 'The statement range is not valid: the end date is before the start date.',
+  posting_accounts_missing: 'The chart of accounts does not provide every account automatic posting needs. Configure the posting accounts.',
+  posting_period_missing: 'No accounting period covers the document date. Create the period and retry.',
+  posting_source_not_found: 'The sales document the event refers to no longer exists.',
+  posting_source_invalid: 'The sales document has no amount to post.',
+  vendor_not_found: 'The vendor does not exist.',
+  vendor_invoice_not_found: 'The vendor invoice does not exist.',
+  vendor_invoice_not_draft: 'Only a draft vendor invoice can be changed.',
+  vendor_invoice_not_posted: 'Only a posted vendor invoice can be voided.',
+  vendor_invoice_has_payments: 'This vendor invoice has payments and cannot be deleted.',
+  allocation_exceeds_payment: 'The allocations exceed the payment amount.',
+  payment_exceeds_invoice: 'The allocation exceeds the invoice outstanding amount.',
+  withholding_not_available: 'This jurisdiction has no withholding tax configured.',
+  withholding_category_not_found: 'The selected withholding category does not exist.',
+  payment_not_found: 'The payment does not exist.',
 }
 
 export function financialFallbackMessage(code: FinancialErrorCode): string {

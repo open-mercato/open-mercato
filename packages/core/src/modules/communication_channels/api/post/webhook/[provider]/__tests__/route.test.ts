@@ -40,7 +40,7 @@ jest.mock('../../../../../lib/queue', () => ({
   getCommunicationChannelsQueue: () => ({ enqueue: mockEnqueue }),
 }))
 
-import { POST } from '../route'
+import { GET, POST } from '../route'
 
 describe('POST /api/communication_channels/webhook/[provider]', () => {
   beforeEach(() => {
@@ -117,5 +117,72 @@ describe('POST /api/communication_channels/webhook/[provider]', () => {
         scope: { tenantId: 'tenant-060', organizationId: null },
       }),
     )
+  })
+})
+
+describe('GET /api/communication_channels/webhook/[provider]', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+    mockCredentialsResolve.mockResolvedValue({})
+  })
+
+  const subscribeRequest = () =>
+    new Request(
+      'http://localhost/api/communication_channels/webhook/whatsapp'
+      + '?hub.mode=subscribe&hub.verify_token=token-1&hub.challenge=challenge-1',
+      { method: 'GET' },
+    )
+
+  it('returns 404 for an unknown provider', async () => {
+    mockRegistryGet.mockReturnValue(undefined)
+    const response = await GET(subscribeRequest(), { params: Promise.resolve({ provider: 'whatsapp' }) })
+    expect(response.status).toBe(404)
+  })
+
+  it('returns 405 when the provider has no subscription handshake', async () => {
+    mockRegistryGet.mockReturnValue({ verifyWebhook: jest.fn() })
+    const response = await GET(subscribeRequest(), { params: Promise.resolve({ provider: 'whatsapp' }) })
+    expect(response.status).toBe(405)
+  })
+
+  it('echoes the challenge from the candidate channel whose token verifies', async () => {
+    mockFindWithDecryption.mockResolvedValue([
+      { id: 'channel-a', tenantId: 'tenant-a', organizationId: null, userId: null, credentialsRef: 'ref-a' },
+      { id: 'channel-b', tenantId: 'tenant-b', organizationId: null, userId: null, credentialsRef: 'ref-b' },
+    ])
+    mockCredentialsResolve.mockImplementation(async (_service: string, scope: { tenantId: string }) => ({
+      verifyToken: scope.tenantId === 'tenant-b' ? 'token-1' : 'other',
+    }))
+    mockRegistryGet.mockReturnValue({
+      verifyWebhookSubscription: jest.fn(async ({ query, credentials }: {
+        query: Record<string, string>
+        credentials: Record<string, unknown>
+      }) => {
+        if (query['hub.verify_token'] !== credentials.verifyToken) throw new Error('token mismatch')
+        return { challenge: query['hub.challenge'] }
+      }),
+    })
+
+    const response = await GET(subscribeRequest(), { params: Promise.resolve({ provider: 'whatsapp' }) })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('challenge-1')
+  })
+
+  it('returns 401 when no candidate channel accepts the token', async () => {
+    mockFindWithDecryption.mockResolvedValue([
+      { id: 'channel-a', tenantId: 'tenant-a', organizationId: null, userId: null, credentialsRef: 'ref-a' },
+    ])
+    mockCredentialsResolve.mockResolvedValue({ verifyToken: 'other' })
+    mockRegistryGet.mockReturnValue({
+      verifyWebhookSubscription: jest.fn(async () => {
+        throw new Error('token mismatch')
+      }),
+    })
+
+    const response = await GET(subscribeRequest(), { params: Promise.resolve({ provider: 'whatsapp' }) })
+    expect(response.status).toBe(401)
   })
 })

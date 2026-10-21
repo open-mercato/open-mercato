@@ -10,6 +10,8 @@ import {
   APPROVAL_APPROVER_TYPES,
   APPROVAL_REQUEST_STATUSES,
   APPROVAL_ACTIONS,
+  PENALTY_TYPES,
+  INCENTIVE_TYPES,
 } from './entities'
 
 const dateInput = z.string().min(1).or(z.date())
@@ -39,6 +41,7 @@ export const createEmployeeSchema = z.object({
   nationalId: z.string().min(1),
   nationalIdExpiry: dateInput.optional().nullable(),
   departmentId: z.string().uuid().optional().nullable(),
+  managerEmployeeId: z.string().uuid().optional().nullable(),
   jobTitle: z.string().min(1),
   employmentType: z.enum(EMPLOYMENT_TYPES).optional(),
   status: z.enum(EMPLOYEE_STATUSES).optional(),
@@ -46,6 +49,7 @@ export const createEmployeeSchema = z.object({
   terminationDate: dateInput.optional().nullable(),
   email: z.string().email().optional().nullable(),
   phone: z.string().trim().min(1).optional().nullable(),
+  bankIban: z.string().trim().max(34).optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
 })
 
@@ -122,6 +126,45 @@ export const updateLeaveRequestSchema = z.object({
 
 export type CreateLeaveRequestInput = z.infer<typeof createLeaveRequestSchema>
 export type UpdateLeaveRequestInput = z.infer<typeof updateLeaveRequestSchema>
+
+const leaveDays = z.union([z.string().trim().regex(/^\d+(\.\d{1,2})?$/), z.number().min(0)])
+
+export const createLeaveEntitlementSchema = z
+  .object({
+    employeeId: z.string().uuid(),
+    leaveType: z.enum(LEAVE_TYPES),
+    periodStart: dateInput,
+    periodEnd: dateInput,
+    entitledDays: leaveDays,
+    carryOverDays: leaveDays.optional(),
+    notes: z.string().trim().max(2000).optional().nullable(),
+  })
+  .refine((data) => new Date(data.periodEnd) >= new Date(data.periodStart), {
+    message: 'periodEnd must be on or after periodStart',
+    path: ['periodEnd'],
+  })
+
+export const updateLeaveEntitlementSchema = z.object({
+  id: z.string().uuid(),
+  employeeId: z.string().uuid().optional(),
+  leaveType: z.enum(LEAVE_TYPES).optional(),
+  periodStart: dateInput.optional(),
+  periodEnd: dateInput.optional(),
+  entitledDays: leaveDays.optional(),
+  carryOverDays: leaveDays.optional(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})
+
+export type CreateLeaveEntitlementInput = z.infer<typeof createLeaveEntitlementSchema>
+export type UpdateLeaveEntitlementInput = z.infer<typeof updateLeaveEntitlementSchema>
+
+export const runLeaveAccrualSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  employeeId: z.string().uuid().optional(),
+  leaveType: z.enum(LEAVE_TYPES).optional(),
+})
+
+export type RunLeaveAccrualInput = z.infer<typeof runLeaveAccrualSchema>
 
 export const createEmployeeDocumentSchema = z.object({
   employeeId: z.string().uuid(),
@@ -205,3 +248,95 @@ export const createApprovalActionLogSchema = z.object({
 })
 
 export type CreateApprovalActionLogInput = z.infer<typeof createApprovalActionLogSchema>
+
+const payrollAmount = z.union([z.string().trim().min(1), z.number()])
+
+export const createCompensationSchema = z.object({
+  employeeId: z.string().uuid(),
+  effectiveFrom: z.string().min(1),
+  basicSalary: payrollAmount,
+  housingAllowance: payrollAmount.optional(),
+  transportAllowance: payrollAmount.optional(),
+  otherAllowance: payrollAmount.optional(),
+  currencyCode: z.string().trim().length(3),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})
+
+export const updateCompensationSchema = createCompensationSchema.partial().extend({
+  id: z.string().uuid(),
+})
+
+export type CreateCompensationInput = z.infer<typeof createCompensationSchema>
+export type UpdateCompensationInput = z.infer<typeof updateCompensationSchema>
+
+export const createLoanSchema = z.object({
+  employeeId: z.string().uuid(),
+  principalAmount: payrollAmount,
+  currencyCode: z.string().trim().length(3),
+  instalmentCount: z.coerce.number().int().min(1).max(120),
+  firstDueOn: z.string().min(1),
+  reason: z.string().trim().max(1000).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})
+
+export const updateLoanSchema = createLoanSchema.partial().extend({
+  id: z.string().uuid(),
+})
+
+export const loanActionSchema = z.object({
+  id: z.string().uuid(),
+  comment: z.string().trim().max(1000).optional().nullable(),
+})
+
+export const createPenaltySchema = z.object({
+  employeeId: z.string().uuid(),
+  penaltyType: z.enum(PENALTY_TYPES),
+  incidentOn: z.string().min(1),
+  amount: payrollAmount.optional().nullable(),
+  suspendedDays: z.coerce.number().int().min(0).optional().nullable(),
+  reason: z.string().trim().min(1).max(1000),
+})
+
+export const updatePenaltySchema = createPenaltySchema.partial().extend({
+  id: z.string().uuid(),
+})
+
+export const createIncentiveSchema = z.object({
+  employeeId: z.string().uuid(),
+  incentiveType: z.enum(INCENTIVE_TYPES),
+  amount: payrollAmount,
+  currencyCode: z.string().trim().length(3),
+  periodStart: z.string().min(1).optional().nullable(),
+  periodEnd: z.string().min(1).optional().nullable(),
+  reason: z.string().trim().min(1).max(1000),
+})
+
+export const updateIncentiveSchema = createIncentiveSchema.partial().extend({
+  id: z.string().uuid(),
+})
+
+export const createPayrollRunSchema = z.object({
+  periodStart: z.string().min(1),
+  periodEnd: z.string().min(1),
+  paymentDate: z.string().min(1),
+  currencyCode: z.string().trim().length(3),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})
+
+export const updatePayrollRunSchema = z.object({
+  id: z.string().uuid(),
+  paymentDate: z.string().min(1).optional(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})
+
+export const calculatePayrollSchema = z.object({
+  id: z.string().uuid(),
+  deductionCeilingShare: z.coerce.number().min(0).max(1).optional(),
+})
+
+export const voidPayrollActionSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export type CreatePayrollRunInput = z.infer<typeof createPayrollRunSchema>
+export type UpdatePayrollRunInput = z.infer<typeof updatePayrollRunSchema>

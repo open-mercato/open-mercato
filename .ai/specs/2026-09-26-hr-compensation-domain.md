@@ -1,6 +1,7 @@
 # HR compensation domain: loans, penalties, incentives, payroll
 
-Status: **proposed** (2026-09-26) — no schema written yet.
+Status: **implemented** (2026-10-20) — phases A–D shipped via `2026-10-19-hr-payroll-and-statutory.md`;
+leave entitlement/accrual balances shipped via `2026-10-20-hr-leave-balances.md`.
 Scope owner: `apps/mercato/src/modules/hr_management` (all new tables live there).
 
 ## Problem statement

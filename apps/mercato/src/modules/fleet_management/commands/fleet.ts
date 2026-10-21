@@ -1,9 +1,12 @@
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import {
+  registerCommand,
+  type CommandBus,
+  type CommandRuntimeContext,
+} from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import {
-  FleetVehicle,
   FleetVehicleAssignment,
   FleetVehicleDocument,
   FleetVehicleOdometerLog,
@@ -19,7 +22,6 @@ import {
 } from '../data/validators'
 import { registerCrudCommands } from './crud'
 import {
-  assertFleetVehicleIdentityUnique,
   assertVehicleAssignable,
   type FleetScope,
 } from '../lib/fleetService'
@@ -60,13 +62,18 @@ export function scopeFrom(ctx: CommandRuntimeContext): FleetScope {
 export const patched = (input: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'id'))
 
+function readResourceId(input: unknown): string {
+  if (typeof input !== 'object' || input === null) return ''
+  const value = (input as { id?: unknown }).id
+  return typeof value === 'string' ? value : ''
+}
+
 export const FLEET_VEHICLE_ENTITY_ID = 'fleet_management:fleet_vehicle' as const
+export const FLEET_VEHICLE_RESOURCE_KIND = 'transport_operations:transport_vehicle' as const
 export const FLEET_VEHICLE_DOCUMENT_ENTITY_ID = 'fleet_management:fleet_vehicle_document' as const
 export const FLEET_ASSIGNMENT_ENTITY_ID = 'fleet_management:fleet_vehicle_assignment' as const
 export const FLEET_ODOMETER_LOG_ENTITY_ID = 'fleet_management:fleet_vehicle_odometer_log' as const
 
-export const fleetVehicleEvents = makeEvents<FleetVehicle>('vehicle')
-export const fleetVehicleIndexer = makeIndexer<FleetVehicle>(FLEET_VEHICLE_ENTITY_ID)
 export const fleetVehicleDocumentEvents = makeEvents<FleetVehicleDocument>('vehicle_document')
 export const fleetVehicleDocumentIndexer = makeIndexer<FleetVehicleDocument>(FLEET_VEHICLE_DOCUMENT_ENTITY_ID)
 export const fleetAssignmentEvents = makeEvents<FleetVehicleAssignment>('assignment')
@@ -74,32 +81,107 @@ export const fleetAssignmentIndexer = makeIndexer<FleetVehicleAssignment>(FLEET_
 export const fleetOdometerLogEvents = makeEvents<FleetVehicleOdometerLog>('odometer_log')
 export const fleetOdometerLogIndexer = makeIndexer<FleetVehicleOdometerLog>(FLEET_ODOMETER_LOG_ENTITY_ID)
 
-registerCrudCommands({
-  entity: FleetVehicle,
-  entityId: FLEET_VEHICLE_ENTITY_ID,
-  resource: 'vehicles',
-  createSchema: createVehicleSchema,
-  updateSchema: updateVehicleSchema,
-  toCreateData: (input) => input,
-  toUpdateData: patched,
-  beforeCreate: async (input, scope, ctx) => {
-    await assertFleetVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
-      plateNumber: input.plateNumber,
-      sequenceNumber: input.sequenceNumber,
-    })
+/**
+ * Fleet vehicle writes are transport-vehicle writes.
+ *
+ * `fleet_vehicles` is gone: `transport_vehicles` is the single register (decision
+ * record 2026-10-19). The fleet screens keep their endpoints, but every write
+ * goes through the transport commands so validation, events, indexing and audit
+ * stay in the owning module. `status: 'assigned'` is a fleet-derived state and is
+ * stored as the underlying `active` transport status; custody itself lives in the
+ * assignment rows.
+ */
+function toTransportVehicleInput(
+  input: Record<string, unknown>,
+  mode: 'create' | 'update',
+): Record<string, unknown> {
+  const mapped: Record<string, unknown> = {}
+  for (const key of ['plateNumber', 'sequenceNumber', 'make', 'model', 'year', 'color', 'vehicleType', 'currentOdometer', 'notes']) {
+    if (input[key] !== undefined) mapped[key] = input[key]
+  }
+  if (input.status !== undefined) mapped.status = input.status === 'assigned' ? 'active' : input.status
+  if (mode === 'create') {
+    mapped.vin = null
+    mapped.capacity = 0
+  }
+  if (mode === 'update' && typeof input.id === 'string') mapped.id = input.id
+  return mapped
+}
+
+async function executeTransportCommand(
+  ctx: CommandRuntimeContext,
+  commandId: string,
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const { result } = await commandBus.execute(commandId, { input, ctx })
+  return result
+}
+
+registerCommand({
+  id: 'fleet_management.vehicles.create',
+  async execute(raw, ctx) {
+    const input = createVehicleSchema.parse(raw)
+    const result = await executeTransportCommand(
+      ctx,
+      'transport_operations.vehicles.create',
+      toTransportVehicleInput(input, 'create'),
+    )
+    const entity = result as { id?: string; updatedAt?: Date } | null
+    return { id: entity?.id ?? null, updatedAt: entity?.updatedAt ?? null }
   },
-  beforeUpdate: async (input, current, scope, ctx) => {
-    await assertFleetVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
-      // Falling back to the stored value matters on a partial update: an edit
-      // that only changes the model still has to be checked against the plate
-      // and sequence the row keeps.
-      plateNumber: input.plateNumber ?? current.plateNumber,
-      sequenceNumber: input.sequenceNumber ?? current.sequenceNumber,
-      excludeId: current.id,
-    })
+  buildLog: ({ result, ctx }) => {
+    const scope = scopeFrom(ctx)
+    return {
+      actionLabel: 'Create fleet vehicle',
+      resourceKind: FLEET_VEHICLE_RESOURCE_KIND,
+      resourceId: String((result as { id?: string } | null)?.id ?? ''),
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }
   },
-  events: fleetVehicleEvents,
-  indexer: fleetVehicleIndexer,
+})
+
+registerCommand({
+  id: 'fleet_management.vehicles.update',
+  async execute(raw, ctx) {
+    const input = updateVehicleSchema.parse(raw)
+    await executeTransportCommand(
+      ctx,
+      'transport_operations.vehicles.update',
+      toTransportVehicleInput(input, 'update'),
+    )
+    return { ok: true }
+  },
+  buildLog: ({ input, ctx }) => {
+    const scope = scopeFrom(ctx)
+    return {
+      actionLabel: 'Update fleet vehicle',
+      resourceKind: FLEET_VEHICLE_RESOURCE_KIND,
+      resourceId: readResourceId(input),
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }
+  },
+})
+
+registerCommand({
+  id: 'fleet_management.vehicles.delete',
+  async execute(raw, ctx) {
+    const input = z.object({ id: z.string().uuid() }).parse(raw)
+    await executeTransportCommand(ctx, 'transport_operations.vehicles.delete', { id: input.id })
+    return { id: input.id }
+  },
+  buildLog: ({ input, ctx }) => {
+    const scope = scopeFrom(ctx)
+    return {
+      actionLabel: 'Delete fleet vehicle',
+      resourceKind: FLEET_VEHICLE_RESOURCE_KIND,
+      resourceId: readResourceId(input),
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }
+  },
 })
 
 registerCrudCommands({

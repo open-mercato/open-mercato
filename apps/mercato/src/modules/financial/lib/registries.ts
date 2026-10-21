@@ -30,6 +30,7 @@ import type {
   TaxEngineContract,
   TaxFilingPeriod,
   TaxReportingContract,
+  WithholdingContract,
 } from './contracts'
 import { formatMachineDecimal } from './money'
 
@@ -43,6 +44,8 @@ export type FinancialCountryPlugin = {
   chartOfAccounts?: ChartOfAccountsTemplateContract
   compliance?: ComplianceCheckContract
   taxReporting?: TaxReportingContract
+  /** Jurisdictions that withhold tax on payments to non-residents. */
+  withholding?: WithholdingContract
 }
 
 export const GENERIC_COUNTRY_CODE = 'ZZ'
@@ -208,12 +211,39 @@ function buildGenericCompliance(): ComplianceCheckContract {
   }
 }
 
-let genericPlugin: FinancialCountryPlugin | null = null
+type RegisteredPlugin = { plugin: FinancialCountryPlugin; priority: number }
+
+/**
+ * Process-level singleton backed by `globalThis`.
+ *
+ * The worker/CLI bootstrap compiles `modules.cli.generated.ts` and the command
+ * loaders as separate bundles. A module-scoped map would give the country
+ * plugin's registration and the posting command that reads it different maps,
+ * so an event-driven posting in the worker would silently fall back to the
+ * generic jurisdiction (no tax codes). `Symbol.for` keeps one map across those
+ * bundle boundaries.
+ */
+const COUNTRY_PLUGIN_REGISTRY_KEY = Symbol.for('@open-mercato/financial/country-plugin-registry')
+const GENERIC_PLUGIN_KEY = Symbol.for('@open-mercato/financial/country-plugin-generic')
+
+type GlobalWithFinancialCountryPlugins = typeof globalThis & {
+  [COUNTRY_PLUGIN_REGISTRY_KEY]?: Map<string, RegisteredPlugin>
+  [GENERIC_PLUGIN_KEY]?: FinancialCountryPlugin
+}
+
+function getPluginRegistry(): Map<string, RegisteredPlugin> {
+  const scope = globalThis as GlobalWithFinancialCountryPlugins
+  if (!scope[COUNTRY_PLUGIN_REGISTRY_KEY]) {
+    scope[COUNTRY_PLUGIN_REGISTRY_KEY] = new Map<string, RegisteredPlugin>()
+  }
+  return scope[COUNTRY_PLUGIN_REGISTRY_KEY]!
+}
 
 /** The fallback, built once so `resolve` stays cheap on a hot path. */
 export function resolveGenericFinancialCountryPlugin(): FinancialCountryPlugin {
-  if (!genericPlugin) {
-    genericPlugin = {
+  const scope = globalThis as GlobalWithFinancialCountryPlugins
+  if (!scope[GENERIC_PLUGIN_KEY]) {
+    scope[GENERIC_PLUGIN_KEY] = {
       countryCode: GENERIC_COUNTRY_CODE,
       tax: buildGenericTaxEngine(),
       invoice: buildGenericInvoiceFormat(),
@@ -223,12 +253,8 @@ export function resolveGenericFinancialCountryPlugin(): FinancialCountryPlugin {
       compliance: buildGenericCompliance(),
     }
   }
-  return genericPlugin
+  return scope[GENERIC_PLUGIN_KEY]!
 }
-
-type RegisteredPlugin = { plugin: FinancialCountryPlugin; priority: number }
-
-const plugins = new Map<string, RegisteredPlugin>()
 
 export function normalizeFinancialCountryCode(countryCode: string | null | undefined): string | null {
   if (typeof countryCode !== 'string') return null
@@ -250,6 +276,7 @@ export function registerFinancialCountryPlugin(
     throw new Error('[internal] A financial country plugin needs an ISO 3166-1 alpha-2 country code.')
   }
   const priority = options?.priority ?? 0
+  const plugins = getPluginRegistry()
   const existing = plugins.get(countryCode)
   if (existing && existing.priority > priority) return
   plugins.set(countryCode, { plugin: { ...plugin, countryCode }, priority })
@@ -265,7 +292,7 @@ export function resolveFinancialCountryPlugin(
 ): FinancialCountryPlugin {
   const normalized = normalizeFinancialCountryCode(countryCode)
   if (!normalized) return resolveGenericFinancialCountryPlugin()
-  return plugins.get(normalized)?.plugin ?? resolveGenericFinancialCountryPlugin()
+  return getPluginRegistry().get(normalized)?.plugin ?? resolveGenericFinancialCountryPlugin()
 }
 
 export function isGenericFinancialCountryPlugin(plugin: FinancialCountryPlugin): boolean {
@@ -273,11 +300,11 @@ export function isGenericFinancialCountryPlugin(plugin: FinancialCountryPlugin):
 }
 
 export function listRegisteredFinancialCountryCodes(): readonly string[] {
-  return [...plugins.keys()].sort()
+  return [...getPluginRegistry().keys()].sort()
 }
 
 /** Tests only: drop every registration so a suite starts from a known state. */
 export function resetFinancialCountryPlugins(): void {
-  plugins.clear()
-  genericPlugin = null
+  getPluginRegistry().clear()
+  delete (globalThis as GlobalWithFinancialCountryPlugins)[GENERIC_PLUGIN_KEY]
 }

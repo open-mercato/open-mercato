@@ -13,6 +13,10 @@ export const setup: ModuleSetupConfig = {
     ],
     employee: ['freight.read'],
   },
+  defaultCustomerRoleFeatures: {
+    buyer: ['portal.freight.view', 'portal.freight.respond'],
+    viewer: ['portal.freight.view'],
+  },
 }
 
 export default setup

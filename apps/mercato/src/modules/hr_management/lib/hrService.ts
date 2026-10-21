@@ -8,13 +8,16 @@ import {
   HrLeaveRequest,
   HrApprovalRequest,
   HrApprovalWorkflow,
+  type LeaveType,
 } from '../data/entities'
+import { readLeaveBalance } from './leaveBalances'
 
 export type HrScope = { tenantId: string; organizationId: string }
 
 export type EmployeeInput = {
   id?: string
   departmentId?: string | null
+  managerEmployeeId?: string | null
   hireDate?: Date | string
   terminationDate?: Date | string | null
 }
@@ -28,8 +31,11 @@ export type AttendanceInput = {
 export type LeaveInput = {
   id?: string
   employeeId: string
+  leaveType?: string
   startDate: Date | string
   endDate: Date | string
+  totalDays?: number
+  status?: string
 }
 
 export type DepartmentInput = {
@@ -76,6 +82,29 @@ export async function assertEmployeeWritable(
   const terminationDate = input.terminationDate ? new Date(input.terminationDate) : null
   if (hireDate && terminationDate && terminationDate < hireDate) {
     return raiseHrError(409, 'termination_before_hire', 'The termination date cannot be earlier than the hire date.')
+  }
+  if (!input.managerEmployeeId) return
+  if (input.id && input.managerEmployeeId === input.id) {
+    return raiseHrError(409, 'employee_manager_self', 'An employee cannot be their own manager.')
+  }
+  const manager = await em.findOne(HrEmployee, { ...scoped, id: input.managerEmployeeId })
+  if (!manager) {
+    return raiseHrError(400, 'employee_manager_not_found', 'The selected manager does not exist.')
+  }
+  if (!input.id) return
+  // A cycle makes the reporting line non-terminating and the manager approval step
+  // unresolvable, so the walk is a visited set rather than a depth limit.
+  const employees = await em.find(HrEmployee, scoped)
+  const managerById = new Map(employees.map((employee) => [employee.id, employee.managerEmployeeId ?? null]))
+  const visited = new Set<string>()
+  let cursor: string | null = input.managerEmployeeId
+  while (cursor) {
+    if (cursor === input.id) {
+      return raiseHrError(409, 'employee_manager_cycle', 'The reporting line cannot contain a cycle.')
+    }
+    if (visited.has(cursor)) break
+    visited.add(cursor)
+    cursor = managerById.get(cursor) ?? null
   }
 }
 
@@ -187,6 +216,26 @@ export async function assertLeaveRequestBookable(
   })
   if (overlapping) {
     return raiseHrError(409, 'leave_overlap', 'This employee already has leave booked in that period.')
+  }
+
+  const status = input.status ?? 'pending'
+  if (status !== 'pending' && status !== 'approved') return
+  if (input.leaveType === 'unpaid' || !input.leaveType || input.totalDays === undefined) return
+
+  const balance = await readLeaveBalance(em, scope, {
+    employeeId: input.employeeId,
+    leaveType: input.leaveType as LeaveType,
+    startDate,
+    endDate,
+    excludeRequestId: input.id,
+  })
+  if (!balance) return
+  if (input.totalDays > balance.availableDays) {
+    return raiseHrError(
+      409,
+      'leave_balance_exceeded',
+      'The requested leave exceeds the available balance.',
+    )
   }
 }
 

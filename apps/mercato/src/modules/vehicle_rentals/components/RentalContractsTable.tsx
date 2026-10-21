@@ -65,6 +65,8 @@ export type RentalContractRow = {
   tax_amount?: string | null
   total_gross_amount?: string | null
   currency_code: string
+  sales_order_id?: string | null
+  sales_invoice_id?: string | null
   updated_at?: string | null
   updatedAt?: string | null
 }

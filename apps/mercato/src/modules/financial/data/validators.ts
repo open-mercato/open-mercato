@@ -222,3 +222,85 @@ export type UpdateCashAccountInput = z.infer<typeof updateCashAccountSchema>
 export type PostOpeningBalancesInput = z.infer<typeof postOpeningBalancesSchema>
 export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>
 export type StatementQueryInput = z.infer<typeof statementQuerySchema>
+
+export const createVendorSchema = z.object({
+  code: z.string().trim().min(1).max(50),
+  name: z.string().trim().min(1).max(300),
+  nameAr: z.string().trim().max(300).optional().nullable(),
+  vatNumber: z.string().trim().max(40).optional().nullable(),
+  crNumber: z.string().trim().max(40).optional().nullable(),
+  email: z.string().trim().email().max(200).optional().nullable(),
+  phone: z.string().trim().max(50).optional().nullable(),
+  countryCode: z.string().trim().length(2).optional().nullable(),
+  isActive: z.boolean().optional(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+})
+
+export const updateVendorSchema = createVendorSchema.partial().extend({
+  id: z.string().uuid(),
+})
+
+export type CreateVendorInput = z.infer<typeof createVendorSchema>
+export type UpdateVendorInput = z.infer<typeof updateVendorSchema>
+
+export const vendorInvoiceLineSchema = z.object({
+  description: z.string().trim().min(1).max(500),
+  expenseAccountId: z.string().uuid(),
+  quantity: amountField.optional(),
+  unitPriceNet: amountField.optional(),
+  totalNetAmount: amountField.optional(),
+  taxRate: amountField.optional(),
+  taxAmount: amountField.optional(),
+  totalGrossAmount: amountField.optional(),
+  taxCode: z.string().trim().max(40).optional().nullable(),
+})
+
+export const createVendorInvoiceSchema = z.object({
+  vendorId: z.string().uuid(),
+  internalNumber: z.string().trim().max(50).optional(),
+  vendorInvoiceNumber: z.string().trim().max(100).optional().nullable(),
+  issueDate: z.string().min(1),
+  dueDate: z.string().min(1).optional().nullable(),
+  currencyCode: z.string().trim().length(3),
+  withholdingCode: z.string().trim().max(40).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  lines: z.array(vendorInvoiceLineSchema).min(1),
+})
+
+export const updateVendorInvoiceSchema = z.object({
+  id: z.string().uuid(),
+  vendorId: z.string().uuid().optional(),
+  vendorInvoiceNumber: z.string().trim().max(100).optional().nullable(),
+  issueDate: z.string().min(1).optional(),
+  dueDate: z.string().min(1).optional().nullable(),
+  currencyCode: z.string().trim().length(3).optional(),
+  withholdingCode: z.string().trim().max(40).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  lines: z.array(vendorInvoiceLineSchema).min(1).optional(),
+})
+
+export type CreateVendorInvoiceInput = z.infer<typeof createVendorInvoiceSchema>
+export type UpdateVendorInvoiceInput = z.infer<typeof updateVendorInvoiceSchema>
+
+export const apPaymentAllocationSchema = z.object({
+  invoiceId: z.string().uuid(),
+  amount: amountField,
+})
+
+export const createApPaymentSchema = z.object({
+  vendorId: z.string().uuid(),
+  paymentDate: z.string().min(1),
+  currencyCode: z.string().trim().length(3),
+  grossAmount: amountField,
+  withholdingCode: z.string().trim().max(40).optional().nullable(),
+  method: z.enum(['bank_transfer', 'cheque', 'cash']).optional(),
+  reference: z.string().trim().max(200).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  allocations: z.array(apPaymentAllocationSchema).optional(),
+})
+
+export type CreateApPaymentInput = z.infer<typeof createApPaymentSchema>
+
+export const voidApDocumentSchema = z.object({
+  id: z.string().uuid(),
+})

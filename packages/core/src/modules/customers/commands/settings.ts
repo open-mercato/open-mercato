@@ -5,9 +5,11 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerSettings, type CustomerAddressFormat } from '../data/entities'
 import {
   customerDictionarySortModesUpsertSchema,
+  customerLeadSettingsUpsertSchema,
   customerSettingsUpsertSchema,
   customerStuckThresholdUpsertSchema,
   type CustomerDictionarySortModesUpsertInput,
+  type CustomerLeadSettingsUpsertInput,
   type CustomerSettingsUpsertInput,
   type CustomerStuckThresholdUpsertInput,
 } from '../data/validators'
@@ -153,3 +155,50 @@ const saveDictionarySortModesCommand: CommandHandler<
 }
 
 registerCommand(saveDictionarySortModesCommand)
+
+const saveLeadSettingsCommand: CommandHandler<
+  CustomerLeadSettingsUpsertInput,
+  { settingsId: string; leadsEnabled: boolean }
+> = {
+  id: 'customers.lead_settings.save',
+  async execute(rawInput, ctx) {
+    const input = customerLeadSettingsUpsertSchema.parse(rawInput)
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let settings = await loadCustomerSettings(em, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
+    if (!settings) {
+      settings = em.create(CustomerSettings, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        leadsEnabled: input.leadsEnabled,
+      })
+      em.persist(settings)
+    } else if (settings.leadsEnabled !== input.leadsEnabled) {
+      settings.leadsEnabled = input.leadsEnabled
+      settings.updatedAt = new Date()
+    }
+
+    await em.flush()
+
+    return {
+      settingsId: settings.id,
+      leadsEnabled: settings.leadsEnabled,
+    }
+  },
+}
+
+registerCommand(saveLeadSettingsCommand)
+
+export async function areLeadsEnabled(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  const settings = await loadCustomerSettings(em, scope)
+  return settings?.leadsEnabled ?? true
+}

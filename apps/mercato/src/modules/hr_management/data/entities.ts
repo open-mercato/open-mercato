@@ -19,6 +19,9 @@ export type LeaveType = (typeof LEAVE_TYPES)[number]
 export const LEAVE_REQUEST_STATUSES = ['pending', 'approved', 'rejected', 'cancelled'] as const
 export type LeaveRequestStatus = (typeof LEAVE_REQUEST_STATUSES)[number]
 
+export const LEAVE_ACCRUAL_SOURCES = ['monthly', 'manual'] as const
+export type LeaveAccrualSource = (typeof LEAVE_ACCRUAL_SOURCES)[number]
+
 export const EMPLOYEE_DOCUMENT_TYPES = [
   'national_id',
   'iqama',
@@ -90,6 +93,7 @@ export class HrDepartment {
 @Index({ name: 'hr_employees_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'hr_employees_status_idx', properties: ['organizationId', 'status'] })
 @Index({ name: 'hr_employees_department_idx', properties: ['organizationId', 'departmentId'] })
+@Index({ name: 'hr_employees_manager_idx', properties: ['organizationId', 'managerEmployeeId'] })
 @Index({ name: 'hr_employees_number_unique_idx', properties: ['organizationId', 'tenantId', 'employeeNumber'], options: { unique: true, where: 'deleted_at IS NULL' } })
 @Index({ name: 'hr_employees_national_id_unique_idx', properties: ['organizationId', 'tenantId', 'nationalId'], options: { unique: true, where: 'deleted_at IS NULL' } })
 export class HrEmployee {
@@ -125,6 +129,9 @@ export class HrEmployee {
   @Property({ name: 'department_id', type: 'uuid', nullable: true })
   departmentId?: string | null
 
+  @Property({ name: 'manager_employee_id', type: 'uuid', nullable: true })
+  managerEmployeeId?: string | null
+
   @Property({ name: 'job_title', type: 'text' })
   jobTitle!: string
 
@@ -145,6 +152,9 @@ export class HrEmployee {
 
   @Property({ type: 'text', nullable: true })
   phone?: string | null
+
+  @Property({ name: 'bank_iban', type: 'text', nullable: true })
+  bankIban?: string | null
 
   @Property({ name: 'user_id', type: 'uuid', nullable: true })
   userId?: string | null
@@ -321,6 +331,106 @@ export class HrLeaveRequest {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_leave_entitlements' })
+@Index({ name: 'hr_leave_entitlements_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_leave_entitlements_employee_idx', properties: ['organizationId', 'employeeId', 'leaveType', 'periodStart'] })
+@Index({
+  name: 'hr_leave_entitlements_unique_idx',
+  expression: 'create unique index "hr_leave_entitlements_unique_idx" on "hr_leave_entitlements" ("organization_id", "tenant_id", "employee_id", "leave_type", "period_start") where deleted_at is null',
+})
+export class HrLeaveEntitlement {
+  [OptionalProps]?: 'entitledDays' | 'carryOverDays' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Enum({ items: [...LEAVE_TYPES], type: 'text', name: 'leave_type' })
+  leaveType!: LeaveType
+
+  @Property({ name: 'period_start', type: 'date' })
+  periodStart!: Date
+
+  @Property({ name: 'period_end', type: 'date' })
+  periodEnd!: Date
+
+  @Property({ name: 'entitled_days', type: 'numeric', precision: 8, scale: 2, default: '0' })
+  entitledDays: string = '0'
+
+  @Property({ name: 'carry_over_days', type: 'numeric', precision: 8, scale: 2, default: '0' })
+  carryOverDays: string = '0'
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_leave_accruals' })
+@Index({ name: 'hr_leave_accruals_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_leave_accruals_employee_idx', properties: ['organizationId', 'employeeId', 'leaveType', 'accrualMonth'] })
+@Index({
+  name: 'hr_leave_accruals_unique_idx',
+  expression: 'create unique index "hr_leave_accruals_unique_idx" on "hr_leave_accruals" ("organization_id", "tenant_id", "employee_id", "leave_type", "accrual_month")',
+})
+export class HrLeaveAccrual {
+  [OptionalProps]?: 'days' | 'source' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Enum({ items: [...LEAVE_TYPES], type: 'text', name: 'leave_type' })
+  leaveType!: LeaveType
+
+  @Property({ name: 'accrual_month', type: 'date' })
+  accrualMonth!: Date
+
+  @Property({ type: 'numeric', precision: 8, scale: 2, default: '0' })
+  days: string = '0'
+
+  @Property({ name: 'entitlement_id', type: 'uuid', nullable: true })
+  entitlementId?: string | null
+
+  @Enum({ items: [...LEAVE_ACCRUAL_SOURCES], type: 'text', default: 'monthly' })
+  source: LeaveAccrualSource = 'monthly'
+
+  @Property({ type: 'text', nullable: true })
+  note?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }
 
 @Entity({ tableName: 'hr_employee_documents' })
@@ -568,4 +678,473 @@ export class HrApprovalActionLog {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+export const PAYROLL_RUN_STATUSES = ['draft', 'calculated', 'submitted', 'approved', 'paid', 'closed'] as const
+export type PayrollRunStatus = (typeof PAYROLL_RUN_STATUSES)[number]
+export const PAYSLIP_STATUSES = ['draft', 'approved', 'paid'] as const
+export const PAYSLIP_LINE_KINDS = ['earning', 'deduction'] as const
+export const PAYSLIP_LINE_CODES = [
+  'basic', 'allowance', 'overtime', 'incentive', 'loan_instalment', 'penalty', 'unpaid_leave', 'absence', 'manual',
+] as const
+export const LOAN_STATUSES = ['pending', 'approved', 'rejected', 'cancelled', 'settling', 'settled'] as const
+export const LOAN_INSTALMENT_STATUSES = ['scheduled', 'deducted', 'skipped', 'written_off'] as const
+export const PENALTY_TYPES = ['deduction', 'written_warning', 'suspension_days'] as const
+export const INCENTIVE_TYPES = ['bonus', 'commission', 'allowance', 'overtime_pay'] as const
+
+@Entity({ tableName: 'hr_employee_compensations' })
+@Index({ name: 'hr_employee_compensations_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_employee_compensations_employee_idx', properties: ['organizationId', 'employeeId', 'effectiveFrom'] })
+export class HrEmployeeCompensation {
+  [OptionalProps]?: 'housingAllowance' | 'transportAllowance' | 'otherAllowance' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Property({ name: 'effective_from', type: 'date' })
+  effectiveFrom!: Date
+
+  @Property({ name: 'basic_salary', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  basicSalary: string = '0'
+
+  @Property({ name: 'housing_allowance', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  housingAllowance: string = '0'
+
+  @Property({ name: 'transport_allowance', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  transportAllowance: string = '0'
+
+  @Property({ name: 'other_allowance', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  otherAllowance: string = '0'
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_employee_loans' })
+@Index({ name: 'hr_employee_loans_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_employee_loans_employee_idx', properties: ['organizationId', 'employeeId', 'status'] })
+export class HrEmployeeLoan {
+  [OptionalProps]?: 'status' | 'outstandingAmount' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Property({ name: 'principal_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  principalAmount: string = '0'
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'instalment_count', type: 'integer', default: 1 })
+  instalmentCount: number = 1
+
+  @Property({ name: 'instalment_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  instalmentAmount: string = '0'
+
+  @Property({ name: 'first_due_on', type: 'date' })
+  firstDueOn!: Date
+
+  @Property({ name: 'outstanding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  outstandingAmount: string = '0'
+
+  @Property({ type: 'text', nullable: true })
+  reason?: string | null
+
+  @Enum({ items: [...LOAN_STATUSES], type: 'text', name: 'status', default: 'pending' })
+  status: (typeof LOAN_STATUSES)[number] = 'pending'
+
+  @Property({ name: 'approval_request_id', type: 'uuid', nullable: true })
+  approvalRequestId?: string | null
+
+  @Property({ name: 'decided_by_user_id', type: 'uuid', nullable: true })
+  decidedByUserId?: string | null
+
+  @Property({ name: 'decided_at', type: Date, nullable: true })
+  decidedAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_loan_instalments' })
+@Index({ name: 'hr_loan_instalments_loan_idx', properties: ['loanId', 'sequence'] })
+@Index({ name: 'hr_loan_instalments_due_idx', properties: ['organizationId', 'status', 'dueOn'] })
+export class HrLoanInstalment {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'loan_id', type: 'uuid' })
+  loanId!: string
+
+  @Property({ type: 'integer' })
+  sequence!: number
+
+  @Property({ name: 'due_on', type: 'date' })
+  dueOn!: Date
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amount: string = '0'
+
+  @Enum({ items: [...LOAN_INSTALMENT_STATUSES], type: 'text', name: 'status', default: 'scheduled' })
+  status: (typeof LOAN_INSTALMENT_STATUSES)[number] = 'scheduled'
+
+  @Property({ name: 'payroll_run_id', type: 'uuid', nullable: true })
+  payrollRunId?: string | null
+
+  @Property({ name: 'payslip_id', type: 'uuid', nullable: true })
+  payslipId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'hr_employee_penalties' })
+@Index({ name: 'hr_employee_penalties_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_employee_penalties_employee_idx', properties: ['organizationId', 'employeeId', 'status'] })
+export class HrEmployeePenalty {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Enum({ items: [...PENALTY_TYPES], type: 'text', name: 'penalty_type' })
+  penaltyType!: (typeof PENALTY_TYPES)[number]
+
+  @Property({ name: 'incident_on', type: 'date' })
+  incidentOn!: Date
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, nullable: true })
+  amount?: string | null
+
+  @Property({ name: 'suspended_days', type: 'integer', nullable: true })
+  suspendedDays?: number | null
+
+  @Property({ type: 'text' })
+  reason!: string
+
+  @Enum({ items: [...LOAN_STATUSES], type: 'text', name: 'status', default: 'pending' })
+  status: (typeof LOAN_STATUSES)[number] = 'pending'
+
+  @Property({ name: 'approval_request_id', type: 'uuid', nullable: true })
+  approvalRequestId?: string | null
+
+  @Property({ name: 'decided_by_user_id', type: 'uuid', nullable: true })
+  decidedByUserId?: string | null
+
+  @Property({ name: 'decided_at', type: Date, nullable: true })
+  decidedAt?: Date | null
+
+  @Property({ name: 'payroll_run_id', type: 'uuid', nullable: true })
+  payrollRunId?: string | null
+
+  @Property({ name: 'payslip_id', type: 'uuid', nullable: true })
+  payslipId?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_employee_incentives' })
+@Index({ name: 'hr_employee_incentives_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_employee_incentives_employee_idx', properties: ['organizationId', 'employeeId', 'status'] })
+export class HrEmployeeIncentive {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Enum({ items: [...INCENTIVE_TYPES], type: 'text', name: 'incentive_type' })
+  incentiveType!: (typeof INCENTIVE_TYPES)[number]
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amount: string = '0'
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'period_start', type: 'date', nullable: true })
+  periodStart?: Date | null
+
+  @Property({ name: 'period_end', type: 'date', nullable: true })
+  periodEnd?: Date | null
+
+  @Property({ type: 'text' })
+  reason!: string
+
+  @Enum({ items: [...LOAN_STATUSES], type: 'text', name: 'status', default: 'pending' })
+  status: (typeof LOAN_STATUSES)[number] = 'pending'
+
+  @Property({ name: 'approval_request_id', type: 'uuid', nullable: true })
+  approvalRequestId?: string | null
+
+  @Property({ name: 'decided_by_user_id', type: 'uuid', nullable: true })
+  decidedByUserId?: string | null
+
+  @Property({ name: 'decided_at', type: Date, nullable: true })
+  decidedAt?: Date | null
+
+  @Property({ name: 'payroll_run_id', type: 'uuid', nullable: true })
+  payrollRunId?: string | null
+
+  @Property({ name: 'payslip_id', type: 'uuid', nullable: true })
+  payslipId?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_payroll_runs' })
+@Index({ name: 'hr_payroll_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'hr_payroll_runs_period_idx', properties: ['organizationId', 'periodStart', 'periodEnd'] })
+export class HrPayrollRun {
+  [OptionalProps]?: 'status' | 'grossTotal' | 'deductionTotal' | 'netTotal' | 'employeeCount' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'period_start', type: 'date' })
+  periodStart!: Date
+
+  @Property({ name: 'period_end', type: 'date' })
+  periodEnd!: Date
+
+  @Property({ name: 'payment_date', type: 'date' })
+  paymentDate!: Date
+
+  @Enum({ items: [...PAYROLL_RUN_STATUSES], type: 'text', name: 'status', default: 'draft' })
+  status: PayrollRunStatus = 'draft'
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'gross_total', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  grossTotal: string = '0'
+
+  @Property({ name: 'deduction_total', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  deductionTotal: string = '0'
+
+  @Property({ name: 'net_total', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  netTotal: string = '0'
+
+  @Property({ name: 'employee_count', type: 'integer', default: 0 })
+  employeeCount: number = 0
+
+  @Property({ name: 'calculated_at', type: Date, nullable: true })
+  calculatedAt?: Date | null
+
+  @Property({ name: 'approval_request_id', type: 'uuid', nullable: true })
+  approvalRequestId?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'hr_payslips' })
+@Index({ name: 'hr_payslips_run_idx', properties: ['payrollRunId'] })
+@Index({ name: 'hr_payslips_employee_idx', properties: ['organizationId', 'employeeId'] })
+export class HrPayslip {
+  [OptionalProps]?: 'status' | 'grossAmount' | 'deductionAmount' | 'netAmount' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'payroll_run_id', type: 'uuid' })
+  payrollRunId!: string
+
+  @Property({ name: 'employee_id', type: 'uuid' })
+  employeeId!: string
+
+  @Property({ name: 'gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  grossAmount: string = '0'
+
+  @Property({ name: 'deduction_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  deductionAmount: string = '0'
+
+  @Property({ name: 'net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  netAmount: string = '0'
+
+  @Enum({ items: [...PAYSLIP_STATUSES], type: 'text', name: 'status', default: 'draft' })
+  status: (typeof PAYSLIP_STATUSES)[number] = 'draft'
+
+  @Property({ name: 'worked_days', type: 'numeric', precision: 8, scale: 2, default: '0' })
+  workedDays: string = '0'
+
+  @Property({ name: 'paid_leave_days', type: 'numeric', precision: 8, scale: 2, default: '0' })
+  paidLeaveDays: string = '0'
+
+  @Property({ name: 'unpaid_leave_days', type: 'numeric', precision: 8, scale: 2, default: '0' })
+  unpaidLeaveDays: string = '0'
+
+  @Property({ name: 'absence_days', type: 'numeric', precision: 8, scale: 2, default: '0' })
+  absenceDays: string = '0'
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'hr_payslip_lines' })
+@Index({ name: 'hr_payslip_lines_payslip_idx', properties: ['payslipId', 'sequence'] })
+export class HrPayslipLine {
+  [OptionalProps]?: 'sequence' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'payslip_id', type: 'uuid' })
+  payslipId!: string
+
+  @Enum({ items: [...PAYSLIP_LINE_KINDS], type: 'text', name: 'kind' })
+  kind!: (typeof PAYSLIP_LINE_KINDS)[number]
+
+  @Enum({ items: [...PAYSLIP_LINE_CODES], type: 'text', name: 'code' })
+  code!: (typeof PAYSLIP_LINE_CODES)[number]
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amount: string = '0'
+
+  @Property({ name: 'source_entity_type', type: 'text', nullable: true })
+  sourceEntityType?: string | null
+
+  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
+  sourceEntityId?: string | null
+
+  @Property({ type: 'integer', default: 0 })
+  sequence: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }

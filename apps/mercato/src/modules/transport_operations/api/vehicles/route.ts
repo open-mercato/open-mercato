@@ -37,7 +37,7 @@ const crud = makeCrudRoute({
   list: {
     schema: listSchema,
     entityId: TRANSPORT_VEHICLE_ENTITY_ID,
-    fields: ['id', 'organization_id', 'tenant_id', 'plate_number', 'vin', 'make', 'model', 'year', 'capacity', 'status', 'telematics_device_id', 'created_at', 'updated_at'],
+    fields: ['id', 'organization_id', 'tenant_id', 'plate_number', 'vin', 'sequence_number', 'make', 'model', 'year', 'capacity', 'color', 'vehicle_type', 'current_odometer', 'notes', 'status', 'telematics_device_id', 'created_at', 'updated_at'],
     sortFieldMap: { plateNumber: 'plate_number', make: 'make', model: 'model', year: 'year', createdAt: 'created_at', updatedAt: 'updated_at' },
     buildFilters: (query) => withOrConditions({
       ...(query.id ? { id: { $eq: query.id } } : {}),
@@ -81,7 +81,10 @@ export const DELETE = crud.DELETE
 
 const vehicleListItemSchema = z.object({
   id: z.string().uuid(), organization_id: z.string().uuid(), tenant_id: z.string().uuid(),
-  plate_number: z.string(), vin: z.string(), make: z.string(), model: z.string(), year: z.number(), capacity: z.number(),
+  plate_number: z.string(), vin: z.string().nullable().optional(), sequence_number: z.string().nullable().optional(),
+  make: z.string(), model: z.string(), year: z.number(), capacity: z.number(),
+  color: z.string().nullable().optional(), vehicle_type: z.string().nullable().optional(),
+  current_odometer: z.number().nullable().optional(), notes: z.string().nullable().optional(),
   status: z.enum(['active', 'maintenance', 'out_of_service']), telematics_device_id: z.string().nullable().optional(),
   created_at: z.string().nullable().optional(), updated_at: z.string().nullable().optional(), updatedAt: z.string().nullable().optional(),
 })

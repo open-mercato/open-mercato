@@ -32,7 +32,7 @@ const em = { findOne: (...args: unknown[]) => findOneMock(...args) } as unknown 
 
 describe('assertVehicleIdentityUnique', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    findOneMock.mockReset()
     findOneMock.mockResolvedValue(null)
   })
 
@@ -65,6 +65,22 @@ describe('assertVehicleIdentityUnique', () => {
       status: 409,
       body: { error: 'Another vehicle already uses this VIN.' },
     })
+  })
+
+  it('refuses a duplicate fleet sequence number with its own message', async () => {
+    findOneMock.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'existing' })
+
+    await expect(
+      assertVehicleIdentityUnique(em, scope, { plateNumber: 'X Y Z 9999', sequenceNumber: '123456789' }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'Another vehicle already uses this sequence number.' },
+    })
+  })
+
+  it('treats an absent or blank sequence as no sequence, not as a value to match', async () => {
+    await assertVehicleIdentityUnique(em, scope, { plateNumber: 'A B C 1234', sequenceNumber: '   ' })
+    expect(findOneMock).toHaveBeenCalledTimes(1)
   })
 
   it('scopes the lookup to the organization, never the whole tenant', async () => {

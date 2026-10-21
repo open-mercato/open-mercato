@@ -97,3 +97,62 @@ export function isZeroDecimal(value: string | number): boolean {
   const { whole, fraction } = parseAmount(value)
   return /^0+$/.test(whole) && /^0*$/.test(fraction)
 }
+
+function scaledParts(value: string | number, scale: number): { negative: boolean; scaled: bigint } {
+  const { negative, whole, fraction } = parseAmount(value)
+  const padded = `${fraction}${'0'.repeat(scale)}`.slice(0, scale)
+  return { negative, scaled: BigInt(`${whole}${padded}`) }
+}
+
+function renderScaled(value: bigint, scale: number): string {
+  const negative = value < 0n
+  const magnitude = negative ? -value : value
+  const digits = magnitude.toString().padStart(scale + 1, '0')
+  const rendered = scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`
+  const isZero = /^0+(\.0+)?$/.test(rendered)
+  return negative && !isZero ? `-${rendered}` : rendered
+}
+
+/** Exact product of two decimal strings, rounded half-up once at `workingScale`. */
+export function multiplyDecimalStrings(
+  left: string | number,
+  right: string | number,
+  workingScale = 6,
+): string {
+  const factor = 10n ** BigInt(workingScale)
+  const first = scaledParts(left, workingScale)
+  const second = scaledParts(right, workingScale)
+  const product = first.scaled * second.scaled * (first.negative ? -1n : 1n) * (second.negative ? -1n : 1n)
+  const rounded = product >= 0n ? (product + factor / 2n) / factor : -((-product + factor / 2n) / factor)
+  return renderScaled(rounded, workingScale)
+}
+
+/** Divide a decimal by a positive integer, rounded half-up at `workingScale`. */
+export function divideDecimalByInteger(
+  value: string | number,
+  divisor: number,
+  workingScale = 6,
+): string {
+  if (!Number.isInteger(divisor) || divisor <= 0) {
+    throw new MoneyFormatError(`divisor ${String(divisor)}`)
+  }
+  const { negative, scaled } = scaledParts(value, workingScale)
+  const magnitude = negative ? -scaled : scaled
+  const rounded = (magnitude + BigInt(divisor) / 2n) / BigInt(divisor)
+  return renderScaled(negative ? -rounded : rounded, workingScale)
+}
+
+/** `percent` of `value` (15 means 15%), exact to `workingScale`. */
+export function percentOfDecimal(
+  value: string | number,
+  percent: string | number,
+  workingScale = 6,
+): string {
+  const factor = 10n ** BigInt(workingScale)
+  const base = scaledParts(value, workingScale)
+  const rate = scaledParts(percent, workingScale)
+  const divisor = factor * 100n
+  const product = base.scaled * rate.scaled * (base.negative ? -1n : 1n) * (rate.negative ? -1n : 1n)
+  const rounded = product >= 0n ? (product + divisor / 2n) / divisor : -((-product + divisor / 2n) / divisor)
+  return renderScaled(rounded, workingScale)
+}

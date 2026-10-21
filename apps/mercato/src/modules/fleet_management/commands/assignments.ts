@@ -1,24 +1,26 @@
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
-import { FleetVehicle, FleetVehicleAssignment, FleetVehicleOdometerLog } from '../data/entities'
+import { FleetVehicleAssignment, FleetVehicleOdometerLog } from '../data/entities'
 import { createVehicleAssignmentSchema, returnVehicleAssignmentSchema } from '../data/validators'
-import { assertAssignmentReturnable, assertVehicleAssignable } from '../lib/fleetService'
+import {
+  assertAssignmentReturnable,
+  assertVehicleAssignable,
+  findFleetVehicle,
+  updateFleetVehicleOdometer,
+} from '../lib/fleetService'
 import { raiseFleetError } from '../lib/errors'
 import {
   FLEET_ASSIGNMENT_ENTITY_ID,
   FLEET_ODOMETER_LOG_ENTITY_ID,
-  FLEET_VEHICLE_ENTITY_ID,
   fleetAssignmentEvents,
   fleetAssignmentIndexer,
   fleetOdometerLogEvents,
   fleetOdometerLogIndexer,
-  fleetVehicleEvents,
-  fleetVehicleIndexer,
 } from './fleet'
 
 function resolveScope(ctx: CommandRuntimeContext) {
@@ -36,19 +38,15 @@ function optionalDate(value: unknown): Date | null {
 
 const handoverVehicleCommand: CommandHandler<
   Record<string, unknown>,
-  { assignmentId: string; vehicleId: string; assignedAt: Date }
+  { assignmentId: string; vehicleId: string; assignedAt: Date; pendingApproval: boolean }
 > = {
   id: 'fleet_management.assignments.handover',
   async execute(rawInput, ctx) {
     const input = createVehicleAssignmentSchema.parse(rawInput)
     const scope = resolveScope(ctx)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const result = await em.transactional(async (transactionEm) => {
-      const vehicle = await transactionEm.findOne(FleetVehicle, {
-        id: input.vehicleId,
-        ...scope,
-        deletedAt: null,
-      }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    const created = await em.transactional(async (transactionEm) => {
+      const vehicle = await findFleetVehicle(transactionEm, scope, input.vehicleId, { forUpdate: true })
       if (!vehicle) return raiseFleetError(404, 'vehicle_not_found', 'Vehicle not found.')
       await assertVehicleAssignable(transactionEm, {
         vehicleId: input.vehicleId,
@@ -63,7 +61,7 @@ const handoverVehicleCommand: CommandHandler<
         organizationId: scope.organizationId,
         vehicleId: input.vehicleId,
         employeeId: input.employeeId,
-        status: 'active',
+        status: 'pending_approval',
         assignedAt,
         dueReturnAt: optionalDate(input.dueReturnAt),
         handoverOdometer,
@@ -73,58 +71,105 @@ const handoverVehicleCommand: CommandHandler<
         updatedAt: assignedAt,
         deletedAt: null,
       })
-
-      vehicle.status = 'assigned'
-      vehicle.assignedEmployeeId = input.employeeId
-      vehicle.currentOdometer = handoverOdometer
-      vehicle.updatedAt = assignedAt
-
-      // Flush before writing the log: a freshly created entity has no primary key until the flush
-      // assigns one, so reading `assignment.id` first would store a NULL link. The return path never
-      // hits this because it loads the assignment it is closing.
-      await transactionEm.persist([assignment, vehicle]).flush()
-
-      // The handover reading is logged too, not only the return. A custody change is the one moment
-      // the mileage is agreed by two parties, and a vehicle held long-term would otherwise have no
-      // reading in its history until it came back — which is exactly the stretch a maintenance
-      // interval has to cover. The reading is already stored on the assignment; this keeps the
-      // vehicle's own history consistent with the return path instead of trusting one of the two.
-      const odometerLog = transactionEm.create(FleetVehicleOdometerLog, {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        vehicleId: vehicle.id,
-        reading: handoverOdometer,
-        recordedAt: assignedAt,
-        source: 'assignment_handover',
-        assignmentId: assignment.id,
-        notes: input.custodyNotes ?? null,
-        createdBy: ctx.auth?.sub ?? null,
-        createdAt: assignedAt,
-        updatedAt: assignedAt,
-        deletedAt: null,
-      })
-
-      await transactionEm.persist(odometerLog).flush()
-      return { assignment, vehicle, odometerLog, assignedAt }
+      await transactionEm.persist(assignment).flush()
+      return { assignment, vehicle, handoverOdometer }
     })
+
+    let approvalRequestId: string | null = null
+    try {
+      const commandBus = ctx.container.resolve('commandBus') as CommandBus
+      const submitted = await commandBus.execute<Record<string, unknown>, {
+        submitted: boolean
+        approvalRequestId?: string
+      }>('hr_management.approvals.submit_for_entity', {
+        input: {
+          entityType: 'fleet_vehicle_assignment',
+          entityId: created.assignment.id,
+          summary: `Vehicle custody ${created.vehicle.plateNumber}`,
+          payload: {
+            assignmentId: created.assignment.id,
+            vehicleId: created.vehicle.id,
+            employeeId: created.assignment.employeeId,
+          },
+        },
+        ctx,
+      })
+      if (submitted.result.submitted) {
+        approvalRequestId = submitted.result.approvalRequestId ?? null
+      }
+    } catch (error) {
+      if (error instanceof CrudHttpError) throw error
+      approvalRequestId = null
+    }
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let activatedAt: Date | null = null
+    let odometerLog: FleetVehicleOdometerLog | null = null
+    if (approvalRequestId) {
+      created.assignment.approvalRequestId = approvalRequestId
+      created.assignment.updatedAt = new Date()
+      await em.flush()
+    } else {
+      const activated = await em.transactional(async (transactionEm) => {
+        const vehicle = await findFleetVehicle(transactionEm, scope, created.vehicle.id, { forUpdate: true })
+        const assignment = await transactionEm.findOne(FleetVehicleAssignment, {
+          id: created.assignment.id,
+          ...scope,
+          deletedAt: null,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (!vehicle || !assignment) return raiseFleetError(404, 'assignment_not_found', 'Assignment not found.')
+        const now = new Date()
+        assignment.status = 'active'
+        assignment.assignedAt = now
+        assignment.updatedAt = now
+        const log = transactionEm.create(FleetVehicleOdometerLog, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          vehicleId: vehicle.id,
+          reading: assignment.handoverOdometer ?? vehicle.currentOdometer,
+          recordedAt: now,
+          source: 'assignment_handover',
+          assignmentId: assignment.id,
+          notes: assignment.custodyNotes ?? null,
+          createdBy: ctx.auth?.sub ?? null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        })
+        await updateFleetVehicleOdometer(
+          transactionEm,
+          scope,
+          vehicle.id,
+          assignment.handoverOdometer ?? vehicle.currentOdometer,
+          now,
+        )
+        await transactionEm.persist([assignment, log]).flush()
+        return { assignment, log, now }
+      })
+      activatedAt = activated.now
+      odometerLog = activated.log
+      created.assignment.status = activated.assignment.status
+      created.assignment.assignedAt = activated.assignment.assignedAt
+    }
+
     await emitCrudSideEffects({
-      dataEngine, action: 'created', entity: result.assignment,
-      identifiers: { id: result.assignment.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
+      dataEngine, action: 'created', entity: created.assignment,
+      identifiers: { id: created.assignment.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
       events: fleetAssignmentEvents, indexer: fleetAssignmentIndexer,
     })
-    await emitCrudSideEffects({
-      dataEngine, action: 'updated', entity: result.vehicle,
-      identifiers: { id: result.vehicle.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
-      events: fleetVehicleEvents, indexer: fleetVehicleIndexer,
-    })
-    await emitCrudSideEffects({
-      dataEngine, action: 'created', entity: result.odometerLog,
-      identifiers: { id: result.odometerLog.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
-      events: fleetOdometerLogEvents, indexer: fleetOdometerLogIndexer,
-    })
-    return { assignmentId: result.assignment.id, vehicleId: result.vehicle.id, assignedAt: result.assignedAt }
+    if (odometerLog) {
+      await emitCrudSideEffects({
+        dataEngine, action: 'created', entity: odometerLog,
+        identifiers: { id: odometerLog.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
+        events: fleetOdometerLogEvents, indexer: fleetOdometerLogIndexer,
+      })
+    }
+    return {
+      assignmentId: created.assignment.id,
+      vehicleId: created.vehicle.id,
+      assignedAt: activatedAt ?? created.assignment.createdAt,
+      pendingApproval: Boolean(approvalRequestId),
+    }
   },
   buildLog: ({ result, ctx }) => {
     const scope = resolveScope(ctx)
@@ -156,11 +201,7 @@ const returnVehicleCommand: CommandHandler<
       }, { lockMode: LockMode.PESSIMISTIC_WRITE })
       if (!assignment) return raiseFleetError(404, 'assignment_not_found', 'Assignment not found.')
 
-      const vehicle = await transactionEm.findOne(FleetVehicle, {
-        id: assignment.vehicleId,
-        ...scope,
-        deletedAt: null,
-      }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+      const vehicle = await findFleetVehicle(transactionEm, scope, assignment.vehicleId, { forUpdate: true })
       if (!vehicle) return raiseFleetError(404, 'vehicle_not_found', 'Vehicle not found.')
 
       const returnedAt = optionalDate(input.returnedAt) ?? new Date()
@@ -169,11 +210,6 @@ const returnVehicleCommand: CommandHandler<
       assignment.returnOdometer = input.returnOdometer
       if (input.custodyNotes) assignment.custodyNotes = input.custodyNotes
       assignment.updatedAt = returnedAt
-
-      vehicle.status = vehicle.status === 'maintenance' ? 'maintenance' : 'active'
-      vehicle.assignedEmployeeId = null
-      vehicle.currentOdometer = input.returnOdometer
-      vehicle.updatedAt = returnedAt
 
       const odometerLog = transactionEm.create(FleetVehicleOdometerLog, {
         tenantId: scope.tenantId,
@@ -190,7 +226,8 @@ const returnVehicleCommand: CommandHandler<
         deletedAt: null,
       })
 
-      await transactionEm.persist([assignment, vehicle, odometerLog]).flush()
+      await updateFleetVehicleOdometer(transactionEm, scope, vehicle.id, input.returnOdometer, returnedAt)
+      await transactionEm.persist([assignment, odometerLog]).flush()
       return { assignment, vehicle, odometerLog, returnedAt }
     })
 
@@ -199,11 +236,6 @@ const returnVehicleCommand: CommandHandler<
       dataEngine, action: 'updated', entity: result.assignment,
       identifiers: { id: result.assignment.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
       events: fleetAssignmentEvents, indexer: fleetAssignmentIndexer,
-    })
-    await emitCrudSideEffects({
-      dataEngine, action: 'updated', entity: result.vehicle,
-      identifiers: { id: result.vehicle.id, ...scope }, actorUserId: ctx.auth?.sub ?? null,
-      events: fleetVehicleEvents, indexer: fleetVehicleIndexer,
     })
     await emitCrudSideEffects({
       dataEngine, action: 'created', entity: result.odometerLog,

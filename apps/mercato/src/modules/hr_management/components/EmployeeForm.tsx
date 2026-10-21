@@ -8,7 +8,7 @@ import { withFlash } from '@open-mercato/ui/backend/utils/flash'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 import type { EmployeeStatus, EmploymentType } from '../data/entities'
-import { useDepartmentOptions } from './hrOptions'
+import { employeeLabel, useDepartmentOptions, useEmployeeLabels } from './hrOptions'
 import type { EmployeeRow } from './EmployeesTable'
 
 // Literal on purpose: this is a client component, so importing the command module
@@ -38,6 +38,7 @@ export type EmployeeFormValues = {
   nationalId: string
   nationalIdExpiry: string
   departmentId: string
+  managerEmployeeId: string
   jobTitle: string
   employmentType: EmploymentType
   status: EmployeeStatus
@@ -45,6 +46,7 @@ export type EmployeeFormValues = {
   terminationDate: string
   email: string
   phone: string
+  bankIban: string
   // Carries the optimistic-lock version into `CrudForm`, which derives the
   // expected-version header from `initialValues.updatedAt` for update AND delete.
   updatedAt?: string | null
@@ -72,6 +74,7 @@ export function toEmployeeFormValues(row: EmployeeRow): EmployeeFormValues {
     nationalId: row.national_id ?? '',
     nationalIdExpiry: toDateOnly(row.national_id_expiry),
     departmentId: row.department_id ?? '',
+    managerEmployeeId: row.manager_employee_id ?? '',
     jobTitle: row.job_title ?? '',
     employmentType: row.employment_type ?? 'full_time',
     status: row.status,
@@ -79,6 +82,7 @@ export function toEmployeeFormValues(row: EmployeeRow): EmployeeFormValues {
     terminationDate: toDateOnly(row.termination_date),
     email: row.email ?? '',
     phone: row.phone ?? '',
+    bankIban: row.bank_iban ?? '',
     updatedAt: row.updatedAt ?? row.updated_at ?? null,
   }
 }
@@ -93,6 +97,7 @@ export function buildEmployeeFormDefaults(id = ''): EmployeeFormValues {
     nationalId: '',
     nationalIdExpiry: '',
     departmentId: '',
+    managerEmployeeId: '',
     jobTitle: '',
     employmentType: 'full_time',
     status: 'active',
@@ -100,6 +105,7 @@ export function buildEmployeeFormDefaults(id = ''): EmployeeFormValues {
     terminationDate: '',
     email: '',
     phone: '',
+    bankIban: '',
     updatedAt: null,
   }
 }
@@ -122,6 +128,7 @@ export function toEmployeePayload(values: EmployeeFormValues): Record<string, un
     nationalId: values.nationalId.trim(),
     nationalIdExpiry: optional(values.nationalIdExpiry),
     departmentId: values.departmentId.length > 0 ? values.departmentId : null,
+    managerEmployeeId: values.managerEmployeeId.length > 0 ? values.managerEmployeeId : null,
     jobTitle: values.jobTitle.trim(),
     employmentType: values.employmentType,
     status: values.status,
@@ -129,12 +136,17 @@ export function toEmployeePayload(values: EmployeeFormValues): Record<string, un
     terminationDate: optional(values.terminationDate),
     email: optional(values.email),
     phone: optional(values.phone),
+    bankIban: optional(values.bankIban),
   }
 }
 
 type Translate = ReturnType<typeof useT>
 
-function useEmployeeFields(t: Translate, departmentOptions: Array<{ value: string; label: string }>): CrudField[] {
+function useEmployeeFields(
+  t: Translate,
+  departmentOptions: Array<{ value: string; label: string }>,
+  managerOptions: Array<{ value: string; label: string }>,
+): CrudField[] {
   return React.useMemo<CrudField[]>(() => [
     { id: 'employeeNumber', label: t('hr_management.employees.form.fields.employeeNumber', 'Employee number'), type: 'text', required: true },
     { id: 'firstName', label: t('hr_management.employees.form.fields.firstName', 'First name'), type: 'text', required: true },
@@ -156,6 +168,12 @@ function useEmployeeFields(t: Translate, departmentOptions: Array<{ value: strin
       label: t('hr_management.employees.form.fields.department', 'Department'),
       type: 'select',
       options: departmentOptions,
+    },
+    {
+      id: 'managerEmployeeId',
+      label: t('hr_management.employees.form.fields.manager', 'Direct manager'),
+      type: 'select',
+      options: managerOptions,
     },
     { id: 'jobTitle', label: t('hr_management.employees.form.fields.jobTitle', 'Job title'), type: 'text', required: true },
     {
@@ -182,16 +200,17 @@ function useEmployeeFields(t: Translate, departmentOptions: Array<{ value: strin
     { id: 'terminationDate', label: t('hr_management.employees.form.fields.terminationDate', 'Termination date'), type: 'date' },
     { id: 'email', label: t('hr_management.employees.form.fields.email', 'Email'), type: 'text' },
     { id: 'phone', label: t('hr_management.employees.form.fields.phone', 'Phone'), type: 'text' },
-  ], [t, departmentOptions])
+    { id: 'bankIban', label: t('hr_management.employees.form.fields.bankIban', 'Bank IBAN'), type: 'text' },
+  ], [t, departmentOptions, managerOptions])
 }
 
 function useEmployeeGroups(t: Translate): CrudFormGroup[] {
   return React.useMemo<CrudFormGroup[]>(() => [
     { id: 'name', title: t('hr_management.employees.form.groups.name'), column: 1, fields: ['employeeNumber', 'firstName', 'lastName'] },
     { id: 'identity', title: t('hr_management.employees.form.groups.identity'), column: 2, fields: ['identityType', 'nationalId', 'nationalIdExpiry'] },
-    { id: 'employment', title: t('hr_management.employees.form.groups.employment'), column: 1, fields: ['departmentId', 'jobTitle', 'employmentType', 'status'] },
+    { id: 'employment', title: t('hr_management.employees.form.groups.employment'), column: 1, fields: ['departmentId', 'managerEmployeeId', 'jobTitle', 'employmentType', 'status'] },
     { id: 'dates', title: t('hr_management.employees.form.groups.dates'), column: 2, fields: ['hireDate', 'terminationDate'] },
-    { id: 'contact', title: t('hr_management.employees.form.groups.contact'), column: 1, fields: ['email', 'phone'] },
+    { id: 'contact', title: t('hr_management.employees.form.groups.contact'), column: 1, fields: ['email', 'phone', 'bankIban'] },
   ], [t])
 }
 
@@ -205,10 +224,22 @@ function useSelectableDepartments(): Array<{ value: string; label: string }> {
   ], [departments, t])
 }
 
+function useSelectableManagers(currentEmployeeId: string): Array<{ value: string; label: string }> {
+  const t = useT()
+  const { employees } = useEmployeeLabels()
+  return React.useMemo(() => [
+    { value: '', label: t('hr_management.employees.form.fields.managerNone', 'No manager') },
+    ...employees
+      .filter((employee) => employee.id !== currentEmployeeId)
+      .map((employee) => ({ value: employee.id, label: employeeLabel(employee) })),
+  ], [employees, currentEmployeeId, t])
+}
+
 export function EmployeeCreateForm() {
   const t = useT()
   const departmentOptions = useSelectableDepartments()
-  const fields = useEmployeeFields(t, departmentOptions)
+  const managerOptions = useSelectableManagers('')
+  const fields = useEmployeeFields(t, departmentOptions, managerOptions)
   const groups = useEmployeeGroups(t)
   const initialValues = React.useMemo(() => buildEmployeeFormDefaults(), [])
   const successRedirect = React.useMemo(
@@ -238,7 +269,8 @@ export function EmployeeCreateForm() {
 export function EmployeeEditForm({ id }: { id: string }) {
   const t = useT()
   const departmentOptions = useSelectableDepartments()
-  const fields = useEmployeeFields(t, departmentOptions)
+  const managerOptions = useSelectableManagers(id)
+  const fields = useEmployeeFields(t, departmentOptions, managerOptions)
   const groups = useEmployeeGroups(t)
   const [initial, setInitial] = React.useState<EmployeeFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)

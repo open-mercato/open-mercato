@@ -879,6 +879,14 @@ Required scenarios:
 - **Partially compliant**: Needs one more refinement pass before implementation, mainly around field-binding examples, target-plan validation, and endpoint metadata/ACL detail.
 
 ## Changelog
+### 2026-10-20
+- Conversion writes the lineage ids (`created_person_id`, `created_company_id`, `created_deal_id`, the linked ids and the conversion markers) in the dedicated mutation phase, so they persist together with the outcome. `TC-CRM-LEAD-001` pins `createdDealId` and creates its own pipeline/stages rather than relying on seeded defaults.
+
+### 2026-10-19
+- Implemented Phase 1 (lead core), Phase 2 (qualification workflow, duplicate detection, assignment, lost reasons, history) and Phase 4's conversion/lineage flow in `packages/core/src/modules/customers`.
+- Surfaces: `customer_leads`, `customer_lead_history`, `customer_lead_pipelines`, `customer_lead_pipeline_stages`, `customer_lead_lost_reasons`, `customer_settings.leads_enabled`; `/api/customers/leads` CRUD + assign/advance-stage/mark-lost/duplicate-check/link/create/convert/history routes; lead pipeline/stage/lost-reason configuration APIs; list, create, detail, pipeline-board and settings pages; `TC-CRM-LEAD-001`.
+- Deferred: `CustomerLeadFieldBinding` and shared write-through projections (Phase 3), the drag/drop interaction on the board (stage moves use a per-card selector), custom-field binding for leads, and the dashboard widget set. The dedicated lead tables are used instead of reusing deal pipelines so lead stages can carry `open`/`won`/`lost` kinds.
+
 ### 2026-04-04
 - Expanded the skeleton into a full working specification for the customers lead funnel.
 - Added multi-pipeline support, shared-field binding model, manual pre-conversion linking/creation, and lineage rules.

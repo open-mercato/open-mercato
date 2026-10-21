@@ -9,6 +9,7 @@ const events = [
   { id: 'phone_calls.call.ingested', label: 'Phone Call Ingested', entity: 'call', category: 'crud' },
   { id: 'phone_calls.call.updated', label: 'Phone Call Updated', entity: 'call', category: 'crud' },
   { id: 'phone_calls.call.ingest_failed', label: 'Phone Call Ingest Failed', entity: 'call', category: 'crud' },
+  { id: 'phone_calls.call.completed', label: 'Phone Call Completed', entity: 'call', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

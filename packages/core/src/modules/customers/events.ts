@@ -105,6 +105,21 @@ const events = [
   // ── Email integration (2026-05-27) ────────────────────────────────────────
   { id: 'customers.email.linked', label: 'Email Linked To Person', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
   { id: 'customers.email.visibility_changed', label: 'Email Visibility Changed', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
+
+  // Leads
+  { id: 'customers.lead.created', label: 'Lead Created', entity: 'lead', category: 'crud', clientBroadcast: true },
+  { id: 'customers.lead.updated', label: 'Lead Updated', entity: 'lead', category: 'crud', clientBroadcast: true },
+  { id: 'customers.lead.deleted', label: 'Lead Deleted', entity: 'lead', category: 'crud', clientBroadcast: true },
+  { id: 'customers.lead.assigned', label: 'Lead Assigned', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.stage_changed', label: 'Lead Stage Changed', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.lost', label: 'Lead Lost', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.person_linked', label: 'Person Linked To Lead', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.company_linked', label: 'Company Linked To Lead', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.deal_linked', label: 'Deal Linked To Lead', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.person_created', label: 'Person Created From Lead', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.company_created', label: 'Company Created From Lead', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.deal_created', label: 'Deal Created From Lead', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
+  { id: 'customers.lead.converted', label: 'Lead Converted', entity: 'lead', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

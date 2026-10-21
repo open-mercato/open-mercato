@@ -22,6 +22,7 @@ const listSchema = z
     search: z.string().optional(),
     id: z.string().uuid().optional(),
     orderId: z.string().uuid().optional(),
+    dealId: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -52,6 +53,7 @@ const crud = makeCrudRoute({
     fields: [
       'id',
       'order_id',
+      'deal_id',
       'invoice_number',
       'status_entry_id',
       'status',
@@ -82,6 +84,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
+      if (query.dealId) filters.deal_id = { $eq: query.dealId }
       if (query.search) {
         const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
@@ -133,6 +136,7 @@ export const DELETE = crud.DELETE
 const invoiceItemSchema = z.object({
   id: z.string().uuid(),
   invoiceNumber: z.string(),
+  dealId: z.string().uuid().nullable().optional(),
   status: z.string().nullable().optional(),
   issueDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),

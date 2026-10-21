@@ -29,7 +29,7 @@ const crud = makeCrudRoute({
   indexer: { entityType: TRANSPORT_TRIP_ENTITY_ID },
   list: {
     schema: listSchema, entityId: TRANSPORT_TRIP_ENTITY_ID,
-    fields: ['id', 'organization_id', 'tenant_id', 'route_id', 'vehicle_id', 'driver_id', 'scheduled_start_time', 'scheduled_end_time', 'actual_start_time', 'actual_end_time', 'status', 'created_at', 'updated_at'],
+    fields: ['id', 'organization_id', 'tenant_id', 'route_id', 'vehicle_id', 'driver_id', 'scheduled_start_time', 'scheduled_end_time', 'actual_start_time', 'actual_end_time', 'status', 'cancellation_reason', 'created_at', 'updated_at'],
     sortFieldMap: { scheduledStartTime: 'scheduled_start_time', scheduledEndTime: 'scheduled_end_time', status: 'status', createdAt: 'created_at', updatedAt: 'updated_at' },
     buildFilters: (query) => ({
       ...(query.id ? { id: { $eq: query.id } } : {}),

@@ -17,6 +17,14 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 50,
     },
   ],
+  'detail:customers.deal:tabs': [
+    {
+      widgetId: 'sales.injection.deal-documents-tab',
+      kind: 'tab',
+      groupLabel: 'sales.widgets.dealDocuments.tabLabel',
+      priority: 40,
+    },
+  ],
   'data-table:sales.payments:columns': {
     widgetId: 'sales.injection.payment-gateway-status-column',
     priority: 50,

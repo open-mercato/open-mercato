@@ -143,6 +143,7 @@ export const enabledModules: ModuleEntry[] = [
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
   // optional AI auto-reply subscriber.
   { id: 'channel_discord', from: '@open-mercato/channel-discord' },
+  { id: 'channel_whatsapp', from: '@open-mercato/channel-whatsapp' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
@@ -181,6 +182,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'transport_operations', from: '@app' },
   { id: 'hr_management', from: '@app' },
   { id: 'fleet_management', from: '@app' },
+  { id: 'fleet_operations', from: '@app' },
   { id: 'financial', from: '@app' },
   { id: 'freight_operations', from: '@app' },
   { id: 'vehicle_rentals', from: '@app' },

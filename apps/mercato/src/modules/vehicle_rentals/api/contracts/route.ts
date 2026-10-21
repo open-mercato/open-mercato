@@ -55,7 +55,7 @@ const crud = makeCrudRoute({
       'driver_snapshot', 'start_at', 'end_at', 'actual_start_at', 'actual_end_at', 'daily_rate', 'weekly_rate',
       'monthly_rate', 'included_km', 'extra_km_rate', 'odo_start_km', 'odo_end_km', 'usage_km', 'extra_km',
       'rental_amount_net', 'extra_km_amount_net', 'total_net_amount', 'tax_rate', 'tax_amount',
-      'total_gross_amount', 'currency_code', 'handover_at', 'return_at', 'notes', 'created_at', 'updated_at',
+      'total_gross_amount', 'currency_code', 'handover_at', 'return_at', 'sales_order_id', 'sales_invoice_id', 'notes', 'created_at', 'updated_at',
     ],
     sortFieldMap: {
       rentalNumber: 'rental_number',

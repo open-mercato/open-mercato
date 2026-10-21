@@ -326,6 +326,7 @@ export class SalesTaxRate {
 @Entity({ tableName: 'sales_orders' })
 @Index({ name: 'sales_orders_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_orders_customer_idx', properties: ['customerEntityId', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_orders_deal_idx', properties: ['dealId', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_orders_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Index({ name: 'sales_orders_fulfillment_status_idx', properties: ['organizationId', 'tenantId', 'fulfillmentStatus'] })
 @Index({ name: 'sales_orders_payment_status_idx', properties: ['organizationId', 'tenantId', 'paymentStatus'] })
@@ -348,6 +349,9 @@ export class SalesOrder {
 
   @Property({ name: 'customer_reference', type: 'text', nullable: true })
   customerReference?: string | null
+
+  @Property({ name: 'deal_id', type: 'uuid', nullable: true })
+  dealId?: string | null
 
   @Property({ name: 'customer_entity_id', type: 'uuid', nullable: true })
   customerEntityId?: string | null
@@ -822,6 +826,7 @@ export class SalesDocumentSequence {
 @Entity({ tableName: 'sales_quotes' })
 @Index({ name: 'sales_quotes_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_quotes_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({ name: 'sales_quotes_deal_idx', properties: ['dealId', 'organizationId', 'tenantId'] })
 @Unique({ name: 'sales_quotes_number_unique', properties: ['organizationId', 'tenantId', 'quoteNumber'] })
 @Unique({ name: 'sales_quotes_acceptance_token_unique', properties: ['acceptanceToken'] })
 export class SalesQuote {
@@ -842,6 +847,9 @@ export class SalesQuote {
 
   @Property({ name: 'customer_reference', type: 'text', nullable: true })
   customerReference?: string | null
+
+  @Property({ name: 'deal_id', type: 'uuid', nullable: true })
+  dealId?: string | null
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
@@ -1379,6 +1387,7 @@ export class SalesReturnLine {
 @Entity({ tableName: 'sales_invoices' })
 @Index({ name: 'sales_invoices_scope_idx', properties: ['order', 'organizationId', 'tenantId'] })
 @Index({ name: 'sales_invoices_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+@Index({ name: 'sales_invoices_deal_idx', properties: ['dealId', 'organizationId', 'tenantId'] })
 @Unique({ name: 'sales_invoices_number_unique', properties: ['organizationId', 'tenantId', 'invoiceNumber'] })
 export class SalesInvoice {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -1395,6 +1404,9 @@ export class SalesInvoice {
 
   @Property({ name: 'invoice_number', type: 'text' })
   invoiceNumber!: string
+
+  @Property({ name: 'deal_id', type: 'uuid', nullable: true })
+  dealId?: string | null
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null

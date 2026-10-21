@@ -34,6 +34,10 @@ const logger = createLogger('communication_channels').child({ component: 'inboun
  */
 export const metadata = {
   path: '/communication_channels/webhook/[provider]',
+  GET: {
+    requireAuth: false,
+    rateLimit: { points: 120, duration: 60, keyPrefix: 'cc_webhook_verify' },
+  },
   POST: {
     requireAuth: false,
     // Unauthenticated by design (signature verification IS the auth), but the
@@ -46,6 +50,81 @@ export const metadata = {
 
 type RouteContext = {
   params: Promise<{ provider: string }> | { provider: string }
+}
+
+export async function GET(req: Request, { params }: RouteContext): Promise<Response> {
+  const resolvedParams = await params
+  const providerKey = resolvedParams.provider
+  const adapter = getChannelAdapterRegistry()?.get(providerKey)
+  if (!adapter) {
+    return NextResponse.json({ error: `No ChannelAdapter for provider: ${providerKey}` }, { status: 404 })
+  }
+  if (typeof adapter.verifyWebhookSubscription !== 'function') {
+    return NextResponse.json({ error: 'subscription_verification_unsupported' }, { status: 405 })
+  }
+  const url = new URL(req.url)
+  const query: Record<string, string> = {}
+  url.searchParams.forEach((value, key) => {
+    query[key] = value
+  })
+
+  const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
+  type CredentialsServiceLike = {
+    resolve: (
+      providerOrIntegrationId: string,
+      scope: { organizationId: string; tenantId: string; userId?: string | null },
+    ) => Promise<Record<string, unknown> | null>
+  }
+  let credentialsService: CredentialsServiceLike | null = null
+  try {
+    credentialsService = container.resolve<CredentialsServiceLike>('integrationCredentialsService')
+  } catch {
+    credentialsService = null
+  }
+
+  try {
+    const candidates = await findWithDecryption(
+      em,
+      CommunicationChannel,
+      { providerKey, isActive: true, deletedAt: null },
+      { orderBy: { createdAt: 'desc' } },
+    )
+    for (const candidate of candidates as CommunicationChannel[]) {
+      const candidateScope = {
+        tenantId: candidate.tenantId,
+        organizationId: candidate.organizationId ?? candidate.tenantId,
+      }
+      let credentials: Record<string, unknown> = {}
+      if (candidate.credentialsRef && credentialsService) {
+        try {
+          credentials = (await credentialsService.resolve(`channel_${providerKey}`, {
+            ...candidateScope,
+            userId: candidate.userId ?? null,
+          })) ?? {}
+        } catch {
+          credentials = {}
+        }
+      }
+      try {
+        const result = await adapter.verifyWebhookSubscription({
+          query,
+          credentials,
+          scope: candidateScope,
+        })
+        return new Response(result.challenge, {
+          status: 200,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        })
+      } catch {
+        // try the next candidate channel
+      }
+    }
+    return NextResponse.json({ error: 'verification_failed' }, { status: 401 })
+  } catch (error) {
+    logger.warn('webhook subscription verification failed', { err: error })
+    return NextResponse.json({ error: 'verification_failed' }, { status: 401 })
+  }
 }
 
 export async function POST(req: Request, { params }: RouteContext): Promise<Response> {
@@ -225,6 +304,16 @@ export const openApi = {
   tags: ['CommunicationChannels'],
   summary: 'Receive a communication channel webhook',
   methods: {
+    GET: {
+      summary: 'Complete a provider webhook subscription handshake (WhatsApp Cloud API style)',
+      tags: ['CommunicationChannels'],
+      responses: [
+        { status: 200, description: 'Challenge echoed for the matching channel' },
+        { status: 401, description: 'No candidate channel accepted the verification token' },
+        { status: 405, description: 'Provider does not implement subscription verification' },
+        { status: 404, description: 'Unknown provider' },
+      ],
+    },
     POST: {
       summary: 'Process an inbound channel webhook (Slack, WhatsApp, Email, ...)',
       tags: ['CommunicationChannels'],

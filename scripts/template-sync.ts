@@ -202,11 +202,37 @@ const TEMPLATE_DISABLED_MODULE_IDS = [
   'seeds',
   'financial',
   'fleet_management',
+  'fleet_operations',
+  'freight_operations',
   'hr_management',
   'saudi_localization',
+  'student_transport',
   'transport_operations',
-  'freight_operations',
+  'vehicle_rentals',
 ] as const
+
+// App-local business modules whose source lives only in `apps/mercato`.
+// The scaffold must not carry a stale copy of them: the packaging decision
+// (2026-10-19) keeps them app-local through the pilot. Both sides of the diff
+// ignore these folders, so `template:sync` reports real shared-scaffold drift
+// instead of 270+ files of intentional absence.
+export const TEMPLATE_APP_LOCAL_MODULE_IDS = [
+  'financial',
+  'fleet_management',
+  'fleet_operations',
+  'freight_operations',
+  'hr_management',
+  'saudi_localization',
+  'student_transport',
+  'transport_operations',
+  'vehicle_rentals',
+] as const
+
+function isAppLocalModuleRel(rel: string): boolean {
+  return TEMPLATE_APP_LOCAL_MODULE_IDS.some(
+    (moduleId) => rel === `modules/${moduleId}` || rel.startsWith(`modules/${moduleId}/`),
+  )
+}
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
 
@@ -391,7 +417,9 @@ function collectSourceFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(APP_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  return [...folderFiles, ...rootFiles]
+    .filter((file) => !isAppLocalModuleRel(relFromBase(APP_SRC_ROOT, file)))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function collectTemplateFiles(): string[] {
@@ -406,7 +434,9 @@ function collectTemplateFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  return [...folderFiles, ...rootFiles]
+    .filter((file) => !isAppLocalModuleRel(relFromBase(TEMPLATE_SRC_ROOT, file)))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {

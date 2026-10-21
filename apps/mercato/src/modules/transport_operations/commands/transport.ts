@@ -83,6 +83,7 @@ registerCrudCommands({
     await assertVehicleIdentityUnique(ctx.container.resolve('em') as EntityManager, scope, {
       plateNumber: input.plateNumber,
       vin: input.vin,
+      sequenceNumber: input.sequenceNumber,
     })
   },
   beforeUpdate: async (input, current, scope, ctx) => {
@@ -92,6 +93,7 @@ registerCrudCommands({
       // model would silently keep a value that clashes with a newer row.
       plateNumber: input.plateNumber ?? current.plateNumber,
       vin: input.vin ?? current.vin,
+      sequenceNumber: input.sequenceNumber ?? current.sequenceNumber,
       excludeId: current.id,
     })
   },

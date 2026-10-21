@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raiseFleetError } from './errors'
-import { FleetVehicle, FleetVehicleAssignment, FleetVehicleDocument } from '../data/entities'
+import { FleetVehicleAssignment, FleetVehicleDocument } from '../data/entities'
 
 export type FleetScope = { tenantId: string; organizationId: string }
 
@@ -25,7 +25,86 @@ export type FleetDashboardSummary = {
   overdueAssignments: number
 }
 
+export type FleetVehicleReference = {
+  id: string
+  plateNumber: string
+  status: string
+  currentOdometer: number
+}
+
 export const FLEET_DOCUMENT_EXPIRY_WINDOW_DAYS = 30
+
+function isMissingRelationError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return message.includes('42P01') || /relation .* does not exist/i.test(message)
+}
+
+function readNumber(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : value == null ? '' : String(value)
+}
+
+/**
+ * The vehicle register lives in `transport_operations` (decision record
+ * 2026-10-19). Fleet reads it by table name with tenant/org scope — no ORM
+ * relation and no direct entity import — matching the tolerant pattern the
+ * freight, rental and school-transport modules already use. A missing peer table
+ * degrades to "vehicle not found" rather than a 500.
+ */
+export async function findFleetVehicle(
+  em: EntityManager,
+  scope: FleetScope,
+  vehicleId: string,
+  options: { forUpdate?: boolean } = {},
+): Promise<FleetVehicleReference | null> {
+  try {
+    const rows = await em.getConnection().execute<Record<string, unknown>[]>(
+      `select id, plate_number, status, current_odometer from transport_vehicles
+       where id = ? and tenant_id = ? and organization_id = ? and deleted_at is null
+       ${options.forUpdate ? 'for update' : ''}`,
+      [vehicleId, scope.tenantId, scope.organizationId],
+    )
+    const row = rows[0]
+    if (!row) return null
+    return {
+      id: readString(row.id),
+      plateNumber: readString(row.plate_number),
+      status: readString(row.status),
+      currentOdometer: readNumber(row.current_odometer),
+    }
+  } catch (err) {
+    if (isMissingRelationError(err)) return null
+    throw err
+  }
+}
+
+/**
+ * Advances the register's odometer. The odometer log is the history; this column
+ * is the current reading every screen and availability check reads.
+ */
+export async function updateFleetVehicleOdometer(
+  em: EntityManager,
+  scope: FleetScope,
+  vehicleId: string,
+  reading: number,
+  at: Date,
+): Promise<void> {
+  try {
+    await em.getConnection().execute(
+      `update transport_vehicles
+       set current_odometer = greatest(coalesce(current_odometer, 0), ?), updated_at = ?
+       where id = ? and tenant_id = ? and organization_id = ? and deleted_at is null`,
+      [reading, at, vehicleId, scope.tenantId, scope.organizationId],
+    )
+  } catch (err) {
+    if (isMissingRelationError(err)) return
+    throw err
+  }
+}
 
 export async function assertVehicleAssignable(
   em: EntityManager,
@@ -33,13 +112,10 @@ export async function assertVehicleAssignable(
   scope: FleetScope,
 ): Promise<void> {
   const scoped = { tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null }
-  const vehicle = await em.findOne(FleetVehicle, { ...scoped, id: input.vehicleId })
+  const vehicle = await findFleetVehicle(em, scope, input.vehicleId)
   if (!vehicle) return raiseFleetError(400, 'vehicle_unavailable', 'The selected vehicle is not available.')
   if (vehicle.status === 'maintenance' || vehicle.status === 'out_of_service') {
     return raiseFleetError(409, 'vehicle_unavailable', 'The selected vehicle is not available.')
-  }
-  if (vehicle.assignedEmployeeId && vehicle.assignedEmployeeId !== input.employeeId) {
-    return raiseFleetError(409, 'vehicle_in_custody', 'The selected vehicle is already in another employee custody.')
   }
   if (typeof input.handoverOdometer === 'number' && input.handoverOdometer < vehicle.currentOdometer) {
     return raiseFleetError(409, 'odometer_below_current', 'The handover odometer cannot be lower than the vehicle current reading.')
@@ -76,6 +152,24 @@ export async function assertAssignmentReturnable(
   return assignment
 }
 
+async function countTransportVehicles(
+  em: EntityManager,
+  scope: FleetScope,
+  predicate: string,
+): Promise<number> {
+  try {
+    const rows = await em.getConnection().execute<Array<{ count: unknown }>>(
+      `select count(*)::int as count from transport_vehicles tv
+       where tv.tenant_id = ? and tv.organization_id = ? and tv.deleted_at is null and ${predicate}`,
+      [scope.tenantId, scope.organizationId],
+    )
+    return readNumber(rows[0]?.count)
+  } catch (err) {
+    if (isMissingRelationError(err)) return 0
+    throw err
+  }
+}
+
 export async function getFleetDashboardSummary(
   em: EntityManager,
   scope: FleetScope,
@@ -84,18 +178,32 @@ export async function getFleetDashboardSummary(
   const expiryCutoff = new Date()
   expiryCutoff.setDate(expiryCutoff.getDate() + FLEET_DOCUMENT_EXPIRY_WINDOW_DAYS)
   const now = new Date()
-  const [activeVehicles, assignedVehicles, vehiclesInMaintenance, expiringDocuments, activeAssignments, overdueAssignments] =
+  const [activeVehicles, vehiclesInMaintenance, expiringDocuments, activeAssignments, overdueAssignments, assignedRows] =
     await Promise.all([
-      em.count(FleetVehicle, { ...base, status: 'active' }),
-      em.count(FleetVehicle, { ...base, status: 'assigned' }),
-      em.count(FleetVehicle, { ...base, status: 'maintenance' }),
+      countTransportVehicles(
+        em,
+        scope,
+        `tv.status = 'active' and not exists (
+           select 1 from fleet_vehicle_assignments a
+           where a.vehicle_id = tv.id and a.organization_id = tv.organization_id
+             and a.tenant_id = tv.tenant_id and a.deleted_at is null
+             and a.status in ('pending_approval', 'active')
+         )`,
+      ),
+      countTransportVehicles(em, scope, `tv.status = 'maintenance'`),
       em.count(FleetVehicleDocument, { ...base, expiryDate: { $lte: expiryCutoff, $ne: null } }),
       em.count(FleetVehicleAssignment, { ...base, status: 'active' }),
       em.count(FleetVehicleAssignment, { ...base, status: 'active', dueReturnAt: { $lt: now, $ne: null } }),
+      em.getConnection().execute<Array<{ count: unknown }>>(
+        `select count(distinct vehicle_id)::int as count from fleet_vehicle_assignments
+         where tenant_id = ? and organization_id = ? and deleted_at is null
+           and status in ('pending_approval', 'active')`,
+        [scope.tenantId, scope.organizationId],
+      ),
     ])
   return {
     activeVehicles,
-    assignedVehicles,
+    assignedVehicles: readNumber(assignedRows[0]?.count),
     vehiclesInMaintenance,
     expiringDocuments,
     activeAssignments,
@@ -114,52 +222,5 @@ export function createFleetService(em: EntityManager): FleetService {
     assertVehicleAssignable: (input, scope) => assertVehicleAssignable(em, input, scope),
     assertAssignmentReturnable: (input, scope) => assertAssignmentReturnable(em, input, scope),
     getDashboardSummary: (scope) => getFleetDashboardSummary(em, scope),
-  }
-}
-/**
- * Uniqueness of a fleet vehicle's identity fields — the plate and the sequence
- * number the fleet numbers its vehicles by.
- *
- * These are the two values an operator reads a vehicle by, and a duplicate makes
- * both ambiguous: two rows answer to "A B C 1234", and a maintenance log, an
- * assignment or an Istimara renewal can land on the wrong one. The database
- * carries unique indexes on both (see the entity's `@Index` expressions) as the
- * guarantee; checking here produces a 409 that names the field instead of a 500
- * from the constraint.
- *
- * `sequenceNumber` is nullable — a fleet that does not number its vehicles is not
- * made to. An empty string is treated as absent so a form that clears the field
- * does not create a second "no sequence" row that then clashes.
- */
-export async function assertFleetVehicleIdentityUnique(
-  em: EntityManager,
-  scope: FleetScope,
-  input: { plateNumber?: unknown; sequenceNumber?: unknown; excludeId?: string | null },
-): Promise<void> {
-  const plateNumber = typeof input.plateNumber === 'string' ? input.plateNumber.trim() : ''
-  const rawSequence = typeof input.sequenceNumber === 'string' ? input.sequenceNumber.trim() : ''
-  const sequenceNumber = rawSequence.length > 0 ? rawSequence : null
-  const exclude = input.excludeId ? { id: { $ne: input.excludeId } } : {}
-
-  if (plateNumber) {
-    const clash = await em.findOne(FleetVehicle, {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      plateNumber,
-      deletedAt: null,
-      ...exclude,
-    })
-    if (clash) await raiseFleetError(409, 'vehicle_plate_taken', 'Another vehicle already uses this plate number.')
-  }
-
-  if (sequenceNumber) {
-    const clash = await em.findOne(FleetVehicle, {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      sequenceNumber,
-      deletedAt: null,
-      ...exclude,
-    })
-    if (clash) await raiseFleetError(409, 'vehicle_sequence_taken', 'Another vehicle already uses this sequence number.')
   }
 }

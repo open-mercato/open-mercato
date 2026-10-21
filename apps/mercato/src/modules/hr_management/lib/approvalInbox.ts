@@ -30,6 +30,11 @@ const APPROVAL_TARGET_SPECS: Record<string, ApprovalTargetSpec> = {
     label: 'Attendance record',
     href: (id) => `/backend/hr/attendance/${id}/edit`,
   },
+  hr_payroll_run: {
+    labelKey: 'hr_management.approvals.targets.payroll_run',
+    label: 'Payroll run',
+    href: (id) => `/backend/hr/payroll/${id}`,
+  },
 }
 
 export type ApprovalTarget = {

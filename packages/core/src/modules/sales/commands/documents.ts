@@ -605,6 +605,7 @@ export const documentUpdateSchema = z
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
+    dealId: z.string().uuid().nullable().optional(),
     comment: z.string().nullable().optional(),
     // Same names and limits as the create schema (data/validators.ts), so a
     // caller can send one payload shape to create and update. Nullable here
@@ -663,6 +664,7 @@ export const documentUpdateSchema = z
       input.metadata !== undefined ||
       input.customerReference !== undefined ||
       input.externalReference !== undefined ||
+      input.dealId !== undefined ||
       input.comment !== undefined ||
       input.comments !== undefined ||
       input.internalNotes !== undefined ||
@@ -1178,6 +1180,9 @@ async function applyDocumentUpdate({
         ? input.externalReference.trim()
         : "";
     entity.externalReference = normalized.length ? normalized : null;
+  }
+  if (input.dealId !== undefined) {
+    entity.dealId = input.dealId ?? null;
   }
   if (input.customerReference !== undefined) {
     const normalized =
@@ -2132,7 +2137,7 @@ async function loadInvoiceSnapshot(
       organizationId: invoice.organizationId,
       tenantId: invoice.tenantId,
       invoiceNumber: invoice.invoiceNumber,
-      orderId: invoice.orderId ?? null,
+      orderId: invoice.order?.id ?? null,
       statusEntryId: invoice.statusEntryId ?? null,
       status: invoice.status ?? null,
       issueDate: invoice.issueDate ?? null,
@@ -4758,6 +4763,7 @@ const createQuoteCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       quoteNumber: ensuredQuoteNumber,
+      dealId: parsed.dealId ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,
@@ -5814,6 +5820,7 @@ const createOrderCommand: CommandHandler<
       tenantId: parsed.tenantId,
       orderNumber: ensuredOrderNumber,
       externalReference: parsed.externalReference ?? null,
+      dealId: parsed.dealId ?? null,
       customerReference: parsed.customerReference ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
@@ -9052,8 +9059,9 @@ const createInvoiceCommand: CommandHandler<
     );
 
     // Validate orderId belongs to same org/tenant
+    let order: SalesOrder | null = null;
     if (parsed.orderId) {
-      const orderExists = await findOneWithDecryption(
+      order = await findOneWithDecryption(
         em,
         SalesOrder,
         {
@@ -9068,7 +9076,7 @@ const createInvoiceCommand: CommandHandler<
           organizationId: parsed.organizationId,
         },
       );
-      if (!orderExists) {
+      if (!order) {
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
     }
@@ -9079,7 +9087,8 @@ const createInvoiceCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       invoiceNumber: ensuredInvoiceNumber,
-      orderId: parsed.orderId ?? null,
+      order,
+      dealId: parsed.dealId ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       issueDate: parsed.issueDate ?? new Date(),
@@ -9288,6 +9297,7 @@ function applyInvoiceHeaderUpdate(
   resolvedStatus: string | null | undefined,
 ): void {
   if (input.invoiceNumber !== undefined) invoice.invoiceNumber = input.invoiceNumber;
+  if (input.dealId !== undefined) invoice.dealId = input.dealId ?? null;
   if (input.statusEntryId !== undefined) {
     invoice.statusEntryId = input.statusEntryId;
     invoice.status = resolvedStatus ?? null;
@@ -9411,7 +9421,9 @@ const updateInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, invoice.organizationId);
     ensureTenantScope(ctx, invoice.tenantId);
     invoice.invoiceNumber = before.invoice.invoiceNumber;
-    invoice.orderId = before.invoice.orderId;
+    invoice.order = before.invoice.orderId
+      ? em.getReference(SalesOrder, before.invoice.orderId)
+      : null;
     invoice.statusEntryId = before.invoice.statusEntryId;
     invoice.status = before.invoice.status;
     invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
@@ -9517,7 +9529,9 @@ const deleteInvoiceCommand: CommandHandler<
       organizationId: before.invoice.organizationId,
       tenantId: before.invoice.tenantId,
       invoiceNumber: before.invoice.invoiceNumber,
-      orderId: before.invoice.orderId,
+      order: before.invoice.orderId
+        ? em.getReference(SalesOrder, before.invoice.orderId)
+        : null,
       statusEntryId: before.invoice.statusEntryId,
       status: before.invoice.status,
       issueDate: before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : new Date(),

@@ -3,13 +3,20 @@ import { VEHICLE_STATUSES, DRIVER_STATUSES } from './entities'
 
 export const createVehicleSchema = z.object({
   plateNumber: z.string().min(1),
-  vin: z.string().min(1).max(32),
+  // The fleet register never captured a VIN; migrated vehicles keep it empty. New
+  // transport vehicles can still provide one, and the unique index ignores nulls.
+  vin: z.string().trim().min(1).max(32).optional().nullable(),
+  sequenceNumber: z.string().trim().min(1).optional().nullable(),
   make: z.string().min(1),
   model: z.string().min(1),
   year: z.coerce.number().int().min(1900).max(new Date().getFullYear() + 1),
-  capacity: z.coerce.number().int().min(1),
+  capacity: z.coerce.number().int().min(0).optional().default(0),
+  color: z.string().trim().min(1).optional().nullable(),
+  vehicleType: z.string().trim().min(1).optional().nullable(),
+  currentOdometer: z.coerce.number().int().min(0).optional(),
   status: z.enum(VEHICLE_STATUSES).optional(),
   telematicsDeviceId: z.string().trim().min(1).optional().nullable(),
+  notes: z.string().trim().min(1).optional().nullable(),
 })
 
 export const updateVehicleSchema = createVehicleSchema.partial().extend({

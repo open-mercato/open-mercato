@@ -13,6 +13,7 @@ jest.mock('@open-mercato/core/modules/phone_calls/events', () => ({
 }))
 
 import { ingestPhoneCallCommand } from '@open-mercato/core/modules/phone_calls/commands/calls'
+import { PhoneCallParticipant } from '@open-mercato/core/modules/phone_calls/data/entities'
 import { ingestPhoneCallSchema } from '@open-mercato/core/modules/phone_calls/data/validators'
 import { clearPhoneCallProviders } from '@open-mercato/shared/modules/phone_calls/provider'
 
@@ -41,6 +42,10 @@ function createFakeEm() {
             row.organizationId === where.organizationId,
         ) ?? null
       )
+    },
+    async find(entity: unknown, where: Record<string, unknown>) {
+      if (entity !== PhoneCallParticipant) return []
+      return participants.filter((row) => row.phoneCallId === where.phoneCallId)
     },
     create(entity: unknown, data: Record<string, unknown>) {
       return { id: randomUUID(), __entity: entity, ...data } as Row
@@ -123,15 +128,48 @@ describe('phone_calls.call.ingest', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].status).toBe('missed')
 
-    expect(emitPhoneCallsEventMock).toHaveBeenNthCalledWith(
-      1,
+    expect(emitPhoneCallsEventMock).toHaveBeenCalledWith(
       'phone_calls.call.ingested',
       expect.objectContaining({ id: first.phoneCallId, organizationId, tenantId }),
     )
-    expect(emitPhoneCallsEventMock).toHaveBeenNthCalledWith(
-      2,
+    expect(emitPhoneCallsEventMock).toHaveBeenCalledWith(
       'phone_calls.call.updated',
       expect.objectContaining({ id: first.phoneCallId, organizationId, tenantId }),
+    )
+  })
+
+  it('emits call.completed only when the call transitions into completed', async () => {
+    const { em } = createFakeEm()
+    const ctx = createCtx(em)
+
+    await ingestPhoneCallCommand.execute(ingestInput({ status: 'completed' }), ctx)
+    expect(emitPhoneCallsEventMock).toHaveBeenCalledWith(
+      'phone_calls.call.completed',
+      expect.objectContaining({
+        id: expect.any(String),
+        organizationId,
+        tenantId,
+        direction: 'inbound',
+        durationSeconds: 42,
+        participants: expect.arrayContaining([
+          expect.objectContaining({ role: 'caller', phoneNumber: '+48111' }),
+        ]),
+      }),
+    )
+
+    emitPhoneCallsEventMock.mockClear()
+    await ingestPhoneCallCommand.execute(ingestInput({ status: 'completed' }), ctx)
+    expect(emitPhoneCallsEventMock).not.toHaveBeenCalledWith(
+      'phone_calls.call.completed',
+      expect.anything(),
+    )
+
+    emitPhoneCallsEventMock.mockClear()
+    await ingestPhoneCallCommand.execute(ingestInput({ status: 'missed' }), ctx)
+    await ingestPhoneCallCommand.execute(ingestInput({ status: 'completed' }), ctx)
+    expect(emitPhoneCallsEventMock).toHaveBeenCalledWith(
+      'phone_calls.call.completed',
+      expect.objectContaining({ id: expect.any(String) }),
     )
   })
 

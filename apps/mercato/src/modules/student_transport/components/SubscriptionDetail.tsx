@@ -80,9 +80,9 @@ export default function SubscriptionDetail({ id }: { id: string }) {
     },
   })
 
-  const runAction = React.useCallback(async (action: 'activate' | 'suspend' | 'end') => {
+  const runAction = React.useCallback(async (action: 'activate' | 'suspend' | 'end' | 'invoice') => {
     if (!subscription) return
-    if (action !== 'activate') {
+    if (action === 'suspend' || action === 'end') {
       const confirmed = await confirm({
         title: action === 'end'
           ? t('student_transport.subscriptions.actions.end.confirm', 'End this subscription? No further attendance is recorded on it.')
@@ -173,6 +173,11 @@ export default function SubscriptionDetail({ id }: { id: string }) {
               {subscription.status !== 'ended' && (
                 <Button type="button" variant="outline" onClick={() => { void runAction('end') }}>
                   {t('student_transport.subscriptions.actions.end.label', 'End')}
+                </Button>
+              )}
+              {(subscription.status === 'active' || subscription.status === 'ended') && (
+                <Button type="button" onClick={() => { void runAction('invoice') }}>
+                  {t('student_transport.subscriptions.actions.invoice.label', 'Invoice period')}
                 </Button>
               )}
             </div>

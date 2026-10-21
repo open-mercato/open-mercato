@@ -16,6 +16,11 @@ describe('approval targets', () => {
     expect(HR_APPROVAL_TARGETS.map((target) => target.value)).toEqual([
       'hr_leave_request',
       'hr_attendance_record',
+      'hr_employee_loan',
+      'hr_employee_penalty',
+      'hr_employee_incentive',
+      'hr_payroll_run',
+      'fleet_vehicle_assignment',
     ])
   })
 

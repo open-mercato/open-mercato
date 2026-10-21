@@ -89,12 +89,17 @@ describe('vehicle form payload', () => {
     expect(payload).toEqual({
       plateNumber: 'ABC-1234',
       vin: 'JTDBR32E430012345',
+      sequenceNumber: null,
       make: 'Toyota',
       model: 'Coaster',
       year: 2024,
       capacity: 23,
+      color: null,
+      vehicleType: null,
+      currentOdometer: 0,
       status: 'active',
       telematicsDeviceId: null,
+      notes: null,
     })
   })
 

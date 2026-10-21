@@ -241,6 +241,14 @@ locales the module already ships.
 
 ## Changelog
 
+- **2026-10-20 (worker registration)** — the country-plugin registry is a
+  `globalThis` singleton (`Symbol.for`). The worker/CLI bootstrap compiles the
+  module registry and the command loaders as separate bundles, so a module-scoped
+  map left the posting command in the worker with no registered plugin and
+  event-driven postings silently lost every `tax_code`. `TC-FINANCIAL-003` now
+  pins `SA-VAT-S` on the posted revenue and output-VAT lines; `TC-SL-FIN-001`
+  asserts the return as a movement from a baseline so its fixed far-future period
+  survives re-runs (postings are append-only and the period is unique).
 - **2026-10-09** — Phase-1b spec created: KSA country plugin as a thin adapter over
   `saudi_localization` (15% VAT, ZATCA Phase 1/2 issuance, VAT return, WHT, zakat
   groundwork, Hijri, Saudi CoA, compliance checks); capability-to-primitive mapping
@@ -285,16 +293,17 @@ locales the module already ships.
 
 ### Still open in this phase (recorded, not silently dropped)
 
-- **The ZATCA Phase 2 issuance flow.** `POST /api/saudi_localization/zatca/issue`,
-  the persisted XML/hash/ICV record, the submission-status record and the
-  `/backend/saudi` submission list are **not built**. The chain primitives they
-  need already ship (`allocateNextInvoiceChain` / `commitInvoiceChain`), and
-  `lib/saudi/e-invoicing.ts` reports `signedDocuments: false` and
-  `realtimeClearance: false` so nothing in the product claims otherwise. The
-  integration spec `TC-SL-FIN-001` therefore covers cases 1–3 and 5 (CoA seeding
-  idempotency, a posted VAT line, the return reconciling to the ledger, and the
-  preview parity check); cases 4 and 6 (issuance persistence and its 409) land
-  with the issuance flow.
-- **WHT payment wiring** stays with AP (Phase 2), as previously scoped.
+- **The ZATCA Phase 2 issuance flow now persists locally.** `POST /api/saudi_localization/zatca/issue`,
+  the `saudi_einvoice_submissions` record (exact XML/hash/ICV/PIH) and
+  `/backend/saudi/submissions` ship. Issuance is **idempotent per sales order**:
+  a retry returns the existing submission with `reused: true` rather than
+  claiming a second ICV. Nothing signs or transmits — the response carries
+  `signed: false` and `submittedToZatca: false`, and the row stays `pending`.
+  The integration spec `TC-SL-FIN-001` now covers cases 1–5 (the stale-`updatedAt`
+  case is replaced by the idempotent-retry assertion, because issuance is a
+  create-once transition rather than an editable record).
+- **Signed XAdES, CSID onboarding and sandbox validation** remain the gate before
+  any live clearance claim.
+- **WHT payment wiring** is implemented in AP (Phase 2).
 
 

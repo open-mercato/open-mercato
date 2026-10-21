@@ -162,8 +162,28 @@ registerCrudCommands({
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await assertEmployeeWritable(em, {
       departmentId: typeof input.departmentId === 'string' ? input.departmentId : null,
+      managerEmployeeId: typeof input.managerEmployeeId === 'string' ? input.managerEmployeeId : null,
       hireDate: typeof input.hireDate === 'string' ? input.hireDate : undefined,
       terminationDate: typeof input.terminationDate === 'string' ? input.terminationDate : null,
+    }, scope)
+  },
+  beforeUpdate: async (input, current, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const employee = current as HrEmployee
+    await assertEmployeeWritable(em, {
+      id: employee.id,
+      departmentId: input.departmentId === undefined
+        ? (employee.departmentId ?? null)
+        : (typeof input.departmentId === 'string' ? input.departmentId : null),
+      managerEmployeeId: input.managerEmployeeId === undefined
+        ? (employee.managerEmployeeId ?? null)
+        : (typeof input.managerEmployeeId === 'string' ? input.managerEmployeeId : null),
+      hireDate: input.hireDate === undefined
+        ? employee.hireDate
+        : (typeof input.hireDate === 'string' ? input.hireDate : undefined),
+      terminationDate: input.terminationDate === undefined
+        ? (employee.terminationDate ?? null)
+        : (typeof input.terminationDate === 'string' ? input.terminationDate : null),
     }, scope)
   },
 })
@@ -250,8 +270,25 @@ registerCrudCommands({
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await assertLeaveRequestBookable(em, {
       employeeId: String(input.employeeId),
+      leaveType: typeof input.leaveType === 'string' ? input.leaveType : undefined,
       startDate: input.startDate instanceof Date ? input.startDate : String(input.startDate),
       endDate: input.endDate instanceof Date ? input.endDate : String(input.endDate),
+      totalDays: typeof input.totalDays === 'number' ? input.totalDays : undefined,
+    }, scope)
+  },
+  beforeUpdate: async (input, current, scope, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const stored = current as HrLeaveRequest
+    const startDate = input.startDate ?? stored.startDate
+    const endDate = input.endDate ?? stored.endDate
+    await assertLeaveRequestBookable(em, {
+      id: stored.id,
+      employeeId: typeof input.employeeId === 'string' ? input.employeeId : stored.employeeId,
+      leaveType: typeof input.leaveType === 'string' ? input.leaveType : stored.leaveType,
+      startDate: startDate instanceof Date ? startDate : String(startDate),
+      endDate: endDate instanceof Date ? endDate : String(endDate),
+      totalDays: typeof input.totalDays === 'number' ? input.totalDays : stored.totalDays,
+      status: typeof input.status === 'string' ? input.status : stored.status,
     }, scope)
   },
 })

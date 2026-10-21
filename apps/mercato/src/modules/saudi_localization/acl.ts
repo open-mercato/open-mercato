@@ -34,10 +34,16 @@ export const features = [
     dependsOn: ['saudi_localization.settings.view'],
   },
   {
+    id: 'saudi_localization.einvoicing.view',
+    title: 'View ZATCA e-invoice submissions',
+    module: 'saudi_localization',
+    dependsOn: ['saudi_localization.settings.view'],
+  },
+  {
     id: 'saudi_localization.einvoicing.issue',
     title: 'Issue ZATCA e-invoices',
     module: 'saudi_localization',
-    dependsOn: ['saudi_localization.settings.view'],
+    dependsOn: ['saudi_localization.einvoicing.view'],
   },
 ]
 

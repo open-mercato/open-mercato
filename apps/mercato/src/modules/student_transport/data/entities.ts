@@ -187,6 +187,18 @@ export class StudentSubscription {
   @Property({ name: 'currency_code', type: 'text', default: 'SAR' })
   currencyCode: string = 'SAR'
 
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'sales_invoice_id', type: 'uuid', nullable: true })
+  salesInvoiceId?: string | null
+
+  @Property({ name: 'last_invoiced_period_from', type: 'date', nullable: true })
+  lastInvoicedPeriodFrom?: Date | null
+
+  @Property({ name: 'last_invoiced_period_to', type: 'date', nullable: true })
+  lastInvoicedPeriodTo?: Date | null
+
   @Property({ name: 'tax_rate', type: 'numeric', precision: 5, scale: 2, default: '15' })
   taxRate: string = '15'
 

@@ -24,6 +24,28 @@ import { buildSaudiFiscalCalendar } from './lib/saudi/fiscal-calendar'
 import { buildSaudiNumberFormat, SAUDI_COUNTRY_CODE } from './lib/saudi/number-format'
 import { buildSaudiTaxEngine } from './lib/saudi/tax-engine'
 import { buildSaudiTaxReporting } from './lib/saudi/vat-return'
+import { computeSaudiWithholding } from './lib/saudi/withholding'
+import { SAUDI_WITHHOLDING_CATEGORIES, findSaudiWithholdingCategory } from './lib/saudi/tax-codes'
+import type { WithholdingContract } from '@/modules/financial/lib/contracts'
+
+function buildSaudiWithholding(): WithholdingContract {
+  return {
+    countryCode: SAUDI_COUNTRY_CODE,
+    listCategories: () => SAUDI_WITHHOLDING_CATEGORIES,
+    findCategory: (code) => findSaudiWithholdingCategory(code),
+    compute: (input) => {
+      const computed = computeSaudiWithholding({ gross: input.gross, categoryCode: input.code })
+      return {
+        categoryCode: computed.categoryCode,
+        rate: computed.rate,
+        gross: computed.gross,
+        withholding: computed.withholding,
+        netPayable: computed.netPayable,
+        payableAccountCode: computed.payableAccountCode,
+      }
+    },
+  }
+}
 
 export function buildSaudiFinancialPlugin() {
   const tax = buildSaudiTaxEngine()
@@ -36,6 +58,7 @@ export function buildSaudiFinancialPlugin() {
     chartOfAccounts: buildSaudiChartOfAccounts(),
     compliance: buildSaudiCompliance(),
     taxReporting: buildSaudiTaxReporting(tax),
+    withholding: buildSaudiWithholding(),
   }
 }
 

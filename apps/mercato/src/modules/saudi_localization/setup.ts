@@ -15,6 +15,7 @@ export const setup: ModuleSetupConfig = {
       'saudi_localization.vat_return.view',
       'saudi_localization.withholding.view',
       'saudi_localization.zakat.view',
+      'saudi_localization.einvoicing.view',
     ],
   },
 }

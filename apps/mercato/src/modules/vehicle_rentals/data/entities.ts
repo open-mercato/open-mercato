@@ -138,6 +138,12 @@ export class RentalContract {
   @Property({ name: 'currency_code', type: 'text', default: 'SAR' })
   currencyCode: string = 'SAR'
 
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'sales_invoice_id', type: 'uuid', nullable: true })
+  salesInvoiceId?: string | null
+
   @Property({ name: 'handover_at', type: Date, nullable: true })
   handoverAt?: Date | null
 

@@ -21,6 +21,7 @@ import { useEmployeeLabels } from './hrOptions'
 
 const RESOURCE = 'hr_management/employee-documents'
 const CREATE_HREF = '/backend/hr/documents/create'
+const detailHref = (id: string) => `/backend/hr/documents/${id}`
 const editHref = (id: string) => `/backend/hr/documents/${id}/edit`
 
 // Mirrors EMPLOYEE_DOCUMENT_TYPES in data/entities.ts; a drift fails loudly because the API rejects an
@@ -64,9 +65,9 @@ export type EmployeeDocumentRow = {
  * The employee document register.
  *
  * It is a register, not a previewer: the records are the compliance evidence an inspection asks for,
- * so the screen orders them by expiry and marks the two states that need action. Files themselves are
- * attached from the record's detail surface (the platform's attachment field needs a stored record
- * id), which is why this list has no upload control.
+ * so the screen orders them by expiry and marks the two states that need action. Files are attached
+ * from the record's detail surface (the platform's attachment field needs a stored record id), which
+ * is why this list has no upload control and the Open action leads there.
  */
 export default function EmployeeDocumentsTable() {
   const t = useT()
@@ -165,9 +166,14 @@ export default function EmployeeDocumentsTable() {
         </Button>
       )}
       rowActions={(row) => (
-        <Link className="text-sm font-medium underline" href={editHref(row.id)}>
-          {t('hr_management.documents.actions.edit', 'Edit')}
-        </Link>
+        <span className="flex items-center gap-3">
+          <Link className="text-sm font-medium underline" href={detailHref(row.id)}>
+            {t('hr_management.documents.actions.open', 'Open')}
+          </Link>
+          <Link className="text-sm font-medium underline" href={editHref(row.id)}>
+            {t('hr_management.documents.actions.edit', 'Edit')}
+          </Link>
+        </span>
       )}
       columns={columns}
       data={rows}

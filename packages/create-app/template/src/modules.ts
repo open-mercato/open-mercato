@@ -146,6 +146,7 @@ export const enabledModules: ModuleEntry[] = [
   // ('one more template module still fits the root budget with its inline index
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
+  { id: 'channel_whatsapp', from: '@open-mercato/channel-whatsapp' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
@@ -154,8 +155,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
   { id: 'ratelimit_probe', from: '@app' },
-  { id: 'vehicle_rentals', from: '@app' },
-  { id: 'student_transport', from: '@app' },
 ]
 
 // Official modules activated via official-modules.json / official-modules.local.json

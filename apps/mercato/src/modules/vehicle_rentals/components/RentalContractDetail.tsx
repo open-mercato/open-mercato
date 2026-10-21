@@ -106,6 +106,28 @@ export default function RentalContractDetail({ id }: { id: string }) {
     }
   }, [confirm, query, rental, retryLastMutation, runMutation, t])
 
+  const invoiceRental = React.useCallback(async () => {
+    if (!rental) return
+    try {
+      await runMutation<Awaited<ReturnType<typeof apiCallOrThrow>>>({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(rental.updatedAt ?? rental.updated_at ?? null),
+          () => apiCallOrThrow('/api/vehicle_rentals/contracts/invoice', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: rental.id }),
+          }, { errorMessage: t('vehicle_rentals.errors.invoice_failed', 'Unable to invoice the rental.') }),
+        ),
+        mutationPayload: { operation: 'rentals.invoice', id: rental.id, updatedAt: rental.updatedAt ?? null },
+        context: { formId: DETAIL_MUTATION_CONTEXT_ID, resourceKind: ENTITY_ID, resourceId: rental.id, retryLastMutation },
+      })
+      flash(t('vehicle_rentals.contracts.actions.invoice.success', 'Rental invoiced.'), 'success')
+      await query.refetch()
+    } catch (error) {
+      flash(error instanceof Error && error.message ? error.message : t('vehicle_rentals.errors.invoice_failed', 'Unable to invoice the rental.'), 'error')
+    }
+  }, [query, rental, retryLastMutation, runMutation, t])
+
   if (query.isLoading) {
     return <Page><PageBody><LoadingMessage label={t('vehicle_rentals.contracts.detail.loading', 'Loading rental…')} /></PageBody></Page>
   }
@@ -175,6 +197,11 @@ export default function RentalContractDetail({ id }: { id: string }) {
               {rental.status === 'active' && (
                 <Button type="button" onClick={() => setReturnOpen(true)}>
                   {t('vehicle_rentals.contracts.return.open', 'Record return')}
+                </Button>
+              )}
+              {rental.status === 'completed' && !rental.sales_invoice_id && (
+                <Button type="button" onClick={() => { void invoiceRental() }}>
+                  {t('vehicle_rentals.contracts.actions.invoice.label', 'Create invoice')}
                 </Button>
               )}
               {(rental.status === 'draft' || rental.status === 'active') && (

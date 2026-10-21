@@ -49,3 +49,9 @@ export type {
   TaxReportingContract,
 } from './reporting'
 export { TAX_RETURN_CATEGORIES } from './reporting'
+
+export type {
+  WithholdingCategory,
+  WithholdingComputation,
+  WithholdingContract,
+} from './withholding'

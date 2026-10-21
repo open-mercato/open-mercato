@@ -1479,7 +1479,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
     }
     const scopedTenantId = scope?.tenantId ?? rawAuth?.tenantId ?? null
-    const scopedOrgId = scope ? (scope.selectedId ?? null) : (rawAuth?.orgId ?? null)
+    // A request without a selected-org cookie resolves the scope with a null
+    // `selectedId`; the token's home organization is the default, as it is in
+    // every custom route. A rejected explicit selection must still fail closed.
+    const scopedOrgId = scope
+      ? (scope.selectionRejected ? null : (scope.selectedId ?? rawAuth?.orgId ?? null))
+      : (rawAuth?.orgId ?? null)
     selectedOrganizationId = scopedOrgId
     const scopedAuth = rawAuth
       ? {

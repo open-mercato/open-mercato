@@ -113,19 +113,25 @@ export default function TransportTripsTable() {
 
   const data = query.data
 
-  const runTripAction = React.useCallback(async (row: TripRow, action: 'dispatch' | 'complete') => {
+  const runTripAction = React.useCallback(async (row: TripRow, action: 'dispatch' | 'complete' | 'cancel') => {
     const confirmed = await confirm({
       title: action === 'dispatch'
         ? t('transport_operations.trips.dispatch.confirm', 'Start this trip now?')
-        : t('transport_operations.trips.complete.confirm', 'Mark this trip as completed?'),
+        : action === 'complete'
+          ? t('transport_operations.trips.complete.confirm', 'Mark this trip as completed?')
+          : t('transport_operations.trips.cancel.confirm', 'Cancel this trip? Its driver is released if the trip is in progress.'),
     })
     if (!confirmed) return
     const successMessage = action === 'dispatch'
       ? t('transport_operations.trips.dispatch.success', 'Trip dispatched.')
-      : t('transport_operations.trips.complete.success', 'Trip completed.')
+      : action === 'complete'
+        ? t('transport_operations.trips.complete.success', 'Trip completed.')
+        : t('transport_operations.trips.cancel.success', 'Trip cancelled.')
     const errorFallback = action === 'dispatch'
       ? t('transport_operations.trips.dispatch.error', 'Unable to dispatch the trip.')
-      : t('transport_operations.trips.complete.error', 'Unable to complete the trip.')
+      : action === 'complete'
+        ? t('transport_operations.trips.complete.error', 'Unable to complete the trip.')
+        : t('transport_operations.trips.cancel.error', 'Unable to cancel the trip.')
     try {
       await runMutation<Awaited<ReturnType<typeof apiCallOrThrow>>>({
         operation: () => apiCallOrThrow(`/api/transport_operations/trips/${action}`, {
@@ -229,6 +235,14 @@ export default function TransportTripsTable() {
                     id: 'complete',
                     label: t('transport_operations.trips.actions.complete', 'Complete'),
                     onSelect: () => { void runTripAction(row, 'complete') },
+                  }]
+                : []),
+              ...(row.status === 'scheduled' || row.status === 'in_progress'
+                ? [{
+                    id: 'cancel',
+                    label: t('transport_operations.trips.actions.cancel', 'Cancel trip'),
+                    destructive: true,
+                    onSelect: () => { void runTripAction(row, 'cancel') },
                   }]
                 : []),
             ]}

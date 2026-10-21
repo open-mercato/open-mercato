@@ -16,7 +16,7 @@ const RESOURCE = 'fleet_management/vehicles'
 
 export type VehicleStatus = 'active' | 'assigned' | 'maintenance' | 'out_of_service'
 
-export const VEHICLE_STATUS_VALUES: VehicleStatus[] = ['active', 'assigned', 'maintenance', 'out_of_service']
+export const VEHICLE_STATUS_VALUES: VehicleStatus[] = ['active', 'maintenance', 'out_of_service']
 
 export type VehicleRow = {
   id: string
@@ -73,7 +73,9 @@ export function toVehicleFormValues(row: VehicleRow): VehicleFormValues {
     year: Number(row.year ?? new Date().getUTCFullYear()),
     color: row.color ?? '',
     vehicleType: row.vehicle_type ?? '',
-    status: row.status,
+    // `assigned` is derived from an open custody assignment, not a stored status;
+    // editing a vehicle in custody edits the underlying active register state.
+    status: row.status === 'assigned' ? 'active' : row.status,
     currentOdometer: Number(row.current_odometer ?? 0),
     notes: row.notes ?? '',
     updatedAt: row.updatedAt ?? row.updated_at ?? null,

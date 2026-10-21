@@ -44,6 +44,7 @@ export type EmployeeRow = {
   national_id?: string | null
   national_id_expiry?: string | null
   department_id?: string | null
+  manager_employee_id?: string | null
   job_title: string
   employment_type?: EmploymentType | null
   status: EmployeeStatus
@@ -51,6 +52,7 @@ export type EmployeeRow = {
   termination_date?: string | null
   email?: string | null
   phone?: string | null
+  bank_iban?: string | null
   updated_at?: string | null
   updatedAt?: string | null
 }

@@ -98,10 +98,11 @@ export function createTransportService(em: EntityManager): TransportService {
 export async function assertVehicleIdentityUnique(
   em: EntityManager,
   scope: TransportScope,
-  input: { plateNumber?: unknown; vin?: unknown; excludeId?: string | null },
+  input: { plateNumber?: unknown; vin?: unknown; sequenceNumber?: unknown; excludeId?: string | null },
 ): Promise<void> {
   const plateNumber = typeof input.plateNumber === 'string' ? input.plateNumber.trim() : ''
   const vin = typeof input.vin === 'string' ? input.vin.trim() : ''
+  const sequenceNumber = typeof input.sequenceNumber === 'string' ? input.sequenceNumber.trim() : ''
 
   if (plateNumber) {
     const clash = await em.findOne(TransportVehicle, {
@@ -123,5 +124,16 @@ export async function assertVehicleIdentityUnique(
       ...(input.excludeId ? { id: { $ne: input.excludeId } } : {}),
     })
     if (clash) await raiseTransportError(409, 'vehicle_vin_taken', 'Another vehicle already uses this VIN.')
+  }
+
+  if (sequenceNumber) {
+    const clash = await em.findOne(TransportVehicle, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      sequenceNumber,
+      deletedAt: null,
+      ...(input.excludeId ? { id: { $ne: input.excludeId } } : {}),
+    })
+    if (clash) await raiseTransportError(409, 'vehicle_sequence_taken', 'Another vehicle already uses this sequence number.')
   }
 }

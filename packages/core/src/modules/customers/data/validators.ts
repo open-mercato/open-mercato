@@ -635,6 +635,10 @@ export const customerStuckThresholdUpsertSchema = scopedSchema.extend({
 
 export const customerDictionarySortModesSchema = z.record(z.string(), dictionaryEntrySortModeSchema)
 
+export const customerLeadSettingsUpsertSchema = scopedSchema.extend({
+  leadsEnabled: z.boolean(),
+})
+
 export const customerDictionarySortModesUpsertSchema = scopedSchema.extend({
   dictionarySortModes: customerDictionarySortModesSchema,
 })
@@ -659,6 +663,7 @@ export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateS
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
 export type CustomerStuckThresholdUpsertInput = z.infer<typeof customerStuckThresholdUpsertSchema>
 export type CustomerDictionarySortModesUpsertInput = z.infer<typeof customerDictionarySortModesUpsertSchema>
+export type CustomerLeadSettingsUpsertInput = z.infer<typeof customerLeadSettingsUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
 export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
 export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
@@ -824,3 +829,167 @@ export const personCompanyLinkDeleteSchema = scopedSchema
 export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
 export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>
 export type PersonCompanyLinkDeleteInput = z.infer<typeof personCompanyLinkDeleteSchema>
+
+// --- Lead funnel schemas ---
+
+const jsonRecordSchema = z.record(z.string(), z.unknown())
+
+export const LEAD_QUALIFICATION_NOTES_MAX_LENGTH = 20_000
+
+export const leadCreateSchema = scopedSchema.extend({
+  displayName: z.string().trim().min(1).max(200),
+  pipelineId: uuid().optional(),
+  stageId: uuid().optional(),
+  ownerUserId: uuid().nullable().optional(),
+  source: clearableStringSchema(150),
+  sourceChannel: clearableStringSchema(150),
+  sourceExternalId: clearableStringSchema(191),
+  sourcePayloadRaw: jsonRecordSchema.nullable().optional(),
+  sourceReceivedAt: z.coerce.date().nullable().optional(),
+  primaryEmail: clearableEmailSchema,
+  primaryPhone: phoneSchema,
+  vatId: clearableStringSchema(50),
+  spamScore: z.coerce.number().min(0).max(100).nullable().optional(),
+  qualificationNotes: clearableStringSchema(LEAD_QUALIFICATION_NOTES_MAX_LENGTH),
+  personData: jsonRecordSchema.nullable().optional(),
+  companyData: jsonRecordSchema.nullable().optional(),
+  dealData: jsonRecordSchema.nullable().optional(),
+})
+
+export const leadUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(leadCreateSchema.partial())
+
+export const leadDeleteSchema = z.object({ id: uuid() })
+
+export const leadAssignSchema = scopedSchema.extend({
+  id: uuid(),
+  ownerUserId: uuid().nullable(),
+})
+
+export const leadAdvanceStageSchema = scopedSchema.extend({
+  id: uuid(),
+  stageId: uuid(),
+  lostReasonId: uuid().nullable().optional(),
+  note: z.string().trim().max(4000).optional(),
+})
+
+export const leadMarkLostSchema = scopedSchema.extend({
+  id: uuid(),
+  lostReasonId: uuid(),
+  note: z.string().trim().max(4000).optional(),
+})
+
+export const leadDuplicateCheckSchema = z.object({
+  primaryEmail: z.string().email().max(320).optional(),
+  primaryPhone: z.string().trim().max(50).optional(),
+  vatId: z.string().trim().max(50).optional(),
+  excludeLeadId: uuid().optional(),
+})
+
+const leadTargetPlanSchema = z.object({
+  mode: z.enum(['create', 'link']),
+  id: uuid().optional(),
+})
+
+export const leadConvertSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    person: leadTargetPlanSchema.optional(),
+    company: leadTargetPlanSchema.optional(),
+    deal: leadTargetPlanSchema.optional(),
+    note: z.string().trim().max(4000).optional(),
+  })
+  .refine(
+    (payload) => Boolean(payload.person || payload.company || payload.deal),
+    { message: 'At least one conversion target is required.', path: ['person'] },
+  )
+
+export const leadLinkPersonSchema = scopedSchema.extend({ id: uuid(), personId: uuid() })
+export const leadLinkCompanySchema = scopedSchema.extend({ id: uuid(), companyId: uuid() })
+export const leadLinkDealSchema = scopedSchema.extend({ id: uuid(), dealId: uuid() })
+
+export const leadCreatePersonSchema = scopedSchema.extend({
+  id: uuid(),
+  overrides: jsonRecordSchema.optional(),
+})
+export const leadCreateCompanySchema = scopedSchema.extend({
+  id: uuid(),
+  overrides: jsonRecordSchema.optional(),
+})
+export const leadCreateDealSchema = scopedSchema.extend({
+  id: uuid(),
+  overrides: jsonRecordSchema.optional(),
+})
+
+export const leadPipelineCreateSchema = scopedSchema.extend({
+  name: z.string().trim().min(1).max(200),
+  code: z.string().trim().min(1).max(60),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const leadPipelineUpdateSchema = z.object({
+  id: uuid(),
+  name: z.string().trim().min(1).max(200).optional(),
+  code: z.string().trim().min(1).max(60).optional(),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const leadPipelineDeleteSchema = z.object({ id: uuid() })
+
+export const leadPipelineStageCreateSchema = scopedSchema.extend({
+  pipelineId: uuid(),
+  name: z.string().trim().min(1).max(200),
+  code: z.string().trim().min(1).max(60),
+  position: z.number().int().min(0).optional(),
+  kind: z.enum(['open', 'won', 'lost']).optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const leadPipelineStageUpdateSchema = z.object({
+  id: uuid(),
+  name: z.string().trim().min(1).max(200).optional(),
+  code: z.string().trim().min(1).max(60).optional(),
+  position: z.number().int().min(0).optional(),
+  kind: z.enum(['open', 'won', 'lost']).optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const leadPipelineStageDeleteSchema = z.object({ id: uuid() })
+
+export const leadLostReasonCreateSchema = scopedSchema.extend({
+  pipelineId: uuid().nullable().optional(),
+  name: z.string().trim().min(1).max(200),
+  code: z.string().trim().min(1).max(60),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+})
+
+export const leadLostReasonUpdateSchema = z.object({
+  id: uuid(),
+  pipelineId: uuid().nullable().optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  code: z.string().trim().min(1).max(60).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+})
+
+export const leadLostReasonDeleteSchema = z.object({ id: uuid() })
+
+export type LeadCreateInput = z.infer<typeof leadCreateSchema>
+export type LeadUpdateInput = z.infer<typeof leadUpdateSchema>
+export type LeadAssignInput = z.infer<typeof leadAssignSchema>
+export type LeadAdvanceStageInput = z.infer<typeof leadAdvanceStageSchema>
+export type LeadMarkLostInput = z.infer<typeof leadMarkLostSchema>
+export type LeadDuplicateCheckInput = z.infer<typeof leadDuplicateCheckSchema>
+export type LeadConvertInput = z.infer<typeof leadConvertSchema>
+export type LeadPipelineCreateInput = z.infer<typeof leadPipelineCreateSchema>
+export type LeadPipelineUpdateInput = z.infer<typeof leadPipelineUpdateSchema>
+export type LeadPipelineStageCreateInput = z.infer<typeof leadPipelineStageCreateSchema>
+export type LeadPipelineStageUpdateInput = z.infer<typeof leadPipelineStageUpdateSchema>
+export type LeadLostReasonCreateInput = z.infer<typeof leadLostReasonCreateSchema>
+export type LeadLostReasonUpdateInput = z.infer<typeof leadLostReasonUpdateSchema>

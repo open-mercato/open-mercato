@@ -27,12 +27,17 @@ export type VehicleFormValues = {
   id: string
   plateNumber: string
   vin: string
+  sequenceNumber: string
   make: string
   model: string
   year: number
   capacity: number
+  color: string
+  vehicleType: string
+  currentOdometer: number
   status: VehicleStatus
   telematicsDeviceId: string
+  notes: string
   // Carries the optimistic-lock version into `CrudForm`, which derives the expected-version header
   // from `initialValues.updatedAt` for update AND delete.
   updatedAt?: string | null
@@ -52,12 +57,17 @@ export function toVehicleFormValues(row: VehicleRow): VehicleFormValues {
     id: row.id,
     plateNumber: row.plate_number ?? '',
     vin: row.vin ?? '',
+    sequenceNumber: row.sequence_number ?? '',
     make: row.make ?? '',
     model: row.model ?? '',
     year: Number(row.year ?? new Date().getUTCFullYear()),
     capacity: Number(row.capacity ?? 0),
+    color: row.color ?? '',
+    vehicleType: row.vehicle_type ?? '',
+    currentOdometer: Number(row.current_odometer ?? 0),
     status: row.status,
     telematicsDeviceId: row.telematics_device_id ?? '',
+    notes: row.notes ?? '',
     updatedAt: row.updatedAt ?? row.updated_at ?? null,
   }
 }
@@ -67,12 +77,17 @@ export function buildVehicleFormDefaults(id = ''): VehicleFormValues {
     id,
     plateNumber: '',
     vin: '',
+    sequenceNumber: '',
     make: '',
     model: '',
     year: new Date().getUTCFullYear(),
-    capacity: 1,
+    capacity: 0,
+    color: '',
+    vehicleType: '',
+    currentOdometer: 0,
     status: 'active',
     telematicsDeviceId: '',
+    notes: '',
     updatedAt: null,
   }
 }
@@ -87,13 +102,18 @@ export function toVehiclePayload(values: VehicleFormValues): Record<string, unkn
   const optional = (value: string) => (value.trim().length > 0 ? value.trim() : null)
   return {
     plateNumber: values.plateNumber.trim(),
-    vin: values.vin.trim(),
+    vin: optional(values.vin),
+    sequenceNumber: optional(values.sequenceNumber),
     make: values.make.trim(),
     model: values.model.trim(),
     year: Number.isFinite(values.year) ? values.year : undefined,
-    capacity: Number.isFinite(values.capacity) ? values.capacity : undefined,
+    capacity: Number.isFinite(values.capacity) ? values.capacity : 0,
+    color: optional(values.color),
+    vehicleType: optional(values.vehicleType),
+    currentOdometer: Number.isFinite(values.currentOdometer) ? values.currentOdometer : 0,
     status: values.status,
     telematicsDeviceId: optional(values.telematicsDeviceId),
+    notes: optional(values.notes),
   }
 }
 
@@ -102,11 +122,15 @@ type Translate = ReturnType<typeof useT>
 function useVehicleFields(t: Translate): CrudField[] {
   return React.useMemo<CrudField[]>(() => [
     { id: 'plateNumber', label: t('transport_operations.vehicles.form.fields.plate', 'Plate number'), type: 'text', required: true, layout: 'half' },
-    { id: 'vin', label: t('transport_operations.vehicles.form.fields.vin', 'Chassis number (VIN)'), type: 'text', required: true, layout: 'half' },
+    { id: 'vin', label: t('transport_operations.vehicles.form.fields.vin', 'Chassis number (VIN)'), type: 'text', layout: 'half' },
+    { id: 'sequenceNumber', label: t('transport_operations.vehicles.form.fields.sequence', 'Fleet sequence number'), type: 'text', layout: 'half' },
     { id: 'make', label: t('transport_operations.vehicles.form.fields.make', 'Make'), type: 'text', required: true, layout: 'half' },
     { id: 'model', label: t('transport_operations.vehicles.form.fields.model', 'Model'), type: 'text', required: true, layout: 'half' },
     { id: 'year', label: t('transport_operations.vehicles.form.fields.year', 'Year'), type: 'number', required: true, layout: 'half' },
-    { id: 'capacity', label: t('transport_operations.vehicles.form.fields.capacity', 'Passenger seats'), type: 'number', required: true, layout: 'half' },
+    { id: 'capacity', label: t('transport_operations.vehicles.form.fields.capacity', 'Passenger seats'), type: 'number', layout: 'half' },
+    { id: 'color', label: t('transport_operations.vehicles.form.fields.color', 'Colour'), type: 'text', layout: 'half' },
+    { id: 'vehicleType', label: t('transport_operations.vehicles.form.fields.type', 'Vehicle type'), type: 'text', layout: 'half' },
+    { id: 'currentOdometer', label: t('transport_operations.vehicles.form.fields.odometer', 'Current odometer'), type: 'number', layout: 'half' },
     {
       id: 'status',
       label: t('transport_operations.vehicles.form.fields.status', 'Status'),
@@ -119,6 +143,7 @@ function useVehicleFields(t: Translate): CrudField[] {
       })),
     },
     { id: 'telematicsDeviceId', label: t('transport_operations.vehicles.form.fields.telematicsDevice', 'Telematics device id'), type: 'text', layout: 'half' },
+    { id: 'notes', label: t('transport_operations.vehicles.form.fields.notes', 'Notes'), type: 'textarea', rows: 3 },
   ], [t])
 }
 
@@ -128,19 +153,19 @@ function useVehicleGroups(t: Translate): CrudFormGroup[] {
       id: 'identification',
       title: t('transport_operations.vehicles.form.groups.identification', 'Identification'),
       column: 1,
-      fields: ['plateNumber', 'vin', 'make', 'model'],
+      fields: ['plateNumber', 'vin', 'sequenceNumber', 'make', 'model'],
     },
     {
       id: 'specification',
       title: t('transport_operations.vehicles.form.groups.specification', 'Specification'),
       column: 2,
-      fields: ['year', 'capacity', 'status'],
+      fields: ['year', 'capacity', 'color', 'vehicleType', 'currentOdometer', 'status'],
     },
     {
       id: 'telematics',
       title: t('transport_operations.vehicles.form.groups.telematics', 'Telematics'),
       column: 1,
-      fields: ['telematicsDeviceId'],
+      fields: ['telematicsDeviceId', 'notes'],
     },
   ], [t])
 }

@@ -688,6 +688,7 @@ export const orderCreateSchema = scoped.extend({
   orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
   customerReference: z.string().trim().max(191).optional(),
+  dealId: uuid().optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
   customerSnapshot: customerSnapshotSchema.optional(),
@@ -740,6 +741,7 @@ export const orderUpdateSchema = z
 
 export const quoteCreateSchema = scoped.extend({
   quoteNumber: z.string().trim().min(1).max(191).optional(),
+  dealId: uuid().optional(),
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
@@ -901,6 +903,7 @@ export const returnDeleteSchema = scoped.extend({
 
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
+  dealId: uuid().optional(),
   invoiceNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),

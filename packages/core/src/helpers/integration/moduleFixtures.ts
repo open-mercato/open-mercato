@@ -113,6 +113,13 @@ export type CustomerSnapshotInput = {
   primaryPhone?: string | null;
 };
 
+// ── Transport ────────────────────────────────────────────────────────────────
+
+// Vehicles and drivers are owned by the freight helper set; re-exported so the
+// app-local module specs (vehicle rentals, school transport) can pull every
+// fixture they depend on from a single import.
+export { createTransportDriverFixture, createTransportVehicleFixture } from './freightFixtures';
+
 // ── Vehicle rentals ──────────────────────────────────────────────────────────
 
 export async function createRentalContractFixture(

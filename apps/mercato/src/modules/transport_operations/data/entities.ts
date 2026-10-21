@@ -27,6 +27,11 @@ export type TripScheduleStatus = (typeof TRIP_SCHEDULE_STATUSES)[number]
   expression:
     'create unique index "transport_vehicles_vin_unique_idx" on "transport_vehicles" ("organization_id", "tenant_id", "vin") where deleted_at is null',
 })
+@Index({
+  name: 'transport_vehicles_sequence_unique_idx',
+  expression:
+    'create unique index "transport_vehicles_sequence_unique_idx" on "transport_vehicles" ("organization_id", "tenant_id", "sequence_number") where deleted_at is null and sequence_number is not null',
+})
 export class TransportVehicle {
   [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -42,8 +47,11 @@ export class TransportVehicle {
   @Property({ name: 'plate_number', type: 'text' })
   plateNumber!: string
 
-  @Property({ type: 'text' })
-  vin!: string
+  @Property({ type: 'text', nullable: true })
+  vin?: string | null
+
+  @Property({ name: 'sequence_number', type: 'text', nullable: true })
+  sequenceNumber?: string | null
 
   @Property({ type: 'text' })
   make!: string
@@ -54,14 +62,26 @@ export class TransportVehicle {
   @Property({ type: 'integer' })
   year!: number
 
-  @Property({ type: 'integer' })
-  capacity!: number
+  @Property({ type: 'integer', default: 0 })
+  capacity: number = 0
+
+  @Property({ type: 'text', nullable: true })
+  color?: string | null
+
+  @Property({ name: 'vehicle_type', type: 'text', nullable: true })
+  vehicleType?: string | null
+
+  @Property({ name: 'current_odometer', type: 'integer', default: 0 })
+  currentOdometer: number = 0
 
   @Enum({ items: [...VEHICLE_STATUSES], type: 'text', name: 'status', default: 'active' })
   status: VehicleStatus = 'active'
 
   @Property({ name: 'telematics_device_id', type: 'text', nullable: true })
   telematicsDeviceId?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
 
   @Property({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy?: string | null
@@ -212,6 +232,9 @@ export class TransportTripSchedule {
 
   @Enum({ items: [...TRIP_SCHEDULE_STATUSES], type: 'text', name: 'status', default: 'scheduled' })
   status: TripScheduleStatus = 'scheduled'
+
+  @Property({ name: 'cancellation_reason', type: 'text', nullable: true })
+  cancellationReason?: string | null
 
   @Property({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy?: string | null

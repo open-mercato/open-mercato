@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -13,9 +13,19 @@ import {
   HrApprovalStepDefinition,
   HrApprovalWorkflow,
   HrAttendanceRecord,
+  HrEmployee,
+  HrEmployeeIncentive,
+  HrEmployeeLoan,
+  HrEmployeePenalty,
   HrLeaveRequest,
+  HrPayrollRun,
 } from '../data/entities'
 import { raiseHrError } from '../lib/errors'
+import { emitHrEvent } from '../events'
+import {
+  authorizeApprovalStep,
+  resolveReassignedApprover,
+} from '../lib/approvalAuthorization'
 import {
   countApprovals,
   decideApproval,
@@ -76,6 +86,13 @@ export const submitApprovalInputSchema = z.object({
   payload: z.unknown().optional(),
 })
 
+export const submitForEntityInputSchema = z.object({
+  entityType: z.string().min(1),
+  entityId: z.string().uuid(),
+  summary: z.string().trim().min(1).optional().nullable(),
+  payload: z.unknown().optional(),
+})
+
 export const decideApprovalInputSchema = z.object({
   id: z.string().uuid(),
   comment: z.string().trim().min(1).optional().nullable(),
@@ -103,6 +120,71 @@ async function loadSteps(em: EntityManager, scope: ApprovalScope, workflowId: st
 
 async function loadLogs(em: EntityManager, scope: ApprovalScope, approvalRequestId: string) {
   return em.find(HrApprovalActionLog, { approvalRequestId, ...scope, deletedAt: null })
+}
+
+type PrincipalService = {
+  resolveActiveUserRoleIds: (
+    userId: string,
+    scope: { tenantId: string; organizationId: string },
+  ) => Promise<string[]>
+  principalExists: (input: {
+    type: 'user' | 'role'
+    id: string
+    scope: { tenantId: string; organizationId: string }
+  }) => Promise<boolean>
+}
+
+function resolvePrincipalService(ctx: CommandRuntimeContext): PrincipalService {
+  return ctx.container.resolve('authPrincipalService') as PrincipalService
+}
+
+async function resolveTargetEmployeeId(
+  em: EntityManager,
+  scope: ApprovalScope,
+  request: HrApprovalRequest,
+): Promise<string | null> {
+  if (request.entityType === 'hr_leave_request') {
+    const leaveRequest = await em.findOne(HrLeaveRequest, {
+      id: request.entityId,
+      ...scope,
+      deletedAt: null,
+    })
+    return leaveRequest?.employeeId ?? null
+  }
+  if (request.entityType === 'hr_attendance_record') {
+    const record = await em.findOne(HrAttendanceRecord, {
+      id: request.entityId,
+      ...scope,
+      deletedAt: null,
+    })
+    return record?.employeeId ?? null
+  }
+  const payloadEmployeeId = request.payload?.employeeId
+  return typeof payloadEmployeeId === 'string' ? payloadEmployeeId : null
+}
+
+/**
+ * The user a `manager` step must resolve to: the target employee's manager's auth user.
+ *
+ * A manager employee without a linked user cannot decide anything, so it resolves to
+ * `null` and the engine answers `approval_approver_unresolved` rather than letting the
+ * request sit at a step nobody can act on.
+ */
+async function resolveTargetManagerUserId(
+  em: EntityManager,
+  scope: ApprovalScope,
+  request: HrApprovalRequest,
+): Promise<string | null> {
+  const employeeId = await resolveTargetEmployeeId(em, scope, request)
+  if (!employeeId) return null
+  const employee = await em.findOne(HrEmployee, { id: employeeId, ...scope, deletedAt: null })
+  if (!employee?.managerEmployeeId) return null
+  const manager = await em.findOne(HrEmployee, {
+    id: employee.managerEmployeeId,
+    ...scope,
+    deletedAt: null,
+  })
+  return manager?.userId ?? null
 }
 
 function appendComment(comment: string | null | undefined, extra: string): string | null {
@@ -197,6 +279,72 @@ async function applyTargetEffect(
     }
   }
 
+  if (
+    request.entityType === 'hr_employee_loan'
+    || request.entityType === 'hr_employee_penalty'
+    || request.entityType === 'hr_employee_incentive'
+  ) {
+    const entity = request.entityType === 'hr_employee_loan'
+      ? await em.findOne(HrEmployeeLoan, { id: request.entityId, ...scope, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+      : request.entityType === 'hr_employee_penalty'
+        ? await em.findOne(HrEmployeePenalty, { id: request.entityId, ...scope, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        : await em.findOne(HrEmployeeIncentive, { id: request.entityId, ...scope, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    if (!entity) return null
+    entity.status = decision.status === 'approved' ? 'approved' : 'rejected'
+    entity.decidedByUserId = actorUserId
+    entity.decidedAt = now
+    entity.updatedAt = now
+    await em.persist(entity).flush()
+    return null
+  }
+
+  if (request.entityType === 'hr_payroll_run') {
+    const run = await em.findOne(HrPayrollRun, {
+      id: request.entityId,
+      ...scope,
+      deletedAt: null,
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    if (!run) return null
+    if (decision.status === 'approved') {
+      run.status = 'approved'
+      run.updatedAt = now
+      await em.persist(run).flush()
+      return async () => {
+        await emitHrEvent('hr_management.payroll_run.approved', {
+          id: run.id,
+          periodStart: run.periodStart.toISOString().slice(0, 10),
+          periodEnd: run.periodEnd.toISOString().slice(0, 10),
+          grossTotal: run.grossTotal,
+          deductionTotal: run.deductionTotal,
+          netTotal: run.netTotal,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+        })
+      }
+    }
+    if (run.status === 'submitted') {
+      run.status = 'calculated'
+      run.updatedAt = now
+      await em.persist(run).flush()
+    }
+    return null
+  }
+
+  if (request.entityType === 'fleet_vehicle_assignment') {
+    return async () => {
+      await emitHrEvent('hr_management.approval_request.decided', {
+        approvalRequestId: request.id,
+        entityType: request.entityType,
+        entityId: request.entityId,
+        status: decision.status,
+        decidedByUserId: actorUserId,
+        comment: comment ?? null,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+    }
+  }
+
   return null
 }
 
@@ -271,6 +419,54 @@ async function runDecision(
       return raiseHrError(400, decision.code, 'This approval action cannot be applied to the request.')
     }
 
+    const currentStep = await transactionEm.findOne(HrApprovalStepDefinition, {
+      workflowId: request.workflowId,
+      stepOrder: request.currentStepOrder,
+      ...scope,
+      deletedAt: null,
+    })
+    if (!currentStep) {
+      return raiseHrError(400, 'step_not_found', 'The current approval step no longer exists in the workflow.')
+    }
+
+    const principalService = resolvePrincipalService(ctx)
+    const actorRoleIds = actorUserId
+      ? await principalService.resolveActiveUserRoleIds(actorUserId, scope)
+      : []
+    const targetEmployeeManagerUserId = await resolveTargetManagerUserId(transactionEm, scope, request)
+    const reassignedToUserId = resolveReassignedApprover(request.payload, request.currentStepOrder)
+    const authorization = authorizeApprovalStep({
+      action,
+      step: {
+        approverType: currentStep.approverType,
+        approverRoleId: currentStep.approverRoleId ?? null,
+        approverUserId: currentStep.approverUserId ?? null,
+      },
+      actor: {
+        actorUserId,
+        actorRoleIds,
+        targetEmployeeManagerUserId,
+        requestedByUserId: request.requestedByUserId ?? null,
+        reassignedToUserId,
+      },
+    })
+    if (!authorization.ok) {
+      return authorization.code === 'approval_approver_unresolved'
+        ? raiseHrError(409, authorization.code, 'The approver for this step could not be resolved.')
+        : raiseHrError(403, authorization.code, 'You are not the approver for this step.')
+    }
+
+    if (action === 'reassign' && input.reassignToUserId) {
+      const targetExists = await principalService.principalExists({
+        type: 'user',
+        id: input.reassignToUserId,
+        scope,
+      })
+      if (!targetExists) {
+        return raiseHrError(400, 'reassign_target_not_found', 'The selected reassignment target does not exist.')
+      }
+    }
+
     const now = new Date()
     const comment = input.comment ?? null
     const log = transactionEm.create(HrApprovalActionLog, {
@@ -292,11 +488,25 @@ async function runDecision(
     request.status = decision.status
     request.currentStepOrder = decision.currentStepOrder
     if (decision.decided) request.decidedAt = now
+    const previousPayload = (typeof request.payload === 'object' && request.payload !== null)
+      ? request.payload as Record<string, unknown>
+      : {}
     if (action === 'reassign' && input.reassignToUserId) {
-      const previous = (typeof request.payload === 'object' && request.payload !== null)
-        ? request.payload as Record<string, unknown>
+      const existing = previousPayload.reassignments
+      const reassignments = (existing && typeof existing === 'object' && !Array.isArray(existing))
+        ? existing as Record<string, unknown>
         : {}
-      request.payload = { ...previous, reassignedToUserId: input.reassignToUserId }
+      request.payload = {
+        ...previousPayload,
+        reassignments: { ...reassignments, [String(request.currentStepOrder)]: input.reassignToUserId },
+        reassignedToUserId: input.reassignToUserId,
+      }
+    } else if (decision.currentStepOrder !== request.currentStepOrder) {
+      // The legacy scalar names a single user and would otherwise follow the request
+      // into the next step. The per-step map already scopes every override.
+      const nextPayload = { ...previousPayload }
+      delete nextPayload.reassignedToUserId
+      request.payload = nextPayload
     }
     request.updatedAt = now
     await transactionEm.persist([request, log]).flush()
@@ -367,6 +577,11 @@ const submitApprovalCommand: CommandHandler<Record<string, unknown>, DecisionOut
       if (workflow.isActive !== true) {
         return raiseHrError(400, 'workflow_inactive', 'This approval workflow is not active.')
       }
+      // The picker filters by target, but the API is reachable without it. A workflow whose
+      // target differs would complete and change nothing, which is worse than a refusal.
+      if (workflow.entityType !== input.entityType) {
+        return raiseHrError(400, 'workflow_target_mismatch', 'This workflow is not defined for that record type.')
+      }
 
       const steps = await loadSteps(transactionEm, scope, input.workflowId)
       const decision = decideApproval({
@@ -378,6 +593,44 @@ const submitApprovalCommand: CommandHandler<Record<string, unknown>, DecisionOut
       })
       if (decision.kind === 'error') {
         return raiseHrError(400, decision.code, 'This approval workflow has no steps configured.')
+      }
+
+      const duplicate = await transactionEm.findOne(HrApprovalRequest, {
+        entityType: input.entityType,
+        entityId: input.entityId,
+        status: 'pending',
+        ...scope,
+        deletedAt: null,
+      })
+      if (duplicate) {
+        return raiseHrError(409, 'approval_request_already_pending', 'This record already has a pending approval request.')
+      }
+
+      if (input.entityType === 'hr_leave_request') {
+        const leaveRequest = await transactionEm.findOne(HrLeaveRequest, {
+          id: input.entityId,
+          ...scope,
+          deletedAt: null,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (!leaveRequest) {
+          return raiseHrError(404, 'leave_request_not_found', 'The leave request does not exist.')
+        }
+        if (leaveRequest.status !== 'pending') {
+          return raiseHrError(409, 'leave_request_not_pending', 'Only a pending leave request can be submitted for approval.')
+        }
+      }
+      if (input.entityType === 'hr_attendance_record') {
+        const record = await transactionEm.findOne(HrAttendanceRecord, {
+          id: input.entityId,
+          ...scope,
+          deletedAt: null,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (!record) {
+          return raiseHrError(404, 'attendance_record_not_found', 'The attendance record does not exist.')
+        }
+        if (record.status !== 'late') {
+          return raiseHrError(409, 'attendance_not_late', 'Only a late attendance record can request a lateness permission.')
+        }
       }
 
       const now = new Date()
@@ -472,7 +725,49 @@ const cancelApprovalCommand: CommandHandler<Record<string, unknown>, DecisionOut
   buildLog: approvalLog('Cancel request'),
 }
 
+const submitForEntityCommand: CommandHandler<
+  z.infer<typeof submitForEntityInputSchema>,
+  { submitted: boolean; approvalRequestId?: string }
+> = {
+  id: 'hr_management.approvals.submit_for_entity',
+  async execute(rawInput, ctx) {
+    const input = submitForEntityInputSchema.parse(rawInput)
+    const scope = resolveScope(ctx)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const workflow = await em.findOne(HrApprovalWorkflow, {
+      entityType: input.entityType,
+      isActive: true,
+      ...scope,
+      deletedAt: null,
+    }, { orderBy: { createdAt: 'asc' } })
+    if (!workflow) return { submitted: false }
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    const { result } = await commandBus.execute<Record<string, unknown>, DecisionOutcome>('hr_management.approvals.submit', {
+      input: {
+        workflowId: workflow.id,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        summary: input.summary ?? null,
+        payload: input.payload,
+      },
+      ctx,
+    })
+    return { submitted: true, approvalRequestId: result.approvalRequestId }
+  },
+  buildLog: ({ result, ctx }) => {
+    const scope = resolveScope(ctx)
+    return {
+      actionLabel: 'Submit approval request',
+      resourceKind: 'hr_management:approval_request',
+      resourceId: result.approvalRequestId ?? null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    }
+  },
+}
+
 registerCommand(submitApprovalCommand)
+registerCommand(submitForEntityCommand)
 registerCommand(approveApprovalCommand)
 registerCommand(rejectApprovalCommand)
 registerCommand(reassignApprovalCommand)

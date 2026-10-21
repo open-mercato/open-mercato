@@ -55,6 +55,7 @@ export const SAUDI_CHART_OF_ACCOUNTS: readonly ChartOfAccountsEntry[] = [
     normalBalance: 'credit',
     accountType: 'tax_payable',
   },
+  { code: '2160', name: 'Payroll deductions payable', accountClass: 'liability', normalBalance: 'credit', accountType: 'payable' },
   { code: '2200', name: 'Accruals and provisions', accountClass: 'liability', normalBalance: 'credit', accountType: 'accrual' },
   {
     code: '2300',
@@ -87,6 +88,20 @@ export const SAUDI_CHART_OF_ACCOUNTS: readonly ChartOfAccountsEntry[] = [
   {
     code: '5500',
     name: 'General and administrative expenses',
+    accountClass: 'expense',
+    normalBalance: 'debit',
+    accountType: 'operating_expense',
+  },
+  {
+    code: '5600',
+    name: 'Vehicle maintenance and repairs',
+    accountClass: 'expense',
+    normalBalance: 'debit',
+    accountType: 'operating_expense',
+  },
+  {
+    code: '5700',
+    name: 'Vehicle insurance',
     accountClass: 'expense',
     normalBalance: 'debit',
     accountType: 'operating_expense',

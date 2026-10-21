@@ -103,6 +103,7 @@ const ingestPhoneCallCommand: CommandHandler<IngestPhoneCallInput, IngestPhoneCa
     })
     if (created) em.persist(call)
     const ingestedAt = new Date()
+    const previousStatus = call.status
 
     await withAtomicFlush(
       em,
@@ -131,6 +132,32 @@ const ingestPhoneCallCommand: CommandHandler<IngestPhoneCallInput, IngestPhoneCa
       created ? 'phone_calls.call.ingested' : 'phone_calls.call.updated',
       { id: call.id, organizationId: call.organizationId, tenantId: call.tenantId },
     ).catch(() => undefined)
+
+    if (call.status === 'completed' && (created || previousStatus !== 'completed')) {
+      const participants = await em.find(PhoneCallParticipant, { phoneCallId: call.id })
+      await emitPhoneCallsEvent(
+        'phone_calls.call.completed',
+        {
+          id: call.id,
+          organizationId: call.organizationId,
+          tenantId: call.tenantId,
+          providerKey: call.providerKey,
+          direction: call.direction,
+          status: call.status,
+          startedAt: call.startedAt ?? null,
+          answeredAt: call.answeredAt ?? null,
+          endedAt: call.endedAt ?? null,
+          durationSeconds: call.durationSeconds ?? null,
+          recordingUrl: call.recordingUrl ?? null,
+          participants: participants.map((participant) => ({
+            role: participant.role,
+            phoneNumber: participant.phoneNumber ?? null,
+            displayName: participant.displayName ?? null,
+            email: participant.email ?? null,
+          })),
+        },
+      ).catch(() => undefined)
+    }
 
     return { phoneCallId: call.id, created }
   },

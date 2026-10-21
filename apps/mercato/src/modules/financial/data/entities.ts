@@ -166,6 +166,11 @@ export class GlPeriod {
 
 @Entity({ tableName: 'gl_journal_entries' })
 @Index({ name: 'gl_journal_entries_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({
+  name: 'gl_journal_entries_source_unique_idx',
+  expression:
+    `create unique index "gl_journal_entries_source_unique_idx" on "gl_journal_entries" ("organization_id", "tenant_id", "source_entity_type", "source_entity_id", "source_kind") where source_entity_id is not null and status <> 'reversed'`,
+})
 @Index({ name: 'gl_journal_entries_period_idx', properties: ['period', 'status'] })
 @Index({
   name: 'gl_journal_entries_number_unique_idx',
@@ -204,6 +209,15 @@ export class GlJournalEntry {
 
   @Property({ type: 'text', nullable: true })
   reference?: string | null
+
+  @Property({ name: 'source_entity_type', type: 'text', nullable: true })
+  sourceEntityType?: string | null
+
+  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
+  sourceEntityId?: string | null
+
+  @Property({ name: 'source_kind', type: 'text', nullable: true })
+  sourceKind?: string | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -437,4 +451,414 @@ export class GlCashAccount {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+
+export const AP_INVOICE_STATUSES = ['draft', 'posted', 'paid', 'void'] as const
+export type ApInvoiceStatus = (typeof AP_INVOICE_STATUSES)[number]
+
+export const AP_PAYMENT_STATUSES = ['posted', 'void'] as const
+export type ApPaymentStatus = (typeof AP_PAYMENT_STATUSES)[number]
+
+export const AP_PAYMENT_METHODS = ['bank_transfer', 'cheque', 'cash'] as const
+export type ApPaymentMethod = (typeof AP_PAYMENT_METHODS)[number]
+
+@Entity({ tableName: 'ap_vendors' })
+@Index({ name: 'ap_vendors_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({
+  name: 'ap_vendors_code_unique_idx',
+  expression:
+    'create unique index "ap_vendors_code_unique_idx" on "ap_vendors" ("organization_id", "tenant_id", "code") where deleted_at is null',
+})
+export class ApVendor {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'name_ar', type: 'text', nullable: true })
+  nameAr?: string | null
+
+  @Property({ name: 'vat_number', type: 'text', nullable: true })
+  vatNumber?: string | null
+
+  @Property({ name: 'cr_number', type: 'text', nullable: true })
+  crNumber?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  email?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  phone?: string | null
+
+  @Property({ name: 'country_code', type: 'text', nullable: true })
+  countryCode?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'updated_by', type: 'uuid', nullable: true })
+  updatedBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'ap_vendor_invoices' })
+@Index({ name: 'ap_vendor_invoices_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'ap_vendor_invoices_vendor_idx', properties: ['organizationId', 'vendorId'] })
+@Index({ name: 'ap_vendor_invoices_status_idx', properties: ['organizationId', 'status'] })
+@Index({ name: 'ap_vendor_invoices_due_idx', properties: ['organizationId', 'dueDate'] })
+@Index({
+  name: 'ap_vendor_invoices_number_unique_idx',
+  expression:
+    'create unique index "ap_vendor_invoices_number_unique_idx" on "ap_vendor_invoices" ("organization_id", "tenant_id", "internal_number") where deleted_at is null',
+})
+export class ApVendorInvoice {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'vendor_id', type: 'uuid' })
+  vendorId!: string
+
+  @Property({ name: 'internal_number', type: 'text' })
+  internalNumber!: string
+
+  @Property({ name: 'vendor_invoice_number', type: 'text', nullable: true })
+  vendorInvoiceNumber?: string | null
+
+  @Property({ name: 'issue_date', type: 'date' })
+  issueDate!: Date
+
+  @Property({ name: 'due_date', type: 'date', nullable: true })
+  dueDate?: Date | null
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'subtotal_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  subtotalNetAmount: string = '0'
+
+  @Property({ name: 'tax_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  taxTotalAmount: string = '0'
+
+  @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  grandTotalGrossAmount: string = '0'
+
+  @Property({ name: 'withholding_code', type: 'text', nullable: true })
+  withholdingCode?: string | null
+
+  @Property({ name: 'withholding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  withholdingAmount: string = '0'
+
+  @Enum({ items: [...AP_INVOICE_STATUSES], type: 'text', name: 'status', default: 'draft' })
+  status: ApInvoiceStatus = 'draft'
+
+  @Property({ name: 'posted_entry_id', type: 'uuid', nullable: true })
+  postedEntryId?: string | null
+
+  @Property({ name: 'posted_at', type: Date, nullable: true })
+  postedAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'updated_by', type: 'uuid', nullable: true })
+  updatedBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'ap_vendor_invoice_lines' })
+@Index({ name: 'ap_vendor_invoice_lines_invoice_idx', properties: ['invoiceId'] })
+export class ApVendorInvoiceLine {
+  [OptionalProps]?: 'lineNumber' | 'taxRate' | 'taxAmount' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'invoice_id', type: 'uuid' })
+  invoiceId!: string
+
+  @Property({ name: 'line_number', type: 'integer', default: 0 })
+  lineNumber: number = 0
+
+  @Property({ type: 'text' })
+  description!: string
+
+  @Property({ name: 'expense_account_id', type: 'uuid' })
+  expenseAccountId!: string
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, default: '1' })
+  quantity: string = '1'
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  unitPriceNet: string = '0'
+
+  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  totalNetAmount: string = '0'
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
+  taxRate: string = '0'
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  taxAmount: string = '0'
+
+  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  totalGrossAmount: string = '0'
+
+  @Property({ name: 'tax_code', type: 'text', nullable: true })
+  taxCode?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'ap_payments' })
+@Index({ name: 'ap_payments_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'ap_payments_vendor_idx', properties: ['organizationId', 'vendorId'] })
+@Index({
+  name: 'ap_payments_number_unique_idx',
+  expression:
+    'create unique index "ap_payments_number_unique_idx" on "ap_payments" ("organization_id", "tenant_id", "payment_number") where deleted_at is null',
+})
+export class ApPayment {
+  [OptionalProps]?: 'status' | 'withholdingAmount' | 'netAmount' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'vendor_id', type: 'uuid' })
+  vendorId!: string
+
+  @Property({ name: 'payment_number', type: 'text' })
+  paymentNumber!: string
+
+  @Property({ name: 'payment_date', type: 'date' })
+  paymentDate!: Date
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  grossAmount: string = '0'
+
+  @Property({ name: 'withholding_code', type: 'text', nullable: true })
+  withholdingCode?: string | null
+
+  @Property({ name: 'withholding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  withholdingAmount: string = '0'
+
+  @Property({ name: 'net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  netAmount: string = '0'
+
+  @Enum({ items: [...AP_PAYMENT_METHODS], type: 'text', name: 'method', default: 'bank_transfer' })
+  method: ApPaymentMethod = 'bank_transfer'
+
+  @Property({ type: 'text', nullable: true })
+  reference?: string | null
+
+  @Enum({ items: [...AP_PAYMENT_STATUSES], type: 'text', name: 'status', default: 'posted' })
+  status: ApPaymentStatus = 'posted'
+
+  @Property({ name: 'posted_entry_id', type: 'uuid', nullable: true })
+  postedEntryId?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'updated_by', type: 'uuid', nullable: true })
+  updatedBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'ap_payment_allocations' })
+@Index({ name: 'ap_payment_allocations_payment_idx', properties: ['paymentId'] })
+@Index({ name: 'ap_payment_allocations_invoice_idx', properties: ['invoiceId'] })
+export class ApPaymentAllocation {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'payment_id', type: 'uuid' })
+  paymentId!: string
+
+  @Property({ name: 'invoice_id', type: 'uuid' })
+  invoiceId!: string
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amount: string = '0'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+export const BANK_STATEMENT_STATUSES = ['imported', 'reconciled'] as const
+export const BANK_STATEMENT_LINE_STATUSES = ['unmatched', 'matched', 'ignored'] as const
+
+@Entity({ tableName: 'gl_bank_statements' })
+@Index({ name: 'gl_bank_statements_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'gl_bank_statements_account_idx', properties: ['organizationId', 'cashAccountId'] })
+export class GlBankStatement {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'cash_account_id', type: 'uuid' })
+  cashAccountId!: string
+
+  @Property({ name: 'file_name', type: 'text', nullable: true })
+  fileName?: string | null
+
+  @Property({ name: 'period_start', type: 'date', nullable: true })
+  periodStart?: Date | null
+
+  @Property({ name: 'period_end', type: 'date', nullable: true })
+  periodEnd?: Date | null
+
+  @Enum({ items: [...BANK_STATEMENT_STATUSES], type: 'text', name: 'status', default: 'imported' })
+  status: (typeof BANK_STATEMENT_STATUSES)[number] = 'imported'
+
+  @Property({ name: 'imported_by', type: 'uuid', nullable: true })
+  importedBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'gl_bank_statement_lines' })
+@Index({ name: 'gl_bank_statement_lines_statement_idx', properties: ['statementId'] })
+@Index({ name: 'gl_bank_statement_lines_status_idx', properties: ['organizationId', 'status'] })
+export class GlBankStatementLine {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'statement_id', type: 'uuid' })
+  statementId!: string
+
+  @Property({ name: 'line_number', type: 'integer', default: 0 })
+  lineNumber: number = 0
+
+  @Property({ name: 'transaction_date', type: 'date' })
+  transactionDate!: Date
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  reference?: string | null
+
+  @Property({ name: 'direction', type: 'text' })
+  direction!: 'in' | 'out'
+
+  @Property({ type: 'numeric', precision: 18, scale: 4, default: '0' })
+  amount: string = '0'
+
+  @Enum({ items: [...BANK_STATEMENT_LINE_STATUSES], type: 'text', name: 'status', default: 'unmatched' })
+  status: (typeof BANK_STATEMENT_LINE_STATUSES)[number] = 'unmatched'
+
+  @Property({ name: 'matched_entry_line_id', type: 'uuid', nullable: true })
+  matchedEntryLineId?: string | null
+
+  @Property({ name: 'matched_at', type: Date, nullable: true })
+  matchedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
