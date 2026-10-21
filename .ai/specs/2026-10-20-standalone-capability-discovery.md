@@ -306,24 +306,6 @@ classDiagram
   EntryPoint ..> ModuleDiRegistrationFact : di token resolves in diRegistrations
 ```
 
-<details><summary>Trace</summary>
-
-| Item | Source sentence |
-|---|---|
-| CapabilityDeclaration | "A new `CapabilityDeclaration` schema (zod, in `packages/cli/src/lib/generators/capabilities.ts`)" |
-| Attributes id, title, solves, usage, stability, seeAlso | Schema table rows `id`, `title`, `solves`, `usage`, `stability`, `seeAlso` |
-| Attribute replacedBy | "`deprecated` requires `replacedBy` (a capability id)." |
-| Attribute source (emitted) | "The emitted `capabilities.json` entries add `owner: { kind: 'module' \| 'package', id, package }` and `source` (a portable path)." |
-| EntryPoint and attributes kind, token, specifier, symbols | JSON example: `{ "kind": "di", "token": "decisionModelService" }`, `{ "kind": "import", "specifier": ..., "symbols": [...] }` |
-| Owner and attributes kind, id, package | "The emitted `capabilities.json` entries add `owner: { kind: 'module' \| 'package', id, package }`" |
-| ModuleDiRegistrationFact and attributes token … source | "`ModuleDiRegistrationFact` (`module-facts.ts:240`) has these fields: `token`, `registrationKind`, `providerSymbol`, `lifetime`, `injectionMode`, `source`." |
-| Attribute summary | "`ModuleDiRegistrationFact` gets `summary?: string` (v2 only)." |
-| CapabilityDeclaration 1 *-- 1..4 EntryPoint | Schema table: "`entryPoints` | 1–4 entries of the kinds above." |
-| CapabilityDeclaration → Owner | "The emitted `capabilities.json` entries add `owner: …`" |
-| EntryPoint ..> ModuleDiRegistrationFact | "`di` | `token` is in the `diRegistrations` of the owning module." |
-
-</details>
-
 ### Process map: build and scaffold
 
 This diagram shows how the build makes the capabilities index, when the build fails, and how scaffolding filters the index.
@@ -345,24 +327,8 @@ flowchart LR
   C4 --> A3[["selectModuleFactSheets"]]
 ```
 
-<details><summary>Trace</summary>
-
-| Item | Source sentence |
-|---|---|
-| Trigger: create-app build / packages/cli/build.mjs | "The create-app build (and its mirror `packages/cli/build.mjs`) does these tasks" |
-| Extract module facts → extractAllModuleFacts | "The create-app build makes these facts (`packages/create-app/build.mjs:109` → `extractAllModuleFacts` …)" |
-| Event: Facts extracted | "`packages/create-app/build.mjs` and `packages/cli/build.mjs`: call the collector after fact extraction." |
-| Policy: after fact extraction, call the collector | Same sentence as above |
-| Collect, validate and resolve capabilities | "1. It collects every file. 2. It validates each file. 3. It resolves every entry point against the facts that it already extracted." |
-| collectCapabilities | Architecture diagram: `C["collectCapabilities (NEW)"]` |
-| Event: Entry point did not resolve; policy: fail the build; Fail build naming module, capability, target | Q7: "What occurs when a declared entry point does not resolve? The build fails. The error gives the module id, the capability id and the missing target." |
-| Event: Capabilities artifacts emitted | "4. It emits two artifacts next to `module-facts.v2.json`." |
-| Policy: keep selected owners only; Copy owner files, filter capabilities.json | "Scaffolding copies only the owner files for enabled modules and for packages that the app depends on. It also writes a filtered `capabilities.json`: it drops the entries whose owner is not selected." |
-| selectModuleFactSheets | "Scaffolding uses `selectModuleFactSheets` in `packages/create-app/src/setup/tools/shared.ts` and its mirror in `packages/cli/src/lib/agentic-setup.ts`." |
-
-</details>
-
 ## Changelog
 
 - 2026-10-20: Initial draft (autonomous run, design-only).
 - 2026-10-20: Applied fresh-context review: DI summary routed through `ownedContracts` metadata with a v2 gate; `workflow-step` replaced by `workflow`; `import` resolution defined against the specifier's package with wildcard, `types` and re-export rules; per-owner capability files for scaffold filtering; package discovery through `resolver.discoverPackages()`; shipped-only `seeAlso`; harness id-pattern widening; reference corrections.
+- 2026-10-21: STE rewrite with `ste-simplify`.
