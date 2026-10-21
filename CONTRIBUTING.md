@@ -170,12 +170,15 @@ Running a workflow: Actions → pick it → *Run workflow* → *Use workflow fro
 | State of the line | Result |
 |---|---|
 | Manifest `0.10.0`, no tag `v0.10.0` (fresh line) | ships `0.10.0` as committed |
-| Manifest `0.9.0`, tag `v0.9.0` exists | bumps to `0.9.1` first, then ships |
-| A run failed after its bump commit (manifest `0.9.2`, no tag) | ships `0.9.2` — re-running finishes the release, nothing is skipped |
+| Manifest `0.9.0`, tag `v0.9.0` with its GitHub Release | bumps to `0.9.1` first, then ships |
+| A run failed after its bump commit but before tagging (manifest `0.9.2`, no tag) | ships `0.9.2` from the line tip |
+| A run failed after tagging (tag `v0.9.2`, no GitHub Release yet) | **resumes** `0.9.2` from the tagged commit, even if backports landed since — they ship in `0.9.3` |
 
-Between releases a line's manifests show the **last released** version. Only the newest line moves npm `latest`; a patch to an older line publishes under `latest-X.Y` (`yarn add @open-mercato/core@latest-0.9`) and its GitHub Release is not marked latest. If npm cannot be read the release stops rather than guess.
+Release commits the bump, tags it, and only then builds and publishes that tagged commit. The **GitHub Release is created last** and is what marks a version done; the changelog PR to `main` is opened just before it. To abandon a tagged-but-unreleased version instead of resuming it, delete its tag.
 
-Every step is re-runnable: taken tags are skipped, `publish-packages.sh` skips versions already on npm, and an existing GitHub Release, branch or PR is reused. A release that dies half-way is finished by running it again.
+Between releases a line's manifests show the **last released** version. Only the newest line moves npm `latest` — judged by the highest `latest` across every published package, so a half-finished publish of a newer line still counts; a patch to an older line publishes under `latest-X.Y` (`yarn add @open-mercato/core@latest-0.9`) and its GitHub Release is not marked latest. If npm cannot be read the release stops rather than guess. Only one Release runs at a time, across all lines.
+
+Every step is re-runnable: `publish-packages.sh` skips versions already on npm, and an existing tag, branch, PR or GitHub Release is reused. A release that dies half-way is finished by running it again. Release cut refuses a re-run once `main` has moved past the commit its line was cut from — merge the existing `chore/open-vX.Y.0` PR, or delete the line to cut again.
 
 ### Changelog
 

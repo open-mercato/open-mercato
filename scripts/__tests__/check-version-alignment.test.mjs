@@ -4,7 +4,7 @@
  * `scripts/check-version-alignment.sh` asserts that every public `packages/*` manifest and every
  * `apps/*` manifest carries the monorepo version, and it is load-bearing at release time and
  * nowhere else:
- * `.github/workflows/release.yml` (after `scripts/release-line.mjs prepare` stamps the release
+ * `.github/workflows/release.yml` (after `scripts/release-line.mts prepare` stamps the release
  * set). No PR-triggered workflow invoked it, so a misaligned
  * workspace passed CI and first failed days later at the release's very first gate, detached
  * from the merge that caused it (#5018).
@@ -127,7 +127,7 @@ test('every app workspace is aligned with the monorepo version', async () => {
     [],
     `Not aligned with the monorepo version (${reference.version}) from packages/shared/package.json. ` +
       'apps/* are private so `yarn workspaces foreach --no-private version` never touches them; ' +
-      'scripts/release-line.mjs stamps them explicitly instead.',
+      'scripts/release-line.mts stamps them explicitly instead.',
   )
 })
 
@@ -139,7 +139,7 @@ test('the root manifest carries the monorepo version too', async () => {
   assert.equal(
     root.version,
     reference.version,
-    'scripts/release-line.mjs reads the release version from the root manifest and the Release ' +
+    'scripts/release-line.mts reads the release version from the root manifest and the Release ' +
       'workflow checks alignment with `--reference package.json`, so it must move with the packages',
   )
 })
@@ -172,12 +172,12 @@ test('the release-time gate still declares the scope this guard mirrors', async 
 })
 
 test('the release-line stamper moves the app workspaces too', async () => {
-  const script = await readFile(path.join(rootDir, 'scripts', 'release-line.mjs'), 'utf8')
+  const script = await readFile(path.join(rootDir, 'scripts', 'release-line.mts'), 'utf8')
 
   assert.match(
     script,
     /workspaceManifests\('apps', \{ publicOnly: false \}\)/,
-    'apps/* are private but ship as the release app shell, so scripts/release-line.mjs must stamp ' +
+    'apps/* are private but ship as the release app shell, so scripts/release-line.mts must stamp ' +
       'them with the packages — otherwise the alignment gate above fails on the very bump commit ' +
       'that is supposed to fix it',
   )

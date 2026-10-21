@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { parse } from 'yaml'
-import { changelogSection } from '../lib/release-line.mjs'
+import { changelogSection } from '../lib/release-line.mts'
 
 const workflowPath = (name) => path.resolve('.github/workflows', name)
 const releasePath = workflowPath('release.yml')
@@ -41,14 +41,14 @@ test('release runs only from a release line, never from main or a push', () => {
   assert.equal(parsed.jobs.release.environment, 'production', 'Publishing stays behind the production environment')
 })
 
-test('release bumps the line before building and builds exactly the bump commit', () => {
+test('release bumps and tags the line before building, and builds exactly that commit', () => {
   const { source } = readWorkflow(releasePath)
 
-  assert.ok(stepIndex(source, 'Bump the release line') < stepIndex(source, 'Check out the bump commit'))
-  assert.ok(stepIndex(source, 'Check out the bump commit') < stepIndex(source, 'Build packages'))
+  assert.ok(stepIndex(source, 'Bump the release line') < stepIndex(source, 'Check out the release commit'))
+  assert.ok(stepIndex(source, 'Check out the release commit') < stepIndex(source, 'Build packages'))
   assert.ok(stepIndex(source, 'Verify version alignment') < stepIndex(source, 'Build packages'))
-  assert.match(source, /node scripts\/release-line\.mjs prepare/)
-  assert.doesNotMatch(source, /git push/, 'Release writes to GitHub only through scripts/release-line.mjs')
+  assert.match(source, /node scripts\/release-line\.mts prepare/)
+  assert.doesNotMatch(source, /git push/, 'Release writes to GitHub only through scripts/release-line.mts')
 })
 
 test('release starts from the line tip so a re-run picks up an earlier bump commit', () => {
@@ -69,7 +69,7 @@ test('release runs one line at a time so `latest` never moves backwards', () => 
   assert.equal(parsed.concurrency['cancel-in-progress'], false)
 })
 
-test('release publishes under the dist-tag the line resolved, then tags', () => {
+test('release publishes under the dist-tag the line resolved, then creates the GitHub Release', () => {
   const { source } = readWorkflow(releasePath)
 
   assert.match(
@@ -79,8 +79,8 @@ test('release publishes under the dist-tag the line resolved, then tags', () => 
   )
   assert.match(source, /DIST_TAG: \$\{\{ steps\.prepare\.outputs\.distTag \}\}/)
   assert.ok(
-    stepIndex(source, 'Publish packages to npm') < stepIndex(source, 'Tag, GitHub Release and changelog PR'),
-    'An untagged version is what lets a re-run finish a half-published release, so tag after publishing',
+    stepIndex(source, 'Publish packages to npm') < stepIndex(source, 'Changelog PR and GitHub Release'),
+    'The GitHub Release marks a version done, so it comes only after every package is published',
   )
 })
 
@@ -116,7 +116,7 @@ test('release cut runs only from main and only by hand', () => {
 
   assert.deepEqual(Object.keys(parsed.on), ['workflow_dispatch'])
   assert.equal(parsed.jobs.cut.if, "github.ref == 'refs/heads/main'")
-  assert.match(source, /node scripts\/release-line\.mjs cut/)
+  assert.match(source, /node scripts\/release-line\.mts cut/)
   assert.doesNotMatch(source, /publish-packages|npm publish/, 'Cutting a line never releases anything')
 })
 

@@ -53,7 +53,7 @@ jobs:
         id: cut
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node scripts/release-line.mjs cut ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node scripts/release-line.mts cut ${{ inputs.dry_run && '--dry-run' || '' }}
 
       - name: Write workflow summary
         if: always() && steps.cut.outputs.releaseBranch != ''

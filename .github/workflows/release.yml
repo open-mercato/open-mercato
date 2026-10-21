@@ -4,14 +4,16 @@ name: Release
 # `release/vX.Y.x` branch you want to ship — the "Use workflow from" picker is the only input that
 # matters. `main` is never released directly: cut a line from it with release-cut.yml.
 #
-# Bump first, then build: `scripts/release-line.mjs prepare` picks the version (a fresh line's
+# Bump first, then build: `scripts/release-line.mts prepare` picks the version (a fresh line's
 # x.y.0 as committed, otherwise the next patch past every taken tag), stamps the release set and
-# CHANGELOG.md, and commits that bump to the line. The rest of the job builds and publishes
-# exactly that commit, so the tag, the tarballs and the branch always agree.
+# CHANGELOG.md, commits that bump to the line and tags it. The rest of the job builds and
+# publishes exactly the tagged commit, so the tag, the tarballs and the branch always agree.
 #
-# Every step is re-runnable: a run that dies after its bump commit ships the same version on
-# re-run, publish-packages.sh skips packages already on npm, and an existing GitHub Release is
-# refreshed. Only the newest line moves `latest`; an older line publishes under `latest-X.Y`.
+# A version is done once its GitHub Release exists, and that Release is the last thing created.
+# Until then a re-run resumes the tagged version from the tagged commit — never a newer line tip —
+# and publish-packages.sh skips packages already on npm, so a half-finished release finishes
+# without mixing revisions. Only the newest line moves `latest` (judged across every published
+# package); an older line publishes under `latest-X.Y`.
 
 on:
   workflow_dispatch:
@@ -60,7 +62,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           # The line's current tip, not the dispatch SHA: "Re-run jobs" replays the dispatch SHA,
-          # which predates a bump commit an earlier attempt already pushed to the line.
+          # which predates a bump commit an earlier attempt already pushed to the line. prepare
+          # then picks the commit to build (the tagged one when resuming).
           ref: ${{ github.ref_name }}
           fetch-depth: 0  # every v* tag: the next version is chosen from them
 
@@ -93,9 +96,9 @@ jobs:
         id: prepare
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node scripts/release-line.mjs prepare ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node scripts/release-line.mts prepare ${{ inputs.dry_run && '--dry-run' || '' }}
 
-      - name: Check out the bump commit
+      - name: Check out the release commit
         if: ${{ !inputs.dry_run }}
         env:
           SHA: ${{ steps.prepare.outputs.sha }}
@@ -137,8 +140,8 @@ jobs:
           path: ${{ runner.temp }}/release-output.txt
           if-no-files-found: ignore
 
-      # Tags after publishing: the bump commit already pins the version in git, and an untagged
-      # version is what lets a re-run finish a half-published release instead of skipping it.
+      # The changelog PR first, the GitHub Release last: the Release marks the version done, so a
+      # re-run after it moves on to the next patch.
       # App tokens live one hour and the build can take most of that, so mint a fresh one.
       - name: Mint a fresh release token
         id: announce-token
@@ -148,7 +151,7 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Tag, GitHub Release and changelog PR
+      - name: Changelog PR and GitHub Release
         id: announce
         if: steps.publish.outputs.published == 'true'
         env:
@@ -156,7 +159,7 @@ jobs:
           VERSION: ${{ steps.prepare.outputs.version }}
           SHA: ${{ steps.prepare.outputs.sha }}
           DIST_TAG: ${{ steps.prepare.outputs.distTag }}
-        run: node scripts/release-line.mjs announce --version "$VERSION" --sha "$SHA" --dist-tag "$DIST_TAG"
+        run: node scripts/release-line.mts announce --version "$VERSION" --sha "$SHA" --dist-tag "$DIST_TAG"
 
       - name: Preview the GitHub Release
         if: ${{ inputs.dry_run }}
@@ -164,7 +167,7 @@ jobs:
           VERSION: ${{ steps.prepare.outputs.version }}
           SHA: ${{ steps.prepare.outputs.sha }}
           DIST_TAG: ${{ steps.prepare.outputs.distTag }}
-        run: node scripts/release-line.mjs announce --dry-run --version "$VERSION" --sha "$SHA" --dist-tag "$DIST_TAG"
+        run: node scripts/release-line.mts announce --dry-run --version "$VERSION" --sha "$SHA" --dist-tag "$DIST_TAG"
 
       - name: Write workflow summary
         if: always() && steps.prepare.outputs.version != ''
@@ -188,6 +191,6 @@ jobs:
                 echo "Merge the changelog PR on main: ${CHANGELOG_PR}"
               fi
             else
-              echo "⚠️ Nothing was published (dry run, or the run stopped before publishing). Re-run to finish — it ships the same version."
+              echo "⚠️ Nothing was published (dry run, or the run stopped before publishing). Re-run to finish — it resumes the same version from the same commit."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

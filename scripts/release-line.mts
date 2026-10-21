@@ -1,40 +1,50 @@
 #!/usr/bin/env node
-// Release-line orchestrator — the side-effect half of scripts/lib/release-line.mjs, driven by the
+// Release-line orchestrator — the side-effect half of scripts/lib/release-line.mts, driven by the
 // release workflows (CONTRIBUTING.md § Releasing):
 //
 //   cut       (Release cut, from main)   main at X.Y.Z → creates release/vX.Y.x at main's tip and
 //                                        opens the PR that moves main to X.(Y+1).0.
 //   prepare   (Release, from release/*)  picks the version (x.y.0 once, then the next patch),
-//                                        stamps the release set + CHANGELOG.md and commits the
-//                                        bump to the line BEFORE anything is built.
-//   announce  (Release, after publish)   GitHub Release + tag at the bump commit, and a PR carrying
-//                                        the changelog entry back to main.
+//                                        stamps the release set + CHANGELOG.md, commits the bump
+//                                        to the line and tags it BEFORE anything is built — or
+//                                        resumes the line's tagged-but-unreleased version.
+//   announce  (Release, after publish)   the PR carrying the changelog entry back to main, then
+//                                        the GitHub Release — which marks the version done.
 //
 // The release set is the root manifest, every public packages/* manifest and every apps/*
 // manifest — the same set scripts/check-version-alignment.sh verifies. Every GitHub write goes
-// through scripts/lib/github-api.mjs; `--dry-run` stamps the working tree but calls no API.
+// through scripts/lib/github-api.mts; `--dry-run` stamps the working tree but writes nothing.
 // Outputs go to $GITHUB_OUTPUT for later workflow steps.
 //
-// Env: GITHUB_REPOSITORY, GH_TOKEN, GITHUB_REF_NAME; OM_RELEASE_ROOT overrides the repo root.
-// Tests pin `--latest <version|none>` (skips the registry lookup) and `--date <YYYY-MM-DD>`.
+// Env: GITHUB_REPOSITORY, GH_TOKEN, GITHUB_REF_NAME, GITHUB_API_URL; OM_RELEASE_ROOT overrides the
+// repo root. Tests pin `--latest <version|none>` (skips the registry lookup), `--released
+// <tag,…|none>` (skips the GitHub Release lookup) and `--date <YYYY-MM-DD>`.
 
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { parseArgs, promisify } from 'node:util'
 import {
   changelogSection,
   dropUnreleased,
   ensureChangelogEntry,
+  highestLatest,
   insertChangelogEntry,
+  newestLineTag,
   nextMinorVersion,
   planRelease,
   releaseBranchFor,
   resolveStableDistTag,
   stampManifestVersion,
-} from './lib/release-line.mjs'
-import { createGithubClient } from './lib/github-api.mjs'
+  type ChangelogSection,
+} from './lib/release-line.mts'
+import { createGithubClient, type GithubClient } from './lib/github-api.mts'
+
+type Manifest = { name: string; version: string; private?: boolean }
+type Outputs = Record<string, string | boolean>
+
+const execFileAsync = promisify(execFile)
 
 const { positionals, values: flags } = parseArgs({
   allowPositionals: true,
@@ -46,26 +56,26 @@ const { positionals, values: flags } = parseArgs({
     sha: { type: 'string' },
     'dist-tag': { type: 'string' },
     latest: { type: 'string' },
+    released: { type: 'string' },
     date: { type: 'string' },
   },
 })
 const command = positionals[0]
-const dryRun = flags['dry-run']
+const dryRun = flags['dry-run'] === true
 
 const repoRoot = process.env.OM_RELEASE_ROOT
   ? path.resolve(process.env.OM_RELEASE_ROOT)
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const TRUNK = 'main'
-const REGISTRY_PROBE = '@open-mercato/shared'
 const RELEASE_BODY_LIMIT = 125000
 const BOOKKEEPING_LABELS = ['refactor', 'review', 'skip-changelog', 'skip-qa', 'priority-high', 'risk-low']
 
-const fail = (message) => {
+function fail(message: string): never {
   console.error(`release-line: ${message}`)
   process.exit(1)
 }
-const log = (message) => console.log(`release-line: ${message}`)
-const emit = (result) => {
+const log = (message: string) => console.log(`release-line: ${message}`)
+const emit = (result: Outputs) => {
   console.log(`release-line result: ${JSON.stringify(result)}`)
   if (process.env.GITHUB_OUTPUT) {
     const lines = Object.entries(result).map(([key, value]) => `${key}=${value}`)
@@ -73,47 +83,50 @@ const emit = (result) => {
   }
 }
 
-const abs = (rel) => path.join(repoRoot, rel)
-const readText = (rel) => readFileSync(abs(rel), 'utf8')
-const readJson = (rel) => JSON.parse(readText(rel))
-const git = (...args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim()
+const abs = (rel: string) => path.join(repoRoot, rel)
+const readText = (rel: string) => readFileSync(abs(rel), 'utf8')
+const readManifest = (rel: string): Manifest => JSON.parse(readText(rel))
+const git = (...args: string[]) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim()
 const today = () => flags.date ?? new Date().toISOString().slice(0, 10)
 
-const changed = new Map()
-const write = (rel, content) => {
+const changed = new Map<string, string>()
+const write = (rel: string, content: string) => {
   if (existsSync(abs(rel)) && readText(rel) === content) return
   writeFileSync(abs(rel), content, 'utf8')
   changed.set(rel, content)
 }
 const changedFiles = () => [...changed].map(([filePath, content]) => ({ path: filePath, content }))
 
-function workspaceManifests(dir, { publicOnly }) {
+function workspaceManifests(dir: string, { publicOnly }: { publicOnly: boolean }): string[] {
   if (!existsSync(abs(dir))) return []
   return readdirSync(abs(dir), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => `${dir}/${entry.name}/package.json`)
     .filter((rel) => existsSync(abs(rel)))
-    .filter((rel) => !publicOnly || readJson(rel).private !== true)
+    .filter((rel) => !publicOnly || readManifest(rel).private !== true)
     .sort()
 }
 
-function releaseSet() {
+function releaseSet(): string[] {
   return ['package.json', ...workspaceManifests('packages', { publicOnly: true }), ...workspaceManifests('apps', { publicOnly: false })]
 }
 
-function publishedPackages() {
-  return workspaceManifests('packages', { publicOnly: true }).map((rel) => readJson(rel))
+function publishedPackages(): Manifest[] {
+  return workspaceManifests('packages', { publicOnly: true }).map((rel) => readManifest(rel))
 }
 
-function stampReleaseSet(version) {
+function stampReleaseSet(version: string) {
   for (const rel of releaseSet()) write(rel, stampManifestVersion(readText(rel), version))
 }
 
-function github() {
+function github(): GithubClient {
   return createGithubClient({ token: process.env.GH_TOKEN, repository: process.env.GITHUB_REPOSITORY })
 }
 
-async function openBookkeepingPr(gh, { branch, parentSha, title, body, labels }) {
+async function openBookkeepingPr(
+  gh: GithubClient,
+  { branch, parentSha, title, body, labels }: { branch: string; parentSha: string; title: string; body: string; labels: string[] },
+): Promise<string> {
   const sha = await gh.commitFiles({ parentSha, files: changedFiles(), message: title })
   await gh.setBranch(branch, sha)
   const pr = await gh.openPullRequest({ head: branch, base: TRUNK, title, body })
@@ -126,21 +139,31 @@ async function openBookkeepingPr(gh, { branch, parentSha, title, body, labels })
 async function cut() {
   const branchName = flags.branch ?? process.env.GITHUB_REF_NAME ?? TRUNK
   if (branchName !== TRUNK) fail(`a release line is cut from ${TRUNK}, not ${branchName}`)
-  const current = readJson('package.json').version
+  const current = readManifest('package.json').version
   const releaseBranch = releaseBranchFor(current)
   const next = nextMinorVersion(current)
   if (!releaseBranch || !next) fail(`${TRUNK}'s version "${current}" is not a plain x.y.z`)
   const head = git('rev-parse', 'HEAD')
+
+  const gh = dryRun ? null : github()
+  const existing = gh ? await gh.getBranchSha(releaseBranch) : null
+  // A re-run after main moved would rebuild the bump PR from a newer main and drop `# Unreleased`
+  // notes that never reached the line. Only a re-run from the very commit the line was cut at is safe.
+  if (existing && existing !== head) {
+    fail(
+      `${releaseBranch} already exists at ${existing.slice(0, 12)} but ${TRUNK} is at ${head.slice(0, 12)}. ` +
+        `Merge the existing chore/open-v${next} PR, or delete ${releaseBranch} to cut again from the current ${TRUNK}.`,
+    )
+  }
+
   stampReleaseSet(next)
   if (existsSync(abs('CHANGELOG.md'))) write('CHANGELOG.md', dropUnreleased(readText('CHANGELOG.md')))
   log(`${TRUNK} ${current} → ${releaseBranch} at ${head.slice(0, 12)}; ${TRUNK} moves to ${next}`)
 
   let prUrl = ''
-  if (dryRun) {
+  if (!gh) {
     log(`dry run — would create ${releaseBranch} and open the ${next} PR (${changed.size} files)`)
   } else {
-    const gh = github()
-    const existing = await gh.getBranchSha(releaseBranch)
     if (existing) log(`${releaseBranch} already exists at ${existing.slice(0, 12)} — left as it is`)
     else await gh.createBranch(releaseBranch, head)
     await gh.ensureLabel(`backport ${releaseBranch}`, 'c5def5', `Cherry-pick into ${releaseBranch} once merged`)
@@ -162,52 +185,73 @@ async function cut() {
   emit({ releaseBranch, current, nextVersion: next, prUrl })
 }
 
-function latestOnRegistry() {
-  if (flags.latest !== undefined) return flags.latest === 'none' ? null : flags.latest
+async function latestOf(name: string): Promise<string | null> {
   try {
-    return (
-      execFileSync('npm', ['view', REGISTRY_PROBE, 'dist-tags.latest'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim() || null
-    )
+    const { stdout } = await execFileAsync('npm', ['view', name, 'dist-tags.latest'], { encoding: 'utf8' })
+    return stdout.trim() || null
   } catch (error) {
-    fail(`cannot read ${REGISTRY_PROBE}'s dist-tags from npm (failing closed so latest never moves backwards): ${error.message}`)
+    const stderr = String((error as { stderr?: string }).stderr ?? '')
+    if (stderr.includes('E404')) return null
+    fail(`cannot read ${name}'s dist-tags from npm (failing closed so latest never moves backwards): ${(error as Error).message}`)
   }
+}
+
+async function latestOnRegistry(): Promise<string | null> {
+  if (flags.latest !== undefined) return flags.latest === 'none' ? null : flags.latest
+  return highestLatest(await Promise.all(publishedPackages().map((pkg) => latestOf(pkg.name))))
+}
+
+async function isReleased(tag: string): Promise<boolean> {
+  if (flags.released !== undefined) return flags.released.split(',').map((item) => item.trim()).includes(tag)
+  return github().hasRelease(tag)
 }
 
 async function prepare() {
   const branch = flags.branch ?? process.env.GITHUB_REF_NAME ?? ''
-  const manifestVersion = readJson('package.json').version
+  const manifestVersion = readManifest('package.json').version
   const tags = git('tag', '--list', 'v*').split('\n').filter(Boolean)
-  const plan = planRelease({ branch, manifestVersion, tags })
+  const pending = newestLineTag(branch, tags)
+  const newestTagReleased = pending === null || (await isReleased(pending))
+  const plan = planRelease({ branch, manifestVersion, tags, newestTagReleased })
   if (!plan.ok) fail(plan.error)
-  const { version, bumped, previousTag } = plan
-  const distTag = resolveStableDistTag(version, latestOnRegistry())
-  log(`${branch}: releasing ${version}${bumped ? ` (patch bump from ${manifestVersion})` : ''} under "${distTag}"`)
+  const { version, bumped, resumed, previousTag } = plan
+  const tag = `v${version}`
+  const distTag = resolveStableDistTag(version, await latestOnRegistry())
 
+  if (resumed) {
+    const sha = git('rev-parse', `${tag}^{commit}`)
+    log(`${branch}: ${tag} is tagged at ${sha.slice(0, 12)} but has no GitHub Release — resuming it from that commit under "${distTag}"`)
+    emit({ version, bumped, resumed, distTag, sha, previousTag: previousTag ?? '', changelog: 'existing' })
+    return
+  }
+
+  log(`${branch}: releasing ${version}${bumped ? ` (patch bump from ${manifestVersion})` : ''} under "${distTag}"`)
   if (bumped) stampReleaseSet(version)
   const head = git('rev-parse', 'HEAD')
   let notes = flags['notes-file'] ? readFileSync(flags['notes-file'], 'utf8') : ''
   const changelog = existsSync(abs('CHANGELOG.md')) ? readText('CHANGELOG.md') : ''
   if (!notes && !dryRun && !changelogSection(changelog, version)) {
-    notes = await github().generateNotes({ tag: `v${version}`, target: head, previousTag })
+    notes = await github().generateNotes({ tag, target: head, previousTag })
   }
   const entry = ensureChangelogEntry(changelog, version, today(), notes)
   write('CHANGELOG.md', entry.text)
   log(`changelog entry: ${entry.source}`)
 
   let sha = head
-  if (changed.size > 0 && !dryRun) {
+  if (!dryRun) {
     const gh = github()
-    sha = await gh.commitFiles({ parentSha: head, files: changedFiles(), message: `chore(release): ${version}` })
-    await gh.moveBranch(branch, sha, false)
-    log(`committed the bump to ${branch} as ${sha.slice(0, 12)}`)
+    if (changed.size > 0) {
+      sha = await gh.commitFiles({ parentSha: head, files: changedFiles(), message: `chore(release): ${version}` })
+      await gh.moveBranch(branch, sha, false)
+      log(`committed the bump to ${branch} as ${sha.slice(0, 12)}`)
+    }
+    await gh.ensureTag(tag, sha)
+    log(`tagged ${tag} at ${sha.slice(0, 12)} — a re-run resumes from here until the GitHub Release exists`)
   }
-  emit({ version, bumped, distTag, sha, previousTag: previousTag ?? '', changelog: entry.source })
+  emit({ version, bumped, resumed, distTag, sha, previousTag: previousTag ?? '', changelog: entry.source })
 }
 
-function releaseBody({ version, section, distTag, tag }) {
+function releaseBody({ version, section, distTag, tag }: { version: string; section: ChangelogSection; distTag: string; tag: string }): string {
   const packages = publishedPackages().sort((left, right) => left.name.localeCompare(right.name))
   const table = [
     '## Published Packages',
@@ -240,8 +284,7 @@ async function announce() {
   const sha = flags.sha ?? fail('--sha is required')
   const distTag = flags['dist-tag'] ?? fail('--dist-tag is required')
   const tag = `v${version}`
-  const section = changelogSection(readText('CHANGELOG.md'), version)
-  if (!section) fail(`CHANGELOG.md has no entry for ${version}`)
+  const section = changelogSection(readText('CHANGELOG.md'), version) ?? fail(`CHANGELOG.md has no entry for ${version}`)
   const body = releaseBody({ version, section, distTag, tag })
 
   if (dryRun) {
@@ -251,10 +294,9 @@ async function announce() {
     return
   }
   const gh = github()
-  const created = await gh.createRelease({ tag, sha, name: tag, body, makeLatest: distTag === 'latest' })
-  log(created ? `released ${tag}` : `${tag} already had a GitHub Release — notes refreshed`)
-
-  const trunkSha = await gh.getBranchSha(TRUNK)
+  // The changelog PR comes first: the GitHub Release marks the version done, so anything after
+  // it would be skipped by a re-run (which would move on to the next patch instead).
+  const trunkSha = (await gh.getBranchSha(TRUNK)) ?? fail(`cannot resolve ${TRUNK}`)
   const trunkChangelog = await gh.readFile('CHANGELOG.md', trunkSha)
   const carried = insertChangelogEntry(trunkChangelog, version, `${section.heading}\n\n${section.body}\n`)
   let changelogPr = ''
@@ -269,9 +311,12 @@ async function announce() {
       labels: ['documentation', 'review', 'skip-changelog', 'skip-qa', 'priority-medium', 'risk-low'],
     })
   }
+
+  const created = await gh.createRelease({ tag, sha, name: tag, body, makeLatest: distTag === 'latest' })
+  log(created ? `released ${tag}` : `${tag} already had a GitHub Release — notes refreshed`)
   emit({ released: created, changelogPr })
 }
 
-const commands = { cut, prepare, announce }
-if (!commands[command]) fail(`unknown command "${command ?? ''}" — expected cut, prepare or announce`)
-await commands[command]()
+const commands: Record<string, () => Promise<void>> = { cut, prepare, announce }
+const run = commands[command ?? ''] ?? fail(`unknown command "${command ?? ''}" — expected cut, prepare or announce`)
+await run()
