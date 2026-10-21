@@ -867,6 +867,18 @@ jobs:
       - name: Run real two-sidecar durability regression
         run: yarn workspace @open-mercato/documents test:multi-instance
 
+      - name: Run advisory lock suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/shared test:pg-integration
+
+      - name: Run integrations module suites against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Check OAuth grant import paths resolve against the built dist
+        if: ${{ !cancelled() }}
+        run: node scripts/check-oauth-publish-shape.mjs
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -903,6 +915,7 @@ jobs:
       # SELF_SERVICE_ONBOARDING_ENABLED is workflow-level for the same reason.
       OM_DISABLE_EMAIL_DELIVERY: '0'
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      OM_ENABLE_TEST_OAUTH_GRANTS: 'true'
       SYSTEM_EMAIL_PROVIDER: '__test_seed__'
       EMAIL_FROM: 'system@test-seed.local'
       NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
