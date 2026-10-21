@@ -370,7 +370,7 @@ No first-party integration or bundle id ends in the suffix, and every other id b
 in `__oauth_grant`. To build a provider on OAuth2 grants, see the
 [OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
 
-### Retrying a data sync run refuses a disabled integration (#ISSUE)
+### Retrying a data sync run refuses a disabled integration (#7766)
 
 `POST /api/data_sync/runs/:id/retry` now answers `409 { error: "Integration is disabled", code: "integrationDisabled" }`
 for a failed or cancelled run whose integration is disabled for the caller's organization. Before this
@@ -383,7 +383,8 @@ applies to provider-owned integrations that an operator explicitly disabled (for
 **Action:** enable the integration before retrying the run.
 
 **Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
-byte budget): a narrowing of a route status that matches the sibling run endpoint; the `409` body
+byte budget; migration details in
+[`.ai/specs/2026-10-22-data-sync-retry-disabled-integration.md`](.ai/specs/2026-10-22-data-sync-retry-disabled-integration.md)): a narrowing of a route status that matches the sibling run endpoint; the `409` body
 carries a new `code` field, and its `error` text is localized like other translated route errors. The route URL, request schema, event IDs, ACL features, DI names and database
 schema are unchanged.
 
