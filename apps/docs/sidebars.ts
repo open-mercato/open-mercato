@@ -67,7 +67,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway", "deployment/agent-orchestration-scaling"],
+      items: ["deployment/railway", "deployment/github-ci", "deployment/agent-orchestration-scaling"],
     },
     {
       type: "category",

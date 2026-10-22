@@ -1,0 +1,72 @@
+---
+title: Continuous Integration with GitHub Actions
+description: Generate a production-grade GitHub Actions pipeline for a standalone Open Mercato app with one command.
+---
+
+# Continuous Integration with GitHub Actions
+
+The `om-setup-ci` skill generates a GitHub Actions pipeline for an app created with `create-mercato-app`. The pipeline carries over the checks and conventions the Open Mercato framework uses in its own CI, trimmed to what applies to a standalone app.
+
+It is one deterministic generator. It reads your `package.json`, Node pin, `Dockerfile`, integration-test harness and git branches, then writes the workflows, helper scripts and a documentation page into your repository. Checks whose scripts are missing are left out, and the reason is recorded.
+
+:::info Availability
+New apps get the skill in `.ai/skills/om-setup-ci/` (core skill tier). Existing apps get it after upgrading Open Mercato and running `yarn mercato agentic:init --update-harness`. GitHub is the only supported provider for now.
+:::
+
+## Quick start
+
+From the app root:
+
+```bash
+node .ai/skills/om-setup-ci/scripts/setup-ci.mjs --dry-run   # preview what will be generated
+node .ai/skills/om-setup-ci/scripts/setup-ci.mjs             # write the files
+```
+
+Or ask your coding agent to "set up CI". The skill runs the same generator and asks only about what it cannot detect: which branches to protect, and whether the repository needs a larger runner.
+
+Then:
+
+1. Commit the generated files on a branch and open a pull request. The first run starts.
+2. In *Settings → Branches*, require the **`CI`** status check on your protected branches.
+
+## What the pipeline checks
+
+| Job | What it runs | Why |
+| --- | --- | --- |
+| `changes` | `git diff` against the base | Skips the audit and the Docker build when nothing relevant changed. |
+| `audit` | `scripts/ci/audit-ci.mjs` with the base `yarn.lock` as a baseline | Fails only on high-severity advisories the change *introduces*, and fails closed when advisory data is unavailable. |
+| `lint` | `yarn lint` | ESLint with the Next.js rules. Runs in parallel and fails fast. |
+| `validate` | `yarn generate` → clean-tree check → `yarn typecheck` → `yarn ds:check` → time-bomb scan → `yarn test` → `yarn build` | The same gate coding agents run before opening a pull request (`.ai/agentic.config.json`). |
+| `integration` | `yarn test:integration:ephemeral` | Boots the real app on a throwaway PostgreSQL container and runs the Playwright suites. Skipped when the app has no integration specs. |
+| `docker` | `docker build` without push | Catches a broken `Dockerfile` or `.dockerignore` before deploy. |
+| `CI` | Aggregates all jobs | The single required check. A skipped job counts as passed. |
+
+Alongside the main workflow, the generator writes:
+
+- **`.github/workflows/audit.yml`:** a nightly audit of every protected branch without a baseline. It keeps one tracking issue open per branch until the advisories are fixed.
+- **`.github/dependabot.yml`:** weekly grouped updates for the GitHub Actions the workflows use.
+- **`docs/ci/README.md`:** a page for your team that explains each check, how to run it locally, and how to fix a failure.
+
+Every job runs with a read-only token, a pinned Node and Yarn, lockfile-keyed caches, an immutable install and a timeout. A new push to a pull request cancels that pull request's previous run.
+
+## Options
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--branches a,b` | detected default branch, plus `develop` if it exists | Branches the pipeline protects. |
+| `--node <version>` | `.nvmrc` / `.node-version`, else the `engines.node` major | Node.js version. |
+| `--runner <label>` | `ubuntu-latest` | `runs-on` label. Use a larger runner if a private repository runs out of memory during the build. |
+| `--audit-severity <level>` | `high` | Lowest advisory severity that fails the audit. |
+| `--audit-cron "<expr>"` | `17 6 * * *` | Schedule of the nightly audit. |
+| `--no-<check>` / `--with-<check>` | all on | Turn off or back on `lint`, `typecheck`, `ds-check`, `time-bombs`, `test`, `build`, `integration`, `docker`, `scheduled-audit`, `dependabot`. |
+| `--force` | off | Overwrite generated files that differ from the templates. |
+| `--dry-run`, `--json` | off | Preview only, or print a machine-readable result. |
+
+Options are saved in `.github/om-ci.json`. After an Open Mercato upgrade, `--force` alone refreshes the pipeline to the latest templates and keeps your choices.
+
+## Safety
+
+- The generator writes nothing if any target file already exists with different content. It lists the conflicts and exits with code `3`, so you can review them before passing `--force`.
+- `scripts/ci/audit-ci-allowlist.json` holds your justified audit exceptions and is never overwritten.
+- When you disable a feature, the generator removes the files it generated for it earlier. It never removes a file it did not create.
+- Branch names, runner labels and cron expressions are validated before they are written into YAML.
