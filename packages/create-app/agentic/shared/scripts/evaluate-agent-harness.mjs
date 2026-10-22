@@ -1287,7 +1287,8 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     }
     if (!isUniqueStringArray(item.validators, { min: 5 })) add(id, 'validators must contain at least five unique IDs')
     for (const validator of item.validators ?? []) if (!validatorMap[validator]) add(id, `unknown validator ${validator}`)
-    const requiredInitialContextFiles = (item.context?.required ?? []).filter(isInitialContextPath).length
+    const progressiveSources = progressiveSourceContextPaths(item, root)
+    const requiredInitialContextFiles = (item.context?.required ?? []).filter((relative) => isInitialContextPath(relative) && !progressiveSources.has(relative)).length
     if (!Number.isInteger(item.maxContextFiles) || item.maxContextFiles < requiredInitialContextFiles || item.maxContextFiles > registry.catalog.maxContextFiles) add(id, 'maxContextFiles is impossible or excessive')
     if (!Number.isInteger(item.maxInitialContextBytes) || item.maxInitialContextBytes < 4096 || item.maxInitialContextBytes > registry.catalog.maxInitialContextBytes) add(id, 'maxInitialContextBytes is invalid')
     if (!Number.isInteger(item.maxTotalContextBytes) || item.maxTotalContextBytes < item.maxInitialContextBytes || item.maxTotalContextBytes > registry.catalog.maxTotalContextBytes) add(id, 'maxTotalContextBytes is invalid')
@@ -1296,8 +1297,8 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
     // by that case's own budget. Measured from disk, so a grown guide or fact-sheet surfaces
     // here instead of as a live routing failure that looks like a model mistake.
     if (Number.isInteger(item.maxContextFiles) && Number.isInteger(item.maxInitialContextBytes) && Number.isInteger(item.maxTotalContextBytes)) {
-      const required = contextStats(root, item.context?.required ?? [])
-      const declared = contextStats(root, [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])])
+      const required = contextStats(root, item.context?.required ?? [], {}, item)
+      const declared = contextStats(root, [...(item.context?.required ?? []), ...(item.context?.allowedExtra ?? [])], {}, item)
       // `required` is a guaranteed false negative and `declared` only a latent one, so each
       // budget reports the sharper of the two rather than both.
       for (const [measure, limit, budget] of [
@@ -2189,8 +2190,8 @@ function normalizeObservedCandidate(raw, root) {
   return { relative }
 }
 
-function isAllowedObservedPath(relative, caseRecord, writable) {
-  if (permittedContextPath(relative, caseRecord)) return true
+function isAllowedObservedPath(relative, caseRecord, writable, root) {
+  if (permittedContextPath(relative, caseRecord, root)) return true
   // Root immutability precedence: a declared example root is read-only context resolved BEFORE
   // any writable pattern, so a broad `src/modules/**` grant can never promote it to a writable
   // target. In-root reads are judged by the inventory-backed example read policy instead of by
@@ -2333,8 +2334,9 @@ export function caseReadAllowlist(caseRecord, writable, appRoot) {
   return [...new Set([...declared, ...moduleFactSections])].sort()
 }
 
-function permittedContextPath(relative, caseRecord) {
+function permittedContextPath(relative, caseRecord, root) {
   const contextPaths = [
+    ...exampleReadAllowlist(caseRecord, root),
     ...(caseRecord.context?.required ?? []),
     ...(caseRecord.context?.allowedExtra ?? []),
     ...(caseRecord.context?.warn ?? []),
@@ -2353,8 +2355,8 @@ function permittedContextPath(relative, caseRecord) {
   return skillPaths.includes(relative) || skillRoots.some((root) => relative.startsWith(`${root}references/`))
 }
 
-function permittedMetadataPath(relative, caseRecord, selectedRoutes) {
-  if (permittedContextPath(relative, caseRecord)) return true
+function permittedMetadataPath(relative, caseRecord, selectedRoutes, root) {
+  if (permittedContextPath(relative, caseRecord, root)) return true
   return selectedRoutes?.has('spec-pr')
     && ['.ai/specs', '.ai/specs/implemented'].includes(relative)
 }
@@ -2470,7 +2472,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
     }
     const relative = normalized.relative
     if (candidate.metadataOnly) {
-      if (relative.includes('*') || relative.includes('?') || !permittedMetadataPath(relative, caseRecord, selectedRoutes)) {
+      if (relative.includes('*') || relative.includes('?') || !permittedMetadataPath(relative, caseRecord, selectedRoutes, root)) {
         violations.add(`unsafe metadata discovery ${relative}`)
         continue
       }
@@ -2518,7 +2520,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
         continue
       }
     }
-    if (!isAllowedObservedPath(relative, caseRecord, writable)) {
+    if (!isAllowedObservedPath(relative, caseRecord, writable, root)) {
       // The fail-closed MCP server already refused this exact call, so nothing was read:
       // scoring it as loaded content would be factually wrong. Record it as a bounded
       // exploration signal instead. Every genuinely dangerous case is still fatal above:
@@ -2535,8 +2537,8 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
       // Writable target source is a safe implementation input, not routing context.
       // Keep it out of instruction/fact budgets and selectedContext accounting while
       // still failing closed above for every non-allowlisted read.
-      else if (isAllowedObservedPath(file, caseRecord, writable)) {
-        if (!writable || reviewExpectedReads || permittedContextPath(file, caseRecord)) {
+      else if (isAllowedObservedPath(file, caseRecord, writable, root)) {
+        if (!writable || reviewExpectedReads || permittedContextPath(file, caseRecord, root)) {
           paths.add(file)
           if (!readOrder.includes(file)) readOrder.push(file)
         }
@@ -2577,7 +2579,14 @@ function isInitialContextPath(relative) {
     && !relative.startsWith('.agents/skills/')
 }
 
-function contextStats(root, paths, metadata = {}) {
+function progressiveSourceContextPaths(caseRecord, root) {
+  return new Set(exampleReadAllowlist(caseRecord, root).filter((relative) =>
+    isProtectedExampleRootPath(relative, caseRecord)
+    || ((relative.startsWith('src/') || isInstalledSourceRelative(relative)) && !/\.(?:md|mdx)$/i.test(relative))))
+}
+
+function contextStats(root, paths, metadata = {}, caseRecord = {}) {
+  const progressiveSources = progressiveSourceContextPaths(caseRecord, root)
   let bytes = metadata.bytes ?? 0
   let files = metadata.entries ?? 0
   let initialBytes = metadata.bytes ?? 0
@@ -2594,7 +2603,7 @@ function contextStats(root, paths, metadata = {}) {
       if (stat.isFile()) {
         files += 1
         bytes += stat.size
-        if (isInitialContextPath(relative)) {
+        if (isInitialContextPath(relative) && !progressiveSources.has(relative)) {
           initialPaths.push(relative)
           initialFiles += 1
           initialBytes += stat.size
@@ -2617,7 +2626,7 @@ function contextStats(root, paths, metadata = {}) {
   }
 }
 
-function evaluateRouting(caseRecord, response, stats, readOrder = [], observedWrites = []) {
+function evaluateRouting(caseRecord, response, stats, readOrder = [], observedWrites = [], root) {
   const failures = [...evaluateSpecRoutingDecision(caseRecord, response, observedWrites)]
   const selectedRoutes = new Set(response.selectedRouter)
   for (const required of caseRecord.expectedRouter.required) if (!selectedRoutes.has(required)) failures.push(`missing route ${required}`)
@@ -2652,11 +2661,11 @@ function evaluateRouting(caseRecord, response, stats, readOrder = [], observedWr
   }
   for (const selected of selectedContext) {
     if (!isSafeRelative(selected)) failures.push(`unsafe selected context ${selected}`)
-    else if (!permittedContextPath(selected, caseRecord)) failures.push(`unexpected context ${selected}`)
+    else if (!permittedContextPath(selected, caseRecord, root)) failures.push(`unexpected context ${selected}`)
     else if (!stats.paths.some((observed) => globToRegExp(selected).test(observed))) failures.push(`selected context not observed ${selected}`)
   }
   for (const observed of stats.paths) {
-    if (permittedContextPath(observed, caseRecord) && !selectedContext.has(observed)) {
+    if (permittedContextPath(observed, caseRecord, root) && !selectedContext.has(observed)) {
       failures.push(`observed context not declared ${observed}`)
     }
   }
@@ -3815,15 +3824,15 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           paths: trace.metadataPaths,
           entries: trace.metadataEntries,
           bytes: trace.metadataBytes,
-        })
-        let declaredStats = contextStats(runRoot, [])
+        }, evaluationCase)
+        let declaredStats = contextStats(runRoot, [], {}, evaluationCase)
         const violations = [...trace.violations]
         if (attempt.kind === 'success') {
           const declared = response.selectedContext
             .filter((entry) => isSafeRelative(entry) && isPathInside(runRoot, path.resolve(runRoot, entry)) && fs.existsSync(path.resolve(runRoot, entry)))
-          declaredStats = contextStats(runRoot, [...new Set(declared)].sort())
+          declaredStats = contextStats(runRoot, [...new Set(declared)].sort(), {}, evaluationCase)
           const observedWrites = specRoutingObservedWrites(evaluationCase, writable, specRoutingBefore, runRoot)
-          violations.push(...evaluateRouting(evaluationCase, response, stats, trace.readOrder, observedWrites))
+          violations.push(...evaluateRouting(evaluationCase, response, stats, trace.readOrder, observedWrites, runRoot))
         } else violations.push(`${attempt.kind}: ${sanitize(attempt.error, runRoot)}`)
         return { response, trace, stats, declaredStats, violations }
       }

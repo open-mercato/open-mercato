@@ -8,6 +8,8 @@
 
 UMES routing is fact-first. The additive and unified-override audit evaluations, plus their targeted cases, resolve exact/pattern hosts, outgoing contributions, correlation provenance, round-trip groups, framework-owned targets, and override domain/key/mode from the generated module sheets and `.ai/guides/framework-extension-points.md` before bounded installed source. The repository UMES umbrella spec may appear as optional source-checkout provenance; it is never required in a standalone scaffold.
 
+Declared canonical-example entrypoints and inventory-selected capability files are progressive context. Exact source files resolved by declared `sourceReferenceIds` are progressive too; mapping an instruction owner or skill does not remove it from initial context. Every successful source read must remain in `selectedContext` and the observed total file/byte ledger, and canonical-example reads also consume their independent example budgets. Permissions cover only the exact resolved files; declaring a root never grants its other files.
+
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009

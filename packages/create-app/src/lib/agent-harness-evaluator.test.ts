@@ -1927,6 +1927,137 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
   }
 })
 
+for (const scenario of ['valid', 'omitted-read', 'unrelated-capability', 'example-files', 'example-bytes', 'total-bytes'] as const) {
+  test(`canonical example routing preserves exact permissions and budget accounting: ${scenario}`, { skip: !targetSandboxAvailable }, async () => {
+    const root = stageApp()
+    try {
+      const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & {
+        expectedRouter: { required: string[] }
+        requiredSkills: string[]
+        requiredDecisions: string[]
+        maxTotalContextBytes: number
+        context: { required: string[]; exampleRoots: Array<{ root: string; entrypoints: string[]; allowedCapabilityIds: string[]; maxFiles: number; maxBytes: number }> }
+      }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-181')
+      assert.ok(caseRecord)
+      const example = caseRecord.context.exampleRoots[0]
+      const inventory = JSON.parse(fs.readFileSync(path.join(root, example.root, 'references', 'surface-inventory.json'), 'utf8')) as { capabilities: Array<{ capabilityId: string; sourcePaths: string[] }> }
+      const sources = example.allowedCapabilityIds.map((id) => {
+        const capability = inventory.capabilities.find((entry) => entry.capabilityId === id)
+        assert.ok(capability)
+        return capability.sourcePaths[0]
+      })
+      const examplePaths = [...example.entrypoints.map((entry) => `${example.root}/${entry}`), ...sources]
+      const reads = [...caseRecord.context.required, ...examplePaths]
+      const selectedContext = scenario === 'omitted-read' ? reads.filter((entry) => entry !== sources[0]) : [...reads]
+      if (scenario === 'unrelated-capability') {
+        const capability = inventory.capabilities.find((entry) => entry.capabilityId === 'notifications.type')
+        assert.ok(capability)
+        reads.push(capability.sourcePaths[0])
+        selectedContext.push(capability.sourcePaths[0])
+      }
+      for (const file of caseRecord.context.required.filter((entry) => entry.startsWith('.ai/guides/modules/'))) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), '# Installed module facts\n' + 'Bound module contracts.\n'.repeat(2500))
+      }
+      const totalBytes = reads.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const exampleBytes = examplePaths.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      if (scenario === 'example-files') example.maxFiles = examplePaths.length - 1
+      if (scenario === 'example-bytes') example.maxBytes = exampleBytes - 1
+      if (scenario === 'total-bytes') caseRecord.maxTotalContextBytes = totalBytes - 1
+      fs.writeFileSync(casesPath, JSON.stringify(cases, null, 2))
+      const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext, decisions: caseRecord.requiredDecisions, violations: [] }
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+for (const file of ${JSON.stringify(examplePaths)}) if (!allowedReads.includes(file)) process.exit(9)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
+for (const file of ${JSON.stringify(reads)}) console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+}}))
+`)
+      const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-181'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      const [stored] = storedResults(root)
+      assert.ok(stored, `${result.stdout}\n${result.stderr}`)
+      if (scenario === 'valid') {
+        assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+        assert.deepEqual(stored.violations, [])
+        for (const file of examplePaths) {
+          assert.ok(stored.actualContext.paths.includes(file))
+          assert.ok(stored.selectedContext.includes(file))
+          assert.ok(!stored.actualContext.initialPaths.includes(file))
+          assert.ok(!stored.declaredContext.initialPaths.includes(file))
+        }
+        assert.equal(stored.actualContext.bytes, totalBytes)
+        assert.equal(stored.declaredContext.bytes, totalBytes)
+        assert.ok(stored.actualContext.initialBytes < caseRecord.maxInitialContextBytes)
+        assert.ok(stored.actualContext.initialPaths.includes('.ai/skills/om-system-extension/SKILL.md'))
+        const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+          observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+        }
+        const implementation = 'src/modules/order_risk/local.ts'
+        fs.mkdirSync(path.dirname(path.join(root, implementation)), { recursive: true })
+        fs.writeFileSync(path.join(root, implementation), 'export const local = true\n')
+        const trace = evaluator.observedContext([...reads, implementation].map((file) => JSON.stringify({ type: 'item.completed', item: {
+          type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed',
+        } })).join('\n'), root, caseRecord, true)
+        assert.deepEqual(trace.violations, [])
+        assert.deepEqual([...trace.paths].sort(), [...reads].sort())
+      } else {
+        assert.equal(result.status, 1)
+        const expected = {
+          'omitted-read': `observed context not declared ${sources[0]}`,
+          'unrelated-capability': 'maps to a capability the case did not declare',
+          'example-files': 'example root file budget exceeded',
+          'example-bytes': 'example root byte budget exceeded',
+          'total-bytes': 'context byte budget exceeded',
+        }[scenario]
+        assert.ok(stored.violations.some((entry) => entry.includes(expected)), JSON.stringify(stored.violations))
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+test('exact declared installed sources pass full routing while instruction owners remain initial context', { skip: !targetSandboxAvailable }, async () => {
+  const root = stageApp()
+  try {
+    const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')) as Array<HarnessCase & {
+      expectedRouter: { required: string[] }; requiredSkills: string[]; requiredDecisions: string[]
+    }>
+    const caseRecord = cases.find((entry) => entry.id === 'OMH-239')
+    assert.ok(caseRecord)
+    const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+      exampleReadAllowlist: (caseRecord: unknown, root: string) => string[]
+    }
+    const sources = evaluator.exampleReadAllowlist(caseRecord, root).filter((entry) => entry.startsWith('node_modules/'))
+    assert.equal(sources.length, 3)
+    const context = [...new Set([...caseRecord.context.required, ...sources])]
+    const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext: context, decisions: caseRecord.requiredDecisions, violations: [] }
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
+for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+}}))
+`)
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-239'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    const [stored] = storedResults(root)
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+    for (const source of sources) {
+      assert.ok(stored.actualContext.paths.includes(source))
+      assert.ok(!stored.actualContext.initialPaths.includes(source))
+    }
+    assert.ok(stored.actualContext.initialPaths.includes('.ai/guides/module-tool.md'))
+    assert.ok(stored.actualContext.initialPaths.includes('AGENTS.md'))
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('a lifecycle stream without a recognized tool event fails closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `
