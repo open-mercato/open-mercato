@@ -144,7 +144,7 @@ Unknown, malformed, disabled, duplicated, or unauthorized types fail before pers
 
 ### Existing built-in organization gap
 
-The existing eight built-in lookups can accept records visible through a selected organization's descendant scope because their owner routes do not prove exact equality with the document organization. This PR does not move or rewrite those owner contracts. [Issue #7780](https://github.com/open-mercato/open-mercato/issues/7780) defines exact-organization qualifiers for the affected Customers, Catalog, Sales, and Documents lookup routes with cross-organization tests. The implementation PR must close #7780 first or include its fix in the same verified change; it must not claim the custom qualifier fixes legacy lookups.
+The existing eight built-in lookups can accept records visible through a selected organization's descendant scope because their owner routes do not prove exact equality with the document organization. This PR does not move or rewrite those owner contracts. [Issue #7780](https://github.com/open-mercato/open-mercato/issues/7780) defines exact-organization qualifiers for the affected Customers, Catalog, Sales, and Documents lookup routes with cross-organization tests. #7780 must merge before implementation of this spec begins; the implementation PR must not bundle that independently deployable hardening or claim the custom qualifier fixes legacy lookups.
 
 ## Compatibility
 
