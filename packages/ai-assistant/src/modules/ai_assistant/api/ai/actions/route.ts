@@ -8,17 +8,13 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import {
   AiPendingActionRepository,
 } from '../../../data/repositories/AiPendingActionRepository'
-import type { AiPendingAction } from '../../../data/entities'
 import { aiPendingActionListQuerySchema } from '../../../data/validators'
 import { hasRequiredFeatures } from '../../../lib/auth'
 import {
-  serializePendingActionForClient,
-  type SerializedPendingAction,
+  serializePendingActionWithRequester,
+  type SerializedPendingActionWithRequester,
 } from '../../../lib/pending-action-client'
-import {
-  AI_PENDING_ACTION_APPROVE_FEATURE,
-  type AiPendingActionChannel,
-} from '../../../lib/pending-action-types'
+import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../../../lib/pending-action-types'
 
 const logger = createLogger('ai_assistant')
 
@@ -33,10 +29,7 @@ const logger = createLogger('ai_assistant')
 
 const REQUIRED_FEATURE = 'ai_assistant.view'
 
-export interface PendingActionListItem extends SerializedPendingAction {
-  channel: AiPendingActionChannel
-  requester: { userId: string | null; apiKeyId: string | null }
-}
+export type PendingActionListItem = SerializedPendingActionWithRequester
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -83,17 +76,6 @@ function jsonError(
   extra?: Record<string, unknown>,
 ): NextResponse {
   return NextResponse.json({ error: message, code, ...(extra ?? {}) }, { status })
-}
-
-function serializeListItem(row: AiPendingAction): PendingActionListItem {
-  return {
-    ...serializePendingActionForClient(row),
-    channel: row.channel ?? 'agent',
-    requester: {
-      userId: row.createdByUserId ?? null,
-      apiKeyId: row.apiKeyId ?? null,
-    },
-  }
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
@@ -151,7 +133,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     )
 
     return NextResponse.json({
-      items: result.items.map(serializeListItem),
+      items: result.items.map(serializePendingActionWithRequester),
       total: result.total,
       page: query.page,
       pageSize: query.pageSize,

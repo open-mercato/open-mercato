@@ -8,7 +8,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { AiPendingActionRepository } from '../../../../data/repositories/AiPendingActionRepository'
 import { hasRequiredFeatures } from '../../../../lib/auth'
-import { serializePendingActionForClient } from '../../../../lib/pending-action-client'
+import { serializePendingActionWithRequester } from '../../../../lib/pending-action-client'
 import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../../../../lib/pending-action-types'
 
 const logger = createLogger('ai_assistant')
@@ -42,13 +42,14 @@ export const openApi: OpenApiRouteDoc = {
         'chat UI reconnect/polling path: after a page reload or SSE reconnect the client ' +
         'carries the `pendingActionId` from an earlier `mutation-preview-card` UI part and ' +
         'calls this route to re-hydrate the card. Server-internal fields (`normalizedInput`, ' +
-        '`createdByUserId`, `idempotencyKey`) are stripped by a whitelist serializer. ' +
+        '`createdByUserId`, `idempotencyKey`) are stripped by a whitelist serializer; the ' +
+        'row\'s `channel` and `requester: { userId, apiKeyId }` are returned like on the list route. ' +
         'Enforces tenant/org scoping via the repository.',
       responses: [
         {
           status: 200,
           description:
-            'Serialized pending action. Never includes normalizedInput, createdByUserId, or idempotencyKey.',
+            'Serialized pending action plus `channel` and `requester`. Never includes normalizedInput, createdByUserId, or idempotencyKey.',
           mediaType: 'application/json',
         },
       ],
@@ -138,7 +139,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       )
     }
 
-    return NextResponse.json(serializePendingActionForClient(row))
+    return NextResponse.json(serializePendingActionWithRequester(row))
   } catch (error) {
     logger.error('AI Pending Action GET — Failure', { err: error })
     return jsonError(

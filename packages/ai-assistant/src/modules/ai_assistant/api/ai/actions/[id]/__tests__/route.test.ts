@@ -275,6 +275,19 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
     expect(body).not.toHaveProperty('organizationId')
   })
 
+  it('returns the channel and requester like the list route', async () => {
+    repoGetByIdMock.mockResolvedValueOnce(
+      makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool', apiKeyId: 'key-1' }),
+    )
+
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.channel).toBe('mcp')
+    expect(body.requester).toEqual({ userId: 'user-1', apiKeyId: 'key-1' })
+  })
+
   it('returns 400 when the id param is empty', async () => {
     const response = await GET(buildRequest() as any, buildContext(''))
 
