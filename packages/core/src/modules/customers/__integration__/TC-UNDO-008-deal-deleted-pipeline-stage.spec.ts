@@ -154,7 +154,7 @@ test.describe('TC-UNDO-008 deal undo/redo with a deleted pipeline stage', () => 
           id: created.dealId,
           title: `TC-UNDO-008 Update ${stamp} edited`,
           pipelineId: restored?.pipeline_id ?? null,
-          pipelineStageId: restored?.pipeline_stage_id ?? null,
+          ...(restored?.pipeline_stage_id ? { pipelineStageId: restored.pipeline_stage_id } : {}),
         },
       })
       const saveBody = await readJsonSafe(saveRes)
