@@ -24,9 +24,9 @@
 | 1 | 1.3 | Filter tools/list per principal on the MCP HTTP server | dispatch:capable | done | 92caf7317 |
 | 1 | 1.4 | Use the shared exposure filter in the dev and stdio MCP servers | dispatch | done | d27ed59bc |
 | 1 | 1.5 | Add MCP exposure CLI flags and mcp:list-tools --effective | dispatch | done | bed3a53a3 |
-| 2 | 2.1 | Add the best-effort MCP tool-call audit writer | dispatch | done | 1c03d881a |
-| 2 | 2.2 | Audit every MCP and tools/execute call with correlation ids | dispatch | done | 5e6972fe3 |
-| 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | done | 820425d4f |
+| 2 | 2.1 | Add the best-effort MCP tool-call audit writer | dispatch | done | 73290b478 |
+| 2 | 2.2 | Audit every MCP and tools/execute call with correlation ids | dispatch | done | f34f8d391 |
+| 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | done | 4e3310ffb |
 | 3 | 3.1 | Add the channel option and direct/deny mutation modes to executeTool | dispatch | todo | — |
 | 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | todo | — |
 | 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | todo | — |

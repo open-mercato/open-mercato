@@ -23,3 +23,7 @@
 
 ## 2026-10-22T14:34:48Z — subagent delegation
 - Steps 1.1–1.5 implemented by sequential executor subagents (default tier).
+
+## 2026-10-22T14:45:08Z — checkpoint 2
+- Steps 2.1..2.3 verified: ai-assistant jest 1659/1659, audit_logs jest 153/153, build:packages, typecheck 39/39. UI pass skipped (no UI in window).
+- Decision: dev/stdio MCP servers mint a fresh correlation id per call; HTTP and /tools/execute honour `x-correlation-id`.
