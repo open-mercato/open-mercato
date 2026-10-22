@@ -977,7 +977,7 @@ test('CLI-only primitive context remains bounded without dropping compiled-path 
   assert.match(skill, /Complete business modules\/CRUD slices START at/)
   assert.match(skill, /complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are mandatory/)
   assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* Every API\/schema\/command implementation, fix, or reference inspection MUST read/m)
-  assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Follow `references\/module-surfaces\.md`/m)
+  assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/m)
   assert.match(skill, /^7\. \*\*Verify\.\*\* Follow `references\/verification\.md`/m)
 })
 

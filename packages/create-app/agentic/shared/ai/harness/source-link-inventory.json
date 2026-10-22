@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 41,
-    "recordCount": 182,
-    "sourceRequiredCount": 129,
-    "readableCount": 182,
+    "ownerCount": 42,
+    "recordCount": 187,
+    "sourceRequiredCount": 130,
+    "readableCount": 187,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -3896,6 +3896,17 @@
       ]
     },
     {
+      "referenceId": "rule:guides/extensions#customer-detail-host-distinction",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/extensions.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/extensions.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/extensions#feature-toggle-facts-first",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/extensions.md",
@@ -4237,6 +4248,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold#module-surface-reference-owner-first",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold#source-navigation",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
@@ -4249,6 +4271,17 @@
     },
     {
       "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#forecast-stable-hosts",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#library-postcommit-owners",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "heading": null,
@@ -4477,6 +4510,40 @@
       "resolvedPath": "AGENTS.md",
       "moduleId": null,
       "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:specs/README#maintained-covering-specification-index",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/specs/README.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/specs/README.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "specs/README:.ai/specs/2026-08-06-reference-module-activation.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/specs/README.md",
+      "heading": "Existing specifications",
+      "href": "./2026-08-06-reference-module-activation.md",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/specs/2026-08-06-reference-module-activation.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
     }
   ]
 }

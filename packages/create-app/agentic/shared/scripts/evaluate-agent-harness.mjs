@@ -2485,7 +2485,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
   if (!state.available) violations.add('runner trace unavailable; observed context cannot be verified')
   for (const candidate of state.candidates) {
     const normalized = normalizeObservedCandidate(candidate.raw, root)
-    if (normalized.relative && (!candidate.metadataOnly || candidate.listDirectory)) {
+    if (!candidate.refused && normalized.relative && (!candidate.metadataOnly || candidate.listDirectory)) {
       exampleReads.push({
         path: normalized.relative,
         kind: candidate.listDirectory ? 'list' : candidate.expand ? 'glob' : 'read',
@@ -2498,6 +2498,18 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
       continue
     }
     const relative = normalized.relative
+    if (candidate.refused) {
+      let lexical = stripShellToken(candidate.raw, root)
+      if (lexical.startsWith('file://')) lexical = new URL(lexical).pathname
+      const lexicalRelative = path.relative(path.resolve(root), path.resolve(root, lexical)).replaceAll(path.sep, '/')
+      if (isProtectedExampleRootPath(lexicalRelative, caseRecord)) {
+        const resolved = resolveExampleRootFile(root, lexicalRelative)
+        if (resolved.violation) {
+          violations.add(resolved.violation)
+          continue
+        }
+      }
+    }
     if (candidate.metadataOnly) {
       if (relative.includes('*') || relative.includes('?') || !permittedMetadataPath(relative, caseRecord, selectedRoutes, root)) {
         violations.add(`unsafe metadata discovery ${relative}`)
@@ -2508,6 +2520,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
       try { entry = fs.lstatSync(absolute) } catch { continue }
       if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())
         || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) violations.add(`unsafe metadata discovery entry ${relative}`)
+      else if (candidate.refused) refusedReads.add(relative)
       else if (candidate.listDirectory) {
         if (!entry.isDirectory()) violations.add(`metadata listing target is not a directory ${relative}`)
         else {
@@ -2526,6 +2539,10 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
     }
     if (matchesAny(relative, HARD_FORBIDDEN_READ_PATTERNS) || matchesAny(relative, caseRecord.context.forbidden)) {
       violations.add(`forbidden context read ${relative}`)
+      continue
+    }
+    if (candidate.refused && (candidate.expand || relative.includes('*') || relative.includes('?'))) {
+      violations.add(`unsafe broad context read ${relative}`)
       continue
     }
     if (!relative.includes('*') && !relative.includes('?') && !fs.existsSync(path.resolve(root, relative))) continue
@@ -2553,16 +2570,12 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
         continue
       }
     }
+    if (candidate.refused) {
+      refusedReads.add(relative)
+      continue
+    }
     if (!isAllowedObservedPath(relative, caseRecord, writable, root)) {
-      // The fail-closed MCP server already refused this exact call, so nothing was read:
-      // scoring it as loaded content would be factually wrong. Record it as a bounded
-      // exploration signal instead. Every genuinely dangerous case is still fatal above:
-      // hard-forbidden and case-forbidden paths, out-of-root and symlink escapes, broad or
-      // recursive reads, and metadata discovery are all rejected before this point, whether
-      // the attempt succeeded or not. A read that SUCCEEDED outside the allowlist still
-      // fails here, because that would mean the server guard did not hold.
-      if (candidate.refused) refusedReads.add(relative)
-      else violations.add(`unsafe arbitrary app-root read ${relative}`)
+      violations.add(`unsafe arbitrary app-root read ${relative}`)
       continue
     }
     for (const file of expandObservedPath(root, relative, candidate.expand)) {

@@ -1206,7 +1206,7 @@
       "topicId": "rule:guides/spec-delivery#metadata-first-covering-spec",
       "owner": ".ai/guides/spec-delivery.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "Read `.ai/specs/README.md` first, then use bounded metadata/filename lookup in the configured specs path (`.ai/specs`, plus any enterprise directory the config names). Never read a directory as content or report its listing in `selectedContext`. If a covering file matches, read that exact file and choose `reuse-spec` before considering a new specification. A read-only planning decision stops after classification; do not author or amend a file."
+      "evidence": "Read `.ai/specs/README.md` first, then follow its matching specification links. For an unindexed request, use bounded metadata/filename lookup in the configured specs path (`.ai/specs`, plus any enterprise directory the config names) when available; an exact-path reader follows the index instead of guessing filenames. Never read a directory as content or report its listing in `selectedContext`. If a covering file matches, read that exact file and choose `reuse-spec` before considering a new specification. A read-only planning decision stops after classification; do not author or amend a file."
     },
     {
       "topicId": "rule:guides/spec-delivery#scaffold-navigation-handoff",
@@ -1225,6 +1225,37 @@
       "owner": ".ai/guides/production-deployment.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Classify findings as **required**, **recommended**, or **module-specific**. Do not present every `.env.example` key as mandatory. Ask before accessing or changing credentials, creating billable infrastructure, or starting, changing, or rolling back a live deployment. This guide supports a readiness review; do not perform or claim a live deployment or an unrun check."
+    },
+    {
+      "topicId": "rule:om-module-scaffold#module-surface-reference-owner-first",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Module-surface implementation/reference inspection MUST first read `references/module-surfaces.md`"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#library-postcommit-owners",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For library command post-commit cache/index and undo consistency, first read `.ai/guides/modules/query_index/index.md` and `references/runtime-cache-and-queues.md` Cache rules; do not infer queued work."
+    },
+    {
+      "topicId": "rule:specs/README#maintained-covering-specification-index",
+      "owner": ".ai/specs/README.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Keep this index linked to the covering specifications as the application evolves. Read a matching linked file before proposing another specification."
+    },
+    {
+      "topicId": "specs/README:.ai/specs/2026-08-06-reference-module-activation.md",
+      "owner": ".ai/specs/README.md",
+      "requirement": "source-required",
+      "href": "./2026-08-06-reference-module-activation.md",
+      "resolvedPath": ".ai/specs/2026-08-06-reference-module-activation.md"
+    },
+    {
+      "topicId": "rule:guides/extensions#customer-detail-host-distinction",
+      "owner": ".ai/guides/extensions.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For Customers detail tabs, distinguish person and company hosts in installed facts. The example's person spot does not apply to companies; select only the requested exact host."
     }
   ]
 }

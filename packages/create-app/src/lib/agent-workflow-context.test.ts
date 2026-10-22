@@ -44,7 +44,7 @@ test('root modeling routes require business-record design rather than existing w
     assert.match(text, /scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
     assert.match(text, /Multi-stage waits\/cancel\/restart are durable; reminders and renewal\/batch schedules are `module-data`/)
     assert.match(text, /Editable records expose `updated_at`\/`updatedAt`; custom update\/delete clients send the version and surface 409s/)
-    assert.match(text, /Put entities in `src\/modules\/<id>\/data\/entities\.ts`/)
+    assert.match(text, /Entities: `src\/modules\/<id>\/data\/entities\.ts`/)
     assert.ok(Buffer.byteLength(text) <= root.maximumBytes)
   }
 })

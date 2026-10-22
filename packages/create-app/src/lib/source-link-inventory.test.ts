@@ -90,6 +90,8 @@ type KnowledgeValidator = {
 const generator = (await import(pathToFileURL(generatorPath).href)) as unknown as Generator
 const knowledgeValidator = (await import(pathToFileURL(knowledgeValidatorPath).href)) as unknown as KnowledgeValidator
 const sourceLinkValidator = (await import(pathToFileURL(sourceLinkValidatorPath).href)) as unknown as {
+  emittedMarkdownOwners: (packageRoot: string) => string[]
+  deriveTopicId: (owner: string, target: string) => string | null
   installedPackageTarget: (resolvedPath: string) => { packageName: string; packageRelativePath: string } | null
   validateTopicRegistry: (input: { registry: unknown; packageRoot: string }) => { errors: string[] }
 }
@@ -236,15 +238,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 129)
-  assert.equal(inventory.records.length, 182)
-  assert.equal(inventory.derived.renderedLinkCount, 131)
+  assert.equal(inventory.derived.sourceRequiredCount, 130)
+  assert.equal(inventory.records.length, 187)
+  assert.equal(inventory.derived.renderedLinkCount, 132)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 129)
+  assert.equal(sourceRequired.length, 130)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -437,6 +439,7 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
+      '.ai/specs/2026-08-06-reference-module-activation.md',
       'node_modules/@open-mercato/cli/src/lib/eject.ts',
       'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
       'node_modules/@open-mercato/cli/src/lib/module-install.ts',
@@ -706,4 +709,16 @@ test('the inventory records what it does not cover instead of implying coverage'
   assert.ok(inventory.records.some((record) => record.targetKind === 'installed-package'))
   assert.ok(inventory.notCovered.some((note) => note.startsWith('installed-package version and content hash:')))
   assert.match(inventory.generatedNote, /Never hand-edit/)
+})
+
+test('only the emitted specification index joins normative owner discovery', () => {
+  const owners = sourceLinkValidator.emittedMarkdownOwners(packageRoot)
+  assert.deepEqual(owners.filter(owner => owner.startsWith('.ai/specs/')), ['.ai/specs/README.md'])
+  assert.equal(owners.filter(owner => owner === '.ai/specs/README.md').length, 1)
+  assert.equal(sourceLinkValidator.deriveTopicId('.ai/specs/README.md', '.ai/specs/2026-08-06-reference-module-activation.md'), 'specs/README:.ai/specs/2026-08-06-reference-module-activation.md')
+  for (const owner of ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-module-scaffold/SKILL.md']) assert.ok(owners.includes(owner), owner)
+  assert.ok(!owners.includes('.ai/specs/SPEC-000-template.md'))
+  const dated = fs.readdirSync(path.join(packageRoot, 'agentic/shared/ai/specs')).filter(file => /^\d{4}-\d{2}-\d{2}-.+\.md$/.test(file))
+  assert.ok(dated.length > 0)
+  for (const file of dated) assert.ok(!owners.includes(`.ai/specs/${file}`))
 })

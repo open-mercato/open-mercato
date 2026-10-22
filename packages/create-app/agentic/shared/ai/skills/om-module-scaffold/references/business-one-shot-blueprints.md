@@ -32,6 +32,8 @@ Treat this mapping as a completion checklist, not optional examples. Verify each
 
 ### Complete Library Contract
 
+For library command post-commit cache/index and undo consistency, first read `.ai/guides/modules/query_index/index.md` and `references/runtime-cache-and-queues.md` Cache rules; do not infer queued work.
+
 When the selected row is the complete library app, do a final source-level check against this bounded contract before generation; do not generalize these library IDs into other domains:
 
 The required procedures plus this bounded contract resolve the library slice's framework choices. Do not route `framework-context` or load its resolver for this slice; spend that context on the three mandatory complete-module references instead.

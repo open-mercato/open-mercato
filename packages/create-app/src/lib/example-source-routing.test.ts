@@ -113,3 +113,28 @@ test('the library twins can follow the authorized equivalent index while canonic
     assert.ok(evaluator.caseReadAllowlist(defaultCase, true, root).includes(human))
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+test('module-surface reference inspection reads its owner before canonical event sources', () => {
+  const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
+  assert.match(scaffold, /Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/)
+  assert.match(scaffold, /when the brief uses cache or queues, load `references\/runtime-cache-and-queues\.md`/)
+  assert.ok(Buffer.byteLength(scaffold) <= 5_265)
+  assert.match(read('shared/ai/skills/om-module-scaffold/references/module-surfaces.md'), /\[\`events\.ts\`\]/)
+})
+
+test('library command consistency reads its exact index and cache owners without inferring queued work', () => {
+  const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
+  const library = blueprint.slice(blueprint.indexOf('### Complete Library Contract'))
+  assert.match(library, /For library command post-commit cache\/index and undo consistency, first read `\.ai\/guides\/modules\/query_index\/index\.md` and `references\/runtime-cache-and-queues\.md` Cache rules; do not infer queued work\./)
+  for (const contract of ['emitCrudUndoSideEffects', 'enforceCommandOptimisticLock', 'withAtomicFlush', 'buildCustomFieldResetMap']) assert.ok(blueprint.includes(contract))
+})
+
+test('customer detail-tab guidance distinguishes installed person and company hosts before selecting one', () => {
+  const guide = read('guides/extensions.md')
+  assert.match(guide, /For Customers detail tabs, distinguish person and company hosts in installed facts/)
+  assert.match(guide, /The example's person spot does not apply to companies; select only the requested exact host/)
+  const table = fs.readFileSync(new URL('../../template/src/modules/example/widgets/injection-table.ts', import.meta.url), 'utf8')
+  assert.ok(table.includes('customers.person.detail:details'))
+  assert.ok(!table.includes('customers.company.detail:details'))
+  assert.ok(Buffer.byteLength(guide) <= 12_718)
+})

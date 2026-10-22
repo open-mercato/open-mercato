@@ -590,7 +590,7 @@ test('fallback and agentic root instructions have one routing contract', () => {
   const agentic = fs.readFileSync(
     new URL('../../agentic/shared/AGENTS.md.template', import.meta.url),
     'utf8',
-  ).replace(/^# \{\{PROJECT_NAME\}\} — Standalone App Agent Rules$/m, '# Standalone Open Mercato App — Agent Rules')
+  ).replace(/^# \{\{PROJECT_NAME\}\} — Standalone App Rules$/m, '# Standalone Open Mercato App — Rules')
   const fallback = fs.readFileSync(
     new URL('../../template/AGENTS.md', import.meta.url),
     'utf8',

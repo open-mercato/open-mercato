@@ -6,10 +6,12 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createResolver } from '../../../cli/src/lib/resolver.js'
+import { discoverLocalReferenceModuleSource, discoverPackageModuleSources } from '../../../cli/src/lib/generators/module-facts-discovery.js'
+import { extractLocalReferenceModuleFacts, renderReferenceModuleFactsJson } from '../../../cli/src/lib/generators/module-facts.js'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
-const generatedGuidesRoot = fileURLToPath(new URL('../../dist/agentic/guides/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
 const sourceDesignSourceContract = path.join(sharedRoot, 'scripts', 'design-source-contract.mjs')
@@ -397,7 +399,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
     'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
-    'OMH-182', 'OMH-185',
+    'OMH-182', 'OMH-185', 'OMH-193',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
@@ -4636,6 +4638,20 @@ function seededFixtureFiles(fixtureId: string): Record<string, string> {
   return files
 }
 
+let referenceModuleProjection: ReturnType<typeof extractLocalReferenceModuleFacts> | undefined
+
+function referenceModuleFixture() {
+  if (!referenceModuleProjection) {
+    const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+    const packageSources = discoverPackageModuleSources(createResolver(repositoryRoot))
+    const reference = discoverLocalReferenceModuleSource({ appRoot: fileURLToPath(new URL('../../template/', import.meta.url)), moduleId: 'example' })
+    assert.ok(reference)
+    const coreVersion = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'packages/core/package.json'), 'utf8')).version as string
+    referenceModuleProjection = extractLocalReferenceModuleFacts({ packageSources, reference, registryPath: null, coreVersion })
+  }
+  return referenceModuleProjection
+}
+
 // A disposable stand-in for the prepared writable target: the emitted `.ai/specs` scaffolding,
 // a fresh module tree, and exactly the files the case fixture seeds.
 function stageSpecTarget(fixtureId: string): string {
@@ -4653,15 +4669,14 @@ function stageSpecTarget(fixtureId: string): string {
   fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = ['example']\n")
   fs.mkdirSync(path.join(root, '.ai', 'guides'), { recursive: true })
-  fs.copyFileSync(
-    path.join(generatedGuidesRoot, 'reference-module-facts.json'),
-    path.join(root, '.ai', 'guides', 'reference-module-facts.json'),
-  )
-  fs.cpSync(
-    path.join(generatedGuidesRoot, 'reference-modules', 'example'),
-    path.join(root, '.ai', 'guides', 'reference-modules', 'example'),
-    { recursive: true },
-  )
+  const reference = referenceModuleFixture()
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'reference-module-facts.json'), renderReferenceModuleFactsJson({ example: reference.entry }))
+  const referenceDirectory = path.join(root, '.ai', 'guides', 'reference-modules', 'example')
+  fs.mkdirSync(referenceDirectory, { recursive: true })
+  fs.writeFileSync(path.join(referenceDirectory, 'index.md'), reference.directory.index)
+  for (const section of reference.directory.sections) {
+    fs.writeFileSync(path.join(referenceDirectory, `${section.slug}.md`), section.markdown)
+  }
   const sourceLinks = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8')) as {
     records: Array<Record<string, unknown>>
   }
