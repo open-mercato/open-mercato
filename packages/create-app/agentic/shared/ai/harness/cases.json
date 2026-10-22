@@ -5123,7 +5123,12 @@
         ".ai/guides/contracts.md",
         ".ai/guides/architecture.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-framework-context/SKILL.md",
+        ".ai/guides/framework-contracts.md",
+        ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+        ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+        ".ai/skills/om-framework-context/references/resolver-procedure.md"
       ],
       "forbidden": [
         ".env*",
@@ -5151,7 +5156,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 122880,
+    "maxTotalContextBytes": 139264,
     "relatedCases": [
       "OMH-065"
     ]
