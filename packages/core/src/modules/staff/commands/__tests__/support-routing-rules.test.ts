@@ -81,6 +81,12 @@ function makeWorld(seed: { rules?: Row[]; projects?: Row[]; statuses?: Row[]; ta
       mockTransactionLog.push(options?.lockMode !== undefined ? `lock:${cls.name}:${String(options.lockMode)}` : `findOne:${cls.name}`)
       return (tables[cls.name] ?? []).find((row) => matches(row, where)) ?? null
     }),
+    nativeUpdate: jest.fn(async (cls: { name: string }, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      mockTransactionLog.push(`nativeUpdate:${cls.name}`)
+      const affected = (tables[cls.name] ?? []).filter((row) => matches(row, where))
+      for (const row of affected) Object.assign(row, data)
+      return affected.length
+    }),
     count: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => {
       mockTransactionLog.push(`count:${cls.name}`)
       return (tables[cls.name] ?? []).filter((row) => matches(row, where)).length
@@ -197,6 +203,52 @@ describe('staff.support.routing_rules.create_fallback_project', () => {
     expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
   })
 
+  it('undo keeps a fallback rule re-pointed after its reads and before its write', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+      statuses: [scoped({ id: 's1', timeProjectId: PROJECT_ID })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: ['s1'], tenantId: TENANT_ID, organizationId: ORG_ID } }
+    const em = ctx.container.resolve('em') as { find: jest.Mock; findOne: jest.Mock; nativeUpdate: jest.Mock }
+    const originalFind = em.find.getMockImplementation()
+    em.find.mockImplementationOnce(async (...args: unknown[]) => {
+      const result = await originalFind!(...args)
+      tables.StaffSupportRoutingRule[0].timeProjectId = 'another-project'
+      return result
+    })
+
+    await command.undo({ logEntry: { commandPayload: payload }, ctx })
+
+    const readsBeforeWrite = em.findOne.mock.invocationCallOrder.filter((order) => order < em.nativeUpdate.mock.invocationCallOrder[0])
+    expect(readsBeforeWrite.length).toBeGreaterThan(0)
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeNull()
+    expect(tables.StaffSupportRoutingRule[0].timeProjectId).toBe('another-project')
+    expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
+    expect(tables.StaffTimeTaskStatus[0].deletedAt).toBeInstanceOf(Date)
+    expect(emittedEntityTypes(mockEmitCrudUndoSideEffects)).toEqual(['staff:staff_time_project'])
+  })
+
+  it('undo removes the rule with one conditional write scoped to its original target', async () => {
+    const { ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: [], tenantId: TENANT_ID, organizationId: ORG_ID } }
+    const em = ctx.container.resolve('em') as { nativeUpdate: jest.Mock }
+
+    await command.undo({ logEntry: { commandPayload: payload }, ctx })
+
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    const [cls, where, data] = em.nativeUpdate.mock.calls[0] as [{ name: string }, Record<string, unknown>, Record<string, unknown>]
+    expect(cls.name).toBe('StaffSupportRoutingRule')
+    expect(where).toEqual({ id: RULE_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: PROJECT_ID, deletedAt: null })
+    expect(data.deletedAt).toBeInstanceOf(Date)
+    expect(mockTransactionLog.indexOf('nativeUpdate:StaffSupportRoutingRule')).toBeGreaterThan(mockTransactionLog.indexOf('count:StaffTimeTask'))
+  })
+
   it('undo refuses and changes nothing once tasks were filed in the project', async () => {
     const { tables, ctx } = makeWorld({
       rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
@@ -276,6 +328,51 @@ describe('staff.support.routing_rules.create_fallback_project', () => {
     await command.undo({ logEntry: { commandPayload: payload }, ctx })
 
     expect(tables.StaffTimeProject[0].deletedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('staff.support.routing_rules.update', () => {
+  const OTHER_PROJECT_ID = '66666666-6666-4666-8666-666666666666'
+
+  function repointWorld() {
+    return makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID }), scoped({ id: OTHER_PROJECT_ID })],
+      statuses: [scoped({ id: 's-other', timeProjectId: OTHER_PROJECT_ID, isDefault: true })],
+    })
+  }
+
+  it('re-reads the rule under a row lock inside its transaction before repointing it', async () => {
+    const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
+    const { tables, ctx } = repointWorld()
+    const command = await loadCommand('staff.support.routing_rules.update')
+
+    await command.execute({ id: RULE_ID, timeProjectId: OTHER_PROJECT_ID }, ctx)
+
+    expect(tables.StaffSupportRoutingRule[0].timeProjectId).toBe(OTHER_PROJECT_ID)
+    const beginIndex = mockTransactionLog.indexOf('begin')
+    expect(mockTransactionLog[beginIndex + 1]).toBe(`lock:StaffSupportRoutingRule:${String(LockMode.PESSIMISTIC_WRITE)}`)
+  })
+
+  it('refuses instead of repointing a rule a concurrent undo deleted after the first read', async () => {
+    const { tables, ctx } = repointWorld()
+    const command = await loadCommand('staff.support.routing_rules.update')
+    const em = ctx.container.resolve('em') as { findOne: jest.Mock }
+    const originalFindOne = em.findOne.getMockImplementation()
+    em.findOne.mockImplementationOnce(async (...args: unknown[]) => {
+      const found = await originalFindOne!(...args)
+      tables.StaffSupportRoutingRule[0].deletedAt = new Date()
+      return found
+    })
+
+    const error = (await command
+      .execute({ id: RULE_ID, timeProjectId: OTHER_PROJECT_ID }, ctx)
+      .then(() => null, (err: unknown) => err)) as { status?: number } | null
+
+    expect(error?.status).toBe(404)
+    expect(mockTransactionLog).toContain('rollback')
+    expect(tables.StaffSupportRoutingRule[0].timeProjectId).toBe(PROJECT_ID)
+    expect(mockEmitCrudSideEffects).not.toHaveBeenCalled()
   })
 })
 

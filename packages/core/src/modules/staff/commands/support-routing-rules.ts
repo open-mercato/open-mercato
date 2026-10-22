@@ -282,6 +282,12 @@ const updateRoutingRuleCommand: CommandHandler<StaffSupportRoutingRuleUpdateInpu
       em,
       [
         async () => {
+          const locked = await em.findOne(
+            StaffSupportRoutingRule,
+            { id: rule.id, ...target, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+          )
+          if (!locked) throw notFoundError(translate)
           if (parsed.timeProjectId !== undefined && parsed.timeProjectId !== rule.timeProjectId) {
             await requireRoutableProject(em, parsed.timeProjectId, target, translate)
           }
@@ -532,17 +538,19 @@ const createFallbackProjectCommand: CommandHandler<StaffSupportFallbackProjectCr
           ),
         })
       }
-      const rule = await em.findOne(StaffSupportRoutingRule, { id: payload.ruleId, ...where, deletedAt: null })
-      removal.rule = rule && rule.timeProjectId === payload.timeProjectId ? rule : null
       removal.statuses = statusIds.length > 0
         ? await em.find(StaffTimeTaskStatus, { id: { $in: statusIds }, timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
         : []
-    }, () => {
+    }, async () => {
       const now = new Date()
-      if (removal.rule) {
-        removal.rule.deletedAt = now
-        removal.rule.updatedAt = now
-      }
+      const removedRuleCount = await em.nativeUpdate(
+        StaffSupportRoutingRule,
+        { id: payload.ruleId, ...where, timeProjectId: payload.timeProjectId, deletedAt: null },
+        { deletedAt: now, updatedAt: now },
+      )
+      removal.rule = removedRuleCount > 0
+        ? await em.findOne(StaffSupportRoutingRule, { id: payload.ruleId, ...where }, { refresh: true })
+        : null
       if (removal.project) {
         removal.project.deletedAt = now
         removal.project.updatedAt = now
