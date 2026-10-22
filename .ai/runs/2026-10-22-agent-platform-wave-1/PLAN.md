@@ -40,7 +40,7 @@
 | 4 | 4.2 | Add the runtime-audit write scope and entity allowlist to the no-bypass guard | dispatch | done | 247141ea8 |
 | 4 | 4.3 | Wrap AO runtime audit writes in the runtime-audit scope | dispatch | done | a9c8e751e |
 | 5 | 5.1 | Add the AI SDK 7 loop step extraction helper | dispatch | done | 7b59930d0 |
-| 5 | 5.2 | Time tool executions per tool call id | dispatch | todo | — |
+| 5 | 5.2 | Time tool executions per tool call id | dispatch | done | a4279310a |
 | 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | todo | — |
 | 5 | 5.4 | Record AO native trace tool calls through the extraction helper | dispatch | todo | — |
 | 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | todo | — |

@@ -18,6 +18,7 @@ import { prepareMutation } from './prepare-mutation'
 import { resolveAgentRunMutationPolicyOverride } from './agent-channel-policy'
 import type { McpMutationMode } from './mcp-exposure'
 import type { AiPendingActionChannel } from './pending-action-types'
+import type { ToolCallTiming, ToolCallTimings } from './loop-step-extraction'
 
 const logger = createLogger('ai_assistant')
 
@@ -130,6 +131,13 @@ export interface ResolvedAgentTools {
    * the run, in call order. Empty when no mutation was queued.
    */
   pendingActionIds: string[]
+  /**
+   * Per-run start/end wall-clock timestamps (`Date.now()`) of every tool
+   * execution, keyed by the AI SDK `toolCallId`. Filled as tools run; read by
+   * `extractStepToolCalls` to compute `durationMs`. Calls without a
+   * `toolCallId` are not recorded.
+   */
+  toolCallTimings: ToolCallTimings
 }
 
 function toPolicyAuthContext(ctx: AiChatRequestContext): {
@@ -237,87 +245,104 @@ function resolveIsDestructive(
   return isDestructive === true
 }
 
+function readExecuteToolCallId(options: { toolCallId?: unknown } | undefined): string | null {
+  const toolCallId = options?.toolCallId
+  return typeof toolCallId === 'string' && toolCallId.length > 0 ? toolCallId : null
+}
+
 function adaptToolToAiSdk(
   tool: AiToolDefinition,
   ctx: AiChatRequestContext,
   mutation: MutationInterceptorOptions | null,
-  container?: AwilixContainer,
-  effectiveMutationPolicy?: 'read-only' | 'confirm-required' | 'destructive-confirm-required',
+  container: AwilixContainer | undefined,
+  effectiveMutationPolicy: 'read-only' | 'confirm-required' | 'destructive-confirm-required' | undefined,
+  toolCallTimings: Map<string, ToolCallTiming>,
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
   const handlerContext = buildToolHandlerContext(ctx, container, tool)
+  const runToolCall = async (args: unknown): Promise<string> => {
+    // Per-call gating decision. Under `destructive-confirm-required`,
+    // tools with a predicate `isDestructive(args)` may flip per call —
+    // e.g. comment delete gates while comment create runs direct.
+    const requiresApprovalNow = (() => {
+      if (!mutation) return false
+      if (effectiveMutationPolicy === 'confirm-required') return true
+      if (effectiveMutationPolicy === 'destructive-confirm-required') {
+        return resolveIsDestructive(mutation.tool.isDestructive, args)
+      }
+      return false
+    })()
+    if (mutation && requiresApprovalNow) {
+      try {
+        const toolCallArgs =
+          args && typeof args === 'object' && !Array.isArray(args)
+            ? { ...(args as Record<string, unknown>) }
+            : {}
+        const { uiPart, pendingAction } = await prepareMutation(
+          {
+            agent: mutation.agent,
+            tool: mutation.tool,
+            toolCallArgs,
+            conversationId: mutation.conversationId,
+            mutationPolicyOverride: mutation.mutationPolicyOverride,
+            channel: mutation.channel,
+            apiKeyId: mutation.apiKeyId,
+            correlationId: mutation.correlationId,
+          },
+          {
+            tenantId: mutation.ctx.tenantId,
+            organizationId: mutation.ctx.organizationId,
+            userId: mutation.ctx.userId,
+            features: mutation.ctx.features,
+            isSuperAdmin: mutation.ctx.isSuperAdmin,
+            container: mutation.container,
+          },
+        )
+        mutation.uiPartQueue.enqueue(uiPart)
+        mutation.pendingActionIds.push(pendingAction.id)
+        return formatPendingActionToolResult(
+          mutation.agent,
+          mutation.tool,
+          pendingAction.id,
+          pendingAction.expiresAt,
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new Error(
+          `Tool "${tool.name}" could not be prepared for confirmation: ${message}`,
+        )
+      }
+    }
+    try {
+      // Create a fresh container per tool call so the EM is never stale.
+      const freshContainer = await createRequestContainer()
+      const freshContext: McpToolContext = {
+        ...handlerContext,
+        container: freshContainer as unknown as McpToolContext['container'],
+      }
+      const { executeTool } = await import('./tool-executor')
+      const execResult = await executeTool(tool.name, args, freshContext)
+      if (!execResult.success) {
+        throw new Error(execResult.error || 'Tool execution failed')
+      }
+      return formatToolResult(execResult.result)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Tool "${tool.name}" failed: ${message}`)
+    }
+  }
   return dynamicTool({
     description: tool.description,
     inputSchema: safeSchema,
-    execute: async (args: unknown) => {
-      // Per-call gating decision. Under `destructive-confirm-required`,
-      // tools with a predicate `isDestructive(args)` may flip per call —
-      // e.g. comment delete gates while comment create runs direct.
-      const requiresApprovalNow = (() => {
-        if (!mutation) return false
-        if (effectiveMutationPolicy === 'confirm-required') return true
-        if (effectiveMutationPolicy === 'destructive-confirm-required') {
-          return resolveIsDestructive(mutation.tool.isDestructive, args)
-        }
-        return false
-      })()
-      if (mutation && requiresApprovalNow) {
-        try {
-          const toolCallArgs =
-            args && typeof args === 'object' && !Array.isArray(args)
-              ? { ...(args as Record<string, unknown>) }
-              : {}
-          const { uiPart, pendingAction } = await prepareMutation(
-            {
-              agent: mutation.agent,
-              tool: mutation.tool,
-              toolCallArgs,
-              conversationId: mutation.conversationId,
-              mutationPolicyOverride: mutation.mutationPolicyOverride,
-              channel: mutation.channel,
-              apiKeyId: mutation.apiKeyId,
-              correlationId: mutation.correlationId,
-            },
-            {
-              tenantId: mutation.ctx.tenantId,
-              organizationId: mutation.ctx.organizationId,
-              userId: mutation.ctx.userId,
-              features: mutation.ctx.features,
-              isSuperAdmin: mutation.ctx.isSuperAdmin,
-              container: mutation.container,
-            },
-          )
-          mutation.uiPartQueue.enqueue(uiPart)
-          mutation.pendingActionIds.push(pendingAction.id)
-          return formatPendingActionToolResult(
-            mutation.agent,
-            mutation.tool,
-            pendingAction.id,
-            pendingAction.expiresAt,
-          )
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          throw new Error(
-            `Tool "${tool.name}" could not be prepared for confirmation: ${message}`,
-          )
-        }
-      }
+    execute: async (args: unknown, options?: { toolCallId?: unknown }) => {
+      const toolCallId = readExecuteToolCallId(options)
+      if (!toolCallId) return runToolCall(args)
+      const timing: ToolCallTiming = { startedAt: Date.now() }
+      toolCallTimings.set(toolCallId, timing)
       try {
-        // Create a fresh container per tool call so the EM is never stale.
-        const freshContainer = await createRequestContainer()
-        const freshContext: McpToolContext = {
-          ...handlerContext,
-          container: freshContainer as unknown as McpToolContext['container'],
-        }
-        const { executeTool } = await import('./tool-executor')
-        const execResult = await executeTool(tool.name, args, freshContext)
-        if (!execResult.success) {
-          throw new Error(execResult.error || 'Tool execution failed')
-        }
-        return formatToolResult(execResult.result)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        throw new Error(`Tool "${tool.name}" failed: ${message}`)
+        return await runToolCall(args)
+      } finally {
+        timing.endedAt = Date.now()
       }
     },
   })
@@ -375,6 +400,7 @@ export async function resolveAiAgentTools(
   const tools: Record<string, Tool<unknown, unknown>> = {}
   const uiPartQueue = createAiUiPartQueue()
   const pendingActionIds: string[] = []
+  const toolCallTimings = new Map<string, ToolCallTiming>()
   const effectiveMutationPolicy = resolveEffectiveMutationPolicy(
     agent.mutationPolicy,
     mutationPolicyOverride,
@@ -440,11 +466,12 @@ export async function resolveAiAgentTools(
         mutationOptions,
         input.container,
         effectiveMutationPolicy,
+        toolCallTimings,
       )
     } catch (error) {
       logger.error('Failed to adapt tool for agent', { toolName, agentId: agent.id, err: error })
     }
   }
 
-  return { agent, tools, uiPartQueue, pendingActionIds }
+  return { agent, tools, uiPartQueue, pendingActionIds, toolCallTimings }
 }
