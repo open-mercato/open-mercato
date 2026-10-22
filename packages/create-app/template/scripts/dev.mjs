@@ -63,7 +63,8 @@ import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
 import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
 import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
-  resolveDevBaseUrl,
+  mergeDevUrlEnv,
+  resolveDevAppBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
@@ -74,6 +75,14 @@ import {
   isEnabledEnvFlag as isEnabledMemoryTraceFlag,
   resolveMemoryTraceIntervalMs,
 } from './dev-memory-sampler.mjs'
+
+function readAppDotEnv(appDir) {
+  try {
+    return parseEnv(fs.readFileSync(path.join(appDir, '.env'), 'utf8'))
+  } catch {
+    return {}
+  }
+}
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -248,7 +257,8 @@ const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
-const publicAppPort = resolveDevBaseUrl(process.env).port ?? 3000
+const appDotEnv = readAppDotEnv(isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd())
+const publicAppPort = resolveDevAppBaseUrl(process.env, appDotEnv).port ?? 3000
 const devRuntimeConfig = (() => {
   try {
     return resolveDevRuntimeConfig(process.env, { splashEnabled, publicPort: publicAppPort })
@@ -263,6 +273,7 @@ const devRuntimeConfig = (() => {
 // The gateway owns the public port only when explicitly opted in; `direct` mode
 // keeps the historical topology where Next.js binds it.
 const gatewayMode = devRuntimeConfig.mode === 'proxy'
+const expectedAppBaseUrl = resolveDevAppBaseUrl(process.env, appDotEnv, { bindsPort: !gatewayMode }).url
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
 const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
@@ -384,7 +395,7 @@ const devRuntime = createDevRuntimeSupervisor({
   enabled: devRuntimeConfig.diagnosticsEnabled,
   config: devRuntimeConfig,
   stateDirectory: path.join(process.cwd(), '.mercato'),
-  publicUrl: resolveDevBaseUrl(process.env).url,
+  publicUrl: expectedAppBaseUrl,
   configuredPort: publicAppPort,
   resolveBaseUrl: () => resolveRuntimeProbeBaseUrl(),
   readChildState: () => readSplashChildState(),
@@ -433,7 +444,7 @@ function formatProgressLine(label, current, total, percent) {
 }
 
 function resolveExpectedAppBaseUrl() {
-  return resolveDevBaseUrl(process.env).url
+  return expectedAppBaseUrl
 }
 
 function resolveRuntimeProbeBaseUrl() {
@@ -1418,7 +1429,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = resolveSplashAccessUrl(process.env, address.port)
+  splashUrl = resolveSplashAccessUrl(mergeDevUrlEnv(process.env, appDotEnv), address.port)
   if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }

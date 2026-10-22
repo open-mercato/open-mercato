@@ -163,6 +163,47 @@ export function resolveDevBaseUrl(env = {}, options = {}) {
   }
 }
 
+// Keys that decide the developer-facing app URL.
+export const DEV_URL_ENV_KEYS = Object.freeze(['PORT', 'APP_URL', 'NEXT_PUBLIC_APP_URL'])
+
+// The dev runner starts before anything loads the app's `.env`: the mercato CLI
+// dotenv-loads it later for the app process (shell values win, empty or not).
+// Without this merge, a `PORT` or `APP_URL` kept only in `.env` never reaches
+// the printed URLs, which then fall back to port 3000.
+export function mergeDevUrlEnv(env = {}, fileEnv = {}) {
+  const merged = { ...(env ?? {}) }
+  for (const key of DEV_URL_ENV_KEYS) {
+    if (merged[key] !== undefined) continue
+    const fileValue = fileEnv?.[key]
+    if (typeof fileValue === 'string') merged[key] = fileValue
+  }
+  return merged
+}
+
+// Resolve the app URL the developer can open, taking `.env` values into account.
+//
+//   env: process.env-like object (wins over the file, like dotenv).
+//   fileEnv: parsed app `.env`.
+//   options.bindsPort: true when Next.js itself binds the public port (direct
+//     runtime mode). It binds PORT, so a loopback APP_URL with another port
+//     (the scaffold's `.env.example` ships APP_URL=http://localhost:3000) must
+//     not hide the port the server actually listens on.
+//
+// Proxy-fronted dev (non-loopback APP_URL) keeps the historical behavior: a
+// PORT coming only from `.env` is the hidden internal port and must not leak
+// into the public URL.
+export function resolveDevAppBaseUrl(env = {}, fileEnv = {}, options = {}) {
+  const merged = mergeDevUrlEnv(env, fileEnv)
+  const configured = pickConfiguredFromEnv(merged)
+  if (configured && !LOOPBACK_HOSTS.has(configured.hostname.toLowerCase())) {
+    const shellPortEnv = { ...merged }
+    if (env?.PORT === undefined) delete shellPortEnv.PORT
+    return resolveDevBaseUrl(shellPortEnv)
+  }
+  const boundPort = options.bindsPort === true ? parsePortNumber(merged.PORT) : null
+  return resolveDevBaseUrl(merged, boundPort !== null ? { actualPort: boundPort } : {})
+}
+
 // Resolve the URL where the dev splash itself can be reached. The splash
 // process always binds locally, but the developer's browser may live on
 // the configured public host (proxy-fronted dev sandboxes). We keep the
