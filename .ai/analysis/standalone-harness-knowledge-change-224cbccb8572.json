@@ -1,9 +1,9 @@
 {
   "format": "sanitized-knowledge-change-evidence-v1",
   "status": "pass",
-  "controllerOutputSha256": "481dbe2c4a74c5a4621e9b8f6484bb3d8f74e479ac788676cf25e2f62435df06",
+  "controllerOutputSha256": "e4f76c695adbf492eb1f412cefa4237d5fa7a85706b8fa15ba2a54e7f588ddbe",
   "baseSha": "224cbccb85722ebb33576f884b0e0d3d3ae0df22",
-  "headSha": "224cbccb85722ebb33576f884b0e0d3d3ae0df22",
+  "headSha": "22024c97ca483f76af756cbe2ce16d783422bd5d",
   "workingTreeOverlay": true,
   "changeClass": "knowledge-contract",
   "changedContracts": [
@@ -39,6 +39,14 @@
     {
       "path": ".ai/lessons/provider-replacement-needs-intermediate-verification.md",
       "sha256": "63c74bab96d59bad3311128147e5dc94740a9291984bf15804dd2db8d58f6193"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/run-agent-harness-release.mjs",
+      "sha256": "417f6083e60d6af63703c5ab324d83372fd80a3d6676926ad18eaa235dc301c9"
+    },
+    {
+      "path": "packages/create-app/src/lib/agent-harness-yarn-config.test.ts",
+      "sha256": "d44bd64f887f91d56fd3de7c7c0a73b972a133c425e8a5b822325ef94dd22c4e"
     }
   ],
   "generatedFiles": [
@@ -71,12 +79,32 @@
       ],
       "baseWithTestPatch": {
         "exitCode": 1,
-        "stdoutSha256": "011096b18f1de4c9d0995b14067ddf3d14fe07b90137e59f26f662059fb30d43",
+        "stdoutSha256": "472bfe1e9a5c3a9eb39aa0ea759f394710e0f9edd17d9e7839b2bf5753337b37",
         "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "head": {
         "exitCode": 0,
-        "stdoutSha256": "19f85e5a0dd68141091e9e09a325e51286fbee72b324053353334b06b50b8e75",
+        "stdoutSha256": "93297810fcddd66aaab1cffedf472bc7d87229734590630d3d7bb1e898499449",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/agent-harness-yarn-config.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/agent-harness-yarn-config.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "fcc46228a80ffc7fd4d20710360d315cc72e919355f9589aa0ee7ca5d527bd54",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "a22505cedc9c04461d61c62b6ce73548875e9b3874e034c93e3beb009afa17e0",
         "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     }
