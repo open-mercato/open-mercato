@@ -54,7 +54,7 @@ PR: #7784
 
 - [x] 2.1 Correct Customers and Catalog agent guidance for #7781. — 251a9a14c; 71 focused tests and instruction budget passed.
 - [x] 2.2 Implement and test all four Sales document extension hosts for #7782. — 6d44a2d59; 17 focused UI tests passed with the real shared injection loader and full page mounts.
-- [ ] 2.3 Implement and test quote response enrichment for #7783.
+- [x] 2.3 Implement and test quote response enrichment for #7783. — 197cbd0da; 45 route/factory tests and 22 CLI activation tests passed. Explicit route options preserve generated activation provenance.
 - [ ] 2.4 Update existing specs and compatibility documentation.
 
 ### Phase 3: Verification and delivery
