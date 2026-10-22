@@ -40,6 +40,12 @@ import {
 import type { TimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { DEFAULT_SUPPORT_REFERENCE_PREFIX } from '../../../lib/time-tracking/settingKeys'
 import type { TimeTrackingSettingsTabContext } from '../../../lib/time-tracking-ui/settingsTabs'
+import {
+  buildRoutingRuleEditDraft,
+  rebaseRoutingRuleDialog,
+  routingRuleVersion,
+  type RoutingRuleDialogState,
+} from '../../../lib/support/routingRuleDraft'
 
 const CATEGORY_DICTIONARY_KEY = 'staff.support_ticket_category'
 const ROUTING_API = 'staff/timesheets/support-routing-rules'
@@ -52,7 +58,6 @@ const SAVE_CONTEXT_ID = 'staff.support.settings'
 const DICTIONARIES_VIEW_FEATURE = 'dictionaries.view'
 const DICTIONARIES_MANAGE_FEATURE = 'dictionaries.manage'
 const PROJECT_SEARCH_PAGE_SIZE = 20
-const RULE_VERSION_BATCH_SIZE = 100
 const PREFIX_PATTERN = /^[A-Z][A-Z0-9]{1,9}$/
 
 type RuleProblem = 'paused' | 'project_unusable' | 'category_missing'
@@ -73,6 +78,7 @@ type PreviewRule = {
   isFallback: boolean
   project: PreviewProject
   problem: RuleProblem | null
+  updatedAt?: string | null
 }
 
 type PreviewCategory = {
@@ -82,7 +88,7 @@ type PreviewCategory = {
 }
 
 type RoutingPreview = {
-  fallback: { ruleId: string; project: PreviewProject } | null
+  fallback: { ruleId: string; project: PreviewProject; updatedAt?: string | null } | null
   rules: PreviewRule[]
   categories: PreviewCategory[]
   unnotifiedTicketCount?: number
@@ -94,9 +100,7 @@ type ProjectOption = {
   code: string | null
 }
 
-type RuleDialogState =
-  | { mode: 'create'; categoryValue: string; timeProjectId: string }
-  | { mode: 'edit'; ruleId: string; categoryValue: string; timeProjectId: string }
+type RuleDialogState = RoutingRuleDialogState
 
 type CategoryDialogState =
   | { mode: 'create' }
@@ -148,12 +152,6 @@ function normalizeProject(item: unknown): ProjectOption | null {
 function projectLabel(project: { name: string | null; code: string | null; id: string }): string {
   const name = project.name ?? project.id
   return project.code ? `${name} (${project.code})` : name
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = []
-  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size))
-  return batches
 }
 
 async function searchProjects(query?: string): Promise<ComboboxOption[]> {
@@ -266,7 +264,6 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   const [categorySubmitting, setCategorySubmitting] = React.useState(false)
 
   const [preview, setPreview] = React.useState<RoutingPreview>(EMPTY_PREVIEW)
-  const [ruleVersions, setRuleVersions] = React.useState<Record<string, string | null>>({})
   const [routingLoading, setRoutingLoading] = React.useState(true)
   const [routingError, setRoutingError] = React.useState<string | null>(null)
   const [ruleDialog, setRuleDialog] = React.useState<RuleDialogState | null>(null)
@@ -326,25 +323,8 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       const previewResult =
         (await readApiResultOrThrow<RoutingPreview>(PREVIEW_URL, undefined, { fallback: EMPTY_PREVIEW, errorMessage })) ??
         EMPTY_PREVIEW
-      const ruleIds = previewResult.rules.map((rule) => rule.id)
-      const batches = await Promise.all(
-        chunk(ruleIds, RULE_VERSION_BATCH_SIZE).map((ids) =>
-          readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-            `/api/${ROUTING_API}?ids=${ids.map(encodeURIComponent).join(',')}&pageSize=${RULE_VERSION_BATCH_SIZE}`,
-            undefined,
-            { fallback: { items: [] }, errorMessage },
-          ),
-        ),
-      )
-      const versions: Record<string, string | null> = {}
-      for (const batch of batches) {
-        for (const item of batch.items ?? []) {
-          const id = toStringOrNull(item.id)
-          if (id) versions[id] = toStringOrNull(item.updated_at) ?? toStringOrNull(item.updatedAt)
-        }
-      }
       setPreview(previewResult)
-      setRuleVersions(versions)
+      setRuleDialog((current) => rebaseRoutingRuleDialog(current, previewResult))
     } catch (err) {
       setRoutingError(err instanceof Error ? err.message : t('staff.support.settings.errors.load', 'Failed to load support settings.'))
     } finally {
@@ -475,11 +455,15 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
     }
   }, [loadRouting, surfaceMutationError, routingContext, runMutation, t])
 
-  const updateRule = React.useCallback(async (ruleId: string, patch: { timeProjectId?: string; isActive?: boolean }) => {
+  const updateRule = React.useCallback(async (
+    ruleId: string,
+    expectedUpdatedAt: string | null,
+    patch: { timeProjectId?: string; isActive?: boolean },
+  ) => {
     try {
       await runMutation({
         operation: () => updateCrud(ROUTING_API, { id: ruleId, ...patch }, {
-          headers: buildOptimisticLockHeader(ruleVersions[ruleId] ?? null),
+          headers: buildOptimisticLockHeader(expectedUpdatedAt),
           errorMessage: t('staff.support.settings.errors.save', 'Failed to save.'),
         }),
         context: routingContext,
@@ -492,7 +476,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
       surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.', () => { void loadRouting() })
       return false
     }
-  }, [loadRouting, surfaceMutationError, routingContext, ruleVersions, runMutation, t])
+  }, [loadRouting, surfaceMutationError, routingContext, runMutation, t])
 
   const deleteRule = React.useCallback(async (rule: PreviewRule) => {
     const confirmed = await confirm({
@@ -503,7 +487,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
     try {
       await runMutation({
         operation: () => deleteCrud(ROUTING_API, rule.id, {
-          headers: buildOptimisticLockHeader(ruleVersions[rule.id] ?? null),
+          headers: buildOptimisticLockHeader(routingRuleVersion(rule)),
           errorMessage: t('staff.support.settings.errors.delete', 'Failed to delete.'),
         }),
         context: routingContext,
@@ -514,7 +498,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
     } catch (err) {
       surfaceMutationError(err, 'staff.support.settings.errors.delete', 'Failed to delete.', () => { void loadRouting() })
     }
-  }, [confirm, loadRouting, surfaceMutationError, routingContext, ruleVersions, runMutation, t])
+  }, [confirm, loadRouting, surfaceMutationError, routingContext, runMutation, t])
 
   const submitRuleDialog = React.useCallback(async () => {
     if (!ruleDialog || !ruleDialog.timeProjectId || ruleSubmitting) return
@@ -534,7 +518,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
         setRuleDialog(null)
         await loadRouting()
       } else {
-        const ok = await updateRule(ruleDialog.ruleId, { timeProjectId: ruleDialog.timeProjectId })
+        const ok = await updateRule(ruleDialog.ruleId, ruleDialog.expectedUpdatedAt, { timeProjectId: ruleDialog.timeProjectId })
         if (ok) setRuleDialog(null)
       }
     } catch (err) {
@@ -769,7 +753,9 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                         placeholder={t('staff.support.settings.routing.searchProject', 'Search projects')}
                         disabled={!canManageSettings}
                         onChange={(projectId) => {
-                          if (preview.fallback) void updateRule(preview.fallback.ruleId, { timeProjectId: projectId })
+                          if (preview.fallback) {
+                            void updateRule(preview.fallback.ruleId, routingRuleVersion(preview.fallback), { timeProjectId: projectId })
+                          }
                         }}
                       />
                     </div>
@@ -827,7 +813,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                                 checked={rule.isActive}
                                 disabled={!canManageSettings}
                                 aria-label={t('staff.support.settings.routing.active', 'Active')}
-                                onCheckedChange={(checked) => { void updateRule(rule.id, { isActive: checked }) }}
+                                onCheckedChange={(checked) => { void updateRule(rule.id, routingRuleVersion(rule), { isActive: checked }) }}
                               />
                             </TableCell>
                             <TableCell>
@@ -851,12 +837,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
                                   variant="ghost"
                                   aria-label={t('staff.support.settings.actions.edit', 'Edit')}
                                   disabled={!canManageSettings}
-                                  onClick={() => setRuleDialog({
-                                    mode: 'edit',
-                                    ruleId: rule.id,
-                                    categoryValue: rule.categoryValue ?? '',
-                                    timeProjectId: rule.project.id,
-                                  })}
+                                  onClick={() => setRuleDialog(buildRoutingRuleEditDraft(rule))}
                                 >
                                   <Pencil className="h-4 w-4" />
                                 </IconButton>

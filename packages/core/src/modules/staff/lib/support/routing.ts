@@ -16,6 +16,7 @@ export type SupportRoutingRuleView = {
   categoryValue: string | null
   timeProjectId: string
   isActive: boolean
+  updatedAt?: Date | null
 }
 
 export type SupportRoute = {
@@ -53,6 +54,7 @@ export async function loadSupportRoutingRules(
     categoryValue: row.categoryValue ?? null,
     timeProjectId: row.timeProjectId,
     isActive: row.isActive,
+    updatedAt: row.updatedAt ?? null,
   }))
 }
 

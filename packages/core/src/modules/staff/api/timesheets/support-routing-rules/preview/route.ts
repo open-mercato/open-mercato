@@ -17,6 +17,7 @@ import {
   loadSupportRoutingRules,
   loadUsableSupportProjectIds,
   resolveSupportRouteFromRules,
+  type SupportRoutingRuleView,
 } from '../../../../lib/support/routing'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/support-routing-rules/preview' })
@@ -131,6 +132,9 @@ export async function GET(req: Request): Promise<Response> {
       }
     }
 
+    const ruleVersion = (rule: SupportRoutingRuleView): string | null =>
+      rule.updatedAt instanceof Date ? rule.updatedAt.toISOString() : null
+
     const ruleViews = rules.map((rule) => {
       let problem: RuleProblem = null
       if (rule.categoryValue !== null) {
@@ -147,6 +151,7 @@ export async function GET(req: Request): Promise<Response> {
         isFallback: rule.categoryValue === null,
         project: describeProject(rule.timeProjectId),
         problem,
+        updatedAt: ruleVersion(rule),
       }
     })
 
@@ -161,7 +166,7 @@ export async function GET(req: Request): Promise<Response> {
 
     return NextResponse.json({
       fallback: fallbackRule
-        ? { ruleId: fallbackRule.id, project: describeProject(fallbackRule.timeProjectId) }
+        ? { ruleId: fallbackRule.id, project: describeProject(fallbackRule.timeProjectId), updatedAt: ruleVersion(fallbackRule) }
         : null,
       rules: ruleViews,
       categories: categoryViews,
@@ -193,8 +198,13 @@ const projectSchema = z.object({
     .describe('Live portal tickets in this project whose support notification reached nobody (`unnotified_at` set)'),
 })
 
+const ruleVersionSchema = z
+  .string()
+  .nullable()
+  .describe('The rule `updated_at` read in the same snapshot as its values; send it as the optimistic-lock expected version when editing or deleting the rule')
+
 const previewSchema = z.object({
-  fallback: z.object({ ruleId: z.string().uuid(), project: projectSchema }).nullable(),
+  fallback: z.object({ ruleId: z.string().uuid(), project: projectSchema, updatedAt: ruleVersionSchema }).nullable(),
   rules: z.array(
     z.object({
       id: z.string().uuid(),
@@ -203,6 +213,7 @@ const previewSchema = z.object({
       isFallback: z.boolean(),
       project: projectSchema,
       problem: z.enum(['paused', 'project_unusable', 'category_missing']).nullable(),
+      updatedAt: ruleVersionSchema,
     }),
   ),
   categories: z.array(
@@ -226,7 +237,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Preview support ticket routing',
       description:
-        'Returns the fallback rule, every routing rule with the problem that makes it fall back (paused, unusable project, deleted category), the project each support category routes to right now, which routing targets would notify nobody before the organization project managers (`project.nobodyNotified`), and how many live tickets were not notified to anyone (`project.unnotifiedTicketCount`, `unnotifiedTicketCount`).',
+        'Returns the fallback rule, every routing rule with the problem that makes it fall back (paused, unusable project, deleted category), the project each support category routes to right now, which routing targets would notify nobody before the organization project managers (`project.nobodyNotified`), how many live tickets were not notified to anyone (`project.unnotifiedTicketCount`, `unnotifiedTicketCount`), and each rule `updatedAt` version token read together with its values.',
       responses: [{ status: 200, description: 'Routing preview', schema: previewSchema }],
       errors: [
         { status: 401, description: 'Unauthorized' },

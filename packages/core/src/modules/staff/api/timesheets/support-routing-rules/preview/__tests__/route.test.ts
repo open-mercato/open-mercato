@@ -58,8 +58,8 @@ jest.mock('../../../../../lib/support/dictionaries', () => ({
 
 jest.mock('../../../../../lib/support/routing', () => ({
   loadSupportRoutingRules: jest.fn(async () => [
-    { id: FALLBACK_RULE, categoryValue: null, timeProjectId: FALLBACK_PROJECT, isActive: true },
-    { id: BILLING_RULE, categoryValue: 'billing', timeProjectId: BILLING_PROJECT, isActive: true },
+    { id: FALLBACK_RULE, categoryValue: null, timeProjectId: FALLBACK_PROJECT, isActive: true, updatedAt: new Date('2026-05-01T10:00:00.000Z') },
+    { id: BILLING_RULE, categoryValue: 'billing', timeProjectId: BILLING_PROJECT, isActive: true, updatedAt: new Date('2026-05-02T11:30:00.000Z') },
   ]),
   loadUsableSupportProjectIds: jest.fn(async () => new Set([FALLBACK_PROJECT, BILLING_PROJECT])),
   resolveSupportRouteFromRules: jest.fn(() => ({ via: 'category', timeProjectId: BILLING_PROJECT })),
@@ -77,8 +77,8 @@ import { GET } from '../route'
 
 type ProjectView = { id: string; nobodyNotified?: boolean; unnotifiedTicketCount?: number }
 type PreviewBody = {
-  fallback: { project: ProjectView } | null
-  rules: { id: string; project: ProjectView }[]
+  fallback: { ruleId: string; project: ProjectView; updatedAt?: string | null } | null
+  rules: { id: string; project: ProjectView; updatedAt?: string | null }[]
   categories: { route: { project: ProjectView } | null }[]
   unnotifiedTicketCount?: number
 }
@@ -137,5 +137,22 @@ describe('GET /api/staff/timesheets/support-routing-rules/preview', () => {
     const body = await preview()
     expect(body.unnotifiedTicketCount).toBe(0)
     expect(body.fallback?.project.unnotifiedTicketCount).toBe(0)
+  })
+
+  it('returns each rule version token in the same snapshot as its editable values', async () => {
+    const body = await preview()
+
+    expect(body.fallback).toEqual(expect.objectContaining({
+      ruleId: FALLBACK_RULE,
+      updatedAt: '2026-05-01T10:00:00.000Z',
+    }))
+    expect(body.rules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: FALLBACK_RULE, updatedAt: '2026-05-01T10:00:00.000Z' }),
+      expect.objectContaining({
+        id: BILLING_RULE,
+        updatedAt: '2026-05-02T11:30:00.000Z',
+        project: expect.objectContaining({ id: BILLING_PROJECT }),
+      }),
+    ]))
   })
 })
