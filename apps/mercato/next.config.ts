@@ -6,12 +6,22 @@ import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
+// Development only: let local tools on another loopback port (for example the
+// Cezar cockpit's Preview panel) frame the running app. Production keeps the
+// same-origin framing policy and X-Frame-Options untouched.
+const frameAncestors = isDevelopment
+  ? "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
+  : "frame-ancestors 'self'"
+const globalFrameOptionsHeaders = isDevelopment
+  ? []
+  : [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }]
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
   "font-src 'self' data: https:",
   "form-action 'self'",
-  "frame-ancestors 'self'",
+  frameAncestors,
   "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
   "img-src 'self' data: blob: https:",
   "object-src 'none'",
@@ -79,7 +89,7 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
           { key: 'Content-Security-Policy', value: contentSecurityPolicy },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          ...globalFrameOptionsHeaders,
         ],
       },
       {

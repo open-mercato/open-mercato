@@ -303,6 +303,35 @@
         align-items: flex-start;
         overflow: visible;
       }
+      .building-shell {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+        flex: 0 0 auto;
+      }
+      .building-shell[hidden] {
+        display: none;
+      }
+      .building-button[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .building-status {
+        max-width: 360px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .building-status[hidden] {
+        display: none;
+      }
+      .building-status[data-kind="error"] {
+        color: var(--danger);
+      }
+      .building-status[data-kind="success"] {
+        color: var(--text);
+      }
       .coding-shell {
         display: grid;
         gap: 10px;
@@ -882,6 +911,10 @@
         <div class="status-line"><span id="target-label">Current target:</span> <span class="url" id="ready-url">pending</span></div>
         <div class="actions">
           <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
+          <div class="building-shell" id="building-shell" hidden>
+            <button class="button secondary building-button" id="building-button" type="button">🏗️ Start building</button>
+            <div class="building-status" id="building-status" role="status" aria-live="polite" hidden></div>
+          </div>
           <div class="coding-shell" id="coding-shell" hidden>
             <details class="coding-menu" id="coding-menu">
               <summary class="button secondary coding-summary" id="coding-summary" aria-disabled="true">🤖 Start coding with AI</summary>
@@ -953,6 +986,9 @@
       const localeSelectedLabel = document.getElementById('locale-selected-label')
       const readyUrl = document.getElementById('ready-url')
       const loginButton = document.getElementById('login-button')
+      const buildingShell = document.getElementById('building-shell')
+      const buildingButton = document.getElementById('building-button')
+      const buildingStatus = document.getElementById('building-status')
       const codingShell = document.getElementById('coding-shell')
       const codingMenu = document.getElementById('coding-menu')
       const codingSummary = document.getElementById('coding-summary')
@@ -998,6 +1034,7 @@
       const localeLabels = splashBootstrap.localeLabels || {}
       const activitySeenAt = new Map()
       let codingActionInFlight = false
+      let buildingActionInFlight = false
       let gitRepoActionInFlight = false
       let codingMenuLayoutRaf = 0
       let activityListLayoutRaf = 0
@@ -1026,6 +1063,15 @@
           modeEphemeral: 'Ephemeral dev flow',
           codingButtonLabel: '🤖 Start coding with AI',
           codingNoTools: 'No supported coding tools were detected on this machine.',
+          buildingButtonLabel: '🏗️ Start building',
+          buildingTitle: 'Open Cezar for this project in a new terminal ({command})',
+          buildingResult_starting: 'Starting Cezar in a new terminal…',
+          buildingResult_started: 'Opened a new terminal running {command}. Cezar opens its cockpit in your browser when it is ready.',
+          buildingResult_already_started: 'Cezar was just started. Check the terminal window that opened.',
+          buildingResult_busy: 'Another launch is already in progress.',
+          buildingResult_failed: 'Cezar could not be started from this page. Run {command} in the project directory.',
+          buildingResult_npx_missing: 'npx was not found. Install Node.js with npm, then run {command} in the project directory.',
+          buildingResult_terminal_missing: 'No supported terminal was detected. Run {command} in the project directory.',
           gitRepoHeading: 'GitHub repository',
           gitRepoOwner: 'Owner',
           gitRepoName: 'Repository',
@@ -1086,6 +1132,15 @@
           modeEphemeral: 'Tymczasowy tryb dev',
           codingButtonLabel: '🤖 Zacznij kodować z AI',
           codingNoTools: 'Na tej maszynie nie wykryto obsługiwanych narzędzi do kodowania.',
+          buildingButtonLabel: '🏗️ Zacznij budować',
+          buildingTitle: 'Otwórz Cezara dla tego projektu w nowym terminalu ({command})',
+          buildingResult_starting: 'Uruchamianie Cezara w nowym terminalu…',
+          buildingResult_started: 'Otwarto nowy terminal z {command}. Cezar otworzy kokpit w przeglądarce, gdy będzie gotowy.',
+          buildingResult_already_started: 'Cezar został przed chwilą uruchomiony. Sprawdź otwarte okno terminala.',
+          buildingResult_busy: 'Inne uruchamianie jest już w toku.',
+          buildingResult_failed: 'Nie udało się uruchomić Cezara z tej strony. Uruchom {command} w katalogu projektu.',
+          buildingResult_npx_missing: 'Nie znaleziono npx. Zainstaluj Node.js z npm, a potem uruchom {command} w katalogu projektu.',
+          buildingResult_terminal_missing: 'Nie wykryto obsługiwanego terminala. Uruchom {command} w katalogu projektu.',
           gitRepoHeading: 'Repozytorium GitHub',
           gitRepoOwner: 'Właściciel',
           gitRepoName: 'Repozytorium',
@@ -1146,6 +1201,15 @@
           modeEphemeral: 'Flujo dev efímero',
           codingButtonLabel: '🤖 Empezar a programar con IA',
           codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
+          buildingButtonLabel: '🏗️ Empezar a construir',
+          buildingTitle: 'Abrir Cezar para este proyecto en una nueva terminal ({command})',
+          buildingResult_starting: 'Iniciando Cezar en una nueva terminal…',
+          buildingResult_started: 'Se abrió una nueva terminal con {command}. Cezar abrirá su panel en el navegador cuando esté listo.',
+          buildingResult_already_started: 'Cezar se acaba de iniciar. Revisa la ventana de terminal que se abrió.',
+          buildingResult_busy: 'Ya hay otro inicio en curso.',
+          buildingResult_failed: 'No se pudo iniciar Cezar desde esta página. Ejecuta {command} en el directorio del proyecto.',
+          buildingResult_npx_missing: 'No se encontró npx. Instala Node.js con npm y luego ejecuta {command} en el directorio del proyecto.',
+          buildingResult_terminal_missing: 'No se detectó una terminal compatible. Ejecuta {command} en el directorio del proyecto.',
           gitRepoHeading: 'Repositorio de GitHub',
           gitRepoOwner: 'Propietario',
           gitRepoName: 'Repositorio',
@@ -1206,6 +1270,15 @@
           modeEphemeral: 'Ephemerer Dev-Ablauf',
           codingButtonLabel: '🤖 Mit KI programmieren',
           codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
+          buildingButtonLabel: '🏗️ Mit dem Bauen beginnen',
+          buildingTitle: 'Cezar für dieses Projekt in einem neuen Terminal öffnen ({command})',
+          buildingResult_starting: 'Cezar wird in einem neuen Terminal gestartet…',
+          buildingResult_started: 'Ein neues Terminal mit {command} wurde geöffnet. Cezar öffnet sein Cockpit im Browser, sobald es bereit ist.',
+          buildingResult_already_started: 'Cezar wurde gerade gestartet. Prüfe das geöffnete Terminalfenster.',
+          buildingResult_busy: 'Ein anderer Start läuft bereits.',
+          buildingResult_failed: 'Cezar konnte von dieser Seite nicht gestartet werden. Führe {command} im Projektverzeichnis aus.',
+          buildingResult_npx_missing: 'npx wurde nicht gefunden. Installiere Node.js mit npm und führe dann {command} im Projektverzeichnis aus.',
+          buildingResult_terminal_missing: 'Kein unterstütztes Terminal erkannt. Führe {command} im Projektverzeichnis aus.',
           gitRepoHeading: 'GitHub-Repository',
           gitRepoOwner: 'Besitzer',
           gitRepoName: 'Repository',
@@ -1436,6 +1509,7 @@
         localeSelect.value = currentLocale
         localeSelectedLabel.textContent = getLocaleLabel(currentLocale)
         themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
+        renderBuildingFlow(lastState)
         renderCodingFlow(lastState)
         renderGitRepoFlow(lastState)
         scheduleActivityListLayout()
@@ -1652,6 +1726,120 @@
           : ''
         failureCommand.textContent = command ? t('failureCommand') + ': ' + command : ''
         failureLines.textContent = lines.join('\n')
+      }
+
+      buildingButton.addEventListener('click', () => {
+        startBuilding()
+      })
+
+      async function startBuilding() {
+        const codingBootstrap = splashBootstrap.codingFlow
+        if (!codingBootstrap || codingBootstrap.enabled !== true) return
+        if (buildingActionInFlight) return
+
+        buildingActionInFlight = true
+        lastState = {
+          ...(lastState || {}),
+          codingFlow: {
+            ...(lastState?.codingFlow || {}),
+            building: {
+              ...(lastState?.codingFlow?.building || {}),
+              lastResult: { kind: 'info', code: 'starting', message: 'Starting Cezar...' },
+            },
+          },
+        }
+        renderBuildingFlow(lastState)
+
+        try {
+          const response = await fetch('/actions/start-building', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-om-dev-splash-token': codingBootstrap.actionToken || '',
+            },
+            body: '{}',
+          })
+          const payload = await response.json().catch(() => ({}))
+
+          if (payload && payload.codingFlow) {
+            lastState = {
+              ...(lastState || {}),
+              codingFlow: payload.codingFlow,
+            }
+          }
+
+          if (!response.ok) {
+            throw Object.assign(new Error(payload?.error || 'Unable to start Cezar.'), { code: payload?.code || 'failed' })
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to start Cezar.'
+          const code = typeof error?.code === 'string' ? error.code : 'failed'
+          const kind = code === 'already_started' || code === 'busy' ? 'info' : 'error'
+          lastState = {
+            ...(lastState || {}),
+            codingFlow: {
+              ...(lastState?.codingFlow || {}),
+              enabled: true,
+              building: {
+                ...(lastState?.codingFlow?.building || {}),
+                lastResult: { kind, code, message },
+              },
+            },
+          }
+        } finally {
+          buildingActionInFlight = false
+          renderBuildingFlow(lastState)
+        }
+      }
+
+      function translateBuildingResult(result, manualCommand) {
+        const code = typeof result?.code === 'string' ? result.code : ''
+        const key = 'buildingResult_' + code
+        if (code && translations.en[key]) {
+          const localized = t(key, { command: manualCommand })
+          return code === 'failed' && result.message ? localized + ' (' + result.message + ')' : localized
+        }
+        return translateMessage(result?.message || '')
+      }
+
+      function renderBuildingFlow(state) {
+        const codingFlow = state?.codingFlow
+        const enabled = codingFlow?.enabled === true && splashBootstrap?.codingFlow?.enabled === true
+        const building = codingFlow?.building
+
+        buildingShell.hidden = !enabled || !building
+        if (buildingShell.hidden) {
+          buildingStatus.hidden = true
+          buildingStatus.textContent = ''
+          return
+        }
+
+        const manualCommand = typeof building.manualCommand === 'string' && building.manualCommand
+          ? building.manualCommand
+          : 'npx cezar-run'
+        const busy = buildingActionInFlight || codingFlow?.busy === true
+        const available = building.available === true
+
+        buildingButton.textContent = t('buildingButtonLabel')
+        buildingButton.title = t('buildingTitle', { command: manualCommand })
+        buildingButton.disabled = busy || !available
+        buildingButton.setAttribute('aria-busy', busy ? 'true' : 'false')
+
+        const lastResult = building.lastResult
+        const result = !available && lastResult?.kind !== 'error'
+          ? { kind: 'error', code: building.reason || 'failed', message: '' }
+          : lastResult
+
+        if (result && (result.code || result.message)) {
+          buildingStatus.hidden = false
+          buildingStatus.dataset.kind = result.kind || 'info'
+          buildingStatus.textContent = translateBuildingResult(result, manualCommand)
+          return
+        }
+
+        buildingStatus.hidden = true
+        buildingStatus.textContent = ''
+        buildingStatus.dataset.kind = ''
       }
 
       async function startCoding(toolId) {
@@ -2018,6 +2206,7 @@
           renderIncident(state)
           renderFailure(state)
           lastState = state
+          renderBuildingFlow(state)
           renderCodingFlow(state)
           renderGitRepoFlow(state)
 
