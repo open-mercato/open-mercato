@@ -30,6 +30,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () =>
 
 jest.mock('@open-mercato/shared/modules/events', () => ({
   isPortalBroadcastEvent: (eventName: string) => eventName === 'customer_accounts.user.updated',
+  isPrivateCrossProcessBroadcastEvent: () => false,
 }))
 
 jest.mock('@open-mercato/events/bus', () => ({
@@ -37,6 +38,7 @@ jest.mock('@open-mercato/events/bus', () => ({
     mockPortalTap = handler
   },
   registerCrossProcessEventListener: () => undefined,
+  CROSS_PROCESS_EVENT_INSTANCE_ID: 'portal-revalidation-test-instance',
 }))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
