@@ -78,6 +78,8 @@ import { AiAgentRuntimeOverrideRepository } from '../data/repositories/AiAgentRu
 import { AiTenantModelAllowlistRepository } from '../data/repositories/AiTenantModelAllowlistRepository'
 import type { TenantAllowlistSnapshot } from './model-allowlist'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
+import { extractStepMeta, extractStepToolCalls } from './loop-step-extraction'
+import type { RawStepEvent, ToolCallTimings } from './loop-step-extraction'
 import { isAgentTaskPlanEnabled } from './agent-registry'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
@@ -642,6 +644,7 @@ export function buildLoopTraceCollector(
   sessionId: string,
   turnId: string,
   userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+  toolCallTimings?: ToolCallTimings,
 ): {
   onStepFinish: AiAgentLoopConfig['onStepFinish']
   finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
@@ -651,45 +654,23 @@ export function buildLoopTraceCollector(
 
   const onStepFinish: AiAgentLoopConfig['onStepFinish'] = async (event) => {
     const stepIndex = steps.length
-    const toolCalls = (event.toolCalls ?? []).map((tc) => {
-      const raw = tc as unknown as {
-        toolName?: string
-        args?: unknown
-        result?: unknown
-        experimental_toToolResultError?: { code?: string; message?: string }
-        repairAttempted?: boolean
-        startTime?: number
-        endTime?: number
-      }
-      return {
-        toolName: raw.toolName
-          ? desanitizeToolNameForDisplay(raw.toolName)
-          : 'unknown',
-        args: raw.args ?? {},
-        result: raw.result,
-        error: raw.experimental_toToolResultError
-          ? {
-              code: String(raw.experimental_toToolResultError?.code ?? 'unknown'),
-              message: String(raw.experimental_toToolResultError?.message ?? ''),
-            }
-          : undefined,
-        repairAttempted: raw.repairAttempted === true,
-        durationMs:
-          typeof raw.startTime === 'number' && typeof raw.endTime === 'number'
-            ? raw.endTime - raw.startTime
-            : 0,
-      }
-    })
+    const rawEvent = event as unknown as RawStepEvent
+    const toolCalls: LoopStepRecord['toolCalls'] = extractStepToolCalls(rawEvent, toolCallTimings).map(
+      (extracted) => ({
+        ...(extracted.toolCallId ? { toolCallId: extracted.toolCallId } : {}),
+        toolName: desanitizeToolNameForDisplay(extracted.toolName),
+        args: extracted.args,
+        result: extracted.result,
+        error: extracted.error,
+        repairAttempted: extracted.repairAttempted,
+        durationMs: extracted.durationMs ?? 0,
+      }),
+    )
 
-    const textDelta =
-      (event as unknown as { text?: string }).text ?? ''
-
-    const finishReason = (
-      (event as unknown as { finishReason?: string }).finishReason ?? 'stop'
-    ) as LoopStepRecord['finishReason']
-
-    const modelId =
-      (event as unknown as { response?: { modelId?: string } }).response?.modelId ?? 'unknown'
+    const stepMeta = extractStepMeta(rawEvent)
+    const textDelta = stepMeta.text
+    const finishReason = stepMeta.finishReason as LoopStepRecord['finishReason']
+    const modelId = stepMeta.modelId
 
     steps.push({
       stepIndex,
@@ -697,8 +678,8 @@ export function buildLoopTraceCollector(
       toolCalls,
       textDelta,
       usage: {
-        inputTokens: event.usage?.inputTokens ?? 0,
-        outputTokens: event.usage?.outputTokens ?? 0,
+        inputTokens: stepMeta.usage.inputTokens,
+        outputTokens: stepMeta.usage.outputTokens,
       },
       finishReason,
     })
@@ -1669,7 +1650,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // idempotency hashes are always correlated within the same session.
   const effectiveSessionId = (input.sessionId ?? input.conversationId) || randomUUID()
 
-  const { agent, tools } = await resolveAiAgentTools({
+  const { agent, tools, toolCallTimings } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
@@ -1778,7 +1759,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // aborts via AbortController when any limit is exceeded.
   // Phase 6.2 — generate a per-call turnId as a UUID.
   const turnId = randomUUID()
-  const loopTraceCollector = buildLoopTraceCollector(agent.id, effectiveSessionId, turnId, effectiveLoop.onStepFinish)
+  const loopTraceCollector = buildLoopTraceCollector(
+    agent.id,
+    effectiveSessionId,
+    turnId,
+    effectiveLoop.onStepFinish,
+    toolCallTimings,
+  )
   const abortController = new AbortController()
   const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
   const tracedOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
@@ -2206,7 +2193,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       input.authContext.organizationId,
     ),
   ])
-  const { agent, tools, pendingActionIds } = await resolveAiAgentTools({
+  const { agent, tools, pendingActionIds, toolCallTimings } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
@@ -2311,6 +2298,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       effectiveObjectSessionId,
       objectTurnId,
       toolLoopConfig.onStepFinish,
+      toolCallTimings,
     )
     const toolResult = await generateText({
       model,

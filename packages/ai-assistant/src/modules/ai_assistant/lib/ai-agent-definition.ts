@@ -196,6 +196,7 @@ export interface LoopStepRecord {
   /** Model id resolved for this step (relevant when prepareStep swaps models). */
   modelId: string
   toolCalls: Array<{
+    toolCallId?: string
     toolName: string
     args: unknown
     result?: unknown
