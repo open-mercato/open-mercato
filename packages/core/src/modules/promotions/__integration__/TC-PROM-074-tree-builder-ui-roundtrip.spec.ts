@@ -62,6 +62,10 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       // and without an intervening reload, must not get a spurious 409 from
       // a stale `updatedAt`. ---------------------------------------------
       const cumulativeCheckbox = page.getByRole('checkbox', { name: 'Cumulative' });
+      // `cumulative` defaults to `true` (`data/entities.ts`) — this toggles it off, then
+      // the later reverse-direction step toggles it back on, so the net value at the end
+      // of the test is `true` again.
+      await expect(cumulativeCheckbox).toBeChecked();
       await cumulativeCheckbox.click();
       await page.getByRole('button', { name: 'Save promotion' }).first().click();
       await expect(page.getByText('Promotion saved')).toBeVisible();
@@ -151,12 +155,12 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       await page.getByRole('button', { name: 'Save promotion' }).first().click();
       await expect(page.getByText('Promotion saved')).toBeVisible();
       await expect(page.getByText('Record changed')).toHaveCount(0);
-      await expect(cumulativeCheckbox).not.toBeChecked();
+      await expect(cumulativeCheckbox).toBeChecked();
 
       await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(page.getByText('Loading rule tree...')).toHaveCount(0, { timeout: 20_000 });
       await expect(page.getByRole('button', { name: 'Add rule' })).toHaveCount(2);
-      await expect(cumulativeCheckbox).not.toBeChecked();
+      await expect(cumulativeCheckbox).toBeChecked();
 
       await expect(valueFields).toHaveCount(3);
       await expect(valueFields.nth(0).locator('input')).toHaveValue('150');
