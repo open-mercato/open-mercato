@@ -43,14 +43,18 @@ function isInstalledSourcePath(value, allowPatterns) {
   return allowPatterns || !normalized.includes('*') && !normalized.includes('?')
 }
 
-function safeRelative(value, { allowInstalledSourcePatterns = false } = {}) {
+function isInstalledInstructionPath(value) {
+  return value.replaceAll('\\', '/') === 'node_modules/@open-mercato/shared/AGENTS.md'
+}
+
+function safeRelative(value, { allowInstalledSourcePatterns = false, allowInstalledInstruction = false } = {}) {
   if (typeof value !== 'string' || !value || value.includes('\0') || path.isAbsolute(value)) return false
   const normalized = value.replaceAll('\\', '/')
   if (normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) return false
   const segments = normalized.split('/')
   const basename = segments.at(-1) ?? ''
   const installedSource = segments.includes('node_modules')
-  if (installedSource && !isInstalledSourcePath(normalized, allowInstalledSourcePatterns)) return false
+  if (installedSource && !isInstalledSourcePath(normalized, allowInstalledSourcePatterns) && !(allowInstalledInstruction && isInstalledInstructionPath(normalized))) return false
   if ((installedSource ? segments.slice(4) : segments).some((entry) => FORBIDDEN_SEGMENTS.has(entry))) return false
   if (normalized === '.ai/harness' || normalized.startsWith('.ai/harness/')) return false
   if (basename === '.env' || basename.startsWith('.env.') || FORBIDDEN_BASENAMES.has(basename)) return false
@@ -79,7 +83,7 @@ try { allowedWrites = JSON.parse(process.argv[5] ?? '[]') } catch { fail('allowe
 try { immutableRoots = JSON.parse(process.env.OM_HARNESS_IMMUTABLE_ROOTS ?? '[]') } catch { fail('immutable root set is invalid JSON') }
 if (!path.isAbsolute(rootArg ?? '')) fail('root must be absolute')
 if (!['read-only', 'writable'].includes(mode)) fail('mode must be read-only or writable')
-if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry, { allowInstalledSourcePatterns: true }) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
+if (!Array.isArray(allowedReads) || allowedReads.some((entry) => !safeRelative(entry, { allowInstalledSourcePatterns: true, allowInstalledInstruction: true }) || ['*', '**'].includes(entry))) fail('allowed read set is invalid')
 if (!Array.isArray(allowedWrites) || allowedWrites.some((entry) => !safeRelative(entry))) fail('allowed write set is invalid')
 if (!Array.isArray(immutableRoots) || immutableRoots.some((entry) => !safeRelative(entry) || entry.includes('*') || entry.includes('?'))) fail('immutable root set is invalid')
 const root = fs.realpathSync(rootArg)
@@ -94,15 +98,21 @@ function isImmutablePath(normalized) {
 }
 
 function resolveRead(relative) {
-  if (!safeRelative(relative)) throw new Error('path is outside the allowed app context')
+  if (!safeRelative(relative, { allowInstalledInstruction: true })) throw new Error('path is outside the allowed app context')
   const normalized = relative.replaceAll('\\', '/')
   if (!readMatchers.some((matcher) => matcher.test(normalized))) throw new Error('path is outside the case read allowlist')
   const lexical = path.resolve(root, relative)
   if (!isInside(root, lexical)) throw new Error('path escapes the app root')
   const real = fs.realpathSync(lexical)
-  if (isInstalledSourcePath(normalized, false)) {
+  const instruction = isInstalledInstructionPath(normalized)
+  if (instruction) {
+    const entry = fs.lstatSync(lexical)
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('installed instruction must be an exact regular file')
+  }
+  if (isInstalledSourcePath(normalized, false) || instruction) {
     const dependencyRoot = fs.realpathSync(path.join(root, 'node_modules'))
     if (!isInside(dependencyRoot, real)) throw new Error('installed source resolves outside the protected dependency root')
+    if (instruction && real !== path.join(dependencyRoot, '@open-mercato', 'shared', 'AGENTS.md')) throw new Error('installed instruction resolves outside its exact dependency path')
   } else if (!isInside(root, real)) throw new Error('path resolves outside the app root')
   const stat = fs.statSync(real)
   if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('path must be a bounded regular file')

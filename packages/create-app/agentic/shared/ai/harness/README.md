@@ -10,6 +10,8 @@ UMES routing is fact-first. The additive and unified-override audit evaluations,
 
 Declared canonical-example entrypoints and inventory-selected capability files are progressive context. Exact source files resolved by declared `sourceReferenceIds` are progressive too; mapping an instruction owner or skill does not remove it from initial context. Every successful source read must remain in `selectedContext` and the observed total file/byte ledger, and canonical-example reads also consume their independent example budgets. Permissions cover only the exact resolved files; declaring a root never grants its other files.
 
+The existing installed Shared guide can be delivered as `node_modules/@open-mercato/shared/AGENTS.md` only when `context.required` names that exact file. It must be a regular, non-symlink file at its exact protected dependency path. This read-only instruction is charged to initial and total context, never example or progressive-source budgets; optional context, source fallback, sibling Markdown and write grants cannot authorize it.
+
 ```text
 yarn harness:validate --runner codex --all
 yarn harness:validate --runner claude --case OMH-009

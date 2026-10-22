@@ -2058,6 +2058,127 @@ for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+for (const linked of [false, true]) {
+  test(`an explicitly required shared instruction is delivered and fully charged, linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, () => {
+    const root = stageApp()
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-required-instruction-deps-')))
+    try {
+      const instruction = 'node_modules/@open-mercato/shared/AGENTS.md'
+      fs.copyFileSync(fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url)), path.join(root, instruction))
+      if (linked) {
+        const target = path.join(dependencies, 'node_modules')
+        fs.renameSync(path.join(root, 'node_modules'), target)
+        fs.symlinkSync(target, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & { maxTotalContextBytes: number }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-001')
+      assert.ok(caseRecord)
+      caseRecord.context.required.push(instruction)
+      caseRecord.maxInitialContextBytes = 65536
+      caseRecord.maxTotalContextBytes = 131072
+      fs.writeFileSync(casesPath, JSON.stringify(cases))
+      const context = caseRecord.context.required
+      const totalBytes = context.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+if (!allowedReads.includes(${JSON.stringify(instruction)})) process.exit(9)
+const messages = ${JSON.stringify(context)}.map((file, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'read', arguments: { path: file } } }))
+const server = spawnSync(process.execPath, ['scripts/agent-harness-tool-server.mjs', process.cwd(), 'read-only', JSON.stringify(allowedReads), '[]'], { input: messages.map((message) => JSON.stringify(message)).join('\\n') + '\\n', encoding: 'utf8', env: {} })
+if (server.status !== 0) process.exit(10)
+const replies = server.stdout.trim().split('\\n').map((line) => JSON.parse(line))
+if (replies.length !== messages.length || replies.some((reply) => reply.result.isError)) process.exit(11)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ${JSON.stringify(context)}, decisions: ['standalone-boundary', 'facts-first'], violations: [] }))
+for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+`)
+      const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      const [stored] = storedResults(root)
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+      assert.ok(stored.selectedContext.includes(instruction))
+      assert.ok(stored.actualContext.paths.includes(instruction))
+      assert.ok(stored.actualContext.initialPaths.includes(instruction))
+      assert.ok(stored.declaredContext.initialPaths.includes(instruction))
+      assert.equal(stored.actualContext.bytes, totalBytes)
+      assert.equal(stored.actualContext.initialBytes, totalBytes)
+      assert.equal(stored.declaredContext.bytes, totalBytes)
+      assert.equal('exampleReadPolicy' in stored, false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
+
+test('shared instructions cannot be authorized through optional context or a write grant', async () => {
+  const root = stageApp()
+  try {
+    const instruction = 'node_modules/@open-mercato/shared/AGENTS.md'
+    fs.copyFileSync(fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url)), path.join(root, instruction))
+    const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+      caseReadAllowlist: (caseRecord: unknown, writable: boolean, root: string) => string[]
+      observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+    }
+    for (const section of ['allowedExtra', 'warn', 'allowedWrites']) {
+      const caseRecord = { context: { required: ['AGENTS.md'], forbidden: [], ...(section === 'allowedWrites' ? {} : { [section]: [instruction] }) }, ...(section === 'allowedWrites' ? { allowedWrites: [instruction] } : {}) }
+      assert.ok(!evaluator.caseReadAllowlist(caseRecord, true, root).includes(instruction), section)
+      const trace = evaluator.observedContext(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: instruction }, status: 'completed' } }), root, caseRecord, false)
+      assert.ok(trace.violations.some((entry) => entry.includes('unsafe arbitrary app-root read')), section)
+      assert.ok(!trace.paths.includes(instruction), section)
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const linked of [false, true]) {
+  test(`shared instruction observation rejects redirected files and never consumes example budgets, linked dependencies=${linked}`, async () => {
+    const root = stageApp()
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-instruction-observed-deps-')))
+    try {
+      const relative = 'node_modules/@open-mercato/shared/AGENTS.md'
+      const instruction = path.join(root, relative)
+      fs.copyFileSync(fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url)), instruction)
+      if (linked) {
+        fs.renameSync(path.join(root, 'node_modules'), path.join(dependencies, 'node_modules'))
+        fs.symlinkSync(path.join(dependencies, 'node_modules'), path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+        observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[]; exampleReadPolicy: { roots: Array<{ files: number; bytes: number }> } }
+      }
+      const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')) as HarnessCase[]
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-181')
+      assert.ok(caseRecord)
+      caseRecord.context.required.push(relative)
+      const event = JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: relative }, status: 'completed' } })
+      const trace = evaluator.observedContext(event, root, caseRecord, false)
+      assert.deepEqual(trace.paths, [relative])
+      assert.deepEqual(trace.violations, [])
+      assert.ok(trace.exampleReadPolicy.roots.every((entry) => entry.files === 0 && entry.bytes === 0))
+      for (const shape of ['directory', 'inside-symlink', 'escaping-symlink']) {
+        fs.rmSync(instruction)
+        if (shape === 'directory') fs.mkdirSync(instruction)
+        else {
+          const target = path.join(shape === 'inside-symlink' ? fs.realpathSync(path.join(root, 'node_modules')) : root, 'other-instructions.md')
+          fs.writeFileSync(target, 'must-not-be-disclosed')
+          fs.symlinkSync(target, instruction)
+        }
+        const invalid = evaluator.observedContext(event, root, caseRecord, false)
+        assert.ok(!invalid.paths.includes(relative), shape)
+        assert.ok(invalid.violations.length > 0, shape)
+        assert.doesNotMatch(JSON.stringify(invalid), /must-not-be-disclosed/)
+        fs.rmSync(instruction, { recursive: true })
+        fs.writeFileSync(instruction, '# Shared instructions\n')
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
+
 test('a lifecycle stream without a recognized tool event fails closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
   const bin = installFakeRunner(root, 'codex', `

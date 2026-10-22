@@ -284,6 +284,23 @@ function isSafeRelative(pattern) {
   return !pattern.replaceAll('\\', '/').split('/').includes('..')
 }
 
+function isInstalledInstructionRelative(relative) {
+  return relative.replaceAll('\\', '/') === 'node_modules/@open-mercato/shared/AGENTS.md'
+}
+
+function resolveInstalledInstructionFile(root, relative) {
+  const absolute = path.resolve(root, relative)
+  try {
+    const entry = fs.lstatSync(absolute)
+    if (!entry.isFile() || entry.isSymbolicLink()) return { violation: 'installed instruction must be an exact regular file' }
+    const dependencyRoot = fs.realpathSync(path.join(root, 'node_modules'))
+    if (fs.realpathSync(absolute) !== path.join(dependencyRoot, '@open-mercato', 'shared', 'AGENTS.md')) {
+      return { violation: 'installed instruction resolves outside its exact dependency path' }
+    }
+    return { absolute, size: entry.size }
+  } catch { return { violation: 'installed instruction cannot be resolved' } }
+}
+
 function isInstalledSourceRelative(relative) {
   const segments = relative.replaceAll('\\', '/').split('/')
   const packageSource = segments.length >= 5
@@ -310,7 +327,9 @@ function installedSourceRelativeFromResolved(root, absolute, real) {
   const lexicalRelative = isPathInside(dependencyPath, absolute)
     ? path.relative(root, absolute).replaceAll(path.sep, '/')
     : `node_modules/${path.relative(dependencyRoot, real).replaceAll(path.sep, '/')}`
-  return isInstalledSourceRelative(lexicalRelative) ? lexicalRelative : null
+  return isInstalledSourceRelative(lexicalRelative)
+    || (isInstalledInstructionRelative(lexicalRelative) && !resolveInstalledInstructionFile(root, lexicalRelative).violation)
+    ? lexicalRelative : null
 }
 
 function canonicalizeSelectedContextAliases(root, response) {
@@ -2192,6 +2211,7 @@ function normalizeObservedCandidate(raw, root) {
 
 function isAllowedObservedPath(relative, caseRecord, writable, root) {
   if (permittedContextPath(relative, caseRecord, root)) return true
+  if (isInstalledInstructionRelative(relative)) return false
   // Root immutability precedence: a declared example root is read-only context resolved BEFORE
   // any writable pattern, so a broad `src/modules/**` grant can never promote it to a writable
   // target. In-root reads are judged by the inventory-backed example read policy instead of by
@@ -2331,10 +2351,13 @@ export function caseReadAllowlist(caseRecord, writable, appRoot) {
     const match = /^(\.ai\/guides\/(?:modules|reference-modules)\/[a-z0-9_]+)\/index\.md$/.exec(entry)
     return match ? [`${match[1]}/*.md`] : []
   })
-  return [...new Set([...declared, ...moduleFactSections])].sort()
+  return [...new Set([...declared, ...moduleFactSections])]
+    .filter((entry) => !isInstalledInstructionRelative(entry) || caseRecord.context?.required?.includes('node_modules/@open-mercato/shared/AGENTS.md'))
+    .sort()
 }
 
 function permittedContextPath(relative, caseRecord, root) {
+  if (isInstalledInstructionRelative(relative)) return Boolean(caseRecord.context?.required?.includes('node_modules/@open-mercato/shared/AGENTS.md'))
   const contextPaths = [
     ...exampleReadAllowlist(caseRecord, root),
     ...(caseRecord.context?.required ?? []),
@@ -2367,6 +2390,7 @@ function expandObservedPath(root, relative, expand) {
   }
   const absolute = path.resolve(root, relative)
   try {
+    if (isInstalledInstructionRelative(relative)) return resolveInstalledInstructionFile(root, relative).violation ? [] : [relative]
     if (isInstalledSourceRelative(relative)) {
       const real = fs.realpathSync(absolute)
       const installedRelative = installedSourceRelativeFromResolved(root, absolute, real)
@@ -2505,9 +2529,14 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
     if (!relative.includes('*') && !relative.includes('?')) {
       const absolute = path.resolve(root, relative)
       try {
+        const instruction = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative) : null
+        if (instruction?.violation) {
+          violations.add(`unsafe observed context entry ${relative}: ${instruction.violation}`)
+          continue
+        }
         const entry = fs.lstatSync(absolute)
         if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())
-          || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) {
+          || (!instruction && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) {
           violations.add(`unsafe observed context entry ${relative}`)
           continue
         }
@@ -2598,8 +2627,10 @@ function contextStats(root, paths, metadata = {}, caseRecord = {}) {
     const absolute = path.resolve(root, relative)
     if (!isPathInside(root, absolute)) continue
     try {
+      const instruction = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative) : null
+      if (instruction?.violation) continue
       const stat = fs.lstatSync(absolute)
-      if (stat.isSymbolicLink() || !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute))) continue
+      if (stat.isSymbolicLink() || (!instruction && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) continue
       if (stat.isFile()) {
         files += 1
         bytes += stat.size
