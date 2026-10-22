@@ -340,8 +340,7 @@ function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
-      const loadedModules = readEnabledModulesFromConfig(cfgPath)
-      if (loadedModules.length > 0) return loadedModules
+      return readEnabledModulesFromConfig(cfgPath)
     } catch (error) {
       console.warn(
         '[resolver] Failed to read enabled modules from src/modules.ts, falling back to src/modules scan:',

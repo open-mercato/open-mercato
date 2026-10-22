@@ -4,6 +4,11 @@ import path from 'node:path'
 import { readEnabledModulesFromConfig, type PackageResolver } from '../resolver'
 import { addOfficialModule, enableOfficialModule } from '../module-install'
 import * as github from '../module-github'
+import * as inspection from '../module-inspection'
+import spawn from 'cross-spawn'
+import { EventEmitter } from 'node:events'
+
+jest.mock('cross-spawn', () => jest.fn())
 
 function buildPackageFixture(
   packageRoot: string,
@@ -197,6 +202,7 @@ describe('enableOfficialModule', () => {
       packageRoot,
       "export const enabledModules = []\n",
     )
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/test-package': '0.1.0' } }))
 
     await expect(
       enableOfficialModule(
@@ -381,6 +387,7 @@ describe('canonical module preflight', () => {
     const requiredPackageRoot = path.join(root, 'required-package')
     fs.mkdirSync(requiredPackageRoot, { recursive: true })
     fs.writeFileSync(path.join(requiredPackageRoot, 'package.json'), JSON.stringify({ name: '@pkarw/marketing_consents' }))
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@pkarw/marketing_consents': '1.2.0' } }))
     resolver.getPackageRoot = (packageName) => packageName === '@pkarw/marketing_consents' ? requiredPackageRoot : packageRoot
     await expect(enableOfficialModule(resolver, '@open-mercato/test-package', 'test_package')).resolves.toMatchObject({ moduleId: 'test_package' })
   })
@@ -451,9 +458,78 @@ describe('canonical module preflight', () => {
     buildPackageFixture(packageRoot, 'marketing_consents', { ejectable: true })
     const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@open-mercato/test-package' }, { id: 'marketing_consents', from: '@other/consents' }]\n"
     const resolver = buildResolver(appDir, packageRoot, source)
-    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true)).rejects.toThrow('registered multiple times')
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true)).rejects.toThrow('Duplicate enabled module ID')
     expect(fs.existsSync(path.join(appDir, 'src/modules/marketing_consents'))).toBe(false)
     expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('rejects a changed GitHub binding before Yarn even when the selected ID differs', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'original', { packageName: '@vendor/bundle' })
+    const source = "export const enabledModules = [{ id: 'original', from: '@vendor/bundle', locator: 'github:vendor/original' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@vendor/bundle', moduleIds: ['replacement'], locator: 'github:vendor/replacement',
+      packageSpec: '@vendor/bundle@github:vendor/replacement#' + 'a'.repeat(40),
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:vendor/replacement', false, undefined, true)).rejects.toThrow('Package binding collision')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+      expect(fs.existsSync(path.join(appDir, 'package.json'))).toBe(false)
+    } finally { lookup.mockRestore() }
+  })
+
+  it('rejects npm updates that remove an active sibling before installation', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'original', { packageName: '@vendor/bundle' })
+    const source = "export const enabledModules = [{ id: 'original', from: '@vendor/bundle', locator: 'npm:@vendor/bundle' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(inspection, 'inspectNpmModuleTarget').mockReturnValue({
+      packageName: '@vendor/bundle', moduleIds: ['replacement'], locator: 'npm:@vendor/bundle', packageSpec: '@vendor/bundle@2.0.0',
+    })
+    try {
+      await expect(addOfficialModule(resolver, '@vendor/bundle@next', false, 'replacement', true)).rejects.toThrow('preserve its source and module layout')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    } finally { lookup.mockRestore() }
+  })
+
+  it('preserves a single package registration with a local overlay on repeated enable', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    const source = "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const localPath = path.join(appDir, 'src/modules/test_package/index.ts')
+    fs.mkdirSync(path.dirname(localPath), { recursive: true })
+    fs.writeFileSync(localPath, 'export const metadata = { title: "Overlay" }')
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package')).rejects.toThrow('already enabled')
+    expect(fs.readFileSync(localPath, 'utf8')).toContain('Overlay')
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('reports a post-install version disagreement without registering or ejecting', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'test_package', { ejectable: true })
+    const source = 'export const enabledModules = []\n'
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(inspection, 'inspectNpmModuleTarget').mockReturnValue({
+      packageName: '@open-mercato/test-package', packageSpec: '@open-mercato/test-package@next',
+      locator: 'npm:@open-mercato/test-package', moduleIds: ['test_package'], version: '2.0.0',
+    })
+    jest.mocked(spawn).mockImplementation(() => {
+      const child = new EventEmitter()
+      queueMicrotask(() => child.emit('exit', 0))
+      return child as ReturnType<typeof spawn>
+    })
+    try {
+      await expect(addOfficialModule(resolver, '@open-mercato/test-package@next', true)).rejects.toThrow('differs from inspected version')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+      expect(fs.existsSync(path.join(appDir, 'src/modules/test_package'))).toBe(false)
+      expect(spawn).toHaveBeenCalledWith(expect.anything(), ['add', '@open-mercato/test-package@next'], expect.anything())
+    } finally { lookup.mockRestore(); jest.mocked(spawn).mockReset() }
   })
 
 })

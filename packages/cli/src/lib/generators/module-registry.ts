@@ -5,7 +5,7 @@ import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
-import { getModuleRequirementHint, parseModuleLocator, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
+import { getModuleRequirementHint, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -95,6 +95,7 @@ export interface ModuleRegistryOptions {
 interface ModuleRegistryDiscovery {
   enabled: ModuleEntry[]
   modules: ModuleRegistryDiscoveryEntry[]
+  identities: ReturnType<typeof getEnabledModuleIdentities>
   getStructureChecksum: () => string
 }
 
@@ -2050,12 +2051,22 @@ async function createModuleRegistryDiscovery(
 ): Promise<ModuleRegistryDiscovery> {
   resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
+  const rootsByEntry = new Map<ModuleEntry, ModuleRoots>()
+  const getModulePaths = (entry: ModuleEntry): ModuleRoots => {
+    let roots = rootsByEntry.get(entry)
+    if (!roots) {
+      roots = resolver.getModulePaths(entry)
+      rootsByEntry.set(entry, roots)
+    }
+    return roots
+  }
+  const identities = getEnabledModuleIdentities({ ...resolver, getModulePaths }, enabled)
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
 
   for (const entry of enabled) {
     const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
+    const roots = getModulePaths(entry)
     verifyThirdPartyModuleShape(entry, roots.pkgBase)
     const rawImps = resolver.getModuleImportBase(entry)
     const appImportBase = entry.from === '@app' ? `../../src/modules/${modId}` : rawImps.appBase
@@ -2098,6 +2109,7 @@ async function createModuleRegistryDiscovery(
   return {
     enabled,
     modules,
+    identities,
     getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
   }
 }
@@ -4223,8 +4235,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   })
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const requiresSourceIdentity = [...requiresByModule.values()].some((requirements) => requirements.some((requirement) => parseModuleLocator(requirement)?.kind !== 'module'))
-    const identities = requiresSourceIdentity ? getEnabledModuleIdentities(resolver, enabled) : enabled.map((entry) => ({ id: entry.id }))
+    const identities = discovery.identities
     const problems: string[] = []
     const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
@@ -4706,8 +4717,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   })
 
   {
-    const requiresSourceIdentity = [...requiresByModule.values()].some((requirements) => requirements.some((requirement) => parseModuleLocator(requirement)?.kind !== 'module'))
-    const identities = requiresSourceIdentity ? getEnabledModuleIdentities(resolver, enabled) : enabled.map((entry) => ({ id: entry.id }))
+    const identities = discovery.identities
     const problems: string[] = []
     const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {
@@ -5098,8 +5108,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
   // Validate module dependencies declared via ModuleInfo.requires
   {
-    const requiresSourceIdentity = [...requiresByModule.values()].some((requirements) => requirements.some((requirement) => parseModuleLocator(requirement)?.kind !== 'module'))
-    const identities = requiresSourceIdentity ? getEnabledModuleIdentities(resolver, enabled) : enabled.map((entry) => ({ id: entry.id }))
+    const identities = discovery.identities
     const problems: string[] = []
     const missingRequirements = new Set<string>()
     for (const [modId, reqs] of requiresByModule.entries()) {

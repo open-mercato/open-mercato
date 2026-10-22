@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ensureModuleRegistration, setModuleRegistrationSource } from '../modules-config'
+import { ensureModuleRegistration, setModuleRegistrationSource, prepareModuleRegistration, prepareModuleRegistrationSource } from '../modules-config'
 import { readEnabledModulesFromConfig } from '../resolver'
 
 describe('modules-config', () => {
@@ -23,6 +23,31 @@ describe('modules-config', () => {
     setModuleRegistrationSource(filePath, 'consents', '@app')
     expect(fs.readFileSync(filePath, 'utf8')).toContain("packageName: '@pkarw/consents'")
     expect(fs.readFileSync(filePath, 'utf8')).toContain("locator: 'github:pkarw/consents'")
+  })
+
+  it('prepares add and eject config edits without writing the existing configuration', () => {
+    const filePath = path.join(tmpDir, 'modules.ts')
+    const source = 'export const enabledModules = []\n'
+    fs.writeFileSync(filePath, source)
+
+    const added = prepareModuleRegistration(source, { id: 'consents', from: 'consents_candidate' })
+    const ejected = prepareModuleRegistrationSource(added.source, 'consents', '@app', { packageName: '@publisher/consents', locator: 'npm:@publisher/consents' })
+
+    expect(added).toMatchObject({ changed: true, registeredAs: 'consents_candidate' })
+    expect(ejected).toContain("from: '@app'")
+    expect(ejected).toContain("packageName: '@publisher/consents'")
+    expect(ejected).toContain("locator: 'npm:@publisher/consents'")
+    expect(fs.readFileSync(filePath, 'utf8')).toBe(source)
+    expect(prepareModuleRegistration(added.source, { id: 'consents', from: 'consents_candidate' })).toEqual({ source: added.source, changed: false, registeredAs: 'consents_candidate' })
+  })
+
+  it('accepts quoted property names when preparing an existing registration update', () => {
+    const source = 'export const enabledModules = [{ "id": "consents", "from": "consents_candidate" }]\n'
+
+    const updated = prepareModuleRegistrationSource(source, 'consents', '@app')
+
+    expect(updated).toContain('"from": "@app"')
+    expect(updated).toContain('"id": "consents"')
   })
 
   it('adds a package-backed module without touching conditional pushes', () => {

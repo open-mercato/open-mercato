@@ -654,6 +654,12 @@ None.
 - Added fail-closed `metadata.requires` validation before module registration or source ejection, with actionable missing-module guidance.
 - Extended dependency requirements and module installation to canonical npm/GitHub locators, preserved source provenance on module metadata/registrations, and rejected conflicting same-name origins before registration or ejection.
 
+### 2026-10-22
+- Aligned PR #7283 with the [module source collision policy in PR #7289](https://github.com/open-mercato/open-mercato/pull/7289): validate effective duplicate IDs and observed provenance before every generator writes, preserve single-registration overlays, and keep an explicitly empty module configuration disabled.
+- Inspect npm/file artifacts and immutable GitHub metadata before changing an active package binding; verify every active sibling survives and recheck installed identity/version before registration. Preserve requested npm selectors and report installed-but-not-enabled failures without claiming rollback of package-manager effects.
+- Distinguish npm and GitHub origins from canonical manifest names and import bindings. Support installed aliases, retain known provenance through ejection, validate generated import exports, and preserve configuration/local source on preflight failure.
+- Add self-contained CLI lifecycle integration coverage in `packages/cli/src/lib/__integration__/TC-INT-007.spec.ts` and `TC-INT-008.spec.ts` for aliases, replacement collisions, conditional configuration, disable/regenerate, ejection and failure preservation. No HTTP or browser UI paths change.
+
 ### Review — 2026-03-14
 - **Reviewer**: Agent
 - **Security**: Passed

@@ -26,7 +26,7 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
   let packageName: string | undefined
 
   for (const property of node.properties) {
-    if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) continue
+    if (!ts.isPropertyAssignment(property) || (!ts.isIdentifier(property.name) && !ts.isStringLiteralLike(property.name))) continue
 
     if (property.name.text === 'id' && ts.isStringLiteralLike(property.initializer)) {
       id = property.initializer.text
@@ -399,32 +399,37 @@ export function ensureModuleRegistration(
   }
 
   const source = fs.readFileSync(modulesPath, 'utf8')
+  const result = prepareModuleRegistration(source, entry)
+  if (result.changed) fs.writeFileSync(modulesPath, result.source)
+  return { changed: result.changed, registeredAs: result.registeredAs }
+}
+
+export function prepareModuleRegistration(
+  source: string,
+  entry: ModuleEntry,
+): { source: string; changed: boolean; registeredAs: string } {
   const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const config = parseModuleConfigShape(source)
   const normalized = normalizeModuleEntry(entry)
   const matches = config.occurrences.filter((occurrence) => occurrence.entry.id === normalized.id)
 
   if (matches.length > 1) {
-    throw new Error(
-      `Module "${normalized.id}" is registered multiple times in ${modulesPath}. Resolve duplicates manually before running this command.`,
-    )
+    throw new Error(`Module "${normalized.id}" is registered multiple times in src/modules.ts. Resolve duplicates manually before running this command.`)
   }
 
   if (matches.length === 1) {
     const existing = normalizeModuleEntry(matches[0].entry)
     if (existing.from === normalized.from) {
-      return { changed: false, registeredAs: normalized.from ?? '@open-mercato/core' }
+      return { source, changed: false, registeredAs: normalized.from ?? '@open-mercato/core' }
     }
-
-    throw new Error(
-      `Module "${normalized.id}" is already registered from "${existing.from}". Remove or eject the existing registration first.`,
-    )
+    throw new Error(`Module "${normalized.id}" is already registered from "${existing.from}". Remove or eject the existing registration first.`)
   }
 
-  const updated = replaceArrayLiteral(source, config.arrayNode, normalized, sourceFile)
-  fs.writeFileSync(modulesPath, updated)
-
-  return { changed: true, registeredAs: normalized.from ?? '@open-mercato/core' }
+  return {
+    source: replaceArrayLiteral(source, config.arrayNode, normalized, sourceFile),
+    changed: true,
+    registeredAs: normalized.from ?? '@open-mercato/core',
+  }
 }
 
 export function setModuleRegistrationSource(
@@ -438,25 +443,37 @@ export function setModuleRegistrationSource(
   }
 
   const source = fs.readFileSync(modulesPath, 'utf8')
+  const updated = prepareModuleRegistrationSource(source, moduleId, from, provenance)
+  if (updated === source) return { changed: false }
+  fs.writeFileSync(modulesPath, updated)
+  return { changed: true }
+}
+
+export function prepareModuleRegistrationSource(
+  source: string,
+  moduleId: string,
+  from: string,
+  provenance?: Pick<ModuleEntry, 'locator' | 'packageName'>,
+): string {
   const config = parseModuleConfigShape(source)
   const matches = config.occurrences.filter((occurrence) => occurrence.entry.id === moduleId)
 
   if (matches.length === 0) {
     throw new Error(
-      `Could not find module entry for "${moduleId}" in ${modulesPath}. Expected a pattern like: { id: '${moduleId}', from: '...' } or { id: '${moduleId}' }`,
+      `Could not find module entry for "${moduleId}" in src/modules.ts. Expected a pattern like: { id: '${moduleId}', from: '...' } or { id: '${moduleId}' }`,
     )
   }
 
   if (matches.length > 1) {
     throw new Error(
-      `Module "${moduleId}" is registered multiple times in ${modulesPath}. Resolve duplicates manually before running this command.`,
+      `Module "${moduleId}" is registered multiple times in src/modules.ts. Resolve duplicates manually before running this command.`,
     )
   }
 
   const match = matches[0]
   const current = normalizeModuleEntry(match.entry)
   if (current.from === from && (!provenance?.locator || current.locator === provenance.locator) && (!provenance?.packageName || current.packageName === provenance.packageName)) {
-    return { changed: false }
+    return source
   }
 
   const objectLiteral = source.slice(match.node.getStart(), match.node.end)
@@ -468,7 +485,5 @@ export function setModuleRegistrationSource(
     updatedObjectLiteral +
     source.slice(match.node.end)
 
-  fs.writeFileSync(modulesPath, updated)
-
-  return { changed: true }
+  return updated
 }

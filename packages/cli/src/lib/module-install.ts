@@ -8,12 +8,13 @@ import {
   validateEjectBoundaries,
   type ValidatedOfficialModulePackage,
 } from './module-package'
-import { ensureModuleRegistration } from './modules-config'
+import { prepareModuleRegistration, prepareModuleRegistrationSource } from './modules-config'
 import type { PackageResolver } from './resolver'
 import { resolveSpawnCommand } from './spawn'
 import { parseModuleLocator, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 import { getEnabledModuleIdentities, getModuleLocators } from './module-identity'
 import { resolveGithubModuleTarget } from './module-github'
+import { inspectNpmModuleTarget, type InspectedModuleTarget } from './module-inspection'
 
 type ModuleCommandResult = {
   moduleId: string
@@ -184,7 +185,7 @@ function validateBeforeRegistration(
   const appModuleDir = path.join(resolver.getAppDir(), 'src', 'modules', modulePackage.metadata.moduleId)
 
   if (eject && fs.existsSync(appModuleDir)) {
-    throw new Error(`Destination directory already exists: ${appModuleDir}. Remove it first or rerun without --eject.`)
+    throw new Error(`Destination directory already exists: ${appModuleDir}. Preserve local source and choose a different destination or resolve the conflict manually.`)
   }
 
   return appModuleDir
@@ -231,11 +232,21 @@ function assertNoModuleCollision(
   }
   const existingGithub = existing ? getModuleLocators(existing, resolver).find((value) => value.startsWith('github:')) : undefined
   const requestedIdentity = locator ? parseModuleLocator(locator)?.identity : undefined
-  if (existingGithub && requestedIdentity?.startsWith('github:') && existingGithub !== requestedIdentity) {
+  if (existingGithub && requestedIdentity && existingGithub !== requestedIdentity) {
     throw new Error(`Module name collision: "${moduleId}" is already registered from "${existingGithub}"; requested source is "${locator}". Remove or rename the conflicting module explicitly before retrying.`)
   }
-  if (fs.existsSync(path.join(resolver.getAppDir(), 'src', 'modules', moduleId))) {
+  if (!existing && fs.existsSync(path.join(resolver.getAppDir(), 'src', 'modules', moduleId))) {
     throw new Error(`Module name collision: local src/modules/${moduleId} already exists; requested source is "${locator ?? packageName}". Remove or rename the conflicting module explicitly before retrying.`)
+  }
+}
+
+function assertBindingPreserved(resolver: PackageResolver, target: InspectedModuleTarget): void {
+  const consumers = resolver.loadEnabledModules().filter((entry) => entry.from === target.packageName)
+  for (const entry of consumers) {
+    const locators = getModuleLocators(entry, resolver)
+    if (!locators.includes(target.locator) || !target.moduleIds.includes(entry.id)) {
+      throw new Error(`Package binding collision: "${target.packageName}" supplies enabled module "${entry.id}" from "${locators.join(', ') || 'unknown origin'}". Requested "${target.locator}" must preserve its source and module layout. Disable affected entries explicitly before replacing this binding. No package was installed.`)
+    }
   }
 }
 
@@ -272,28 +283,46 @@ async function registerResolvedOfficialModule(
   modulePackage: ValidatedOfficialModulePackage,
   packageName: string,
   eject: boolean,
+  requestedLocator?: string,
+  allowAlreadyEnabled = false,
 ): Promise<ModuleCommandResult> {
   const locators = getModuleLocators({ id: modulePackage.metadata.moduleId, from: packageName }, resolver)
-  const locator = locators.find((value) => value.startsWith('github:')) ?? `npm:${packageName}`
+  if (requestedLocator && locators.length > 0 && !locators.includes(requestedLocator)) {
+    throw new Error(`Installed package "${packageName}" disagrees with inspected origin "${requestedLocator}". It is installed but not enabled. Restore the binding and lockfile through your package manager before retrying.`)
+  }
+  const locator = requestedLocator ?? locators[0]
   assertNoModuleCollision(resolver, modulePackage.metadata.moduleId, packageName, locator)
   assertRequiredModulesEnabled(modulePackage, resolver)
-  const from = prepareRegistrationSource(modulePackage, resolver, packageName, eject)
-
-  const registration = ensureModuleRegistration(
-    resolver.getModulesConfigPath(),
+  const existing = resolver.loadEnabledModules().find((entry) => entry.id === modulePackage.metadata.moduleId)
+  if (existing && !eject && !allowAlreadyEnabled) {
+    throw new Error(`Module "${modulePackage.metadata.moduleId}" from "${packageName}" is already enabled in modules.ts.`)
+  }
+  const from = eject ? '@app' : packageName
+  const provenance = {
+    ...(locator ? { locator } : {}),
+    ...(eject || modulePackage.packageName !== packageName ? { packageName: modulePackage.packageName } : {}),
+  }
+  const modulesPath = resolver.getModulesConfigPath()
+  const modulesSource = fs.readFileSync(modulesPath, 'utf8')
+  const registration = existing && eject
+    ? { changed: true, source: prepareModuleRegistrationSource(modulesSource, modulePackage.metadata.moduleId, from, provenance) }
+    : prepareModuleRegistration(
+    modulesSource,
     {
       id: modulePackage.metadata.moduleId,
       from,
-      ...(eject || locator.startsWith('github:') ? { locator } : {}),
-      ...(eject ? { packageName } : {}),
+      ...(locator || eject || modulePackage.packageName !== packageName ? provenance : {}),
     },
   )
 
-  if (!registration.changed) {
+  if (!registration.changed && !allowAlreadyEnabled) {
     throw new Error(
       `Module "${modulePackage.metadata.moduleId}" from "${from}" is already enabled in modules.ts.`,
     )
   }
+
+  prepareRegistrationSource(modulePackage, resolver, packageName, eject)
+  if (registration.changed) fs.writeFileSync(modulesPath, registration.source)
 
   await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
 
@@ -313,16 +342,18 @@ export async function addOfficialModule(
   allowThirdParty = false,
 ): Promise<ModuleCommandResult> {
   const input = packageSpec.trim()
+  getEnabledModuleIdentities(resolver)
   const isGithub = !input.startsWith('@') && !input.startsWith('npm:') && (
     input.includes('/') && !input.includes('@file:') || /^(?:github:|git@|(?:git\+)?ssh:)/i.test(input)
   )
   let safePackageSpec: string
   let packageName: string
+  let target: InspectedModuleTarget
   if (isGithub) {
     if (!allowThirdParty) {
       throw new Error('GitHub repository installs require --allow-third-party, independently of the declared npm package scope.')
     }
-    const target = resolveGithubModuleTarget(input, resolver.getAppDir())
+    target = resolveGithubModuleTarget(input, resolver.getAppDir())
     assertThirdPartyAllowed(target.packageName, allowThirdParty)
     const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
     if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {
@@ -337,11 +368,39 @@ export async function addOfficialModule(
     assertPackageName(parsedName)
     packageName = parsedName
     if (moduleId) assertNoModuleCollision(resolver, moduleId, packageName, `npm:${packageName}`)
+    target = inspectNpmModuleTarget(safePackageSpec, packageName, resolver.getAppDir())
   }
+  const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
+  if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {
+    throw new Error(`Select a module with --module <moduleId>. Available in ${target.locator}: ${target.moduleIds.join(', ')}. No package was installed.`)
+  }
+  assertNoModuleCollision(resolver, selectedModuleId, packageName, target.locator)
+  assertBindingPreserved(resolver, target)
+  const modulesSource = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+  const existing = resolver.loadEnabledModules().find((entry) => entry.id === selectedModuleId)
+  const from = eject ? '@app' : packageName
+  if (existing && eject) prepareModuleRegistrationSource(modulesSource, selectedModuleId, from, { locator: target.locator, packageName })
+  else prepareModuleRegistration(modulesSource, { id: selectedModuleId, from, locator: target.locator })
+  if (eject && fs.existsSync(path.join(resolver.getAppDir(), 'src', 'modules', selectedModuleId))) {
+    throw new Error(`Destination directory already exists for "${selectedModuleId}". Preserve local source and resolve the conflict manually. No package was installed.`)
+  }
+  safePackageSpec = target.packageSpec
   await installPackageSpec(resolver, safePackageSpec)
 
-  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
-  return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
+  try {
+    const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, selectedModuleId)
+    if (modulePackage.packageName !== packageName) throw new Error('Installed manifest differs from inspected package name.')
+    if (target.version && modulePackage.packageJson.version !== target.version) {
+      throw new Error(`Installed version "${modulePackage.packageJson.version ?? 'unknown'}" differs from inspected version "${target.version}". No registration or source edits were made.`)
+    }
+    for (const entry of resolver.loadEnabledModules().filter((entry) => entry.from === packageName)) {
+      resolveInstalledOfficialModulePackage(resolver, packageName, entry.id)
+    }
+    return await registerResolvedOfficialModule(resolver, modulePackage, packageName, eject, target.locator, true)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Package "${packageName}" is installed; enablement did not complete. Review src/modules.ts and restore the package binding/lockfile through the package manager if needed. ${message}`)
+  }
 }
 
 export async function enableOfficialModule(
@@ -351,8 +410,11 @@ export async function enableOfficialModule(
   eject = false,
   allowThirdParty = false,
 ): Promise<ModuleCommandResult> {
-  assertThirdPartyAllowed(packageName, allowThirdParty)
-
+  getEnabledModuleIdentities(resolver)
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
+  assertThirdPartyAllowed(modulePackage.packageName, allowThirdParty)
+  if (!allowThirdParty && getModuleLocators({ id: modulePackage.metadata.moduleId, from: packageName }, resolver).some((locator) => locator.startsWith('github:'))) {
+    throw new Error('GitHub repository installs require --allow-third-party, independently of the declared npm package scope.')
+  }
   return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
 }

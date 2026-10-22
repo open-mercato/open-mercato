@@ -39,8 +39,9 @@ describe('canonical module dependencies across registries', () => {
     expect(result.errors).toEqual([])
   })
 
-  it.each([generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli])('satisfies npm identity after GitHub module ejection in %p', async (generate) => {
+  it.each([generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli])('satisfies retained npm identity after npm module ejection in %p', async (generate) => {
     const resolver = fixture('npm:@pkarw/marketing_consents@next')
+    resolver.loadEnabledModules()[1].locator = 'npm:@pkarw/marketing_consents'
     const result = await generate({ resolver, quiet: true })
     expect(result.errors).toEqual([])
   })

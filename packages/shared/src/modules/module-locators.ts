@@ -49,15 +49,19 @@ export function resolveModuleRequirement(requirement: string, modules: readonly 
   const parsed = parseModuleLocator(requirement)
   if (!parsed || parsed.kind === 'module') return undefined
   const matches = modules.filter((module) => module.locators?.some((locator) => normalizeModuleLocator(locator) === parsed.identity))
-  if (matches.length === 1) return matches[0].id
-  if (matches.length > 1) return undefined
+  if (matches.length > 0) return matches[0].id
   const repositoryName = requirement.replace(/^github:/i, '')
   if (/^[a-z0-9][a-z0-9._-]*$/i.test(repositoryName)) {
-    const repositories = modules.filter((module) => module.locators?.some((locator) => {
-      const source = parseModuleLocator(locator)
-      return source?.kind === 'github' && source.identity.endsWith(`/${repositoryName.toLowerCase()}`)
-    }))
-    if (repositories.length === 1) return repositories[0].id
+    const repositories = new Map<string, string>()
+    for (const module of modules) {
+      for (const locator of module.locators ?? []) {
+        const source = parseModuleLocator(locator)
+        if (source?.kind === 'github' && source.identity.endsWith(`/${repositoryName.toLowerCase()}`) && !repositories.has(source.identity)) {
+          repositories.set(source.identity, module.id)
+        }
+      }
+    }
+    if (repositories.size === 1) return repositories.values().next().value
   }
   return undefined
 }

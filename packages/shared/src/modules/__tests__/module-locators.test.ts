@@ -39,6 +39,25 @@ describe('module locators', () => {
     expect(resolveModuleRequirement('marketing-consents', [...enabled, { id: 'other', locators: ['github:other/marketing-consents'] }])).toBeUndefined()
   })
 
+  it.each(['npm:@publisher/commerce', 'github:publisher/commerce'])('satisfies package requirement %s through one of its active modules', (locator) => {
+    const enabled = [
+      { id: 'orders', locators: [locator] },
+      { id: 'invoices', locators: [locator] },
+    ]
+    expect(resolveModuleRequirement(locator, enabled)).toBe('orders')
+    expect(resolveModuleRequirement(locator, enabled.slice(1))).toBe('invoices')
+  })
+
+  it('groups shorthand matches by repository rather than exported module ID', () => {
+    const enabled = [
+      { id: 'orders', locators: ['github:publisher/commerce'] },
+      { id: 'invoices', locators: ['github:publisher/commerce'] },
+    ]
+    expect(resolveModuleRequirement('github:commerce', enabled)).toBe('orders')
+    expect(resolveModuleRequirement('commerce', enabled)).toBeUndefined()
+    expect(resolveModuleRequirement('github:commerce', [...enabled, { id: 'other', locators: ['github:other/commerce'] }])).toBeUndefined()
+  })
+
   it.each(['https://example.com/owner/repo', 'npm:', `npm:${'a'.repeat(215)}`, 'npm:@.invalid/package', 'github:owner/repo#bad;ref', 'owner/repo/extra', ' module name ', 'https://github.com/owner/repo/tree/main', 'npm:package@bad;selector', 'npm:package@latest\"'])('rejects malformed %s', (input) => {
     expect(parseModuleLocator(input)).toBeNull()
   })

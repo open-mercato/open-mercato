@@ -1,0 +1,104 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import childProcess from 'node:child_process'
+import spawn from 'cross-spawn'
+import { inspectNpmModuleTarget } from '../module-inspection'
+
+describe('module artifact inspection', () => {
+  let root: string
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-')) })
+  afterEach(() => { jest.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
+
+  it('inspects file packages without executing package scripts or writing app files', () => {
+    const packageRoot = path.join(root, 'candidate')
+    fs.mkdirSync(path.join(packageRoot, 'src/modules/example'), { recursive: true })
+    fs.mkdirSync(path.join(packageRoot, 'dist/modules/example'), { recursive: true })
+    fs.writeFileSync(path.join(packageRoot, 'dist/modules/example/index.js'), 'export const metadata = {}')
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@vendor/example', scripts: { prepare: 'exit 1' } }))
+    fs.writeFileSync(path.join(packageRoot, 'src/modules/example/index.ts'), 'export const metadata = {}')
+    const execute = jest.spyOn(childProcess, 'execFileSync')
+    expect(inspectNpmModuleTarget('@vendor/example@file:./candidate', '@vendor/example', root)).toMatchObject({ moduleIds: ['example'], locator: 'npm:@vendor/example' })
+    expect(execute).not.toHaveBeenCalled()
+    expect(fs.readdirSync(root)).toEqual(['candidate'])
+  })
+
+  it('preserves npm tags while recording the inspected version and disables lifecycle scripts', () => {
+    const execute = jest.spyOn(childProcess, 'execFileSync').mockImplementation((_command, args) => args?.[0] === '-xOf'
+      ? JSON.stringify({ name: '@vendor/example', version: '1.2.3' })
+      : 'package/src/modules/example/index.ts\npackage/dist/modules/example/index.js\n')
+    jest.spyOn(spawn, 'sync').mockImplementation((_command, args) => {
+      expect(args).toEqual(expect.arrayContaining(['pack', '@vendor/example@next', '--ignore-scripts', '--json', '--pack-destination']))
+      return { status: 0, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: '', pid: 1, output: [], signal: null }
+    })
+    expect(inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toEqual({ packageName: '@vendor/example', packageSpec: '@vendor/example@next', version: '1.2.3', moduleIds: ['example'], locator: 'npm:@vendor/example' })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(fs.readdirSync(root)).toEqual([])
+  })
+
+  it('inspects a real file tarball without extracting it or executing entrypoints', () => {
+    const packageRoot = path.join(root, 'package')
+    for (const directory of ['src/modules/example', 'dist/modules/example']) fs.mkdirSync(path.join(packageRoot, directory), { recursive: true })
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@vendor/example', version: '2.3.4' }))
+    fs.writeFileSync(path.join(packageRoot, 'src/modules/example/index.ts'), "throw new Error('must not execute')")
+    fs.writeFileSync(path.join(packageRoot, 'dist/modules/example/index.js'), "throw new Error('must not execute')")
+    const archive = path.join(root, 'candidate.tgz')
+    childProcess.execFileSync('tar', ['-czf', archive, '-C', root, 'package'])
+    fs.rmSync(packageRoot, { recursive: true })
+    expect(inspectNpmModuleTarget('@vendor/example@file:./candidate.tgz', '@vendor/example', root)).toMatchObject({ version: '2.3.4', moduleIds: ['example'] })
+    expect(fs.readdirSync(root)).toEqual(['candidate.tgz'])
+  })
+
+  it('rejects file directories missing compiled descriptors before package installation', () => {
+    const packageRoot = path.join(root, 'candidate')
+    fs.mkdirSync(path.join(packageRoot, 'src/modules/example'), { recursive: true })
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@vendor/example' }))
+    fs.writeFileSync(path.join(packageRoot, 'src/modules/example/index.ts'), 'export const metadata = {}')
+    expect(() => inspectNpmModuleTarget('@vendor/example@file:./candidate', '@vendor/example', root)).toThrow('Build the package')
+  })
+
+  it('rejects packed artifact version disagreement without exposing output', () => {
+    jest.spyOn(childProcess, 'execFileSync').mockImplementation((_command, args) => args?.[0] === '-xOf'
+      ? JSON.stringify({ name: '@vendor/example', version: '9.9.9' })
+      : 'package/src/modules/example/index.ts\npackage/dist/modules/example/index.js\n')
+    jest.spyOn(spawn, 'sync').mockReturnValue({ status: 0, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: '', pid: 1, output: [], signal: null })
+    expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('No package was installed')
+  })
+
+  it('mirrors scoped Yarn registry authentication through a private temporary npmrc', () => {
+    fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'npmScopes: {}')
+    const config: Record<string, unknown> = {
+      npmRegistryServer: 'https://registry.npmjs.org',
+      npmScopes: { vendor: { npmRegistryServer: 'https://private.example.test/npm/' } },
+      npmRegistries: { '//private.example.test/npm': { npmAuthToken: 'test-token-do-not-print' } },
+      npmAuthToken: null,
+      npmAuthIdent: null,
+    }
+    jest.spyOn(childProcess, 'execFileSync').mockImplementation((_command, args) => args?.[0] === '-xOf'
+      ? JSON.stringify({ name: '@vendor/example', version: '1.2.3' })
+      : 'package/src/modules/example/index.ts\npackage/dist/modules/example/index.js\n')
+    let temporaryConfig: string | undefined
+    jest.spyOn(spawn, 'sync').mockImplementation((command, args) => {
+      if (command === 'yarn' || command === 'yarn.cmd') return { status: 0, stdout: JSON.stringify(config[String(args?.[2])]), stderr: '', pid: 1, output: [], signal: null }
+      const values = args ?? []
+      temporaryConfig = String(values[values.indexOf('--userconfig') + 1])
+      expect(fs.statSync(temporaryConfig).mode & 0o777).toBe(0o600)
+      expect(fs.readFileSync(temporaryConfig, 'utf8')).toContain('//private.example.test/npm/:_authToken="test-token-do-not-print"')
+      expect(values).toContain('--@vendor:registry=https://private.example.test/npm/')
+      expect(values.join(' ')).not.toContain('test-token-do-not-print')
+      return { status: 0, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: '', pid: 1, output: [], signal: null }
+    })
+    expect(inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root).version).toBe('1.2.3')
+    expect(temporaryConfig).toBeDefined()
+    expect(fs.existsSync(temporaryConfig!)).toBe(false)
+  })
+
+  it('fails closed on unavailable inspection without exposing private tool output', () => {
+    jest.spyOn(spawn, 'sync').mockImplementation(() => { throw new Error('private registry token') })
+    expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('No package was installed')
+    try { inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root) } catch (error) {
+      expect(String(error)).not.toContain('private registry token')
+    }
+    expect(fs.readdirSync(root)).toEqual([])
+  })
+})

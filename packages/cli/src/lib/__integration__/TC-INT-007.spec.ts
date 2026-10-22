@@ -253,6 +253,8 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       )
       const entries = [
         { id: 'marketing_consents', from: '@app', locator: 'github:pkarw/marketing-consents', packageName: '@pkarw/marketing_consents' },
+        { id: 'npm_consents', from: '@app', locator: 'npm:@pkarw/marketing_consents', packageName: '@pkarw/marketing_consents' },
+        { id: 'npm_core', from: '@app', locator: 'npm:@open-mercato/core', packageName: '@open-mercato/core' },
         { id: 'consent_helper', from: '@app', locator: 'npm:consent-helper' },
         { id: 'consent_tools', from: '@app', locator: 'github:pkarw/consent-tools' },
       ]
@@ -275,7 +277,7 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
         path.join(corePackageDir, 'dist', 'modules', 'repository_tools', 'index.js'),
         "export const metadata = { id: 'repository_tools' }\n",
       )
-      const enabledEntries = [...entries, { id: 'repository_tools', from: '@open-mercato/core' }]
+      const enabledEntries = [...entries, { id: 'repository_tools', from: '@open-mercato/core', locator: 'github:pkarw/installed-tools' }]
       writeFile(path.join(appDir, 'src', 'modules.ts'), `export const enabledModules = ${JSON.stringify(enabledEntries)}\n`)
       runCommand(yarnBinary(), ['install'], appDir)
 
@@ -408,14 +410,14 @@ process.stdout.write(JSON.stringify(value))
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['module', 'eject', 'test_package'], appDir)
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("packageName: '@open-mercato/test-package'")
-      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("locator: 'npm:@open-mercato/test-package'")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).not.toContain("locator: 'npm:@open-mercato/test-package'")
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
 
       writeFile(path.join(appDir, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n")
       fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['eject', 'test_package'], appDir)
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("packageName: '@open-mercato/test-package'")
-      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("locator: 'npm:@open-mercato/test-package'")
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).not.toContain("locator: 'npm:@open-mercato/test-package'")
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("id: 'test_package', from: '@app'")
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })

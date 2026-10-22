@@ -1,3 +1,4 @@
+import { getEnabledModuleIdentities } from '../module-identity'
 import fs from 'node:fs'
 import path from 'node:path'
 import { StructureKind, VariableDeclarationKind } from 'ts-morph'
@@ -34,6 +35,7 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
   const checksumFile = path.join(outputDir, 'di.generated.checksum')
 
   const mods = resolver.loadEnabledModules()
+  getEnabledModuleIdentities(resolver, mods)
   const imports: Array<{ name: string; moduleSpecifier: string }> = []
   const registrars: string[] = []
   let i = 0

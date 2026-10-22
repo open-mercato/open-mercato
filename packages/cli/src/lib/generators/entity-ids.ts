@@ -1,3 +1,4 @@
+import { getEnabledModuleIdentities } from '../module-identity'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
@@ -333,6 +334,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
   const checksumFile = path.join(outputDir, 'entities.ids.generated.checksum')
 
   const entries = resolver.loadEnabledModules()
+  getEnabledModuleIdentities(resolver, entries)
 
   const consolidated: Record<string, Record<string, string>> = {}
   const grouped: Record<GroupKey, Record<string, Record<string, string>>> = {}

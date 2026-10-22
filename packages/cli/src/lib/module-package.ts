@@ -3,12 +3,14 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import ts from 'typescript-js'
 import type { PackageResolver } from './resolver'
+import { normalizeModuleLocator } from '@open-mercato/shared/modules/module-locators'
 
 type PackageJsonRecord = {
   name?: string
   version?: string
   dependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
+  exports?: unknown
 }
 
 export type ModulePackageMetadata = {
@@ -252,7 +254,6 @@ function collectBoundaryViolations(moduleDir: string): string[] {
 
 function findResolvedPackageRoot(
   resolvedPath: string,
-  packageName: string,
 ): string | null {
   let currentPath = fs.statSync(resolvedPath).isDirectory()
     ? resolvedPath
@@ -262,7 +263,7 @@ function findResolvedPackageRoot(
     const packageJsonPath = path.join(currentPath, 'package.json')
     if (fs.existsSync(packageJsonPath)) {
       const packageJson = readPackageJson(packageJsonPath)
-      if (packageJson.name === packageName) {
+      if (typeof packageJson.name === 'string' && normalizeModuleLocator(`npm:${packageJson.name}`) === `npm:${packageJson.name}`) {
         return currentPath
       }
     }
@@ -282,7 +283,7 @@ export function resolveInstalledPackageRootWithRequire(packageName: string, appD
       })
       const packageRoot =
         specifier === packageName
-          ? findResolvedPackageRoot(resolvedPath, packageName)
+          ? findResolvedPackageRoot(resolvedPath)
           : path.dirname(resolvedPath)
 
       if (packageRoot) {
@@ -335,6 +336,83 @@ export function resolveInstalledPackageRoot(
   throw new Error(`Package "${packageName}" is not installed in ${resolver.getAppDir()}.`)
 }
 
+function resolveEsmExportTarget(value: unknown, substitution?: string): string | null | undefined {
+  if (typeof value === 'string') {
+    const target = substitution === undefined ? value : value.replaceAll('*', substitution)
+    if (!target.startsWith('./') || target.slice(2).split('/').some((segment) => ['..', '.', 'node_modules'].includes(segment))) return undefined
+    return target
+  }
+  if (value === null) return null
+  if (Array.isArray(value)) {
+    for (const candidate of value) {
+      const target = resolveEsmExportTarget(candidate, substitution)
+      if (target !== undefined && target !== null) return target
+    }
+    return null
+  }
+  if (value && typeof value === 'object') {
+    for (const [condition, candidate] of Object.entries(value)) {
+      if (!['import', 'node', 'node-addons', 'module-sync', 'default'].includes(condition)) continue
+      const target = resolveEsmExportTarget(candidate, substitution)
+      if (target !== undefined) return target
+    }
+  }
+  return undefined
+}
+
+function resolvePackageSubpathExport(exports: unknown, subpath: string): string | null | undefined {
+  if (!exports || typeof exports !== 'object' || Array.isArray(exports)) return undefined
+  const entries = Object.entries(exports)
+  const direct = entries.find(([key]) => key === subpath)
+  if (direct) return resolveEsmExportTarget(direct[1])
+  const patterns = entries.filter(([key]) => key.startsWith('./') && key.includes('*'))
+    .sort(([left], [right]) => right.indexOf('*') - left.indexOf('*') || right.length - left.length)
+  for (const [pattern, target] of patterns) {
+    const wildcard = pattern.indexOf('*')
+    const prefix = pattern.slice(0, wildcard)
+    const suffix = pattern.slice(wildcard + 1)
+    if (subpath.startsWith(prefix) && subpath.endsWith(suffix) && subpath.length >= prefix.length + suffix.length) {
+      return resolveEsmExportTarget(target, subpath.slice(prefix.length, subpath.length - suffix.length))
+    }
+  }
+  return undefined
+}
+
+function isGeneratedModuleImport(relativePath: string): boolean {
+  const basename = relativePath.replace(/\.(?:[cm]?js|jsx|ts|tsx)$/, '')
+  if (!relativePath.includes('/')) {
+    return new Set(['index', 'acl', 'setup', 'cli', 'runtime', 'ce', 'search', 'events', 'notifications', 'notifications.client', 'notifications.handlers', 'translations', 'encryption', 'ai-tools', 'ai-agents', 'di']).has(basename)
+  }
+  return /^(?:api|backend|frontend|portal|subscribers|workers|widgets|commands)\//.test(relativePath)
+    || /^(?:data|db)\/entities\.(?:[cm]?js|jsx|ts|tsx)$/.test(relativePath)
+    || /^i18n\/[^/]+\.json$/.test(relativePath)
+}
+
+export function isModulePackageExportError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'MODULE_PACKAGE_EXPORT_UNAVAILABLE'
+}
+
+export function assertModulePackageExports(
+  manifest: { exports?: unknown },
+  binding: string,
+  moduleId: string,
+  packageFiles: readonly string[],
+): void {
+  if (manifest.exports === undefined) return
+  const normalizedFiles = new Set(packageFiles.map((file) => file.replaceAll('\\', '/').replace(/^\.\//, '')))
+  const prefix = `dist/modules/${moduleId}/`
+  for (const file of normalizedFiles) {
+    if (!file.startsWith(prefix)) continue
+    const relativePath = file.slice(prefix.length)
+    if (!isGeneratedModuleImport(relativePath) || !/\.(?:[cm]?js|jsx|json)$/.test(relativePath)) continue
+    const publicPath = `./modules/${moduleId}/${relativePath.replace(/\.(?:[cm]?js|jsx)$/, '')}`
+    const target = resolvePackageSubpathExport(manifest.exports, publicPath)
+    if (!target || !normalizedFiles.has(target.slice(2))) {
+      throw Object.assign(new Error(`Package binding "${binding}" cannot import "${binding}/${publicPath.slice(2)}": the package exports do not provide an available ESM target. Keep the current provider and use a package exposing this module subpath before enabling it.`), { code: 'MODULE_PACKAGE_EXPORT_UNAVAILABLE' })
+    }
+  }
+}
+
 export function readOfficialModulePackageFromRoot(
   packageRoot: string,
   expectedPackageName?: string,
@@ -349,6 +427,10 @@ export function readOfficialModulePackageFromRoot(
   const packageName = packageJson.name
   if (!packageName) {
     throw new Error(`Package manifest at ${packageJsonPath} is missing the "name" field.`)
+  }
+
+  if (typeof packageName !== 'string' || normalizeModuleLocator(`npm:${packageName}`) !== `npm:${packageName}`) {
+    throw new Error(`Package manifest at ${packageJsonPath} has an invalid "name" field.`)
   }
 
   if (expectedPackageName && packageName !== expectedPackageName) {
@@ -407,13 +489,32 @@ export function readOfficialModulePackageFromRoot(
   }
 }
 
+function listPackageFiles(packageRoot: string, directory = packageRoot): string[] {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (shouldSkipEntryName(entry.name)) return []
+    const fullPath = path.join(directory, entry.name)
+    return entry.isDirectory() ? listPackageFiles(packageRoot, fullPath) : [path.relative(packageRoot, fullPath)]
+  })
+}
+
 export function resolveInstalledOfficialModulePackage(
   resolver: PackageResolver,
   packageName: string,
   moduleId?: string,
 ): ValidatedOfficialModulePackage {
   const packageRoot = resolveInstalledPackageRoot(resolver, packageName)
-  return readOfficialModulePackageFromRoot(packageRoot, packageName, moduleId)
+  const modulePackage = readOfficialModulePackageFromRoot(packageRoot, undefined, moduleId)
+  const packageFiles = listPackageFiles(packageRoot)
+  assertModulePackageExports(modulePackage.packageJson, packageName, modulePackage.metadata.moduleId, packageFiles)
+  if (modulePackage.packageName !== packageName) {
+    const resolvedBindingRoot = resolveInstalledPackageRootWithRequire(packageName, resolver.getAppDir())
+    const installedBindingPath = path.join('node_modules', packageName)
+    const matchesBindingPath = path.normalize(packageRoot).endsWith(`${path.sep}${installedBindingPath}`)
+    if (!matchesBindingPath && (!resolvedBindingRoot || fs.realpathSync(resolvedBindingRoot) !== fs.realpathSync(packageRoot))) {
+      throw new Error(`Resolved package "${modulePackage.packageName}" does not match requested package binding "${packageName}".`)
+    }
+  }
+  return modulePackage
 }
 
 export function validateEjectBoundaries(modulePackage: ValidatedOfficialModulePackage): void {
