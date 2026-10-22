@@ -4,7 +4,7 @@
 
 Add two immutable value objects to `@open-mercato/shared`. `Currency` holds an ISO 4217 code, the tenant's decimal places and an optional display symbol. `Money` holds an exact decimal from `@open-mercato/shared/lib/decimal` (`big.js`) plus a `Currency`. Both are frozen, branded plain objects, and all operations are free functions shaped for `map`/`reduce`. Arithmetic on two values with different currencies throws. A `Currency` comes only from an async factory that reads `currencyPrecisionService`. Rounding is never implicit: every operation that can produce more digits than its inputs takes the caller's rounding rule.
 
-These are for **new code only**. Migrating existing modules, entities, commands or API payloads is out of scope.
+These are for **new code only**. Migrating existing modules, entities, commands or API payloads is out of scope. Once these objects ship, the project harness (agent instructions, review checklist, standalone-app harness and an advisory diff check) is updated so that every **new** monetary value must use them.
 
 **Depends on** [Arbitrary-Precision Money and FX Rates](2026-10-08-arbitrary-precision-money-and-fx.md) (PR #7324, not yet merged). That PR supplies the decimal toolkit, `ExactDecimalType`, the ISO 4217 minor-unit table and `currencyPrecisionService`. This spec cannot be implemented before #7324 merges.
 
@@ -33,6 +33,7 @@ Since PR #7324, money is an exact decimal string with a currency code stored nex
 | D6 | Serialization: `serializeMoney` → `{ amount: string, currencyCode: string }` and a zod `moneyInputSchema`. Persistence: a `MoneyColumns` MikroORM embeddable that snapshots `amount`, `currency_code` and `currency_decimal_places` | MikroORM hydrates synchronously and cannot call the async factory. The precision snapshot makes hydration synchronous and records the precision the amount was written under |
 | D7 | `Currency.symbol` is an optional display symbol (`$`). The resolver contract gains an optional `getCurrency(lookup)` that returns code, decimal places and symbol in one read | Additive. A resolver that only implements `getDecimalPlaces` still works and yields `symbol: null` |
 | D8 | Lives in `packages/shared/src/lib/money/`, with the embeddable in `packages/shared/src/lib/db/moneyColumns.ts` | Same layer as `decimal.ts` and `ExactDecimalType`. No module depends on another module |
+| D9 | The project harness enforces `Money` for **all new code** that handles monetary values: agent instructions, the review checklist, the standalone-app harness and an advisory diff check | A value object that is optional in practice gets skipped. "New code only" must mean "new code always", or a third money style piles up next to `number` and `<field>Exact` |
 
 ### Alternatives considered
 
@@ -169,6 +170,28 @@ export type CurrencyPrecisionResolver = {
 
 `CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache changes from a decimal-places promise to a `CurrencyDetails` promise, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization.
 
+### Harness enforcement (D9)
+
+Once Phases 1–2 ship, the project harness must make `Money` the required representation for monetary values in new code. Existing code and its `number` / `<field>Exact` contracts are exempt, because migration is out of scope.
+
+**What counts as new code:** a monetary value (an amount tied to a currency) introduced in a PR. That covers:
+- a new entity column, or a new embedded field;
+- a new validator field, command input or service signature;
+- a new API request or response field.
+
+Code that only touches existing money fields does not count.
+
+| Surface | Update |
+|---------|--------|
+| Root `AGENTS.md` | One `Always` line: new monetary values use `Money`/`Currency` from `@open-mercato/shared/lib/money` and persist through `MoneyColumns`. One `Never` line: no new `number` or bare decimal-string money fields, and no new `<field>Exact` pairs. Plus a Task Router row pointing to the shared guide. It must stay within the 32 KB budget (`yarn agents:check-budget`) |
+| `packages/shared/AGENTS.md` | The `lib/money` row (when to use it, the import path, rounding is explicit, `resolveCurrency` only) and the adopter recipe from Phase 2. The `decimal.ts` row says that raw decimal math is for existing `<field>Exact` code and for non-monetary FX math |
+| `.ai/review-checklist.md` (used by `om-code-review` / `om-auto-review-pr`) | Checklist items: new monetary fields use `Money` and `MoneyColumns`; currencies come from `resolveCurrency`; every division, conversion or allocation passes an explicit rounding; a cross-currency operation is not hidden by a `try`/`catch` |
+| Spec-writing guidance (`.ai/specs/AGENTS.md`, the `om-spec-writing` review lens via the repo-local override) | A spec that adds monetary fields states that they use `Money` and lists their `MoneyColumns` |
+| Standalone-app harness (`packages/create-app/agentic/`, refreshed through `om-refresh-standalone-harness`) | The same rule in the generated app's agent instructions and review checklist, so third-party modules get it too. Add a `cases.json` case that checks the guidance is routed |
+| Advisory diff check (`scripts/money-check-new-code.mjs`, `yarn money:check-new-code`) | Flags added lines in a diff that declare new `numeric` money-like columns (`*_amount`, `*_price*`, `*_total*`, `*_cost`, `*_value`, `*_fee`) or new `<field>Exact` keys outside `MoneyColumns`. It is advisory at first, like `i18n:check-hardcoded`, and reads an allowlist (`.ai/money-allowlist.json`) for intentional exceptions such as extending an existing `<field>Exact` contract |
+
+The check is a heuristic. The review checklist and the agent instructions are the actual enforcement. The check only spots likely misses for the reviewer.
+
 ## 📝 Data Models
 
 No existing tables change, and there is no migration. `MoneyColumns` is a reusable embeddable for **new** entities. Each adopter generates its own migration with three columns per money field: `numeric`, `text` and `integer`. Money stays non-sensitive, so no encryption is involved.
@@ -207,7 +230,9 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 | Snapshot precision drifts from the tenant setting | Low | Data | Mixing throws (D3) instead of computing silently. A documented `rescaleMoney` path | Low |
 | Adopters bypass `resolveCurrency` by forging a `MoneyColumns` | Low | API misuse | `moneyFromColumns` validates the code and `decimalPlaces`. The AGENTS.md rule says it is for entity hydration only | Low |
 | PR #7324 changes the decimal toolkit or the resolver type before merging | Medium | Dependency | The draft PR stays draft until #7324 merges, then rebases and re-checks D2/D7 against the merged API | Low |
-| Two money styles coexist (`<field>Exact` vs `Money`) | Low | DX | The `shared` AGENTS.md row states that `Money` is for new code and that existing contracts stay untouched | Accepted |
+| Two money styles coexist (`<field>Exact` vs `Money`) | Low | DX | The `shared` AGENTS.md row states that `Money` is for new code and that existing contracts stay untouched. Phase 3 enforces it for new code | Accepted |
+| The advisory check gives false positives (a non-money `*_value` column) or misses (a money field with an unusual name) | Low | Harness | It stays advisory with an allowlist. The review checklist is the binding gate | Low |
+| The new `AGENTS.md` lines push the root file past the 32 KB budget | Low | Harness | Keep the root to two lines plus a router row, and put the detail in `packages/shared/AGENTS.md` | Low |
 
 Rollback: the change is purely additive with no data migration, so it is reverted by reverting the PR. The optional resolver method can be removed only if no adopter calls `resolveCurrency` with symbols.
 
@@ -215,6 +240,7 @@ Rollback: the change is purely additive with no data migration, so it is reverte
 
 - **Phase 1 — Value objects.** Types, `resolveCurrency` with the resolver extension, the Money functions, errors and serialization. Shippable alone.
 - **Phase 2 — Persistence.** The `MoneyColumns` embeddable and its conversions, plus the documentation rows.
+- **Phase 3 — Harness enforcement.** Agent instructions, review checklist, standalone-app harness and the advisory diff check (D9). It ships after Phases 1–2, because the rules must point at APIs that exist.
 
 ## 📋 Implementation Plan
 
@@ -239,6 +265,13 @@ Rollback: the change is purely additive with no data migration, so it is reverte
 1. Add `lib/db/moneyColumns.ts` (`MoneyColumns`, `moneyToColumns`, `moneyFromColumns`). Add a MikroORM metadata test with `connect: false` and a test-only entity, asserting the prefixed column names and types, and conversion round-trip tests.
 2. Document the adopter recipe (embed, prefix, migration, command-boundary conversion) in `packages/shared/AGENTS.md` and in `apps/docs` under the data-integrity docs.
 
+### Phase 3 — Harness enforcement
+
+1. Update root `AGENTS.md` (`Always`/`Never` lines and a Task Router row) and `packages/shared/AGENTS.md`. Run `yarn agents:check-budget`.
+2. Add the `Money` items to `.ai/review-checklist.md`, and the spec-writing rule to `.ai/specs/AGENTS.md`.
+3. Add `scripts/money-check-new-code.mjs`, the `yarn money:check-new-code` script and `.ai/money-allowlist.json`. Tests: fixture diffs that must flag a new `numeric` amount column and a new `<field>Exact` key, and must not flag `MoneyColumns` or allowlisted paths.
+4. Mirror the rule into the standalone-app harness with `om-refresh-standalone-harness`, add a `cases.json` routing case, and run the harness checks.
+
 Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace @open-mercato/core test` for Step 1.1, then `yarn typecheck` and `yarn lint`.
 
 ## 📝 Final Compliance Report
@@ -255,3 +288,4 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 ## 📝 Changelog
 
 - 2026-10-22 — Initial draft.
+- 2026-10-22 — Added D9 and Phase 3: harness enforcement of `Money` for all new monetary code.
