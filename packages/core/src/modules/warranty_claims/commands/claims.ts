@@ -68,6 +68,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   requireScopedClaim,
+  throwUndoRefusal,
   type WarrantyClaimScope,
 } from './shared'
 
@@ -268,7 +269,7 @@ function hasOwn(input: object, key: string): boolean {
 }
 
 function resolveScope(ctx: CommandRuntimeContext, input: ScopeInput): WarrantyClaimScope {
-  const tenantId = input.tenantId ?? ctx.auth?.tenantId ?? null
+  const tenantId = input.tenantId ?? ctx.auth?.tenantId ?? ctx.organizationScope?.tenantId ?? null
   const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   if (!tenantId) throw new CrudHttpError(400, { error: '[internal] tenant scope required for warranty claim command' })
   if (!organizationId) throw new CrudHttpError(400, { error: '[internal] organization scope required for warranty claim command' })
@@ -628,8 +629,8 @@ function restoreLineDelta(line: WarrantyClaimLine, before: ClaimLineSnapshot, af
   line.updatedAt = new Date()
 }
 
-function throwClaimUndoConflict(): never {
-  throw new CrudHttpError(409, { error: 'warranty_claims.errors.conflict' })
+function throwClaimUndoConflict(): Promise<never> {
+  return throwUndoRefusal('warranty_claims.errors.conflict', 'This claim changed while you were editing it.')
 }
 
 async function requireCurrentUndoSnapshot(
@@ -645,7 +646,7 @@ async function requireCurrentUndoSnapshot(
     scope,
   )
   const expectedClaimUpdatedAt = toIso(after.updatedAt)
-  if (!claim || !expectedClaimUpdatedAt || toIso(claim.updatedAt) !== expectedClaimUpdatedAt) throwClaimUndoConflict()
+  if (!claim || !expectedClaimUpdatedAt || toIso(claim.updatedAt) !== expectedClaimUpdatedAt) return throwClaimUndoConflict()
   const lines = await findWithDecryption(
     em,
     WarrantyClaimLine,
@@ -654,12 +655,12 @@ async function requireCurrentUndoSnapshot(
     scope,
   )
   const afterLines = Array.isArray(after.lines) ? after.lines : []
-  if (lines.length !== afterLines.length) throwClaimUndoConflict()
+  if (lines.length !== afterLines.length) return throwClaimUndoConflict()
   const afterLinesById = new Map(afterLines.map((line) => [line.id, line]))
   for (const line of lines) {
     const expected = afterLinesById.get(line.id)
     const expectedLineUpdatedAt = toIso(expected?.updatedAt)
-    if (!expectedLineUpdatedAt || toIso(line.updatedAt) !== expectedLineUpdatedAt) throwClaimUndoConflict()
+    if (!expectedLineUpdatedAt || toIso(line.updatedAt) !== expectedLineUpdatedAt) return throwClaimUndoConflict()
   }
   return { claim, lines }
 }
@@ -679,7 +680,7 @@ async function restoreSnapshot(em: EntityManager, before: ClaimSnapshot, after: 
   for (const line of lines) {
     const beforeLine = beforeLinesById.get(line.id)
     const afterLine = afterLinesById.get(line.id)
-    if (!beforeLine || !afterLine) throwClaimUndoConflict()
+    if (!beforeLine || !afterLine) return throwClaimUndoConflict()
     if (snapshotValueChanged(beforeLine, afterLine)) restoreLineDelta(line, beforeLine, afterLine)
   }
   return claim
@@ -1690,7 +1691,7 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
@@ -1754,7 +1755,7 @@ const deleteClaimCommand: CommandHandler<ClaimDeleteInput, { claimId: string }> 
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
@@ -1939,7 +1940,7 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
@@ -2043,7 +2044,7 @@ const setReturnLabelCommand: CommandHandler<ClaimSetReturnLabelInput, ClaimSetRe
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let claim!: WarrantyClaim
     await withAtomicFlush(em, [
@@ -2522,7 +2523,7 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     await assertUndoSnapshotCurrent(ctx, after)
     const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const salesReturn = payload?.salesReturn ?? null
@@ -2911,7 +2912,7 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     await assertUndoSnapshotCurrent(ctx, after)
     const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const creditMemo = payload?.creditMemo ?? null
@@ -3275,7 +3276,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
     const before = payload?.before
     if (!before) return
     const after = payload?.after
-    if (!after) throwClaimUndoConflict()
+    if (!after) return throwClaimUndoConflict()
     await assertUndoSnapshotCurrent(ctx, after)
     const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const replacementOrder = payload?.replacementOrder ?? null

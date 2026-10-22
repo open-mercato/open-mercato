@@ -161,6 +161,13 @@ themselves — that would bypass every control below in a single step.
   the sandbox cannot start the adapter refuses to launch and says how to fix the
   container, rather than quietly falling back; `OM_WEB_RESEARCH_BROWSER_NO_SANDBOX=1`
   is the explicit, logged opt-out for environments that genuinely cannot.
+- **The browser tier's egress is restricted to public addresses.** Chromium
+  sends every connection through a loopback egress proxy that vets each
+  connection and pins it to the vetted address. That covers redirect hops,
+  WebSockets, worker traffic, and a host whose DNS answer changes between
+  connections. Subresources are always filtered and service workers are blocked.
+  WebRTC is limited to the proxy and QUIC is off. A render that ends on a
+  non-public URL returns an error instead of the page. There is no opt-out.
 
 ## Live status
 
