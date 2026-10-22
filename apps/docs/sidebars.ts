@@ -407,6 +407,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
+            "framework/modules/integrations-oauth-grants",
             "framework/modules/sales-providers",
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
