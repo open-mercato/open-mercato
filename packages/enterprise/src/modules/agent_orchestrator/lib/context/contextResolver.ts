@@ -28,6 +28,7 @@ import {
 import type { DocumentIngestInput, DocumentIngestService } from './documentIngest'
 import { redactRecord, staticEncryptedFieldNames } from './redactor'
 import { defaultEncryptionMaps } from '../../encryption'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 /**
  * Minimal slice of `TenantDataEncryptionService` the redactor consults — only the
@@ -294,7 +295,7 @@ export class ContextResolverImpl implements ContextResolver {
       payloadRef: null,
     })
     em.persist(bundle)
-    await em.flush()
+    await withRuntimeAuditWrite(() => em.flush())
 
     return { bundle, payloadRef: bundle.payloadRef ?? null, untrustedSpans, citableSources }
   }

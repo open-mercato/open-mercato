@@ -5,6 +5,7 @@ import { createArtifactOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { invalidateAgentRunCache } from '../crudCache'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
@@ -194,9 +195,11 @@ export async function captureNativeRunTrace(
   if (!isNativeTraceCaptureEnabled()) return
   try {
     const em = (container.resolve('em') as EntityManager).fork()
-    const result = await ingestTrace(em, scope, buildNativeTracePayload(input), {
-      offloadArtifact: createArtifactOffloader(container, scope),
-    })
+    const result = await withRuntimeAuditWrite(() =>
+      ingestTrace(em, scope, buildNativeTracePayload(input), {
+        offloadArtifact: createArtifactOffloader(container, scope),
+      }),
+    )
     await invalidateAgentRunCache(
       container as Parameters<typeof invalidateAgentRunCache>[0],
       { id: result.runId, tenantId: scope.tenantId, organizationId: scope.organizationId },
@@ -207,7 +210,7 @@ export async function captureNativeRunTrace(
     // the same EM. Without this, native runs never get an eval verdict or a golden
     // comparison — only OpenCode runs did. The async llm_judge tier stays on the
     // command path. Best-effort: wrapped by the outer try so it never fails the run.
-    await evaluateRun(em, scope, result.runId)
+    await withRuntimeAuditWrite(() => evaluateRun(em, scope, result.runId))
   } catch (err) {
     logger.warn('native trace capture failed for run', {
       runId: input.runId,

@@ -20,6 +20,7 @@ import { runScorer } from './registry'
 import { createModelJudge, runLlmJudgeForRun } from './llmJudge'
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -278,6 +279,7 @@ async function scoreCaseRun(
     )
     verdicts.push({ severity: entry.assertion.severity, passed: verdict.passed, score: verdict.score })
   }
+  await withRuntimeAuditWrite(() => em.flush())
 
   const applied = verdicts.filter((entry) => entry.passed !== null)
   const gate = applied.filter((entry) => entry.severity === 'gate')

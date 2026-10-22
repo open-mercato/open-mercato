@@ -14,6 +14,7 @@ import {
   scoreVerdict,
   type JudgeRubric,
 } from './judgeRubric'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 export const judgeVerdictSchema = z.object({
   /** `null` means the judge skipped — excluded from aggregation, never a failure. */
@@ -168,7 +169,7 @@ export async function runLlmJudgeForRun(
     )
     judged += 1
   }
-  await em.flush()
+  await withRuntimeAuditWrite(() => em.flush())
 
   return { judged, skipped }
 }

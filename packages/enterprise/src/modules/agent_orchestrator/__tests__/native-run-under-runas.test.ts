@@ -7,10 +7,9 @@
 // swallow their errors, so a run that merely does not throw proves nothing.
 //
 // Identity spec Phase 0 (2026-10-21-agent-invocation-access-and-identity-binding):
-// today the runtime's own append-only audit writes are not inside any scope the
-// guard admits, so the principal-bound run throws at the pass/warn guardrail
-// persist and loses its context bundle, spans, tool calls and eval results. The
-// `it.failing` cases below encode that; the runtime-audit write scope flips them.
+// the runtime's own append-only audit writes run inside the runtime-audit write
+// scope, so the principal-bound run persists every audit row while a domain
+// write reaching a wrapped site still fails closed.
 
 import { randomUUID } from 'node:crypto'
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
@@ -45,7 +44,9 @@ import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../li
 import { registerContextModule, entityProvenance } from '../lib/context/registry'
 import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
 import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
-import { AgentWriteBypassError } from '../lib/identity/agentNoBypassSubscriber'
+import { AgentWriteBypassError, registerAgentKindNoBypassSubscriber } from '../lib/identity/agentNoBypassSubscriber'
+import { withAgentActor } from '../lib/identity/agentWriteScope'
+import { persistVerdict, GUARDRAIL_SET_VERSION } from '../lib/guardrails/guardrailService'
 import {
   AgentContextBundle,
   AgentEvalAssertion,
@@ -432,47 +433,79 @@ describe('native run without a principal (harness control)', () => {
 })
 
 describe('native run under runAs (agent principal on behalf of a human)', () => {
-  it.failing(
-    'persists every runtime audit row without tripping the no-bypass guard (fixed by the runtime-audit write scope)',
-    async () => {
-      const orm = createFakeOrm()
-      seedOnlineEval(orm)
+  it('persists every runtime audit row without tripping the no-bypass guard', async () => {
+    const orm = createFakeOrm()
+    seedOnlineEval(orm)
 
-      const result = await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, runAsCtx)
+    const result = await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, runAsCtx)
 
-      expect(result.kind).toBe('research')
-      expectEveryAuditRow(orm)
-    },
-  )
+    expect(result.kind).toBe('research')
+    expectEveryAuditRow(orm)
+  })
 
-  it('today: throws AgentWriteBypassError at the pass/warn guardrail persist and loses the audit rows (until the runtime-audit write scope lands)', async () => {
+  it('completes the run and logs no context-assembly or trace-capture failure', async () => {
     const orm = createFakeOrm()
     seedOnlineEval(orm)
     const logs = captureLogs()
 
-    let thrown: unknown
     try {
       await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, runAsCtx)
-    } catch (err) {
-      thrown = err
     } finally {
       logs.restore()
     }
 
-    expect(thrown).toBeInstanceOf(AgentWriteBypassError)
-    expect((thrown as Error).message).toContain('operation=create')
-    expect((thrown as Error).message).toContain('entity=AgentGuardrailCheck')
+    const warnings = logs.at('warn').map((record) => record.message)
+    expect(warnings).not.toContain('context assembly failed')
+    expect(warnings).not.toContain('native trace capture failed for run')
+    expect(JSON.stringify(logs.at('warn'))).not.toContain('agent_write_bypass')
+    expect(onlyRun(orm).status).toBe('ok')
+  })
 
-    const contextWarning = logs.at('warn').find((record) => record.message === 'context assembly failed')
-    expect(JSON.stringify(contextWarning)).toContain('entity=AgentContextBundle')
+  it('fails the run cleanly when the final guardrail persistence throws unexpectedly', async () => {
+    const orm = createFakeOrm()
+    seedOnlineEval(orm)
+    const persistFailure = new Error('[internal] guardrail store unavailable')
+    orm.em.getEventManager().registerSubscriber({
+      beforeCreate(args: EventArgs<unknown>) {
+        const className = (args.meta as { className?: string } | undefined)?.className
+        if (className === AgentGuardrailCheck.name) throw persistFailure
+      },
+    })
+
+    await expect(createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, runAsCtx)).rejects.toBe(persistFailure)
 
     const run = onlyRun(orm)
-    const runId = String(run.id)
-    expect(run.status).toBe('running')
-    expect(rowsForRun(orm, AgentGuardrailCheck, runId)).toHaveLength(0)
-    expect(rowsForRun(orm, AgentContextBundle, runId)).toHaveLength(0)
-    expect(rowsForRun(orm, AgentSpan, runId)).toHaveLength(0)
-    expect(rowsForRun(orm, AgentToolCall, runId)).toHaveLength(0)
-    expect(rowsForRun(orm, AgentEvalResult, runId)).toHaveLength(0)
+    expect(run.status).toBe('error')
+    expect(run.errorMessage).toBe(persistFailure.message)
+    expect(orm.rows(AgentProposal)).toHaveLength(0)
+    expect(rowsForRun(orm, AgentSpan, String(run.id)).length).toBeGreaterThan(0)
+  })
+
+  it('does not launder a domain write pending at a wrapped site: the flush still fails closed', async () => {
+    const orm = createFakeOrm()
+    registerAgentKindNoBypassSubscriber(orm.em)
+    const em = orm.em.fork()
+    const DomainDeal = class DomainDeal {}
+    em.persist(em.create(DomainDeal, { tenantId: TENANT, organizationId: ORG, title: 'tampered' }))
+
+    const attempt = withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, () =>
+      persistVerdict(
+        { em: em as never, emit: async () => undefined },
+        { tenantId: TENANT, organizationId: ORG, agentRunId: randomUUID() },
+        {
+          verdict: {
+            result: 'pass',
+            checks: [{ kind: 'schema', result: 'pass', guardrailSetVersion: GUARDRAIL_SET_VERSION }],
+          },
+          capability: AGENT_ID,
+          phase: 'output',
+        },
+      ),
+    )
+
+    await expect(attempt).rejects.toBeInstanceOf(AgentWriteBypassError)
+    await expect(attempt).rejects.toThrow('entity=DomainDeal')
+    expect(orm.rows(DomainDeal)).toHaveLength(0)
+    expect(orm.rows(AgentGuardrailCheck)).toHaveLength(0)
   })
 })
