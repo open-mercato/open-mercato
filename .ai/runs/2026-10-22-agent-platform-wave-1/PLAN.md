@@ -33,7 +33,7 @@
 | 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | done | bbd5704be |
 | 3 | 3.5 | Run agent tools with their own mutation policy in approval mode | dispatch | done | adae6763c |
 | 3 | 3.6 | Add the approver feature and backoffice approval notifications | dispatch | done | ad5c89b8f |
-| 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | todo | — |
+| 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | done | a6929832a |
 | 3 | 3.8 | Add the Pending AI actions backend page with nav badge | dispatch:capable | todo | — |
 | 3 | 3.9 | Document MCP exposure, audit and approval mode with integration tests | dispatch | todo | — |
 | 4 | 4.1 | Cover a full native agent run under runAs | dispatch:capable | todo | — |
