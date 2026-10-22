@@ -9,10 +9,10 @@ import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest } from './auth'
+import { describeMcpExposureConfig, filterToolsForCaller, resolveMcpExposureConfig } from './mcp-exposure'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 
 const formatStderrError = (error: unknown): string =>
@@ -27,6 +27,7 @@ const writeStderrLine = (line: string): void => {
  */
 export async function createMcpServer(options: McpServerOptions): Promise<Server> {
   const { config, container, context, allowUnauthenticatedSuperadmin } = options
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
 
   // Treat empty / whitespace-only secrets as missing so a blank api key cannot
   // fall through into an unauthenticated branch.
@@ -117,15 +118,11 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const registry = getToolRegistry()
     const tools = Array.from(registry.getTools().values())
 
-    // Filter tools based on user permissions
-    const rbacService = container.resolve<RbacService>('rbacService')
-    const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, userFeatures, isSuperAdmin, rbacService)
-    )
+    const accessibleTools = filterToolsForCaller(tools, exposureConfig, { features: userFeatures, isSuperAdmin })
 
     if (config.debug) {
       writeStderrLine(
-        `[MCP Server] Listing ${accessibleTools.length}/${tools.length} tools (filtered by ACL)`
+        `[MCP Server] Listing ${accessibleTools.length}/${tools.length} tools (filtered by exposure config and ACL)`
       )
     }
 
@@ -216,7 +213,8 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     writeStderrLine('[MCP Server] Search indexing skipped (search service not available)')
   }
 
-  const server = await createMcpServer(options)
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
+  const server = await createMcpServer({ ...options, exposureConfig })
   const transport = new StdioServerTransport()
 
   const toolCount = getToolRegistry().listToolNames().length
@@ -234,6 +232,11 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   }
 
   writeStderrLine(`[MCP Server] Tools registered: ${toolCount}`)
+  writeStderrLine(
+    `[MCP Server] Exposure config: ${JSON.stringify(
+      describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())),
+    )}`
+  )
 
   await server.connect(transport)
 

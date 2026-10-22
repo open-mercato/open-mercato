@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
+import type { McpExposureConfig } from './mcp-exposure'
 
 /**
  * Execution context for MCP tool calls.
@@ -248,6 +249,8 @@ export interface McpServerOptions {
    * instead of silently escalating to superadmin. NEVER enable in production.
    */
   allowUnauthenticatedSuperadmin?: boolean
+  exposureConfig?: McpExposureConfig
+  cliArgs?: Record<string, unknown>
 }
 
 /**

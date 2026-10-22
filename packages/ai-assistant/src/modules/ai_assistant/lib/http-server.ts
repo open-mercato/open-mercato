@@ -14,6 +14,7 @@ import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import {
   filterToolsForCaller,
   isToolExposed,
+  describeMcpExposureConfig,
   resolveMcpExposureConfig,
   type McpExposureCaller,
   type McpExposureConfig,
@@ -609,13 +610,7 @@ export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOption
 }
 
 function logExposureConfig(exposureConfig: McpExposureConfig): void {
-  logger.info('MCP exposure config', {
-    allowlist: exposureConfig.allow ? exposureConfig.allow.join(',') : null,
-    denylist: exposureConfig.deny.join(','),
-    mutationMode: exposureConfig.mutationMode,
-    includeAgentTools: exposureConfig.includeAgentTools,
-    exposedToolCount: listExposedTools(exposureConfig).length,
-  })
+  logger.info('MCP exposure config', describeMcpExposureConfig(exposureConfig, listRegistryTools()))
 }
 
 /**

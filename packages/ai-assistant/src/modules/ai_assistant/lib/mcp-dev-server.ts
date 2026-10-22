@@ -6,13 +6,18 @@ import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
+import {
+  describeMcpExposureConfig,
+  filterToolsForCaller,
+  resolveMcpExposureConfig,
+  type McpExposureConfig,
+} from './mcp-exposure'
 import { jsonSchemaToZod } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
 import type { McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('ai_assistant')
 
@@ -60,11 +65,12 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
  * Create MCP server with tools pre-authenticated for dev use.
  * No session tokens required - uses API key authentication directly.
  */
-function createDevMcpServer(
+export function createDevMcpServer(
   toolContext: McpToolContext,
   authFeatures: string[],
   isSuperAdmin: boolean,
-  debug: boolean
+  debug: boolean,
+  exposureConfig: McpExposureConfig = resolveMcpExposureConfig(process.env)
 ): McpServer {
   const server = new McpServer(
     { name: 'open-mercato-mcp-dev', version: '0.1.0' },
@@ -74,14 +80,10 @@ function createDevMcpServer(
   const registry = getToolRegistry()
   const tools = Array.from(registry.getTools().values())
 
-  // Filter tools based on API key permissions
-  const rbacService = toolContext.container.resolve<RbacService>('rbacService')
-  const accessibleTools = tools.filter((tool) =>
-    hasRequiredFeatures(tool.requiredFeatures, authFeatures, isSuperAdmin, rbacService)
-  )
+  const accessibleTools = filterToolsForCaller(tools, exposureConfig, { features: authFeatures, isSuperAdmin })
 
   if (debug) {
-    log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by API key permissions)`)
+    log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by exposure config and API key permissions)`)
   }
 
   for (const tool of accessibleTools) {
@@ -168,7 +170,13 @@ function createDevMcpServer(
  *
  * Configure in .mcp.json for Claude Code with HTTP transport.
  */
-export async function runMcpDevServer(): Promise<void> {
+export type McpDevServerOptions = {
+  exposureConfig?: McpExposureConfig
+  cliArgs?: Record<string, unknown>
+}
+
+export async function runMcpDevServer(options: McpDevServerOptions = {}): Promise<void> {
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
   const apiKey = await getApiKeyFromMcpJson()
   const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
   const debug = process.env.MCP_DEBUG === 'true'
@@ -220,6 +228,10 @@ export async function runMcpDevServer(): Promise<void> {
   // Load tools
   log('Loading tools...')
   await loadAllModuleTools()
+  log(
+    'MCP exposure config:',
+    JSON.stringify(describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())))
+  )
 
   // Generate and cache entity graph
   try {
@@ -342,7 +354,13 @@ export async function runMcpDevServer(): Promise<void> {
       })
 
       // Create server with pre-authenticated context (no session tokens needed)
-      const mcpServer = createDevMcpServer(toolContext, authResult.features, authResult.isSuperAdmin, debug)
+      const mcpServer = createDevMcpServer(
+        toolContext,
+        authResult.features,
+        authResult.isSuperAdmin,
+        debug,
+        exposureConfig
+      )
 
       // Connect server to transport
       await mcpServer.connect(transport)

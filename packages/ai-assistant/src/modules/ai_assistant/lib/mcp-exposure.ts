@@ -122,3 +122,24 @@ export function filterToolsForCaller<TTool extends McpExposableTool>(
       hasRequiredFeatures(tool.requiredFeatures, caller.features, caller.isSuperAdmin),
   )
 }
+
+export type McpExposureDescription = {
+  allowlist: string | null
+  denylist: string
+  mutationMode: McpMutationMode
+  includeAgentTools: boolean
+  exposedToolCount: number
+}
+
+export function describeMcpExposureConfig(
+  config: McpExposureConfig,
+  tools: McpExposableTool[],
+): McpExposureDescription {
+  return {
+    allowlist: config.allow ? config.allow.join(',') : null,
+    denylist: config.deny.join(','),
+    mutationMode: config.mutationMode,
+    includeAgentTools: config.includeAgentTools,
+    exposedToolCount: tools.filter((tool) => isToolExposed(tool, config)).length,
+  }
+}
