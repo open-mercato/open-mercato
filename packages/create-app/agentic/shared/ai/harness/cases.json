@@ -16488,8 +16488,7 @@
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
         "node_modules/@open-mercato/shared/AGENTS.md",
-        "src/modules/example/README.md",
-        "src/modules/example/references/surface-inventory.json"
+        "src/modules/example/README.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",

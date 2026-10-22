@@ -54,7 +54,6 @@ const required = [
   '.ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md',
   'node_modules/@open-mercato/shared/AGENTS.md',
   'src/modules/example/README.md',
-  'src/modules/example/references/surface-inventory.json',
 ]
 type LibraryCase = {
   id: string

@@ -139,6 +139,7 @@ function stageApp(): string {
     cli: ['src/lib/module-install.ts', 'src/lib/module-identity.ts', 'src/lib/eject.ts'],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
     shared: [
+      'AGENTS.md',
       'src/lib/commands/types.ts',
       'src/lib/commands/registry.ts',
       'src/lib/commands/runCrudCommandWrite.ts',
@@ -396,7 +397,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
     'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
-    'OMH-182',
+    'OMH-182', 'OMH-185',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
@@ -451,7 +452,7 @@ test('backend page cases pin module-owned auto-discovered placement, never the a
 
   const guide = fs.readFileSync(path.join(guidesRoot, 'backend-ui.md'), 'utf8')
   assert.match(guide, /src\/modules\/<id>\/backend\/\*\*\/page\.tsx/, 'backend-ui guide must show module-relative backend page paths')
-  assert.match(guide, /Never place a `page\.tsx`/, 'backend-ui guide must forbid app-route-group page placement')
+  assert.match(guide, /Never (?:place|put) [^\n]*`page\.tsx`[^\n]*`src\/app\/\(backend\)\/\*\*`[^\n]*`src\/app\/\(frontend\)\/\*\*`/, 'backend-ui guide must forbid app-route-group page placement')
 })
 
 test('runner selection distinguishes explicit primary all-cases from the default portability sample', async () => {
