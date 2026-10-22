@@ -137,7 +137,7 @@ Record the owner and evidence for each item. Do not paste secret values into tic
 Run the [Open Mercato Readiness Scanner](./readiness-scanner) against your standalone app locally before deployment, then inside the staging and production workloads before serving traffic:
 
 ```bash
-npx --yes mercato-readiness-scanner scan . --fail-on high
+npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high
 ```
 
 Scanning is read-only. Credential checks are always enabled: supported root `.env*` files, visible runtime credentials, and supported Compose settings are assessed in memory without exposing values in findings. A strong injected secret does not hide an unsafe value still present in a deployed environment file. Resolve weak/default credentials and use runtime secret injection rather than shipping plaintext secret files.

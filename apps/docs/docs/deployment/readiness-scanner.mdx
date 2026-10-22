@@ -55,12 +55,12 @@ Open a shell or an audit job **inside the application service/container**, using
 
 ```bash
 cd /path/to/deployed-standalone-app
-npx --yes mercato-readiness-scanner scan . --fail-on high --no-color
+npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high --no-color
 ```
 
 Run this separately in staging and production. A scan over SSH on the host, or in a local shell with provider variables, does not automatically inspect a running container's environment. Likewise, a passing CI scan does not establish that the deployed service has the same secrets. If workers use different credentials, scan their workload context too.
 
-The deployed scan still needs the standalone app markers described above. A slim runtime image without `src/modules.ts` or the relevant package metadata will be rejected, rather than treated as ready. Provide an appropriate audit workload with the exact release source/metadata mounted read-only and the environment it is authorized to inspect. Do not copy production secrets into a source checkout to make a scan work. Ensure Node.js 24+ and the scanner are available in that workload before the release window.
+The deployed scan still needs the standalone app markers described above. A slim runtime image without `src/modules.ts` or the relevant package metadata will be rejected, rather than treated as ready. Provide an appropriate audit workload with the exact release source/metadata mounted read-only and the environment it is authorized to inspect. Do not copy production secrets into a source checkout to make a scan work. Ensure Node.js 24+ and the pinned scanner are available in that workload before the release window.
 
 Use `scan` on servers. Make fixes in the source checkout or deployment secret configuration, review them, deploy a new artifact, and scan again.
 
@@ -128,10 +128,12 @@ Reports contain remediation guidance and redacted evidence. Keep them in an acce
 Run this before deployment, after preparing the exact release checkout and installing Node.js 24+:
 
 ```bash
-npx --yes mercato-readiness-scanner scan . \
+npx --yes mercato-readiness-scanner@0.2.2 scan . \
   --fail-on high --no-color \
   --markdown /tmp/readiness.md --json /tmp/readiness.json
 ```
+
+Keep this version aligned with the scanner release validated for your deployment, and review rule changes before updating it.
 
 Reports are saved before applying the severity exit code. Configure your CI to retain them on failure with appropriate access controls. Do not make this gate continue on error if it is intended to block deployment.
 
