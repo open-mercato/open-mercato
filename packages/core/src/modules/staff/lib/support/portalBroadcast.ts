@@ -103,12 +103,12 @@ export async function publishTaskPortalStatus(
   const portalStatus = derivePortalStatus(status)
   const unchanged = ticket.portalStatusPublished === portalStatus
   if (unchanged && !options.always) return false
+  await emitPortalUpdate(em, task, ticket, portalStatus, 'status', task.updatedAt ? task.updatedAt.toISOString() : task.id)
   if (!unchanged) {
     ticket.portalStatusPublished = portalStatus
     ticket.updatedAt = new Date()
     await em.flush()
   }
-  await emitPortalUpdate(em, task, ticket, portalStatus, 'status', task.updatedAt ? task.updatedAt.toISOString() : task.id)
   emitActivity(task, ticket, 'portal_status')
   return true
 }

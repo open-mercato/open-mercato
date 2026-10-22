@@ -212,6 +212,32 @@ describe('fanOutStatusColumn', () => {
     expect(world.tickets.every((row) => row.portalStatusPublished === 'resolved')).toBe(true)
   })
 
+  it.each([
+    ['recipient resolution', () => mockResolvePortalRecipients.mockRejectedValueOnce(new Error('[internal] recipients unavailable'))],
+    ['the portal update emit', () => mockEmitStaffEvent.mockRejectedValueOnce(new Error('[internal] bus unavailable'))],
+  ])('keeps the dedup marker when %s fails, so the subscriber retry still publishes', async (_label, failOnce) => {
+    const world: World = {
+      tasks: [task('t1', 'done')],
+      tickets: [ticket('t1', 'in_progress')],
+      statuses: [{ id: 'done', isDefault: false, isDone: true }],
+    }
+    const { em, flush } = makeEm(world)
+    failOnce()
+
+    await expect(fanOutStatusColumn(em, 'done', SCOPE)).rejects.toThrow('[internal]')
+
+    expect(world.tickets[0].portalStatusPublished).toBe('in_progress')
+    expect(flush).not.toHaveBeenCalled()
+    mockEmitStaffEvent.mockClear()
+
+    await expect(fanOutStatusColumn(em, 'done', SCOPE)).resolves.toBe(1)
+
+    expect(portalUpdates()).toHaveLength(1)
+    expect(portalUpdates()[0][1]).toEqual(expect.objectContaining({ portalStatus: 'resolved', kind: 'status' }))
+    expect(world.tickets[0].portalStatusPublished).toBe('resolved')
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+
   it('stops after one query on an empty column', async () => {
     const { em, findCalls } = makeEm({ tasks: [], tickets: [], statuses: [] })
     await expect(fanOutStatusColumn(em, 'done', SCOPE)).resolves.toBe(0)
