@@ -14,3 +14,12 @@
 
 ## 2026-10-22T11:19:34Z — subagent delegation
 - Two read-only Explore agents verified spec code facts against upstream main (MCP P1–P3; chat P1, identity P0, eval P1, document P1–P2).
+
+## 2026-10-22T14:34:48Z — checkpoint 1
+- Steps 0.1..1.5 verified: ai-assistant jest 1629/1629, build:packages, generate (no drift), typecheck 39/39. UI pass skipped (no UI in window).
+- Decision: invalid `--mutation-mode` is rejected by the CLI and an invalid `OM_MCP_MUTATION_MODE` logs a startup WARN, so a typo cannot silently disable approval.
+- Decision: PLAN.md Commit cells are corrected to final SHAs at each checkpoint.
+- Blocker (process): pushes to the PR branch are denied by the local permission policy; user pushes manually.
+
+## 2026-10-22T14:34:48Z — subagent delegation
+- Steps 1.1–1.5 implemented by sequential executor subagents (default tier).

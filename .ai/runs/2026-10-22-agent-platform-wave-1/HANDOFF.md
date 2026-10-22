@@ -1,24 +1,25 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-22T11:19:34Z
+**Last updated:** 2026-10-22T14:34:48Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 0 Step 0.1
-**Last commit:** 0b5c4b55e — docs(specs): agent platform capabilities specs and roadmap
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** bed3a53a3 — feat(ai-assistant): add MCP exposure CLI flags and an effective tool listing
 
 ## What just happened
-- Generic specs committed on top of upstream main; triage of all wave-1 phases against upstream code done (findings in PLAN.md Risks and Step 0.1).
+- Phase 1 (MCP exposure: resolver, typed tool fields, filtered tools/list on HTTP/dev/stdio, CLI flags with mutation-mode validation) landed and passed checkpoint 1.
 
 ## Next concrete action
-- Step 0.1 — align the wave-1 specs with the upstream code facts found in triage.
+- Step 2.1 — add the best-effort MCP tool-call audit writer (`lib/mcp-audit.ts`).
 
 ## Blockers / open questions
-- none
+- Pushes to `upstream` are blocked by the local auto-mode policy; the user pushes batches manually.
 
 ## Environment caveats
-- Dev runtime runnable: unknown
-- Browser / UI checks: not yet attempted
-- Database/migration state: clean (no local migrations applied)
+- Dev runtime runnable: unknown (not started)
+- Browser / UI checks: not needed yet
+- Database/migration state: clean
+- Package-level `tsc -p` sees no inputs inside this worktree path; use `yarn typecheck` (turbo).
 
 ## Worktree
 - Path: /Users/pat-lewczuk/projects/open-mercato-demo/.ai/tmp/om-auto-create-pr-loop/agent-platform-wave-1-20261022-130536

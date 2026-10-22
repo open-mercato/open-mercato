@@ -18,12 +18,12 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 0 | 0.1 | Align the wave-1 specs with upstream code facts found in triage | inline | done | 54286c928 |
-| 1 | 1.1 | Add the MCP exposure config resolver and caller filter | dispatch | done | ae52d7624 |
-| 1 | 1.2 | Add optional mcp and agentRef fields to AiToolDefinition | dispatch:cheap | done | 878c259ae |
-| 1 | 1.3 | Filter tools/list per principal on the MCP HTTP server | dispatch:capable | done | 2ca43c08c |
-| 1 | 1.4 | Use the shared exposure filter in the dev and stdio MCP servers | dispatch | done | b9dcdaeb1 |
-| 1 | 1.5 | Add MCP exposure CLI flags and mcp:list-tools --effective | dispatch | done | b6fda5d74 |
+| 0 | 0.1 | Align the wave-1 specs with upstream code facts found in triage | inline | done | 23c07ed2d |
+| 1 | 1.1 | Add the MCP exposure config resolver and caller filter | dispatch | done | 15d058533 |
+| 1 | 1.2 | Add optional mcp and agentRef fields to AiToolDefinition | dispatch:cheap | done | f834a959c |
+| 1 | 1.3 | Filter tools/list per principal on the MCP HTTP server | dispatch:capable | done | 92caf7317 |
+| 1 | 1.4 | Use the shared exposure filter in the dev and stdio MCP servers | dispatch | done | d27ed59bc |
+| 1 | 1.5 | Add MCP exposure CLI flags and mcp:list-tools --effective | dispatch | done | bed3a53a3 |
 | 2 | 2.1 | Add the best-effort MCP tool-call audit writer | dispatch | todo | — |
 | 2 | 2.2 | Audit every MCP and tools/execute call with correlation ids | dispatch | todo | — |
 | 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | todo | — |
