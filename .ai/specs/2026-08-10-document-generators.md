@@ -21,7 +21,7 @@
 - Generator plugin (`generators.ts`) enabling modules to register templates via `mercato generate registry`
 
 **Concerns:**
-- `@react-pdf/renderer` operates server-side only (`renderToBuffer`) — built-in Helvetica avoids filesystem access, font registration, and bundled font assets
+- `@react-pdf/renderer` operates server-side only (`renderToBuffer`) — PDFs default to the built-in Helvetica; an application can register a Unicode font through the `documentGeneratorsConfig` DI key without the engine bundling any font asset
 - Large documents may render slowly on the server — async queue may be needed in a later phase
 - The render pipeline supports discriminated React-PDF and Markdown sources. Format-specific renderers return neutral `RenderedDocument` values, while history stores `format` + `mime_type` without a schema change.
 
@@ -89,7 +89,7 @@ An official monorepo package (`packages/document-generators/`) extending OpenMer
 | Service filename plus optional per-template override | Existing PDF templates keep service-level filenames; additional formats can provide the correct extension without duplicating normalization |
 | Tab widget per entity, not action button | PDF is a contextual view of the record, not a one-shot action |
 | Preview via iframe + blob URL, not PDFViewer | Server renders the PDF once (`renderToBuffer`), iframe displays the result — no client-side re-render on every change |
-| React-PDF built-in Helvetica | Requires no local assets, font registration, license file, filesystem access, or base64 bundle |
+| Built-in Helvetica by default, application-configured fonts on demand | The engine ships no font files, license or base64 bundle; applications that need characters outside WinAnsi (Polish, Czech, Cyrillic, Korean…) register static font files in the `react-pdf` entry of `documentGeneratorsConfig.providers`, and the engine's `Page` applies them to every template. A wrong font configuration fails PDF generation instead of silently falling back to Helvetica |
 | `renderToBuffer` on the server | Deterministic output, no dependency on client environment |
 | Format-specific renderers own output metadata | PDF and Markdown renderers set format and MIME type; routes only dispatch and return `RenderedDocument`. |
 | `DocumentRenderer` routes format-specific inputs to renderers | The second implemented renderer provides the concrete shared boundary that was intentionally deferred in the PDF-only phase. |
@@ -136,18 +136,23 @@ document-generators: TemplateRegistry
 
 ```
 packages/shared/src/modules/
+├── document-generators.ts             # Barrel: BaseDocumentService, contract types, DEFAULT_TEMPLATE_VERSION, utils
 └── document-generators/
-    ├── index.ts
-    ├── lib/interfaces.ts
-    └── services/
-        ├── base-document-service.ts
+    ├── base-document-service.ts
+    ├── types.ts
+    └── utils/                         # Stateless declaration/normalization helpers, safe to import on the client
         ├── index.ts
-        └── types.ts
+        ├── values.ts                  # toText, firstText, toNumber, toIso
+        ├── snapshot.ts                # SnapshotRecord, toSnapshotRecord (plain JSON parsing, no encryption import)
+        ├── labels.ts                  # buildLabels(keys, defaults, translationPrefix, translate)
+        ├── status.ts                  # isDraftStatus(status, draftStatuses)
+        └── filename.ts                # buildDocumentFilename, sanitizeDocumentFilename
 
 packages/core/src/modules/sales/
 ├── document-generators.ts
 ├── document-generators/
 │   ├── services/{orders-document-service,quotes-document-service}/
+│   ├── utils/{client,status}.ts       # resolveClientName/Address, isDraftDocumentStatus (Sales draft statuses)
 │   └── templates/{orders,quotes}/...
 ├── widgets/injection/{document-generators-order-tab,document-generators-quote-tab}/
 ├── widgets/injection-table.ts
@@ -157,14 +162,26 @@ packages/document-generators/
 ├── modules/document_generators/providers/react-pdf/index.ts # React-PDF dependency adapter
 ├── modules/document_generators/templates/shared/ # Theme and components toolkit
 └── src/modules/document_generators/
+    ├── di.ts                        # registers the documentGeneratorsConfig default ({ providers: [] })
     ├── lib/
-    │   ├── interfaces.ts            # renderer, loaded-template, UI filter and registry runtime types
+    │   ├── interfaces.ts            # renderer, render context, loaded-template, UI filter and registry runtime types
+    │   ├── module-config.ts         # documentGeneratorsConfig key, default, resolver, findProviderConfig
+    │   ├── font-sources.ts          # renderer-neutral font file resolution (package/path/url) and page family preference
     │   ├── template-access-policy.ts # per-template requiredFeatures checks + catalogue filtering
-    │   └── template-registry.ts     # register/list/load module templates
+    │   ├── template-errors.ts       # UnknownTemplateError, UnknownTemplateVersionError, DuplicateTemplateError, TemplateAccessDeniedError
+    │   ├── template-registry.ts     # register/list/load module templates
+    │   └── template-versions.ts     # current/archived version resolution and validation
     ├── data/
     │   ├── entities.ts              # GeneratedDocument history entity
-    │   └── validators.ts            # API schemas
+    │   └── validators.ts            # zod schemas and types only: API inputs, module config, react-pdf font config
     ├── migrations/                  # Generated migration + snapshot
+    ├── providers/
+    │   └── react-pdf/               # React-PDF provider; the package export templates import primitives from
+    │       ├── index.ts             # barrel: React-PDF primitives + Page that applies the configured font
+    │       ├── constants.ts         # provider id, standard PDF fonts, WinAnsi pattern
+    │       ├── config.ts            # DEFAULT_REACT_PDF_CONFIG + resolveReactPdfConfig
+    │       ├── font-registry.ts     # PdfFontRegistry + getPdfFontRegistry (process-wide)
+    │       └── utils/standardFonts.ts # usesStandardFontsOnly, hasCharactersOutsideStandardFonts
     ├── services/
     │   ├── index.ts                 # Re-exports all services and their types
     │   ├── pdf-rendering-service/   # PdfRenderInput → DocumentRenderOutput
@@ -195,12 +212,15 @@ packages/document-generators/
     │   ├── index.ts                 # Stable export surface — a package export path, so files can be renamed freely
     │   ├── downloadBlob.ts          # downloadBlob + revokeObjectUrlAfterNavigation
     │   ├── escape.ts                # escapeInline / escapeTableCell — Markdown escaping for template authors
-    │   ├── filename.ts              # buildDocumentFilename(data, prefix, extension)
     │   ├── formatDate.ts            # locale-aware, explicit UTC
     │   ├── formatMoney.ts           # Intl.NumberFormat with currency placement
-    │   ├── getFilenameFromResponse.ts # reads Content-Disposition on the client
+    │   ├── getFilenameFromResponse.ts # reads Content-Disposition on the client (sanitizer from shared utils/filename)
     │   ├── resolveErrorMessage.ts   # maps a failed render response to user-facing copy
-    │   └── groupTemplatesByModule.ts # backend-catalogue only; deliberately outside the barrel
+    │   ├── groupTemplatesByModule.ts # backend-catalogue only; deliberately outside the barrel
+    │   ├── searchParamsToObject.ts  # list query parsing for the API routes; outside the barrel
+    │   ├── fontSources.ts           # path / npm package name / WOFF2 predicates for the font schemas; outside the barrel
+    │   ├── validateConfig.ts        # zod validation of a configuration object, cached per object; outside the barrel
+    │   └── withoutInternalPrefix.ts # error message without the [internal] prefix; outside the barrel
     ├── generators.ts                # GeneratorPlugin for document_generators.templates (code-gen)
     ├── api/
     │   ├── _shared/
@@ -242,14 +262,16 @@ interface TemplateRegistry {
   load({ id, data }, { container, auth, locale, translate }): Promise<LoadedTemplate> // fetchData → load source → normalize → derive metadata
 }
 
-// Named failures the routes map to HTTP status codes
+// Named failures the routes map to HTTP status codes — all live in lib/template-errors.ts,
+// together with TemplateAccessDeniedError (see "Template Access Policy")
 class UnknownTemplateError extends Error {}   // thrown by getTemplateMetadata/load → 400 unknown_template
+class UnknownTemplateVersionError extends Error {} // thrown by load (via lib/template-versions.ts) → 400 unknown_template_version
 class DuplicateTemplateError extends Error {} // thrown by register; message names both the already-registered
                                               // module and the incoming one, and points authors at namespacing
 ```
 
 > Sales is registered through `packages/core/src/modules/sales/document-generators.ts`. Generated bootstrap code calls `register(...)`; route files do not import a domain registry for side effects.
-> Template IDs use the global `<module>.<template>` namespace. Duplicate registration is intentionally never idempotent: a second registration of the same ID, including the same entry, is treated as an invalid bootstrap graph and fails before the copied registry state is committed.
+> Template IDs use the global `<module>.<template>` namespace. An ID claimed by a **different** module, or declared twice within one registration batch, is an invalid bootstrap graph and fails atomically before the copied registry state is committed. A repeated registration of an ID by the **same** module replaces its entry: the generated `runBootstrapRegistrations()` runs at module evaluation and can execute several times per process (HMR, separate server bundles), while the registry state deliberately lives on `globalThis`, so strict non-idempotence would crash the second bootstrap with `Duplicate template sales.offer from sales; already registered by sales` (amended 2026-10-03 — the original "never idempotent, including the same entry" rule contradicted the required `globalThis` persistence and the platform convention that bootstrap registrations are idempotent).
 
 **Where catalogue data comes from.** Every read method is a pure derivation over the in-memory entry map — there is no database table, no configuration record and no server-side cache behind the catalogue or its filters:
 
@@ -463,7 +485,7 @@ export class QuotesDocumentService extends BaseDocumentService {
 
 Because `resourceId` / `resourceLabel` / `fetchData` / `toTemplateData` live on the service while `filename` / `load` live on the entry, `getEntries()` is what merges the two halves into the flat `TemplateEntry` the registry stores — service-level identity and normalization bound to each per-template descriptor.
 
-`formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, and `buildDocumentFilename(data, prefix, extension)` remain standalone engine utilities, consumed — like `escapeInline` / `escapeTableCell` — from the stable `@open-mercato/document-generators/modules/document_generators/utils` barrel rather than from implementation filenames, so the engine can rename internals without a cross-module import migration. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
+Helpers split by when they run. Declaration and normalization helpers — `buildDocumentFilename(data, prefix, extension)` / `sanitizeDocumentFilename`, `toText` / `firstText` / `toNumber` / `toIso`, `toSnapshotRecord`, `buildLabels` and `isDraftStatus` — run inside the service (`filename`, `fetchData`, `toTemplateData`) whether or not the engine is enabled, so they live in `@open-mercato/shared/modules/document-generators` (re-exported from its barrel) and a domain module never imports the optional engine package at declaration time (Design Decisions: neutral contracts in shared). Domain-specific normalization stays with its owner, e.g. Sales' `document-generators/utils/{client,status}.ts`. Template-authoring helpers — `formatDate(iso, locale)`, `formatMoney(amount, currency, locale)`, `escapeInline` / `escapeTableCell` — run only inside templates loaded lazily through `load()`, i.e. only when the engine renders, so they stay in the stable `@open-mercato/document-generators/modules/document_generators/utils` barrel rather than implementation filenames, letting the engine rename internals without a cross-module import migration. Dates use the locale's natural convention with an explicit UTC time zone; money uses `Intl.NumberFormat` for locale-correct separators, symbols, and currency placement; filenames use normalized `data.document.number` and fall back to `{prefix}.{extension}`. Both render routes resolve the active locale and translator server-side and thread them through `TemplateRegistry.load` → `fromRecord` → `toTemplateData`. Document services build typed `data.labels` during normalization, so PDF and Markdown variants within one service share the same request-scoped fetching, formatting, and translated labels. Built-in template `label` and `description` values are standard dictionary keys resolved by the registry for the templates endpoint and generation history; literal values from external templates remain valid through translator fallback. User-facing route errors return stable codes plus translated messages, while structured server log messages remain stable English operator diagnostics. Translation values remain in the owning module's standard `i18n/<locale>.json` dictionaries; templates do not load private locale files.
 
 ### Persisted History Entity
 
@@ -478,7 +500,7 @@ The only database entity this spec introduces is `GeneratedDocument` (table `doc
 | `template_id` / `template_label` | string | Identifies which registered template produced the document |
 | `format` | string, default `'pdf'` | Discriminator for future non-PDF formats (`md` today) |
 | `mime_type` | string, default `'application/pdf'` | Paired with `format` |
-| `generated_by` | UUID | `auth.userId` |
+| `generated_by` | UUID | `auth.userId`, else the API key id (`auth.keyId`) for a key with no bound user, else the session `auth.sub` |
 | `generated_at` | timestamp | |
 | `attachment_id` | UUID, nullable | Unpopulated until Phase 7 wires stored-file download; also absent from the list DTO until then |
 | `created_at` / `updated_at` | timestamp | Repo-standard audit columns |
@@ -656,6 +678,8 @@ Returns paginated generation history filtered by the authenticated tenant and or
 
 A request with no active organization answers `200` with an empty page rather than `409`: a history list has nothing to scope to, which is an empty result, not a failed operation.
 
+Rows are also limited to the caller's authorized templates: the handler runs `TemplateAccessPolicy.filterAuthorizedTemplates` over the registered templates and lists only rows whose `templateId` is in that set. A `template_id` filter outside the set answers an empty page, and rows of templates that are no longer registered are not listed. History rows carry the source record's label and id, so a role without the owning module's read feature (for example `sales.orders.view`) must not see them.
+
 ---
 
 ## UMES Extension Points
@@ -672,7 +696,7 @@ Access is checked three times, by three different mechanisms, and each layer ans
 
 | Layer | Where | Enforces |
 |---|---|---|
-| Widget metadata | Owning module's `widgets/injection/<name>/widget.ts` — e.g. `features: ['document_generators.documents.view', 'sales.orders.view']` | Whether the tab renders at all; keeps a user without access from seeing an empty panel |
+| Widget metadata | Owning module's `widgets/injection/<name>/widget.ts` — e.g. `features: ['document_generators.documents.view', 'sales.orders.view']` plus `requiredModules: ['document_generators']` | Whether the tab renders at all; keeps a user without access from seeing an empty panel, and hides the tab entirely when the `document_generators` module is disabled in `modules.ts` (otherwise a wildcard user would get a panel calling routes that do not exist) |
 | Route guard | `metadata.<METHOD>.requireFeatures` on each API route | Whether the endpoint may be called at all — the module-level ACL |
 | `TemplateAccessPolicy` | `lib/template-access-policy.ts`, invoked inside every route handler | Whether *this* caller may see or render *this* template, using the owning module's `requiredFeatures` |
 
@@ -692,15 +716,26 @@ Preview is deliberately gated by `view`, not `generate`: it has no persisted sid
 
 ## Fonts
 
-Built-in templates use React-PDF's standard `Helvetica` family. It is available without `Font.register`, local `.ttf` files, generated base64 modules, or build-time processing:
+PDFs default to React-PDF's standard `Helvetica`, which needs no font file but only covers WinAnsi (Western European) characters: Polish, Czech, Cyrillic, Greek or Korean letters render as wrong glyphs (a pl preview showed `Do zapBaty`). The engine ships no font; the application registers one.
 
-```ts
-const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica' },
-})
-```
+**Configuration** — the `documentGeneratorsConfig` DI key holds a list of rendering providers, `{ providers: [{ id, config? }] }`, mirroring the `{ id, from }` entries of `modules.ts`. `di.ts` registers the module default `{ providers: [] }` and the application overrides it in `modules.ts` (`overrides.di.documentGeneratorsConfig`). The module (`lib/module-config.ts`) validates only the list — provider ids are required and unique — and `findProviderConfig(config, id)` hands each provider its raw `config`; the module knows nothing about fonts. Each provider owns its settings: it validates its `config` with its own schema and merges it over its own defaults, so a provider that is not listed, or has no `config`, uses its defaults. `validateConfig` validates a configuration object once (a `WeakMap`). All schemas and their types live in `data/validators.ts`, which holds only zod schemas and types; the path, npm package name and WOFF2 predicates the font schemas use are stateless helpers in `utils/fontSources.ts`. React-PDF's types are `ReactPdfConfig` (`fontFamily?`, `fonts?`), `FontFamilyConfig` (`{ family, sources }`), `FontSourceConfig` (`{ package, file }` resolved like a Node module from the application directory, `{ path }` absolute, or `{ url }`, with optional `fontWeight` / `fontStyle`) and `FontFamilyName`.
 
-External templates may register their own fonts within the owning module when their requirements and licensing justify the additional assets.
+**Strict on wrong configuration, default when unconfigured** — no font configuration means Helvetica plus one warning per process when a document contains characters outside WinAnsi. A wrong configuration never falls back silently, because a Helvetica fallback would ship documents with broken characters again (`Do zapBaty`): an invalid module or provider config, a font file that cannot be found, and a font React-PDF cannot embed each throw an `[internal]` error naming the cause, which the routes' `mapDocumentError` logs (`Document rendering failed`), reports to telemetry and answers as `500 render_failed`. Font configuration is developer-owned code, so these errors surface on the first PDF preview in development.
+
+**Flow** — the preview and generate routes pass the resolved module configuration to `DocumentRenderer.render(input, { config })`, which forwards it to the renderer for the template's format. Routes never branch on format; the Markdown renderer ignores fonts.
+
+**Shared helpers** — `lib/font-sources.ts` is stateless and renderer-neutral: `resolveFontFamily(font)` turns one configured family into resolved file locations (throwing when a file or package is missing) and `preferredFontFamilyName({ fontFamily, fonts })` returns the explicit `fontFamily`, else the configured families in order. A future DOCX or HTML-to-PDF renderer reuses them and embeds the files its own way.
+
+**React-PDF** — `providers/react-pdf/`:
+
+- `constants.ts` holds the provider id `react-pdf`, the PDF standard font families (`Helvetica`, `Times-Roman`, `Courier`, `Symbol`, `ZapfDingbats`), the default `Helvetica` and the pattern of characters outside WinAnsi.
+- `config.ts` — `resolveReactPdfConfig(moduleConfig)` takes the `react-pdf` entry's `config`, validates it with `reactPdfConfigSchema` (which rejects `.woff2` sources, `package` values that are not npm package names, and `fontFamily` names that are neither listed in `fonts` nor standard PDF fonts) and merges it over `DEFAULT_REACT_PDF_CONFIG` (`{ fonts: [] }`).
+- `font-registry.ts` — `PdfFontRegistry`, one process-wide instance (`getPdfFontRegistry()`, kept on `globalThis` because React-PDF's font store is global and Next may load the module in several server chunks). It does two things: `applyConfig(config)` registers each configured family with `Font.register` once (a family is marked registered only after it succeeds, so a missing file fails every render until it is fixed, with an error naming the family) and sets the page font family that `fontFamily` returns. Since the configuration is process-wide, every render uses the same family and no per-render state is needed.
+- `utils/standardFonts.ts` — pure checks used only by this provider: `usesStandardFontsOnly(fontFamily)` and `hasCharactersOutsideStandardFonts(data)` (the WinAnsi pattern lives in `constants.ts`). `PdfRenderingService` uses them to log one warning per process when the page font is standard and the data contains characters it cannot render.
+- `index.ts` — the barrel's `Page` prepends `{ fontFamily: getPdfFontRegistry().fontFamily }` to the page style, so templates inherit the font without forwarding it and may still set their own `fontFamily` on any element (which must be a configured family or a standard PDF font). `documentTheme` carries no `fontFamily`.
+- `PdfRenderingService` applies the configuration, warns about Helvetica when needed and renders once; when a render with configured fonts fails it rethrows with the font families in the message, without retrying.
+
+The documented recipe (`apps/docs/docs/framework/document-generators/fonts.mdx`) is the static `@fontsource/inter` package with its `latin` and `latin-ext` `.woff` files as two families; verified in a pl preview with Inter regular and bold.
 
 ---
 
@@ -798,16 +833,17 @@ Each risk below states severity, the affected area, the mitigation, and what res
 - **Risk:** generated documents and their history rows carry customer PII (name, email, address) and commercial amounts. Phase 7 additionally persists the rendered bytes themselves as `Attachment` records, extending the PII's lifetime and surface indefinitely.
 - **Severity:** Medium (no schema/API leak identified, but no lifecycle story exists either).
 - **Affected area:** `GeneratedDocument` history rows (Phase 5) and stored `Attachment` bytes (Phase 7).
-- **Mitigation:** none yet — not addressed by Phases 1–7 as currently planned.
-- **Residual risk:** if the owning customer record is deleted or a GDPR erasure request is processed, this spec does not currently define whether/how `GeneratedDocument` history rows and Phase 7 attachments are purged or anonymized, nor any retention window. **Before Phase 7 ships**, add an explicit retention/erasure policy here (e.g. cascade-delete `GeneratedDocument`/`Attachment` rows referencing an erased customer, or document why leaving a historical financial record intact post-erasure is acceptable) — this is a data-protection gap, not a nice-to-have.
+- **Mitigation (policy approved by @kriss145 on 2026-10-03):** no automatic expiry — generated documents are commercial records and stay until their source record is deleted. Deleting the source record deletes its stored files and anonymizes its history: the engine subscribes persistently to every `<resourceKind>.deleted` event whose resource kind has at least one registered template (the domain-neutral `module.entity.action` convention, so the engine never hard-codes Sales event IDs), and `GeneratedDocumentRetentionService.eraseForResource` — scoped to the event's `tenantId` / `organizationId` — first removes the linked `Attachment` files, then replaces `resource_label` with the canonical `resource_id` and clears `attachment_id`. Rows are kept so the audit trail of *that* a document was generated, by whom and with which template survives, while the cached display label and the PII-bearing bytes do not. A storage failure leaves the history untouched and rethrows, so the persistent event is retried rather than half-applied.
+- **Residual risk:** erasure follows the *source record's* deletion event. A customer erasure that keeps the customer's orders/quotes (for example because they are retained financial records) does not by itself purge documents generated from them; those documents remain subject to the source module's own erasure semantics. Modules that register templates must emit the standard `<module>.<entity>.deleted` event with `{ id, tenantId, organizationId }` for erasure to apply.
+- **Sales wiring and undo (2026-10-08):** the Sales order and quote delete commands pass their `orderCrudEvents` / `quoteCrudEvents` config to the deletion side effects, so `sales.order.deleted` and `sales.quote.deleted` are emitted after the delete commits (before this they were declared but only `created` was emitted, and erasure never ran for the shipped templates). Converting a quote into an order removes the quote row without emitting `sales.quote.deleted`, so offers generated from a converted quote are kept; the customer data they carry lives on in the order. Sales deletes are undoable and erasure is not: erasure runs on the delete itself, and undoing the delete restores the order or quote but not the erased files or labels. Generated documents are derived from the source record, so after an undo they are regenerated on demand; the anonymized history rows stay as the audit trail. Deferring erasure to the end of an undo window was rejected because the platform has no purge event or undo-window expiry to hook into, and waiting on one would keep PII-bearing files past the user's delete.
 
 ### Font Loading
 
-- **Risk:** custom font dependencies (filesystem paths, registration, bundled assets) could break server rendering in a new environment.
+- **Risk:** an application-configured font may be missing, unsupported (WOFF2, variable) or unreachable (`url`), and Helvetica cannot render non-WinAnsi text when no font is configured.
 - **Severity:** Low.
 - **Affected area:** PDF template rendering.
-- **Mitigation:** Built-in templates use React-PDF's standard Helvetica family, so they do not depend on filesystem paths, generated files, runtime registration, or bundled font assets.
-- **Residual risk:** none for built-in templates. External templates that register their own fonts take on this risk themselves and are responsible for their own licensing/asset management.
+- **Mitigation:** the default configuration needs no font file. A wrong configuration fails PDF generation with an error naming the cause (invalid module or provider config, missing font file, font that cannot be embedded) instead of silently producing documents with broken characters; the errors are logged and reported through the routes' `render_failed` path. Markdown generation is unaffected by the React-PDF config.
+- **Residual risk:** without a configured font, PDFs with non-WinAnsi characters still render those characters wrongly; the application owner decides whether to install a font. Font licensing is the application's responsibility.
 
 ### Operational
 
@@ -856,6 +892,7 @@ Every API path and the one RBAC-relevant UI path (backend navigation) must have 
 | `TC-DOCUMENT-019-template-filter-options-shape.spec.ts` | `GET /api/document-generators/templates/options` — deduplicated, sorted facets that never carry the template list under `items`/`templates` |
 | `TC-DOCUMENT-020-template-filter-options-scoped-to-access.spec.ts` | `GET /api/document-generators/templates/options` — facets are derived from the caller's authorized subset only: a restricted user (the `helpers/restricted-document-user.ts` fixture) sees no `resourceKind` or `format` value contributed solely by a template they cannot access. The required `templates` parameter on `listTemplateFilterOptions` makes the catalogue-wide variant uncallable; this test asserts the same guarantee end to end, so a later refactor reintroducing a default is caught behaviorally too |
 | `TC-DOCUMENT-021-history-sort-allowlist.spec.ts` | `GET /api/document-generators/documents` — `sort=resource_label` is rejected with `400 invalid_query` in the shared `{ error, message }` envelope (the field is encrypted at rest and deliberately unsortable), each of `template_label` / `format` / `generated_by` / `generated_at` is accepted, and the returned rows carry plaintext `resourceLabel` values, proving the list reads through `findAndCountWithDecryption` rather than raw `em.findAndCount` |
+| `TC-DOCUMENT-023-source-deletion-erases-documents.spec.ts` | `POST /api/document-generators/generate`, `GET /api/document-generators/documents/{id}/file`, `DELETE /api/sales/orders` — the stored PDF is served before the order is deleted; after the delete the persistent erasure subscriber anonymizes the history label to the order id, clears `attachmentId`, and the file route answers `404 not_found` |
 
 Engine-owned specs should share `__integration__/helpers/document-generators-api.ts` (typed request wrappers and response readers for all five endpoints) and declare `__integration__/meta.ts` with `dependsOnModules: ['document_generators']`; Sales-owned specs should additionally use `helpers/restricted-document-user.ts` to provision a user holding the engine ACL but not the source module's view feature. New coverage should extend those helpers rather than re-issuing raw requests.
 
@@ -865,7 +902,7 @@ Not required to have a dedicated test at this stage (tracked against the corresp
 
 ## Implementation Plan
 
-> **Status: nothing in this list is implemented in this repository.** `packages/document-generators/` does not exist on `develop`. Phases 1–4.8 and 5 were previously designed and coded on the now-closed, unmerged `feat/document-generators` branch (PR #5170) — that PR was closed for implementation-quality problems, not design problems, so the phase content below is the target to build against, not a description of shippable code. Do not resurrect or cherry-pick commits from the closed branch; implement fresh against this spec. See "Implementation Status" below for per-phase tracking.
+> **Status (2026-10-03): implemented on PR #6892 (branch `feat/document-generators-v2`), not yet merged or fully verified.** The package `packages/document-generators/` and the Sales integration were implemented fresh on this branch (nothing was taken from the closed PR #5170). Phases 1–8 and the author docs are coded; the full validation gate, integration tests and browser evidence are still outstanding — see "Implementation Status" for exactly what is and is not verified.
 
 ### Phase 1 — Foundation (Planned)
 
@@ -881,7 +918,7 @@ Not required to have a dedicated test at this stage (tracked against the corresp
 3. Sales-owned `QuotesDocumentService`, local validation, and `sales.offer` registration through `sales/document-generators.ts`
 4. Generated bootstrap registration in the engine-owned registry
 5. `templates/shared/theme.ts` + `templates/shared/components/Logo.tsx` — shared design tokens and brand components exported publicly
-6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation using React-PDF's built-in Helvetica family
+6. Sales-owned `document-generators/templates/quotes/sales-offer/` with shared types plus PDF implementation that inherits the configured page font (built-in Helvetica by default)
 
 ### Phase 3 — API (Planned)
 
@@ -901,7 +938,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 4. `components/Preview.tsx` — iframe rendering a blob URL
 5. `components/Loader.tsx` — spinner
 6. `utils/downloadBlob.ts` — triggers browser file download
-7. Sales-owned `widgets/injection/document-generators-quote-tab/` — a thin adapter passing `record={{ id: record.id }}` and `filter={{ resourceKind: ctx.resourceKind }}`, both taken from the injection context; its `widget.ts` metadata declares `features: ['document_generators.documents.view', 'sales.quotes.view']`
+7. Sales-owned `widgets/injection/document-generators-quote-tab/` — a thin adapter passing `record={{ id: record.id }}` and `filter={{ resourceKind: ctx.resourceKind }}`, both taken from the injection context; its `widget.ts` metadata declares `features: ['document_generators.documents.view', 'sales.quotes.view']` and `requiredModules: ['document_generators']`, so the tab disappears when the engine module is disabled
 8. Sales-owned `widgets/injection-table.ts` adds this widget as an entry on the `sales.document.detail.quote:tabs` spot
 
 ### Phase 4.5 — External Template Code-Gen (Planned)
@@ -915,7 +952,7 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 1. Sales-owned `OrdersDocumentService` (`resourceKind: 'sales.order'`) with local validation
 2. Sales-owned `document-generators/templates/orders/order-invoice/` with PDF and Markdown implementations
 3. `sales/document-generators.ts` exports order and quote entries to the generated registry
-4. Sales-owned `widgets/injection/document-generators-order-tab/` filters by `sales.order`
+4. Sales-owned `widgets/injection/document-generators-order-tab/` filters by `sales.order` and, like the quote tab, declares `requiredModules: ['document_generators']`
 5. `sales/widgets/injection-table.ts` adds this widget as a second entry on the `sales.document.detail.order:tabs` spot, alongside the existing `sales.injection.document-history` entry
 6. Complete working invoice example for external template authors (`document-generators.ts`, service, template, widget, injection-table) lives under `apps/docs/static/examples/document-generators/` and is described in the Document Generators docs section
 
@@ -934,8 +971,8 @@ All five routes export `metadata` (with `requireAuth` and `requireFeatures`) and
 Templates may load records owned by another module, so the engine ACL alone is not a sufficient authorization boundary. This phase adds the owning-module permission check as one component rather than repeating it per route.
 
 1. Optional `requiredFeatures?: string[]` on `TemplateMeta` and `DocumentTemplateEntry`; Sales order templates declare `sales.orders.view`, quote templates declare `sales.quotes.view`
-2. `lib/template-access-policy.ts` carrying `TemplateAccessPolicy`, the structural `TemplateFeatureAuthorizer` type, and `TemplateAccessDeniedError` — see "Template Access Policy" under Data Contracts for the full behavioral contract
-3. Policy construction from `container.resolve('rbacService')` plus the request `auth` in the four template-facing routes (`/templates`, `/templates/options`, `/preview`, `/generate`; `/documents` reads history rows, not templates, and needs no policy): read endpoints filter, render endpoints call `requireAccess` and map `TemplateAccessDeniedError` to a `403` `forbidden` body carrying `requiredFeatures`
+2. `lib/template-access-policy.ts` carrying `TemplateAccessPolicy` and the structural `TemplateFeatureAuthorizer` type, with `TemplateAccessDeniedError` in `lib/template-errors.ts` next to the other named template failures — see "Template Access Policy" under Data Contracts for the full behavioral contract
+3. Policy construction from `container.resolve('rbacService')` plus the request `auth` in every route that exposes template output (`/templates`, `/templates/options`, `/preview`, `/generate`, `/documents`, `/documents/:id/file`): read endpoints filter (`/documents` lists only history rows whose `templateId` is in the caller's authorized template set, and a `template_id` filter outside that set yields an empty page), render endpoints call `requireAccess` and map `TemplateAccessDeniedError` to a `403` `forbidden` body carrying `requiredFeatures`
 4. Engine ACL IDs `document_generators.documents.view` / `document_generators.documents.generate` following the repo's `<module>.<resource>.<action>` convention, with the route guards split so only `/generate` requires the write-shaped feature
 
 **Verification required:** `lib/__tests__/template-access-policy.test.ts` must cover the omit-vs-reject split, the fail-closed path for a missing subject, the empty-`requiredFeatures` allowance and the per-feature-set check deduplication; `TC-DOCUMENT-010/011/012` must cover catalogue omission, preview rejection and generate rejection end-to-end against a restricted user fixture.
@@ -996,7 +1033,7 @@ GET /api/document-generators/documents?resource_kind=X&resource_id=Y&page=1&page
 #### Key implementation notes
 
 - Use `createRequestContainer()` from `@open-mercato/shared/lib/di/container` to get `em` in the generate route
-- Use `getAuthFromRequest(request)` from `@open-mercato/shared/lib/auth/server` to get `generated_by`, resolved as `auth.userId ?? auth.sub` so a token carrying only the subject claim still records an author
+- Use `getAuthFromRequest(request)` from `@open-mercato/shared/lib/auth/server` to get `generated_by`, resolved as `auth.userId`, else `auth.keyId` for an API key with no bound user (its `sub` is `api_key:<id>`, which is not a UUID), else `auth.sub`, so a token carrying only the subject claim still records an author; a caller with none of these as a UUID is rejected with `403 forbidden` before rendering, so a generation is never returned without its history row
 - `GenerationHistoryService` is constructed with plain `new` per request from the request-scoped `em`, deliberately not registered in DI and deliberately not built on `makeCrudRoute`: history rows are written directly by `/generate` and never reach the query index a CRUD route would read. This is a conscious exception to the module-services-through-DI convention — keep the constructor a single `EntityManager` so it stays trivially testable. **This exception requires explicit sign-off at code-review time.** Root `AGENTS.md` states *"Use DI (Awilix) to inject services; avoid `new`-ing directly"* without qualification, and the only precedent in this repository is loose and dissimilar, so the reviewer of Phase 5 must either confirm the reasoning above still holds against the code as built or require registration in DI — and record which, rather than letting the deviation pass unremarked because the spec mentioned it
 - `resourceId()` is required for every registered template and derives the canonical source ID after server-side fetching and normalization
 - `resource_kind`, `resource_id`, and `resource_label` are never accepted by `POST /generate`; the registry derives all three values, and an unavailable label falls back to the canonical resource ID
@@ -1075,6 +1112,10 @@ Uses the existing core `attachments` module — no custom storage infrastructure
 4. `GET /api/document-generators/documents` history response includes `attachment_id` — client builds download URL as `/api/attachments/file/{attachment_id}`
 5. Download button in the widget uses the stored attachment URL when `attachment_id` is present, falls back to on-demand `POST /generate` render otherwise
 
+> **Implementation note (2026-10-03).** The shipped code goes through the public `attachmentService` DI contract (`createScoped` / `readScoped` / `releaseScoped`) required by `packages/core/src/modules/attachments/AGENTS.md`, typed as a narrow structural port because `@open-mercato/core` already depends on this package. Two deliberate deviations from items 1–2 above: (a) files go to the platform's existing private `privateAttachments` partition instead of a lazily created `pdfDocuments` one — the attachments boundary forbids peer modules from creating or reading partitions directly, and the partitions API requires an administrative feature document authors do not hold; `createScoped` additionally enforces a private partition; (b) the history row is written inside the attachment's own transaction through `persistLink`, so a stored file is never left without its history row. No extra assignment is passed: the upload service always adds the owner assignment `{ type: entityId, id: recordId }`, and `releaseScoped` only deletes a file whose expected assignment is its *sole* assignment, so erasure and download both use that owner assignment (`document_generators:document` + source id). An additional per-history-row assignment would make every release fail with `409 still referenced` (found during manual testing on 2026-10-03 and fixed). Owner fields stay as specified: `entityId: 'document_generators:document'`, `recordId` = the canonical source resource id. When storage fails (quota, provider), generation still succeeds and the history row is persisted without a file (best effort, logged and reported).
+
+> **Implementation note — download (2026-10-03).** Items 4–5 are implemented through an engine route instead of handing clients `/api/attachments/file/{attachment_id}`: `GET /api/document-generators/documents/{id}/file` (guarded by `document_generators.documents.view`) loads the history row within the selected tenant/organization, re-applies the producing template's `requiredFeatures` through `TemplateAccessPolicy` (403 otherwise), and streams the bytes via `attachmentService.readScoped` with the exact owner and owner assignment, the private partition and `forceDownload`. This keeps source-module permissions authoritative for stored files too — the generic attachments route only checks tenant/organization scope and the attachments feature, so a user who may no longer view orders could otherwise still fetch an order's invoice. The history DTO now exposes `attachmentId`; both history tables offer a "Download document" row action only for rows that have a stored file. Rows without one (storage failed, or generated before storage existed) offer no action — regenerating from the template list remains the on-demand path, because regenerating from a history row would silently produce a document from today's data under yesterday's label.
+
 #### Tenant & data isolation (mandatory)
 
 The `private` partition flag is **necessary but not sufficient** — cross-organization isolation of a stored PDF is enforced by the `organization_id` / `tenant_id` **on the `Attachment` record itself**, not by the partition. The core download route (`GET /api/attachments/file/{id}`) checks `attachment.tenantId === auth.tenantId && attachment.organizationId === auth.orgId` (fail-closed via `isSameScope`; superadmin exempt).
@@ -1089,7 +1130,9 @@ Therefore the upload in step 2 **must** persist the request's `organization_id` 
 ### Phase 8 — Advanced Templates (Planned)
 
 1. Template versioning — record which template version was used at generation time; archived versions remain renderable
+   - **Contract (approved by @kriss145, 2026-10-03; additive):** versions are defined in code. `DocumentTemplateEntry` / `TemplateRegistryEntry` gain optional `version` (current, default `DEFAULT_TEMPLATE_VERSION = '1'`) and `archivedVersions: { version, load }[]`; `TemplateMeta` exposes `version` and `versions` (current first). Registration rejects duplicate or empty version ids. `/preview` and `/generate` accept an optional `template_version`; omitted means the latest version, an unknown one answers `400 unknown_template_version` before any source data is fetched. Archived versions reuse the entry's normalization, identity and filename — only the renderer source differs. The rendered version is recorded in the new `GeneratedDocument.template_version` column (`text not null default '1'`, additive migration) and returned as `templateVersion` in the history DTO; the preview dialog offers a version selector only when a template has archived versions.
 2. Draft watermark — render a "DRAFT" overlay when the source resource is not in a final status
+   - **Implementation (2026-10-03):** finality is derived server-side by the owning module during normalization, never by the client: Sales sets `isDraft` when the order/quote status is missing or one of the explicitly non-final values `draft`, `pending_approval`, `rejected`; known final and unknown tenant-defined statuses render unmarked, so a custom workflow never stamps a real document as a draft. The engine ships a reusable `DraftWatermark` PDF primitive (fixed full-page layer, theme `watermark` color, Helvetica) under `templates/shared`; Sales PDF templates render it with the translated `labels.draftWatermark`, and the Markdown invoice prints an escaped `> **DRAFT**` banner.
 
 ### Out of scope for this spec
 
@@ -1174,18 +1217,34 @@ A design-time review of Phase 6's plan against Phase 5's plan, conducted while t
 
 ## Implementation Status
 
-**Every phase below is Not Started in this repository.** `packages/document-generators/` does not exist on `develop`; no line of this feature's code has landed here. Phases 1–4.8 and 5 were previously designed and implemented on the unmerged `feat/document-generators` branch (PR #5170), which was closed on 2026-08-14 for implementation-quality problems in that code, not for problems with the design — so the "Prior design work" column below records design/spec history on that closed branch, not code present in this repository. Treat every phase as a fresh implementation task against the spec text above; do not resurrect or cherry-pick commits from the closed branch.
+**Implemented on PR #6892 (branch `feat/document-generators-v2`); unmerged.** The code was written fresh against this spec; the closed PR #5170 was not resurrected. "Implemented" below means the code and unit tests exist on the branch. It does **not** mean verified end to end.
 
-| Phase | Status | Prior design work (closed PR #5170, not in this repo) | Notes |
-|-------|--------|------|-------|
-| Phase 1–4.7 | Not Started | 2026-08-12 | Registry, render pipeline, preview/download UI, decentralized Sales templates, and Markdown output |
-| Phase 4.8 — Template Access Policy | Not Started | 2026-08-14 | `requiredFeatures` on template metadata, `TemplateAccessPolicy` extracted to `lib/`, catalogue filtering, `403` on render routes, corrected engine ACL IDs and per-route guards |
-| Phase 5 — History & Backend Page | Not Started | 2026-08-10 | GeneratedDocument persistence, scoped history endpoint, server-derived resource identity, ACL, backend DataTable, unit and integration coverage |
-| Rendering service refactor | Not Started | 2026-08-12 | Shared source and format values are extensible strings; registry prepares format-neutral input; concrete source/input types are colocated with their rendering services; `DocumentRenderer` dispatches through a renderer map |
-| Phase 6 — Source-scoped History in Detail Widgets | Not Started | — | Planned; reuses the Phase 5 endpoint and entity without schema changes |
-| Phase 7 — Attachment Storage | Not Started | — | Planned |
-| Phase 8 — Advanced Templates | Not Started | — | Planned; template versioning + draft watermark only — email/sharing/bulk-generation/auto-trigger moved to "Out of scope for this spec" for their own future specs |
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1–4.7 | Implemented (PR #6892) | Registry, render pipeline, preview/generate, decentralized Sales templates, Markdown output; convention file `document-generators.ts` plus generator plugin |
+| Phase 4.8 — Template Access Policy | Implemented (PR #6892) | `requiredFeatures`, `TemplateAccessPolicy`, catalogue filtering, `403` on render routes |
+| Phase 5 — History & Backend Page | Implemented (PR #6892) | `GeneratedDocument` entity, scoped history endpoint, server-derived resource identity, backend pages; public URLs are `/api/document-generators/*` through `metadata.path` |
+| Rendering service refactor | Implemented (PR #6892) | Extensible source/format strings, `DocumentRenderer` map dispatch |
+| Phase 6 — Source-scoped History in Detail Widgets | Implemented (PR #6892) | Sales order and quote `:tabs` widgets render `ResourceDocumentsPanel`; selected-organization scope service |
+| Phase 7 — Attachment Storage | Implemented (PR #6892) | `privateAttachments` partition, engine download route `GET /api/document-generators/documents/{id}/file`, `<resourceKind>.deleted` erasure subscriber and retention policy |
+| Phase 8 — Advanced Templates | Implemented (PR #6892) | Template versioning (`version`, `archivedVersions`, `template_version`) recorded in history; draft watermark primitive and draft rule |
+| Review M5 — Application-configured fonts | Implemented (PR #6892) | Provider-scoped `documentGeneratorsConfig`, React-PDF font registration, strict errors on a wrong configuration, `fonts.mdx`; see the Fonts section |
+| Phase 10.1 — Docs and examples | Implemented (PR #6892) | `apps/docs/docs/framework/document-generators/{overview,getting-started,authoring,api,contributing}.mdx`, `apps/docs/static/examples/document-generators/invoices/`, package `README.md` and `AGENTS.md`; `yarn template:sync` check passes |
 
+### Not yet verified
+
+Verified on 2026-10-03: the configured validation gate (`build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `build:app`) passed with unit tests scoped to the changed packages (document-generators 230, core Sales + module decoupling 929, shared 6); `yarn db:generate` reports no changes for `document_generators`, so the hand-written `template_version` migration matches the entity; manual end-to-end preview/generate/history/storage was exercised in the dev app (it surfaced and fixed the repeated-bootstrap registration and attachment-assignment defects).
+
+Integration tests `TC-DOCUMENT-001`–`022` ran against the local dev app on 2026-10-04: 25 passed, 1 skipped by design (persistence fault injection), 0 failed.
+
+UI evidence (8 screenshots incl. the rendered draft invoice) is attached to PR #6892; `yarn lint`, `check:client-boundaries` and the design-system guardian scan passed.
+
+Still pending:
+- The full monorepo unit suite (`yarn test`) was not run; only the changed packages were tested.
+- `GenerationHistoryService` constructor-exception sign-off is pending.
+- Standalone harness coverage (`om-refresh-standalone-harness`) is not refreshed: it requires failing-first evaluations and the release suite, which were not run.
+- The docs example module is illustrative and is not compiled or tested (its translations are now shipped and checked by the i18n gate).
+- Fonts (M5) are covered by unit tests (configuration schemas, source resolution, registry, rendering service, `Page`); there is no `TC-DOCUMENT-*` case because the integration environment runs without an application font configuration and the API cannot assert which glyphs a PDF draws. Verified manually in a pl preview of the final build on 2026-10-08: without configuration the PDF uses Helvetica (Polish letters render wrongly, as expected); a `.woff2` source fails with `Invalid "react-pdf" provider config` naming both sources; the `@fontsource/inter` `latin` + `latin-ext` recipe renders Polish letters and bold text correctly.
 ---
 
 ## Changelog
@@ -1238,3 +1297,9 @@ A design-time review of Phase 6's plan against Phase 5's plan, conducted while t
 | 2026-08-17 | Claude | Reworked every "Done"/✅ status claim into "Planned"/"Not Started": `packages/document-generators/` does not exist anywhere in this repository, and the prior implementation this spec was synced against (2026-08-17 sync above) lived only on the closed, unmerged `feat/document-generators` branch (PR #5170), closed by Bernard for implementation-quality problems in that code, not for problems with the design. Changed every Phase 1–5/4.5–4.8 heading from `✅` to `(Planned)`; added a status callout at the top of the Implementation Plan and rewrote the Implementation Status table so every phase reads "Not Started," with a "Prior design work (closed PR #5170, not in this repo)" column replacing the old Date column so those dates aren't mistaken for work done here; renamed Phase 5's "Implemented files"/"Updated files" to "Files to add"/"Files to update"; reframed "Final Compliance Report" as "Design Compliance Report" and its Verdict to state the design (not any implementation) is compliant; relabeled the Phase 6 review as a "Design Review" of a plan, not of shipped code; and reframed "Integration Test Coverage" as required coverage each phase must ship rather than coverage already in place. No normative content (contracts, decisions, risk mitigations) changed — only the status framing. |
 | 2026-08-17 | Claude | Applied the three findings from the re-run `om-pre-implement-spec` audit (`.ai/specs/analysis/ANALYSIS-2026-08-10-document-generators.md`): `/generate`'s "Mutation guards" paragraph now explicitly excludes `sales/api/quotes/send/route.ts`'s `afterSuccessCallbacks` loop from the "follow this reference" instruction, since that loop has no per-callback try/catch and could turn a successful render into a client-facing `500` — points implementers to `packages/shared/src/lib/crud/factory.ts`'s try/catch-and-log version instead; the Encryption section now states `document_generators/encryption.ts` must participate in fail-closed bootstrap discovery, per `.ai/lessons/system-encryption-map-discovery-must-fail-closed.md`; and `/generate`'s contract now states best-effort persistence covers an absent history row only, never one written with an unencrypted `resource_label`, per `.ai/lessons/keep-fallible-document-preparation-outside-encryption.md`. |
 | 2026-08-18 | Claude | Applied the ten findings from the 2026-08-18 `om-auto-review-pr` re-review of head `e82d52daa`. **Blocker:** `resource_label` was required to be encrypted at rest while the same column was offered as a SQL-sortable field in the `GET /documents` allowlist, the backend history table and Phase 6's scoped panel — `ORDER BY` over ciphertext sorts nothing a user can read. Resolved by dropping `resource_label` from the `sort` allowlist rather than adopting the bounded in-memory sort (`packages/shared/src/lib/query/encrypted-sort.ts`), whose `OM_ENCRYPTED_SORT_MAX_ROWS` cap would make `total` and page boundaries approximate for a list whose natural order is `generated_at DESC`; the decision, its rationale and the escape hatch if the requirement returns are recorded in Data Contracts → Encryption and as a Design Decisions row, and the Resource column now sets `enableSorting: false` on both history surfaces. **Majors:** Phase 5's read path now specifies `findAndCountWithDecryption` instead of raw `em.findAndCount`, which would have rendered ciphertext into the history table; "Migration & Backward Compatibility" was rewritten for a from-scratch build — it prescribed deprecation re-exports for root exports that never shipped, so it now states that no released surface exists, keeps the closed branch's decisions as target contracts, and lists what becomes a frozen contract surface at first merge instead; `GET /documents`'s error envelope is specified as `400 invalid_query` with a translated message rather than recorded as a "known inconsistency" the client cannot branch on; and the stale `document-generators-decoupling.test.ts` reference now points at the real `packages/core/src/__tests__/module-decoupling.test.ts`. **Minors:** converted Phase 4.7 and 4.8's step lists from past-tense completed-work prose to the noun form every other phase uses; brought the TLDR scope list and Proposed Solution up to the five-route reality (`/templates/options` and `/preview` were missing); recorded the Email-delivery and auto-generation-trigger descoping as an explicit product decision with its provenance rather than as spec hygiene, per @kriss145's 2026-08-17 ask; made `listTemplateFilterOptions`' `templates` parameter **required** so a caller can no longer derive facets from the entire catalogue and silently disclose templates the user cannot see, with `TC-DOCUMENT-020` asserting the same guarantee behaviorally; and added a fifth "Out of scope" bullet distinguishing aggregate documents (one document about N records — an identity problem) from the already-parked bulk generation (N documents — a throughput problem), enumerating the seven places the 1:1 assumption is load-bearing, per @kriss145's 2026-08-17 follow-up. **Nits:** corrected "expression index" to composite b-tree index with a descending trailing column, and flagged `GenerationHistoryService`'s deliberate non-DI construction as requiring explicit sign-off at code-review time, closing the last open item from the `om-pre-implement-spec` audit. Added `TC-DOCUMENT-020` and `TC-DOCUMENT-021` to the required integration coverage. |
+| 2026-10-03 | Claude | Recorded the implementation on PR #6892 (branch `feat/document-generators-v2`) and replaced the Not Started status with per-phase implementation status plus an explicit list of what is unverified. Decisions: public URLs are `/api/document-generators/*` via route `metadata.path`; Sales scoping uses a selected-organization scope service; generated files go to the `privateAttachments` partition and are served only through the engine download route; retention follows the source record through the standard `<resourceKind>.deleted` event (files removed, history anonymized); templates are versioned through `version`/`archivedVersions` with `template_version` recorded in history; a document is a draft when the source status says so and is stamped with the translated `DraftWatermark`. Added the template author guide and a working invoice example module. |
+| 2026-10-04 | Claude | Synchronized the spec with the PR #6892 follow-up refactor. **Helper placement:** declaration and normalization helpers (`buildDocumentFilename` / `sanitizeDocumentFilename`, `toText` / `firstText` / `toNumber` / `toIso`, `toSnapshotRecord`, `buildLabels`, `isDraftStatus`) moved to `@open-mercato/shared/modules/document-generators/utils` and are re-exported from the shared barrel, resolving a conflict between the Design Decisions row (*domain modules declare entries without importing the optional runtime package*) and Document Services, which still routed `buildDocumentFilename` through the engine `utils` barrel; template-authoring helpers (`formatDate`, `formatMoney`, `escape*`) stay in the engine barrel because they run only inside lazily loaded templates. `toSnapshotRecord` parses JSON itself instead of importing the server-only encryption service, which keeps the barrel client-safe. Sales-specific normalization lives in `sales/document-generators/utils/{client,status}.ts`. **Engine structure:** the named failures (`UnknownTemplateError`, `UnknownTemplateVersionError`, `DuplicateTemplateError`, `TemplateAccessDeniedError`) moved to `lib/template-errors.ts` and version resolution to `lib/template-versions.ts`; the registry contract is unchanged. **Behaviour:** the Sales order and quote Documents tab widgets declare `requiredModules: ['document_generators']`, so disabling the module hides the tabs instead of rendering a panel whose routes do not exist. Also corrected the shared module tree, which still showed `index.ts` / `lib/` / `services/` instead of the `document-generators.ts` barrel, `base-document-service.ts`, `types.ts` and `utils/`. |
+| 2026-10-04 | Claude | Expanded the Phase 10.1 documentation from one overview page to a `framework/document-generators/` section — overview, getting started, a step-by-step authoring guide built on the full `invoices` example, an API reference (routes, error codes, headers, TypeScript exports) and contributing — porting the content of the closed PR #5170 pages to the current code. Corrected the overview's claim that `/preview` requires `documents.generate` (it requires `documents.view`). Added `requiredModules` to the example widget, and a package `README.md` and `AGENTS.md` (kept within the instruction budget; no root Task Router row, since the root file has no budget left). |
+| 2026-10-07 | Claude | Applied three major findings from the 2026-10-07 `om-auto-review-pr` review of PR #6892. **M3:** `GET /documents` now applies `TemplateAccessPolicy` and lists only history rows of templates the caller is authorized for (a `template_id` outside that set answers an empty page); the policy-construction step and the endpoint section say so. **M2:** `generated_by` falls back to `auth.keyId` for an API key with no bound user, because its `sub` (`api_key:<id>`) is not a UUID and the insert failed silently inside the best-effort history write; a caller with no recordable UUID is rejected with `403` before rendering. **M4:** the Sales invoice and offer totals now reconcile — Subtotal is the sum of the rendered lines, shipping and surcharge stay separate, every other order-level change (discounts, returns, custom adjustments) is one "Discounts and adjustments" row derived from `subtotalNetAmount`, and Tax is gross minus net, so the rows always add up to the total. |
+| 2026-10-08 | Claude | Applied M1 from the 2026-10-07 `om-auto-review-pr` review of PR #6892: the Sales order and quote delete commands now emit the declared `sales.order.deleted` / `sales.quote.deleted` events, so the existing source-erasure subscriber actually runs for the shipped templates. Recorded the undo decision (erasure runs on the delete and is not reverted by undo; documents are regenerated on demand) and that quote-to-order conversion does not erase offers, and added `TC-DOCUMENT-023` to the integration coverage. |
+| 2026-10-08 | Claude | Applied M5 from the 2026-10-07 `om-auto-review-pr` review of PR #6892, confirmed by a pl preview that rendered `Do zapBaty`. Replaced the Helvetica-only font policy with application-configured fonts. **Configuration:** the `documentGeneratorsConfig` DI key (default `{ providers: [] }` in `di.ts`, overridden in `modules.ts`) lists rendering providers as `{ id, config }`; `lib/module-config.ts` validates only the list and each provider validates and defaults its own `config`; all schemas live in `data/validators.ts`, their predicates and `validateConfig` in `utils/`. **React-PDF:** `providers/react-pdf/config.ts` resolves the `react-pdf` config, `PdfFontRegistry` (`getPdfFontRegistry()`, process-wide on `globalThis`) registers each family once and holds the page family that the barrel `Page` prepends to the page style, and `utils/standardFonts.ts` holds the standard-font checks. **Strict mode:** an invalid module or provider config, a missing font file and a font React-PDF cannot embed each fail generation with an error naming the cause (`500 render_failed`); there is no Helvetica re-render and no per-render font state (React context is unavailable in the route layer, and `AsyncLocalStorage` was dropped as unnecessary once the configuration is process-wide). Without configuration PDFs use Helvetica and the server logs one warning when the data contains characters outside WinAnsi. `documentTheme` and the Sales templates drop `fontFamily`; the engine ships no font. Documented the `@fontsource/inter` recipe in the new `fonts.mdx` docs page and rewrote the Fonts and Font Loading sections. |

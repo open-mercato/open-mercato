@@ -1,0 +1,65 @@
+---
+title: Getting Started with Document Generators
+description: Install the package, enable the document_generators module, grant permissions and verify it with the Sales templates.
+---
+
+# Getting started
+
+## Install and enable
+
+**1. Add the package** to your Open Mercato application:
+
+```bash
+yarn mercato module add @open-mercato/document-generators
+```
+
+**2. Enable the module** in `src/modules.ts`. Applications created with `create-mercato-app` already contain this entry:
+
+```ts
+{ id: 'document_generators', from: '@open-mercato/document-generators' }
+```
+
+**3. Apply the migration** that creates the generation-history table:
+
+```bash
+yarn db:migrate
+```
+
+**4. Regenerate** the module registry, so templates from every enabled module's `document-generators.ts` are registered at bootstrap:
+
+```bash
+yarn generate
+```
+
+**5. Grant permissions.** The module's setup grants `document_generators.documents.view` and `document_generators.documents.generate` to the default `superadmin` and `admin` roles of new tenants. To sync existing tenants:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Users also need the feature each template declares in `requiredFeatures`, for example `sales.orders.view` for the order invoice.
+
+## Content security policy
+
+PDF preview renders a `blob:` URL in a frame, so the app's content security policy must allow `frame-src blob:`. The default app and the `create-mercato-app` template already do.
+
+## Verify
+
+With `sales` and `document_generators` enabled:
+
+1. Open **Documents → Templates** in the backend. The catalogue lists the Sales templates you have access to, grouped by module, with filters for resource type and format.
+2. Open a sales order or quote detail page and select the **Documents** tab. It lists the templates for that record and its generation history.
+3. Select **Preview** on a template. A dialog shows the PDF (or Markdown source) without storing anything.
+4. Select **Download PDF** (or **Download Markdown**). The file downloads, and a new row appears in the tab's history without a page reload.
+5. Open **Documents → Generation history** to see the same row in the organization-wide history. Its download action serves the stored file.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| No **Documents** tab | The module is listed in `src/modules.ts`; `yarn generate` ran after enabling it; the user has `document_generators.documents.view` and the owning module's view feature (`sales.orders.view` or `sales.quotes.view`). |
+| A template is missing from the list | The user lacks a feature in its `requiredFeatures`; or the owning module is disabled; or `yarn generate` did not run after adding its `document-generators.ts`. |
+| Bootstrap fails with a duplicate template id | Two modules register the same `id`. Namespace ids as `<module>.<template>`. |
+| Preview stays blank | The content security policy does not allow `frame-src blob:`. |
+| History stays empty after a download | Persistence is best-effort; check the server log for a storage or encryption error. The download itself still succeeds. |
+| `409 organization_required` | No organization is selected in the backend organization switcher. |

@@ -1,0 +1,11 @@
+{
+  "invoices.documents.generators.tabLabel": "Dokumente",
+  "invoices.documents.templates.invoice.description": "Druckbare PDF-Rechnung für diesen Datensatz.",
+  "invoices.documents.templates.invoice.label": "Rechnung (PDF)",
+  "invoices.documents.templates.invoice.labels.draftWatermark": "ENTWURF",
+  "invoices.documents.templates.invoice.labels.number": "Nummer",
+  "invoices.documents.templates.invoice.labels.title": "Rechnung",
+  "invoices.documents.templates.invoice.labels.total": "Gesamt",
+  "invoices.documents.templates.invoiceMarkdown.description": "Markdown-Textversion der Rechnung.",
+  "invoices.documents.templates.invoiceMarkdown.label": "Rechnung (Markdown)"
+}

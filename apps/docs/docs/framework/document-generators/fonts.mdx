@@ -1,0 +1,238 @@
+---
+title: Fonts in Generated PDFs
+description: Register a Unicode font for generated PDFs through the module configuration, from an npm font package, your own file or a URL.
+---
+
+# Fonts
+
+Generated PDFs use React-PDF's built-in Helvetica by default. It needs no font files, but it only covers Western European characters (the WinAnsi set). Any other letter renders wrongly: Polish `ą ć ę ł ń ś ź ż`, Czech, Hungarian, Cyrillic, Greek, Korean and other scripts. That affects translated template labels ("Do zapłaty") and customer data such as names and addresses ("Łódź"), whatever language the user interface is in.
+
+To render those characters, register a Unicode font for your application. Open Mercato does not install any font for you; you choose one and point the module at its files.
+
+When a PDF contains characters Helvetica cannot render and no font is configured, the server logs this warning once per process:
+
+```text
+A PDF contains characters the built-in Helvetica font cannot render (for example Polish, Czech or Korean letters). Register a Unicode font in the "react-pdf" provider config (documentGeneratorsConfig.providers); see the document generators "Fonts" documentation.
+```
+
+## Configure a font
+
+The module reads its settings from the `documentGeneratorsConfig` DI key: a list of rendering providers, each with an `id` and its own `config`. PDFs are rendered by the `react-pdf` provider, so fonts go into its `config`. Override the key on the `document_generators` entry in your application's `src/modules.ts`:
+
+```ts title="src/modules.ts"
+{
+  id: 'document_generators',
+  from: '@open-mercato/document-generators',
+  overrides: {
+    di: {
+      documentGeneratorsConfig: {
+        providers: [
+          {
+            id: 'react-pdf',
+            config: {
+              fonts: [
+                // font families go here, see the recipes below
+              ],
+            },
+          },
+        ],
+      },
+    },
+  },
+},
+```
+
+Each level has defaults: without an override the module has no provider entries, and a provider that is not listed (or has no `config`) uses its own defaults; for `react-pdf` that is no extra fonts, so PDFs use Helvetica. A provider `config` you pass is merged over those defaults. Each provider `id` may appear once.
+
+A font configuration that is wrong fails PDF generation instead of silently falling back to Helvetica, because a fallback would produce documents with broken characters again. The request answers `500 render_failed` and the server log (`Document rendering failed`) names the cause. Markdown documents are not affected by the `react-pdf` config. Generate one PDF preview after changing the configuration to confirm it.
+
+To have the configuration type-checked, import its types:
+
+```ts title="src/modules.ts"
+import type {
+  DocumentGeneratorsConfig,
+  ReactPdfConfig,
+} from '@open-mercato/document-generators/modules/document_generators/data/validators'
+
+const reactPdfConfig = {
+  fonts: [/* … */],
+} satisfies ReactPdfConfig
+
+const documentGeneratorsConfig = {
+  providers: [{ id: 'react-pdf', config: reactPdfConfig }],
+} satisfies DocumentGeneratorsConfig
+```
+
+The engine registers the fonts the first time it renders a PDF and gives every render its page font. Built-in and third-party templates inherit it automatically through the engine's `Page` unless a template sets its own `fontFamily`. Restart the application after you change the configuration.
+
+## Recipe: Inter from Fontsource
+
+[Fontsource](https://fontsource.org) publishes open-source fonts as npm packages. Install the static (non-variable) Inter package in your application:
+
+```bash
+yarn add @fontsource/inter
+```
+
+Fontsource splits each font into character subsets. Register the `latin` and `latin-ext` files as two families; the second one holds the Central European letters:
+
+```ts
+{
+  id: 'react-pdf',
+  config: {
+    fonts: [
+      {
+        family: 'Inter',
+        sources: [
+          { package: '@fontsource/inter', file: 'files/inter-latin-400-normal.woff', fontWeight: 400 },
+          { package: '@fontsource/inter', file: 'files/inter-latin-700-normal.woff', fontWeight: 700 },
+        ],
+      },
+      {
+        family: 'Inter Latin Ext',
+        sources: [
+          { package: '@fontsource/inter', file: 'files/inter-latin-ext-400-normal.woff', fontWeight: 400 },
+          { package: '@fontsource/inter', file: 'files/inter-latin-ext-700-normal.woff', fontWeight: 700 },
+        ],
+      },
+    ],
+  },
+}
+```
+
+Without `fontFamily`, the page font is the list of registered families in order. React-PDF takes each character from the first family that has it and falls back to Helvetica last. Add the `cyrillic` or `greek` subset files as further families when your documents need them.
+
+A `package` source is resolved the same way Node resolves modules, starting at the application directory, so it works in a monorepo, in a standalone application and in a Docker image that installs its `node_modules`.
+
+## Recipe: Roboto from Fontsource
+
+Roboto is set up the same way. Install the static package:
+
+```bash
+yarn add @fontsource/roboto
+```
+
+Register its `latin` and `latin-ext` files. Roboto also ships italic files, so this recipe adds them with `fontStyle: 'italic'`; leave them out if your templates use no italic text:
+
+```ts
+{
+  id: 'react-pdf',
+  config: {
+    fonts: [
+      {
+        family: 'Roboto',
+        sources: [
+          { package: '@fontsource/roboto', file: 'files/roboto-latin-400-normal.woff', fontWeight: 400 },
+          { package: '@fontsource/roboto', file: 'files/roboto-latin-400-italic.woff', fontWeight: 400, fontStyle: 'italic' },
+          { package: '@fontsource/roboto', file: 'files/roboto-latin-700-normal.woff', fontWeight: 700 },
+        ],
+      },
+      {
+        family: 'Roboto Latin Ext',
+        sources: [
+          { package: '@fontsource/roboto', file: 'files/roboto-latin-ext-400-normal.woff', fontWeight: 400 },
+          { package: '@fontsource/roboto', file: 'files/roboto-latin-ext-400-italic.woff', fontWeight: 400, fontStyle: 'italic' },
+          { package: '@fontsource/roboto', file: 'files/roboto-latin-ext-700-normal.woff', fontWeight: 700 },
+        ],
+      },
+    ],
+  },
+}
+```
+
+File names follow `<font>-<subset>-<weight>-<style>.woff`. After installing any Fontsource package, `ls node_modules/@fontsource/<font>/files` lists the subsets, weights and styles it provides.
+
+## Recipe: Inter and Roboto together
+
+Register both fonts from the recipes above and pick the page font with `fontFamily`. Here Inter is the page font, and a template uses Roboto only for headings:
+
+```ts
+{
+  id: 'react-pdf',
+  config: {
+    fonts: [
+      { family: 'Inter', sources: [/* Inter latin files */] },
+      { family: 'Inter Latin Ext', sources: [/* Inter latin-ext files */] },
+      { family: 'Roboto', sources: [/* Roboto latin files */] },
+      { family: 'Roboto Latin Ext', sources: [/* Roboto latin-ext files */] },
+    ],
+    fontFamily: ['Inter', 'Inter Latin Ext'],
+  },
+}
+```
+
+Without `fontFamily` the page would use all four families in order, so Inter would win for every character it has and Roboto would never show. In the template, set the other font on the elements that need it, again as a list so Central European letters keep working:
+
+```tsx
+const styles = StyleSheet.create({
+  heading: { fontFamily: ['Roboto', 'Roboto Latin Ext'], fontWeight: 700 },
+})
+```
+
+A template that names a family must only use families the application registers. Built-in and shared templates therefore set no `fontFamily` and rely on the page font.
+
+## Recipe: your own font file
+
+Keep a brand font in the application, for example in `public/fonts`, and register it by absolute path:
+
+```ts
+import path from 'node:path'
+
+{
+  id: 'react-pdf',
+  config: {
+    fonts: [
+      {
+        family: 'Brand',
+        sources: [
+          { path: path.join(process.cwd(), 'public/fonts/Brand-Regular.ttf'), fontWeight: 400 },
+          { path: path.join(process.cwd(), 'public/fonts/Brand-Bold.ttf'), fontWeight: 700 },
+        ],
+      },
+    ],
+  },
+}
+```
+
+A `url` source (`{ url: 'https://…/Brand-Regular.ttf' }`) also works, but the server downloads it on the first render, so PDF generation then depends on that host being reachable.
+
+## Supported font files
+
+- Use static `.ttf`, `.otf` or `.woff` files.
+- `.woff2` files cannot be embedded by React-PDF. A `react-pdf` config that lists one is rejected when it is read, naming the failing source.
+- Variable fonts (one file containing every weight, such as the `@fontsource-variable/*` packages) cannot be embedded either. They are not detectable from the file name, so they fail when the PDF is rendered; the error names the configured fonts.
+- Register one source per weight you use. The built-in templates use regular (400) and bold (700) text.
+- Korean, Chinese and Japanese need a font that contains those scripts, for example the Noto Sans CJK families. Their files are several megabytes per weight.
+
+## Configuration reference
+
+`documentGeneratorsConfig`:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `providers` | `Array<{ id, config? }>` | `[]` | Rendering providers to configure. Each `id` may appear once. |
+| `providers[].id` | `string` | – | Provider id, for example `'react-pdf'`. |
+| `providers[].config` | `object` | the provider's defaults | Provider settings; each provider validates its own. |
+
+`react-pdf` provider `config`:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `fonts` | `Array<{ family, sources }>` | `[]` | Font families to register. |
+| `fonts[].family` | `string` | – | Name the family is registered under. |
+| `fonts[].sources[]` | `{ package, file }` \| `{ path }` \| `{ url }` | – | Where the font file is. `file` is relative to the package root; `path` must be absolute. No `.woff2`. |
+| `fonts[].sources[].fontWeight` | `100`–`900` \| `'normal'` \| `'bold'` | – | Weight the file provides. |
+| `fonts[].sources[].fontStyle` | `'normal'` \| `'italic'` | – | Style the file provides. |
+| `fontFamily` | `string` \| `string[]` | registered families, else `'Helvetica'` | Page font, or a fallback list tried in order. Each name must be a family listed in `fonts` or a standard PDF font. |
+
+## Troubleshooting
+
+Each of these makes PDF generation fail with `500 render_failed`; the server logs `Document rendering failed` with the message below.
+
+| Error message | Cause |
+|---|---|
+| `Invalid documentGeneratorsConfig: …` | The module configuration does not match its schema: an unknown key, a provider without an `id`, or the same `id` twice. The message lists the failing fields. This affects every document format. |
+| `Invalid "react-pdf" provider config: …` | The `react-pdf` config does not match its schema, for example an unknown key, a relative `path`, a `package` that is not an npm package name, a `.woff2` file, or a `fontFamily` name that is neither listed in `fonts` nor a standard PDF font (`Helvetica`, `Times-Roman`, `Courier`, `Symbol`, `ZapfDingbats`). The message lists the failing fields. |
+| `Cannot register the "react-pdf" provider font "<family>": …` | A font file of that family was not found, for example the package is not installed in the application. |
+| `PDF rendering failed with the "react-pdf" provider fonts …` | The configured font could not be embedded: a variable or corrupted font file. Use static `.ttf`, `.otf` or `.woff` files. |
+
+Without any font configuration PDFs use Helvetica, and the server logs one warning when a document contains characters Helvetica cannot render.
