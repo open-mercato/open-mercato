@@ -47,10 +47,11 @@ function isModernYarnProject(appDir: string): boolean {
   let directory = appDir
   while (true) {
     if (fs.existsSync(path.join(directory, '.yarnrc.yml'))) return true
-    try {
-      const manifest = record(JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8')))
+    const manifestPath = path.join(directory, 'package.json')
+    if (fs.existsSync(manifestPath)) {
+      const manifest = record(JSON.parse(fs.readFileSync(manifestPath, 'utf8')))
       if (typeof manifest.packageManager === 'string' && /^yarn@(?:[2-9]|[1-9][0-9]+)\./.test(manifest.packageManager)) return true
-    } catch {}
+    }
     const parent = path.dirname(directory)
     if (parent === directory) return false
     directory = parent

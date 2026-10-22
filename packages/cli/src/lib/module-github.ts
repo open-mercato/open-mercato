@@ -10,7 +10,7 @@ export type GithubModuleTarget = {
 
 function githubApi(endpoint: string, cwd: string): unknown {
   try {
-    return JSON.parse(execFileSync('gh', ['api', endpoint], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) as unknown
+    return JSON.parse(execFileSync('gh', ['api', endpoint], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 })) as unknown
   } catch {
     throw new Error(`Cannot read GitHub repository metadata at ${endpoint}. Check the locator and access with "gh auth login". No package was installed.`)
   }
