@@ -31,7 +31,10 @@
       "om-close-fixed-issues",
       "om-verify-in-repo",
       "om-pr-autopilot",
-      "om-create-skill"
+      "om-create-skill",
+      "om-help",
+      "om-judge-agent-session",
+      "om-share-this-session"
     ]
   },
   "tiers": {
@@ -49,10 +52,7 @@
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
         "om-create-web-research-adapter",
-        "om-help",
-        "om-refresh-standalone-harness",
-        "om-judge-agent-session",
-        "om-share-this-session"
+        "om-refresh-standalone-harness"
       ]
     },
     "design": {

@@ -12,6 +12,27 @@ readable taxonomy lives in `.ai/agentic.config.json` (`labels.*`, `qaGate`).
 - Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`.
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.
+- Release-line labels are additive: `backport release/vX.Y.x` (cherry-pick into that line once merged), `backport main` (forward-port a line hotfix), `backport` (marks a PR the Backport workflow opened), `skip-changelog` (left out of generated release notes).
+
+## Release lines and backports
+
+Every PR targets `main`, the next minor; released minors live on `release/vX.Y.x` and take fixes
+only (CONTRIBUTING.md § Releasing). A fix users of a released line need gets
+`backport release/vX.Y.x` — the default for `priority-high`/`priority-extreme` bugs, security
+fixes and regressions that exist on that line; never for features or refactors. Find the newest
+line with `git branch -r --list 'origin/release/v*'`.
+
+- Label the issue at triage and the PR when opening it; only the PR's label triggers the Backport
+  workflow. Auto-skills copy a `backport …` label from the issue to the PR, and label
+  normalization MUST NOT strip it.
+- A backport PR is reviewed as a real PR: CI green *and* the change still fits the line's code.
+  Backport copies category, priority, risk, `needs-qa` and `skip-qa`; it never copies
+  `qa-approved`, so the QA gate applies to the line again.
+- Auto-skills never push to `release/v*`, never merge into it outside a reviewed PR, and never
+  dispatch Release cut, Release or Release publish, and never create or delete `v*` tags (a tag
+  starts a publish) — those are maintainer actions.
+- Versions, workspace manifests' `version` fields and released `CHANGELOG.md` entries are never
+  edited by hand; a PR that does is a review blocker.
 
 ## Priority
 

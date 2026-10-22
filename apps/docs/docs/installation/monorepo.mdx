@@ -102,7 +102,6 @@ This starts:
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 ```
 
 Copy the environment template:
@@ -142,7 +141,7 @@ yarn initialize
 
 `yarn initialize` runs migrations, seeds roles, provisions an admin user, and loads demo CRM data. Add `--no-examples` to skip demo content. The admin credentials are printed at the end.
 
-`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use Codex, Claude Code, Cursor, or another supported coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use Codex, Claude Code, Cursor, or another supported coding agent; see [Setup steps](./setup#setup-steps-recommended) for the full explanation.
 
 ---
 
@@ -252,7 +251,6 @@ Starts PostgreSQL 17 (with pgvector), Redis 7, and Meilisearch.
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 ```
 
 ```bash
@@ -288,7 +286,7 @@ yarn build:packages
 yarn initialize
 ```
 
-`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Setup steps](./setup#setup-steps-recommended) for the full explanation.
 
 ---
 
@@ -478,7 +476,6 @@ Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy 
 ```powershell
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 ```
 
 Copy the environment template:
@@ -510,7 +507,7 @@ yarn build:packages
 yarn initialize
 ```
 
-`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Setup steps](./setup#setup-steps-recommended) for the full explanation.
 
 :::tip
 `yarn build:packages` must run **twice** — once before `yarn generate` and once after — so the generated scripts are compiled before `yarn initialize` runs.
