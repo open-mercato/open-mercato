@@ -19,6 +19,7 @@ const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
   ['yarn lint', []],
   ['yarn build', ['.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
 ])
+const RELEASE_SQLITE_CACHE_OUTPUTS = ['.mercato/cache/cache.db', '.mercato/cache/cache.db-wal', '.mercato/cache/cache.db-shm']
 const RUNNERS = new Set(RELEASE_SUPPORTED_RUNNERS)
 const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
 const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-browser'])
@@ -1196,6 +1197,14 @@ export function createMinimalValidationEnvironment(tempRoot, pathValue = process
 }
 
 function validationOutputRoot(relative, command, after) {
+  if (command === 'yarn generate' || command === 'yarn build') {
+    const fingerprint = after.get(relative)
+    if (RELEASE_SQLITE_CACHE_OUTPUTS.includes(relative) && (fingerprint === undefined || fingerprint.startsWith('<file:'))) return relative
+    if ((relative === '.mercato' || relative === '.mercato/cache') && fingerprint?.startsWith('<directory:')) {
+      const cacheOutput = RELEASE_SQLITE_CACHE_OUTPUTS.find((file) => after.get(file)?.startsWith('<file:'))
+      if (cacheOutput) return cacheOutput
+    }
+  }
   if (
     relative === '.env'
     && (command === 'yarn generate' || command === 'yarn build')
