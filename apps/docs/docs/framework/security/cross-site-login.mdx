@@ -1,0 +1,68 @@
+---
+title: Cross-Site Login Protection
+description: How the staff and portal sign-in routes reject cross-site browser requests, and how to configure trusted origins.
+---
+
+# Cross-Site Login Protection
+
+A page on another site can make a visitor's browser submit a form to a sign-in route. Without a
+check, the response would set session cookies and sign that browser into whichever account the
+form named (login CSRF). `SameSite=Lax` cookies do not prevent this: they control when a cookie is
+*sent*, not whether a top-level response may *set* one.
+
+The routes that issue a session from a request body therefore reject cross-site browser requests
+with `403 { ok: false, error }` before they read the body:
+
+| Route | Session cookies |
+|-------|-----------------|
+| `POST /api/auth/login` | `auth_token`, `session_token` |
+| `POST /api/auth/session/refresh` | `auth_token` |
+| `POST /api/customer_accounts/login` | `customer_auth_token`, `customer_session_token` |
+| `POST /api/customer_accounts/magic-link/verify` | `customer_auth_token`, `customer_session_token` |
+| `POST /api/customer_accounts/invitations/accept` | `customer_auth_token`, `customer_session_token` |
+
+## Policy
+
+The decision is made by `isCrossSiteBrowserRequest(req)` from `@open-mercato/shared/lib/url`:
+
+1. **Fetch Metadata.** `Sec-Fetch-Site: cross-site` is rejected. `same-origin` and `none` are
+   accepted. A browser computes this header itself and a page cannot override it.
+2. **No browser headers.** A request with neither `Sec-Fetch-Site` nor `Origin` is accepted. CLI
+   tools, scripts, mobile apps, server-to-server calls and the integration-test helpers sign in
+   this way.
+3. **Origin.** For any other request (`same-site`, an unknown `Sec-Fetch-Site` value, or a browser
+   that sends `Origin` without Fetch Metadata):
+   - a missing `Origin` (when `Sec-Fetch-Site` is present), `Origin: null`, or an unparsable
+     `Origin` is rejected;
+   - an `Origin` equal to `APP_URL`, `NEXT_PUBLIC_APP_URL` or an entry of `APP_ALLOWED_ORIGINS` is
+     accepted;
+   - outside production, a loopback `Origin` (`localhost`, `127.0.0.1`) is accepted when one of the
+     configured origins is loopback too, on any port;
+   - an `Origin` equal to the request's own `X-Forwarded-Host` or `Host` is accepted. The scheme
+     comes from `X-Forwarded-Proto` when the proxy sends it, so it must match; without that header
+     only the host and port are compared;
+   - anything else is rejected and logged as a `Cross-site request rejected` warning with the
+     `origin`, `host` and `forwardedHost` values.
+
+The first-party sign-in pages call these routes with same-origin `fetch`, so they pass at step 1
+(over plain HTTP on a non-loopback host, browsers send no Fetch Metadata and the pages pass
+through the `Host` match in step 3).
+Portal custom domains pass because the browser's `Origin` equals the custom domain's `Host`.
+
+## Configuration
+
+Configuration only matters for requests that reach step 3: browsers that send no Fetch Metadata,
+and `same-site` requests from a sibling subdomain. For those, make sure the origin is recognised:
+
+```bash
+APP_URL=https://admin.example.com
+APP_ALLOWED_ORIGINS=https://ops.example.com
+```
+
+Alternatively, let the reverse proxy forward `X-Forwarded-Host` (and `X-Forwarded-Proto`).
+
+A sign-in form on a sibling subdomain (for example `www.example.com` posting to
+`app.example.com`) works once its origin is listed in `APP_ALLOWED_ORIGINS`.
+`APP_ALLOWED_ORIGINS` cannot re-enable a sign-in form hosted on a different site. The browser marks
+that request `Sec-Fetch-Site: cross-site`, which is always rejected. Sign in on the application's
+own origin, or call the API from a server.
