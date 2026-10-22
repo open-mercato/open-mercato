@@ -65,7 +65,7 @@ describe('module artifact inspection', () => {
     expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('No package was installed')
   })
 
-  it('mirrors scoped Yarn registry authentication through a private temporary npmrc', () => {
+  it.each([0, 1])('mirrors scoped Yarn authentication and removes the temporary npmrc after status %s', (status) => {
     fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'npmScopes: {}')
     const config: Record<string, unknown> = {
       npmRegistryServer: 'https://registry.npmjs.org',
@@ -86,9 +86,10 @@ describe('module artifact inspection', () => {
       expect(fs.readFileSync(temporaryConfig, 'utf8')).toContain('//private.example.test/npm/:_authToken="test-token-do-not-print"')
       expect(values).toContain('--@vendor:registry=https://private.example.test/npm/')
       expect(values.join(' ')).not.toContain('test-token-do-not-print')
-      return { status: 0, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: '', pid: 1, output: [], signal: null }
+      return { status, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: 'test-token-do-not-print', pid: 1, output: [], signal: null }
     })
-    expect(inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root).version).toBe('1.2.3')
+    if (status === 0) expect(inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root).version).toBe('1.2.3')
+    else expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('No package was installed')
     expect(temporaryConfig).toBeDefined()
     expect(fs.existsSync(temporaryConfig!)).toBe(false)
   })
