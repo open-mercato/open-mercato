@@ -1,16 +1,16 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-22T21:13:47Z
+**Last updated:** 2026-10-22T21:24:52Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 5 Step 5.1
-**Last commit:** a9c8e751e — fix(agent_orchestrator): persist runtime audit rows for principal-bound runs
+**Current phase/step:** Phase 6 Step 6.1
+**Last commit:** 1ae775ef3 — fix(agent_orchestrator): capture AI SDK 7 tool calls in native traces
 
 ## What just happened
-- Phase 4 (identity Phase 0: runAs native-run test, runtime-audit scope + allowlist, wrapped write sites, failRun fix) landed and passed checkpoint 5.
+- Phase 5 (chat-tracing Phase 1: AI SDK 7 extraction helper, per-call tool timings, collector + AO native trace adoption) landed and passed checkpoint 6.
 
 ## Next concrete action
-- Step 5.1 — add the AI SDK 7 loop step extraction helper (chat-tracing spec Phase 1).
+- Step 6.1 — link replayed judge results to eval case runs and pass expected (eval spec Phase 1).
 
 ## Blockers / open questions
 - Pushes to `upstream` are blocked by the local auto-mode policy; the user pushes batches manually.

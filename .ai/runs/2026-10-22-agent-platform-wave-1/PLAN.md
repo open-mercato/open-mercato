@@ -39,10 +39,10 @@
 | 4 | 4.1 | Cover a full native agent run under runAs | dispatch:capable | done | d21111368 |
 | 4 | 4.2 | Add the runtime-audit write scope and entity allowlist to the no-bypass guard | dispatch | done | 247141ea8 |
 | 4 | 4.3 | Wrap AO runtime audit writes in the runtime-audit scope | dispatch | done | a9c8e751e |
-| 5 | 5.1 | Add the AI SDK 7 loop step extraction helper | dispatch | done | 7b59930d0 |
-| 5 | 5.2 | Time tool executions per tool call id | dispatch | done | a4279310a |
-| 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | done | da0f60d67 |
-| 5 | 5.4 | Record AO native trace tool calls through the extraction helper | dispatch | done | 16eb7f1c6 |
+| 5 | 5.1 | Add the AI SDK 7 loop step extraction helper | dispatch | done | 7158ebe0c |
+| 5 | 5.2 | Time tool executions per tool call id | dispatch | done | 098973f29 |
+| 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | done | 4b42bc23e |
+| 5 | 5.4 | Record AO native trace tool calls through the extraction helper | dispatch | done | 1ae775ef3 |
 | 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | todo | — |
 | 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | todo | — |
 | 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | todo | — |
