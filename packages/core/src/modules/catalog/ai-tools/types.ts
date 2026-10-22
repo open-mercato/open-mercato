@@ -46,6 +46,7 @@ export interface CatalogToolLoadBeforeRecord {
   label: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
 }
 
 export interface CatalogAiToolDefinition<TInput = unknown, TOutput = unknown> {

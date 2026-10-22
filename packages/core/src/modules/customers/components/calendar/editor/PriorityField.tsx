@@ -23,11 +23,13 @@ export function PriorityField({
   labels,
   ariaLabel,
   onChange,
+  disabled,
 }: {
   value: EditorPriority
   labels: Record<EditorPriority, string>
   ariaLabel: string
   onChange(next: EditorPriority): void
+  disabled?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
   const close = React.useCallback(() => setOpen(false), [])
@@ -49,6 +51,7 @@ export function PriorityField({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        disabled={disabled}
         onClick={() => setOpen((previous) => !previous)}
         className={cn('h-9 w-full justify-between bg-background px-3 font-normal shadow-none', CONTROL_BORDER)}
       >

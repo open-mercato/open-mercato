@@ -170,3 +170,39 @@ describe('payment-session initialization prune upgrade action', () => {
     }))
   })
 })
+
+describe('encryption-map upgrade action cache order', () => {
+  it.each([
+    ['devices.seed-push-token-encryption-map', ['devices:user_device']],
+    [
+      'phone_calls.seed-call-encryption-maps',
+      ['phone_calls:phone_call', 'phone_calls:phone_call_participant'],
+    ],
+  ] as Array<[string, string[]]>)('defers %s cache invalidation until the caller confirms commit', async (actionId, entityIds) => {
+    const action = upgradeActions.find((candidate) => candidate.id === actionId)
+    const execute = jest.fn(async () => [{ id: 'map-id', updated_at: new Date() }])
+    const invalidateMap = jest.fn(async () => undefined)
+    const callbacks: Array<() => void | Promise<void>> = []
+    const container = {
+      resolve: jest.fn(() => ({ invalidateMap })),
+    }
+
+    await action?.run({
+      container: container as never,
+      em: { execute } as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      deferAfterCommit: (callback) => callbacks.push(callback),
+    })
+
+    expect(execute).toHaveBeenCalledTimes(entityIds.length)
+    expect(invalidateMap).not.toHaveBeenCalled()
+    expect(callbacks).toHaveLength(1)
+
+    await callbacks[0]?.()
+
+    expect(invalidateMap.mock.calls).toEqual(
+      entityIds.map((entityId) => [entityId, 'tenant-1', 'org-1']),
+    )
+  })
+})

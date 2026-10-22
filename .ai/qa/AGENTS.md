@@ -101,6 +101,8 @@ Use shared helpers from `@open-mercato/core/helpers/integration/*`. These are pu
 | `@open-mercato/core/helpers/integration/authFixtures` | `createRoleFixture`, `deleteRoleIfExists`, `createUserFixture`, `deleteUserIfExists` | Role and user fixture lifecycle |
 | `@open-mercato/core/helpers/integration/generalFixtures` | `readJsonSafe`, `getTokenContext`, `expectId`, `deleteEntityByPathIfExists` | General-purpose test utilities |
 | `@open-mercato/core/helpers/integration/dictionariesFixtures` | `createDictionaryFixture` | Dictionary fixture creation |
+| `@open-mercato/core/modules/integrations/lib/oauth/testing/fakeAuthorizationServer` | `startFakeAuthorizationServer` | In-process fake OAuth2 authorization server (rotation modes, injected failures, revocation, counters) for Jest suites of OAuth grant code; no `@playwright/test` import |
+| `@open-mercato/core/helpers/integration/oauthGrantTestRoute` | `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant`, `resetTestGrants` | Drives the `test_oauth_grant` grant through the test-only route (`OM_ENABLE_TEST_OAUTH_GRANTS`); skip the spec when unavailable, `resetTestGrants` in setup and teardown |
 
 Import pattern from module tests:
 
@@ -518,6 +520,7 @@ TC-[CATEGORY]-[XXX]-[title].md
 | STAFF | Staff & Team Management |
 | DICT | Dictionaries |
 | DIR | Directory (Organisations & Tenants) |
+| FORMS | Forms & Questionnaires (definitions, versions, submissions, distributions) |
 | API-SYS | System & Maintenance APIs |
 | API-ENT | Custom Fields & Entities APIs |
 | API-BULK | Bulk Operations APIs |

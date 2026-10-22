@@ -72,6 +72,10 @@ import {
   mapAssignableStaffToFilterOptions,
 } from '../../../lib/assignableStaff'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { UserCircle2 } from 'lucide-react'
+import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
+import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
+import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
 
 const logger = createLogger('customers')
 
@@ -552,6 +556,94 @@ export default function CustomersDealsPage() {
     setPage(1)
   }, [])
 
+  // Bulk owner reassignment. The picker needs a user choice, so onExecute parks a resolver
+  // and the dialog settles it: `false` on cancel keeps the selection, and the success shape
+  // lets DataTable clear the selection and track the queued job in the top bar.
+  const [reassignOwnerOpen, setReassignOwnerOpen] = React.useState(false)
+  const [reassignOwnerRows, setReassignOwnerRows] = React.useState<DealRow[]>([])
+  const [isReassigningOwner, setIsReassigningOwner] = React.useState(false)
+  const reassignOwnerResolver = React.useRef<((result: BulkActionExecuteResult | false) => void) | null>(null)
+
+  const settleReassignOwner = React.useCallback((result: BulkActionExecuteResult | false) => {
+    const resolve = reassignOwnerResolver.current
+    reassignOwnerResolver.current = null
+    resolve?.(result)
+  }, [])
+
+  const handleBulkReassignOwner = React.useCallback(
+    async (selectedRows: DealRow[]): Promise<BulkActionExecuteResult | false> => {
+      if (!selectedRows.length) return false
+      // A second invocation (double-click) would otherwise overwrite the parked resolver and
+      // leave the first `onExecute` awaiting forever.
+      settleReassignOwner(false)
+      setReassignOwnerRows(selectedRows)
+      setReassignOwnerOpen(true)
+      return new Promise<BulkActionExecuteResult | false>((resolve) => {
+        reassignOwnerResolver.current = resolve
+      })
+    },
+    [settleReassignOwner],
+  )
+
+  const handleReassignOwnerCancel = React.useCallback(() => {
+    setReassignOwnerOpen(false)
+    settleReassignOwner(false)
+  }, [settleReassignOwner])
+
+  const handleReassignOwnerConfirm = React.useCallback(
+    async (ownerUserId: string) => {
+      const ids = reassignOwnerRows.map((row) => row.id)
+      if (!ids.length) {
+        setReassignOwnerOpen(false)
+        settleReassignOwner(false)
+        return
+      }
+      setIsReassigningOwner(true)
+      let progressJobId: string | null = null
+      try {
+        await runBulkMutation({
+          operation: async () => {
+            const outcome = await requestBulkOwnerReassignment({
+              ids,
+              ownerUserId,
+              errorMessage: t(
+                'customers.deals.list.bulkReassignOwner.error',
+                'Failed to start bulk owner update.',
+              ),
+            })
+            progressJobId = outcome.progressJobId
+          },
+          context: {
+            formId: bulkMutationContextId,
+            resourceKind: 'customers.deals.bulk_owner',
+            retryLastMutation: retryBulkMutation,
+          },
+        })
+      } catch (error) {
+        logger.error('customers.deals.list bulk owner update failed', { err: error })
+        setIsReassigningOwner(false)
+        setReassignOwnerOpen(false)
+        // `runBulkMutation` already surfaced the failure. Returning a message here would make
+        // DataTable flash a second error toast for the same event, so settle silently.
+        settleReassignOwner({ ok: false })
+        return
+      }
+      setIsReassigningOwner(false)
+      setReassignOwnerOpen(false)
+      // DataTable returns right after clearing the selection when a progressJobId is present,
+      // so it never calls the refresh hook — reload the rows here instead.
+      handleRefresh()
+      settleReassignOwner(buildReassignOwnerSuccess({
+        ids,
+        progressJobId,
+        message: t('customers.deals.list.bulkReassignOwner.queued', 'Bulk owner update started ({count} deals).', {
+          count: ids.length,
+        }),
+      }))
+    },
+    [bulkMutationContextId, handleRefresh, reassignOwnerRows, retryBulkMutation, runBulkMutation, settleReassignOwner, t],
+  )
+
   const handleBulkDelete = React.useCallback(async (selectedRows: DealRow[]) => {
     const confirmed = await confirm({
       title: t('customers.deals.list.bulkDelete.title', 'Delete {count} deals?', { count: selectedRows.length }),
@@ -759,9 +851,9 @@ export default function CustomersDealsPage() {
         header: t('customers.deals.list.columns.title'),
         meta: {
           alwaysVisible: true,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'title',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
           maxWidth: '280px',
         },
         cell: ({ row }) => (
@@ -785,9 +877,9 @@ export default function CustomersDealsPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.dealStatuses,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'status',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const status = row.original.status
@@ -804,9 +896,9 @@ export default function CustomersDealsPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.pipelineStages,
-          columnChooserGroup: 'Pipeline',
+          columnChooserGroup: t('customers.columnGroups.pipeline', 'Pipeline'),
           filterKey: 'pipeline_stage',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const stage = row.original.pipelineStage
@@ -819,9 +911,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'pipelineId',
         header: t('customers.deals.list.columns.pipeline', 'Pipeline'),
         meta: {
-          columnChooserGroup: 'Pipeline',
+          columnChooserGroup: t('customers.columnGroups.pipeline', 'Pipeline'),
           filterKey: 'pipeline_id',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
           maxWidth: '220px',
         },
         cell: ({ row }) => {
@@ -834,9 +926,9 @@ export default function CustomersDealsPage() {
         header: t('customers.deals.list.columns.value'),
         meta: {
           filterType: 'number' as const,
-          columnChooserGroup: 'Financial',
+          columnChooserGroup: t('customers.columnGroups.financial', 'Financial'),
           filterKey: 'value_amount',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const amount = formatGroupedAmount(row.original.valueAmount ?? null)
@@ -855,9 +947,9 @@ export default function CustomersDealsPage() {
         header: t('customers.deals.list.columns.probability'),
         meta: {
           filterType: 'number' as const,
-          columnChooserGroup: 'Financial',
+          columnChooserGroup: t('customers.columnGroups.financial', 'Financial'),
           filterKey: 'probability',
-          filterGroup: 'Deal',
+          filterGroup: t('customers.columnGroups.deal', 'Deal'),
         },
         cell: ({ row }) => {
           const value = row.original.probability
@@ -871,9 +963,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'expectedCloseAt',
         header: t('customers.deals.list.columns.expectedClose'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'expected_close_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) => {
@@ -912,11 +1004,11 @@ export default function CustomersDealsPage() {
         accessorKey: 'ownerUserId',
         header: t('customers.deals.list.columns.owner', 'Owner'),
         meta: {
-          columnChooserGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.crm', 'CRM'),
           filterType: 'select',
           filterOptions: resolvedOwnerFilterOptions,
           filterLoadOptions: loadOwnerFilterOptions,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
         },
@@ -936,9 +1028,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'companies',
         header: t('customers.deals.list.columns.companies'),
         meta: {
-          columnChooserGroup: 'Associations',
+          columnChooserGroup: t('customers.columnGroups.associations', 'Associations'),
           filterable: false,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'building-2',
           maxWidth: '220px',
           tooltipContent: (row: DealRow) =>
@@ -967,9 +1059,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'people',
         header: t('customers.deals.list.columns.people'),
         meta: {
-          columnChooserGroup: 'Associations',
+          columnChooserGroup: t('customers.columnGroups.associations', 'Associations'),
           filterable: false,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           maxWidth: '220px',
           tooltipContent: (row: DealRow) =>
@@ -1006,9 +1098,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'updatedAt',
         header: t('customers.deals.list.columns.updatedAt'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'updated_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) => (
@@ -1157,6 +1249,12 @@ export default function CustomersDealsPage() {
           onSortingChange={setSorting}
           bulkActions={[
             {
+              id: 'reassign-owner',
+              label: t('customers.deals.list.actions.reassignOwner', 'Reassign owner'),
+              icon: UserCircle2,
+              onExecute: handleBulkReassignOwner,
+            },
+            {
               id: 'delete',
               label: t('customers.deals.list.actions.delete', 'Delete'),
               destructive: true,
@@ -1293,6 +1391,13 @@ export default function CustomersDealsPage() {
           savedFilterStorageKey="customers.deals.list"
         />
       </PageBody>
+      <ReassignOwnerDialog
+        open={reassignOwnerOpen}
+        selectedCount={reassignOwnerRows.length}
+        isSubmitting={isReassigningOwner}
+        onClose={handleReassignOwnerCancel}
+        onConfirm={(userId) => { void handleReassignOwnerConfirm(userId) }}
+      />
       {ConfirmDialogElement}
     </Page>
   )
