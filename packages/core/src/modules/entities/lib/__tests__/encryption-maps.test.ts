@@ -1,5 +1,6 @@
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
+  appendMissingFieldsToOrganizationMaps,
   EncryptionMapVersionConflictError,
   mergeEncryptionMapFields,
   resolveCanonicalEncryptionMap,
@@ -231,5 +232,41 @@ describe('upsertCanonicalEncryptionMap optimistic version', () => {
       if (previous === undefined) delete process.env.TENANT_DATA_ENCRYPTION
       else process.env.TENANT_DATA_ENCRYPTION = previous
     }
+  })
+})
+
+describe('appendMissingFieldsToOrganizationMaps', () => {
+  it('appends each declared rule to the tenant organization maps that lack it, one atomic statement per rule', async () => {
+    const execute = jest.fn(async (_sql: string, params: readonly unknown[]) => (
+      params[3] === 'phone' ? [{ organization_id: 'org-1' }, { organization_id: 'org-2' }] : []
+    ))
+
+    const scopes = await appendMissingFieldsToOrganizationMaps({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      fields: [{ field: 'email', hashField: 'email_hash' }, { field: 'phone' }],
+    })
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    const [sql, params] = execute.mock.calls[0]
+    expect(sql).toMatch(/update "encryption_maps"[\s\S]*"organization_id" is not null[\s\S]*not exists[\s\S]*returning "organization_id"/)
+    expect(params).toEqual(['[{"field":"email","hashField":"email_hash"}]', 'customers:person', 'tenant-1', 'email'])
+    expect(execute.mock.calls[1][1]).toEqual(['[{"field":"phone"}]', 'customers:person', 'tenant-1', 'phone'])
+    expect(scopes).toEqual([
+      { entityId: 'customers:person', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { entityId: 'customers:person', tenantId: 'tenant-1', organizationId: 'org-2' },
+    ])
+  })
+
+  it('reports each organization once when several rules reach it', async () => {
+    const execute = jest.fn(async () => [{ organization_id: 'org-1' }])
+
+    const scopes = await appendMissingFieldsToOrganizationMaps({ execute } as never, {
+      entityId: 'customers:person',
+      tenantId: 'tenant-1',
+      fields: [{ field: 'email' }, { field: 'phone' }],
+    })
+
+    expect(scopes).toEqual([{ entityId: 'customers:person', tenantId: 'tenant-1', organizationId: 'org-1' }])
   })
 })
