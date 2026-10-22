@@ -104,6 +104,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+  useLocale: () => 'en',
 }))
 
 jest.mock('lucide-react', () => ({
