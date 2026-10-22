@@ -377,6 +377,18 @@ test('local spec implementation shares stable planning and report contracts with
   }
 })
 
+test('fresh phased implementation reads resume guidance without inventing an existing ledger', () => {
+  const implementation = readOverrideSkill('om-implement-spec')
+  const readinessStep = implementation.match(/^3\. .*$/m)?.[0]
+  assert.ok(readinessStep)
+  assert.match(readinessStep, /^3\. Load `references\/resume\.md` for every implementation request/)
+  assert.match(readinessStep, /including approved specs without `## Implementation Status`/)
+  assert.match(readinessStep, /When the spec already has `## Implementation Status`,.*typecheck-first reconciliation before planning new slices/)
+  assert.match(readinessStep, /Without that ledger, apply the normal planning workflow; do not invent prior progress/)
+  const resume = fs.readFileSync(new URL('om-implement-spec/references/resume.md', skillsDir), 'utf8')
+  assert.match(resume, /Use this contract whenever the resolved spec already has `## Implementation Status`/)
+})
+
 // Setup never creates a directory-level link. The installer owns Claude's
 // per-skill compatibility layer after the canonical collection exists.
 test('setup leaves every per-agent skills directory to install-skills.mjs', () => {
