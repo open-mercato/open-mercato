@@ -1,4 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import {
+  extractStepMeta,
+  extractStepToolCalls,
+  type ExtractedToolCall,
+  type RawStepEvent,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/loop-step-extraction'
 import type { TraceIngest, TraceSpanIngest } from '../../data/validators'
 import { ingestTrace } from '../trace/traceIngestionService'
 import { createArtifactOffloader } from '../trace/artifactStore'
@@ -29,11 +35,7 @@ const logger = createLogger('agent_orchestrator').child({ component: 'native-tra
  * the found-run update path can never regress the completed run's state.
  */
 
-export type NativeStepToolCall = {
-  toolName: string
-  args: unknown
-  result: unknown
-  error?: { code: string; message: string }
+export type NativeStepToolCall = Pick<ExtractedToolCall, 'toolName' | 'args' | 'result' | 'error'> & {
   durationMs: number
 }
 
@@ -58,6 +60,34 @@ export type NativeTraceInput = {
   fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
+}
+
+/**
+ * Maps one AI SDK `onStepFinish` event to a {@link NativeStepRecord} through the
+ * shared ai-assistant extraction helper, so AI SDK 7 tool inputs
+ * (`toolCalls[].input`), outputs (`toolResults[].output`) and `tool-error`
+ * content parts land on the trace (legacy `args` / `result` still accepted).
+ * A tool call without a measured duration records `0`.
+ */
+export function buildNativeStepRecord(
+  event: unknown,
+  endedAtMs: number,
+): NativeStepRecord {
+  const raw = (event && typeof event === 'object' ? event : {}) as RawStepEvent
+  const meta = extractStepMeta(raw)
+  return {
+    modelId: meta.modelId,
+    finishReason: meta.finishReason,
+    usage: { inputTokens: meta.usage.inputTokens, outputTokens: meta.usage.outputTokens },
+    toolCalls: extractStepToolCalls(raw).map((toolCall) => ({
+      toolName: toolCall.toolName,
+      args: toolCall.args,
+      result: toolCall.result,
+      ...(toolCall.error ? { error: toolCall.error } : {}),
+      durationMs: toolCall.durationMs ?? 0,
+    })),
+    endedAtMs,
+  }
 }
 
 /** Escape hatch: `OM_AGENT_TRACE_CAPTURE=off` disables native span capture. */

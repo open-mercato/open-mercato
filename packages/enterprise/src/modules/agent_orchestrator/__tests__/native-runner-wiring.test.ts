@@ -233,6 +233,43 @@ describe('post-run trace capture', () => {
     expect(scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
+  it('records AI SDK 7 tool inputs, outputs and tool errors on the captured steps', async () => {
+    registerNativeAgent('native.sdk7_capture_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [
+          { toolCallId: 'call-1', toolName: 'customers.get_deal', input: { id: 'd1' } },
+          { toolCallId: 'call-2', toolName: 'customers.list_people', input: { query: 'acme' } },
+        ],
+        toolResults: [{ toolCallId: 'call-1', toolName: 'customers.get_deal', output: { title: 'Big deal' } }],
+        content: [
+          { type: 'tool-error', toolCallId: 'call-2', toolName: 'customers.list_people', error: new Error('search down') },
+        ],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 5, outputTokens: 2 },
+        response: { modelId: 'test-model' },
+      })
+      return VALID_MODEL_OUTPUT
+    })
+
+    const service = makeService()
+    await service.run('native.sdk7_capture_agent', { x: 1 }, runCtx)
+    await flushMicrotasks()
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.steps[0].toolCalls).toEqual([
+      { toolName: 'customers.get_deal', args: { id: 'd1' }, result: { title: 'Big deal' }, durationMs: 0 },
+      {
+        toolName: 'customers.list_people',
+        args: { query: 'acme' },
+        result: undefined,
+        error: { code: 'Error', message: 'search down' },
+        durationMs: 0,
+      },
+    ])
+  })
+
   it('captures the partial trace when the model call fails', async () => {
     registerNativeAgent('native.failed_capture_agent')
     runAiAgentObjectMock.mockImplementation(async (args) => {
