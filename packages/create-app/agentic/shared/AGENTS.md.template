@@ -74,7 +74,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
-| `module-data` | Entity/link/validator/migration/encryption/lock/transaction | `om-data-model-design` + contracts |
+| `module-data` | Business entity/link/validator/migration/encryption/lock/transaction; not provider metadata | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
