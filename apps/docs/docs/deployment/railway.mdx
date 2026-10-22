@@ -107,7 +107,7 @@ yarn build
 Run the [Readiness Scanner](./readiness-scanner) from the same standalone app root:
 
 ```bash
-npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high
+npx --yes mercato-readiness-scanner scan . --fail-on high
 ```
 
 Credential checks are always enabled. Treat local `.env` and development-default findings as a reminder to replace unsafe values and deliver production secrets through Railway service variables, keeping environment files out of the deployed artifact. Review KMS and secret-injection warnings with the deployment owner.

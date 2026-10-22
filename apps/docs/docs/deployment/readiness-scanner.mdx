@@ -11,10 +11,10 @@ You need **Node.js 24 or newer** and a **standalone Open Mercato app**. Run from
 
 ```bash
 cd /path/to/my-mercato-app
-npx --yes mercato-readiness-scanner@0.2.2 scan .
+npx --yes mercato-readiness-scanner scan .
 ```
 
-The examples pin version `0.2.2` so local, CI, and server scans use the same rules. To try the latest published release, use `npx --yes --prefer-online mercato-readiness-scanner@latest scan .`, then review and pin that version in your deployment process. `npx --yes` accepts npm's package-install prompt; it does not approve scanner fixes.
+`npx --yes` accepts npm's package-install prompt; it does not approve scanner fixes. To refresh npm's cached package metadata, use `npx --yes --prefer-online mercato-readiness-scanner scan .`.
 
 :::info Standalone apps only
 The scanner rejects the Open Mercato framework monorepo, including its internal app directories. Run it against your generated standalone application. Scanning a public URL is not supported.
@@ -55,12 +55,12 @@ Open a shell or an audit job **inside the application service/container**, using
 
 ```bash
 cd /path/to/deployed-standalone-app
-npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high --no-color
+npx --yes mercato-readiness-scanner scan . --fail-on high --no-color
 ```
 
 Run this separately in staging and production. A scan over SSH on the host, or in a local shell with provider variables, does not automatically inspect a running container's environment. Likewise, a passing CI scan does not establish that the deployed service has the same secrets. If workers use different credentials, scan their workload context too.
 
-The deployed scan still needs the standalone app markers described above. A slim runtime image without `src/modules.ts` or the relevant package metadata will be rejected, rather than treated as ready. Provide an appropriate audit workload with the exact release source/metadata mounted read-only and the environment it is authorized to inspect. Do not copy production secrets into a source checkout to make a scan work. Ensure Node.js 24+ and the pinned scanner are available in that workload before the release window.
+The deployed scan still needs the standalone app markers described above. A slim runtime image without `src/modules.ts` or the relevant package metadata will be rejected, rather than treated as ready. Provide an appropriate audit workload with the exact release source/metadata mounted read-only and the environment it is authorized to inspect. Do not copy production secrets into a source checkout to make a scan work. Ensure Node.js 24+ and the scanner are available in that workload before the release window.
 
 Use `scan` on servers. Make fixes in the source checkout or deployment secret configuration, review them, deploy a new artifact, and scan again.
 
@@ -100,25 +100,25 @@ Do not ship encryption keys in a plain `.env` file, source archive, container im
 
 ```bash
 # Current directory; scan is also the default command
-npx --yes mercato-readiness-scanner@0.2.2 scan .
-npx --yes mercato-readiness-scanner@0.2.2 .
+npx --yes mercato-readiness-scanner scan .
+npx --yes mercato-readiness-scanner .
 
 # Another standalone app directory
-npx --yes mercato-readiness-scanner@0.2.2 scan /path/to/my-mercato-app
+npx --yes mercato-readiness-scanner scan /path/to/my-mercato-app
 
 # Terminal output plus both report files
-npx --yes mercato-readiness-scanner@0.2.2 scan . --markdown /tmp/readiness.md --json /tmp/readiness.json
+npx --yes mercato-readiness-scanner scan . --markdown /tmp/readiness.md --json /tmp/readiness.json
 
 # One report file, with no terminal report
-npx --yes mercato-readiness-scanner@0.2.2 scan . --format markdown --output /tmp/readiness.md
-npx --yes mercato-readiness-scanner@0.2.2 scan . --format json --output /tmp/readiness.json
+npx --yes mercato-readiness-scanner scan . --format markdown --output /tmp/readiness.md
+npx --yes mercato-readiness-scanner scan . --format json --output /tmp/readiness.json
 
 # JSON to stdout, suitable for a local report processor
-npx --yes mercato-readiness-scanner@0.2.2 scan . --format json --output -
+npx --yes mercato-readiness-scanner scan . --format json --output -
 
 # CLI reference and installed version
-npx --yes mercato-readiness-scanner@0.2.2 --help
-npx --yes mercato-readiness-scanner@0.2.2 --version
+npx --yes mercato-readiness-scanner --help
+npx --yes mercato-readiness-scanner --version
 ```
 
 Reports contain remediation guidance and redacted evidence. Keep them in an access-controlled location and review them before sharing: they still describe the application's configuration and operational gaps. Keep reports outside the checkout when you want to use `apply`, which expects a clean Git working tree.
@@ -128,7 +128,7 @@ Reports contain remediation guidance and redacted evidence. Keep them in an acce
 Run this before deployment, after preparing the exact release checkout and installing Node.js 24+:
 
 ```bash
-npx --yes mercato-readiness-scanner@0.2.2 scan . \
+npx --yes mercato-readiness-scanner scan . \
   --fail-on high --no-color \
   --markdown /tmp/readiness.md --json /tmp/readiness.json
 ```
@@ -158,18 +158,18 @@ There is no `--fix` flag. Use **`apply`** in your local standalone app's Git che
 
 ```bash
 # Preview only: writes nothing
-npx --yes mercato-readiness-scanner@0.2.2 apply . --dry-run
+npx --yes mercato-readiness-scanner apply . --dry-run
 
 # Apply after an interactive scanner confirmation
-npx --yes mercato-readiness-scanner@0.2.2 apply .
+npx --yes mercato-readiness-scanner apply .
 
 # Alternatively, explicitly approve without the scanner prompt
-npx --yes mercato-readiness-scanner@0.2.2 apply . --yes
+npx --yes mercato-readiness-scanner apply . --yes
 
 # Inspect changes, complete any TODOs, then scan again
 git status --short
 git diff
-npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high
+npx --yes mercato-readiness-scanner scan . --fail-on high
 ```
 
 `apply` can append missing ignore patterns, add missing build/start script entries, and create missing backup/restore and rollback runbook stubs. It preserves existing content and does not execute application scripts. A generated runbook stub still needs an owner, real instructions, and a dated rehearsal; creating the file does not establish operational readiness. Preview markers show proposed changes, not successfully completed checks.
@@ -190,13 +190,13 @@ Direct fixes never read or write live `.env*` files or credentials. Secret rotat
 Review the generated prompt before choosing to delegate remediation:
 
 ```bash
-npx --yes mercato-readiness-scanner@0.2.2 apply . --mode agent --print-prompt
+npx --yes mercato-readiness-scanner apply . --mode agent --print-prompt
 
 # Preview delegation; requires an available cezar-run binary, but does not run it
-npx --yes mercato-readiness-scanner@0.2.2 apply . --mode agent --dry-run
+npx --yes mercato-readiness-scanner apply . --mode agent --dry-run
 
 # Explicitly delegate in a local development checkout
-npx --yes mercato-readiness-scanner@0.2.2 apply . --mode agent \
+npx --yes mercato-readiness-scanner apply . --mode agent \
   --cezar-run /path/to/cezar-run --workflow readiness --yes
 ```
 
