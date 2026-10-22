@@ -198,3 +198,10 @@ export function buildEntryClocks({ date, startClock, endClock, minutes }: EntryC
     endedAt: `${date}T${minutesToClock(resolvedEnd)}`,
   }
 }
+
+export const TASK_ASSIGNMENT_CHANGED_EVENT = 'staff.timesheets.time_task.assignee_changed'
+
+export function isAssignmentEventForTask(payload: unknown, taskId: string): boolean {
+  if (!taskId || typeof payload !== 'object' || payload === null) return false
+  return (payload as { id?: unknown }).id === taskId
+}

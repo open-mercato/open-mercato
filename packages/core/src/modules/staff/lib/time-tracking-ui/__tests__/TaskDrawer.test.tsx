@@ -2,7 +2,8 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { APP_EVENT_DOM_NAME } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -628,6 +629,64 @@ describe('TaskDrawer', () => {
 
     expect(await screen.findByTestId('task-drawer-release')).toBeInTheDocument()
     expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument()
+  })
+
+  function broadcastAssignment(payload: Record<string, unknown>) {
+    act(() => {
+      window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
+        detail: { id: 'staff.timesheets.time_task.assignee_changed', payload },
+      }))
+    })
+  }
+
+  it('refreshes an open drawer when another user claims the task', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    renderDrawer()
+    expect(await screen.findByTestId('task-drawer-claim')).toBeInTheDocument()
+
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: OTHER_TASK_ID,
+      updated_at: VERSION_TWO,
+      _staffAssignment: { canClaim: false, canRelease: false },
+    }
+    broadcastAssignment({ id: TASK_ID, changeKind: 'claim', assigneeStaffMemberId: OTHER_TASK_ID })
+
+    await waitFor(() => expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument())
+  })
+
+  it('refreshes an open drawer when the assignee is released remotely', async () => {
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: SELF_ID,
+      _staffAssignment: { canClaim: false, canRelease: true },
+    }
+    renderDrawer()
+    expect(await screen.findByTestId('task-drawer-release')).toBeInTheDocument()
+
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: null,
+      updated_at: VERSION_TWO,
+      _staffAssignment: { canClaim: true, canRelease: false },
+    }
+    broadcastAssignment({ id: TASK_ID, changeKind: 'release', assigneeStaffMemberId: null })
+
+    expect(await screen.findByTestId('task-drawer-claim')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-release')).not.toBeInTheDocument()
+  })
+
+  it('ignores assignment changes of other tasks', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    renderDrawer()
+    expect(await screen.findByTestId('task-drawer-claim')).toBeInTheDocument()
+    const taskFetches = () => mockApiCall.mock.calls.filter(([url]) => String(url).includes(`/timesheets/tasks?id=${TASK_ID}`)).length
+    const before = taskFetches()
+
+    broadcastAssignment({ id: OTHER_TASK_ID, changeKind: 'claim', assigneeStaffMemberId: SELF_ID })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(taskFetches()).toBe(before)
   })
 
   it('shows the two-button support composer on a portal ticket', async () => {

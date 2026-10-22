@@ -74,6 +74,8 @@ import {
   toDrawerEntry,
   todayIsoDate,
   buildEntryClocks,
+  isAssignmentEventForTask,
+  TASK_ASSIGNMENT_CHANGED_EVENT,
   type DrawerComment,
   type DrawerEntry,
 } from './taskDrawerData'
@@ -950,6 +952,15 @@ export function TaskDrawer({
       if (!open || eventTaskId !== taskId) return
       invalidate('task')
       invalidate('comments')
+    },
+    [invalidate, open, taskId],
+  )
+
+  useAppEvent(
+    TASK_ASSIGNMENT_CHANGED_EVENT,
+    (event) => {
+      if (!open || !isAssignmentEventForTask(event.payload, taskId)) return
+      invalidate('task')
     },
     [invalidate, open, taskId],
   )
