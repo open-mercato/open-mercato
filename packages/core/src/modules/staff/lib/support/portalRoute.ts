@@ -9,6 +9,7 @@ import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from 
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { SupportPortalScope } from './portalTickets'
 
 const logger = createLogger('staff').child({ component: 'lib/support/portalRoute' })
@@ -88,6 +89,11 @@ export async function portalErrorResponse(err: unknown, label: string): Promise<
     )
   }
   logger.error(label, { err })
+  getTelemetryRuntime()?.reportError(err, {
+    module: 'staff',
+    code: 'staff.portal_support_route_failed',
+    attributes: { operation: label },
+  })
   return NextResponse.json({ ok: false, error: 'staff.errors.internal' }, { status: 500 })
 }
 
