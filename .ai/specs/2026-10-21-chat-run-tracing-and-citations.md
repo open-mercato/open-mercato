@@ -37,7 +37,7 @@ Each question carries the default this spec assumes.
 
 The ai-assistant runtime runs typed agents in two modes. **Chat** (`runAiAgentText`, streamed via `POST /api/ai_assistant/ai/chat`) and **object** (`runAiAgentObject`, used by `POST /api/ai_assistant/ai/run-object`, the AO native runner and, per the companion spec, MCP agent tools). Both build a `LoopTrace` through `buildLoopTraceCollector` (`lib/agent-runtime.ts`). The chat path streams it as a `loop-finish` SSE event, which `useAiChat` keeps in React state (`lastLoopTrace`) and `LoopTracePanel` renders in the debug panel. The object path returns `steps` on the result. Nothing is persisted except per-step token usage (`ai_token_usage_events`, `lib/token-usage-recorder.ts`) and conversation messages (`ai_chat_messages`, including server-emitted `ui_parts`).
 
-The enterprise Agent Orchestrator has a full trace plane (`agent_runs` → `agent_spans` → `agent_tool_calls`, `/backend/traces/[id]`). It covers only AO runs, and it already fixed the AI SDK 7 extraction (`extractStepToolCalls` in `packages/enterprise/src/modules/agent_orchestrator/lib/runtime/nativeTraceCapture.ts`).
+The enterprise Agent Orchestrator has a full trace plane (`agent_runs` → `agent_spans` → `agent_tool_calls`, `/backend/traces/[id]`). It covers only AO runs, and on `main` it has the same AI SDK 7 extraction defect as chat: the native runner's `recordStep` (`packages/enterprise/src/modules/agent_orchestrator/lib/runtime/nativeAgentRunner.ts`) maps tool calls inline from the pre-SDK-5 `args` / `result` fields, and `NativeStepToolCall` (`lib/runtime/nativeTraceCapture.ts`) is only a type. Native AO traces therefore also lose tool inputs, outputs and errors.
 
 This spec gives OSS a small, self-sufficient run record, fixes the shared bug once, and adds citations as a first-class chat element.
 
@@ -58,7 +58,7 @@ Verified against the code on `develop` (2026-10-21):
 
 ### 1. One extraction helper (fix)
 
-Create `packages/ai-assistant/src/modules/ai_assistant/lib/loop-step-extraction.ts`. It holds the AI SDK 7–aware logic now in AO's `extractStepToolCalls`, generalized:
+Create `packages/ai-assistant/src/modules/ai_assistant/lib/loop-step-extraction.ts`. It holds new AI SDK 7–aware extraction logic (tool calls carry `input`, results come from `toolResults[].output`, errors are `tool-error` content parts), with a fallback to the legacy `args` / `result` fields:
 
 ```ts
 export type RawStepEvent = {
@@ -81,7 +81,7 @@ export function extractStepMeta(raw: RawStepEvent): { modelId: string; finishRea
 - Legacy fallbacks are kept (`args`, `result`, `experimental_toToolResultError`) so an older provider adapter or a test fixture keeps working.
 - **Durations:** AI SDK 7 tool calls carry no `startTime` / `endTime`. The runtime owns tool execution (`adaptToolToAiSdk` in `lib/agent-tools.ts`), so it records `performance.now()` around each `execute` into a per-turn `ToolCallTimings` map keyed by `toolCallId` (available in the AI SDK `execute(input, { toolCallId })` options). The helper reads that map.
 - `buildLoopTraceCollector` uses the helper; `LoopStepRecord.toolCalls[]` gains optional `toolCallId` (additive). The display de-sanitization (`desanitizeToolNameForDisplay`) stays in the collector.
-- AO: `nativeTraceCapture.ts` imports the helper and re-exports `extractStepToolCalls` / `NativeStepToolCall` as aliases (keeps its tests and imports stable).
+- AO: `nativeAgentRunner.ts` `recordStep` replaces its inline mapping with the helper, and `nativeTraceCapture.ts` aligns `NativeStepToolCall` with the helper's output type, which fixes native AO traces too.
 
 ### 2. OSS run persistence
 
@@ -427,10 +427,10 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/ui-par
 ## Implementation Plan
 
 ### Phase 1: Fix the collector (no schema change)
-1. Add `lib/loop-step-extraction.ts` with unit tests ported from AO `native-trace-tool-calls.test.ts` plus legacy-field cases.
+1. Add `lib/loop-step-extraction.ts` with unit tests for SDK 7 `input` / `toolResults.output` / `tool-error`, unmatched ids, timings and legacy-field cases.
 2. Tool timing map in `adaptToolToAiSdk` keyed by `toolCallId`.
 3. `buildLoopTraceCollector` uses the helper; add `toolCallId`.
-4. AO `nativeTraceCapture.ts` imports the helper and re-exports the old names; AO tests unchanged and green.
+4. AO `nativeAgentRunner.ts` `recordStep` uses the helper; `NativeStepToolCall` aligned; AO trace-capture tests extended with an SDK 7-shaped step.
 
 ### Phase 2: Run persistence
 1. Entities, validators, encryption map entries, migration + snapshot.
@@ -486,7 +486,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/ui-par
 - `agent-call-contract.test.ts`: `callSettings` merged over `modelSettings` key by key and forwarded to the AI SDK call; `observe.onModelCallStart` fires once per step with the settings as sent (mock model, tool loop with `prepareStep`); a throwing observer does not fail the run; `trace.persist: false` writes no run.
 - `citations.test.ts`: schema, `isSafeHref` rejects `javascript:` / `data:`; dedupe; no-op without queue.
 - `ui`: `CitationsPart.test.tsx` (merge, fallback on resolver throw, external link rel), `citations/registry.test.ts` (moved AO tests), `LoopTracePanel` i18n.
-- AO: existing `native-trace-tool-calls.test.ts` and `proposal-decision-card.test.tsx` stay green through the shims.
+- AO: `native-trace-capture.test.ts` / `native-runner-wiring.test.ts` gain an SDK 7-shaped step; `proposal-decision-card.test.tsx` stays green through the citation shim.
 
 **Integration (Playwright, `ai_assistant/__integration__/`, self-contained fixtures, cleanup in `finally`; stubbed model via the existing test provider used by `TC-AI-AGENT-LOOP-001-006`):**
 - `TC-AI-RUN-TRACE-015`: chat turn with one tool call → `GET /ai/conversations/:id/runs` returns one run; `GET /ai/runs/:id` shows the tool call with non-empty `args` and `result`, `modelId`, `promptOverrideVersion` (create a prompt override fixture first), `agentDefinitionHash`.
@@ -609,3 +609,6 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/ui-par
 ### 2026-10-21
 - Initial specification (shared AI SDK 7 extraction, OSS run persistence, trace view, citations part + shared resolver registry, run metadata).
 - 2026-10-21 — cross-spec consistency pass: added §6 as the canonical OSS model-call contract (`AiAgentCallSettings`, definition `modelSettings`, call-time `callSettings`, `observe: AiAgentCallObserver` with `onModelCallStart/End`, `trace: { persist, channel, correlationId }`) consumed by the AO observability and eval specs (they previously defined parts of it separately, with `params` vs `callSettings` naming); `model_params` now records `gen_ai.request.*` as sent via the observer; `channel` gains `tools-api`; `run-object` returns `agentRunId` (and writes no OSS row) for dispatcher-owned agents; explicit justification of the `full`-by-default divergence from AO's `metadata` default; citation registry contract checked against the implemented 2026-10-12 AO decision-card spec (ref caps, `key@version`, integrity verification is AO-only); linked sibling specs and the roadmap.
+
+### 2026-10-22
+- Upstream verification on `main`: AO has no `extractStepToolCalls`; its native runner has the same pre-SDK-5 mapping inline in `recordStep`, so the OSS helper is new code that both the chat collector and the AO native runner adopt (Phase 1 step 4 updated). Existing ai-assistant tests use the legacy `args` / `result` shape, so the helper keeps that fallback.

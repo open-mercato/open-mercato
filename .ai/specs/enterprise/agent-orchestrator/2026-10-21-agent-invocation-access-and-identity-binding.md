@@ -332,8 +332,9 @@ No deprecation of existing exports. `provisionAgentPrincipal` keeps its signatur
 ## Implementation Plan
 
 ### Phase 0 — De-risk the no-bypass guard under `runAs`
-1. Add an integration-style unit test: full `NativeAgentRunner` run (scripted LLM, `withScriptedLlmContext`) under `runAs` with a grounding set and a context module; assert it currently fails with `AgentWriteBypassError` (documents P8) or passes (then skip step 2).
-2. Add `withRuntimeAuditWrite` + entity allowlist in `agentNoBypassSubscriber.ts`; wrap `persistVerdict`, context-bundle persistence, `captureNativeRunTrace`, eval result writes and artifact writes. Test: allowlisted AO audit rows pass, a domain entity flush in the same scope still throws.
+1. Add an integration-style unit test: full `NativeAgentRunner` run (scripted LLM, `withScriptedLlmContext`) under `runAs` with a grounding set and a context module. Assert the **rows**, not only the absence of a throw: guardrail checks, the context bundle, spans and tool calls, and eval results must exist. Three of the write sites swallow their errors, so a no-throw pass alone would hide the defect. Verified on `main` 2026-10-22: the pass/warn `persistVerdict` call after the output check is unconditional and not in a try, so a principal-bound run with output-check rows throws `AgentWriteBypassError`; the context bundle (`contextResolver`), trace capture (`captureNativeRunTrace` → `ingestTrace` + `evaluateRun`), OpenCode artifact collection and `AgentRunSessionStore` writes fail silently.
+2. Add `withRuntimeAuditWrite` + `isRuntimeAuditWriteActive` in `agentWriteScope.ts` and an entity allowlist in `agentNoBypassSubscriber.ts`: `AgentGuardrailCheck`, `AgentContextBundle`, `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentRunArtifact`, `AgentRunSession`, and `AgentRun` (trace ingest updates the run row; the allowlist applies only inside the runtime-audit scope, so domain writes in the same scope still throw). Test: allowlisted AO audit rows pass, a domain entity flush in the same scope still throws, behaviour outside the scope is unchanged.
+3. Wrap the write sites: `persistVerdict` (inside the function, covering all three callers), context-bundle persistence, `captureNativeRunTrace`, OpenCode artifact collection, the run session store, and eval result writes (defensive; replay writes run after `runtime.run` returns). The step 1 test turns green.
 
 ### Phase 1 — Per-agent invoke permission (A)
 1. Types + validators; `defineAgent` stores and forwards `requiredFeatures`; markdown + OpenCode frontmatter keys; regenerate (`yarn generate`).
@@ -500,3 +501,4 @@ Approved for implementation once Q1–Q7 are answered and Phase 0 lands first.
 
 ### 2026-10-22
 - Q3 resolved: permanent delegation through `aiAgentRunDispatcher`, no interim `409 agent_runtime_owned`. Phase 1 and Phase 5 ship in the same release. `auditCorrelation` is also used by the MCP spec's approval mode (`pendingActionId`, `requestedByUserId`, `apiKeyId`).
+- Upstream verification on `main` (Phase 0): P8 is worse than stated: the pass/warn `persistVerdict` call throws for principal-bound runs, and context bundles, native traces, artifacts and run sessions are lost silently. The allowlist now names `AgentRun` and `AgentRunSession`; Phase 0 has three steps (test, scope + allowlist, wrapping).

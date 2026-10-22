@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-10-22T11:19:34Z
 **Branch:** feat/agent-platform-wave-1
-**PR:** not yet opened
+**PR:** https://github.com/open-mercato/open-mercato/pull/7794
 **Current phase/step:** Phase 0 Step 0.1
 **Last commit:** 0b5c4b55e — docs(specs): agent platform capabilities specs and roadmap
 

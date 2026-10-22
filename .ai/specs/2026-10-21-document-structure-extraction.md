@@ -48,7 +48,7 @@ Verified against the code on 2026-10-21:
 
 1. **Structure is discarded.** `lib/textExtraction.ts` `extractPdfText` joins each page's `getTextContent()` items with spaces and the pages with `\n`. Font size, position, the PDF outline and page boundaries are lost. `extractDocxText` uses `mammoth.extractRawText`, which drops heading levels. Images return `null`. XLSX/PPTX return `null` by design (pure-JS-only rule).
 2. **One flat, unencrypted column.** The result lands in `Attachment.content` (`text`, nullable). The attachments module has **no `encryption.ts`**, so the extracted text of every uploaded contract is plaintext at rest. There is no content hash on `Attachment`.
-3. **OCR is coarse and unbounded.** `OcrService.processFile` uses each PDF page's text layer when present, otherwise renders the page and calls OpenAI vision. It emits markdown with `--- Page N ---` separators into the same `content` column. It runs fire-and-forget from the upload route (`requestOcrProcessing(...).catch(...)`), not through `packages/queue`, and it has no page cap.
+3. **OCR is coarse and unbounded.** `OcrService.processFile` uses each PDF page's text layer when present, otherwise renders the page and calls OpenAI vision. It emits markdown with `--- Page N ---` separators into the same `content` column. The upload route awaits `requestOcrProcessing`, which schedules the work in-process (`setImmediate`, with the in-process concurrency queue in `lib/ocrQueue.ts`), not through `packages/queue`. A page cap exists (`OM_ATTACHMENT_OCR_MAX_PAGES`, default 50, `lib/ocrLimits.ts`), but OCR output still lands in the flat `content` column without structure.
 4. **Consumers cannot address parts.** `ai-assistant/lib/attachment-parts.ts` forwards `content` to the model, truncated at `DEFAULT_MAX_TEXT_CHARS = 64 * 1024`. AO's `lib/context/documentIngest.ts` has a provider-agnostic `DocumentOcrProvider` → `DocumentFieldExtractor` seam with `page:N[#bbox]` locators (`formatDocumentLocator`). Its default OCR provider wraps the same `OcrService` and yields one block per page. It extracts *fields*, not structure.
 5. **Search cannot chunk.** `packages/search` embeds one record as one vector: `vector.strategy.ts` joins a `text[]` with `\n`, and `embedding.ts` joins the parts. Retrieval over a 120-page document returns the document, not the paragraph.
 6. **SPEC-040** (Draft, not implemented) plans its own OCR + `raw_text` + `parsed_document_pages` for invoice-style field extraction. Without a shared layer, each consumer would rebuild extraction.
@@ -127,7 +127,7 @@ flowchart TB
 - **`pdf_layout`**: pdfjs `getTextContent()` items carry `str`, `transform` (x, y, font size = `hypot(a, b)`), `fontName` and `hasEOL`. The engine groups items into lines (y-tolerance) and lines into blocks (vertical gap, indent). It reads `getOutline()` and resolves destinations to pages, and it records per-page char counts for the OCR decision. Built from the same loader options as `extractPdfText` (`cMapUrl`, `standardFontDataUrl`).
 - **`docx`**: `mammoth.convertToHtml` gives `h1..h6`, `p`, `li` (with nesting) and `table`. A paragraph style named `Heading N` maps to its level. There are no pages, so `pageStart` stays null. That is honest: DOCX has no fixed pagination.
 - **`text`**: Markdown ATX/Setext headings, then numbering patterns. Plain `.txt` relies on numbering alone.
-- **`ocr` fallback** (PDF and images): pages whose text layer holds fewer than `OM_ATTACHMENT_STRUCTURE_OCR_MIN_CHARS_PER_PAGE` (default 40) characters are OCR'd individually, after `preparePdfPagesForOcr` rasterization. `OcrService.generateTextFromImageBuffer` is `private` today, so this spec adds a public `OcrService.processImageBuffer({ imageBuffer, model })` that delegates to it (additive). Rendering only the selected pages also needs a `pageNumbers` option on `preparePdfPagesForOcr`, because today it renders every page. The markdown result feeds the `text` structurer for that page. OCR runs only when the partition `requires_ocr` is true and the service is available. It is capped at `OM_ATTACHMENT_STRUCTURE_OCR_MAX_PAGES` (default 50); pages beyond the cap become `kind: 'page_unreadable'` placeholders and the extraction is marked `partial`. Images (png/jpg/…) go through OCR only.
+- **`ocr` fallback** (PDF and images): pages whose text layer holds fewer than `OM_ATTACHMENT_STRUCTURE_OCR_MIN_CHARS_PER_PAGE` (default 40) characters are OCR'd individually, after `preparePdfPagesForOcr` rasterization. `OcrService.generateTextFromImageBuffer` is `private` today, so this spec adds a public `OcrService.processImageBuffer({ imageBuffer, model })` that delegates to it (additive). Rendering only the selected pages also needs a `pageNumbers` option on `preparePdfPagesForOcr`, because today it renders every page. The markdown result feeds the `text` structurer for that page. OCR runs only when the partition `requires_ocr` is true and the service is available. It is capped at `OM_ATTACHMENT_OCR_MAX_PAGES` (existing, default 50); pages beyond the cap become `kind: 'page_unreadable'` placeholders and the extraction is marked `partial`. Images (png/jpg/…) go through OCR only.
 
 ### Structurer (`lib/documentStructure/structurer.ts`): pure function, fully unit-tested
 
@@ -339,7 +339,7 @@ Minimal, using existing surfaces:
 | `OM_ATTACHMENT_STRUCTURE_MAX_SECTIONS` | `20000` | Above this the extraction is `partial` (tail sections not persisted) |
 | `OM_ATTACHMENT_STRUCTURE_MAX_SECTION_CHARS` | `16000` | Split threshold |
 | `OM_ATTACHMENT_STRUCTURE_OCR_MIN_CHARS_PER_PAGE` | `40` | Text-layer emptiness threshold |
-| `OM_ATTACHMENT_STRUCTURE_OCR_MAX_PAGES` | `50` | OCR cost cap per document |
+| `OM_ATTACHMENT_OCR_MAX_PAGES` (existing) | `50` | OCR cost cap per document; the structure OCR engine reuses the existing cap instead of adding a second variable |
 | `OM_ATTACHMENT_STRUCTURE_TIMEOUT_MS` | `180000` | Per-job wall clock; on timeout the job fails with `partial` persisted if any |
 | `OM_ATTACHMENT_STRUCTURE_WORKER_CONCURRENCY` | `2` | CPU-bound pdfjs work |
 
@@ -395,7 +395,8 @@ No data backfill is required. Existing attachments get an extraction only when a
 |---|---|
 | `packages/core/src/modules/attachments/lib/documentStructure/{types,locator,structurer,service,queue}.ts` | Create |
 | `…/attachments/lib/documentStructure/engines/{pdfLayout,docx,text,ocr,registry}.ts` | Create |
-| `…/attachments/data/entities.ts`, `…/attachments/data/validators.ts` | Modify |
+| `…/attachments/data/entities.ts` | Modify |
+| `…/attachments/data/validators.ts` | Create (partition schemas move out of `api/partitions/route.ts`) |
 | `…/attachments/migrations/Migration<ts>_attachments.ts` + snapshot | Create (generated) |
 | `…/attachments/encryption.ts`, `search.ts`, `ai-tools.ts` | Create |
 | `…/attachments/subscribers/enqueue-structure-extraction.ts`, `…/attachments/lib/documentStructure/purge.ts` | Create |
@@ -483,7 +484,7 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
 - **Scenario:** A 400-page scanned PDF triggers 400 vision calls.
 - **Severity:** Medium
 - **Affected area:** Provider spend
-- **Mitigation:** `OCR_MAX_PAGES` cap (50), only pages under the char threshold are OCR'd, the partition `requires_ocr` gate applies, and `ocr: 'never'` is available on request.
+- **Mitigation:** `OM_ATTACHMENT_OCR_MAX_PAGES` cap (50), only pages under the char threshold are OCR'd, the partition `requires_ocr` gate applies, and `ocr: 'never'` is available on request.
 - **Residual risk:** Bounded per document; a bulk backfill multiplies the cost, and the docs warn about it.
 
 #### Existing flat `Attachment.content` stays plaintext
@@ -550,7 +551,7 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
 - Initial specification. Motivated by regulation-ingestion use cases, generalized for any long-document consumer. Decided to narrow (not supersede) SPEC-040. Code facts recorded:
   - flat `content` with page boundaries dropped;
   - the attachments module has no `encryption.ts`;
-  - OCR runs fire-and-forget without a page cap;
+  - OCR runs in-process, not on `packages/queue` (on `main` it has a page cap and a concurrency queue);
   - the AI attachment bridge truncates at 64 K characters;
   - search embeds one vector per record;
   - attachments have no content hash or versioning, so "version" = (attachment, content hash);
@@ -560,3 +561,4 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
 
 ### 2026-10-22
 - Q3 resolved: the per-partition opt-in exception for indexing section text (off by default, plaintext-egress warning) is approved. Phase 4 is unblocked.
+- Upstream verification on `main`: OCR already has a page cap (`OM_ATTACHMENT_OCR_MAX_PAGES`) and an in-process concurrency queue; the structure OCR engine reuses that cap (no `OM_ATTACHMENT_STRUCTURE_OCR_MAX_PAGES`). Attachments has no `data/validators.ts`; Phase 2 creates it for the partition schemas. `mammoth.convertToHtml` output is parsed without a new dependency. Purge inside `releaseScoped` respects its `flush:false` contract under an ambient transaction.
