@@ -22,11 +22,11 @@ test('standalone production requests route to one TLS-first secrets-safe guide',
   ]
   for (const root of roots) {
     assert.match(root, /production deployment|go-live|production readiness/i)
-    assert.match(root, /route.{0,80}`architecture`/i)
+    assert.match(root, /Production deployment\/go-live\/operational readiness: `architecture` \+ `\.ai\/guides\/production-deployment\.md`/i)
     assert.match(root, /\.ai\/guides\/production-deployment\.md/)
     assert.match(root, /\.env\.example/)
-    assert.match(root, /during routing.{0,80}do not open `?\.env\*/i)
-    assert.match(root, /never read or report live `?\.env/i)
+    assert.match(root, /Routing: never open `\.env\*`/i)
+    assert.match(root, /never read\/report live `\.env` values/i)
     assert.match(root, /ask before.{0,120}(?:credentials|billable infrastructure|live deployment)/i)
   }
 

@@ -2,7 +2,7 @@
 title: "Verify generated exports and complete context in packed artifacts"
 modules: ["create_app", "cli"]
 areas: ["architecture", "testing"]
-topics: ["generated-files", "build-output", "package-runtime", "template-sync", "preset-applicability", "planning-reference-ownership"]
+topics: ["generated-files", "build-output", "package-runtime", "template-sync", "preset-applicability", "instruction-context-closure"]
 ---
 
 # Verify generated exports and complete context in packed artifacts
@@ -21,7 +21,7 @@ Scaffold-only environment flags must not leak into controller preparation. Unset
 
 Measure required context separately from observed optional reads before changing a harness ceiling. An extra selected skill can make an observed run exceed its budget even when every mandatory owner fits. Conversely, prove an unavoidable minimum from the task, owning instructions, visible fact projections and fixed oracle before calibrating an impossible ceiling. Measure all presets and keep safety, write, refusal and semantic checks unchanged.
 
-For specification-only reference planning, audit every conditional workflow step against the authorized read set. An introductory phase exception does not resolve a later unconditional blueprint, contracts or implementation-reference requirement. Scope each conflicting condition explicitly while retaining actual implementation duties; verify both branches before approving the owner change. Include every required branch, including UI page/navigation design, in the complete context proof; a reserve calculated from an omitted branch is not usable headroom. Put capability-only mapping qualifiers before specialist matching in the root, so future capability names do not select implementation procedures before the narrower owner is read.
+For specification-only reference planning, audit every conditional workflow step against the authorized read set. An introductory phase exception does not resolve a later unconditional blueprint, contracts or implementation-reference requirement. Scope each conflicting condition explicitly while retaining actual implementation duties; verify both branches before approving the owner change. Include every required branch, including UI page/navigation design, in the complete context proof; a reserve calculated from an omitted branch is not usable headroom. Put capability-only mapping qualifiers before specialist matching in the root, so future capability names do not select implementation procedures before the narrower owner is read. After root wording compaction, scan its literal test consumers and run every declared focused file; a narrow owner suite can miss a guard introduced by a shared specification. Preserve each semantic assertion when updating its obsolete spelling.
 
 Validate the full catalog on a fresh fully enabled controller. For reduced presets, preserve their actual failures and check each missing fact against the intentionally disabled module set; do not invent inactive facts or call a failed full-catalog probe a pass. Fresh applicable-preset payload, link, root and pinned-skill proofs remain required.
 
