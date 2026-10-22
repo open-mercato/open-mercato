@@ -6,13 +6,15 @@ import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
-// Development only: let local tools on another loopback port (for example the
-// Cezar cockpit's Preview panel) frame the running app. Production keeps the
-// same-origin framing policy and X-Frame-Options untouched.
-const frameAncestors = isDevelopment
+// `next dev` only: let local tools on another loopback port (for example the
+// Cezar cockpit's Preview panel) frame the running app. Gated on an explicit
+// `development` rather than `isDevelopment`, because `next build` keeps a
+// preset `test` or custom NODE_ENV and bakes these headers into the build.
+const allowLoopbackFraming = process.env.NODE_ENV === 'development'
+const frameAncestors = allowLoopbackFraming
   ? "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
   : "frame-ancestors 'self'"
-const globalFrameOptionsHeaders = isDevelopment
+const globalFrameOptionsHeaders = allowLoopbackFraming
   ? []
   : [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }]
 

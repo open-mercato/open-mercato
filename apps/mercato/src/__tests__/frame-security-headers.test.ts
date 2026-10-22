@@ -50,8 +50,8 @@ describe.each(Object.entries(configFiles))('%s next.config frame headers', (_lab
     expect(findHeader(rules, '/:path*', 'X-Content-Type-Options')).toBe('nosniff')
   })
 
-  it('keeps same-origin framing and X-Frame-Options in production', async () => {
-    const rules = await loadHeaderRules(configFile, 'production')
+  it.each(['production', 'test', 'staging'])('keeps same-origin framing and X-Frame-Options when NODE_ENV is %s', async (nodeEnv) => {
+    const rules = await loadHeaderRules(configFile, nodeEnv)
 
     expect(frameAncestorsOf(rules)).toBe("frame-ancestors 'self'")
     expect(findHeader(rules, '/:path*', 'X-Frame-Options')).toBe('SAMEORIGIN')
