@@ -1,23 +1,23 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-22T15:09:22Z
+**Last updated:** 2026-10-22T16:17:40Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 3 Step 3.6
-**Last commit:** adae6763c — feat(ai-assistant): apply MCP mutation modes to agent runs and stamp pending action channels
+**Current phase/step:** Phase 4 Step 4.1
+**Last commit:** 86d6c763f — docs(ai-assistant): document MCP exposure, audit and approval mode with integration coverage
 
 ## What just happened
-- Steps 3.1–3.5 landed (mutation modes, pending-action columns, raw-tool approval queue, owner/approver scoping + recheck, agent-run channel policy) and passed checkpoint 3.
+- Phase 3 complete (approval mode, approver feature + notifications, list route + status tool, Pending AI actions page, docs, Playwright coverage) and verified at checkpoint 4 with a UI screenshot.
 
 ## Next concrete action
-- Step 3.6 — add the approver feature and backoffice approval notifications.
+- Step 4.1 — cover a full native AO agent run under runAs (identity spec Phase 0).
 
 ## Blockers / open questions
 - Pushes to `upstream` are blocked by the local auto-mode policy; the user pushes batches manually.
 
 ## Environment caveats
-- Dev runtime runnable: unknown (not started)
-- Browser / UI checks: not needed yet
+- Dev runtime runnable: yes (ephemeral)
+- Browser / UI checks: ephemeral app via `OM_MCP_MUTATION_MODE=approval yarn test:integration:ephemeral:start` + `BASE_URL=http://127.0.0.1:5001 PW_CAPTURE_SCREENSHOTS=1 npx playwright test --config .ai/qa/tests/playwright.config.ts <spec>`
 - Database/migration state: clean
 - Package-level `tsc -p` sees no inputs inside this worktree path; run the app typecheck directly (`cd apps/mercato && node ./scripts/typecheck.mjs`); turbo's cache does not re-run it on package changes.
 

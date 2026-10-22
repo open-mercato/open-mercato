@@ -33,3 +33,9 @@
 - Finding: turbo `yarn typecheck` cache-hits on package source changes; checkpoints now run the app typecheck directly. Checkpoint 2's turbo typecheck claim is superseded.
 - Decision: added `approver_features_denied`; `auditCorrelation` is handler-context only because `main` has no command-audit hook.
 - Decision: MCP/tools-api agent runs without a DI container are forced read-only (cannot queue approvals).
+
+## 2026-10-22T16:17:40Z — checkpoint 4
+- Steps 3.6..3.9 verified: jest 1806/1806, build, generate, direct app typecheck, i18n sync/usage, Playwright TC-AI-MCP 6 passed + 1 deny-only skipped (deny run: 1 passed), screenshot captured.
+- Decision: approve/reject live on the page (not `MutationPreviewCard`'s own buttons) so writes go through `useGuardedMutation`; `GET /ai/actions/:id` additively returns `channel` + `requester`.
+- Decision: deny/approval Playwright specs are gated on the app's `OM_MCP_MUTATION_MODE`.
+- Known gap recorded: `get_pending_action` viewer identity for session-bound server API keys.

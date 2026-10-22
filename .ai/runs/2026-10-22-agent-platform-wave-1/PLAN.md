@@ -32,10 +32,10 @@
 | 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | done | 16c6b37ef |
 | 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | done | bbd5704be |
 | 3 | 3.5 | Run agent tools with their own mutation policy in approval mode | dispatch | done | adae6763c |
-| 3 | 3.6 | Add the approver feature and backoffice approval notifications | dispatch | done | ad5c89b8f |
-| 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | done | a6929832a |
-| 3 | 3.8 | Add the Pending AI actions backend page with nav badge | dispatch:capable | done | 04e8c6844 |
-| 3 | 3.9 | Document MCP exposure, audit and approval mode with integration tests | dispatch | done | 392c9a45c |
+| 3 | 3.6 | Add the approver feature and backoffice approval notifications | dispatch | done | 03a5ac8eb |
+| 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | done | 279fe4a65 |
+| 3 | 3.8 | Add the Pending AI actions backend page with nav badge | dispatch:capable | done | 01a418e79 |
+| 3 | 3.9 | Document MCP exposure, audit and approval mode with integration tests | dispatch | done | 86d6c763f |
 | 4 | 4.1 | Cover a full native agent run under runAs | dispatch:capable | todo | — |
 | 4 | 4.2 | Add the runtime-audit write scope and entity allowlist to the no-bypass guard | dispatch | todo | — |
 | 4 | 4.3 | Wrap AO runtime audit writes in the runtime-audit scope | dispatch | todo | — |
