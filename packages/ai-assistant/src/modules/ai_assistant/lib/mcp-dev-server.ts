@@ -17,6 +17,16 @@ import {
 import { jsonSchemaToZod } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
+import {
+  EMPTY_MCP_AUDIT_IDENTITY,
+  attachCorrelationMeta,
+  isMutationTool,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveCorrelationId,
+  type McpAuditIdentity,
+  type McpAuditOutcome,
+} from './mcp-audit'
 import type { McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
@@ -71,7 +81,8 @@ export function createDevMcpServer(
   authFeatures: string[],
   isSuperAdmin: boolean,
   debug: boolean,
-  exposureConfig: McpExposureConfig = resolveMcpExposureConfig(process.env)
+  exposureConfig: McpExposureConfig = resolveMcpExposureConfig(process.env),
+  auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY
 ): McpServer {
   const server = new McpServer(
     { name: 'open-mercato-mcp-dev', version: '0.1.0' },
@@ -119,34 +130,67 @@ export function createDevMcpServer(
         },
         async (args: unknown) => {
           const toolArgs = (args ?? {}) as Record<string, unknown>
+          const correlationId = resolveCorrelationId(null)
+          const startedAt = Date.now()
 
           if (debug) {
             log(`Calling tool: ${tool.name}`, JSON.stringify(toolArgs))
           }
 
-          const result = await executeTool(tool.name, toolArgs, toolContext)
+          const audit = (outcome: McpAuditOutcome, errorCode: string | null) =>
+            recordMcpToolCall(toolContext.container, {
+              ...auditIdentity,
+              toolName: tool.name,
+              tenantId: toolContext.tenantId,
+              organizationId: toolContext.organizationId,
+              channel: 'mcp',
+              mcpServer: 'dev',
+              sessionKeyId: null,
+              principal: 'api_key',
+              outcome,
+              errorCode,
+              durationMs: Date.now() - startedAt,
+              isMutation: isMutationTool(tool),
+              correlationId,
+              args: toolArgs,
+            })
+
+          let result: Awaited<ReturnType<typeof executeTool>>
+          try {
+            result = await executeTool(tool.name, toolArgs, toolContext)
+          } catch (error) {
+            await audit('error', 'EXCEPTION')
+            throw error
+          }
+          await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
           if (!result.success) {
             log(`Tool error: ${result.error}`)
-            return {
+            return attachCorrelationMeta(
+              {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                  },
+                ],
+                isError: true,
+              },
+              correlationId
+            )
+          }
+
+          return attachCorrelationMeta(
+            {
               content: [
                 {
                   type: 'text' as const,
-                  text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                  text: JSON.stringify(result.result, null, 2),
                 },
               ],
-              isError: true,
-            }
-          }
-
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result.result, null, 2),
-              },
-            ],
-          }
+            },
+            correlationId
+          )
         }
       )
     } catch (error) {
@@ -363,7 +407,13 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
         authResult.features,
         authResult.isSuperAdmin,
         debug,
-        exposureConfig
+        exposureConfig,
+        {
+          apiKeyId: authResult.keyId,
+          apiKeySessionUserId: authResult.keySessionUserId ?? null,
+          apiKeyCreatedBy: authResult.keyCreatedBy ?? null,
+          sessionUserId: null,
+        }
       )
 
       // Connect server to transport

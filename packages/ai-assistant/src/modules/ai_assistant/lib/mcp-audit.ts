@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import type { ToolExecutionResult } from './types'
+import type { AiToolDefinition, McpToolDefinition, ToolExecutionResult } from './types'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-audit' })
 
 export const MCP_AUDIT_RESOURCE_KIND = 'ai_assistant.mcp_tool_call'
 export const MCP_AUDIT_ACCESS_TYPE = 'call'
 export const MCP_AUDIT_WRITE_TIMEOUT_MS = 500
+export const CORRELATION_ID_HEADER = 'x-correlation-id'
 
 const SESSION_TOKEN_ARG_KEY = '_sessionToken'
 const CORRELATION_ID_MAX_LENGTH = 128
@@ -50,6 +51,20 @@ export type McpToolCallAuditEntry = {
   pendingActionIds?: string[] | null
   correlationId: string
   args: unknown
+}
+
+export type McpAuditIdentity = {
+  apiKeyId: string | null
+  apiKeySessionUserId: string | null
+  apiKeyCreatedBy: string | null
+  sessionUserId: string | null
+}
+
+export const EMPTY_MCP_AUDIT_IDENTITY: McpAuditIdentity = {
+  apiKeyId: null,
+  apiKeySessionUserId: null,
+  apiKeyCreatedBy: null,
+  sessionUserId: null,
 }
 
 export type McpAuditAccessLogInput = {
@@ -95,6 +110,17 @@ export function resolveCorrelationId(headerValue: string | null | undefined): st
     return randomUUID()
   }
   return candidate
+}
+
+export function isMutationTool(tool: McpToolDefinition | undefined): boolean {
+  return (tool as AiToolDefinition | undefined)?.isMutation === true
+}
+
+export function attachCorrelationMeta<T extends object>(
+  result: T,
+  correlationId: string,
+): T & { _meta: { correlationId: string } } {
+  return { ...result, _meta: { correlationId } }
 }
 
 export function mapToolResultToAuditOutcome(

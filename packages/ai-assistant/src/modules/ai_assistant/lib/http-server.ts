@@ -21,6 +21,15 @@ import {
   type McpExposureConfig,
 } from './mcp-exposure'
 import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
+import {
+  CORRELATION_ID_HEADER,
+  attachCorrelationMeta,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveCorrelationId,
+  type McpAuditOutcome,
+  type McpAuditPrincipal,
+} from './mcp-audit'
 import type { AiToolDefinition, McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -51,6 +60,28 @@ export type McpHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) 
 
 const SESSION_TOKEN_HEADER = 'x-om-session-token'
 
+type ResolvedSessionContext = {
+  context: McpToolContext
+  sessionKeyId: string
+}
+
+type McpToolCallResponse = {
+  content: Array<{ type: 'text'; text: string }>
+  isError?: boolean
+}
+
+function buildToolErrorResponse(payload: Record<string, unknown>): McpToolCallResponse {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(payload),
+      },
+    ],
+    isError: true,
+  }
+}
+
 function listRegistryTools(): AiToolDefinition[] {
   return Array.from(getToolRegistry().getTools().values()) as AiToolDefinition[]
 }
@@ -79,7 +110,7 @@ async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
   debug?: boolean
-): Promise<McpToolContext | null> {
+): Promise<ResolvedSessionContext | null> {
   try {
     const em = baseContext.container.resolve<EntityManager>('em')
     const rbacService = baseContext.container.resolve<RbacService>('rbacService')
@@ -121,14 +152,17 @@ async function resolveSessionContext(
     }
 
     return {
-      tenantId: sessionKey.tenantId ?? null,
-      organizationId: sessionKey.organizationId ?? null,
-      userId,
-      container: baseContext.container,
-      userFeatures: acl.features,
-      isSuperAdmin: acl.isSuperAdmin,
-      // Use the decrypted session secret for API calls (not the MCP server key)
-      apiKeySecret: sessionSecret,
+      sessionKeyId: sessionKey.id,
+      context: {
+        tenantId: sessionKey.tenantId ?? null,
+        organizationId: sessionKey.organizationId ?? null,
+        userId,
+        container: baseContext.container,
+        userFeatures: acl.features,
+        isSuperAdmin: acl.isSuperAdmin,
+        // Use the decrypted session secret for API calls (not the MCP server key)
+        apiKeySecret: sessionSecret,
+      },
     }
   } catch (error) {
     if (debug) {
@@ -234,9 +268,9 @@ async function resolveListPrincipal(
   sessionHeaderToken: string | undefined
 ): Promise<McpExposureCaller | null> {
   if (sessionHeaderToken) {
-    const sessionContext = await resolveSessionContext(sessionHeaderToken, toolContext, config.debug)
-    if (!sessionContext) return null
-    return { features: sessionContext.userFeatures, isSuperAdmin: sessionContext.isSuperAdmin }
+    const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, config.debug)
+    if (!resolvedSession) return null
+    return { features: resolvedSession.context.userFeatures, isSuperAdmin: resolvedSession.context.isSuperAdmin }
   }
   const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
   const listContext = apiKeyContext ?? toolContext
@@ -255,7 +289,8 @@ async function createMcpServerForRequest(
   toolContext: McpToolContext,
   apiKeyRecord: ApiKey,
   exposureConfig: McpExposureConfig,
-  sessionHeaderToken: string | undefined
+  sessionHeaderToken: string | undefined,
+  correlationId: string
 ): Promise<McpServer | null> {
   const listPrincipal = await resolveListPrincipal(config, toolContext, apiKeyRecord, sessionHeaderToken)
   if (!listPrincipal) return null
@@ -327,6 +362,7 @@ async function createMcpServerForRequest(
         },
         async (args: unknown) => {
           const toolArgs = (args ?? {}) as Record<string, unknown>
+          const startedAt = Date.now()
 
           // Extract session token from args
           const sessionToken = toolArgs._sessionToken as string | undefined
@@ -337,29 +373,58 @@ async function createMcpServerForRequest(
             toolName: tool.name,
             hasSessionToken: !!sessionToken,
             argKeys: Object.keys(toolArgs ?? {}).join(','),
+            correlationId,
           })
 
-          // Resolve user context from session token
           let effectiveContext = toolContext
+          let principal: McpAuditPrincipal = 'api_key'
+          let sessionKeyId: string | null = null
+
+          const complete = async (
+            response: McpToolCallResponse,
+            outcome: McpAuditOutcome,
+            errorCode: string | null
+          ) => {
+            await recordMcpToolCall(toolContext.container, {
+              toolName: tool.name,
+              tenantId: effectiveContext.tenantId,
+              organizationId: effectiveContext.organizationId,
+              sessionUserId: principal === 'session' ? effectiveContext.userId : null,
+              apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
+              apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
+              channel: 'mcp',
+              mcpServer: 'http',
+              apiKeyId: apiKeyRecord.id,
+              sessionKeyId,
+              principal,
+              outcome,
+              errorCode,
+              durationMs: Date.now() - startedAt,
+              isMutation: tool.isMutation === true,
+              correlationId,
+              args: toolArgs,
+            })
+            return attachCorrelationMeta(response, correlationId)
+          }
+
+          // Resolve user context from session token
           if (sessionToken) {
-            const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
-            if (sessionContext) {
+            const resolvedSession = await resolveSessionContext(sessionToken, toolContext, config.debug)
+            if (resolvedSession) {
               // Session context includes the decrypted API key secret + session ID for memory layer
-              effectiveContext = { ...sessionContext, sessionId: sessionToken }
+              effectiveContext = { ...resolvedSession.context, sessionId: sessionToken }
+              principal = 'session'
+              sessionKeyId = resolvedSession.sessionKeyId
             } else {
               // Session token expired - return user-friendly error for AI to relay
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
-                      code: 'SESSION_EXPIRED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+              return complete(
+                buildToolErrorResponse({
+                  error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
+                  code: 'SESSION_EXPIRED',
+                }),
+                'denied',
+                'SESSION_EXPIRED'
+              )
             }
           } else {
             // No session token — fall back to header API key auth
@@ -367,18 +432,14 @@ async function createMcpServerForRequest(
             if (apiKeyContext) {
               effectiveContext = apiKeyContext
             } else if (!effectiveContext.userId && effectiveContext.userFeatures.length === 0) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+              return complete(
+                buildToolErrorResponse({
+                  error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
+                  code: 'UNAUTHORIZED',
+                }),
+                'denied',
+                'UNAUTHORIZED'
+              )
             }
 
             // Derive a fallback sessionId from the API key so all tool calls
@@ -401,57 +462,50 @@ async function createMcpServerForRequest(
               rbacService
             )
             if (!hasAccess) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: `Insufficient permissions for tool "${tool.name}". Required: ${tool.requiredFeatures.join(', ')}`,
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+              return complete(
+                buildToolErrorResponse({
+                  error: `Insufficient permissions for tool "${tool.name}". Required: ${tool.requiredFeatures.join(', ')}`,
+                  code: 'UNAUTHORIZED',
+                }),
+                'denied',
+                'UNAUTHORIZED'
+              )
             }
           }
 
           try {
             const result = await executeTool(tool.name, toolArgs, effectiveContext)
+            const outcome = mapToolResultToAuditOutcome(result)
 
             if (!result.success) {
-              logger.error('Tool call failed', { toolName: tool.name, err: result.error, code: result.errorCode })
-              return {
+              logger.error('Tool call failed', { toolName: tool.name, err: result.error, code: result.errorCode, correlationId })
+              return complete(
+                buildToolErrorResponse({ error: result.error, code: result.errorCode }),
+                outcome,
+                result.errorCode ?? null
+              )
+            }
+
+            logger.debug('Tool call succeeded', { toolName: tool.name, correlationId })
+            return complete(
+              {
                 content: [
                   {
                     type: 'text' as const,
-                    text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                    text: JSON.stringify(result.result, null, 2),
                   },
                 ],
-                isError: true,
-              }
-            }
-
-            logger.debug('Tool call succeeded', { toolName: tool.name })
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify(result.result, null, 2),
-                },
-              ],
-            }
+              },
+              outcome,
+              null
+            )
           } catch (err) {
-            logger.error('Tool call threw', { toolName: tool.name, err })
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error', code: 'EXCEPTION' }),
-                },
-              ],
-              isError: true,
-            }
+            logger.error('Tool call threw', { toolName: tool.name, err, correlationId })
+            return complete(
+              buildToolErrorResponse({ error: err instanceof Error ? err.message : 'Unknown error', code: 'EXCEPTION' }),
+              'error',
+              'EXCEPTION'
+            )
           }
         }
       )
@@ -569,7 +623,8 @@ export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOption
         toolContext,
         apiKeyRecord,
         exposureConfig,
-        headers[SESSION_TOKEN_HEADER]
+        headers[SESSION_TOKEN_HEADER],
+        resolveCorrelationId(headers[CORRELATION_ID_HEADER])
       )
       if (!mcpServer) {
         res.writeHead(401, { 'Content-Type': 'application/json' })

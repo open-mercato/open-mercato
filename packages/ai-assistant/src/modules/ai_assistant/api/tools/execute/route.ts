@@ -5,6 +5,15 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { executeTool } from '../../../lib/tool-executor'
 import { loadAllModuleTools } from '../../../lib/tool-loader'
+import { getToolRegistry } from '../../../lib/tool-registry'
+import {
+  CORRELATION_ID_HEADER,
+  isMutationTool,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveCorrelationId,
+  type McpAuditOutcome,
+} from '../../../lib/mcp-audit'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { McpToolContext } from '../../../lib/types'
 
@@ -29,6 +38,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const correlationId = resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER))
+  const startedAt = Date.now()
+  let auditedToolName: string | null = null
+  let auditedArgs: unknown = {}
+  let auditContainer: Awaited<ReturnType<typeof createRequestContainer>> | null = null
+  let auditRecorded = false
+
+  const audit = (outcome: McpAuditOutcome, errorCode: string | null) => {
+    if (!auditedToolName || auditRecorded) return Promise.resolve()
+    auditRecorded = true
+    return recordMcpToolCall(auditContainer, {
+      toolName: auditedToolName,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      sessionUserId: auth.isApiKey ? null : auth.sub,
+      apiKeySessionUserId: auth.isApiKey ? auth.userId ?? null : null,
+      channel: 'tools-api',
+      mcpServer: null,
+      apiKeyId: auth.isApiKey ? auth.keyId ?? null : null,
+      sessionKeyId: null,
+      principal: auth.isApiKey ? 'api_key' : 'session',
+      outcome,
+      errorCode,
+      durationMs: Date.now() - startedAt,
+      isMutation: isMutationTool(getToolRegistry().getTool(auditedToolName)),
+      correlationId,
+      args: auditedArgs,
+    })
+  }
+
   try {
     const body = await req.json()
     const { toolName, args = {} } = body
@@ -37,7 +76,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'toolName is required' }, { status: 400 })
     }
 
+    auditedToolName = toolName
+    auditedArgs = args
+
     const container = await createRequestContainer()
+    auditContainer = container
     const rbacService = container.resolve<RbacService>('rbacService')
 
     // Load ACL for user
@@ -61,6 +104,7 @@ export async function POST(req: NextRequest) {
 
     // Execute the tool
     const result = await executeTool(toolName, args, toolContext)
+    await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
     if (!result.success) {
       return NextResponse.json(
@@ -74,7 +118,8 @@ export async function POST(req: NextRequest) {
       result: result.result,
     })
   } catch (error) {
-    logger.error('AI Tools — Error executing tool', { err: error })
+    logger.error('AI Tools — Error executing tool', { err: error, correlationId })
+    await audit('error', 'EXCEPTION')
     return NextResponse.json(
       { success: false, error: 'Tool execution failed' },
       { status: 500 }

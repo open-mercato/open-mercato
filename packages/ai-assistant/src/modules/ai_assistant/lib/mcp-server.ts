@@ -16,6 +16,16 @@ import {
   filterToolsForCaller,
   resolveMcpExposureConfig,
 } from './mcp-exposure'
+import {
+  EMPTY_MCP_AUDIT_IDENTITY,
+  attachCorrelationMeta,
+  isMutationTool,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveCorrelationId,
+  type McpAuditIdentity,
+  type McpAuditOutcome,
+} from './mcp-audit'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
@@ -46,6 +56,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
   let userId: string | null = null
   let userFeatures: string[] = []
   let isSuperAdmin = false
+  let auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY
 
   // API key authentication takes precedence
   if (apiKeySecret) {
@@ -58,12 +69,19 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userId = authResult.userId
     userFeatures = authResult.features
     isSuperAdmin = authResult.isSuperAdmin
+    auditIdentity = {
+      apiKeyId: authResult.keyId,
+      apiKeySessionUserId: authResult.keySessionUserId ?? null,
+      apiKeyCreatedBy: authResult.keyCreatedBy ?? null,
+      sessionUserId: null,
+    }
     writeStderrLine(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
   } else if (context && context.userId) {
     // Manual context with a real user — load that user's ACL.
     tenantId = context.tenantId
     organizationId = context.organizationId
     userId = context.userId
+    auditIdentity = { ...EMPTY_MCP_AUDIT_IDENTITY, sessionUserId: context.userId }
 
     try {
       const rbacService = container.resolve('rbacService') as {
@@ -149,28 +167,63 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       writeStderrLine(`[MCP Server] Calling tool: ${name} argKeys=${Object.keys(args ?? {}).join(',')}`)
     }
 
-    const result = await executeTool(name, args ?? {}, toolContext)
+    const correlationId = resolveCorrelationId(null)
+    const startedAt = Date.now()
+    const toolArgs = args ?? {}
+
+    const audit = (outcome: McpAuditOutcome, errorCode: string | null) =>
+      recordMcpToolCall(container, {
+        ...auditIdentity,
+        toolName: name,
+        tenantId,
+        organizationId,
+        channel: 'mcp',
+        mcpServer: 'stdio',
+        sessionKeyId: null,
+        principal: 'api_key',
+        outcome,
+        errorCode,
+        durationMs: Date.now() - startedAt,
+        isMutation: isMutationTool(getToolRegistry().getTool(name)),
+        correlationId,
+        args: toolArgs,
+      })
+
+    let result: Awaited<ReturnType<typeof executeTool>>
+    try {
+      result = await executeTool(name, toolArgs, toolContext)
+    } catch (error) {
+      await audit('error', 'EXCEPTION')
+      throw error
+    }
+    await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
     if (!result.success) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ error: result.error, code: result.errorCode }),
-          },
-        ],
-        isError: true,
-      }
+      return attachCorrelationMeta(
+        {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ error: result.error, code: result.errorCode }),
+            },
+          ],
+          isError: true,
+        },
+        correlationId
+      )
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result.result, null, 2),
-        },
-      ],
-    }
+    return attachCorrelationMeta(
+      {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result.result, null, 2),
+          },
+        ],
+      },
+      correlationId
+    )
   })
 
   return server
