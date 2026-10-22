@@ -48,7 +48,7 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 
 ### Phase 2: Review hardening
 
-- [ ] 2.1 Restrict loopback framing to NODE_ENV=development with strict-mode tests
+- [x] 2.1 Restrict loopback framing to NODE_ENV=development with strict-mode tests — 34be68199
 
 ### Phase 3: Runtime verification
 
