@@ -25,6 +25,10 @@ import { emitAiAssistantEvent } from '../events'
 import type { AiActionConfirmedPayload } from '../events'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
+import {
+  clearPendingActionNotifications,
+  isPendingActionNotifiable,
+} from './pending-action-notify'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
@@ -312,6 +316,17 @@ function toToolHandlerContext(
   }
 }
 
+async function clearNotificationsForResolvedRow(
+  ctx: PendingActionExecuteContext,
+  row: AiPendingAction,
+): Promise<void> {
+  if (!isPendingActionNotifiable(row)) return
+  await clearPendingActionNotifications(ctx.container, row.id, {
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId ?? null,
+  })
+}
+
 /**
  * Idempotent entry point for the Step 5.8 confirm route.
  *
@@ -392,6 +407,7 @@ export async function executePendingActionConfirm(
       resolvedAt: (failedRow.resolvedAt ?? clock).toISOString?.() ?? new Date(clock).toISOString(),
       executionResult: failureResult,
     })
+    await clearNotificationsForResolvedRow(ctx, failedRow)
     return {
       ok: false,
       action: failedRow,
@@ -431,6 +447,7 @@ export async function executePendingActionConfirm(
     executionResult: successResult,
     ...(emitFailedRecordsPayload ? { failedRecords: emitFailedRecordsPayload } : {}),
   })
+  await clearNotificationsForResolvedRow(ctx, confirmedFinal)
   return { ok: true, action: confirmedFinal, executionResult: successResult }
 }
 

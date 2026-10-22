@@ -9,6 +9,11 @@ import {
   type AiAssistantEventId,
 } from '../events'
 import { AiPendingActionStateError } from '../lib/pending-action-types'
+import {
+  clearPendingActionNotifications,
+  isPendingActionNotifiable,
+  type PendingActionNotifyContainer,
+} from '../lib/pending-action-notify'
 
 const logger = createLogger('ai_assistant')
 
@@ -88,7 +93,14 @@ export interface PendingActionCleanupRunOptions {
   pageSize?: number
   /** Injectable tenant-discovery seam for unit tests. */
   discoverTenants?: (em: EntityManager, now: Date) => Promise<TenantScope[]>
+  container?: PendingActionNotifyContainer
+  clearNotifications?: PendingActionCleanupNotificationClearer
 }
+
+export type PendingActionCleanupNotificationClearer = (
+  pendingActionId: string,
+  scope: TenantScope,
+) => Promise<void>
 
 export interface PendingActionCleanupSummary {
   tenantsScanned: number
@@ -167,6 +179,13 @@ export async function runPendingActionCleanup(
   const emitter = options.emitEvent ?? defaultEmitter
   const pageSize = Math.max(1, Math.min(500, options.pageSize ?? DEFAULT_PAGE_SIZE))
   const discoverTenants = options.discoverTenants ?? discoverTenantsDefault
+  const notifyContainer = options.container
+  const clearNotifications: PendingActionCleanupNotificationClearer | null =
+    options.clearNotifications ??
+    (notifyContainer
+      ? (pendingActionId, scope) =>
+          clearPendingActionNotifications(notifyContainer, pendingActionId, scope)
+      : null)
 
   const summary: PendingActionCleanupSummary = {
     tenantsScanned: 0,
@@ -227,6 +246,13 @@ export async function runPendingActionCleanup(
           } catch (emitError) {
             logger.warn('Failed to emit ai.action.expired', { pendingActionId: row.id, err: emitError })
           }
+          if (clearNotifications && isPendingActionNotifiable(updated)) {
+            try {
+              await clearNotifications(updated.id, scope)
+            } catch (clearError) {
+              logger.warn('Failed to clear pending action notifications', { pendingActionId: row.id, err: clearError })
+            }
+          }
         } catch (error) {
           if (error instanceof AiPendingActionStateError) {
             summary.rowsSkipped += 1
@@ -254,5 +280,8 @@ export default async function handle(
   ctx: HandlerContext,
 ): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
-  await runPendingActionCleanup({ em })
+  await runPendingActionCleanup({
+    em,
+    container: { resolve: (name: string) => ctx.resolve(name) },
+  })
 }

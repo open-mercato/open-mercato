@@ -39,6 +39,7 @@
   "auth.acl.features.ai_assistant.mcp.serve": "Start MCP Server",
   "auth.acl.features.ai_assistant.mcp_servers.manage": "Manage MCP Server Configurations",
   "auth.acl.features.ai_assistant.mcp_servers.view": "View MCP Server Configurations",
+  "auth.acl.features.ai_assistant.pending_actions.approve": "Approve AI pending actions",
   "auth.acl.features.ai_assistant.settings.manage": "Manage AI Assistant Settings",
   "auth.acl.features.ai_assistant.tools.list": "List MCP Tools",
   "auth.acl.features.ai_assistant.view": "View AI Assistant Settings",

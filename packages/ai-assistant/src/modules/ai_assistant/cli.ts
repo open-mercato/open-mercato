@@ -459,7 +459,7 @@ const runPendingActionCleanup: ModuleCli = {
     )
 
     const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
-    const summary = await runCleanup({ em })
+    const summary = await runCleanup({ em, container })
 
     console.log('[ai-pending-action-cleanup] Sweep complete:', summary)
   },

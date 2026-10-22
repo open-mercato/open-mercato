@@ -52,6 +52,15 @@ const mockCreateCalls: Array<{ input: CreateInput; ctx: CreateContext }> = []
 
 jest.mock('../../data/repositories/AiPendingActionRepository', () => ({
   AiPendingActionRepository: class {
+    async createOrReuse(
+      input: CreateInput,
+      ctx: CreateContext,
+    ): Promise<{ row: StoredRow; created: boolean }> {
+      const before = mockStoredRows.length
+      const row = await this.create(input, ctx)
+      return { row, created: mockStoredRows.length > before }
+    }
+
     async create(input: CreateInput, ctx: CreateContext): Promise<StoredRow> {
       mockCreateCalls.push({ input, ctx })
       const existing = mockStoredRows.find(

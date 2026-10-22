@@ -21,6 +21,7 @@ import {
   type AiPendingActionFieldDiff,
   type AiPendingActionRecordDiff,
 } from './pending-action-types'
+import { notifyPendingActionAwaitingApproval } from './pending-action-notify'
 
 const logger = createLogger('ai_assistant')
 
@@ -476,7 +477,7 @@ export async function prepareMutation(
     normalizedInput,
   })
 
-  const pendingAction = await repo.create(
+  const { row: pendingAction, created } = await repo.createOrReuse(
     {
       agentId: agent.id,
       toolName: tool.name,
@@ -502,6 +503,12 @@ export async function prepareMutation(
       userId: ctx.userId,
     },
   )
+  if (created) {
+    await notifyPendingActionAwaitingApproval(ctx.container, pendingAction, {
+      tenantId,
+      organizationId: ctx.organizationId ?? null,
+    })
+  }
 
   const uiPart: AiUiPart = {
     componentId: MUTATION_PREVIEW_CARD_COMPONENT_ID,
@@ -613,7 +620,7 @@ export async function prepareRawToolMutation(
     normalizedInput,
   })
 
-  const pendingAction = await repo.create(
+  const { row: pendingAction, created } = await repo.createOrReuse(
     {
       agentId: AI_RAW_TOOL_AGENT_ID,
       toolName: tool.name,
@@ -640,6 +647,12 @@ export async function prepareRawToolMutation(
       userId: requesterUserId,
     },
   )
+  if (created) {
+    await notifyPendingActionAwaitingApproval(ctx.container, pendingAction, {
+      tenantId,
+      organizationId,
+    })
+  }
 
   const pendingRecords = Array.isArray(pendingAction.records) ? pendingAction.records : null
   return {

@@ -48,6 +48,11 @@ export interface AiPendingActionCreateInput {
   now?: Date
 }
 
+export interface AiPendingActionCreateOutcome {
+  row: AiPendingAction
+  created: boolean
+}
+
 export interface AiPendingActionApproverScope {
   tenantId: string
   organizationId?: string | null
@@ -120,6 +125,14 @@ export class AiPendingActionRepository {
     input: AiPendingActionCreateInput,
     ctx: AiPendingActionContext,
   ): Promise<AiPendingAction> {
+    const outcome = await this.createOrReuse(input, ctx)
+    return outcome.row
+  }
+
+  async createOrReuse(
+    input: AiPendingActionCreateInput,
+    ctx: AiPendingActionContext,
+  ): Promise<AiPendingActionCreateOutcome> {
     if (!ctx?.tenantId) {
       throw new Error('AiPendingActionRepository.create requires tenantId')
     }
@@ -167,7 +180,7 @@ export class AiPendingActionRepository {
         },
       )
       if (existing && existing.status === 'pending') {
-        return existing
+        return { row: existing, created: false }
       }
       // Terminal stale row would collide on the unique
       // `(tenantId, organizationId, idempotencyKey)` constraint when we
@@ -217,7 +230,7 @@ export class AiPendingActionRepository {
         resolvedByUserId: null,
       } as unknown as AiPendingAction)
       await tx.persist(row).flush()
-      return row
+      return { row, created: true }
     })
   }
 
