@@ -9,6 +9,7 @@ import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
 import {
   collectMcpExposureWarnings,
+  buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   filterToolsForCaller,
   resolveMcpExposureConfig,
@@ -157,7 +158,10 @@ export function createDevMcpServer(
 
           let result: Awaited<ReturnType<typeof executeTool>>
           try {
-            result = await executeTool(tool.name, toolArgs, toolContext)
+            result = await executeTool(tool.name, toolArgs, toolContext, {
+              channel: 'mcp',
+              mutationMode: exposureConfig.mutationMode,
+            })
           } catch (error) {
             await audit('error', 'EXCEPTION')
             throw error
@@ -279,6 +283,13 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
   )
   for (const warning of collectMcpExposureWarnings(process.env)) {
     logger.warn(warning)
+  }
+  const directMutationWarning = buildDirectMutationModeWarning(
+    exposureConfig,
+    Array.from(getToolRegistry().getTools().values()),
+  )
+  if (directMutationWarning) {
+    logger.warn(directMutationWarning)
   }
 
   // Generate and cache entity graph

@@ -136,3 +136,66 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     expect(accessLogEntries).toHaveLength(0)
   })
 })
+
+describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
+  const originalMutationMode = process.env.OM_MCP_MUTATION_MODE
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    accessLogEntries.length = 0
+    authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    getToolMock.mockReturnValue({ name: 'customers.update_person', isMutation: true })
+  })
+
+  afterEach(() => {
+    if (originalMutationMode === undefined) delete process.env.OM_MCP_MUTATION_MODE
+    else process.env.OM_MCP_MUTATION_MODE = originalMutationMode
+  })
+
+  it('passes the tools-api channel and the env mutation mode to executeTool', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'deny'
+    executeToolMock.mockResolvedValue({ success: true, result: {} })
+
+    await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+
+    expect(executeToolMock).toHaveBeenCalledWith(
+      'customers.update_person',
+      {},
+      expect.any(Object),
+      { channel: 'tools-api', mutationMode: 'deny' },
+    )
+  })
+
+  it('defaults to direct mode when OM_MCP_MUTATION_MODE is unset', async () => {
+    delete process.env.OM_MCP_MUTATION_MODE
+    executeToolMock.mockResolvedValue({ success: true, result: {} })
+
+    await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+
+    expect(executeToolMock.mock.calls[0][3]).toEqual({ channel: 'tools-api', mutationMode: 'direct' })
+  })
+
+  it('returns 403 with the MUTATION_REQUIRES_APPROVAL code in deny mode', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'deny'
+    executeToolMock.mockResolvedValue({
+      success: false,
+      error: 'mutation blocked',
+      errorCode: 'MUTATION_REQUIRES_APPROVAL',
+    })
+
+    const response = await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      success: false,
+      error: 'mutation blocked',
+      code: 'MUTATION_REQUIRES_APPROVAL',
+    })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'mutation_denied',
+      errorCode: 'MUTATION_REQUIRES_APPROVAL',
+      isMutation: true,
+    })
+  })
+})

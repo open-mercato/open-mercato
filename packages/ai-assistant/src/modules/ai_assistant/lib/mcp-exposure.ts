@@ -156,3 +156,23 @@ export function describeMcpExposureConfig(
     exposedToolCount: tools.filter((tool) => isToolExposed(tool, config)).length,
   }
 }
+
+export function listExposedMutationToolNames(
+  config: McpExposureConfig,
+  tools: McpExposableTool[],
+): string[] {
+  return tools
+    .filter((tool) => tool.isMutation === true && isToolExposed(tool, config))
+    .map((tool) => tool.name)
+    .sort()
+}
+
+export function buildDirectMutationModeWarning(
+  config: McpExposureConfig,
+  tools: McpExposableTool[],
+): string | null {
+  if (config.mutationMode !== 'direct') return null
+  const mutationToolNames = listExposedMutationToolNames(config, tools)
+  if (mutationToolNames.length === 0) return null
+  return `OM_MCP_MUTATION_MODE is "direct": ${mutationToolNames.length} mutation tool(s) run without approval over MCP and /tools/execute: ${mutationToolNames.join(', ')}. Set OM_MCP_MUTATION_MODE=approval to require human approval.`
+}

@@ -15,6 +15,7 @@ import {
   collectMcpExposureWarnings,
   filterToolsForCaller,
   isToolExposed,
+  buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   resolveMcpExposureConfig,
   type McpExposureCaller,
@@ -474,7 +475,10 @@ async function createMcpServerForRequest(
           }
 
           try {
-            const result = await executeTool(tool.name, toolArgs, effectiveContext)
+            const result = await executeTool(tool.name, toolArgs, effectiveContext, {
+              channel: 'mcp',
+              mutationMode: exposureConfig.mutationMode,
+            })
             const outcome = mapToolResultToAuditOutcome(result)
 
             if (!result.success) {
@@ -694,6 +698,10 @@ function logExposureConfig(exposureConfig: McpExposureConfig): void {
   logger.info('MCP exposure config', describeMcpExposureConfig(exposureConfig, listRegistryTools()))
   for (const warning of collectMcpExposureWarnings(process.env)) {
     logger.warn(warning)
+  }
+  const directMutationWarning = buildDirectMutationModeWarning(exposureConfig, listRegistryTools())
+  if (directMutationWarning) {
+    logger.warn(directMutationWarning)
   }
 }
 

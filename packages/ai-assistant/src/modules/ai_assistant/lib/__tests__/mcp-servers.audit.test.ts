@@ -159,6 +159,7 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
       },
     })
     expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+    expect(mockExecuteTool.mock.calls[0][3]).toEqual({ channel: 'mcp', mutationMode: 'direct' })
   })
 
   it('maps a stdio UNAUTHORIZED result to denied', async () => {
@@ -179,6 +180,7 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
     const result = await callDevTool('customers.list_people', { id: SECRET_ARG_VALUE })
 
     expect(result.isError).toBe(true)
+    expect(mockExecuteTool.mock.calls[0][3]).toEqual({ channel: 'mcp', mutationMode: 'direct' })
     expect(accessLogEntries).toHaveLength(1)
     expect(accessLogEntries[0]).toMatchObject({
       actorUserId: 'owner-1',

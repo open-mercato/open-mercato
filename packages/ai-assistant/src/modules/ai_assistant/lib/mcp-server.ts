@@ -12,6 +12,7 @@ import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest } from './auth'
 import {
   collectMcpExposureWarnings,
+  buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   filterToolsForCaller,
   resolveMcpExposureConfig,
@@ -191,7 +192,10 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
 
     let result: Awaited<ReturnType<typeof executeTool>>
     try {
-      result = await executeTool(name, toolArgs, toolContext)
+      result = await executeTool(name, toolArgs, toolContext, {
+        channel: 'mcp',
+        mutationMode: exposureConfig.mutationMode,
+      })
     } catch (error) {
       await audit('error', 'EXCEPTION')
       throw error
@@ -297,6 +301,13 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   )
   for (const warning of collectMcpExposureWarnings(process.env)) {
     writeStderrLine(`[MCP Server] WARN ${warning}`)
+  }
+  const directMutationWarning = buildDirectMutationModeWarning(
+    exposureConfig,
+    Array.from(getToolRegistry().getTools().values()),
+  )
+  if (directMutationWarning) {
+    writeStderrLine(`[MCP Server] WARN ${directMutationWarning}`)
   }
 
   await server.connect(transport)

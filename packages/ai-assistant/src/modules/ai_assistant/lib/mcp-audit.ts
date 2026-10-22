@@ -91,6 +91,7 @@ const ERROR_CODE_OUTCOMES: Record<string, McpAuditOutcome> = {
   VALIDATION_ERROR: 'invalid_input',
   EXECUTION_ERROR: 'error',
   MUTATION_REQUIRES_APPROVAL: 'mutation_denied',
+  MUTATION_REQUESTER_UNRESOLVED: 'mutation_denied',
   DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
 }
 

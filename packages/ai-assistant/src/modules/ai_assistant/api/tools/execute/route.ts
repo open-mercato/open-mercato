@@ -14,6 +14,7 @@ import {
   resolveCorrelationId,
   type McpAuditOutcome,
 } from '../../../lib/mcp-audit'
+import { resolveMcpExposureConfig, type McpMutationMode } from '../../../lib/mcp-exposure'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { McpToolContext } from '../../../lib/types'
 
@@ -23,8 +24,31 @@ export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
   summary: 'Execute AI tool',
   methods: {
-    POST: { summary: 'Execute a specific MCP tool by name' },
+    POST: {
+      summary: 'Execute a specific MCP tool by name',
+      responses: [{ status: 200, description: 'Tool executed. Returns `{ success: true, result }`.' }],
+      errors: [
+        { status: 400, description: 'Missing tool name, unknown tool, invalid input, or tool execution error.' },
+        { status: 401, description: 'Unauthenticated.' },
+        {
+          status: 403,
+          description:
+            'Caller lacks the tool features, or the tool is a mutation blocked by `OM_MCP_MUTATION_MODE` (`{ success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`).',
+        },
+        { status: 500, description: 'Unexpected failure while executing the tool.' },
+      ],
+    },
   },
+}
+
+let cachedMutationMode: { raw: string | undefined; mode: McpMutationMode } | null = null
+
+function resolveToolsApiMutationMode(): McpMutationMode {
+  const raw = process.env.OM_MCP_MUTATION_MODE
+  if (cachedMutationMode && cachedMutationMode.raw === raw) return cachedMutationMode.mode
+  const mode = resolveMcpExposureConfig(process.env, {}).mutationMode
+  cachedMutationMode = { raw, mode }
+  return mode
 }
 
 export const metadata = {
@@ -103,8 +127,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Execute the tool
-    const result = await executeTool(toolName, args, toolContext)
+    const result = await executeTool(toolName, args, toolContext, {
+      channel: 'tools-api',
+      mutationMode: resolveToolsApiMutationMode(),
+    })
     await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
+
+    if (result.errorCode === 'MUTATION_REQUIRES_APPROVAL') {
+      return NextResponse.json(
+        { success: false, error: result.error, code: 'MUTATION_REQUIRES_APPROVAL' },
+        { status: 403 }
+      )
+    }
 
     if (!result.success) {
       return NextResponse.json(

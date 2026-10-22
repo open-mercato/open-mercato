@@ -1,5 +1,7 @@
 import {
+  buildDirectMutationModeWarning,
   collectMcpExposureWarnings,
+  listExposedMutationToolNames,
   filterToolsForCaller,
   isMcpMutationMode,
   isToolExposed,
@@ -236,5 +238,34 @@ describe('filterToolsForCaller', () => {
       isSuperAdmin: false,
     })
     expect(names(result)).toEqual(['catalog.list_products'])
+  })
+})
+
+describe('direct mutation mode startup warning', () => {
+  const tools: McpExposableTool[] = [
+    tool('customers.update_person', { isMutation: true }),
+    tool('catalog.delete_product', { isMutation: true }),
+    tool('customers.list_people'),
+    tool('sales.cancel_order', { isMutation: true, mcp: { expose: false } }),
+  ]
+
+  it('lists exposed mutation tool names sorted, excluding hidden and read tools', () => {
+    expect(listExposedMutationToolNames(baseConfig, tools)).toEqual([
+      'catalog.delete_product',
+      'customers.update_person',
+    ])
+  })
+
+  it('warns in direct mode with the tool names and the approval hint', () => {
+    const warning = buildDirectMutationModeWarning(baseConfig, tools)
+    expect(warning).toContain('catalog.delete_product, customers.update_person')
+    expect(warning).toContain('OM_MCP_MUTATION_MODE=approval')
+    expect(warning).not.toContain('sales.cancel_order')
+  })
+
+  it('does not warn outside direct mode or without exposed mutation tools', () => {
+    expect(buildDirectMutationModeWarning({ ...baseConfig, mutationMode: 'approval' }, tools)).toBeNull()
+    expect(buildDirectMutationModeWarning({ ...baseConfig, mutationMode: 'deny' }, tools)).toBeNull()
+    expect(buildDirectMutationModeWarning(baseConfig, [tool('customers.list_people')])).toBeNull()
   })
 })

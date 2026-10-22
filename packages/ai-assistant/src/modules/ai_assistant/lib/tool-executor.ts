@@ -3,6 +3,8 @@ import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isMutationTool } from './mcp-audit'
+import type { McpMutationMode } from './mcp-exposure'
 
 const logger = createLogger('ai_assistant')
 
@@ -20,13 +22,41 @@ function sanitizeEmptyStrings(input: unknown): unknown {
   return result
 }
 
+export type ToolExecutionChannel = 'agent' | 'mcp' | 'tools-api'
+
+export type ExecuteToolOptions = {
+  channel?: ToolExecutionChannel
+  mutationMode?: McpMutationMode
+}
+
+function buildMutationRequiresApprovalResult(toolName: string): ToolExecutionResult {
+  return {
+    success: false,
+    error: `Tool "${toolName}" is a mutation and cannot run directly on this channel (mutation mode requires approval or denies mutations)`,
+    errorCode: 'MUTATION_REQUIRES_APPROVAL',
+  }
+}
+
+function resolveMutationGate(
+  toolName: string,
+  options: ExecuteToolOptions,
+): ToolExecutionResult | null {
+  const channel = options.channel ?? 'agent'
+  if (channel === 'agent') return null
+  const mutationMode = options.mutationMode ?? 'direct'
+  if (mutationMode === 'direct') return null
+  if (mutationMode === 'approval') return buildMutationRequiresApprovalResult(toolName)
+  return buildMutationRequiresApprovalResult(toolName)
+}
+
 /**
  * Execute a tool with full context and ACL checks.
  */
 export async function executeTool(
   toolName: string,
   input: unknown,
-  context: McpToolContext
+  context: McpToolContext,
+  options: ExecuteToolOptions = {}
 ): Promise<ToolExecutionResult> {
   const registry = getToolRegistry()
   const tool = registry.getTool(toolName)
@@ -78,6 +108,11 @@ export async function executeTool(
       error: `Invalid input: ${errorMessages || 'Validation failed'}`,
       errorCode: 'VALIDATION_ERROR',
     }
+  }
+
+  if (isMutationTool(tool)) {
+    const gateResult = resolveMutationGate(toolName, options)
+    if (gateResult) return gateResult
   }
 
   // Execute tool. Attach `tool` to the context so handlers that build an
