@@ -55,10 +55,26 @@ PR: #7784
 - [x] 2.1 Correct Customers and Catalog agent guidance for #7781. — 251a9a14c; 71 focused tests and instruction budget passed.
 - [x] 2.2 Implement and test all four Sales document extension hosts for #7782. — 6d44a2d59; 17 focused UI tests passed with the real shared injection loader and full page mounts.
 - [x] 2.3 Implement and test quote response enrichment for #7783. — 197cbd0da; 45 route/factory tests and 22 CLI activation tests passed. Explicit route options preserve generated activation provenance.
-- [ ] 2.4 Update existing specs and compatibility documentation.
+- [x] 2.4 Update existing specs and compatibility documentation. — 5990cf71c; documents actual host contracts, render-only semantics, quote activation and migration review.
 
 ### Phase 3: Verification and delivery
 
-- [ ] 3.1 Generate registries and run focused unit/integration/UI verification.
-- [ ] 3.2 Run the ordered full validation gate and standalone harness coverage audit.
-- [ ] 3.3 Review, resolve actionable findings, and finalize the PR with evidence.
+- [x] 3.1 Generate registries and run focused unit/integration/UI verification. — generation and focused suites passed; managed WMS API 1/1 and final native order/quote browser smoke 2/2 passed. UI regression: fe8ac421a.
+- [x] 3.2 Run the ordered full validation gate and standalone harness coverage audit. — ordered local gate passed; audit report records deterministic 239-case validation and generated-fact evidence.
+- [x] 3.3 Review, resolve actionable findings, and finalize the PR with evidence. — independent re-review clean after fixing the E2E fixture assumption; PR #7784 carries the review, verification and screenshot evidence. External approval, CI and manual QA remain merge gates.
+
+
+## Verification evidence
+
+- Local prepare chain: package build 39/39, generation, final package build 39/39 passed.
+- i18n sync passed; usage audit exited zero with existing unused-key advisory output.
+- Workspace typecheck: 39/39 passed.
+- Full workspace tests: 48/48 tasks passed; existing conditional skips remain. Production application build passed.
+- Focused tests: AI definitions 71; UI hosts/page 17; document routes/factory 45; CLI activations 22 passed.
+- Docs production build, targeted ESLint, client-boundary check, template parity, and agent budget checks passed.
+- Managed ephemeral WMS regression `TC-WMS-STOCK-COL-002`: 1 passed, zero skipped/flaky/unexpected; real quotes retain order-only WMS isolation.
+- Standalone dry-run audit confirms both bound host patterns and exact order/quote activation provenance in CLI/create-app facts; 239-case deterministic evaluator and two fact/scaffold tests passed. No model/release certification is claimed.
+- Managed browser smoke passed both order/quote cases; the final rerun also passed 2/2 with zero skipped/flaky/unexpected cases. Screenshot-readiness assertions wait for each fixture's actual item state and custom-data loading completion. Synthetic order/quote screenshots are attached to PR #7784 via a separate evidence branch.
+- Independent implementation analysis was clean. Review caught an incorrect empty-order assumption in a later screenshot wait; fixed to expect the fixture's seed line, with no unresolved source-analysis findings.
+- Review validation source: GitHub checks plus the already-completed local implementation gate. Pending checks were not replaced with redundant local reruns. GitHub disallows author self-approval, so the analysis verdict is recorded as COMMENT and the pipeline remains `review`.
+- Delivery: all three issues are linked by closing references; implementation is complete. `needs-qa` remains without `qa-approved`, and no merge is performed.
