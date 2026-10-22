@@ -10,6 +10,8 @@ cd my-app
 yarn setup
 ```
 
+`yarn setup` needs Node 24, Yarn 4 (`corepack enable`) and a running Docker engine. It checks Docker, starts PostgreSQL, Redis and Meilisearch from the app's `docker-compose.yml`, waits until they are healthy, then installs dependencies, migrates and initializes the database and starts the dev server. It copies `.env.example` to `.env` only when `.env` is missing and never overwrites it, so re-running is safe. Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and use `yarn setup --no-infra` (no Docker calls at all).
+
 Official and external ready apps can also be bootstrapped directly:
 
 ```bash
@@ -197,7 +199,9 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    ```bash
    yarn setup
    ```
-   If you need to reset and initialize from scratch instead:
+   It first checks the Docker CLI, the Compose v2 plugin and the engine, refuses ports that another process already holds (PostgreSQL `5432`, Redis `6379`, Meilisearch `7700`; change them with `POSTGRES_PORT`, `REDIS_PORT`, `MEILISEARCH_PORT` in `.env`, and keep the port in `DATABASE_URL` in step), starts the containers and waits for their healthchecks. Only then does it install dependencies, generate, migrate, initialize (the first run seeds data and prints the admin credentials; later runs keep the existing database) and start the dev server. When something is missing it stops before any database step and says what to fix. It never installs Docker or asks for sudo.
+
+   If you need to reset and initialize from scratch instead (deletes local data):
    ```bash
    yarn setup --reinstall
    ```
@@ -219,41 +223,40 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    yarn dev --database-name=review_1720 --no-update-env
    ```
 
-3. Manual alternative if you want to edit the environment first:
+3. Using your own PostgreSQL, Redis and Meilisearch instead of Docker:
    ```bash
    cp .env.example .env
-   # Edit .env with your database credentials
+   # Point DATABASE_URL (and the Redis/Meilisearch settings) at your services
+   yarn setup --no-infra
    ```
+   `--no-infra` makes no Docker calls and keeps the URLs from your `.env`. It also works with `setup:classic`, `setup:reinstall` and `setup:reinstall:classic`.
 
-4. Install dependencies:
+4. Local infrastructure on its own:
    ```bash
-   yarn install
+   yarn infra:up                    # start the containers and wait until they are healthy
+   yarn infra:down                  # stop them; data volumes are kept
+   yarn infra:down --volumes --yes  # stop them and DELETE the local database and search data
    ```
 
-5. Generate required files:
-   ```bash
-   yarn generate
-   ```
-
-6. Run database migrations:
-   ```bash
-   yarn db:migrate
-   ```
-
-7. Initialize the application:
-   ```bash
-   yarn initialize
-   ```
-
-8. Start the development server:
+5. Day to day:
    ```bash
    yarn dev
    ```
-   On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. Once the app is ready, the splash can also:
+   Run `yarn infra:up` first if the containers were stopped. On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. Once the app is ready, the splash can also:
    - launch supported coding tools from the `Start coding with AI` menu
    - create or publish a GitHub repository through `gh` when `OM_DEV_CREATE_GIT_REPO_FLOW` is enabled and GitHub CLI is installed
 
-9. Docker alternatives:
+6. Manual alternative (the steps `yarn setup` runs for you, against services you started yourself):
+   ```bash
+   cp .env.example .env
+   yarn install
+   yarn generate
+   yarn db:migrate
+   yarn initialize
+   yarn dev
+   ```
+
+7. Full Docker stack (the app runs in a container too):
    ```bash
    cp .env.example .env
    yarn install
