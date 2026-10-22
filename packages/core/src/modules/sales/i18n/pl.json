@@ -1412,6 +1412,8 @@
   "sales.returns.quantityExceedsShipped": "Nie można zwrócić więcej niż wysłana ilość. Wyślij artykuły, zanim zarejestrujesz zwrot.",
   "sales.returns.reason": "Powód",
   "sales.returns.reason.placeholder": "Opcjonalny",
+  "sales.returns.restoreLineMissing": "Nie można przywrócić tego zwrotu: jedna z jego pozycji zamówienia już nie istnieje.",
+  "sales.returns.restoreQuantityUnavailable": "Nie można przywrócić tego zwrotu: zamówienie nie ma już wystarczającej wysłanej ilości do zwrotu.",
   "sales.returns.returnNumber": "Zwrot",
   "sales.returns.returnedAt": "Data zwrotu",
   "sales.returns.total": "Suma",
