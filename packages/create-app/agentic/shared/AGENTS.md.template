@@ -44,7 +44,7 @@ A scalar-ID/snapshot fix to persisted records or commands linked to an installed
 
 `debugging` = reported bug/security/drift, not designed failure UI. Installed-host custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
-Unified-override audits = `umes` only; unresolved ownership/installed keys add `architecture`/`framework-context`. Durable process/activity/user task = `ai-workflow`; app business persistence/host-state coordination adds `module-data`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
+Unified-override audits = `umes` only; unresolved ownership/installed keys add `architecture`/`framework-context`. Durable process/activity/user task = `ai-workflow`; app business persistence/host-state coordination adds `module-data`. Multi-stage waits/cancel/restart = durable; reminders and renewal/batch schedules are `module-data`.
 
 Replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
 Staff UI preview/report/bulk = `backend-ui`.
@@ -68,17 +68,17 @@ Installed API/command/record/status/event/UI changes/guards = `umes`; app-owned 
 
 ### Axis 2 — Units
 
-Match units; skill first
+Units: skill first
 
 | Route | Work unit | Skill/context |
 |---|---|---|
-| `architecture` | Scaffold module starter; publish/link an app module | `.ai/guides/module-tool.md`; implementation also loads `om-module-scaffold` |
-| `architecture` | Explain/choose module, UMES, package, eject | `om-help` for unresolved/comparative choices among these mechanisms |
+| `architecture` | Scaffold module starter; publish/link an app module | `.ai/guides/module-tool.md`; implementation: `om-module-scaffold` |
+| `architecture` | Explain/choose module, UMES, package, eject | `om-help` for unresolved/comparative mechanism choices |
 | `module-data` | Business slice/multi-seam domain/API/command fix | MUST load `om-module-scaffold` + exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key (units, not ownership); ownership/capability outline adds `architecture` |
 | `spec-pr` | Author/reuse spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
-| `module-data` | Business-record design: entity/link/validator/migration/encryption/lock/transaction; not helper reuse/provider metadata | `om-data-model-design` + contracts |
+| `module-data` | App-owned record design: entity/link/validator/migration/encryption/lock/transaction; not helper reuse/provider metadata/engine-owned workflow state alone | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Owned search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
@@ -116,7 +116,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ## Module-Specific Facts
 
-Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync; feature toggle/flag→feature_toggles. Hosts: staff session/auth→auth; CRM customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; warehouse→wms; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Read big facts in sections.
+Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync; feature toggle/flag→feature_toggles. Hosts: staff session/auth→auth; CRM customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; warehouse→wms; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Section-read big facts.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

@@ -13,8 +13,9 @@ const read = (relative: string) => fs.readFileSync(new URL(`../../agentic/${rela
 
 test('CRUD reference inspection reads its procedure owner before following example sources', () => {
   const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(scaffold, /API\/schema\/command implementation\/fixes\/reference inspection MUST read/)
-  assert.match(scaffold, /`\.ai\/guides\/contracts\.md` and `references\/api-and-domain\.md`/)
+  assert.match(scaffold, /API\/schema\/command work MUST read `references\/api-and-domain\.md`/)
+  assert.match(scaffold, /unless spec-only reference planning, also `\.ai\/guides\/contracts\.md`/)
+  assert.match(scaffold, /use only reference-planning branches below, not implementation routing or execution/)
   assert.match(scaffold, /START at \[`src\/modules\/example\/README\.md`\]/)
   assert.ok(Buffer.byteLength(scaffold) <= 5_265)
 })
@@ -36,12 +37,12 @@ test('source lookup defaults to the human index and keeps its exact machine-view
 
 test('design metadata source lookup selects the machine index upfront instead of reading both indexes', () => {
   const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(scaffold, /source lookup: use \[`surface-inventory\.json`\].*upfront for design\/provenance metadata/)
+  assert.match(scaffold, /Source lookup: \[`surface-inventory\.json`\].*upfront for design\/provenance metadata/)
   assert.match(scaffold, /if default \[`surface-map\.md`\].*is outside exact read permissions; otherwise human map/)
   assert.match(scaffold, /One already-authorized index, never both/)
   assert.match(scaffold, /Complete business modules\/CRUD slices START at \[`src\/modules\/example\/README\.md`\]/)
   assert.match(scaffold, /Adapt only named capability rows/)
-  assert.ok(Buffer.byteLength(scaffold) <= 5_258)
+  assert.ok(Buffer.byteLength(scaffold) <= 5_265)
 })
 
 test('UI-only source lookup chooses design metadata before following its default human index', () => {
@@ -58,9 +59,9 @@ test('UI-only source lookup chooses design metadata before following its default
 
 test('module data modeling distinguishes new app data and sensitive fields from workflow-owned state', () => {
   const skill = read('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(skill, /om-data-model-design` for new app-owned business entities\/schema\/persisted fields or sensitive fields/)
-  assert.match(skill, /never engine-owned workflow state alone/)
-  assert.match(skill, /Follow `references\/data-and-migrations\.md`/)
+  assert.match(skill, /Spec-only entity\/schema references: read `references\/data-and-migrations\.md`/)
+  assert.match(skill, /Otherwise follow it and invoke `om-data-model-design` for new app-owned business entities\/schema\/persisted or sensitive fields/)
+  assert.match(skill, /never for engine-owned workflow state alone/)
 })
 
 test('capability-only outlines choose architecture before opening implementation owners', () => {
@@ -69,7 +70,7 @@ test('capability-only outlines choose architecture before opening implementation
   assert.match(workflow, /^## Workflow\n\nOwnership\/capability-only outlines: first read `\.ai\/guides\/architecture\.md` \+ `references\/discovery-surface-catalog\.md`/)
   assert.match(workflow, /name specialist owners without implementation procedures/)
   assert.match(workflow, /Explicit AI contracts load AI guide\/skill/)
-  assert.ok(workflow.indexOf('Ownership/capability-only outlines:') < workflow.indexOf('Otherwise select every matching brief/blueprint route'))
+  assert.ok(workflow.indexOf('Ownership/capability-only outlines:') < workflow.indexOf('Otherwise, outside spec-only planning, select every matching brief/blueprint route'))
   assert.match(workflow, /never probe then discard routes/)
   assert.match(workflow, /UMES: only injected\/overridden\/enriched\/intercepted installed surfaces/)
   assert.match(workflow, /framework context: only named unresolved exact-version details/)
@@ -162,7 +163,7 @@ test('the library twins can follow the authorized equivalent index while canonic
 
 test('module-surface reference inspection reads its owner before canonical event sources', () => {
   const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(scaffold, /Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/)
+  assert.match(scaffold, /Module-surface implementation\/ordinary inspection MUST first read `references\/module-surfaces\.md`/)
   assert.match(scaffold, /for cache\/queue briefs, load `references\/runtime-cache-and-queues\.md`/)
   assert.ok(Buffer.byteLength(scaffold) <= 5_265)
   assert.match(read('shared/ai/skills/om-module-scaffold/references/module-surfaces.md'), /\[\`events\.ts\`\]/)
@@ -292,4 +293,67 @@ test('the canonical public design projection carries owned audited and landed pr
   assert.equal(projected.designFoundation.publicationStatus, 'not-evidenced')
   assert.equal(projected.designFoundation.codeConnectArtifactAvailability, 'installed-packed-auxiliary')
   assert.equal(projected.designFoundation.codeConnectExportStatus, 'not-exported')
+})
+
+test('the local reference index publishes the existing source-reference identity format for every readable owner link', async context => {
+  const repository = fileURLToPath(new URL('../../../../', import.meta.url))
+  const packageSources = discoverPackageModuleSources(createResolver(repository))
+  const reference = discoverLocalReferenceModuleSource({ appRoot: fileURLToPath(new URL('../../template/', import.meta.url)), moduleId: 'example' })
+  assert.ok(reference)
+  const projection = extractLocalReferenceModuleFacts({ packageSources, reference, registryPath: null })
+  const index = projection.directory.index
+  assert.match(index, /ID = `<owner-prefix>:<target>`/)
+  assert.match(index, /first matching owner pattern/)
+  assert.match(index, /Drop the link's anchor, decode its path and resolve it against the owner/)
+  assert.match(index, /Targets inside `src\/modules\/example\/` are relative to that root; others are app-relative/)
+  assert.match(index, /These IDs are metadata, not read grants/)
+  assert.match(index, /Machine-readable counterpart: `\.ai\/guides\/reference-module-facts\.json`; naming it grants no read access/)
+  const rules = [...index.matchAll(/^\| `([^`]+)` \| `([^`]+)` \|$/gm)].map(match => ({ owner: match[1], prefix: match[2] }))
+  assert.ok(rules.length > 0)
+  const publishedIdentity = (owner: string, href: string): string | null => {
+    for (const rule of rules) {
+      const slots: string[] = []
+      const expression = rule.owner.split(/(<skill>|<name>)/).map(token => {
+        if (token === '<skill>' || token === '<name>') {
+          slots.push(token)
+          return token === '<skill>' ? '([^/]+)' : '(.+)'
+        }
+        return token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      }).join('')
+      const match = new RegExp(`^${expression}$`).exec(owner)
+      if (!match) continue
+      const prefix = slots.reduce((value, slot, slotIndex) => value.replaceAll(slot, match[slotIndex + 1]), rule.prefix)
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(owner), decodeURIComponent(href.split('#')[0])))
+      return `${prefix}:${target.startsWith('src/modules/example/') ? target.slice('src/modules/example/'.length) : target}`
+    }
+    return null
+  }
+  const authority = await import(new URL('../../scripts/validate-source-links.mjs', import.meta.url).href)
+  const inventory = JSON.parse(fs.readFileSync(new URL('../../agentic/shared/ai/harness/source-link-inventory.json', import.meta.url), 'utf8')) as {
+    records: Array<{ referenceId: string; requirement: string; readStatus: string; originAsset: string; href?: string; resolvedPath: string }>
+  }
+  const readable = inventory.records.filter(record => record.requirement === 'source-required' && record.readStatus === 'readable')
+  assert.ok(readable.length > 0)
+  for (const record of readable) {
+    assert.ok(record.href, record.referenceId)
+    assert.equal(publishedIdentity(record.originAsset, record.href), record.referenceId)
+    assert.equal(authority.deriveTopicId(record.originAsset, record.resolvedPath), record.referenceId)
+  }
+  for (const [owner, href] of [
+    ['AGENTS.md', 'src/modules/example/data/entities.ts#L3'],
+    ['.ai/specs/README.md', './2026-01-01-feature.md'],
+    ['.ai/guides/nested/guide.md', '../../../node_modules/@open-mercato/ui/src/input.tsx#L1'],
+    ['.ai/skills/sample/SKILL.md', '../../../src/modules/example/data/entities.ts'],
+    ['.ai/skills/sample/references/SKILL.md', '../../../../src/modules/example/ce.ts'],
+    ['.ai/skills/sample/other.md', '../../../src/modules/example/backend/tasks/%5Bid%5D/page.tsx#L7'],
+    ['.ai/skills/sample/nested/guide.md', '../../../../src/app/globals.css#L2'],
+    ['.ai/skills/sample/references/nested/guide.md', '../../../../../src/modules/example/backend/%23literal/page.tsx#L8'],
+  ]) {
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(owner), decodeURIComponent(href.split('#')[0])))
+    assert.equal(publishedIdentity(owner, href), authority.deriveTopicId(owner, resolved))
+  }
+  assert.equal(publishedIdentity('.ai/unknown/owner.md', '../src/modules/example/index.ts'), null)
+  assert.ok(!index.includes('.ai/harness/source-link-inventory.json'))
+  for (const section of projection.directory.sections) assert.equal(section.description, `Generated ${section.title.toLowerCase()} facts for example.`)
+  context.diagnostic(`${readable.length} readable IDs across ${new Set(readable.map(record => record.originAsset)).size} owners; local index ${Buffer.byteLength(index)} bytes`)
 })

@@ -520,6 +520,31 @@ function tableRows(body) {
   return rows
 }
 
+function explicitlyNegatesShadowMatch(prose, match) {
+  const preceding = prose.slice(0, match.index)
+  const boundary = [...preceding.matchAll(/(?:\r?\n|[.!?]\s+)/g)].at(-1)
+  const start = boundary ? boundary.index + boundary[0].length : 0
+  const following = prose.slice(match.index)
+  const end = /(?:\r?\n|[.!?](?:\s+|$))/.exec(following)
+  const clause = prose.slice(start, end ? match.index + end.index : prose.length).trim().replaceAll('`', '')
+  if (end && match[0].length > end.index) return false
+  const negativeList = /^(?:[-*]\s+)?No\s+(.+)$/i.exec(clause)
+  if (negativeList) {
+    if (/\b(?:but|however|instead|yet|then|otherwise|we|it|its|they|their|he|she|you|will|shall|should|must|can|may|is|are|was|were|do|does|did|has|have)\b/i.test(negativeList[1])) return false
+    if (/(?:^|,|\band\b|\bor\b)\s*(?:use|reuse|copy|create|build|add|adopt|model|base|import|publish|push|choose|select)\s+\S/i.test(negativeList[1])) return false
+    if (/\b(?:uses|reuses|copies|creates|builds|adds|adopts|models|bases|imports|publishes|pushes|chooses|selects)\b/i.test(negativeList[1])) return false
+    const itemIndex = (prose.slice(start, match.index).match(/,/g) ?? []).length
+    const items = negativeList[1].split(',').slice(0, itemIndex + 1).map((item) => item.trim())
+    return items.every((item) => /^(?:(?:copying|modifying)(?:\s+or\s+(?:copying|modifying))?\s+(?:the\s+)?(?:(?:whole|entire|complete|full)\s+)?(?:example|reference)\s+(?:module|tree|directory)|(?:new|second|another|own)\s+(?:teaching|example|demo|reference|sample)\s+module|ratelimit_probe\s+reuse)$/i.test(item))
+  }
+  return /^(?:[-*]\s+)?(?:Never|Do not|Must not)\s+(?:(?:create|build|add)\s+(?:a\s+)?(?:new|second|another|own)\s+(?:teaching|example|demo|reference|sample)\s+module|copy\s+(?:the\s+)?(?:whole|entire|complete|full)\s+(?:example|reference)\s+(?:module|tree|directory)|(?:use|reuse)\s+ratelimit_probe(?:\s+as\s+(?:(?:a|the)\s+)?(?:blueprint|reference|template))?)$/i.test(clause)
+}
+
+function proposesShadowPattern(prose, pattern) {
+  const matches = new RegExp(pattern.source, `${pattern.flags.replaceAll('g', '')}g`)
+  return [...prose.matchAll(matches)].some((match) => !explicitlyNegatesShadowMatch(prose, match))
+}
+
 function moduleShapedChecks(root, markdown, contract) {
   const checks = []
   const resolved = resolveRequiredSections(markdown)
@@ -556,7 +581,8 @@ function moduleShapedChecks(root, markdown, contract) {
     grounded.length >= contract.minExactSourcePaths,
     `the plan must name at least ${contract.minExactSourcePaths} exact reference source files that exist and are mapped by the inventory (found ${grounded.length ? grounded.join(', ') : 'none'})`,
   ))
-  const ungrounded = cited.filter((relative) => !grounding.sourcePaths.has(relative))
+  const ungrounded = cited.filter((relative) => !grounding.sourcePaths.has(relative)
+    && !(relative === `${EXAMPLE_ROOT}/README.md` && readContainedFile(root, relative) !== null))
   checks.push(check(
     'plan.example-paths-resolve',
     ungrounded.length === 0,
@@ -576,7 +602,7 @@ function moduleShapedChecks(root, markdown, contract) {
   ))
 
   for (const { id, pattern } of SHADOW_MODULE_PATTERNS) {
-    checks.push(check(`plan.rejects.${id}`, !pattern.test(prose), `the plan must not propose ${id.replaceAll('-', ' ')}`))
+    checks.push(check(`plan.rejects.${id}`, !proposesShadowPattern(prose, pattern), `the plan must not propose ${id.replaceAll('-', ' ')}`))
   }
 
   const generated = generatedReferenceGrounding(root)
@@ -663,7 +689,7 @@ function moduleShapedChecks(root, markdown, contract) {
     'the UI plan must route through om-backend-ui-design and describe the gallery route as source-only until explicit activation',
   ))
   checks.push(exactIdentityChecks(
-    prose,
+    prose.replace(/\bpublication\s+is\s+not-evidenced\b/gi, 'publication not-evidenced'),
     [GALLERY_PACKAGE_SHA, FOUNDATION_AUDITED_SHA, FOUNDATION_PACKAGE_SHA, 'publication not-evidenced'],
     'plan.design-provenance',
     'the plan must preserve the gallery and foundation provenance plus the non-publication posture',

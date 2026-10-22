@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 44,
-    "recordCount": 205,
+    "ownerCount": 45,
+    "recordCount": 208,
     "sourceRequiredCount": 131,
-    "readableCount": 205,
+    "readableCount": 208,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -4346,6 +4346,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold#implementation-route-boundary",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold#module-surface-reference-owner-first",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
@@ -4369,6 +4380,17 @@
     },
     {
       "referenceId": "rule:om-module-scaffold#source-navigation",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold#three-reference-code-write-gate",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
       "heading": null,
@@ -4529,6 +4551,17 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/skills/om-system-extension/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-system-extension/mechanism-selector#framework-target-facts-first",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-system-extension/references/mechanism-selector.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-system-extension/references/mechanism-selector.md",
       "moduleId": null,
       "capabilityIds": []
     },

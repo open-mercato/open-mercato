@@ -226,6 +226,26 @@ describe('local-reference module fact emission', () => {
     expect(packageMarkdown).not.toContain('after opt-in')
   })
 
+  it('publishes source identity metadata only in the local index without changing section descriptions or package indexes', () => {
+    const local = extractLocalReferenceModuleFacts({ packageSources, reference }).directory
+    const packaged = extractAllModuleFacts({ sources: packageSources }).directoryByModule.alpha
+    expect(local.index).toContain('ID = `<owner-prefix>:<target>`')
+    expect(local.index).toContain('Machine-readable counterpart: `.ai/guides/reference-module-facts.json`')
+    expect(local.index).toContain('These IDs are metadata, not read grants.')
+    expect(local.index).not.toContain('.ai/harness/source-link-inventory.json')
+    expect(local.index).not.toContain('Generated acl features facts for demo_local.')
+    expect(packaged.index).not.toContain('Source-reference identities')
+    expect(packaged.index).not.toContain('reference-module-facts.json')
+    for (const section of local.sections) {
+      expect(section.description).toBe(`Generated ${section.title.toLowerCase()} facts for demo_local.`)
+      expect(local.index).toContain(`[${section.title}](${section.slug}.md)`)
+    }
+    for (const section of packaged.sections) {
+      expect(section.description).toBe(`Generated ${section.title.toLowerCase()} facts for alpha.`)
+      expect(packaged.index).toContain(` — ${section.description}`)
+    }
+  })
+
   it('rejects a duplicate module id before the local reference is assigned', () => {
     const collidingPackage: ModuleFactSource[] = [
       ...packageSources,

@@ -82,3 +82,14 @@ test('customer-principal API adapters require domain owners while pure installed
     assert.match(root, /portal→portal\+customer_accounts/)
   }
 })
+
+
+test('framework notification and portal-sidebar targets require their own facts before selection', () => {
+  const selector = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-system-extension/references/mechanism-selector.md', import.meta.url), 'utf8')
+  assert.match(selector, /For framework-owned menus \(including portal sidebars\), dashboard, notification, integration, and shell targets, MUST read `\.ai\/guides\/framework-extension-points\.md`/)
+  assert.match(selector, /Resolve exact targets from the named module sheet's `UMES hosts` and `UMES contributions` first/)
+  assert.match(selector, /Follow `fact-ref` and `specialistRoute` provenance/)
+  assert.match(selector, /use exact installed context only for one named fact gap/)
+  assert.match(selector, /`optional-external` degrades when its package is absent/)
+  assert.match(selector, /an `unresolved` first-party target blocks implementation/)
+})

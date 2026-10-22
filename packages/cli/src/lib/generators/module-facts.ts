@@ -3059,7 +3059,8 @@ export function renderModuleFactsDirectory(
   facts: ModuleFacts,
   referenceProjection?: ReferenceProjectionFingerprints,
 ): ModuleFactsMarkdownDirectory {
-  const header = facts.sourceKind === 'local-reference' && referenceProjection
+  const localReference = facts.sourceKind === 'local-reference'
+  const header = localReference && referenceProjection
     ? renderReferenceProjectionHeader(facts, referenceProjection)
     : [
         `# ${facts.module} — module facts (generated, do not edit)`,
@@ -3097,7 +3098,7 @@ export function renderModuleFactsDirectory(
   })
   const sections = sectionEntries.map((entry) => entry.section)
   const sectionLinks = sectionEntries.flatMap(({ section, subsections }) => [
-    `- [${section.title}](${section.slug}.md) — ${approximateSize(section.markdown)} — ${section.description}`,
+    `- [${section.title}](${section.slug}.md) — ${approximateSize(section.markdown)}${localReference ? '' : ` — ${section.description}`}`,
     ...subsections.map((anchor) =>
       `  - ${anchor.title} — ${section.slug}.md:L${anchor.line}, ${anchor.size}`,
     ),
@@ -3109,6 +3110,26 @@ export function renderModuleFactsDirectory(
     '',
     ...sectionLinks,
     '',
+    ...(localReference ? [
+      '## Source-reference identities',
+      '',
+      'ID = `<owner-prefix>:<target>`. Use the first matching owner pattern:',
+      '',
+      '| Owner | Owner prefix |',
+      '|---|---|',
+      '| `AGENTS.md` | `root` |',
+      '| `.ai/specs/README.md` | `specs/README` |',
+      '| `.ai/guides/<name>.md` | `guides/<name>` |',
+      '| `.ai/skills/<skill>/SKILL.md` | `<skill>` |',
+      '| `.ai/skills/<skill>/references/SKILL.md` | `<skill>` |',
+      '| `.ai/skills/<skill>/references/<name>.md` | `<skill>/<name>` |',
+      '| `.ai/skills/<skill>/<name>.md` | `<skill>/<name>` |',
+      '',
+      "Drop the link's anchor, decode its path and resolve it against the owner. Targets inside `src/modules/example/` are relative to that root; others are app-relative. These IDs are metadata, not read grants.",
+      '',
+      'Machine-readable counterpart: `.ai/guides/reference-module-facts.json`; naming it grants no read access.',
+      '',
+    ] : []),
     'Read only the section files needed for the task; every section ends with a completion marker.',
     `A section absent from this list has no facts for ${facts.module}; this index is complete only when the read reaches the marker below.`,
     '',

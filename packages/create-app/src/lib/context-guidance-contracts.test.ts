@@ -483,7 +483,7 @@ test('spec-delivery guide owns the expanded branches and the relocated delivery 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
   assert.match(skill, /Complete one-shot modules\/CRUD slices/)
-  assert.match(skill, /MUST directly read exact step 3\/4\/7 paths before writing/)
+  assert.match(skill, /MUST directly read step 3\/4\/7 paths before writing module code/)
   for (const reference of ['api-and-domain.md', 'module-surfaces.md', 'verification.md']) {
     assert.ok(skill.includes(`.ai/skills/om-module-scaffold/references/${reference}`), `missing mandatory one-shot reference ${reference}`)
   }
@@ -565,7 +565,7 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
 
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
-  assert.match(root, /Multi-stage waits\/cancel\/restart are durable/)
+  assert.match(root, /Multi-stage waits\/cancel\/restart = durable/)
   assert.match(root, /reminders and renewal\/batch schedules are `module-data`/)
   assert.match(root, /spreadsheet\/CSV\/file I\/O, sync\/webhook\/storage/)
   assert.match(root, /imports = `integration`/)
@@ -739,8 +739,8 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /multi-seam domain\/API\/command fix/)
   assert.match(moduleSkill, /Multi-seam domain\/API\/command fixes are business slices/)
-  assert.match(moduleSkill, /Business one-shots.*MUST read exact `\.ai\/skills\/om-module-scaffold\/references\/business-one-shot-blueprints\.md`[\s\S]*Multi-seam domain\/API\/command fixes are business slices; read `references\/api-and-domain\.md` and `references\/verification\.md`/)
-  assert.match(moduleSkill, /API\/schema\/command implementation\/fixes\/reference inspection MUST read/)
+  assert.match(moduleSkill, /Outside spec-only reference planning, business one-shots.*MUST read exact `\.ai\/skills\/om-module-scaffold\/references\/business-one-shot-blueprints\.md`[\s\S]*Multi-seam domain\/API\/command fixes are business slices; read `references\/api-and-domain\.md` and `references\/verification\.md`/)
+  assert.match(moduleSkill, /API\/schema\/command work MUST read/)
   assert.match(moduleSkill, /also read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
   assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
@@ -975,9 +975,9 @@ test('CLI-only primitive context remains bounded without dropping compiled-path 
   assert.match(primitiveGate, /applicable build/)
   assert.match(primitiveGate, /Changed package paths: pack\/install\+test disposable consumer/)
   assert.match(skill, /Complete business modules\/CRUD slices START at/)
-  assert.match(skill, /Complete one-shot modules\/CRUD slices MUST directly read exact step 3\/4\/7 paths before writing/)
-  assert.match(skill, /^3\. \*\*Domain writes\/APIs\.\*\* API\/schema\/command implementation\/fixes\/reference inspection MUST read/m)
-  assert.match(skill, /^4\. \*\*Module surfaces\.\*\* Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/m)
+  assert.match(skill, /Complete one-shot modules\/CRUD slices MUST directly read step 3\/4\/7 paths before writing module code/)
+  assert.match(skill, /^3\. \*\*APIs\/commands\.\*\* API\/schema\/command work MUST read/m)
+  assert.match(skill, /^4\. \*\*Surfaces\.\*\* Module-surface implementation\/ordinary inspection MUST first read `references\/module-surfaces\.md`/m)
   assert.match(skill, /^7\. \*\*Verify\.\*\* Follow `references\/verification\.md`/m)
 })
 

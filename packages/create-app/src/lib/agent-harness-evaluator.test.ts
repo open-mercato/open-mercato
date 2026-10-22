@@ -4993,6 +4993,109 @@ test('the new-feature planning proof fails on its seeded scaffold and passes on 
   }
 })
 
+const planningLexicalVectors: ReadonlyArray<readonly [string, string, string, boolean]> = [
+  ['explicit non-goal list', 'No copying or modifying the example tree, second teaching module, ratelimit_probe reuse, stock reservation, shipment carrier integration, public anonymous inventory access, dependencies, Figma credentials, network access, push, publication or live deployment.', 'plan.rejects.ratelimit-probe-blueprint', true],
+  ['never copy imperative', 'Never copy the whole example module.', 'plan.rejects.whole-example-copy', true],
+  ['do not create imperative', 'Do not create another example module.', 'plan.rejects.shadow-teaching-module', true],
+  ['positive probe blueprint', 'Use ratelimit_probe as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['positive teaching module', 'Create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['positive whole copy', 'Copy the whole example module.', 'plan.rejects.whole-example-copy', false],
+  ['contrast with repeated forbidden identity', 'No ratelimit_probe reuse, but use ratelimit_probe as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['coordinated positive with repeated identity', 'No ratelimit_probe reuse, and use ratelimit_probe as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['affirmative copula with repeated identity', 'No ratelimit_probe reuse, ratelimit_probe is our blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['positive after a negative sentence', 'Never copy the whole example module. Create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['positive after a negative paragraph', 'No ratelimit_probe reuse.\nUse ratelimit_probe as blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['a different positive proposal after negation', 'No ratelimit_probe reuse; create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['No harm permission', 'No harm in building another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['No objection permission', 'No objection to ratelimit_probe reuse.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['No restriction permission', 'No restriction on copying the entire example module.', 'plan.rejects.whole-example-copy', false],
+  ['No rule double negation', 'No rule prohibits ratelimit_probe reuse.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['No reason double negation', 'No reason to avoid another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['Never forget double negation', 'Never forget to create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['Do not hesitate double negation', 'Do not hesitate to use ratelimit_probe.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['contrast with a positive pronoun tail', 'No ratelimit_probe reuse, but we shall use it as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['coordinated positive pronoun tail', 'No second teaching module, and we will create it anyway.', 'plan.rejects.shadow-teaching-module', false],
+  ['bare imperative tail', 'No ratelimit_probe reuse, use the probe as blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['finite affirmative tail', 'No second teaching module, the implementation creates one.', 'plan.rejects.shadow-teaching-module', false],
+  ['semicolon positive pronoun tail', 'No ratelimit_probe reuse; we shall use it as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+]
+
+for (const [label, prose, expectedCheck, expectedPass] of planningLexicalVectors) {
+  test(`writable planning lexical contract: ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), `${deliveredTransferSpec}\n${prose}\n`)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.status, expectedPass ? 0 : 1)
+      if (expectedPass) assert.ok(report.checks.filter((entry) => entry.id.startsWith('plan.rejects.')).every((entry) => entry.passed))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+const planningNavigationVectors = ['existing', 'missing', 'symlink', 'unmapped', 'navigation-only'] as const
+
+for (const variant of planningNavigationVectors) {
+  test(`writable planning lexical contract: ${variant} README navigation`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      const readme = path.join(root, 'src/modules/example/README.md')
+      fs.copyFileSync(path.join(templateExampleModule, 'README.md'), readme)
+      let spec = `${deliveredTransferSpec}\nReference entrypoint: src/modules/example/README.md.\n`
+      if (variant === 'missing') fs.rmSync(readme)
+      if (variant === 'symlink') {
+        const target = path.join(root, 'outside-reference-README.md')
+        fs.copyFileSync(readme, target)
+        fs.rmSync(readme)
+        fs.symlinkSync(target, readme)
+      }
+      if (variant === 'unmapped') {
+        fs.writeFileSync(path.join(root, 'src/modules/example/NAVIGATION.md'), 'An existing file does not make an arbitrary Markdown path an inventory capability.\n')
+        spec += '\nUse src/modules/example/NAVIGATION.md.\n'
+      }
+      if (variant === 'navigation-only') {
+        spec = `${deliveredTransferSpec.replace(/\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g, 'reference-source')}\nReference entrypoint: src/modules/example/README.md.\n`
+      }
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      const expectedCheck = variant === 'navigation-only' ? 'plan.example-exact-source-paths' : 'plan.example-paths-resolve'
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, variant === 'existing', JSON.stringify(report.failures))
+      assert.equal(report.passed, variant === 'existing', JSON.stringify(report.failures))
+      assert.equal(report.status, variant === 'existing' ? 0 : 1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+const planningProvenanceVectors: ReadonlyArray<readonly [string, (spec: string) => string, string, boolean]> = [
+  ['equivalent copular publication posture', (spec) => spec.replaceAll('publication not-evidenced', 'publication is not-evidenced'), 'plan.design-provenance', true],
+  ['publication evidence overclaim', (spec) => spec.replaceAll('publication not-evidenced', 'publication is evidenced'), 'plan.design-provenance', false],
+  ['publication double negation', (spec) => spec.replaceAll('publication not-evidenced', 'publication is not not-evidenced'), 'plan.design-provenance', false],
+  ['missing merged foundation provenance', (spec) => spec.replaceAll('b2d26489c683edc44265212ac8a79be1b981774f', 'missing-package-evidence'), 'plan.design-provenance', false],
+  ['negative posture followed by publication proposal', (spec) => `${spec.replaceAll('publication not-evidenced', 'publication is not-evidenced')}\nPush Code Connect to Figma.\n`, 'plan.rejects.figma-external-authority', false],
+]
+
+for (const [label, edit, expectedCheck, expectedPass] of planningProvenanceVectors) {
+  test(`writable planning lexical contract: ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      const spec = edit(deliveredTransferSpec)
+      assert.notEqual(spec, deliveredTransferSpec)
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.status, expectedPass ? 0 : 1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
 function rewriteNewFeatureSpec(root: string, edit: (spec: string) => string): void {
   const file = path.join(root, newFeatureSpecPath)
   const before = fs.readFileSync(file, 'utf8')

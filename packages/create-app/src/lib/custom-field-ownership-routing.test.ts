@@ -22,7 +22,7 @@ test('custom-field ownership distinguishes app ce declarations from installed-ho
     const extension = text.split('\n').find(line => line.startsWith('| `umes` |') && line.includes('`om-system-extension`'))
     assert.ok(extension)
     assert.match(extension, /Installed-host fields\/extension entities; links\/enrichers\/injection\/interceptors\/guards\/subscribers\/DOM\/hosts\/widgets\/toggles\/overrides/)
-    assert.match(text, /Business-record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction/)
+    assert.match(text, /App-owned record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction/)
     assert.match(text, /Business slice\/multi-seam domain\/API\/command fix \| MUST load `om-module-scaffold`/)
     assert.match(text, /scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
     assert.match(text, /Editable records expose `updated_at`\/`updatedAt`/)
