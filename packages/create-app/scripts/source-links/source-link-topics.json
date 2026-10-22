@@ -1074,6 +1074,18 @@
       "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Atomically compare expected state/version before transitions (`optimistic-lock`); stale attempts conflict/reconcile, never overwrite. Idempotency alone does not prevent stale writes."
+    },
+    {
+      "topicId": "rule:om-build-workflow#supplied-contracts-before-framework-context",
+      "owner": ".ai/skills/om-build-workflow/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Read `.ai/guides/ai-workflows.md` and supplied workflow facts/contracts first; `om-framework-context` only for a named unresolved exact-version symbol."
+    },
+    {
+      "topicId": "rule:om-troubleshooter#query-scope-and-seeded-seam-contracts",
+      "owner": ".ai/skills/om-troubleshooter/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "A missing tenant or organization must fail before any query (`no-unscoped-query`); read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` when repairing a seeded export or public seam; preserve that seam."
     }
   ]
 }
