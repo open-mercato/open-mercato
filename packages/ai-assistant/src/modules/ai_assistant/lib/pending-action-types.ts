@@ -23,6 +23,12 @@ export const AI_PENDING_ACTION_QUEUE_MODES = ['inline', 'stack'] as const
 
 export type AiPendingActionQueueMode = (typeof AI_PENDING_ACTION_QUEUE_MODES)[number]
 
+export const AI_PENDING_ACTION_CHANNELS = ['agent', 'mcp', 'tools-api'] as const
+
+export type AiPendingActionChannel = (typeof AI_PENDING_ACTION_CHANNELS)[number]
+
+export const AI_RAW_TOOL_AGENT_ID = 'ai_assistant.raw_tool'
+
 /**
  * Allowed state-machine edges for `AiPendingAction.status`:
  *
@@ -159,6 +165,15 @@ export function isAiPendingActionQueueMode(
   return (
     typeof value === 'string' &&
     (AI_PENDING_ACTION_QUEUE_MODES as readonly string[]).includes(value)
+  )
+}
+
+export function isAiPendingActionChannel(
+  value: unknown,
+): value is AiPendingActionChannel {
+  return (
+    typeof value === 'string' &&
+    (AI_PENDING_ACTION_CHANNELS as readonly string[]).includes(value)
   )
 }
 

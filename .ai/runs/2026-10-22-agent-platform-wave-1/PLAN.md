@@ -28,7 +28,7 @@
 | 2 | 2.2 | Audit every MCP and tools/execute call with correlation ids | dispatch | done | f34f8d391 |
 | 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | done | 4e3310ffb |
 | 3 | 3.1 | Add the channel option and direct/deny mutation modes to executeTool | dispatch | done | 05801c57b |
-| 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | todo | — |
+| 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | done | e19bff989 |
 | 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | todo | — |
 | 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | todo | — |
 | 3 | 3.5 | Run agent tools with their own mutation policy in approval mode | dispatch | todo | — |
