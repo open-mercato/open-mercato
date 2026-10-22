@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
@@ -508,39 +509,50 @@ const createFallbackProjectCommand: CommandHandler<StaffSupportFallbackProjectCr
     if (!payload?.ruleId || !payload.timeProjectId) return
     const where = { tenantId: payload.tenantId, organizationId: payload.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const liveTaskCount = await em.count(StaffTimeTask, { timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
-    if (liveTaskCount > 0) {
-      const { translate } = await resolveTranslations()
-      throw new CrudHttpError(409, {
-        code: 'support_fallback_project_in_use',
-        error: translate(
-          'staff.support.errors.fallbackProjectInUse',
-          'The support project already has tasks, so creating it cannot be undone. Point the fallback rule at another project instead.',
-        ),
-      })
-    }
-    const rule = await em.findOne(StaffSupportRoutingRule, { id: payload.ruleId, ...where, deletedAt: null })
-    const project = await em.findOne(StaffTimeProject, { id: payload.timeProjectId, ...where, deletedAt: null })
     const statusIds = Array.isArray(payload.taskStatusIds) ? payload.taskStatusIds : []
-    const statuses = statusIds.length > 0
-      ? await em.find(StaffTimeTaskStatus, { id: { $in: statusIds }, timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
-      : []
-    const ruleToRemove = rule && rule.timeProjectId === payload.timeProjectId ? rule : null
-    await withAtomicFlush(em, [() => {
+    const removal: {
+      project: StaffTimeProject | null
+      rule: StaffSupportRoutingRule | null
+      statuses: StaffTimeTaskStatus[]
+    } = { project: null, rule: null, statuses: [] }
+    await withAtomicFlush(em, [async () => {
+      removal.project = await em.findOne(
+        StaffTimeProject,
+        { id: payload.timeProjectId, ...where, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      const liveTaskCount = await em.count(StaffTimeTask, { timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
+      if (liveTaskCount > 0) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          code: 'support_fallback_project_in_use',
+          error: translate(
+            'staff.support.errors.fallbackProjectInUse',
+            'The support project already has tasks, so creating it cannot be undone. Point the fallback rule at another project instead.',
+          ),
+        })
+      }
+      const rule = await em.findOne(StaffSupportRoutingRule, { id: payload.ruleId, ...where, deletedAt: null })
+      removal.rule = rule && rule.timeProjectId === payload.timeProjectId ? rule : null
+      removal.statuses = statusIds.length > 0
+        ? await em.find(StaffTimeTaskStatus, { id: { $in: statusIds }, timeProjectId: payload.timeProjectId, ...where, deletedAt: null })
+        : []
+    }, () => {
       const now = new Date()
-      if (ruleToRemove) {
-        ruleToRemove.deletedAt = now
-        ruleToRemove.updatedAt = now
+      if (removal.rule) {
+        removal.rule.deletedAt = now
+        removal.rule.updatedAt = now
       }
-      if (project) {
-        project.deletedAt = now
-        project.updatedAt = now
+      if (removal.project) {
+        removal.project.deletedAt = now
+        removal.project.updatedAt = now
       }
-      for (const status of statuses) {
+      for (const status of removal.statuses) {
         status.deletedAt = now
         status.updatedAt = now
       }
     }], { transaction: true, label: `${staffSupportRoutingRuleCommandIds.createFallbackProject}.undo` })
+    const { project, rule: ruleToRemove } = removal
     if (ruleToRemove) {
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine'),

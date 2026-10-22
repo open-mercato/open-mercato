@@ -4,6 +4,7 @@ import type { AwilixContainer } from 'awilix'
 const mockEmitCrudSideEffects = jest.fn()
 const mockEmitCrudUndoSideEffects = jest.fn()
 const mockEnsureFallback = jest.fn()
+const mockTransactionLog: string[] = []
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -19,9 +20,20 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
-  withAtomicFlush: async (em: { flush: () => Promise<void> }, phases: (() => unknown)[]) => {
-    for (const phase of phases) await phase()
-    await em.flush()
+  withAtomicFlush: async (
+    em: { flush: () => Promise<void> },
+    phases: (() => unknown)[],
+    options?: { transaction?: boolean },
+  ) => {
+    if (options?.transaction) mockTransactionLog.push('begin')
+    try {
+      for (const phase of phases) await phase()
+      await em.flush()
+    } catch (err) {
+      if (options?.transaction) mockTransactionLog.push('rollback')
+      throw err
+    }
+    if (options?.transaction) mockTransactionLog.push('commit')
   },
 }))
 
@@ -65,8 +77,14 @@ function makeWorld(seed: { rules?: Row[]; projects?: Row[]; statuses?: Row[]; ta
   const em: Record<string, unknown> = {
     flush: jest.fn(async () => undefined),
     find: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).filter((row) => matches(row, where))),
-    findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).find((row) => matches(row, where)) ?? null),
-    count: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => (tables[cls.name] ?? []).filter((row) => matches(row, where)).length),
+    findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>, options?: { lockMode?: unknown }) => {
+      mockTransactionLog.push(options?.lockMode !== undefined ? `lock:${cls.name}:${String(options.lockMode)}` : `findOne:${cls.name}`)
+      return (tables[cls.name] ?? []).find((row) => matches(row, where)) ?? null
+    }),
+    count: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => {
+      mockTransactionLog.push(`count:${cls.name}`)
+      return (tables[cls.name] ?? []).filter((row) => matches(row, where)).length
+    }),
   }
   em.fork = () => em
   const ctx = {
@@ -104,6 +122,7 @@ function emittedEntityTypes(mock: jest.Mock): string[] {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockTransactionLog.length = 0
 })
 
 describe('staff.support.routing_rules.create_fallback_project', () => {
@@ -199,6 +218,50 @@ describe('staff.support.routing_rules.create_fallback_project', () => {
     expect(tables.StaffTimeProject[0].deletedAt).toBeNull()
     expect(tables.StaffTimeTaskStatus[0].deletedAt).toBeNull()
     expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('undo locks the project row and counts live tasks inside the same transaction', async () => {
+    const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
+    const { ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: [], tenantId: TENANT_ID, organizationId: ORG_ID } }
+
+    await command.undo({ logEntry: { commandPayload: payload }, ctx })
+
+    const lockEntry = `lock:StaffTimeProject:${String(LockMode.PESSIMISTIC_WRITE)}`
+    expect(mockTransactionLog[0]).toBe('begin')
+    expect(mockTransactionLog[1]).toBe(lockEntry)
+    expect(mockTransactionLog[2]).toBe('count:StaffTimeTask')
+    expect(mockTransactionLog[mockTransactionLog.length - 1]).toBe('commit')
+  })
+
+  it('undo refuses inside the locked transaction when intake committed a ticket first', async () => {
+    const { tables, ctx } = makeWorld({
+      rules: [scoped({ id: RULE_ID, categoryValue: null, timeProjectId: PROJECT_ID })],
+      projects: [scoped({ id: PROJECT_ID })],
+    })
+    const command = await loadCommand('staff.support.routing_rules.create_fallback_project')
+    const payload = { undo: { ruleId: RULE_ID, timeProjectId: PROJECT_ID, taskStatusIds: [], tenantId: TENANT_ID, organizationId: ORG_ID } }
+    const originalFindOne = (ctx.container.resolve('em') as { findOne: jest.Mock }).findOne.getMockImplementation()
+    ;(ctx.container.resolve('em') as { findOne: jest.Mock }).findOne.mockImplementationOnce(async (...args: unknown[]) => {
+      tables.StaffTimeTask.push(scoped({ id: 'task-committed-by-intake', timeProjectId: PROJECT_ID }))
+      return originalFindOne!(...args)
+    })
+
+    const error = (await command.undo({ logEntry: { commandPayload: payload }, ctx }).then(() => null, (err: unknown) => err)) as {
+      status?: number
+      body?: { code?: string }
+    } | null
+
+    expect(error?.status).toBe(409)
+    expect(error?.body?.code).toBe('support_fallback_project_in_use')
+    expect(mockTransactionLog).toContain('rollback')
+    expect(mockTransactionLog).not.toContain('commit')
+    expect(tables.StaffTimeProject[0].deletedAt).toBeNull()
+    expect(tables.StaffSupportRoutingRule[0].deletedAt).toBeNull()
   })
 
   it('undo ignores tasks that were deleted since', async () => {
