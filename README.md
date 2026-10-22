@@ -6,7 +6,7 @@
 
 <p align="center"><strong>Open Mercato - the AI-Engineering Foundation Framework.</strong> Start with 80% done.</p>
 
-Open Mercato is an open-source TypeScript framework on Next.js and PostgreSQL. It ships ready business modules for CRM, ERP, commerce and more, so a new app starts as a working back office. It is built for AI coding agents: Claude Code, Codex and Cursor get the rules and skills that say where code goes, and [Cezar](#start-the-coding-agent), the agentic development IDE, runs them with a live preview of your app. It is for teams and developers building business apps and backends, and for business owners who want one.
+Open Mercato is an open-source TypeScript framework on Next.js and PostgreSQL. It ships ready business modules for CRM, ERP, commerce and more, so a new app starts as a working back office. It is built for AI coding agents: Claude Code, Codex and Cursor get the rules and skills that say where code goes, and [Cezar](#start-the-coding-agent), the agentic development IDE, runs each task in its own git worktree and streams it live. It is for teams and developers building business apps and backends, and for business owners who want one.
 
 ```bash
 npx create-mercato-app my-app
