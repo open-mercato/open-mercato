@@ -158,8 +158,8 @@ Approval mode reuses the existing mutation-approval gate (`ai_pending_actions`, 
   5. Attachment scope (existing).
   6. Schema drift and record version (existing).
 
-  Codes added to `PendingActionRecheckCode`: `tool_not_exposed`, `requester_revoked`, `requester_features_denied`.
-- **Execution** runs under the **approver's** identity (`userId`, ACL), so the command's `action_logs` row names the human who approved the write. The command context gains `auditCorrelation: { correlationId, apiKeyId, pendingActionId, requestedByUserId }`, using the identity spec's `auditCorrelation` key. The pending row stores `resolved_by_user_id` (existing column).
+  Codes added to `PendingActionRecheckCode`: `tool_not_exposed`, `approver_features_denied` (step 3), `requester_revoked`, `requester_features_denied`.
+- **Execution** runs under the **approver's** identity (`userId`, ACL), so the command's `action_logs` row names the human who approved the write. The tool handler context gains `auditCorrelation: { correlationId, apiKeyId, pendingActionId, requestedByUserId }` (`McpToolContext.auditCorrelation`), using the identity spec's `auditCorrelation` key. It reaches only the tool handler: `main` has no command-audit hook that would copy it into `action_logs`, so linking the approved write's `action_logs` row to the MCP call stays Future Work. The pending row stores `resolved_by_user_id` (existing column).
 - **Result for the client:** a new read tool `ai_assistant.get_pending_action` (`isMutation: false`, feature `ai_assistant.view`, scoped like the `GET` route) returns `{ status, executionResult?, failedRecords?, resolvedAt }`. MCP clients poll it; it is subject to the exposure allowlist like any tool.
 
 **Agent tools in `approval` mode.** The read-only downgrade (below) applies only in `direct` and `deny` modes. In `approval` mode an agent tool runs with the agent's own effective `mutationPolicy`. Its mutation tool calls go through the existing `prepareMutation` path. The rows get `channel = 'mcp' | 'tools-api'` and are approved on the same page, and the agent tool's result lists the `pendingActionIds` it created. Recheck for these rows keeps the agent guards (they have a real `agent_id`) and adds the approver guard.
@@ -167,7 +167,7 @@ Approval mode reuses the existing mutation-approval gate (`ai_pending_actions`, 
 **Backend page "Pending AI actions"** (`backend/config/ai-assistant/pending-actions/`, gated by `ai_assistant.view`):
 - A `DataTable` over a new list route `GET /api/ai_assistant/ai/actions`. Filters: `status`, `channel`, `toolName`, `mine`. `pageSize` ≤ 100.
 - Rows are scoped to the caller's own rows, or to all rows of the tenant/org with `ai_assistant.pending_actions.approve`.
-- Columns: tool, target, requester (user / API key name), channel, created, expires, `StatusBadge`.
+- Columns: tool, target, requester, channel, created, expires, `StatusBadge`. The API returns `requester: { userId, apiKeyId }`; the page resolves user names through `/api/auth/users?ids=…` when the caller may read users and otherwise shows short ids.
 - The detail view reuses the `mutation-preview-card` diff renderer and has Approve / Reject buttons over the existing confirm and cancel routes. Writes go through `useGuardedMutation(...).runMutation(...)`.
 - The reject dialog takes an optional reason, stored in `execution_result.error.message`. Dialogs support `Cmd/Ctrl+Enter` and `Escape`.
 - A sidebar entry under AI assistant settings, with a pending-count badge.
@@ -455,12 +455,12 @@ New `resource_kind` value `ai_assistant.mcp_tool_call`; schema unchanged; `conte
 
 - Metadata: `requireAuth`, `requireFeatures: ['ai_assistant.view']`. Without `ai_assistant.pending_actions.approve` the result is limited to `created_by_user_id = caller`.
 - Query (zod): `status?`, `channel?`, `toolName?`, `mine?` (boolean via `parseBooleanToken`), `page`, `pageSize` (≤ 100).
-- Response: `{ items: SerializedPendingAction[], total, page, pageSize }`. Uses the existing whitelist serializer (`normalizedInput`, `createdByUserId` and `idempotencyKey` never leave the server), plus `channel`, `requester: { userId, displayName, apiKeyName }` and `expiresAt`.
+- Response: `{ items: SerializedPendingAction[], total, page, pageSize }`. Uses the existing whitelist serializer (`normalizedInput`, `createdByUserId` and `idempotencyKey` never leave the server), plus `channel`, `requester: { userId, apiKeyId }` and `expiresAt`. Display names are resolved client-side (see the page section).
 - OpenAPI doc exported.
 
 ### `GET|POST /api/ai_assistant/ai/actions/:id`, `/confirm`, `/cancel` (existing, additive)
 
-- Same request and response shapes. Chat rows (`channel = 'agent'`) become reachable only by their creator (today any same-tenant/org user with `ai_assistant.view` can reach them; behaviour change documented in `UPGRADE_NOTES.md`). Rows with `channel` ≠ `agent` are reachable by the creator and by users with `ai_assistant.pending_actions.approve` in the same tenant/org; others get 404. New re-check codes: `tool_not_exposed` (403), `requester_revoked` (403), `requester_features_denied` (403). `cancel` already accepts an optional `{ reason?: string }` (max 500 chars), stored in `execution_result.error`; no change.
+- Same request shapes. `GET /ai/actions/:id` additionally returns `channel` and `requester: { userId, apiKeyId }` (additive). Chat rows (`channel = 'agent'`) become reachable only by their creator (today any same-tenant/org user with `ai_assistant.view` can reach them; behaviour change documented in `UPGRADE_NOTES.md`). Rows with `channel` ≠ `agent` are reachable by the creator and by users with `ai_assistant.pending_actions.approve` in the same tenant/org; others get 404. New re-check codes: `tool_not_exposed` (403), `approver_features_denied` (403), `requester_revoked` (403), `requester_features_denied` (403). `cancel` already accepts an optional `{ reason?: string }` (max 500 chars), stored in `execution_result.error`; no change.
 
 ### AI tool `ai_assistant.get_pending_action` (new, read-only)
 
@@ -479,7 +479,7 @@ New `resource_kind` value `ai_assistant.mcp_tool_call`; schema unchanged; `conte
 
 - MCP error strings are machine-facing JSON codes plus English messages; they follow the existing pattern in `http-server.ts` and are not user-facing UI strings.
 - Settings UI (Phase 4): `ai_assistant.mcp.exposure.title`, `ai_assistant.mcp.exposure.mutationMode.direct`, `ai_assistant.mcp.exposure.mutationMode.deny`, `ai_assistant.mcp.exposure.mutationMode.approval`, `ai_assistant.mcp.exposure.agentTool`, `ai_assistant.mcp.exposure.hidden`, `ai_assistant.mcp.exposure.empty`.
-- Pending AI actions page (Phase 3): `ai_assistant.pendingActions.title`, `.empty`, `.columns.{tool,target,requester,channel,created,expires,status}`, `.filters.{status,channel,mine}`, `.status.{pending,confirmed,cancelled,expired,executing,failed}`, `.channel.{agent,mcp,toolsApi}`, `.actions.{approve,reject}`, `.reject.{title,reasonLabel,confirm}`, `.errors.{toolNotExposed,requesterRevoked,requesterFeaturesDenied,stale,expired}`, `.flash.{approved,rejected}`; notification `ai_assistant.notifications.pendingActionAwaitingApproval.{title,body}`; ACL feature title `ai_assistant.acl.pendingActionsApprove`. All keys in every locale file of the module.
+- Pending AI actions page (Phase 3): `ai_assistant.pendingActions.title`, `.empty`, `.columns.{tool,target,requester,channel,created,expires,status}`, `.filters.{status,channel,mine}`, `.status.{pending,confirmed,cancelled,expired,executing,failed}`, `.channel.{agent,mcp,toolsApi}`, `.actions.{approve,reject}`, `.reject.{title,reasonLabel,confirm}`, `.errors.{toolNotExposed,requesterRevoked,requesterFeaturesDenied,stale,expired}`, `.flash.{approved,rejected}`; notification `ai_assistant.notifications.pendingActionAwaitingApproval.{title,body}`; the ACL feature title lives in the auth feature catalog as `auth.acl.features.ai_assistant.pending_actions.approve` (core `auth` module locales). All keys in every locale file of the module.
 
 ## UI/UX
 
@@ -509,7 +509,7 @@ Contract surfaces touched (`BACKWARD_COMPATIBILITY.md`):
 | 2 | `AiToolDefinition`, `AiAgentDefinition`, `ToolExecutionResult` | Optional fields / union members added | STABLE, additive | No action |
 | 3 | `executeTool(name, input, ctx)` | Optional 4th arg `options?: { channel }` | STABLE, additive | Default `'agent'` keeps behaviour |
 | 4 | Import paths | New exports `defineAgentTool`, `AiAgentRunDispatcher`, `AI_AGENT_RUN_DISPATCHER_DI_KEY`, `resolveMcpExposureConfig` from `@open-mercato/ai-assistant` | additive | — |
-| 7 | API routes | `/tools/execute` may return 403 `MUTATION_REQUIRES_APPROVAL` (`deny`) or 202 `pending_approval` (`approval`) only when an operator sets those modes; new `GET /ai/actions`; `/ai/actions/:id*` gain the approver path and three re-check codes | STABLE, additive | Opt-in in this minor |
+| 7 | API routes | `/tools/execute` may return 403 `MUTATION_REQUIRES_APPROVAL` (`deny`) or 202 `pending_approval` (`approval`) only when an operator sets those modes; new `GET /ai/actions`; `/ai/actions/:id*` gain the approver path and four re-check codes; `GET /ai/actions/:id` adds `channel` and `requester` | STABLE, additive | Opt-in in this minor |
 | 8 | DB schema | `ai_pending_actions` + `channel` (default `agent`), `api_key_id`, `correlation_id`, one index | ADDITIVE-ONLY | Stacked `ai_assistant` migration; existing rows read as `agent` |
 | 10 | ACL features | New `ai_assistant.pending_actions.approve` | FROZEN once shipped | Granted to `admin` in `setup.ts`; `yarn mercato auth sync-role-acls` for existing tenants |
 | 11 | Notification types | New `ai_assistant.pending_action.awaiting_approval` | FROZEN once shipped | — |
@@ -543,7 +543,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 2. `deny` → hidden from list + `MUTATION_REQUIRES_APPROVAL`; `direct` → startup WARN listing exposed mutation tools.
 3. Approval data: `ai_pending_actions` columns + index (entity update, `yarn db:generate`, keep only this change), `AI_RAW_TOOL_AGENT_ID`, registry guard against that id, `getByIdForApprover`, list query.
 4. `prepareRawToolMutation` (shared helpers extracted from `prepareMutation`), `approval` branch in `executeTool`, MCP `pending_approval` result, `/tools/execute` 202.
-5. Re-check `channel` branch (`tool_not_exposed`, `requester_revoked`, `requester_features_denied`), approver path on the `GET` / `confirm` / `cancel` routes, execution as approver with `auditCorrelation`, cancel reason.
+5. Re-check `channel` branch (`tool_not_exposed`, `approver_features_denied`, `requester_revoked`, `requester_features_denied`), approver path on the `GET` / `confirm` / `cancel` routes, execution as approver with `auditCorrelation`, cancel reason.
 6. Agent tools in `approval` mode: lift the read-only downgrade, stamp `channel` on rows `prepareMutation` creates, return `pendingActionIds`.
 7. `acl.ts` feature + `setup.ts` grant, notification type + renderer, `ai_assistant.get_pending_action` tool.
 8. `GET /api/ai_assistant/ai/actions` + Pending AI actions page + sidebar entry, i18n.
@@ -754,3 +754,10 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
   - The backoffice notification always goes to the requester **and** every approver in the tenant/org, and is resolved for the others once decided.
   - The opt-in env `OM_MCP_APPROVAL_NOTIFY_APPROVERS` is dropped.
 - Upstream verification on `main`: pending actions are not owner-scoped today (`getById` ignores the user; routes check only `ai_assistant.view`), so chat rows become owner-only as part of Phase 3; cancel reason already exists; the approval page lives under `/backend/config/ai-assistant/pending-actions`; `createMcpServerForRequest` becomes async; API-key requesters resolve to `auth.userId` and fail closed with `MUTATION_REQUESTER_UNRESOLVED` when no owner exists; notifications are cleared with `deleteBySource`.
+- Implementation alignment (Phase 3 shipped):
+  - The raw-tool re-check has four codes: `approver_features_denied` (the approver lacks the tool's `requiredFeatures`) joins `tool_not_exposed`, `requester_revoked` and `requester_features_denied`.
+  - `auditCorrelation` reaches only the tool handler context (`McpToolContext.auditCorrelation`); `main` has no command-audit hook, so linking approved writes to `action_logs` stays Future Work.
+  - `GET /ai/actions` and `GET /ai/actions/:id` return `channel` and `requester: { userId, apiKeyId }` (not display names); the Pending AI actions page resolves names through `/api/auth/users` when permitted, else shows short ids.
+  - Notifications for a decided or expired row are cleared with `notificationService.deleteBySource`.
+  - The ACL feature title lives in the auth catalog key `auth.acl.features.ai_assistant.pending_actions.approve`.
+  - Operator docs (`apps/docs/docs/framework/ai-assistant/mcp.mdx`), `UPGRADE_NOTES.md` and the `OM_MCP_*` `.env.example` entries landed with the Phase 3 integration tests.

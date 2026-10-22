@@ -35,7 +35,7 @@
 | 3 | 3.6 | Add the approver feature and backoffice approval notifications | dispatch | done | ad5c89b8f |
 | 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | done | a6929832a |
 | 3 | 3.8 | Add the Pending AI actions backend page with nav badge | dispatch:capable | done | 04e8c6844 |
-| 3 | 3.9 | Document MCP exposure, audit and approval mode with integration tests | dispatch | todo | — |
+| 3 | 3.9 | Document MCP exposure, audit and approval mode with integration tests | dispatch | done | 392c9a45c |
 | 4 | 4.1 | Cover a full native agent run under runAs | dispatch:capable | todo | — |
 | 4 | 4.2 | Add the runtime-audit write scope and entity allowlist to the no-bypass guard | dispatch | todo | — |
 | 4 | 4.3 | Wrap AO runtime audit writes in the runtime-audit scope | dispatch | todo | — |

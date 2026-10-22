@@ -379,6 +379,22 @@ No first-party integration or bundle id ends in the suffix, and every other id b
 in `__oauth_grant`. To build a provider on OAuth2 grants, see the
 [OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
 
+### MCP: filtered `tools/list`, owner-scoped pending actions, and `OM_MCP_MUTATION_MODE`
+
+Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
+
+**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** clients that discover tools with a featureless server key should send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`), or grant the key the roles they need. Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
+
+**Pending AI actions are scoped to their owner.** Before this release `GET /api/ai_assistant/ai/actions/:id`, `/confirm` and `/cancel` checked only `ai_assistant.view` plus tenant/organization, so any user in the same tenant and organization with that feature could read, confirm, or cancel another user's pending action. Now chat rows (`channel = 'agent'`) are reachable only by the user who created them, and MCP / `/tools/execute` rows (`channel = 'mcp' | 'tools-api'`) by their creator or a user holding the new `ai_assistant.pending_actions.approve` feature. Everyone else gets `404 pending_action_not_found`. **Action:** none for the chat UI (users only ever act on their own rows); custom integrations that confirmed other users' actions through these routes must act as the creator.
+
+**New `ai_pending_actions` columns (additive).** `Migration20261022130536_ai_assistant` adds `channel text not null default 'agent'`, `api_key_id uuid null`, `correlation_id text null` and an index on `(tenant_id, organization_id, status, channel, created_at)`. Existing rows read as `agent`. Run `yarn db:migrate`.
+
+**`OM_MCP_MUTATION_MODE` (`direct` | `deny` | `approval`).** Applies to `isMutation` tools called over the three MCP servers and `POST /api/ai_assistant/tools/execute`. Unset keeps `direct`, which is today's behaviour, so nothing changes until you set it; an invalid value falls back to `direct` with a warning. `deny` hides mutation tools and refuses calls with `MUTATION_REQUIRES_APPROVAL` (`403` on `/tools/execute`). `approval` queues the write as a pending action (`202 { success: true, status: "pending_approval", pendingActionId, expiresAt }` on `/tools/execute`) that a human approves on **Pending AI actions** (`/backend/config/ai-assistant/pending-actions`); rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`). **Recommendation:** set `OM_MCP_MUTATION_MODE=approval` in production when MCP clients or `/tools/execute` callers can reach write tools.
+
+**New ACL feature `ai_assistant.pending_actions.approve`**, granted to `admin` through `setup.ts` `defaultRoleFeatures`. New tenants get it automatically. **Action for existing tenants:** run `yarn mercato auth sync-role-acls` (idempotent, additive) so admins can approve MCP pending actions.
+
+**Audit.** Every MCP `tools/call` and `/tools/execute` call now writes an `access_logs` row of kind `ai_assistant.mcp_tool_call` (argument names only, never values). These rows follow the non-core retention window; add the kind to `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` to keep them longer.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
