@@ -53,7 +53,7 @@ PR: #7784
 ### Phase 2: Implementation
 
 - [x] 2.1 Correct Customers and Catalog agent guidance for #7781. — 251a9a14c; 71 focused tests and instruction budget passed.
-- [ ] 2.2 Implement and test all four Sales document extension hosts for #7782.
+- [x] 2.2 Implement and test all four Sales document extension hosts for #7782. — 6d44a2d59; 17 focused UI tests passed with the real shared injection loader and full page mounts.
 - [ ] 2.3 Implement and test quote response enrichment for #7783.
 - [ ] 2.4 Update existing specs and compatibility documentation.
 
