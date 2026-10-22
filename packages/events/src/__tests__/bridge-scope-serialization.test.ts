@@ -9,12 +9,19 @@ jest.mock('@open-mercato/shared/lib/db/ssl', () => ({
   getSslConfig: jest.fn(() => null),
 }))
 
-jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: jest.fn(() => ({
-    error: jest.fn(),
-    warn: jest.fn(),
-  })),
-}))
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const createMockLogger = (): Record<string, unknown> => {
+    const mockLogger: Record<string, unknown> = {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+    }
+    mockLogger.child = () => mockLogger
+    return mockLogger
+  }
+  return { createLogger: jest.fn(() => createMockLogger()) }
+})
 
 import { publishCrossProcessEvent } from '../bridge'
 
