@@ -236,15 +236,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 125)
-  assert.equal(inventory.records.length, 150)
-  assert.equal(inventory.derived.renderedLinkCount, 127)
+  assert.equal(inventory.derived.sourceRequiredCount, 128)
+  assert.equal(inventory.records.length, 153)
+  assert.equal(inventory.derived.renderedLinkCount, 130)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 125)
+  assert.equal(sourceRequired.length, 128)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -437,6 +437,9 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
+      'node_modules/@open-mercato/cli/src/lib/eject.ts',
+      'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
+      'node_modules/@open-mercato/cli/src/lib/module-install.ts',
       // The installed UI implementation joins no example capability: it is the framework's own
       // component, not a canonical-example surface.
       'node_modules/@open-mercato/core/src/modules/customers/calendar-event-types.ts',

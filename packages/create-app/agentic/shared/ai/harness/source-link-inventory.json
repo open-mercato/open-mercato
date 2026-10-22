@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 32,
-    "recordCount": 150,
-    "sourceRequiredCount": 125,
-    "readableCount": 150,
+    "ownerCount": 33,
+    "recordCount": 153,
+    "sourceRequiredCount": 128,
+    "readableCount": 153,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -603,6 +603,81 @@
       "capabilityIds": [],
       "packageName": "@open-mercato/shared",
       "packageRelativePath": "src/modules/events/factory.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/module-tool.md",
+      "heading": "Receiving app: installation, aliases, and replacement",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/cli",
+      "packageRelativePath": "src/lib/eject.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/module-tool.md",
+      "heading": "Receiving app: installation, aliases, and replacement",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/cli",
+      "packageRelativePath": "src/lib/module-identity.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/module-tool.md",
+      "heading": "Receiving app: installation, aliases, and replacement",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/cli",
+      "packageRelativePath": "src/lib/module-install.ts",
       "presets": [
         "classic",
         "crm",

@@ -32,3 +32,39 @@ test('standalone module tooling has one routed owner for creation, publication a
   assert.match(scaffold, /Without process execution, report that capability gap/)
   assert.match(scaffold, /module-tool\.md/)
 })
+
+
+test('receiving a published module preserves runtime identity, source provenance and local ownership', () => {
+  const guide = read('agentic/guides/module-tool.md')
+  assert.match(guide, /alias.{0,100}(?:binding|dependency)/i)
+  assert.match(guide, /same runtime (?:module )?ID/i)
+  assert.match(guide, /repository.{0,100}(?:does not|never).{0,100}GitHub/i)
+  assert.match(guide, /disable.{0,100}(?:consum|entr)/i)
+  assert.match(guide, /manual(?:ly authored)? imports/i)
+  assert.match(guide, /single.{0,80}overlay/i)
+  assert.match(guide, /eject.{0,100}(?:retain|preserv).{0,100}provenance/i)
+  const replacementSteps = [...guide.matchAll(/^\d+\. (.+)$/gm)].map(match => match[1])
+  const disabledIndex = replacementSteps.findIndex(step => /disable.*consum/i.test(step))
+  const dependantsIndex = replacementSteps.findIndex(step => /origin-qualified.*dependants.*manual.*imports/i.test(step))
+  const beforeReplacementIndex = replacementSteps.findIndex(step => /generate.*build.*before.*(?:binding|dependency)/i.test(step))
+  const replacementIndex = replacementSteps.findIndex(step => /replace.*dependency.*enable/i.test(step))
+  const finalVerificationIndex = replacementSteps.findIndex(step => /generate.*build.*again/i.test(step))
+  assert.ok(disabledIndex >= 0, 'disable every binding consumer before replacement')
+  assert.ok(dependantsIndex > disabledIndex, 'resolve old-origin dependants and manual imports while the provider remains installed')
+  assert.ok(beforeReplacementIndex > dependantsIndex, 'require successful generation and build before replacing the binding')
+  assert.ok(replacementIndex > beforeReplacementIndex, 'replace the binding only after intermediate verification')
+  assert.ok(finalVerificationIndex > replacementIndex, 'verify generation and build again after enabling the replacement')
+  for (const source of ['module-install.ts', 'module-identity.ts', 'eject.ts']) {
+    assert.ok(guide.includes(`](../../node_modules/@open-mercato/cli/src/lib/${source})`), `missing exact installed ${source} source`)
+  }
+  const cases = JSON.parse(read('agentic/shared/ai/harness/cases.json')) as Array<{ id: string; requiredDecisions: string[] }>
+  const receivingCase = cases.find(({ id }) => id === 'OMH-239')
+  assert.ok(receivingCase)
+  for (const decision of [
+    'module-binding-is-not-runtime-id',
+    'npm-github-origins-distinct',
+    'one-enabled-provider-per-runtime-id',
+    'explicit-provider-replacement',
+    'eject-retains-source-provenance',
+  ]) assert.ok(receivingCase.requiredDecisions.includes(decision), `missing receiving-module decision ${decision}`)
+})

@@ -8,10 +8,10 @@
     "cases": "packages/create-app/agentic/shared/ai/harness/cases.json"
   },
   "derived": {
-    "ownerCount": 32,
-    "recordCount": 150,
-    "sourceRequiredCount": 125,
-    "renderedLinkCount": 127,
+    "ownerCount": 33,
+    "recordCount": 153,
+    "sourceRequiredCount": 128,
+    "renderedLinkCount": 130,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -1340,6 +1340,111 @@
       ],
       "packageName": "@open-mercato/shared",
       "packageRelativePath": "src/modules/events/factory.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/module-tool.md",
+      "originAuthoringPath": "agentic/guides/module-tool.md",
+      "heading": "Receiving app: installation, aliases, and replacement",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-239"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/cli",
+      "packageRelativePath": "src/lib/eject.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/module-tool.md",
+      "originAuthoringPath": "agentic/guides/module-tool.md",
+      "heading": "Receiving app: installation, aliases, and replacement",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-239"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/cli",
+      "packageRelativePath": "src/lib/module-identity.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/module-tool.md",
+      "originAuthoringPath": "agentic/guides/module-tool.md",
+      "heading": "Receiving app: installation, aliases, and replacement",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-239"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ],
+      "packageName": "@open-mercato/cli",
+      "packageRelativePath": "src/lib/module-install.ts"
     },
     {
       "topicId": "om-backend-ui-design/crud-surfaces:README.md",

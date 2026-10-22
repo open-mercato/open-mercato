@@ -1029,6 +1029,27 @@
       "requirement": "source-required",
       "href": "../../src/modules/example/di.ts",
       "resolvedPath": "src/modules/example/di.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-install.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-identity.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/eject.ts"
     }
   ]
 }

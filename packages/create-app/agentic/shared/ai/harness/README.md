@@ -4,7 +4,7 @@
 
 `OMH-238` routes Customers calendar add/remove/patch requests to `.ai/guides/customers-calendar.md`, exact installed Customers definitions, and the bounded canonical `umes.customers.calendar-event-types` example. It preserves historical records, generic shared components, and warnings when optional staff/resources integrations are unavailable.
 
-`OMH-239` routes custom-module initialization, packaging, preview, publication, authentication, and continued-development questions to `.ai/guides/module-tool.md`.
+`OMH-239` routes custom-module initialization, packaging, preview, publication, authentication, continued development, and receiving-app installation/replacement to `.ai/guides/module-tool.md`. It reads exact installed CLI contracts before distinguishing dependency aliases from runtime IDs, separating npm/GitHub origins, preserving one enabled provider, and planning safe replacement or ejection.
 
 UMES routing is fact-first. The additive and unified-override audit evaluations, plus their targeted cases, resolve exact/pattern hosts, outgoing contributions, correlation provenance, round-trip groups, framework-owned targets, and override domain/key/mode from the generated module sheets and `.ai/guides/framework-extension-points.md` before bounded installed source. The repository UMES umbrella spec may appear as optional source-checkout provenance; it is never required in a standalone scaffold.
 

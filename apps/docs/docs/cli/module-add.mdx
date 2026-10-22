@@ -133,8 +133,10 @@ The registration uses `from: 'visits_source'`, retains the canonical manifest na
 An update from the same npm package or canonical GitHub repository can keep existing enabled modules when the inspected target preserves all modules using that binding. Switching the binding to another origin, or dropping a module still used by an enabled entry, requires an explicit replacement:
 
 1. Remove the affected entries from `src/modules.ts`, including conditional registrations. This disables their generated discovery; an empty enabled-module list stays empty.
-2. Preserve and review local source and data. Resolve any occupied `src/modules/<moduleId>/` destination before adding another provider.
-3. Replace the dependency through the package manager, enable the intended provider, and regenerate. Check modules whose `metadata.requires` referred to the old provider.
+2. Preserve and review local source and data. Resolve any occupied `src/modules/<moduleId>/` destination before adding another provider. While the old package remains installed, resolve or reconfigure modules whose origin-qualified `metadata.requires` refers to the old provider, and review manually authored imports.
+3. Run `yarn mercato generate` and `yarn build` successfully before changing the dependency binding. Stop and fix failures while the old package remains available.
+4. Replace the dependency through the package manager and enable the intended provider.
+5. Run `yarn mercato generate` and `yarn build` again, then run tests covering the replacement.
 
 Disabling discovery does not uninstall a dependency, delete source or data, or remove manually authored imports. Review those imports before removing a package or changing its binding. The CLI does not rename runtime IDs, rewrite arbitrary application imports, or migrate provider data.
 

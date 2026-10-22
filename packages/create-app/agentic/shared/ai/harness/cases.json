@@ -590,7 +590,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 7,
-    "maxInitialContextBytes": 40960,
+    "maxInitialContextBytes": 45056,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-007"
@@ -21695,13 +21695,15 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "I am already inside a create-mercato-app Cloud sandbox. Explain the supported npx tool commands to start a new visits module, or package an existing visits module, then publish it to npm and a dedicated GitHub repository. Include a local preview before remote publication and explain how to keep developing in this same app after publication, including the optional repository link and its portability. Distinguish npm login, environment token and trusted publishing requirements. Prepare the workflow only; do not publish or create remote resources.",
+    "prompt": "I am already inside a create-mercato-app Cloud sandbox. Explain the supported npx tool commands to start a new visits module, or package an existing visits module, then publish it to npm and a dedicated GitHub repository. Include a local preview before remote publication and explain how to keep developing in this same app after publication, including the optional repository link and its portability. Distinguish npm login, environment token and trusted publishing requirements. Prepare the workflow only; do not publish or create remote resources. For the receiving app, also explain installing under a dependency alias, rejecting two providers with the same runtime module ID, keeping npm and GitHub source identities distinct, explicitly disabling all consumers before replacing a binding, and preserving local source/provenance when ejecting. Explain resolving old-origin dependants and manual imports and successfully regenerating/building while the old provider remains installed, then replacing the binding and verifying generation/build again. Identify what disabling does not remove.",
     "tags": [
       "architecture",
       "module-package",
       "publication",
       "source-link",
-      "auth"
+      "auth",
+      "module-installation",
+      "source-identity"
     ],
     "owner": {
       "kind": "guide",
@@ -21721,15 +21723,22 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/module-tool.md"
+        ".ai/guides/module-tool.md",
+        "node_modules/@open-mercato/cli/src/lib/module-install.ts",
+        "node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+        "node_modules/@open-mercato/cli/src/lib/eject.ts"
       ],
       "allowedExtra": [
         ".ai/guides/architecture.md"
       ],
       "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+        "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+        "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts"
       ]
     },
     "requiredDecisions": [
@@ -21738,7 +21747,12 @@
       "fresh-consumer-third-party",
       "app-source-preserved",
       "optional-repository-source-link",
-      "npm-auth-mode-boundaries"
+      "npm-auth-mode-boundaries",
+      "module-binding-is-not-runtime-id",
+      "npm-github-origins-distinct",
+      "one-enabled-provider-per-runtime-id",
+      "explicit-provider-replacement",
+      "eject-retains-source-provenance"
     ],
     "forbiddenPatterns": [
       "(?:print|display|commit).{0,30}(?:NPM_TOKEN|NODE_AUTH_TOKEN|raw token)",
@@ -21753,9 +21767,9 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 3,
-    "maxInitialContextBytes": 32768,
-    "maxTotalContextBytes": 32768,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 81920,
     "relatedCases": [
       "OMH-002",
       "OMH-046",

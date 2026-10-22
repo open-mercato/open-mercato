@@ -57,4 +57,14 @@ Implementation contract:
 
 ### Standalone harness coverage assessment
 
-OMH-239 already covers creating/publishing a custom module, local preview, a fresh receiving app, preserving app source, optional repository linking, portability, and npm authentication boundaries. Its owner is `.ai/guides/module-tool.md`; its decisions do not exercise alias bindings, distinct npm/GitHub installation origins, duplicate enabled-ID rejection before output writes, binding replacement, or ejection provenance. No equivalent collision/origin evaluation was found in the current catalog. Focused CLI regressions cover these implementation paths; they are not evidence of agent-routing coverage or a fresh live harness release. The existing case and emitted knowledge owners are unchanged by this alignment. Any future harness extension needs the normal failure-first knowledge-change and certified release workflow.
+OMH-239 was expanded in its existing `.ai/guides/module-tool.md` owner to cover alias bindings, distinct npm/GitHub installation origins, duplicate enabled IDs, explicit binding replacement, and ejection provenance. The guide links exact installed installation, identity and ejection sources. Replacement requires resolving old-origin dependants/manual imports and successful generation/build while the old provider remains installed, followed by replacement and verification again. Failure-first owner and order-sensitive regression evidence was captured before the corresponding guidance changes. The catalog remains 239 cases, including 49 writable cases.
+
+### October 22 verification snapshot
+
+Runner: local for focused regressions; isolated Linux for live standalone checks. Implementation source baseline: `224cbccb85722ebb33576f884b0e0d3d3ae0df22`.
+
+- All 18 self-contained CLI integration cases passed, including the unchanged existing TC-INT-008 suite and the six added lifecycle cases in TC-INT-009.
+- Scoped CLI suites, shared locator coverage, package builds and CLI typecheck passed. Four additional invalid-binding cases and large-artifact inspection regressions passed after the final source review. Interrupted broad runs are not counted as successful gates.
+- Fresh locally packed empty/CRM/WMS presets passed source/link/hash checks and deterministic validation. The final controller passed all 239 deterministic cases; affected live OMH-239 and OMH-008 passed.
+- The machine knowledge-change manifest passed. Independent final source and knowledge reviews found no remaining blocking findings.
+- The required full live `harness:release` suite and published-head GitHub CI remain in progress. Phase 4.3 remains unchecked until their actual results are recorded. Formal author self-approval is not claimed.
