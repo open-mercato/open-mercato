@@ -12,7 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { resolveAssignmentState, resolveGraceDays } from './projectTeamAssignment'
+import { resolveGraceDays } from './projectTeamAssignment'
+import {
+  DEFAULT_ASSIGNEE_PAGE_SIZE,
+  chunkIds,
+  classifyDefaultAssigneeCandidates,
+  collectProjectMemberships,
+  resolveSelectedDefaultAssignee,
+  type ProjectMemberRow,
+} from './projectDefaultAssignee'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
@@ -124,28 +132,7 @@ export function ProjectBudgetSection({
   )
 }
 
-type ProjectMemberRow = {
-  id?: unknown
-  staffMemberId?: unknown
-  staff_member_id?: unknown
-  status?: unknown
-  assigned_start_date?: unknown
-  assignedStartDate?: unknown
-  assigned_end_date?: unknown
-  assignedEndDate?: unknown
-}
-
-/**
- * Whether a membership can still receive a portal ticket as the default assignee —
- * the browser twin of `resolveUsableDefaultAssignee`: an `active` membership inside
- * its assignment window plus the tenant's grace days.
- */
-export function isUsableDefaultAssigneeMembership(row: ProjectMemberRow, graceDays: number, now: Date = new Date()): boolean {
-  if (readString(row.status) !== 'active') return false
-  const startDate = readString(row.assignedStartDate) ?? readString(row.assigned_start_date)
-  const endDate = readString(row.assignedEndDate) ?? readString(row.assigned_end_date)
-  return resolveAssignmentState({ startDate, endDate }, graceDays, now) === 'active'
-}
+export { isUsableDefaultAssigneeMembership } from './projectDefaultAssignee'
 
 type TeamMemberRow = {
   id?: unknown
@@ -361,54 +348,75 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
   const t = useT()
   const [options, setOptions] = React.useState<DefaultAssigneeOption[]>([])
   const [loaded, setLoaded] = React.useState(false)
+  const [truncated, setTruncated] = React.useState(false)
+  const [extraLabels, setExtraLabels] = React.useState<Map<string, string>>(new Map())
+  const valueRef = React.useRef(value)
+  valueRef.current = value
 
   React.useEffect(() => {
     if (!projectId) {
       setOptions([])
+      setTruncated(false)
+      setExtraLabels(new Map())
       setLoaded(true)
       return
     }
     let cancelled = false
     async function load() {
       try {
-        const [membersRes, settingsRes] = await Promise.all([
-          apiCall<{ items?: ProjectMemberRow[] }>(
-            `/api/staff/timesheets/time-projects/${projectId}/employees?pageSize=100`,
-          ),
+        const [collection, settingsRes] = await Promise.all([
+          collectProjectMemberships(async (page) => {
+            const membersRes = await apiCall<{ items?: ProjectMemberRow[]; totalPages?: unknown }>(
+              `/api/staff/timesheets/time-projects/${projectId}/employees?page=${page}&pageSize=${DEFAULT_ASSIGNEE_PAGE_SIZE}`,
+            )
+            const items = Array.isArray(membersRes.result?.items) ? membersRes.result.items : []
+            const totalPages = typeof membersRes.result?.totalPages === 'number' ? membersRes.result.totalPages : null
+            return { items, totalPages }
+          }),
           apiCall<{ access?: { assignmentGraceDays?: unknown } | null }>('/api/staff/timesheets/settings'),
         ])
         const graceDays = resolveGraceDays(settingsRes.ok ? settingsRes.result?.access?.assignmentGraceDays : null)
-        const memberRows = Array.isArray(membersRes.result?.items) ? membersRes.result.items : []
-        const memberships = memberRows
-          .map((row) => ({
-            staffMemberId: readString(row.staffMemberId) ?? readString(row.staff_member_id),
-            active: isUsableDefaultAssigneeMembership(row, graceDays),
-          }))
-          .filter((row): row is { staffMemberId: string; active: boolean } => row.staffMemberId !== null)
-        if (memberships.length === 0) {
-          if (!cancelled) setOptions([])
+        const candidates = classifyDefaultAssigneeCandidates(collection.rows, graceDays)
+        if (!cancelled) setTruncated(collection.truncated)
+        const selectedId = valueRef.current
+        const labelIds = Array.from(new Set([
+          ...candidates.map((candidate) => candidate.staffMemberId),
+          ...(selectedId ? [selectedId] : []),
+        ]))
+        if (labelIds.length === 0) {
+          if (!cancelled) {
+            setOptions([])
+            setExtraLabels(new Map())
+          }
           return
         }
-        const staffRes = await apiCall<{ items?: TeamMemberRow[] }>(
-          `/api/staff/team-members?ids=${memberships.map((row) => row.staffMemberId).join(',')}&pageSize=100`,
+        const staffResults = await Promise.all(
+          chunkIds(labelIds).map((ids) =>
+            apiCall<{ items?: TeamMemberRow[] }>(
+              `/api/staff/team-members?ids=${ids.join(',')}&pageSize=${DEFAULT_ASSIGNEE_PAGE_SIZE}`,
+            ),
+          ),
         )
-        const staffRows = Array.isArray(staffRes.result?.items) ? staffRes.result.items : []
+        const staffRows = staffResults.flatMap((staffRes) => (Array.isArray(staffRes.result?.items) ? staffRes.result.items : []))
         const labels = new Map(
           staffRows
             .map((row) => [readString(row.id), memberLabel(row)] as const)
             .filter((entry): entry is readonly [string, string] => entry[0] !== null),
         )
         if (!cancelled) {
-          setOptions(
-            memberships.map((row) => ({
-              id: row.staffMemberId,
-              label: labels.get(row.staffMemberId) || row.staffMemberId,
-              active: row.active,
-            })),
-          )
+          setOptions(candidates.map((candidate) => ({
+            id: candidate.staffMemberId,
+            label: labels.get(candidate.staffMemberId) || candidate.staffMemberId,
+            active: candidate.active,
+          })))
+          setExtraLabels(labels)
         }
       } catch {
-        if (!cancelled) setOptions([])
+        if (!cancelled) {
+          setOptions([])
+          setTruncated(false)
+          setExtraLabels(new Map())
+        }
       } finally {
         if (!cancelled) setLoaded(true)
       }
@@ -417,9 +425,15 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
     return () => { cancelled = true }
   }, [projectId])
 
+  const selection = resolveSelectedDefaultAssignee(
+    options.map((option) => ({ staffMemberId: option.id, active: option.active })),
+    value,
+    truncated,
+  )
   const selected = value ? options.find((option) => option.id === value) ?? null : null
+  const selectedLabel = selected?.label ?? (value ? extraLabels.get(value) || value : null)
   const activeOptions = options.filter((option) => option.active)
-  const showWarning = loaded && !!value && (!selected || !selected.active)
+  const showWarning = loaded && selection.unusable
 
   return (
     <div className="flex flex-col gap-2" data-testid="project-default-assignee">
@@ -444,7 +458,7 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
             </SelectItem>
           ))}
           {value && (!selected || !selected.active) ? (
-            <SelectItem value={value}>{selected?.label ?? value}</SelectItem>
+            <SelectItem value={value}>{selectedLabel ?? value}</SelectItem>
           ) : null}
         </SelectContent>
       </Select>
