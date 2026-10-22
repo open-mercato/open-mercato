@@ -311,7 +311,7 @@ const supportTicketActivityRecorded = scope
     id: z.string(),
     taskId: z.string(),
     projectId: z.string(),
-    kind: z.enum(['created', 'customer_replied', 'portal_status']),
+    kind: z.enum(['created', 'customer_replied', 'portal_status', 'attachment_added', 'attachment_removed']),
   })
   .passthrough()
 

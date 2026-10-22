@@ -76,6 +76,7 @@ import {
   buildEntryClocks,
   isAssignmentEventForTask,
   TASK_ASSIGNMENT_CHANGED_EVENT,
+  TASK_DRAWER_QUERY_ROOT,
   type DrawerComment,
   type DrawerEntry,
 } from './taskDrawerData'
@@ -97,7 +98,7 @@ export const RATES_FEATURE = 'staff.timesheets.rates.view'
 export const TASKS_MANAGE_FEATURE = 'staff.timesheets.tasks.manage'
 export const ENTRIES_LIST_PATH = '/backend/staff/time-tracking/entries'
 
-const DRAWER_QUERY_ROOT = ['staff', 'time-tracking', 'task-drawer'] as const
+const DRAWER_QUERY_ROOT = TASK_DRAWER_QUERY_ROOT
 const DIRECTORY_PAGE_SIZE = 100
 const CHILD_PAGE_SIZE = 100
 const COMMENT_PAGE_SIZE = 50
@@ -463,7 +464,7 @@ export function TaskDrawer({
   )
 
   const invalidate = React.useCallback(
-    (part: 'task' | 'children' | 'entries' | 'comments') => {
+    (part: 'task' | 'children' | 'entries' | 'comments' | 'attachments') => {
       queryClient.invalidateQueries({ queryKey: [...DRAWER_QUERY_ROOT, part] }).catch(() => {})
     },
     [queryClient],
@@ -952,6 +953,7 @@ export function TaskDrawer({
       if (!open || eventTaskId !== taskId) return
       invalidate('task')
       invalidate('comments')
+      invalidate('attachments')
     },
     [invalidate, open, taskId],
   )

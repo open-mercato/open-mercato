@@ -49,6 +49,25 @@ export function isUsableDefaultAssigneeMembership(row: ProjectMemberRow, graceDa
   return resolveAssignmentState({ startDate, endDate }, graceDays, now) === 'active'
 }
 
+export type ProjectMembershipPageResponse = {
+  ok: boolean
+  result?: { items?: unknown; totalPages?: unknown } | null
+}
+
+/**
+ * Reads one employees page, refusing anything but a successful response with a
+ * row list: an error page carries no rows and no total, and reading it as an empty
+ * last page would mark every member beyond it as gone.
+ */
+export function readProjectMembershipPage(response: ProjectMembershipPageResponse): ProjectMembershipPage {
+  if (!response.ok) throw new Error('[internal] project membership page request failed')
+  const items = response.result?.items
+  if (!Array.isArray(items)) throw new Error('[internal] project membership page has no rows')
+  const totalPages = typeof response.result?.totalPages === 'number' ? response.result.totalPages : null
+  const rows = items.filter((item): item is ProjectMemberRow => typeof item === 'object' && item !== null)
+  return { items: rows, totalPages }
+}
+
 export async function collectProjectMemberships(
   fetchPage: (page: number) => Promise<ProjectMembershipPage>,
   options: { pageSize?: number; maxPages?: number } = {},

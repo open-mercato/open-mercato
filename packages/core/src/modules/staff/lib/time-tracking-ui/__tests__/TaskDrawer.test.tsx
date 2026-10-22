@@ -174,6 +174,7 @@ let commentRows: Row[]
 let entryRows: Row[]
 let runningRows: Row[]
 let tagRows: Row[]
+let attachmentRows: Row[]
 
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
@@ -182,6 +183,7 @@ function ok<T>(result: T) {
 function installApiRouter() {
   mockApiCall.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input)
+    if (url.includes('/api/attachments?')) return ok({ items: attachmentRows }) as never
     if (url.includes('/comments')) return ok({ items: commentRows, total: commentRows.length }) as never
     if (url.includes('/task-statuses')) return ok({ items: statusRows, total: statusRows.length }) as never
     if (url.includes('/timesheets/tasks?')) {
@@ -253,6 +255,7 @@ beforeEach(() => {
     },
   ]
   commentRows = []
+  attachmentRows = []
   entryRows = [
     {
       id: 'entry-1',
@@ -719,6 +722,96 @@ describe('TaskDrawer', () => {
     await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/comments`).length).toBe(1))
     const [, init] = writeCalls(`/tasks/${TASK_ID}/comments`)[0]
     expect(JSON.parse(String(init?.body))).toEqual({ body: 'Checking now.', visibility: 'customer' })
+  })
+
+  function makeSupportTicket() {
+    taskRow = {
+      ...taskRow,
+      source: 'portal',
+      _staffSupport: {
+        ticket: {
+          id: 'ticket-1',
+          supportReference: 'SUP-1001',
+          category: { value: 'billing', label: 'Billing' },
+          routedVia: 'category',
+          portalStatus: 'in_progress',
+          customerSnapshot: { displayName: 'Nordvik AS', kind: 'company' },
+          reportedByCustomerUserId: null,
+          unnotifiedAt: null,
+          customerRequest: { subject: 'Invoice question', body: 'Why two invoices?' },
+        },
+      },
+    }
+  }
+
+  function broadcastSupportActivity(kind: string, eventTaskId = TASK_ID) {
+    act(() => {
+      window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
+        detail: {
+          id: 'staff.support_ticket.activity_recorded',
+          payload: { id: 'ticket-1', taskId: eventTaskId, projectId: PROJECT_ID, kind },
+        },
+      }))
+    })
+  }
+
+  const customerFile = {
+    id: 'attachment-1',
+    url: '/api/attachments/file/attachment-1',
+    fileName: 'invoice-scan.pdf',
+    fileSize: 2048,
+    tags: ['customer-visible', 'customer-upload:customer-user-1'],
+  }
+
+  it('refetches the ticket files when a customer uploads and replies while the drawer stays open', async () => {
+    makeSupportTicket()
+    renderDrawer()
+    expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+    attachmentRows = [customerFile]
+    commentRows = [
+      {
+        id: 'comment-1',
+        body: 'Scan attached.',
+        visibility: 'customer',
+        author_kind: 'customer',
+        created_at: '2026-08-12T12:00:00.000Z',
+        updated_at: '2026-08-12T12:00:00.000Z',
+      },
+    ]
+    broadcastSupportActivity('attachment_added')
+    broadcastSupportActivity('customer_replied')
+
+    expect(await screen.findByText('Scan attached.')).toBeInTheDocument()
+    expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+    expect(within(screen.getByTestId('support-attachments-section')).getByText('From customer')).toBeInTheDocument()
+    expect(screen.queryByText('No files on this ticket.')).not.toBeInTheDocument()
+  })
+
+  it('refetches the ticket files on a customer upload that comes without a reply', async () => {
+    makeSupportTicket()
+    renderDrawer()
+    expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+    attachmentRows = [customerFile]
+    broadcastSupportActivity('attachment_added')
+
+    expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+  })
+
+  it('leaves the ticket files alone when the activity belongs to another ticket', async () => {
+    makeSupportTicket()
+    renderDrawer()
+    expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+    const attachmentFetches = () => mockApiCall.mock.calls.filter(([url]) => String(url).includes('/api/attachments?')).length
+    const before = attachmentFetches()
+
+    attachmentRows = [customerFile]
+    broadcastSupportActivity('attachment_added', OTHER_TASK_ID)
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(attachmentFetches()).toBe(before)
+    expect(screen.queryByText('invoice-scan.pdf')).not.toBeInTheDocument()
   })
 
   it('shows the inclusive rollup as the headline and the own/children split beneath it', async () => {

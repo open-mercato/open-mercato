@@ -15,6 +15,8 @@
 import { formatDuration } from '../time-tracking/duration'
 import { readNumber, readString, type BoardApiRow, type BoardStatus } from './kanbanBoardData'
 
+export const TASK_DRAWER_QUERY_ROOT = ['staff', 'time-tracking', 'task-drawer'] as const
+
 export type DrawerComment = {
   id: string
   body: string

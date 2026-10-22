@@ -4,6 +4,7 @@ import {
   chunkIds,
   classifyDefaultAssigneeCandidates,
   collectProjectMemberships,
+  readProjectMembershipPage,
   resolveSelectedDefaultAssignee,
   type ProjectMemberRow,
   type ProjectMembershipPage,
@@ -99,5 +100,45 @@ describe('default assignee membership pagination', () => {
   it('batches label lookups to the page size', () => {
     const ids = Array.from({ length: 205 }, (_, index) => `id-${index}`)
     expect(chunkIds(ids).map((batch) => batch.length)).toEqual([100, 100, 5])
+  })
+})
+
+describe('default assignee membership page failures', () => {
+  const MEMBER = '66666666-6666-4666-8666-666666666603'
+
+  it('reads a successful page with its total', () => {
+    expect(readProjectMembershipPage({ ok: true, result: { items: [{ staffMemberId: MEMBER }], totalPages: 3 } })).toEqual({
+      items: [{ staffMemberId: MEMBER }],
+      totalPages: 3,
+    })
+    expect(readProjectMembershipPage({ ok: true, result: { items: [] } })).toEqual({ items: [], totalPages: null })
+  })
+
+  it('refuses an HTTP error page instead of reading it as an empty last page', () => {
+    expect(() => readProjectMembershipPage({ ok: false, result: { items: [] } })).toThrow()
+    expect(() => readProjectMembershipPage({ ok: false, result: null })).toThrow()
+  })
+
+  it('refuses a successful response that carries no row list', () => {
+    expect(() => readProjectMembershipPage({ ok: true, result: null })).toThrow()
+    expect(() => readProjectMembershipPage({ ok: true, result: { items: 'nope' } })).toThrow()
+  })
+
+  it('fails the whole collection when a later page fails, rather than reporting a complete read', async () => {
+    const fullPage = Array.from({ length: DEFAULT_ASSIGNEE_PAGE_SIZE }, () => ({ status: 'inactive' }))
+    const fetchPage = jest.fn(async (page: number) =>
+      readProjectMembershipPage(
+        page === 1 ? { ok: true, result: { items: fullPage, totalPages: 2 } } : { ok: false, result: null },
+      ),
+    )
+    await expect(collectProjectMemberships(fetchPage)).rejects.toThrow()
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+  })
+
+  it('propagates a rejected page request', async () => {
+    const fetchPage = jest.fn(async (): Promise<ProjectMembershipPage> => {
+      throw new Error('network down')
+    })
+    await expect(collectProjectMemberships(fetchPage)).rejects.toThrow('network down')
   })
 })

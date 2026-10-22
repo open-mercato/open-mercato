@@ -8,6 +8,7 @@ const mockRunAfterSuccess = jest.fn()
 const mockExecute = jest.fn()
 const mockUpload = jest.fn()
 const mockLoadPortalAttachmentsApi = jest.fn()
+const mockEmitAttachmentActivity = jest.fn()
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -59,6 +60,10 @@ jest.mock('../../../../lib/support/portalAttachments', () => ({
     fileName: attachment.fileName,
   })),
   portalSupportAttachmentItemSchema: jest.requireActual('zod').z.object({}).passthrough(),
+}))
+
+jest.mock('../../../../lib/support/supportActivity', () => ({
+  emitSupportAttachmentActivity: (...args: unknown[]) => mockEmitAttachmentActivity(...args),
 }))
 
 import { POST as createTicket } from '../route'
@@ -207,11 +212,23 @@ describe('portal support ticket attachment upload', () => {
     expect(mockUpload.mock.calls[0][0].buffer.length).toBe(5)
   })
 
+  it('announces the customer upload to open backoffice screens once it is stored', async () => {
+    const owned = { task: { id: TASK_ID }, ticket: { id: 'ticket-1' } }
+    mockLoadOwnedTicket.mockResolvedValue(owned)
+    passGuards()
+    mockUpload.mockResolvedValue({ id: ATTACHMENT_ID, fileName: 'passport scan.png' })
+    const response = await uploadAttachment(uploadRequest())
+    expect(response.status).toBe(201)
+    expect(mockEmitAttachmentActivity).toHaveBeenCalledTimes(1)
+    expect(mockEmitAttachmentActivity).toHaveBeenCalledWith(owned.task, owned.ticket, 'attachment_added')
+  })
+
   it('rejects an invalid transformed file name with 400 and stores nothing', async () => {
     passGuards({ fileName: '   ' })
     const response = await uploadAttachment(uploadRequest())
     expect(response.status).toBe(400)
     expect(mockUpload).not.toHaveBeenCalled()
     expect(mockRunAfterSuccess).not.toHaveBeenCalled()
+    expect(mockEmitAttachmentActivity).not.toHaveBeenCalled()
   })
 })

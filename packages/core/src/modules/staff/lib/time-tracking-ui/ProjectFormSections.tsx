@@ -12,12 +12,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { resolveGraceDays } from './projectTeamAssignment'
 import {
   DEFAULT_ASSIGNEE_PAGE_SIZE,
   chunkIds,
   classifyDefaultAssigneeCandidates,
   collectProjectMemberships,
+  readProjectMembershipPage,
   resolveSelectedDefaultAssignee,
   type ProjectMemberRow,
 } from './projectDefaultAssignee'
@@ -347,7 +349,8 @@ type DefaultAssigneeOption = { id: string; label: string; active: boolean }
 export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabled }: ProjectDefaultAssigneeFieldProps) {
   const t = useT()
   const [options, setOptions] = React.useState<DefaultAssigneeOption[]>([])
-  const [loaded, setLoaded] = React.useState(false)
+  const [loadState, setLoadState] = React.useState<'loading' | 'loaded' | 'failed'>('loading')
+  const [reloadToken, setReloadToken] = React.useState(0)
   const [truncated, setTruncated] = React.useState(false)
   const [extraLabels, setExtraLabels] = React.useState<Map<string, string>>(new Map())
   const valueRef = React.useRef(value)
@@ -358,20 +361,19 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
       setOptions([])
       setTruncated(false)
       setExtraLabels(new Map())
-      setLoaded(true)
+      setLoadState('loaded')
       return
     }
     let cancelled = false
+    setLoadState('loading')
     async function load() {
       try {
         const [collection, settingsRes] = await Promise.all([
           collectProjectMemberships(async (page) => {
-            const membersRes = await apiCall<{ items?: ProjectMemberRow[]; totalPages?: unknown }>(
+            const membersRes = await apiCall<{ items?: unknown; totalPages?: unknown }>(
               `/api/staff/timesheets/time-projects/${projectId}/employees?page=${page}&pageSize=${DEFAULT_ASSIGNEE_PAGE_SIZE}`,
             )
-            const items = Array.isArray(membersRes.result?.items) ? membersRes.result.items : []
-            const totalPages = typeof membersRes.result?.totalPages === 'number' ? membersRes.result.totalPages : null
-            return { items, totalPages }
+            return readProjectMembershipPage(membersRes)
           }),
           apiCall<{ access?: { assignmentGraceDays?: unknown } | null }>('/api/staff/timesheets/settings'),
         ])
@@ -387,6 +389,7 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
           if (!cancelled) {
             setOptions([])
             setExtraLabels(new Map())
+            setLoadState('loaded')
           }
           return
         }
@@ -410,20 +413,17 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
             active: candidate.active,
           })))
           setExtraLabels(labels)
+          setLoadState('loaded')
         }
       } catch {
-        if (!cancelled) {
-          setOptions([])
-          setTruncated(false)
-          setExtraLabels(new Map())
-        }
-      } finally {
-        if (!cancelled) setLoaded(true)
+        if (!cancelled) setLoadState('failed')
       }
     }
     void load()
     return () => { cancelled = true }
-  }, [projectId])
+  }, [projectId, reloadToken])
+
+  const retryLoad = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
   const selection = resolveSelectedDefaultAssignee(
     options.map((option) => ({ staffMemberId: option.id, active: option.active })),
@@ -432,8 +432,9 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
   )
   const selected = value ? options.find((option) => option.id === value) ?? null : null
   const selectedLabel = selected?.label ?? (value ? extraLabels.get(value) || value : null)
-  const activeOptions = options.filter((option) => option.active)
-  const showWarning = loaded && selection.unusable
+  const loadFailed = loadState === 'failed'
+  const activeOptions = loadFailed ? [] : options.filter((option) => option.active)
+  const showWarning = loadState === 'loaded' && selection.unusable
 
   return (
     <div className="flex flex-col gap-2" data-testid="project-default-assignee">
@@ -457,7 +458,7 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
               {option.label}
             </SelectItem>
           ))}
-          {value && (!selected || !selected.active) ? (
+          {value && (loadFailed || !selected || !selected.active) ? (
             <SelectItem value={value}>{selectedLabel ?? value}</SelectItem>
           ) : null}
         </SelectContent>
@@ -468,6 +469,19 @@ export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabl
           'New customer portal tickets routed to this project are assigned to this member. Tasks created on the board stay assigned to their creator.',
         )}
       </p>
+      {loadFailed ? (
+        <ErrorMessage
+          label={t(
+            'staff.time_tracking.assigners.defaultAssigneeLoadFailed',
+            'Could not load the project members, so the default assignee cannot be checked right now.',
+          )}
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={retryLoad} data-testid="project-default-assignee-retry">
+              {t('staff.time_tracking.assigners.defaultAssigneeRetry', 'Retry')}
+            </Button>
+          )}
+        />
+      ) : null}
       {showWarning ? (
         <Alert status="warning">
           <AlertDescription>

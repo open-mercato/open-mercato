@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Paperclip } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,6 +14,8 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { TASK_DRAWER_QUERY_ROOT } from './taskDrawerData'
 
 const ENTITY_ID = 'staff:staff_time_task'
 const CUSTOMER_VISIBLE_TAG = 'customer-visible'
@@ -52,34 +55,32 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
   })
   const { payload } = useBackendChrome()
   const canUpload = hasFeature(payload?.grantedFeatures, ATTACHMENTS_MANAGE_FEATURE)
-  const [items, setItems] = React.useState<StaffAttachment[]>([])
-  const [loading, setLoading] = React.useState(true)
-  const [loadFailed, setLoadFailed] = React.useState(false)
+  const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
   const [uploading, setUploading] = React.useState(false)
   const [share, setShare] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement | null>(null)
 
-  const load = React.useCallback(async () => {
-    try {
+  const attachmentsQueryKey = React.useMemo(
+    () => [...TASK_DRAWER_QUERY_ROOT, 'attachments', `scope:${scopeVersion}`, taskId],
+    [scopeVersion, taskId],
+  )
+  const attachmentsQuery = useQuery<StaffAttachment[]>({
+    queryKey: attachmentsQueryKey,
+    enabled: taskId.length > 0,
+    queryFn: async () => {
       const response = await apiCall<{ items?: StaffAttachment[] }>(
         `/api/attachments?entityId=${encodeURIComponent(ENTITY_ID)}&recordId=${encodeURIComponent(taskId)}`,
       )
-      if (!response.ok) {
-        setLoadFailed(true)
-        return
-      }
-      setLoadFailed(false)
-      setItems(response.result?.items ?? [])
-    } catch {
-      setLoadFailed(true)
-    } finally {
-      setLoading(false)
-    }
-  }, [taskId])
+      if (!response.ok) throw new Error('[internal] attachments request failed')
+      return response.result?.items ?? []
+    },
+  })
+  const items = attachmentsQuery.data ?? []
 
-  React.useEffect(() => {
-    void load()
-  }, [load])
+  const refreshAttachments = React.useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: attachmentsQueryKey })
+  }, [attachmentsQueryKey, queryClient])
 
   const upload = React.useCallback(async (list: FileList | null) => {
     if (!list || !list.length || !canUpload) return
@@ -103,14 +104,14 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
         })
         if (!result.ok) flash(t('staff.support.attachments.uploadFailed', 'Could not upload the file.'), 'error')
       }
-      await load()
+      await refreshAttachments()
     } catch {
       flash(t('staff.support.attachments.uploadFailed', 'Could not upload the file.'), 'error')
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
     }
-  }, [canUpload, load, retryLastMutation, runMutation, share, t, taskId])
+  }, [canUpload, refreshAttachments, retryLastMutation, runMutation, share, t, taskId])
 
   return (
     <section className="space-y-2" data-testid="support-attachments-section">
@@ -141,13 +142,13 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
           </div>
         ) : null}
       </div>
-      {loading ? (
+      {attachmentsQuery.isLoading ? (
         <LoadingMessage label={t('staff.support.attachments.loading', 'Loading files…')} />
-      ) : loadFailed ? (
+      ) : attachmentsQuery.isError ? (
         <ErrorMessage
           label={t('staff.support.attachments.loadFailed', 'Could not load the ticket files.')}
           action={(
-            <Button type="button" variant="outline" size="sm" onClick={() => { void load() }}>
+            <Button type="button" variant="outline" size="sm" onClick={() => { void attachmentsQuery.refetch() }}>
               {t('staff.support.attachments.retry', 'Try again')}
             </Button>
           )}

@@ -48,6 +48,7 @@ import {
   portalSupportAttachmentItemSchema,
   type PortalAttachmentsApi,
 } from '../../../../../lib/support/portalAttachments'
+import { emitSupportAttachmentActivity } from '../../../../../lib/support/supportActivity'
 
 const logger = createLogger('staff').child({ component: 'api/portal/support-tickets/attachments' })
 
@@ -215,6 +216,7 @@ export async function POST(req: Request) {
       throw error
     }
     await guarded.runAfterSuccess()
+    emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_added')
     return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub, true) }, { status: 201 })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments POST failed')
@@ -277,6 +279,7 @@ export async function DELETE(req: Request) {
       getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_side_effects_failed' })
     }
     await guarded.runAfterSuccess()
+    emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_removed')
     return NextResponse.json({ ok: true })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments DELETE failed')
