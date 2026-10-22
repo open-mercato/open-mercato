@@ -2067,8 +2067,15 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
+    const currentIsDefault = record.isDefault
     applyTaxRateSnapshot(record, before)
+    if (payload?.after && payload.after.isDefault === before.isDefault) {
+      record.isDefault = currentIsDefault
+    }
     await em.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(em, record)
+    }
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -2155,6 +2162,9 @@ const deleteTaxRateCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyTaxRateSnapshot(record, before)
     await em.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(em, record)
+    }
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
