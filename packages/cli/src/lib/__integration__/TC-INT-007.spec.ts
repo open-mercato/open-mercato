@@ -195,8 +195,10 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       const cssSource = readFile(path.join(appDir, '.mercato', 'generated', 'module-package-sources.css'))
 
       expect(modulesSource).toMatch(/id: 'test_package', from: '@app'/)
-      expect(modulesSource).toContain("locator: 'npm:@open-mercato/test-package'")
+      expect(modulesSource).not.toContain('locator:')
+      expect(modulesSource).toContain("packageName: '@open-mercato/test-package'")
       expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
+      expect(readFile(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(readFile(path.join(fixtureModulePackage, 'src', 'modules', 'test_package', 'index.ts')))
       expect(cssSource).toBe('')
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })

@@ -241,11 +241,11 @@ function assertNoModuleCollision(
 }
 
 function assertBindingPreserved(resolver: PackageResolver, target: InspectedModuleTarget): void {
-  const consumers = resolver.loadEnabledModules().filter((entry) => entry.from === target.packageName)
+  const consumers = resolver.loadEnabledModules().filter((entry) => (entry.from ?? '@open-mercato/core') === target.packageName)
   for (const entry of consumers) {
     const locators = getModuleLocators(entry, resolver)
-    if (!locators.includes(target.locator) || !target.moduleIds.includes(entry.id)) {
-      throw new Error(`Package binding collision: "${target.packageName}" supplies enabled module "${entry.id}" from "${locators.join(', ') || 'unknown origin'}". Requested "${target.locator}" must preserve its source and module layout. Disable affected entries explicitly before replacing this binding. No package was installed.`)
+    if (!target.locator || !locators.includes(target.locator) || !target.moduleIds.includes(entry.id)) {
+      throw new Error(`Package binding collision: "${target.packageName}" supplies enabled module "${entry.id}" from "${locators.join(', ') || 'unknown origin'}". Requested "${target.locator ?? 'unknown origin'}" must preserve its source and module layout. Disable affected entries explicitly before replacing this binding. No package was installed.`)
     }
   }
 }
@@ -357,7 +357,7 @@ export async function addOfficialModule(
     assertThirdPartyAllowed(target.packageName, allowThirdParty)
     const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
     if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {
-      throw new Error(`Select a module with --module <moduleId>. Available in ${target.locator}: ${target.moduleIds.join(', ')}. No package was installed.`)
+      throw new Error(`Select a module with --module <moduleId>. Available in ${target.locator ?? target.packageName}: ${target.moduleIds.join(', ')}. No package was installed.`)
     }
     assertNoModuleCollision(resolver, selectedModuleId, target.packageName, target.locator)
     safePackageSpec = target.packageSpec
@@ -367,13 +367,13 @@ export async function addOfficialModule(
     const parsedName = parsePackageNameFromSpec(safePackageSpec)
     assertPackageName(parsedName)
     packageName = parsedName
-    if (moduleId) assertNoModuleCollision(resolver, moduleId, packageName, `npm:${packageName}`)
+    if (moduleId) assertNoModuleCollision(resolver, moduleId, packageName, safePackageSpec.startsWith(`${packageName}@file:`) ? undefined : `npm:${packageName}`)
     const requiredModuleIds = resolver.loadEnabledModules().filter((entry) => (entry.from ?? '@open-mercato/core') === packageName).map((entry) => entry.id)
     target = inspectNpmModuleTarget(safePackageSpec, packageName, resolver.getAppDir(), [...new Set([...(moduleId ? [moduleId] : []), ...requiredModuleIds])])
   }
   const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
   if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {
-    throw new Error(`Select a module with --module <moduleId>. Available in ${target.locator}: ${target.moduleIds.join(', ')}. No package was installed.`)
+    throw new Error(`Select a module with --module <moduleId>. Available in ${target.locator ?? target.packageName}: ${target.moduleIds.join(', ')}. No package was installed.`)
   }
   assertNoModuleCollision(resolver, selectedModuleId, packageName, target.locator)
   assertBindingPreserved(resolver, target)
@@ -394,7 +394,7 @@ export async function addOfficialModule(
     if (target.version && modulePackage.packageJson.version !== target.version) {
       throw new Error(`Installed version "${modulePackage.packageJson.version ?? 'unknown'}" differs from inspected version "${target.version}". No registration or source edits were made.`)
     }
-    for (const entry of resolver.loadEnabledModules().filter((entry) => entry.from === packageName)) {
+    for (const entry of resolver.loadEnabledModules().filter((entry) => (entry.from ?? '@open-mercato/core') === packageName)) {
       resolveInstalledOfficialModulePackage(resolver, packageName, entry.id)
     }
     return await registerResolvedOfficialModule(resolver, modulePackage, packageName, eject, target.locator, true)

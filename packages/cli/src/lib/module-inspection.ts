@@ -9,7 +9,7 @@ export type InspectedModuleTarget = {
   packageName: string
   packageSpec: string
   moduleIds: string[]
-  locator: string
+  locator?: string
   version?: string
 }
 
@@ -100,10 +100,10 @@ export function inspectNpmModuleTarget(packageSpec: string, packageName: string,
   const filePrefix = `${packageName}@file:`
   if (packageSpec.startsWith(filePrefix)) {
     const packageRoot = path.resolve(appDir, packageSpec.slice(filePrefix.length))
-    if (fs.statSync(packageRoot).isFile()) return { packageName, packageSpec, ...inspectArchive(packageRoot, packageName, requiredModuleIds), locator: `npm:${packageName}` }
+    if (fs.statSync(packageRoot).isFile()) return { packageName, packageSpec, ...inspectArchive(packageRoot, packageName, requiredModuleIds) }
     const manifest = record(JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')))
     const inspected = inspectFiles(manifest, packageName, packageFiles(packageRoot), requiredModuleIds, (relativePath) => fs.readFileSync(path.join(packageRoot, relativePath), 'utf8'))
-    return { packageName, packageSpec, ...inspected, locator: `npm:${packageName}` }
+    return { packageName, packageSpec, ...inspected }
   }
 
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-module-inspection-'))

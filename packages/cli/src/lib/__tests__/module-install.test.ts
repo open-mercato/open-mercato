@@ -7,6 +7,9 @@ import * as github from '../module-github'
 import * as inspection from '../module-inspection'
 import spawn from 'cross-spawn'
 import { EventEmitter } from 'node:events'
+import { execFileSync } from 'node:child_process'
+import { getModuleLocators } from '../module-identity'
+import { resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 
 jest.mock('cross-spawn', () => jest.fn())
 
@@ -372,6 +375,93 @@ describe('canonical module preflight', () => {
   let root: string
   beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-canonical-')) })
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it.each([
+    ['directory', false], ['archive', false], ['directory', true], ['archive', true],
+  ] as const)('keeps a new file %s install provenance unknown with eject=%s', async (kind, eject) => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = '@vendor/consents'
+    buildPackageFixture(packageRoot, 'consents', { packageName, ejectable: true })
+    if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const fileLocator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    resolver.loadEnabledModules = () => readEnabledModulesFromConfig(resolver.getModulesConfigPath())
+    jest.mocked(spawn).mockImplementation(() => {
+      fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { [packageName]: fileLocator } }))
+      const child = new EventEmitter()
+      queueMicrotask(() => child.emit('exit', 0))
+      return child as ReturnType<typeof spawn>
+    })
+    try {
+      await addOfficialModule(resolver, `${packageName}@${fileLocator}`, eject, undefined, true)
+      const [entry] = resolver.loadEnabledModules()
+      expect(entry).toMatchObject({ id: 'consents', from: eject ? '@app' : packageName })
+      expect(entry.locator).toBeUndefined()
+      if (eject) {
+        expect(entry.packageName).toBe(packageName)
+        expect(fs.readFileSync(path.join(appDir, 'src/modules/consents/index.ts'), 'utf8')).toBe(fs.readFileSync(path.join(packageRoot, 'src/modules/consents/index.ts'), 'utf8'))
+      }
+      const locators = getModuleLocators(entry, resolver)
+      expect(locators).toEqual([])
+      expect(resolveModuleRequirement(`npm:${packageName}`, [{ id: entry.id, locators }])).toBeUndefined()
+      expect(resolveModuleRequirement('consents', [{ id: entry.id, locators }])).toBe('consents')
+
+      const dependentRoot = path.join(root, 'dependent')
+      buildPackageFixture(dependentRoot, 'dependent', { packageName: '@vendor/dependent', requires: [`npm:${packageName}`], ejectable: true })
+      resolver.getPackageRoot = (binding) => binding === '@vendor/dependent' ? dependentRoot : packageRoot
+      const sourceBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+      await expect(enableOfficialModule(resolver, '@vendor/dependent', undefined, true, true)).rejects.toThrow('requires module(s) that are not enabled: npm:@vendor/consents')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(sourceBefore)
+      expect(fs.existsSync(path.join(appDir, 'src/modules/dependent'))).toBe(false)
+    } finally { jest.mocked(spawn).mockReset() }
+  })
+
+  it.each([
+    ['directory', false], ['archive', false], ['directory', true], ['archive', true],
+  ] as const)('rejects an unknown file %s origin before replacing an enabled binding with implicit core=%s', async (kind, implicitCore) => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = implicitCore ? '@open-mercato/core' : '@vendor/consents'
+    buildPackageFixture(packageRoot, 'consents', { packageName, ejectable: true })
+    if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const source = `export const enabledModules = [{ id: 'consents', ${implicitCore ? '' : `from: '${packageName}', `}locator: 'npm:${packageName}' }]\n`
+    const resolver = buildResolver(appDir, packageRoot, source)
+    if (implicitCore) resolver.loadEnabledModules = () => [{ id: 'consents', locator: `npm:${packageName}` }]
+    const manifest = JSON.stringify({ dependencies: { [packageName]: '1.0.0' } })
+    fs.writeFileSync(path.join(appDir, 'package.json'), manifest)
+    jest.mocked(spawn).mockClear()
+    const fileLocator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+    await expect(addOfficialModule(resolver, `${packageName}@${fileLocator}`, true, undefined, true)).rejects.toThrow('Package binding collision')
+    expect(spawn).not.toHaveBeenCalled()
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    expect(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).toBe(manifest)
+    expect(fs.existsSync(path.join(appDir, 'src/modules/consents'))).toBe(false)
+  })
+
+  it('revalidates implicit core binding consumers after package installation before any registration or eject copy', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = '@open-mercato/core'
+    buildPackageFixture(packageRoot, 'active', { packageName })
+    buildPackageFixture(packageRoot, 'candidate', { packageName, ejectable: true })
+    const source = "export const enabledModules = [{ id: 'active' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    resolver.loadEnabledModules = () => [{ id: 'active' }]
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { [packageName]: '0.1.0' } }))
+    const inspect = jest.spyOn(inspection, 'inspectNpmModuleTarget').mockReturnValue({ packageName, packageSpec: `${packageName}@next`, locator: `npm:${packageName}`, moduleIds: ['active', 'candidate'] })
+    jest.mocked(spawn).mockImplementation(() => {
+      for (const base of ['src', 'dist']) fs.rmSync(path.join(packageRoot, base, 'modules/active'), { recursive: true })
+      const child = new EventEmitter()
+      queueMicrotask(() => child.emit('exit', 0))
+      return child as ReturnType<typeof spawn>
+    })
+    try {
+      await expect(addOfficialModule(resolver, `${packageName}@next`, true, 'candidate')).rejects.toThrow('does not contain module "active"')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+      expect(fs.existsSync(path.join(appDir, 'src/modules/candidate'))).toBe(false)
+    } finally { inspect.mockRestore(); jest.mocked(spawn).mockReset() }
+  })
 
   it('does not satisfy a required scoped package with a same-name module from another scope', async () => {
     const packageRoot = path.join(root, 'package')

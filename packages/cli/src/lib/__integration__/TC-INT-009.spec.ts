@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -84,6 +84,39 @@ function snapshotDirectory(directory: string): Record<string, string> {
 }
 
 test.describe('TC-INT-009: CLI source collision lifecycle safeguards', () => {
+  for (const kind of ['directory', 'archive']) {
+    test(`rejects a local ${kind} with unknown provenance before replacing an active npm binding`, () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-file-origin-'))
+      const appDir = path.join(root, 'app')
+      try {
+        const binding = '@publisher/consents'
+        createApp(appDir, { [binding]: '0.4.7' })
+        createPackage(path.join(appDir, 'node_modules', binding), binding, ['consents'])
+        const packageRoot = path.join(root, 'package')
+        createPackage(packageRoot, binding, ['consents'])
+        if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+        const modulesSource = `export const enabledModules = [{ id: 'consents', from: '${binding}', locator: 'npm:${binding}' }]\n`
+        writeFile(path.join(appDir, 'src', 'modules.ts'), modulesSource)
+        const manifestBefore = fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')
+        const installedBefore = snapshotDirectory(path.join(appDir, 'node_modules'))
+        const environment = installCommandStubs(appDir)
+        const locator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+        const result = runMercato(['module', 'add', `${binding}@${locator}`, '--eject', '--allow-third-party'], appDir, environment)
+
+        expect(result.status, result.output).not.toBe(0)
+        expect(result.output).toContain('Package binding collision')
+        expect(result.output).toContain('unknown origin')
+        expect(result.output).toContain('consents')
+        expect(fs.existsSync(path.join(appDir, 'yarn-invoked'))).toBe(false)
+        expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toBe(modulesSource)
+        expect(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).toBe(manifestBefore)
+        expect(snapshotDirectory(path.join(appDir, 'node_modules'))).toEqual(installedBefore)
+        expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'consents'))).toBe(false)
+        expect(fs.existsSync(path.join(appDir, '.mercato', 'generated'))).toBe(false)
+      } finally { fs.rmSync(root, { recursive: true, force: true }) }
+    })
+  }
+
   test('rejects a GitHub replacement of an active binding even when the selected module ID differs', () => {
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-binding-collision-'))
     try {
