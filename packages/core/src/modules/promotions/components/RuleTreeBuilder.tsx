@@ -16,7 +16,10 @@
 // PUT response (which only returns `{ ok, promotionId }`, not the new tree) — reloading
 // is also what makes every previously-new node's server-minted `id` available for the
 // NEXT save, which matters because a node still missing `id` after a save would be
-// treated as "new" again on the following save and create a duplicate row.
+// treated as "new" again on the following save and create a duplicate row. The two
+// surfaces stay decoupled on tree state, but share ONE version source via `refreshSignal`/
+// `onSaved` (below) — otherwise a save on either side leaves the other with a stale
+// `updatedAt` and its next save 409s.
 
 import * as React from 'react'
 import {
