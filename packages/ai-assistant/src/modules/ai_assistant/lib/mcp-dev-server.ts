@@ -8,6 +8,7 @@ import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
 import {
+  collectMcpExposureWarnings,
   describeMcpExposureConfig,
   filterToolsForCaller,
   resolveMcpExposureConfig,
@@ -232,6 +233,9 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
     'MCP exposure config:',
     JSON.stringify(describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())))
   )
+  for (const warning of collectMcpExposureWarnings(process.env)) {
+    logger.warn(warning)
+  }
 
   // Generate and cache entity graph
   try {

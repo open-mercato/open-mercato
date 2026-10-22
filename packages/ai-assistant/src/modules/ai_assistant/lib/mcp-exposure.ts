@@ -27,7 +27,11 @@ export type McpExposureCaller = {
 
 type McpExposureEnv = Record<string, string | undefined>
 
-const MUTATION_MODES: readonly McpMutationMode[] = ['direct', 'deny', 'approval']
+export const MCP_MUTATION_MODES: readonly McpMutationMode[] = ['direct', 'deny', 'approval']
+
+export function isMcpMutationMode(value: unknown): value is McpMutationMode {
+  return typeof value === 'string' && MCP_MUTATION_MODES.some((mode) => mode === value)
+}
 
 export const DEFAULT_MCP_EXPOSURE_CONFIG: Readonly<McpExposureConfig> = Object.freeze({
   allow: null,
@@ -59,8 +63,17 @@ function parseMutationMode(raw: unknown): McpMutationMode | undefined {
   if (typeof raw !== 'string') return undefined
   const normalized = raw.trim().toLowerCase()
   if (!normalized) return undefined
-  const match = MUTATION_MODES.find((mode) => mode === normalized)
-  return match ?? 'direct'
+  return isMcpMutationMode(normalized) ? normalized : 'direct'
+}
+
+export function collectMcpExposureWarnings(env: McpExposureEnv): string[] {
+  const raw = env.OM_MCP_MUTATION_MODE
+  if (typeof raw !== 'string') return []
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized || isMcpMutationMode(normalized)) return []
+  return [
+    `Invalid OM_MCP_MUTATION_MODE "${raw}"; falling back to "direct". Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`,
+  ]
 }
 
 function resolveIncludeAgentTools(env: McpExposureEnv, cliArgs: Record<string, unknown>): boolean {

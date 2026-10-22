@@ -10,7 +10,12 @@ import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest } from './auth'
-import { describeMcpExposureConfig, filterToolsForCaller, resolveMcpExposureConfig } from './mcp-exposure'
+import {
+  collectMcpExposureWarnings,
+  describeMcpExposureConfig,
+  filterToolsForCaller,
+  resolveMcpExposureConfig,
+} from './mcp-exposure'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
@@ -237,6 +242,9 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
       describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())),
     )}`
   )
+  for (const warning of collectMcpExposureWarnings(process.env)) {
+    writeStderrLine(`[MCP Server] WARN ${warning}`)
+  }
 
   await server.connect(transport)
 

@@ -12,6 +12,7 @@ import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures }
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import {
+  collectMcpExposureWarnings,
   filterToolsForCaller,
   isToolExposed,
   describeMcpExposureConfig,
@@ -186,6 +187,39 @@ async function resolveApiKeyContext(
     }
     return null
   }
+}
+
+function buildApiKeyToolContext(
+  apiKeyRecord: ApiKey,
+  container: AwilixContainer,
+  apiKeySecret: string
+): McpToolContext {
+  return {
+    tenantId: apiKeyRecord.tenantId ?? null,
+    organizationId: apiKeyRecord.organizationId ?? null,
+    userId: apiKeyRecord.createdBy ?? null,
+    container,
+    userFeatures: [],
+    isSuperAdmin: false,
+    apiKeySecret,
+  }
+}
+
+/**
+ * Resolve the `tools/list` principal for an API key secret exactly as the HTTP server does for a
+ * request without a session token header. Returns null when the key is unknown or expired.
+ */
+export async function resolveApiKeyListCaller(
+  container: AwilixContainer,
+  apiKeySecret: string
+): Promise<McpExposureCaller | null> {
+  const em = container.resolve<EntityManager>('em')
+  const apiKeyRecord = await findApiKeyBySecret(em, apiKeySecret)
+  if (!apiKeyRecord) return null
+  const toolContext = buildApiKeyToolContext(apiKeyRecord, container, apiKeySecret)
+  const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext)
+  const listContext = apiKeyContext ?? toolContext
+  return { features: listContext.userFeatures, isSuperAdmin: listContext.isSuperAdmin }
 }
 
 /**
@@ -527,15 +561,7 @@ export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOption
 
     // Create base tool context using API key's tenant/org scope
     // Session tokens can override with user-specific permissions
-    const toolContext: McpToolContext = {
-      tenantId: apiKeyRecord.tenantId ?? null,
-      organizationId: apiKeyRecord.organizationId ?? null,
-      userId: apiKeyRecord.createdBy ?? null,
-      container,
-      userFeatures: [],
-      isSuperAdmin: false,
-      apiKeySecret: providedApiKey,
-    }
+    const toolContext = buildApiKeyToolContext(apiKeyRecord, container, providedApiKey)
 
     try {
       const mcpServer = await createMcpServerForRequest(
@@ -611,6 +637,9 @@ export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOption
 
 function logExposureConfig(exposureConfig: McpExposureConfig): void {
   logger.info('MCP exposure config', describeMcpExposureConfig(exposureConfig, listRegistryTools()))
+  for (const warning of collectMcpExposureWarnings(process.env)) {
+    logger.warn(warning)
+  }
 }
 
 /**

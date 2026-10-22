@@ -1,5 +1,7 @@
 import {
+  collectMcpExposureWarnings,
   filterToolsForCaller,
+  isMcpMutationMode,
   isToolExposed,
   matchesToolPattern,
   resolveMcpExposureConfig,
@@ -103,6 +105,32 @@ describe('resolveMcpExposureConfig', () => {
 
   it('normalizes mutation mode case', () => {
     expect(resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: ' DENY ' }, {}).mutationMode).toBe('deny')
+  })
+})
+
+describe('isMcpMutationMode', () => {
+  it('accepts only the known modes', () => {
+    expect(isMcpMutationMode('direct')).toBe(true)
+    expect(isMcpMutationMode('deny')).toBe(true)
+    expect(isMcpMutationMode('approval')).toBe(true)
+    expect(isMcpMutationMode('aproval')).toBe(false)
+    expect(isMcpMutationMode('APPROVAL')).toBe(false)
+    expect(isMcpMutationMode(true)).toBe(false)
+  })
+})
+
+describe('collectMcpExposureWarnings', () => {
+  it('returns no warnings for unset, blank or valid env mutation modes', () => {
+    expect(collectMcpExposureWarnings({})).toEqual([])
+    expect(collectMcpExposureWarnings({ OM_MCP_MUTATION_MODE: '  ' })).toEqual([])
+    expect(collectMcpExposureWarnings({ OM_MCP_MUTATION_MODE: ' Approval ' })).toEqual([])
+  })
+
+  it('reports an invalid env mutation mode with the allowed values', () => {
+    const warnings = collectMcpExposureWarnings({ OM_MCP_MUTATION_MODE: 'aproval' })
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('OM_MCP_MUTATION_MODE "aproval"')
+    expect(warnings[0]).toContain('direct, deny, approval')
   })
 })
 
