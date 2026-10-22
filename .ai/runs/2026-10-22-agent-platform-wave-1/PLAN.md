@@ -44,7 +44,7 @@
 | 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | done | 4b42bc23e |
 | 5 | 5.4 | Record AO native trace tool calls through the extraction helper | dispatch | done | 1ae775ef3 |
 | 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | done | 757a4267b |
-| 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | todo | — |
+| 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | done | 6b67a61c2 |
 | 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | todo | — |
 | 6 | 6.4 | Add eval gate report CLI flags and exit codes | dispatch | todo | — |
 | 6 | 6.5 | Add the eval run report route and download menu | dispatch | todo | — |
