@@ -10,7 +10,7 @@ runs:
   steps:
     - name: Setup Node.js
       id: node
-      uses: actions/setup-node@v7
+      uses: __OM_ACTION_SETUP_NODE__
       with:
 #@if nodeVersionFile
         node-version-file: __OM_NODE_VERSION_FILE__
@@ -32,7 +32,7 @@ runs:
       run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
 
     - name: Cache Yarn packages
-      uses: actions/cache@v6
+      uses: __OM_ACTION_CACHE__
       with:
         path: ${{ steps.yarn-cache.outputs.dir }}
         key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
@@ -42,7 +42,7 @@ runs:
     # byte-for-byte what `yarn install --immutable` would produce.
     - name: Cache node_modules
       id: node-modules
-      uses: actions/cache@v6
+      uses: __OM_ACTION_CACHE__
       with:
         path: node_modules
         key: node-modules-${{ runner.os }}-node${{ steps.node.outputs.node-version }}-${{ hashFiles('yarn.lock', 'package.json') }}

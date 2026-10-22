@@ -29,42 +29,47 @@ env:
 
 jobs:
   # ── Change detection ────────────────────────────────────────────────────────
-  # Decides which conditional jobs run. A pull request is compared with its
-  # base (HEAD^1 of the merge commit); a push with the previous tip.
+  # Decides which conditional jobs run and which commit is the "before" state
+  # that the audit, secret scan and SAST compare against: the base of a pull
+  # request, or the previous tip of a pushed branch.
   changes:
     name: Detect changes
     runs-on: __OM_RUNNER__
     timeout-minutes: 5
     outputs:
+      base: ${{ steps.diff.outputs.base }}
       dependencies: ${{ steps.diff.outputs.dependencies }}
       docker: ${{ steps.diff.outputs.docker }}
+      workflows: ${{ steps.diff.outputs.workflows }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Classify changed files
         id: diff
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED=$(git diff --name-only HEAD^1 HEAD)
-          else
-            BEFORE="${{ github.event.before }}"
-            if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
-              CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
-            else
-              git fetch --no-tags --depth=1 origin "$BEFORE" || true
-              if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-                CHANGED=$(git diff --name-only "$BEFORE" HEAD)
-              else
-                CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
-              fi
-            fi
+          BASE=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE="$PR_BASE_SHA"
+          elif [ -n "$PUSH_BEFORE_SHA" ] && ! [[ "$PUSH_BEFORE_SHA" =~ ^0+$ ]] && git cat-file -e "$PUSH_BEFORE_SHA^{commit}" 2>/dev/null; then
+            BASE="$PUSH_BEFORE_SHA"
           fi
-          printf 'Changed files:\n%s\n' "$CHANGED"
+          if [ -n "$BASE" ]; then
+            CHANGED=$(git diff --name-only "$BASE" HEAD)
+          else
+            CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          printf 'Compared with: %s\nChanged files:\n%s\n' "${BASE:-<none, first push>}" "$CHANGED"
 
           classify() {
             if printf '%s\n' "$CHANGED" | grep -Eq "$2"; then
@@ -74,9 +79,10 @@ jobs:
             fi
           }
           classify dependencies '(^|/)(package\.json|yarn\.lock|\.yarnrc\.yml)$|^scripts/ci/audit-ci'
-          classify docker '^(Dockerfile|\.dockerignore|docker/|package\.json$|yarn\.lock$|\.yarnrc\.yml$|next\.config\.)'
+          classify docker '^(Dockerfile|\.dockerignore|\.trivyignore|docker/|package\.json$|yarn\.lock$|\.yarnrc\.yml$|next\.config\.)'
+          classify workflows '^\.github/'
 
-  # ── Dependency audit ────────────────────────────────────────────────────────
+  # ── Dependency audit (SCA) ──────────────────────────────────────────────────
   # Runs only when dependencies change, and fails only on advisories the change
   # INTRODUCES (compared with the base lockfile). Advisories already present on
   # the base branch are owned by the nightly .github/workflows/audit.yml, which
@@ -89,12 +95,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: __OM_ACTION_SETUP_NODE__
         with:
 #@if nodeVersionFile
           node-version-file: __OM_NODE_VERSION_FILE__
@@ -103,36 +110,156 @@ jobs:
           node-version: '__OM_NODE_VERSION__'
 #@endif
 
-      - name: Resolve audit baseline lockfile
-        id: audit-baseline
-        shell: bash
-        run: |
-          set -uo pipefail
-          BASELINE="$RUNNER_TEMP/baseline-yarn.lock"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="HEAD^1"
-          else
-            BASE_REF="${{ github.event.before }}"
-            if [ -n "$BASE_REF" ] && ! [[ "$BASE_REF" =~ ^0+$ ]]; then
-              git fetch --no-tags --depth=1 origin "$BASE_REF" || true
-            else
-              BASE_REF=""
-            fi
-          fi
-          if [ -n "$BASE_REF" ] && git show "$BASE_REF:yarn.lock" > "$BASELINE" 2>/dev/null; then
-            echo "args=--baseline $BASELINE" >> "$GITHUB_OUTPUT"
-            echo "Auditing against the baseline yarn.lock from $BASE_REF."
-          else
-            echo "args=" >> "$GITHUB_OUTPUT"
-            echo "::notice::No baseline yarn.lock available — auditing strictly."
-          fi
-
       # The audit reads yarn.lock and queries the npm advisory database directly,
       # so it needs no `yarn install`. It fails closed when advisory data cannot
       # be fetched. Justified exceptions live in scripts/ci/audit-ci-allowlist.json.
       - name: Audit dependencies for known CVEs
-        run: node scripts/ci/audit-ci.mjs --severity __OM_AUDIT_SEVERITY__ ${{ steps.audit-baseline.outputs.args }}
+        shell: bash
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          set -uo pipefail
+          ARGS=()
+          if [ -n "$BASE" ] && git show "$BASE:yarn.lock" > "$RUNNER_TEMP/baseline-yarn.lock" 2>/dev/null; then
+            echo "Auditing against the baseline yarn.lock from $BASE."
+            ARGS=(--baseline "$RUNNER_TEMP/baseline-yarn.lock")
+          else
+            echo "::notice::No baseline yarn.lock available, auditing strictly."
+          fi
+          node scripts/ci/audit-ci.mjs --severity __OM_AUDIT_SEVERITY__ "${ARGS[@]}"
 
+#@if secrets
+  # ── Secret scan ─────────────────────────────────────────────────────────────
+  # Gitleaks scans every commit the change adds — not just the final tree — so
+  # a key committed and then deleted in a later commit is still caught. The
+  # nightly .github/workflows/security.yml scans the full history.
+  secrets:
+    name: Secret scan
+    needs: changes
+    runs-on: __OM_RUNNER__
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Gitleaks
+        uses: ./.github/actions/gitleaks
+
+      - name: Scan new commits for secrets
+        shell: bash
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "$BASE" ]; then
+            echo "Scanning commits $BASE..HEAD."
+            ARGS=(--log-opts="$BASE..HEAD")
+          else
+            echo "No base commit, scanning the full history."
+          fi
+          "$RUNNER_TEMP/gitleaks-bin/gitleaks" git --no-banner --redact --verbose "${ARGS[@]}" .
+
+#@endif
+#@if sast
+  # ── Static analysis (SAST) ──────────────────────────────────────────────────
+  # Semgrep over the app code in src/. Fails only on findings the change
+  # INTRODUCES (`--baseline-commit`):
+  #   • Open Mercato rules (scripts/ci/semgrep/open-mercato.yml), every severity;
+  #   • Semgrep registry `p/default`, ERROR severity only (its warnings are
+  #     mostly noise on Next.js code).
+  # Silence a reviewed false positive with `// nosemgrep: <rule-id>` and a reason.
+  sast:
+    name: Static analysis
+    needs: changes
+    runs-on: __OM_RUNNER__
+    timeout-minutes: 20
+#@if codeScanning
+    permissions:
+      contents: read
+      security-events: write
+#@endif
+    steps:
+      - name: Checkout repository
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Semgrep
+        shell: bash
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          SEMGREP_IMAGE: __OM_SEMGREP_IMAGE__
+        run: |
+          set -uo pipefail
+          mkdir -p semgrep-sarif
+          BASELINE=()
+          if [ -n "$BASE" ]; then
+            echo "Reporting only findings introduced since $BASE."
+            BASELINE=(--baseline-commit "$BASE")
+          fi
+          run_semgrep() {
+            docker run --rm -v "$PWD:/src" -w /src \
+              -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src \
+              "$SEMGREP_IMAGE" semgrep scan --metrics=off --error \
+              --exclude '**/__tests__/**' --exclude '**/__integration__/**' \
+              --exclude '*.test.*' --exclude '*.spec.*' \
+              "${BASELINE[@]}" "$@" src
+          }
+          STATUS=0
+          echo "::group::Open Mercato rules"
+          run_semgrep --config scripts/ci/semgrep/open-mercato.yml --sarif-output=semgrep-sarif/open-mercato.sarif || STATUS=1
+          echo "::endgroup::"
+          echo "::group::Semgrep registry p/default (ERROR severity)"
+          run_semgrep --config p/default --severity ERROR --sarif-output=semgrep-sarif/default.sarif || STATUS=1
+          echo "::endgroup::"
+          exit "$STATUS"
+
+#@if codeScanning
+      - name: Upload Semgrep results to code scanning
+        if: always()
+        uses: __OM_ACTION_UPLOAD_SARIF__
+        with:
+          sarif_file: semgrep-sarif
+          category: semgrep
+
+#@endif
+#@endif
+#@if workflowLint
+  # ── Workflow security ───────────────────────────────────────────────────────
+  # zizmor audits the GitHub Actions workflows themselves: expression
+  # injection, over-broad token permissions, credential persistence, cache
+  # poisoning, unpinned actions. Runs when .github/ changes, and on pushes.
+  workflow-lint:
+    name: Workflow security
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.workflows == 'true'
+    runs-on: __OM_RUNNER__
+    timeout-minutes: 10
+#@if codeScanning
+    permissions:
+      contents: read
+      security-events: write
+#@endif
+    steps:
+      - name: Checkout repository
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: __OM_ACTION_ZIZMOR__
+        with:
+          inputs: .github
+          version: '__OM_ZIZMOR_VERSION__'
+          min-severity: medium
+          advanced-security: __OM_CODE_SCANNING__
+
+#@endif
 #@if lint
   # ── Lint ────────────────────────────────────────────────────────────────────
   # Static analysis needs no generated files, so it fails fast in parallel.
@@ -142,7 +269,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          persist-credentials: false
 
       - name: Setup Node and dependencies
         uses: ./.github/actions/setup
@@ -160,7 +289,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          persist-credentials: false
 
       - name: Setup Node and dependencies
         uses: ./.github/actions/setup
@@ -196,7 +327,7 @@ jobs:
 
 #@endif
 #@if timeBombs
-      # Fails on tests that assert a hard-coded future date as "still valid" —
+      # Fails on tests that assert a hard-coded future date as "still valid":
       # they pass today and turn red on an unrelated pull request once that date
       # passes. Exceptions live in .ai/time-bomb-allowlist.json.
       - name: Check for time-bomb test literals
@@ -228,7 +359,9 @@ jobs:
       OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          persist-credentials: false
 
       - name: Detect integration specs
         id: specs
@@ -237,7 +370,7 @@ jobs:
           COUNT=$( { find src/modules -type d -name __integration__ -prune -exec find {} -name '*.spec.ts' \; 2>/dev/null; find .ai/qa/tests -name '*.spec.ts' 2>/dev/null; } | wc -l | tr -d ' ')
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
           if [ "$COUNT" = "0" ]; then
-            echo "::notice::No integration specs found (src/modules/**/__integration__/*.spec.ts or .ai/qa/tests/**/*.spec.ts) — skipping."
+            echo "::notice::No integration specs found (src/modules/**/__integration__/*.spec.ts or .ai/qa/tests/**/*.spec.ts), skipping."
           else
             echo "Found $COUNT integration spec file(s)."
           fi
@@ -246,27 +379,9 @@ jobs:
         if: steps.specs.outputs.count != '0'
         uses: ./.github/actions/setup
 
-      - name: Resolve Playwright version
-        if: steps.specs.outputs.count != '0'
-        id: playwright
-        shell: bash
-        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browsers
-        if: steps.specs.outputs.count != '0'
-        id: playwright-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-
       - name: Install Playwright browser
-        if: steps.specs.outputs.count != '0' && steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Install Playwright system dependencies
-        if: steps.specs.outputs.count != '0' && steps.playwright-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
+        if: steps.specs.outputs.count != '0'
+        uses: ./.github/actions/playwright
 
       - name: Run ephemeral integration tests
         if: steps.specs.outputs.count != '0'
@@ -274,7 +389,7 @@ jobs:
 
       - name: Upload integration test report
         if: failure() && steps.specs.outputs.count != '0'
-        uses: actions/upload-artifact@v7
+        uses: __OM_ACTION_UPLOAD_ARTIFACT__
         with:
           name: integration-test-results
           path: .ai/qa/test-results
@@ -295,20 +410,38 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
+        with:
+          persist-credentials: false
 
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: __OM_ACTION_SETUP_BUILDX__
 
       - name: Build production image
-        uses: docker/build-push-action@v7
+        uses: __OM_ACTION_BUILD_PUSH__
         with:
           context: .
           file: __OM_DOCKERFILE__
           push: false
+          load: true
+          tags: app:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+#@if imageScan
+      # Trivy covers what the npm audit cannot see: OS packages in the base
+      # image. Fails on HIGH/CRITICAL vulnerabilities that have a fix available.
+      # npm packages inside the image are left to the dependency audit; the
+      # nightly security workflow scans both. Exceptions: .trivyignore.
+      - name: Scan image OS packages
+        shell: bash
+        env:
+          TRIVY_IMAGE: __OM_TRIVY_IMAGE__
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" -w /work "$TRIVY_IMAGE" \
+            image --no-progress --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --pkg-types os app:ci
+
+#@endif
 #@endif
   # ── Aggregate verdict ───────────────────────────────────────────────────────
   # The one check to mark as required in branch protection. A skipped job
@@ -322,7 +455,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Evaluate job results
-        uses: actions/github-script@v9
+        uses: __OM_ACTION_GITHUB_SCRIPT__
         env:
           NEEDS: ${{ toJSON(needs) }}
         with:

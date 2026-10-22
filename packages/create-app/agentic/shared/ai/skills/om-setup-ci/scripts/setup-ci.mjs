@@ -21,14 +21,44 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const GENERATOR_ID = 'om-setup-ci'
-export const TEMPLATE_VERSION = 1
+export const TEMPLATE_VERSION = 2
 export const MANIFEST_PATH = '.github/om-ci.json'
 export const SUPPORTED_PROVIDERS = ['github']
 
 const SKILL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const TEMPLATES_ROOT = path.join(SKILL_ROOT, 'templates')
 
+// Every third-party action and tool is pinned to an immutable reference: actions
+// to a commit SHA (Dependabot keeps them current through the trailing version
+// comment), container images to a digest, the Gitleaks binary to a checksum.
+// Each pinned release was at least two weeks old when it was chosen.
+export const ACTIONS = {
+  CHECKOUT: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+  SETUP_NODE: 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0',
+  CACHE: 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0',
+  UPLOAD_ARTIFACT: 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2',
+  GITHUB_SCRIPT: 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0',
+  SETUP_BUILDX: 'docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1',
+  BUILD_PUSH: 'docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0',
+  ZIZMOR: 'zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4',
+  CODEQL_INIT: 'github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2',
+  CODEQL_ANALYZE: 'github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2',
+  UPLOAD_SARIF: 'github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2',
+}
+
+export const TOOLS = {
+  GITLEAKS_VERSION: '8.30.1',
+  GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb',
+  SEMGREP_IMAGE: 'semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3',
+  TRIVY_IMAGE: 'aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa',
+  ZAP_IMAGE: 'zaproxy/zap-stable:2.17.0@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6',
+  ZIZMOR_VERSION: '1.30.1',
+}
+
 export const OPTIONAL_CHECKS = [
+  { id: 'secrets', label: 'Secret scan (Gitleaks)' },
+  { id: 'sast', label: 'Static analysis (Semgrep)' },
+  { id: 'workflowLint', label: 'Workflow security (zizmor)' },
   { id: 'lint', label: 'Lint', script: 'lint' },
   { id: 'typecheck', label: 'Typecheck', script: 'typecheck' },
   { id: 'dsCheck', label: 'Design-system check', script: 'ds:check' },
@@ -37,26 +67,40 @@ export const OPTIONAL_CHECKS = [
   { id: 'build', label: 'Production build', script: 'build' },
   { id: 'integration', label: 'Integration tests', script: 'test:integration:ephemeral' },
   { id: 'docker', label: 'Docker image build' },
+  { id: 'imageScan', label: 'Image scan (Trivy)' },
+  { id: 'codeScanning', label: 'CodeQL + code-scanning uploads', defaultOn: false },
+  { id: 'dast', label: 'Nightly dynamic scan (OWASP ZAP)', script: 'test:integration:ephemeral:start', defaultOn: false },
 ]
 
 export const OPTIONAL_FILES = [
   { id: 'scheduledAudit', label: 'Nightly dependency audit' },
+  { id: 'scheduledSecurity', label: 'Nightly security scan' },
   { id: 'dependabot', label: 'Dependabot for GitHub Actions' },
 ]
 
-const FLAG_NAMES = Object.fromEntries(
-  [...OPTIONAL_CHECKS, ...OPTIONAL_FILES].map((entry) => [entry.id.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`), entry.id]),
-)
+const isDefaultOn = (entry) => entry.defaultOn !== false
+
+const flagName = (id) => id.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)
+
+const FLAG_NAMES = Object.fromEntries([...OPTIONAL_CHECKS, ...OPTIONAL_FILES].map((entry) => [flagName(entry.id), entry.id]))
 
 const REMOVABLE_PATHS = new Set([
   '.github/workflows/ci.yml',
   '.github/workflows/audit.yml',
+  '.github/workflows/security.yml',
+  '.github/workflows/codeql.yml',
   '.github/actions/setup/action.yml',
+  '.github/actions/gitleaks/action.yml',
+  '.github/actions/playwright/action.yml',
   '.github/dependabot.yml',
   'scripts/ci/audit-ci.mjs',
   'scripts/ci/time-bomb-scanner.mjs',
+  'scripts/ci/semgrep/open-mercato.yml',
   'docs/ci/README.md',
 ])
+
+const SECURITY_CRON = '37 3 * * *'
+const CODEQL_CRON = '23 4 * * 1'
 
 const SEVERITIES = ['low', 'moderate', 'high', 'critical']
 const SAFE_REF = /^[A-Za-z0-9._/-]+$/
@@ -77,7 +121,8 @@ Options:
   --audit-severity <level> Lowest advisory severity that fails the audit (default: high)
   --audit-cron <expr>      Schedule of the nightly audit (default: "17 6 * * *")
   --no-<check>             Disable a check: ${Object.keys(FLAG_NAMES).join(', ')}
-  --with-<check>           Re-enable a check that a previous run disabled
+  --with-<check>           Enable a check. Off by default: code-scanning (CodeQL and SARIF uploads;
+                           needs a public repo or GitHub Code Security), dast (nightly OWASP ZAP scan)
   --dry-run                Print the plan without writing files
   --force                  Overwrite generated files that differ from the templates
   --json                   Print the result as JSON
@@ -177,15 +222,20 @@ export function detectApp(targetDir) {
       if (!available[check.id]) reasons[check.id] = `no "${check.script}" script in package.json`
     }
   }
-  available.timeBombs = true
+  for (const id of ['secrets', 'sast', 'workflowLint', 'timeBombs', 'codeScanning', 'scheduledAudit', 'scheduledSecurity', 'dependabot']) {
+    available[id] = true
+  }
   available.docker = existsSync(path.join(targetDir, 'Dockerfile'))
   if (!available.docker) reasons.docker = 'no Dockerfile at the app root'
-  if (available.integration && !hasIntegrationHarness(targetDir, packageJson)) {
-    available.integration = false
-    reasons.integration = 'missing @playwright/test or .ai/qa/tests/playwright.config.ts'
+  available.imageScan = available.docker
+  if (!available.imageScan) reasons.imageScan = 'no Dockerfile at the app root'
+  const harness = hasIntegrationHarness(targetDir, packageJson)
+  for (const id of ['integration', 'dast']) {
+    if (available[id] && !harness) {
+      available[id] = false
+      reasons[id] = 'missing @playwright/test or .ai/qa/tests/playwright.config.ts'
+    }
   }
-  available.scheduledAudit = true
-  available.dependabot = true
 
   return {
     packageJson,
@@ -229,20 +279,32 @@ export function resolveConfig(cliOptions, detected, manifest) {
   }
 
   const recordedDisabled = new Set(recorded.disabled ?? [])
+  const recordedEnabled = new Set(recorded.enabled ?? [])
+  config.enabled = []
   const features = {}
   const notes = {}
   for (const entry of [...OPTIONAL_CHECKS, ...OPTIONAL_FILES]) {
-    const requested = cliOptions.overrides[entry.id] ?? !recordedDisabled.has(entry.id)
+    const recordedChoice = isDefaultOn(entry) ? !recordedDisabled.has(entry.id) : recordedEnabled.has(entry.id)
+    const requested = cliOptions.overrides[entry.id] ?? recordedChoice
+    if (requested !== isDefaultOn(entry)) (requested ? config.enabled : config.disabled).push(entry.id)
     if (!requested) {
       features[entry.id] = false
-      notes[entry.id] = 'disabled by option'
-      config.disabled.push(entry.id)
+      notes[entry.id] = isDefaultOn(entry) ? 'disabled by option' : `off by default, enable with --with-${flagName(entry.id)}`
     } else if (!detected.available[entry.id]) {
       features[entry.id] = false
       notes[entry.id] = detected.reasons[entry.id]
     } else {
       features[entry.id] = true
     }
+  }
+  if (features.imageScan && !features.docker) {
+    features.imageScan = false
+    notes.imageScan = 'needs the Docker image build'
+  }
+  const nightlyScans = ['secrets', 'sast', 'imageScan', 'dast'].filter((id) => features[id])
+  if (features.scheduledSecurity && nightlyScans.length === 0) {
+    features.scheduledSecurity = false
+    notes.scheduledSecurity = 'no security scan is enabled'
   }
   return { config, features, notes }
 }
@@ -265,7 +327,7 @@ export function renderTemplate(text, flags, tokens) {
     if (stack.every(Boolean)) output.push(line)
   }
   if (stack.length > 0) throw new Error('template has an unclosed #@if')
-  return output.join('\n').replace(/__OM_([A-Z_]+)__/g, (match, name) => {
+  return output.join('\n').replace(/__OM_([A-Z0-9_]+)__/g, (match, name) => {
     if (!(name in tokens)) throw new Error(`template uses unknown token ${match}`)
     return tokens[name]
   })
@@ -284,8 +346,31 @@ export function buildPlan(config, features, notes, detected) {
     ? { versionFile: null, version: config.node }
     : detected.node
   const flags = { ...features, nodeVersionFile: Boolean(node.versionFile) }
-  const needs = ['changes', 'audit', features.lint && 'lint', 'validate', features.integration && 'integration', features.docker && 'docker'].filter(Boolean)
+  const needs = [
+    'changes',
+    'audit',
+    features.secrets && 'secrets',
+    features.sast && 'sast',
+    features.workflowLint && 'workflow-lint',
+    features.lint && 'lint',
+    'validate',
+    features.integration && 'integration',
+    features.docker && 'docker',
+  ].filter(Boolean)
+  const securityNeeds = [
+    features.secrets && 'secrets',
+    features.sast && 'sast',
+    features.imageScan && 'image',
+    features.dast && 'dast',
+  ].filter(Boolean)
   const tokens = {
+    ...Object.fromEntries(Object.entries(ACTIONS).map(([name, reference]) => [`ACTION_${name}`, reference])),
+    ...TOOLS,
+    DEFAULT_BRANCH: config.branches[0],
+    SECURITY_CRON,
+    CODEQL_CRON,
+    CODE_SCANNING: features.codeScanning ? 'true' : 'false',
+    SECURITY_NEEDS: securityNeeds.join(', '),
     BRANCH_LIST: config.branches.map((branch) => `      - ${branch}`).join('\n'),
     BRANCH_MATRIX: config.branches.map((branch) => `'${branch}'`).join(', '),
     BRANCHES_INLINE: config.branches.map((branch) => `\`${branch}\``).join(', '),
@@ -307,10 +392,18 @@ export function buildPlan(config, features, notes, detected) {
   const files = [
     { path: '.github/workflows/ci.yml', content: render('github/workflows/ci.yml') },
     { path: '.github/actions/setup/action.yml', content: render('github/actions/setup/action.yml') },
+    { path: '.github/workflows/codeql.yml', content: render('github/workflows/codeql.yml'), when: features.codeScanning },
+    { path: '.github/workflows/security.yml', content: render('github/workflows/security.yml'), when: features.scheduledSecurity },
+    { path: '.github/actions/gitleaks/action.yml', content: render('github/actions/gitleaks/action.yml'), when: features.secrets },
+    { path: '.github/actions/playwright/action.yml', content: render('github/actions/playwright/action.yml'), when: features.integration },
+    { path: 'scripts/ci/semgrep/open-mercato.yml', content: copy('scripts/ci/semgrep/open-mercato.yml'), when: features.sast },
+    { path: 'scripts/ci/zap-rules.tsv', content: copy('scripts/ci/zap-rules.tsv'), preserve: true, when: features.dast },
     { path: 'scripts/ci/audit-ci.mjs', content: copy('scripts/ci/audit-ci.mjs') },
     { path: 'scripts/ci/audit-ci-allowlist.json', content: copy('scripts/ci/audit-ci-allowlist.json'), preserve: true },
     { path: 'docs/ci/README.md', content: render('docs/README.md') },
   ]
+    .filter((file) => file.when !== false)
+    .map((file) => ({ path: file.path, content: file.content, preserve: file.preserve }))
   if (features.scheduledAudit) files.push({ path: '.github/workflows/audit.yml', content: render('github/workflows/audit.yml') })
   if (features.dependabot) files.push({ path: '.github/dependabot.yml', content: render('github/dependabot.yml') })
   if (features.timeBombs) files.push({ path: 'scripts/ci/time-bomb-scanner.mjs', content: copy('scripts/ci/time-bomb-scanner.mjs') })
@@ -326,6 +419,7 @@ export function buildPlan(config, features, notes, detected) {
       auditSeverity: config.auditSeverity,
       auditCron: config.auditCron,
       disabled: config.disabled,
+      enabled: config.enabled,
     },
     files: files.map((file) => file.path).sort(),
   }

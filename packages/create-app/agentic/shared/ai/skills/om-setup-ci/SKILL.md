@@ -1,6 +1,6 @@
 ---
 name: om-setup-ci
-description: Set up or refresh CI for a standalone Open Mercato app in one command — GitHub Actions workflows with dependency audit, lint, generate + clean-tree check, typecheck, design-system check, time-bomb test scan, unit tests, production build, ephemeral integration tests, Docker build, nightly audit, Dependabot, and client-facing docs. Use for "set up CI", "add GitHub Actions", "configure pipeline", "refresh CI", "skonfiguruj CI".
+description: Set up or refresh CI for a standalone Open Mercato app in one command — GitHub Actions with dependency audit, secret scan (Gitleaks), SAST (Semgrep with Open Mercato rules), workflow security (zizmor), lint, generate + clean-tree check, typecheck, design-system check, unit tests, build, ephemeral integration tests, Docker build with Trivy, nightly audit and security scans, optional CodeQL and OWASP ZAP, Dependabot, SHA-pinned actions, and client-facing docs. Use for "set up CI", "add GitHub Actions", "add security scanning", "SAST/DAST", "refresh CI", "skonfiguruj CI".
 ---
 
 # Set Up CI
@@ -14,22 +14,29 @@ One deterministic generator, `scripts/setup-ci.mjs`, does the work. Your job is 
 3. Ask the user only about what detection cannot know:
    - which branches to protect, when the detected list looks wrong;
    - whether the repository is private and the build may need a larger runner (`--runner`);
+   - whether the repository is public or has GitHub Code Security: only then offer `--with-code-scanning` (CodeQL plus SARIF uploads);
+   - whether they want the nightly OWASP ZAP scan (`--with-dast`);
    - whether to disable any check they explicitly do not want (`--no-<check>`).
-4. Run the generator with the agreed flags and no `--dry-run`. Exit code `3` means some files already exist with different content and nothing was written. Show the user the differences, then re-run with `--force` only after they agree. `scripts/ci/audit-ci-allowlist.json` is never overwritten.
-5. Run the audit locally to verify it: `node scripts/ci/audit-ci.mjs --severity high`. If it fails on existing advisories, report them; do not allowlist them yourself.
+4. Run the generator with the agreed flags and no `--dry-run`. Exit code `3` means some files already exist with different content and nothing was written. Show the user the differences, then re-run with `--force` only after they agree. `scripts/ci/audit-ci-allowlist.json` and `scripts/ci/zap-rules.tsv` are never overwritten.
+5. Run the fast checks locally to verify them: `node scripts/ci/audit-ci.mjs --severity high` and, when Docker is available, the Semgrep and Gitleaks commands from `docs/ci/README.md` → *Running the checks locally*. Report existing findings; do not suppress them yourself.
 6. Commit on a branch and open a pull request so the first run executes, following `.ai/agentic.config.json` (`om-open-pr` when installed).
-7. Tell the user to mark the `CI` check as required (`docs/ci/README.md` → Branch protection). Do not change branch protection yourself unless they ask; it is an admin change to a shared setting.
+7. Tell the user to mark the `CI` check as required and to enable secret scanning push protection (`docs/ci/README.md` → *Branch protection and repository settings*). Do not change repository settings yourself unless they ask; these are admin changes to shared settings.
 
 ## Options
 
-`--branches a,b` · `--node <v>` · `--runner <label>` · `--audit-severity low|moderate|high|critical` · `--audit-cron "<cron>"` · `--no-<check>` / `--with-<check>` for `lint`, `typecheck`, `ds-check`, `time-bombs`, `test`, `build`, `integration`, `docker`, `scheduled-audit`, `dependabot` · `--target <dir>` · `--dry-run` · `--force` · `--json`.
+`--branches a,b` · `--node <v>` · `--runner <label>` · `--audit-severity low|moderate|high|critical` · `--audit-cron "<cron>"` · `--target <dir>` · `--dry-run` · `--force` · `--json`.
+
+Checks, on by default (`--no-<check>` turns one off): `secrets`, `sast`, `workflow-lint`, `lint`, `typecheck`, `ds-check`, `time-bombs`, `test`, `build`, `integration`, `docker`, `image-scan`, `scheduled-audit`, `scheduled-security`, `dependabot`. Off by default (`--with-<check>` turns one on): `code-scanning`, `dast`.
 
 Options are saved in `.github/om-ci.json`, so a later `--force` refresh keeps them.
 
 ## Rules
 
-- Never weaken a gate to get a green first run: do not add `continue-on-error`, delete steps, or allowlist advisories. Report the failure and fix its cause.
+- Never weaken a gate to get a green first run: do not add `continue-on-error`, delete steps, or add suppressions (`nosemgrep`, `.gitleaksignore`, `.trivyignore`, allowlist entries, ZAP `IGNORE`). Report the finding and fix its cause; suppress only a confirmed false positive, with the reason written next to it, and only when the user agrees.
+- If the secret scan finds a credential, tell the user to revoke and rotate it at the provider first. Deleting the commit does not undo the leak.
 - Never put secrets in workflow files; use `${{ secrets.NAME }}`.
 - Keep deploy steps out of `ci.yml`; put them in a separate workflow triggered after `CI`.
 - If the user edits generated files, warn them that `--force` overwrites those edits.
-- `templates/docs/README.md` explains each check and why it exists. Read it before answering questions about the pipeline.
+- `templates/docs/README.md` explains each check, why it exists, and what it does not cover. Read it before answering questions about the pipeline.
+- Changing a pinned action, image or tool version: edit `ACTIONS` / `TOOLS` in `scripts/setup-ci.mjs`, choose a release at least two weeks old, pin the commit SHA, image digest or checksum, then regenerate.
+- Changing an Open Mercato Semgrep rule: update `templates/scripts/ci/semgrep/open-mercato.yml` and its annotated fixture `open-mercato.fixture.txt` (`// ruleid:` must match, `// ok:` must not), then run `node .ai/skills/om-setup-ci/scripts/verify-semgrep-rules.mjs` (needs Docker).

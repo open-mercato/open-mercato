@@ -37,12 +37,13 @@ jobs:
         branch: [__OM_BRANCH_MATRIX__]
     steps:
       - name: Checkout ${{ matrix.branch }}
-        uses: actions/checkout@v7
+        uses: __OM_ACTION_CHECKOUT__
         with:
           ref: ${{ matrix.branch }}
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: __OM_ACTION_SETUP_NODE__
         with:
 #@if nodeVersionFile
           node-version-file: __OM_NODE_VERSION_FILE__
@@ -62,11 +63,14 @@ jobs:
       - name: Publish job summary
         if: always()
         shell: bash
+        env:
+          BRANCH: ${{ matrix.branch }}
+          OUTCOME: ${{ steps.audit.outcome }}
         run: |
           {
-            echo "### Dependency audit (\`__OM_AUDIT_SEVERITY__\`+) — \`${{ matrix.branch }}\`"
+            echo "### Dependency audit (\`__OM_AUDIT_SEVERITY__\`+) — \`$BRANCH\`"
             echo
-            if [ "${{ steps.audit.outcome }}" = "success" ]; then
+            if [ "$OUTCOME" = "success" ]; then
               echo "No advisories at severity \`__OM_AUDIT_SEVERITY__\` or above."
             else
               echo '```text'
@@ -77,11 +81,13 @@ jobs:
 
       - name: Open or refresh tracking issue
         if: steps.audit.outcome == 'failure'
-        uses: actions/github-script@v9
+        uses: __OM_ACTION_GITHUB_SCRIPT__
+        env:
+          BRANCH: ${{ matrix.branch }}
         with:
           script: |
             const fs = require('fs')
-            const branch = ${{ toJSON(matrix.branch) }}
+            const branch = process.env.BRANCH
             const marker = `<!-- scheduled-dependency-audit:${branch} -->`
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
 
@@ -148,10 +154,12 @@ jobs:
 
       - name: Close tracking issue
         if: steps.audit.outcome == 'success'
-        uses: actions/github-script@v9
+        uses: __OM_ACTION_GITHUB_SCRIPT__
+        env:
+          BRANCH: ${{ matrix.branch }}
         with:
           script: |
-            const branch = ${{ toJSON(matrix.branch) }}
+            const branch = process.env.BRANCH
             const marker = `<!-- scheduled-dependency-audit:${branch} -->`
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
 
@@ -178,6 +186,8 @@ jobs:
 
       - name: Fail the job when advisories were found
         if: steps.audit.outcome == 'failure'
+        env:
+          BRANCH: ${{ matrix.branch }}
         run: |
-          echo "::error::The dependency audit reported non-allowlisted advisories at severity __OM_AUDIT_SEVERITY__ or above on ${{ matrix.branch }}."
+          echo "::error::The dependency audit reported non-allowlisted advisories at severity __OM_AUDIT_SEVERITY__ or above on $BRANCH."
           exit 1

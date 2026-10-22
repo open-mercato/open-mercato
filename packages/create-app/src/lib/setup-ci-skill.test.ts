@@ -31,6 +31,7 @@ function makeApp(options: { scripts?: Record<string, string>; dockerfile?: boole
     test: 'jest --config jest.config.cjs',
     build: 'next build',
     'test:integration:ephemeral': 'yarn mercato test:integration',
+    'test:integration:ephemeral:start': 'yarn mercato test:ephemeral',
   }
   const packageJson = {
     name: 'client-app',
@@ -80,6 +81,8 @@ test('renderTemplate keeps enabled blocks, drops disabled ones, and rejects unkn
   assert.throws(() => renderTemplate('__OM_MISSING__', {}, {}), /unknown token/)
   assert.throws(() => renderTemplate('#@if nope\n#@endif', {}, {}), /unknown flag/)
   assert.throws(() => renderTemplate('#@if on', { on: true }, {}), /unclosed/)
+  assert.equal(renderTemplate('__OM_SHA256__', {}, { SHA256: 'abc' }), 'abc')
+  assert.throws(() => renderTemplate('__OM_MISSING_SHA256__', {}, {}), /unknown token/)
 })
 
 test('generates every file with all checks enabled and no leftover template markers', async () => {
@@ -89,9 +92,13 @@ test('generates every file with all checks enabled and no leftover template mark
   for (const file of [
     '.github/workflows/ci.yml',
     '.github/workflows/audit.yml',
+    '.github/workflows/security.yml',
     '.github/actions/setup/action.yml',
+    '.github/actions/gitleaks/action.yml',
+    '.github/actions/playwright/action.yml',
     '.github/dependabot.yml',
     '.github/om-ci.json',
+    'scripts/ci/semgrep/open-mercato.yml',
     'scripts/ci/audit-ci.mjs',
     'scripts/ci/audit-ci-allowlist.json',
     'scripts/ci/time-bomb-scanner.mjs',
@@ -101,10 +108,13 @@ test('generates every file with all checks enabled and no leftover template mark
     assert.doesNotMatch(content, /__OM_[A-Z_]+__|#@if|#@endif/, `${file} still contains template markers`)
   }
   const workflow = read(appDir, '.github/workflows/ci.yml')
-  for (const step of ['yarn lint', 'yarn generate', 'yarn typecheck', 'yarn ds:check', 'yarn test --ci', 'yarn build', 'yarn test:integration:ephemeral', 'docker/build-push-action', 'audit-ci.mjs --severity high']) {
+  for (const step of ['yarn lint', 'yarn generate', 'yarn typecheck', 'yarn ds:check', 'yarn test --ci', 'yarn build', 'yarn test:integration:ephemeral', 'docker/build-push-action', 'audit-ci.mjs --severity', 'gitleaks', 'semgrep scan', 'zizmor-action', 'aquasec/trivy']) {
     assert.ok(workflow.includes(step), `ci.yml is missing "${step}"`)
   }
-  assert.match(workflow, /needs: \[changes, audit, lint, validate, integration, docker\]/)
+  assert.match(workflow, /needs: \[changes, audit, secrets, sast, workflow-lint, lint, validate, integration, docker\]/)
+  assert.equal(fs.existsSync(path.join(appDir, '.github/workflows/codeql.yml')), false)
+  assert.equal(fs.existsSync(path.join(appDir, 'scripts/ci/zap-rules.tsv')), false)
+  assert.doesNotMatch(read(appDir, '.github/workflows/security.yml'), /zap-baseline/)
   assert.match(read(appDir, '.github/actions/setup/action.yml'), /node-version: '24'/)
 })
 
@@ -113,11 +123,62 @@ test('omits checks whose scripts or files are missing and records why in the doc
   const appDir = makeApp({ scripts: { generate: 'yarn mercato generate', build: 'next build' }, dockerfile: false, playwright: false })
   assert.equal(run([], { cwd: appDir, log: () => {} }), 0)
   const workflow = read(appDir, '.github/workflows/ci.yml')
-  assert.doesNotMatch(workflow, /yarn lint|yarn typecheck|test:integration|build-push-action/)
-  assert.match(workflow, /needs: \[changes, audit, validate\]/)
+  assert.doesNotMatch(workflow, /yarn lint|yarn typecheck|test:integration|build-push-action|aquasec\/trivy/)
+  assert.match(workflow, /needs: \[changes, audit, secrets, sast, workflow-lint, validate\]/)
   const docs = read(appDir, 'docs/ci/README.md')
   assert.match(docs, /\| Lint \| disabled — no "lint" script in package\.json \|/)
   assert.match(docs, /\| Docker image build \| disabled — no Dockerfile at the app root \|/)
+  assert.match(docs, /\| Nightly dynamic scan \(OWASP ZAP\) \| disabled — off by default, enable with --with-dast \|/)
+})
+
+test('pins every third-party action to a commit SHA and keeps event data out of scripts', async () => {
+  const { run } = await loadGenerator()
+  const appDir = makeApp()
+  assert.equal(run(['--with-code-scanning', '--with-dast'], { cwd: appDir, log: () => {} }), 0)
+  const files = [
+    '.github/workflows/ci.yml',
+    '.github/workflows/audit.yml',
+    '.github/workflows/security.yml',
+    '.github/workflows/codeql.yml',
+    '.github/actions/setup/action.yml',
+    '.github/actions/gitleaks/action.yml',
+    '.github/actions/playwright/action.yml',
+  ]
+  for (const file of files) {
+    const lines = read(appDir, file).split('\n')
+    for (const line of lines) {
+      const uses = line.match(/^\s*(?:- )?uses: (\S+)/)
+      if (uses && !uses[1].startsWith('./')) {
+        assert.match(uses[1], /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/, `${file}: "${uses[1]}" is not pinned to a commit SHA`)
+        assert.match(line, /# v\d+\.\d+\.\d+$/, `${file}: "${uses[1]}" lacks its version comment`)
+      }
+      if (line.includes('${{ github.event.')) {
+        assert.match(line, /^\s*[A-Z_]+: \$\{\{|^\s*(group|cancel-in-progress):/, `${file}: event data outside env: "${line.trim()}"`)
+      }
+    }
+    assert.ok(!/actions\/checkout@/.test(read(appDir, file)) || /persist-credentials: false/.test(read(appDir, file)), `${file} keeps checkout credentials`)
+  }
+  for (const image of ['semgrep/semgrep', 'aquasec/trivy', 'zaproxy/zap-stable']) {
+    const all = files.map((file) => read(appDir, file)).join('\n')
+    assert.match(all, new RegExp(`${image.replace('/', '\\/')}:[\\w.-]+@sha256:[0-9a-f]{64}`), `${image} is not pinned to a digest`)
+  }
+  assert.match(read(appDir, '.github/workflows/ci.yml'), /security-events: write/)
+  assert.match(read(appDir, '.github/workflows/security.yml'), /zap-baseline/)
+  assert.match(read(appDir, '.github/dependabot.yml'), /default-days: 14/)
+  const manifest = JSON.parse(read(appDir, '.github/om-ci.json')) as { options: { enabled: string[] } }
+  assert.deepEqual(manifest.options.enabled.sort(), ['codeScanning', 'dast'])
+  assert.equal(run(['--force'], { cwd: appDir, log: () => {} }), 0)
+  assert.ok(fs.existsSync(path.join(appDir, '.github/workflows/codeql.yml')), 'opt-in choices must survive a --force refresh')
+})
+
+test('every Semgrep fixture annotation names a rule that exists', () => {
+  const rules = fs.readFileSync(path.join(skillRoot, 'templates', 'scripts', 'ci', 'semgrep', 'open-mercato.yml'), 'utf8')
+  const fixture = fs.readFileSync(path.join(skillRoot, 'templates', 'scripts', 'ci', 'semgrep', 'open-mercato.fixture.txt'), 'utf8')
+  const ruleIds = new Set([...rules.matchAll(/^\s+- id: (om-[a-z-]+)$/gm)].map((match) => match[1]))
+  const annotated = new Set([...fixture.matchAll(/\b(?:ruleid|ok): (om-[a-z-]+)/g)].map((match) => match[1]))
+  assert.ok(ruleIds.size >= 6)
+  assert.deepEqual([...ruleIds].filter((id) => !annotated.has(id)), [], 'every rule needs fixture coverage')
+  assert.deepEqual([...annotated].filter((id) => !ruleIds.has(id)), [], 'fixture references an unknown rule')
 })
 
 test('refuses to overwrite a locally edited file without --force, then keeps recorded options', async () => {
