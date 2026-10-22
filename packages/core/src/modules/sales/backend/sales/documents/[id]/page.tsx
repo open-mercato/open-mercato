@@ -52,6 +52,7 @@ import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/compone
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { SalesDocumentExtensionSpot, type SalesDocumentExtensionContext } from '@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -861,6 +862,8 @@ type StatusOption = {
 
 type DocumentRecord = {
   id: string
+  organizationId?: string | null
+  tenantId?: string | null
   orderNumber?: string | null
   quoteNumber?: string | null
   status?: string | null
@@ -1972,14 +1975,17 @@ export default function SalesDocumentDetailPage({
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const detailInjectionContext = React.useMemo(
+  const detailInjectionContext = React.useMemo<SalesDocumentExtensionContext<DocumentRecord>>(
     () => ({
       kind,
+      documentId: record?.id ?? null,
       record,
       formId: mutationContextId,
       resourceKind: `sales.${kind}`,
       resourceId: record?.id ?? undefined,
       retryLastMutation,
+      organizationId: record?.organizationId ?? null,
+      tenantId: record?.tenantId ?? null,
     }),
     [kind, mutationContextId, record, retryLastMutation],
   )
@@ -4684,6 +4690,12 @@ export default function SalesDocumentDetailPage({
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
+        <SalesDocumentExtensionSpot
+          surface="stage-bar"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
             <CustomerInlineEditor
@@ -4904,6 +4916,12 @@ export default function SalesDocumentDetailPage({
           />
         </div>
 
+        <SalesDocumentExtensionSpot
+          surface="closure"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="space-y-4">
           <CustomDataSection
             title={t('sales.documents.detail.customData', 'Custom data')}
