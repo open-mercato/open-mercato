@@ -32,6 +32,7 @@ const createPipelineCommand: CommandHandler<PipelineCreateInput, { pipelineId: s
       tenantId: parsed.tenantId,
       name: parsed.name,
       isDefault: parsed.isDefault ?? false,
+      stageProbabilitiesEnabled: parsed.stageProbabilitiesEnabled ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -87,6 +88,7 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
 
         if (parsed.name !== undefined) pipeline.name = parsed.name
         if (parsed.isDefault !== undefined) pipeline.isDefault = parsed.isDefault
+        if (parsed.stageProbabilitiesEnabled !== undefined) pipeline.stageProbabilitiesEnabled = parsed.stageProbabilitiesEnabled
         pipeline.updatedAt = new Date()
       },
     ], { transaction: true })

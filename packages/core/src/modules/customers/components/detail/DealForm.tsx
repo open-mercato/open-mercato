@@ -111,8 +111,8 @@ export type DealFormBaseValues = {
   companyIds?: string[]
 }
 
-type PipelineOption = { id: string; name: string; isDefault: boolean }
-type PipelineStageOption = { id: string; label: string; order: number }
+type PipelineOption = { id: string; name: string; isDefault: boolean; stageProbabilitiesEnabled?: boolean }
+type PipelineStageOption = { id: string; label: string; order: number; defaultProbability?: number | null }
 
 export type DealFormSubmitPayload = {
   base: DealFormBaseValues
@@ -213,6 +213,7 @@ function normalizePipelineOptions(options: PipelineOption[] | undefined): Pipeli
       id: option.id,
       name: option.name,
       isDefault: option.isDefault === true,
+      stageProbabilitiesEnabled: option.stageProbabilitiesEnabled === true,
     })
   }
   return Array.from(byId.values())
@@ -1047,10 +1048,17 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, values, setValue, setFormValue }) => (
         <Select
           value={typeof value === 'string' && value ? value : undefined}
-          onValueChange={(next) => setValue(next ?? '')}
+          onValueChange={(next) => {
+            setValue(next ?? '')
+            const pipeline = pipelines.find((option) => option.id === values?.pipelineId)
+            const stage = pipelineStages.find((option) => option.id === next)
+            if (pipeline?.stageProbabilitiesEnabled && typeof stage?.defaultProbability === 'number') {
+              setFormValue?.('probability', stage.defaultProbability)
+            }
+          }}
           disabled={disabled || !pipelineStages.length}
         >
           <SelectTrigger>

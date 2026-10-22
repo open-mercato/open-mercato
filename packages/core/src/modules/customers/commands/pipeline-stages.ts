@@ -59,6 +59,7 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
       pipelineId: parsed.pipelineId,
       label: parsed.label,
       order: insertOrder,
+      defaultProbability: parsed.defaultProbability ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -132,6 +133,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
       () => {
         if (parsed.label !== undefined) stage.label = parsed.label
         if (parsed.order !== undefined) stage.order = parsed.order
+        if (parsed.defaultProbability !== undefined) stage.defaultProbability = parsed.defaultProbability
         stage.updatedAt = new Date()
       },
       async () => {

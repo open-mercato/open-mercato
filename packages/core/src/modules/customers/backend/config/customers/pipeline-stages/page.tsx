@@ -29,6 +29,7 @@ type Pipeline = {
   id: string
   name: string
   isDefault: boolean
+  stageProbabilitiesEnabled?: boolean
   updatedAt?: string | null
 }
 
@@ -37,6 +38,7 @@ type PipelineStage = {
   pipelineId: string
   label: string
   order: number
+  defaultProbability?: number | null
   color: string | null
   icon: string | null
   updatedAt?: string | null
@@ -52,6 +54,14 @@ type StageDialogState =
   | { mode: 'edit'; stage: PipelineStage }
   | null
 
+function parseStageProbabilityInput(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed.length) return null
+  const parsed = Math.round(Number(trimmed))
+  if (!Number.isFinite(parsed)) return null
+  return Math.min(100, Math.max(0, parsed))
+}
+
 export default function PipelineStagesPage() {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -65,9 +75,11 @@ export default function PipelineStagesPage() {
   const [stageDialog, setStageDialog] = React.useState<StageDialogState>(null)
   const [pipelineName, setPipelineName] = React.useState('')
   const [pipelineIsDefault, setPipelineIsDefault] = React.useState(false)
+  const [pipelineStageProbabilitiesEnabled, setPipelineStageProbabilitiesEnabled] = React.useState(false)
   const [stageName, setStageName] = React.useState('')
   const [stageColor, setStageColor] = React.useState<string | null>(null)
   const [stageIcon, setStageIcon] = React.useState<string | null>(null)
+  const [stageDefaultProbability, setStageDefaultProbability] = React.useState('')
   const [saving, setSaving] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -99,6 +111,7 @@ export default function PipelineStagesPage() {
     () => pipelines.find((p) => p.id === selectedPipelineId) ?? null,
     [pipelines, selectedPipelineId],
   )
+  const stageProbabilitiesEnabled = selectedPipeline?.stageProbabilitiesEnabled === true
 
   const loadPipelines = React.useCallback(async () => {
     setLoadingPipelines(true)
@@ -150,18 +163,25 @@ export default function PipelineStagesPage() {
   function openCreatePipeline() {
     setPipelineName('')
     setPipelineIsDefault(false)
+    setPipelineStageProbabilitiesEnabled(false)
     setPipelineDialog({ mode: 'create' })
   }
 
   function openEditPipeline(pipeline: Pipeline) {
     setPipelineName(pipeline.name)
     setPipelineIsDefault(pipeline.isDefault)
+    setPipelineStageProbabilitiesEnabled(pipeline.stageProbabilitiesEnabled === true)
     setPipelineDialog({ mode: 'edit', pipeline })
   }
 
   async function savePipeline() {
     if (!pipelineName.trim()) return
     setSaving(true)
+    const pipelinePayload = {
+      name: pipelineName.trim(),
+      isDefault: pipelineIsDefault,
+      stageProbabilitiesEnabled: pipelineStageProbabilitiesEnabled,
+    }
     try {
       if (pipelineDialog?.mode === 'create') {
         let newId: string | null = null
@@ -170,7 +190,7 @@ export default function PipelineStagesPage() {
             operation: async () => {
               const result = await apiCall<{ id: string }>('/api/customers/pipelines', {
                 method: 'POST',
-                body: JSON.stringify({ name: pipelineName.trim(), isDefault: pipelineIsDefault }),
+                body: JSON.stringify(pipelinePayload),
                 headers: { 'Content-Type': 'application/json' },
               })
               if (!result.ok) {
@@ -179,7 +199,7 @@ export default function PipelineStagesPage() {
               newId = result.result?.id ?? null
             },
             context: pipelineMutationContext,
-            mutationPayload: { action: 'create', name: pipelineName.trim(), isDefault: pipelineIsDefault },
+            mutationPayload: { action: 'create', ...pipelinePayload },
           })
         } catch (err) {
           const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorCreatePipeline', 'Failed to create pipeline')
@@ -198,7 +218,7 @@ export default function PipelineStagesPage() {
                 buildOptimisticLockHeader(targetPipeline.updatedAt),
                 () => apiCall('/api/customers/pipelines', {
                   method: 'PUT',
-                  body: JSON.stringify({ id: targetPipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault }),
+                  body: JSON.stringify({ id: targetPipeline.id, ...pipelinePayload }),
                   headers: { 'Content-Type': 'application/json' },
                 }),
               )
@@ -207,7 +227,7 @@ export default function PipelineStagesPage() {
               }
             },
             context: pipelineMutationContext,
-            mutationPayload: { action: 'update', id: targetPipeline.id, name: pipelineName.trim(), isDefault: pipelineIsDefault },
+            mutationPayload: { action: 'update', id: targetPipeline.id, ...pipelinePayload },
           })
         } catch (err) {
           const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorUpdatePipeline', 'Failed to update pipeline')
@@ -267,6 +287,7 @@ export default function PipelineStagesPage() {
     setStageName('')
     setStageColor(null)
     setStageIcon(null)
+    setStageDefaultProbability('')
     setStageDialog({ mode: 'create' })
   }
 
@@ -274,17 +295,22 @@ export default function PipelineStagesPage() {
     setStageName(stage.label)
     setStageColor(stage.color)
     setStageIcon(stage.icon)
+    setStageDefaultProbability(typeof stage.defaultProbability === 'number' ? String(stage.defaultProbability) : '')
     setStageDialog({ mode: 'edit', stage })
   }
 
   async function saveStage() {
     if (!stageName.trim() || !selectedPipelineId) return
     setSaving(true)
+    const probabilityPayload = stageProbabilitiesEnabled
+      ? { defaultProbability: parseStageProbabilityInput(stageDefaultProbability) }
+      : {}
     try {
       if (stageDialog?.mode === 'create') {
         const appearancePayload = {
           ...(stageColor !== null ? { color: stageColor } : {}),
           ...(stageIcon !== null ? { icon: stageIcon } : {}),
+          ...probabilityPayload,
         }
         try {
           await runMutation({
@@ -316,7 +342,7 @@ export default function PipelineStagesPage() {
                 buildOptimisticLockHeader(targetStage.updatedAt),
                 () => apiCall('/api/customers/pipeline-stages', {
                   method: 'PUT',
-                  body: JSON.stringify({ id: targetStage.id, label: stageName.trim(), color: stageColor, icon: stageIcon }),
+                  body: JSON.stringify({ id: targetStage.id, label: stageName.trim(), color: stageColor, icon: stageIcon, ...probabilityPayload }),
                   headers: { 'Content-Type': 'application/json' },
                 }),
               )
@@ -325,7 +351,7 @@ export default function PipelineStagesPage() {
               }
             },
             context: stageMutationContext,
-            mutationPayload: { action: 'update', id: targetStage.id, label: stageName.trim(), color: stageColor, icon: stageIcon },
+            mutationPayload: { action: 'update', id: targetStage.id, label: stageName.trim(), color: stageColor, icon: stageIcon, ...probabilityPayload },
           })
         } catch (err) {
           const msg = err instanceof Error && err.message ? err.message : t('customers.config.pipelineStages.errorUpdateStage', 'Failed to update stage')
@@ -546,6 +572,11 @@ export default function PipelineStagesPage() {
                             {stage.color ? renderDictionaryColor(stage.color) : null}
                             {stage.icon ? renderDictionaryIcon(stage.icon) : null}
                             {stage.label}
+                            {stageProbabilitiesEnabled && typeof stage.defaultProbability === 'number' ? (
+                              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                {stage.defaultProbability}%
+                              </span>
+                            ) : null}
                           </span>
                           <Button variant="ghost" size="sm" onClick={() => openEditStage(stage)}>
                             {t('customers.config.pipelineStages.editStage', 'Edit')}
@@ -598,6 +629,21 @@ export default function PipelineStagesPage() {
                 />
                 {t('customers.config.pipelineStages.setAsDefault', 'Set as default pipeline')}
               </label>
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="pipeline-stage-probabilities"
+                  checked={pipelineStageProbabilitiesEnabled}
+                  onCheckedChange={(checked) => setPipelineStageProbabilitiesEnabled(checked === true)}
+                />
+                <div className="space-y-1">
+                  <label htmlFor="pipeline-stage-probabilities" className="text-sm cursor-pointer">
+                    {t('customers.pipelines.form.stageProbabilitiesEnabled', 'Use default stage probabilities')}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('customers.pipelines.form.stageProbabilitiesHelp', "Automatically set a deal's probability when it moves to a stage.")}
+                  </p>
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setPipelineDialog(null)} disabled={saving}>
@@ -632,6 +678,27 @@ export default function PipelineStagesPage() {
                   autoFocus
                 />
               </div>
+              {stageProbabilitiesEnabled ? (
+                <div className="space-y-1">
+                  <label htmlFor="stage-default-probability" className="text-sm font-medium">
+                    {t('customers.pipelines.stageForm.defaultProbability', 'Default probability (%)')}
+                  </label>
+                  <Input
+                    id="stage-default-probability"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    inputMode="numeric"
+                    value={stageDefaultProbability}
+                    onChange={(e) => setStageDefaultProbability(e.target.value)}
+                    placeholder={t('customers.pipelines.stageForm.defaultProbabilityPlaceholder', 'e.g. 40')}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('customers.pipelines.stageForm.defaultProbabilityHelp', 'Applied to deals entering this stage. Leave empty to keep the deal probability unchanged.')}
+                  </p>
+                </div>
+              ) : null}
               <AppearanceSelector
                 color={stageColor}
                 icon={stageIcon}

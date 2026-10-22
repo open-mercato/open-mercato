@@ -10,6 +10,7 @@ export type PipelineStageInfo = {
   id: string
   label: string
   order: number
+  defaultProbability?: number | null
   color: string | null
   icon: string | null
 }
