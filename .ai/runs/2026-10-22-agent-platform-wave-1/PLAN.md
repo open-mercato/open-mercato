@@ -19,7 +19,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 0 | 0.1 | Align the wave-1 specs with upstream code facts found in triage | inline | done | 54286c928 |
-| 1 | 1.1 | Add the MCP exposure config resolver and caller filter | dispatch | todo | — |
+| 1 | 1.1 | Add the MCP exposure config resolver and caller filter | dispatch | done | ae52d7624 |
 | 1 | 1.2 | Add optional mcp and agentRef fields to AiToolDefinition | dispatch:cheap | todo | — |
 | 1 | 1.3 | Filter tools/list per principal on the MCP HTTP server | dispatch:capable | todo | — |
 | 1 | 1.4 | Use the shared exposure filter in the dev and stdio MCP servers | dispatch | todo | — |
