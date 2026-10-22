@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { parsePackageNameFromSpec } from './module-package'
+import { assertModulePackageExports, parsePackageNameFromSpec } from './module-package'
 
 export type GithubModuleTarget = {
   packageName: string
@@ -20,7 +20,7 @@ function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-export function resolveGithubModuleTarget(input: string, cwd: string): GithubModuleTarget {
+export function resolveGithubModuleTarget(input: string, cwd: string, options: { moduleId?: string; enabledModules?: readonly { id: string; from?: string }[] } = {}): GithubModuleTarget {
   let normalized = input.trim()
     .replace(/^(?:(?:git\+)?https?:\/\/github\.com\/)+/i, '')
     .replace(/^github\.com\//i, '')
@@ -77,5 +77,33 @@ export function resolveGithubModuleTarget(input: string, cwd: string): GithubMod
     return match ? [match[1]] : []
   })))
   if (moduleIds.length === 0) throw new Error(`Repository ${repository} has no module descriptors in src/modules/. No package was installed.`)
+  const files = tree.tree.flatMap((entry: unknown) => {
+    const filePath = record(entry).path
+    if (typeof filePath !== 'string') return []
+    const compiledPath = /^src\/modules\/.+\.tsx?$/.test(filePath) ? filePath.replace(/^src\//, 'dist/').replace(/\.tsx?$/, '.js') : undefined
+    return compiledPath ? [filePath, compiledPath] : [filePath]
+  })
+  const requiredModuleIds = new Set([
+    ...(options.moduleId ? [options.moduleId] : moduleIds.length === 1 ? moduleIds : []),
+    ...(options.enabledModules ?? []).filter((entry) => (entry.from ?? '@open-mercato/core') === packageName).map((entry) => entry.id),
+  ])
+  const sourceCache = new Map<string, string>()
+  const readSource = (relativePath: string): string => {
+    const cached = sourceCache.get(relativePath)
+    if (cached !== undefined) return cached
+    const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/')
+    const file = record(githubApi(`repos/${repository}/contents/${encodedPath}?ref=${sha}`, cwd))
+    if (file.encoding !== 'base64' || typeof file.content !== 'string' || file.content.length > 2 * 1024 * 1024) {
+      throw new Error(`Cannot inspect module source in ${repository} at the selected commit. No package was installed.`)
+    }
+    const source = Buffer.from(file.content, 'base64').toString('utf8')
+    if (Buffer.byteLength(source, 'utf8') > 1024 * 1024) throw new Error(`Module source inspection limit exceeded in ${repository}. No package was installed.`)
+    sourceCache.set(relativePath, source)
+    return source
+  }
+  for (const moduleId of requiredModuleIds) {
+    if (!moduleIds.includes(moduleId)) throw new Error(`Repository ${repository} no longer provides enabled module "${moduleId}". No package was installed.`)
+    assertModulePackageExports(manifest, packageName, moduleId, files, readSource)
+  }
   return { packageName, packageSpec: `${packageName}@github:${repository}#${sha}`, moduleIds, locator: `github:${repository}` }
 }

@@ -196,6 +196,38 @@ describe('module-package', () => {
     expect(() => assertModulePackageExports(manifest, 'consents_candidate', 'consents', files)).not.toThrow()
   })
 
+  it('validates selective exports only for discovered entry points and leaves their private helpers private', () => {
+    const publicFiles = ['index', 'backend/tasks/page', 'frontend/consents/page', 'widgets/injection/consents/widget', 'commands/create']
+    const privateFiles = ['backend/tasks/TaskForm', 'backend/tasks/helpers', 'frontend/consents/ConsentForm', 'widgets/injection/consents/ConsentField', 'commands/index', 'commands/shared', 'commands/factory', 'commands/create.test', 'backend/__tests__/page', 'widgets/__mocks__/injection/consents/widget', 'workers/__tests__/handler', 'subscribers/__mocks__/handler']
+    const files = [...publicFiles, ...privateFiles].flatMap((file) => [
+      `src/modules/consents/${file}${file.endsWith('/page') || /TaskForm|ConsentForm|ConsentField/.test(file) ? '.tsx' : '.ts'}`,
+      `dist/modules/consents/${file}.js`,
+    ])
+    const exports = Object.fromEntries(publicFiles.map((file) => [`./modules/consents/${file}`, `./dist/modules/consents/${file}.js`]))
+
+    expect(() => assertModulePackageExports({ exports }, 'consents_candidate', 'consents', files)).not.toThrow()
+    const missingPageExport = { ...exports, './modules/consents/backend/tasks/page': null }
+    expect(() => assertModulePackageExports({ exports: missingPageExport }, 'consents_candidate', 'consents', files, () => 'export default function Page() {}')).toThrow('consents_candidate/modules/consents/backend/tasks/page')
+  })
+
+  it('uses source exports to distinguish private lowercase helpers from generated pages and HTTP handlers', () => {
+    const source = {
+      'index.ts': 'export const metadata = {}',
+      'backend/tasks/page.tsx': 'export default function Page() {}',
+      'backend/tasks/form-utils.tsx': 'export function renderLabel() {}',
+      'backend/tasks/form-utils.meta.ts': 'export const metadata = {}',
+      'api/helpers.ts': 'export function parseInput() {}',
+      'api/orders.ts': 'export { listOrders as GET }',
+    }
+    const files = Object.keys(source).flatMap((file) => [`src/modules/consents/${file}`, `dist/modules/consents/${file.replace(/\.tsx?$/, '.js')}`])
+    const exports = Object.fromEntries(['index', 'backend/tasks/page', 'api/orders'].map((file) => [`./modules/consents/${file}`, `./dist/modules/consents/${file}.js`]))
+    const readSource = jest.fn((file: string) => source[file.replace('src/modules/consents/', '') as keyof typeof source])
+    expect(() => assertModulePackageExports({ exports }, 'candidate', 'consents', files, readSource)).not.toThrow()
+    expect(() => assertModulePackageExports({ exports: { ...exports, './modules/consents/backend/tasks/page': null } }, 'candidate', 'consents', files, readSource)).toThrow('backend/tasks/page')
+    expect(() => assertModulePackageExports({ exports: { ...exports, './modules/consents/api/orders': null } }, 'candidate', 'consents', files, readSource)).toThrow('api/orders')
+    expect(() => assertModulePackageExports({ exports: { './modules/consents/index': './dist/modules/consents/index.js' } }, 'candidate', 'consents', files)).not.toThrow()
+  })
+
   it('rejects invalid manifest names instead of attributing them to an import binding', () => {
     const packageRoot = path.join(tmpDir, 'invalid-name')
     copyDir(fixturePackageRoot, packageRoot)

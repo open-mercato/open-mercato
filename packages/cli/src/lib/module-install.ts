@@ -353,7 +353,7 @@ export async function addOfficialModule(
     if (!allowThirdParty) {
       throw new Error('GitHub repository installs require --allow-third-party, independently of the declared npm package scope.')
     }
-    target = resolveGithubModuleTarget(input, resolver.getAppDir())
+    target = resolveGithubModuleTarget(input, resolver.getAppDir(), { moduleId, enabledModules: resolver.loadEnabledModules() })
     assertThirdPartyAllowed(target.packageName, allowThirdParty)
     const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
     if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {
@@ -368,7 +368,8 @@ export async function addOfficialModule(
     assertPackageName(parsedName)
     packageName = parsedName
     if (moduleId) assertNoModuleCollision(resolver, moduleId, packageName, `npm:${packageName}`)
-    target = inspectNpmModuleTarget(safePackageSpec, packageName, resolver.getAppDir())
+    const requiredModuleIds = resolver.loadEnabledModules().filter((entry) => (entry.from ?? '@open-mercato/core') === packageName).map((entry) => entry.id)
+    target = inspectNpmModuleTarget(safePackageSpec, packageName, resolver.getAppDir(), [...new Set([...(moduleId ? [moduleId] : []), ...requiredModuleIds])])
   }
   const selectedModuleId = moduleId ?? (target.moduleIds.length === 1 ? target.moduleIds[0] : undefined)
   if (!selectedModuleId || !target.moduleIds.includes(selectedModuleId)) {

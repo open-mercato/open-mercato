@@ -10,6 +10,42 @@ describe('module artifact inspection', () => {
   beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-')) })
   afterEach(() => { jest.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
 
+  it('validates selected and active modules without requiring exports for parked modules', () => {
+    const packageRoot = path.join(root, 'candidate')
+    for (const moduleId of ['alpha', 'beta']) {
+      for (const directory of ['src', 'dist']) {
+        const moduleRoot = path.join(packageRoot, directory, 'modules', moduleId)
+        fs.mkdirSync(moduleRoot, { recursive: true })
+        fs.writeFileSync(path.join(moduleRoot, directory === 'src' ? 'index.ts' : 'index.js'), 'export const metadata = {}')
+      }
+    }
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({
+      name: '@vendor/example', exports: { './modules/alpha/index': null, './modules/beta/index': './dist/modules/beta/index.js' },
+    }))
+    expect(inspectNpmModuleTarget('@vendor/example@file:./candidate', '@vendor/example', root, ['beta']).moduleIds).toEqual(['alpha', 'beta'])
+    expect(() => inspectNpmModuleTarget('@vendor/example@file:./candidate', '@vendor/example', root, ['alpha', 'beta'])).toThrow('@vendor/example/modules/alpha/index')
+  })
+
+  it.each(['directory', 'archive'])('keeps private lowercase helpers private during %s inspection', (kind) => {
+    const packageRoot = path.join(root, 'package')
+    const sources = { 'index.ts': 'export const metadata = {}', 'backend/form-utils.tsx': "throw new Error('must not execute'); export const renderLabel = () => null", 'backend/orders/page.tsx': 'export default function Page() {}' }
+    const exports = { './modules/example/index': './dist/modules/example/index.js', './modules/example/backend/orders/page': './dist/modules/example/backend/orders/page.js' }
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@vendor/example', version: '1.0.0', exports }))
+    for (const [file, content] of Object.entries(sources)) {
+      for (const relativePath of [`src/modules/example/${file}`, `dist/modules/example/${file.replace(/\.tsx?$/, '.js')}`]) {
+        fs.mkdirSync(path.dirname(path.join(packageRoot, relativePath)), { recursive: true })
+        fs.writeFileSync(path.join(packageRoot, relativePath), content)
+      }
+    }
+    if (kind === 'archive') childProcess.execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const specifier = '@vendor/example@file:./' + (kind === 'archive' ? 'candidate.tgz' : 'package')
+    expect(inspectNpmModuleTarget(specifier, '@vendor/example', root).moduleIds).toEqual(['example'])
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@vendor/example', exports: { ...exports, './modules/example/backend/orders/page': null } }))
+    if (kind === 'archive') childProcess.execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    expect(() => inspectNpmModuleTarget(specifier, '@vendor/example', root)).toThrow('backend/orders/page')
+  })
+
   it('inspects file packages without executing package scripts or writing app files', () => {
     const packageRoot = path.join(root, 'candidate')
     fs.mkdirSync(path.join(packageRoot, 'src/modules/example'), { recursive: true })

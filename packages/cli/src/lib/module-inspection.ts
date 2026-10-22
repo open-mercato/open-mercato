@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import spawn from 'cross-spawn'
-import { assertModulePackageExports, discoverModulesInPackage } from './module-package'
+import { assertModulePackageExports } from './module-package'
 
 export type InspectedModuleTarget = {
   packageName: string
@@ -19,20 +19,25 @@ function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function inspectFiles(manifest: Record<string, unknown>, packageName: string, files: string[]): ArtifactInspection {
+function inspectFiles(manifest: Record<string, unknown>, packageName: string, files: string[], requiredModuleIds: readonly string[], readSource: (relativePath: string) => string): ArtifactInspection {
   if (manifest.name !== packageName) throw new Error(`Inspected package does not match "${packageName}". No package was installed.`)
   const moduleIds = [...new Set(files.flatMap((file) => {
     const match = /^src\/modules\/([a-z0-9]+(?:_[a-z0-9]+)*)\/index\.ts$/.exec(file)
     return match && files.includes(`dist/modules/${match[1]}/index.js`) ? [match[1]] : []
   }))]
-  for (const moduleId of moduleIds) assertModulePackageExports(manifest, packageName, moduleId, files)
+  const checkedModuleIds = requiredModuleIds.length ? requiredModuleIds : moduleIds.length === 1 ? moduleIds : []
+  for (const moduleId of checkedModuleIds) {
+    if (!moduleIds.includes(moduleId)) throw new Error(`Package "${packageName}" is missing source or compiled descriptors for "${moduleId}". No package was installed.`)
+    assertModulePackageExports(manifest, packageName, moduleId, files, readSource)
+  }
+  if (moduleIds.length === 0) throw new Error(`Package "${packageName}" is missing source or compiled module descriptors. Build the package before retrying. No package was installed.`)
   return { moduleIds, ...(typeof manifest.version === 'string' ? { version: manifest.version } : {}) }
 }
 
-function inspectArchive(archive: string, packageName: string): ArtifactInspection {
+function inspectArchive(archive: string, packageName: string, requiredModuleIds: readonly string[]): ArtifactInspection {
   const manifest = record(JSON.parse(execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8', timeout: 15_000 })))
   const files = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', timeout: 15_000 }).split('\n').filter((file) => file.startsWith('package/')).map((file) => file.slice('package/'.length))
-  return inspectFiles(manifest, packageName, files)
+  return inspectFiles(manifest, packageName, files, requiredModuleIds, (relativePath) => execFileSync('tar', ['-xOf', archive, `package/${relativePath}`], { encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024 }))
 }
 
 function packageFiles(packageRoot: string, relativeDir = ''): string[] {
@@ -91,15 +96,13 @@ function yarnNpmConfiguration(appDir: string, packageName: string, temporaryDir:
   return ['--userconfig', configPath, '--registry', registry, ...(scope ? [`--@${scope}:registry=${registry}`] : [])]
 }
 
-export function inspectNpmModuleTarget(packageSpec: string, packageName: string, appDir: string): InspectedModuleTarget {
+export function inspectNpmModuleTarget(packageSpec: string, packageName: string, appDir: string, requiredModuleIds: readonly string[] = []): InspectedModuleTarget {
   const filePrefix = `${packageName}@file:`
   if (packageSpec.startsWith(filePrefix)) {
     const packageRoot = path.resolve(appDir, packageSpec.slice(filePrefix.length))
-    if (fs.statSync(packageRoot).isFile()) return { packageName, packageSpec, ...inspectArchive(packageRoot, packageName), locator: `npm:${packageName}` }
+    if (fs.statSync(packageRoot).isFile()) return { packageName, packageSpec, ...inspectArchive(packageRoot, packageName, requiredModuleIds), locator: `npm:${packageName}` }
     const manifest = record(JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')))
-    const inspected = inspectFiles(manifest, packageName, packageFiles(packageRoot))
-    const declaredIds = discoverModulesInPackage(packageRoot).map((entry) => entry.moduleId)
-    if (declaredIds.some((moduleId) => !inspected.moduleIds.includes(moduleId))) throw new Error(`Package "${packageName}" is missing source or compiled module descriptors. Build the package before retrying. No package was installed.`)
+    const inspected = inspectFiles(manifest, packageName, packageFiles(packageRoot), requiredModuleIds, (relativePath) => fs.readFileSync(path.join(packageRoot, relativePath), 'utf8'))
     return { packageName, packageSpec, ...inspected, locator: `npm:${packageName}` }
   }
 
@@ -114,7 +117,7 @@ export function inspectNpmModuleTarget(packageSpec: string, packageName: string,
     const packed = record(Array.isArray(packages) ? packages[0] : undefined)
     if (packed.name !== packageName || typeof packed.version !== 'string' || !/^[0-9A-Za-z.+-]+$/.test(packed.version)
       || typeof packed.filename !== 'string' || path.basename(packed.filename) !== packed.filename) throw new Error('Invalid packed manifest')
-    const inspected = inspectArchive(path.join(temporaryDir, packed.filename), packageName)
+    const inspected = inspectArchive(path.join(temporaryDir, packed.filename), packageName, requiredModuleIds)
     if (inspected.version !== packed.version) throw new Error('Packed artifact version disagrees with resolution')
     return { packageName, packageSpec, ...inspected, locator: `npm:${packageName}` }
   } catch {

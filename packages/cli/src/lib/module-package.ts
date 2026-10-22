@@ -4,6 +4,8 @@ import { createRequire } from 'node:module'
 import ts from 'typescript-js'
 import type { PackageResolver } from './resolver'
 import { normalizeModuleLocator } from '@open-mercato/shared/modules/module-locators'
+import { sourceHasDefaultExport, sourceExportedHttpMethods } from './generators/source-exports'
+import { MODULE_CODE_EXTENSIONS, SCAN_CONFIGS, stripModuleCodeExtension, type ScanConfig } from './generators/scanner'
 
 type PackageJsonRecord = {
   name?: string
@@ -378,14 +380,41 @@ function resolvePackageSubpathExport(exports: unknown, subpath: string): string 
   return undefined
 }
 
-function isGeneratedModuleImport(relativePath: string): boolean {
-  const basename = relativePath.replace(/\.(?:[cm]?js|jsx|ts|tsx)$/, '')
-  if (!relativePath.includes('/')) {
-    return new Set(['index', 'acl', 'setup', 'cli', 'runtime', 'ce', 'search', 'events', 'notifications', 'notifications.client', 'notifications.handlers', 'translations', 'encryption', 'ai-tools', 'ai-agents', 'di']).has(basename)
+function isGeneratedModuleImport(relativePath: string, moduleFiles: readonly string[], readSource?: (relativePath: string) => string): boolean {
+  const segments = relativePath.split('/')
+  if (segments.some((segment) => segment === '__tests__' || segment === '__mocks__')) return false
+  const fileName = segments[segments.length - 1]
+  if (fileName.endsWith('.d.ts') || /\.(?:test|spec)\.[jt]sx?$/.test(fileName)) return false
+  const basename = stripModuleCodeExtension(fileName)
+  if (segments.length === 1) {
+    return new Set(['index', 'acl', 'setup', 'cli', 'runtime', 'ce', 'search', 'events', 'notifications', 'notifications.client', 'notifications.handlers', 'translations', 'encryption', 'ai-tools', 'ai-agents', 'di', 'integration', 'vector']).has(basename)
   }
-  return /^(?:api|backend|frontend|portal|subscribers|workers|widgets|commands)\//.test(relativePath)
-    || /^(?:data|db)\/entities\.(?:[cm]?js|jsx|ts|tsx)$/.test(relativePath)
-    || /^i18n\/[^/]+\.json$/.test(relativePath)
+  if (['widgets/components', 'widgets/injection-table', 'api/interceptors', 'data/extensions', 'data/fields'].includes(stripModuleCodeExtension(relativePath))) return true
+  if (/^commands\//.test(relativePath)) {
+    return MODULE_CODE_EXTENSIONS.some((extension) => fileName.endsWith(extension)) && !['index', 'shared', 'factory'].includes(basename)
+  }
+  const scanConfigs: readonly ScanConfig[] = Object.values(SCAN_CONFIGS)
+  for (const config of scanConfigs) {
+    if (!relativePath.startsWith(`${config.folder}/`)) continue
+    const relativeSegments = relativePath.slice(config.folder.length + 1).split('/')
+    if (relativeSegments.slice(0, -1).some((segment) => config.skipDirs?.(segment))) continue
+    if (!config.include(fileName)) continue
+    if (config.folder === 'frontend' || config.folder === 'backend') return readSource ? sourceHasDefaultExport(relativePath, readSource(relativePath)) : false
+    if (config.folder === 'api') return readSource ? sourceExportedHttpMethods(readSource(relativePath)).length > 0 : false
+    return true
+  }
+  if (/^(?:frontend|backend)\//.test(relativePath) && (basename === 'meta' || basename.endsWith('.meta'))) {
+    const folder = segments.slice(0, -1).join('/')
+    const pageConfig = segments[0] === 'frontend' ? SCAN_CONFIGS.frontendPages : SCAN_CONFIGS.backendPages
+    const candidates = moduleFiles.filter((file) => file.startsWith(`${folder}/`) && !file.slice(folder.length + 1).includes('/') && pageConfig.include(path.posix.basename(file)))
+    return candidates.some((candidate) => (basename === 'meta' || basename === `${stripModuleCodeExtension(path.posix.basename(candidate))}.meta`) && Boolean(readSource && sourceHasDefaultExport(candidate, readSource(candidate))))
+  }
+  if (/^(?:data|db)\/(?:entities\.override|entities|schema)\.[jt]sx?$/.test(relativePath)) {
+    const selected = ['data', 'db'].flatMap((folder) => ['entities.override', 'entities', 'schema'].flatMap((candidate) => MODULE_CODE_EXTENSIONS.map((extension) => `${folder}/${candidate}${extension}`)))
+      .find((candidate) => moduleFiles.includes(candidate))
+    return relativePath === selected
+  }
+  return /^i18n\/[^/]+\.json$/.test(relativePath)
 }
 
 export function isModulePackageExportError(error: unknown): boolean {
@@ -397,15 +426,30 @@ export function assertModulePackageExports(
   binding: string,
   moduleId: string,
   packageFiles: readonly string[],
+  readSource?: (relativePath: string) => string,
 ): void {
   if (manifest.exports === undefined) return
   const normalizedFiles = new Set(packageFiles.map((file) => file.replaceAll('\\', '/').replace(/^\.\//, '')))
-  const prefix = `dist/modules/${moduleId}/`
-  for (const file of normalizedFiles) {
-    if (!file.startsWith(prefix)) continue
-    const relativePath = file.slice(prefix.length)
-    if (!isGeneratedModuleImport(relativePath) || !/\.(?:[cm]?js|jsx|json)$/.test(relativePath)) continue
-    const publicPath = `./modules/${moduleId}/${relativePath.replace(/\.(?:[cm]?js|jsx)$/, '')}`
+  const sourcePrefix = `src/modules/${moduleId}/`
+  const distPrefix = `dist/modules/${moduleId}/`
+  const sourceFiles = [...normalizedFiles].filter((file) => file.startsWith(sourcePrefix)).map((file) => file.slice(sourcePrefix.length))
+  const distFiles = [...normalizedFiles].filter((file) => file.startsWith(distPrefix)).map((file) => file.slice(distPrefix.length))
+  const moduleFiles = sourceFiles.length > 0 ? sourceFiles : distFiles
+  const cachedSources = new Map<string, string>()
+  const readModuleSource = readSource ? (relativePath: string): string => {
+    let source = cachedSources.get(relativePath)
+    if (source === undefined) {
+      source = readSource(`${sourceFiles.length > 0 ? sourcePrefix : distPrefix}${relativePath}`)
+      cachedSources.set(relativePath, source)
+    }
+    return source
+  } : undefined
+  for (const relativePath of distFiles) {
+    const sourcePath = sourceFiles.length > 0
+      ? sourceFiles.find((file) => stripModuleCodeExtension(file) === stripModuleCodeExtension(relativePath))
+      : relativePath
+    if (!sourcePath || !isGeneratedModuleImport(sourcePath, moduleFiles, readModuleSource) || !/\.(?:jsx?|json)$/.test(relativePath)) continue
+    const publicPath = `./modules/${moduleId}/${stripModuleCodeExtension(relativePath)}`
     const target = resolvePackageSubpathExport(manifest.exports, publicPath)
     if (!target || !normalizedFiles.has(target.slice(2))) {
       throw Object.assign(new Error(`Package binding "${binding}" cannot import "${binding}/${publicPath.slice(2)}": the package exports do not provide an available ESM target. Keep the current provider and use a package exposing this module subpath before enabling it.`), { code: 'MODULE_PACKAGE_EXPORT_UNAVAILABLE' })
@@ -505,7 +549,7 @@ export function resolveInstalledOfficialModulePackage(
   const packageRoot = resolveInstalledPackageRoot(resolver, packageName)
   const modulePackage = readOfficialModulePackageFromRoot(packageRoot, undefined, moduleId)
   const packageFiles = listPackageFiles(packageRoot)
-  assertModulePackageExports(modulePackage.packageJson, packageName, modulePackage.metadata.moduleId, packageFiles)
+  assertModulePackageExports(modulePackage.packageJson, packageName, modulePackage.metadata.moduleId, packageFiles, (relativePath) => fs.readFileSync(path.join(packageRoot, relativePath), 'utf8'))
   if (modulePackage.packageName !== packageName) {
     const resolvedBindingRoot = resolveInstalledPackageRootWithRequire(packageName, resolver.getAppDir())
     const installedBindingPath = path.join('node_modules', packageName)
