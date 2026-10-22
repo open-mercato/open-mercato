@@ -51,8 +51,8 @@ test.describe('TC-CAT-043: markdown code block edits are saved', () => {
       const response = await apiRequest(request, 'POST', '/api/catalog/products', {
         token,
         data: {
-          title: `QA CAT-039 lang ${stamp}`,
-          sku: `qa-cat-039-lang-${stamp}`,
+          title: `QA CAT-043 lang ${stamp}`,
+          sku: `qa-cat-043-lang-${stamp}`,
           description,
           metadata: { __useMarkdown: true },
         },
@@ -120,8 +120,8 @@ test.describe('TC-CAT-043: markdown code block edits are saved', () => {
       const response = await apiRequest(request, 'POST', '/api/catalog/products', {
         token,
         data: {
-          title: `QA CAT-039 del ${stamp}`,
-          sku: `qa-cat-039-del-${stamp}`,
+          title: `QA CAT-043 del ${stamp}`,
+          sku: `qa-cat-043-del-${stamp}`,
           description,
           metadata: { __useMarkdown: true },
         },

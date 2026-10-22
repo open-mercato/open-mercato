@@ -25,7 +25,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 
 type PluginMarker = { plugin: string; params?: Record<string, unknown> }
 
-let capturedOnChange: ((markdown: string) => void) | null = null
+let capturedOnChange: ((markdown: string, initialMarkdownNormalize?: boolean) => void) | null = null
 
 jest.mock('@mdxeditor/editor/style.css', () => ({}), { virtual: true })
 
@@ -41,7 +41,7 @@ jest.mock('@mdxeditor/editor', () => {
   const marker = (plugin: string) => (params?: Record<string, unknown>) => ({ plugin, params })
   const Noop = () => null
   return {
-    MDXEditor: React.forwardRef((props: { onChange: (markdown: string) => void }, _ref: unknown) => {
+    MDXEditor: React.forwardRef((props: { onChange: (markdown: string, initialMarkdownNormalize?: boolean) => void }, _ref: unknown) => {
       capturedOnChange = props.onChange
       // Stands in for the contentEditable region / toolbar controls: a
       // focusable element that lives *inside* MdxEditorImpl's wrapping div.
@@ -104,6 +104,25 @@ describe('MdxEditorImpl code block save', () => {
 
     expect(onChange).toHaveBeenCalledWith('code block language changed')
     document.body.removeChild(outsideButton)
+  })
+
+  it('does not flush MDXEditor initial-markdown normalization even when focus is outside the editor', () => {
+    // MDXEditor also calls onChange once at mount, with initialMarkdownNormalize
+    // === true, when its re-serialization of the initial markdown differs from
+    // the input — before the user has touched anything. At that point focus is
+    // on document.body, which also satisfies the "focus already left" check, so
+    // without this guard the immediate-flush fix above would wrongly commit the
+    // mount-time normalization and dirty a form the user never edited.
+    const onChange = jest.fn()
+    render(<MdxEditorImpl value="original" onChange={onChange} />)
+    expect(capturedOnChange).not.toBeNull()
+    expect(document.activeElement).toBe(document.body)
+
+    act(() => {
+      capturedOnChange!('normalized', true)
+    })
+
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it('still buffers an edit until blur while the editor itself is focused (normal typing)', () => {
