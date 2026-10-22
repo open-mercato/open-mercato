@@ -10,6 +10,7 @@ import type {
   NotificationHandlerToastOptions,
 } from '@open-mercato/shared/modules/notifications/handler'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { isSafeNotificationHref } from '@open-mercato/shared/modules/notifications/safeHref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { localizeNotificationCopy } from './localizeNotification'
 
@@ -80,6 +81,10 @@ function buildHandlerContext(runtime: RuntimeContext): NotificationHandlerContex
     },
     refreshNotifications: runtime.refreshNotifications,
     navigate(href) {
+      if (!isSafeNotificationHref(href)) {
+        logger.warn('Notification handler navigation ignored: href is not a same-origin path')
+        return
+      }
       runtime.navigate(href)
     },
     markAsRead: runtime.markAsRead,
