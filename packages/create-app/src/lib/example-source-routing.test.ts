@@ -57,6 +57,15 @@ test('UI-only source lookup chooses design metadata before following its default
   assert.ok(Buffer.byteLength(skill) <= 3_269)
 })
 
+test('UI reference identities retain page navigation and explicit source-inspection duties', () => {
+  const skill = read('shared/ai/skills/om-backend-ui-design/SKILL.md')
+  const frontend = read('shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md')
+  assert.match(skill, /actual page\/navigation design adds `references\/page-and-navigation\.md`/)
+  assert.match(skill, /Read `\.ai\/guides\/backend-ui\.md`/)
+  assert.match(frontend, /For tokens\/foundations, inspect app-owned/)
+  for (const href of ['buttons.tsx', 'primitives/button.tsx', 'figma/button.figma.tsx', 'src/app/globals.css']) assert.ok(frontend.includes(href))
+})
+
 test('module data modeling distinguishes new app data and sensitive fields from workflow-owned state', () => {
   const skill = read('shared/ai/skills/om-module-scaffold/SKILL.md')
   assert.match(skill, /Spec-only entity\/schema references: read `references\/data-and-migrations\.md`/)
@@ -308,6 +317,10 @@ test('the local reference index publishes the existing source-reference identity
   assert.match(index, /Targets inside `src\/modules\/example\/` are relative to that root; others are app-relative/)
   assert.match(index, /These IDs are metadata, not read grants/)
   assert.match(index, /Machine-readable counterpart: `\.ai\/guides\/reference-module-facts\.json`; naming it grants no read access/)
+  assert.match(index, /For reference identities\/provenance, use matching facts first; reuse identities already read/)
+  assert.match(index, /Source links are locations, not read requests/)
+  assert.match(index, /when owner guidance requires, the user requests inspection, or one named contract remains unresolved/)
+  assert.match(index, /If required inspection is unavailable or unauthorized, name the unresolved Draft blocker; never claim Ready/)
   const rules = [...index.matchAll(/^\| `([^`]+)` \| `([^`]+)` \|$/gm)].map(match => ({ owner: match[1], prefix: match[2] }))
   assert.ok(rules.length > 0)
   const publishedIdentity = (owner: string, href: string): string | null => {

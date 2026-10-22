@@ -11,7 +11,7 @@ Complete pages use real APIs and stable extension hosts; no parallel component s
 
 Route first: app-owned pages/page-metadata navigation stay `backend-ui`; do not probe extensions. Select/read UMES only to inject, replace, hide, or reorder installed-module surfaces.
 
-1. Read `.ai/guides/backend-ui.md`; choose backend/settings/profile/frontend/portal paths with `references/page-and-navigation.md`. Public/portal, visually substantial, responsive/mobile/touch, screen-reader, or explicit accessibility work also reads `references/frontend-and-design-system.md`.
+1. Read `.ai/guides/backend-ui.md`; actual page/navigation design adds `references/page-and-navigation.md`. Public/portal, visually substantial, responsive/mobile/touch, screen-reader, or explicit accessibility work also reads `references/frontend-and-design-system.md`.
 2. For list/detail/create/edit, follow `references/crud-surfaces.md`: stable `DataTable`/`CrudForm` IDs, scoped helpers, version data, server errors, conflict UI, and save/reload/clear.
    Preserve stable host ID (`stable-host-id`) across CRUD surfaces.
    Existing-module page/form/table-only work has complete UI context: do not load the contracts guide or module-scaffolding skill unless the request also changes a data/API/command/ACL/setup surface.

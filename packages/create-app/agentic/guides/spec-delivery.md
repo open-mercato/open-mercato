@@ -25,7 +25,7 @@ Every added or materially changed runtime or discovery extension surface gets it
 - its own self-contained integration test; and
 - exactly one mechanism classification: `emitted-example` when the reference module already emits that mechanism, `framework-only` for an app-level setting that never becomes a module contribution, `catalog-only` when the framework describes the surface but the reference contributes nothing for it, `currently-unbound` when the value is reserved by the public set but no code path emits it, and `negative-fixture` when only a deliberately broken fixture produces it.
 
-Only the reference module's own coverage ledger justifies the last four, and `negative-fixture` is never a valid classification for a surface you are proposing to ship.
+Only `references/surface-inventory.json`'s `factCoverage` justifies the last four; `negative-fixture` can never ship.
 
 The reference module is source-present and unregistered. Its activations, targets, routes, and grants apply only after an explicit opt-in, so a plan says so rather than describing them as behavior the app already has.
 

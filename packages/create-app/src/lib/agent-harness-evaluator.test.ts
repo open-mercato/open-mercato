@@ -4821,6 +4821,14 @@ Branch managers move stock between warehouses on paper today. This slice records
 
 Stock moves between the two regional warehouses several times a week, and nothing in the app knows about it. A manager telephones the sending warehouse, someone writes the items on a delivery note, and the receiving warehouse corrects its own counts by hand days later. Because the app is told nothing, the sending warehouse still shows stock it no longer holds and the receiving warehouse cannot sell stock it already has on the shelf. When a case is short or refused nobody records why, so the same dispute repeats every quarter and the finance team cannot reconcile the two sets of counts. Managers have asked for the request, the dispatch, and the confirmed receipt to live in the app, with stock moving only on that confirmed receipt so a number is never adjusted twice.
 
+## Goals
+
+- **REQ-001** — Persist scoped transfer requests and guarded commands.
+- **REQ-002** — Coordinate the transfer lifecycle through its workflow.
+- **REQ-003** — Start bounded bulk actions through the declared contribution.
+- **REQ-004** — Observe durable progress, cancellation, retry, and completion.
+- **REQ-005** — Reuse the public Button and its design evidence.
+
 ## Users, Permissions, and Scope
 
 | Actor | Allowed outcomes | Scope rule | Required feature IDs |
@@ -5036,35 +5044,118 @@ for (const [label, prose, expectedCheck, expectedPass] of planningLexicalVectors
   })
 }
 
-const planningNavigationVectors = ['existing', 'missing', 'symlink', 'unmapped', 'navigation-only'] as const
+const planningNavigationPaths = [
+  'src/modules/example/README.md',
+  'src/modules/example/references/surface-map.md',
+  'src/modules/example/references/surface-inventory.json',
+] as const
+const planningNavigationVectors = ['existing', 'missing', 'directory', 'leaf-symlink', 'ancestor-symlink-inside', 'ancestor-symlink-outside', 'unmapped-markdown', 'unmapped-json', 'navigation-only'] as const
 
-for (const variant of planningNavigationVectors) {
-  test(`writable planning lexical contract: ${variant} README navigation`, () => {
+for (const navigationPath of planningNavigationPaths) {
+  for (const variant of planningNavigationVectors) {
+    test(`writable planning navigation contract: ${variant} ${navigationPath}`, () => {
+      const root = stageSpecTarget('planning-new-feature')
+      const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-nav-outside-')))
+      try {
+        const navigation = path.join(root, navigationPath)
+        let spec = `${deliveredTransferSpec}\nReference navigation: ${navigationPath}.\n`
+        if (variant === 'missing') fs.rmSync(navigation)
+        if (variant === 'directory') {
+          fs.rmSync(navigation)
+          fs.mkdirSync(navigation)
+        }
+        if (variant === 'leaf-symlink') {
+          const target = path.join(outside, path.basename(navigation))
+          fs.copyFileSync(navigation, target)
+          fs.rmSync(navigation)
+          fs.symlinkSync(target, navigation)
+        }
+        if (variant.startsWith('ancestor-symlink')) {
+          const parent = path.dirname(navigation)
+          const target = variant === 'ancestor-symlink-inside' ? path.join(root, 'relocated-navigation') : path.join(outside, 'relocated-navigation')
+          fs.renameSync(parent, target)
+          fs.symlinkSync(target, parent, 'dir')
+        }
+        if (variant === 'unmapped-markdown' || variant === 'unmapped-json') {
+          const relative = `src/modules/example/references/NAVIGATION.${variant === 'unmapped-markdown' ? 'md' : 'json'}`
+          fs.writeFileSync(path.join(root, relative), 'An arbitrary existing file is not canonical navigation.\n')
+          spec += `\nUse ${relative}.\n`
+        }
+        if (variant === 'navigation-only') {
+          spec = `${deliveredTransferSpec.replace(/\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g, 'reference-source')}\nReference navigation: ${navigationPath}.\n`
+        }
+        fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+        const report = runSpecOracle(root, 'OMH-223', 'after')
+        const expectedPass = variant === 'existing'
+        if (variant === 'navigation-only') {
+          assert.equal(report.checks.find((entry) => entry.id === 'plan.example-exact-source-paths')?.passed, false, JSON.stringify(report.failures))
+        } else if (report.checks.some((entry) => entry.id === 'plan.example-paths-resolve')) {
+          assert.equal(report.checks.find((entry) => entry.id === 'plan.example-paths-resolve')?.passed, expectedPass, JSON.stringify(report.failures))
+        } else {
+          assert.equal(report.checks.find((entry) => entry.id === 'plan.example-inventory-readable')?.passed, false, JSON.stringify(report.failures))
+        }
+        assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+        assert.equal(report.status, expectedPass ? 0 : 1)
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  }
+}
+
+test('canonical navigation never earns mapped implementation source credit even if an inventory lists it', () => {
+  const root = stageSpecTarget('planning-new-feature')
+  try {
+    const inventoryPath = path.join(root, 'src/modules/example/references/surface-inventory.json')
+    const inventory = JSON.parse(fs.readFileSync(inventoryPath, 'utf8')) as { capabilities: Array<{ sourcePaths: string[] }> }
+    assert.ok(inventory.capabilities.length > 0)
+    inventory.capabilities[0].sourcePaths.push(...planningNavigationPaths)
+    fs.writeFileSync(inventoryPath, JSON.stringify(inventory))
+    const spec = `${deliveredTransferSpec.replace(/\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g, 'reference-source')}\nNavigation: ${planningNavigationPaths.join(', ')}.\n`
+    fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+    const report = runSpecOracle(root, 'OMH-223', 'after')
+    assert.equal(report.checks.find((entry) => entry.id === 'plan.example-exact-source-paths')?.passed, false, JSON.stringify(report.failures))
+    assert.equal(report.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+const planningTraceabilityVectors: ReadonlyArray<readonly [string, (spec: string) => string, string, boolean]> = [
+  ['separate business summary', (spec) => spec.replace('One row per extension surface this specification adds.', `| Requirement | Journey | Contract | Phase | Test | Acceptance |\n|---|---|---|---|---|---|\n| REQ-001 | request | transfer | Phase 1 | TEST-003 | persisted request |\n\nOne row per extension surface this specification adds.`), 'plan.traceability.classification', true],
+  ['business summary with a closest reference', (spec) => spec.replace('One row per extension surface this specification adds.', `| Requirement | Journey / surface | Closest reference | Phase | Tests | Acceptance criterion |\n|---|---|---|---|---|---|\n| REQ-001 | request UI | Todo page | Phase 1 | TEST-003 | persisted request |\n\nOne row per extension surface this specification adds.`), 'plan.traceability.classification', true],
+  ['repeated declared requirement', (spec) => spec.replace('| REQ-004 | durable connected progress', '| REQ-003 | durable connected progress'), 'plan.traceability.ordering', true],
+  ['meaningful header synonyms', (spec) => spec.replace('| Requirement | Extension surface | Adapted from | Phase | Test | Mechanism |', '| Requirement ID | Runtime contribution | Reference capability and exact source | Landing phase | Integration coverage | Classification |'), 'plan.traceability.rows', true],
+  ['requirements defined in a table', (spec) => spec.replace(/## Goals\n[\s\S]*?(?=## Users, Permissions, and Scope)/, '## Functional Requirements\n\n| Requirement | Outcome |\n|---|---|\n| REQ-001 | Scoped transfer requests and commands |\n| REQ-002 | Workflow lifecycle |\n| REQ-003 | Bound bulk actions |\n| REQ-004 | Durable progress |\n| REQ-005 | Public Button and design evidence |\n\n'), 'plan.traceability.requirements', true],
+  ['undeclared requirement', (spec) => spec.replace('| REQ-004 | durable connected progress', '| REQ-999 | durable connected progress'), 'plan.traceability.requirements', false],
+  ['empty declared requirement', (spec) => spec.replace('Persist scoped transfer requests and guarded commands.', ''), 'plan.traceability.requirements', false],
+  ['duplicate requirement definition', (spec) => spec.replace('## Users, Permissions, and Scope', '- **REQ-001** — A conflicting second definition.\n\n## Users, Permissions, and Scope'), 'plan.traceability.requirements', false],
+  ['missing requirement definitions', (spec) => spec.replace(/## Goals\n[\s\S]*?(?=## Users, Permissions, and Scope)/, ''), 'plan.traceability.requirements', false],
+  ['missing requirement column', (spec) => spec.replace('| Requirement | Extension surface |', '| Goal | Extension surface |'), 'plan.traceability.complete', false],
+  ['missing surface column', (spec) => spec.replace('| Requirement | Extension surface |', '| Requirement | Output |'), 'plan.traceability.complete', false],
+  ['missing adaptation column', (spec) => spec.replace('| Extension surface | Adapted from |', '| Extension surface | Details |'), 'plan.traceability.complete', false],
+  ['missing phase column', (spec) => spec.replace('| Adapted from | Phase | Test |', '| Adapted from | Delivery | Test |'), 'plan.traceability.complete', false],
+  ['missing test column', (spec) => spec.replace('| Phase | Test | Mechanism |', '| Phase | Evidence | Mechanism |'), 'plan.traceability.complete', false],
+  ['missing mechanism column', (spec) => spec.replace('| Phase | Test | Mechanism |', '| Phase | Test | Notes |'), 'plan.traceability.complete', false],
+  ['malformed extension row', (spec) => spec.replace('| Phase 1 | TEST-003 in __integration__ | emitted-example |', '| Phase 1 | TEST-003 in __integration__ | emitted-example | extra cell |'), 'plan.traceability.complete', false],
+  ['second incomplete extension matrix', (spec) => spec.replace('## Risks and Tradeoffs', '| Requirement | Extension surface | Adapted from | Phase | Test |\n|---|---|---|---|---|\n| REQ-001 | another surface | data.entities | Phase 3 | TEST-003 |\n\n## Risks and Tradeoffs'), 'plan.traceability.complete', false],
+  ['business summary cannot replace extension matrix', (spec) => spec.replace(/\| Requirement \| Extension surface \| Adapted from \| Phase \| Test \| Mechanism \|[\s\S]*?(?=## Risks and Tradeoffs)/, '| Requirement | Journey | Contract | Phase | Test | Acceptance |\n|---|---|---|---|---|---|\n| REQ-001 | request | transfer | Phase 1 | TEST-003 | persisted request |\n\n'), 'plan.traceability.rows', false],
+  ['bare numeric landing phase', (spec) => spec.replace('| Phase 1 | TEST-003 in __integration__ |', '| 1 | TEST-003 in __integration__ |'), 'plan.traceability.complete', false],
+  ['nonstandard test label', (spec) => spec.replace('| TEST-003 in __integration__ | emitted-example |', '| IT-03 | emitted-example |'), 'plan.traceability.complete', false],
+]
+
+for (const [label, edit, expectedCheck, expectedPass] of planningTraceabilityVectors) {
+  test(`writable planning traceability contract: ${label}`, () => {
     const root = stageSpecTarget('planning-new-feature')
     try {
-      const readme = path.join(root, 'src/modules/example/README.md')
-      fs.copyFileSync(path.join(templateExampleModule, 'README.md'), readme)
-      let spec = `${deliveredTransferSpec}\nReference entrypoint: src/modules/example/README.md.\n`
-      if (variant === 'missing') fs.rmSync(readme)
-      if (variant === 'symlink') {
-        const target = path.join(root, 'outside-reference-README.md')
-        fs.copyFileSync(readme, target)
-        fs.rmSync(readme)
-        fs.symlinkSync(target, readme)
-      }
-      if (variant === 'unmapped') {
-        fs.writeFileSync(path.join(root, 'src/modules/example/NAVIGATION.md'), 'An existing file does not make an arbitrary Markdown path an inventory capability.\n')
-        spec += '\nUse src/modules/example/NAVIGATION.md.\n'
-      }
-      if (variant === 'navigation-only') {
-        spec = `${deliveredTransferSpec.replace(/\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g, 'reference-source')}\nReference entrypoint: src/modules/example/README.md.\n`
-      }
+      const spec = edit(deliveredTransferSpec)
+      assert.notEqual(spec, deliveredTransferSpec)
       fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
       const report = runSpecOracle(root, 'OMH-223', 'after')
-      const expectedCheck = variant === 'navigation-only' ? 'plan.example-exact-source-paths' : 'plan.example-paths-resolve'
-      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, variant === 'existing', JSON.stringify(report.failures))
-      assert.equal(report.passed, variant === 'existing', JSON.stringify(report.failures))
-      assert.equal(report.status, variant === 'existing' ? 0 : 1)
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.status, expectedPass ? 0 : 1)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -5108,6 +5199,21 @@ function rewriteNewFeatureSpec(root: string, edit: (spec: string) => string): vo
 // Each row breaks exactly one graded property of the passing answer and names the check that
 // must go red. Without these, a grader that silently stopped asserting would still look green.
 const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
+  ['a problem statement below the existing 80-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## Problem Statement\n)[\s\S]*?(?=\n## )/, `$1\n${Array(79).fill('problem').join(' ')}\n`))
+  }, 'spec.section.problem'],
+  ['a contract section below the existing 80-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## API, Command, and Error Contracts\n)[\s\S]*?(?=\n## )/, `$1\n${Array(79).fill('contract').join(' ')}\n`))
+  }, 'spec.section.contracts'],
+  ['a test section below the existing 40-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## Integration Coverage\n)[\s\S]*?(?=\n## )/, `$1\nTEST-001 ${Array(38).fill('coverage').join(' ')}\n`))
+  }, 'spec.section.tests'],
+  ['a phased section below the existing 80-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## Implementation Phases\n)[\s\S]*?(?=\n## )/, `$1\nom-module-scaffold\n\n### Phase 1\n\n### Phase 2\n\n${Array(74).fill('phase').join(' ')}\n`))
+  }, 'spec.section.phases'],
+  ['a scaffold handoff outside the implementation phases', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => `${spec.replaceAll('om-module-scaffold', 'the scaffold workflow')}\nModule work invokes om-module-scaffold.\n`)
+  }, 'plan.module-scaffold-route'],
   ['a second authored spec', (root) => {
     fs.writeFileSync(path.join(root, '.ai/specs/2026-08-04-warehouse-notes.md'), deliveredTransferSpec)
   }, 'spec.single'],
@@ -5259,7 +5365,7 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
       return spec.replace(row, row.replace('framework-only', 'emitted-example'))
     })
   }, 'plan.traceability.binding.ui-foundation'],
-  ['traceability rows whose requirement and phase order is reversed', (root) => {
+  ['traceability rows whose landing phase order decreases', (root) => {
     rewriteNewFeatureSpec(root, (spec) => {
       const second = spec.match(/\| REQ-002 \|[^\n]*\n/)?.[0]
       const third = spec.match(/\| REQ-003 \|[^\n]*\n/)?.[0]

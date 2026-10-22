@@ -10,7 +10,7 @@ Route first; no unmatched probes.
 - Derive trusted `tenantId` + `organizationId`; fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
 - Entities: `src/modules/<id>/data/entities.ts`; API per-method `metadata` + `openApi` required.
-- Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
+- Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
 - Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
@@ -34,19 +34,19 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Production
 
-Route production deployment/go-live/operational readiness: `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`. Later: checked-in `.env.example` names/comments only; never read or report live `.env` values. Ask before credentials, billable infrastructure, or live deployment.
+Production deployment/go-live/operational readiness: `architecture` + `.ai/guides/production-deployment.md`. Routing: never open `.env*`. Later: checked-in `.env.example` names/comments only; never read/report live `.env` values. Ask before credentials, billable infrastructure, or live deployment.
 
 ## 3 Axes
 
-Axes add: ownership=WHO, others=WHAT. Select every match.
+Axes add: ownership=WHO, others=WHAT. Match all work, not labels. App-module capability/ownership-only maps: `module-data`+`architecture`+scaffold/contracts; name owners, load only explicit specialist contracts.
 
-A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
+Scalar-ID/snapshot fixes to persisted records/commands linked to installed records MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
 `debugging` = reported bug/security/drift, not designed failure UI. Installed-host custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; unresolved ownership/installed keys add `architecture`/`framework-context`. Durable process/activity/user task = `ai-workflow`; app business persistence/host-state coordination adds `module-data`. Multi-stage waits/cancel/restart = durable; reminders and renewal/batch schedules are `module-data`.
 
-Replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
+Replacing/wrapping/prop-transforming/menu-editing/adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
 Staff UI preview/report/bulk = `backend-ui`.
 Installed form/table fields/filters/row/bulk actions without app persistence/API = `umes` + `backend-ui` only: read `crud-surfaces` + `quality-states`; skip contracts/module-scaffold/page/navigation.
 
@@ -56,11 +56,11 @@ Installed form/table fields/filters/row/bulk actions without app persistence/API
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Unresolved capability/ownership/field-vs-history choice; boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Unresolved capability/ownership/field-vs-history; boundary/upgrade/override/registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API; customer-principal API adapters for staff-only hosts | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + named facts |
-| `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
-| `integration` | Provider, spreadsheet/CSV/file I/O, sync/webhook/storage | `.ai/guides/integrations.md`; imports = `integration`; AI consuming files = `ai-workflow`, NEVER `integration` unless transport/storage changes |
+| `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host integration credentials/health UI alone does not match |
+| `integration` | Provider/spreadsheet/CSV/file I/O/sync/webhook/storage | `.ai/guides/integrations.md`; imports = `integration`; AI consuming files = `ai-workflow`, NEVER `integration` unless transport/storage changes |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
@@ -74,7 +74,7 @@ Units: skill first
 |---|---|---|
 | `architecture` | Scaffold module starter; publish/link an app module | `.ai/guides/module-tool.md`; implementation: `om-module-scaffold` |
 | `architecture` | Explain/choose module, UMES, package, eject | `om-help` for unresolved/comparative mechanism choices |
-| `module-data` | Business slice/multi-seam domain/API/command fix | MUST load `om-module-scaffold` + exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key (units, not ownership); ownership/capability outline adds `architecture` |
+| `module-data` | Business slice/multi-seam domain/API/command fix | MUST load `om-module-scaffold` + exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key (units, not ownership) |
 | `spec-pr` | Author/reuse spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
@@ -86,12 +86,12 @@ Units: skill first
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/AI file or content drafting/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
-| `testing` | REQUEST says test/coverage/prove or exercise API/browser/screen sizes/keyboard/screen-reader; not implicit fix regressions or review/audit/config checks | MUST read `.ai/guides/testing-debugging.md` + external `om-integration-tests` for integration/E2E/app tests |
+| `testing` | REQUEST: test/coverage/prove or exercise API/browser/screen sizes/keyboard/screen-reader; not implicit fix regressions/review/audit/config checks | MUST read `.ai/guides/testing-debugging.md` + external `om-integration-tests` for integration/E2E/app tests |
 | `debugging` | Reproduce/root-cause/minimal fix/regression oracle | `om-troubleshooter` |
-| `framework-context` | Exact installed contract still unknown | `.ai/guides/framework-contracts.md`, then bounded `om-framework-context`, last |
+| `framework-context` | Exact installed contract still unknown | `.ai/guides/framework-contracts.md`, bounded `om-framework-context` last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-`framework-context`: resolve one named fact first. Bounded source only if the guide leaves current behavior, authorization, dependents, or the safest customization seam unresolved; never for “installed contracts” alone.
+`framework-context`: one named fact first; bounded source only if the guide leaves current behavior, authorization, dependents, or the safest customization seam unresolved; never for “installed contracts” alone.
 
 ### Axis 3 — Delivery
 

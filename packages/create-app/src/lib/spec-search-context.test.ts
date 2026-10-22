@@ -105,3 +105,36 @@ test('reference-grounded specifications discover the emitted local facts without
     assert.ok(![...record.context.required, ...record.context.allowedExtra].includes('.ai/guides/modules/example/index.md'), record.id)
   }
 })
+
+
+test('the shipped spec template exposes substantive planning and separate extension traceability contracts', () => {
+  const template = fs.readFileSync(new URL('../../agentic/shared/ai/specs/SPEC-000-template.md', import.meta.url), 'utf8')
+  assert.match(template, /Harness-evaluated plans need 80 words each in Problem Statement, API\/Command\/Error Contracts, and Implementation Phases, and 40 in Integration Coverage/)
+  const phases = template.split('## Implementation Phases\n')[1]?.split('## Requirement Traceability\n')[0]
+  assert.ok(phases)
+  assert.match(phases, /Route module work to `om-module-scaffold` inside this section/)
+  assert.match(phases, /### Phase 1/)
+  assert.match(phases, /### Phase 2/)
+  const traceability = template.split('## Requirement Traceability\n')[1]?.split('## Rollout, Migration, and Rollback\n')[0]
+  assert.ok(traceability)
+  assert.match(traceability, /\| Requirement \| Journey \/ surface \| Data\/API\/event contracts \| Phase \| Tests \| Acceptance criterion \|/)
+  assert.match(traceability, /### Extension Surface Traceability/)
+  assert.match(traceability, /Reuse declared goal IDs; order rows by landing phase/)
+  assert.match(traceability, /Keep each identity family in one row, including exact capability\/source\/fact\/topology IDs/)
+  assert.match(traceability, /`Phase N`, `TEST-NNN` or an exact integration-test path/)
+  assert.match(traceability, /one mechanism classification per row/)
+  assert.match(traceability, /\| Requirement \| Extension surface \| Adapted from \| Phase \| Test \| Mechanism \|/)
+  assert.doesNotMatch(template, /OMH-\d{3}|contiguous requirement IDs|unique.*REQ.*surface/i)
+})
+
+
+test('extension mechanism planning locates the canonical ledger without guessing another file', () => {
+  const guide = fs.readFileSync(new URL('../../agentic/guides/spec-delivery.md', import.meta.url), 'utf8')
+  const inventory = JSON.parse(fs.readFileSync(new URL('../../template/src/modules/example/references/surface-inventory.json', import.meta.url), 'utf8')) as { factCoverage?: unknown }
+  assert.ok(inventory.factCoverage && typeof inventory.factCoverage === 'object' && !Array.isArray(inventory.factCoverage))
+  assert.match(guide, /Only `references\/surface-inventory\.json`'s `factCoverage` justifies the last four; `negative-fixture` can never ship/)
+  assert.doesNotMatch(guide, /references\/(?:coverage-ledger|surface-coverage)\.md/)
+  for (const classification of ['emitted-example', 'framework-only', 'catalog-only', 'currently-unbound', 'negative-fixture']) {
+    assert.ok(guide.includes(`\`${classification}\``))
+  }
+})

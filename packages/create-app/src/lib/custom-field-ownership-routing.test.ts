@@ -24,8 +24,8 @@ test('custom-field ownership distinguishes app ce declarations from installed-ho
     assert.match(extension, /Installed-host fields\/extension entities; links\/enrichers\/injection\/interceptors\/guards\/subscribers\/DOM\/hosts\/widgets\/toggles\/overrides/)
     assert.match(text, /App-owned record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction/)
     assert.match(text, /Business slice\/multi-seam domain\/API\/command fix \| MUST load `om-module-scaffold`/)
-    assert.match(text, /scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
+    assert.match(text, /Scalar-ID\/snapshot fixes to persisted records\/commands linked to installed records MUST use `module-data` \+ `umes`/)
     assert.match(text, /Editable records expose `updated_at`\/`updatedAt`/)
-    assert.match(text, /custom update\/delete clients send the version and surface 409s/)
+    assert.match(text, /custom update\/delete clients send version and surface 409s/)
   }
 })

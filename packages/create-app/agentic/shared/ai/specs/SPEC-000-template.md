@@ -9,6 +9,8 @@
 
 {What is being built, who benefits, which existing Open Mercato capabilities are reused, and the smallest coherent outcome.}
 
+Harness-evaluated plans need 80 words each in Problem Statement, API/Command/Error Contracts, and Implementation Phases, and 40 in Integration Coverage.
+
 ## Problem Statement
 
 {Current workflow, concrete pain, evidence, affected users, and why existing behavior is insufficient.}
@@ -172,7 +174,7 @@ Tests must be self-contained and map to real API and UI paths.
 
 ## Implementation Phases
 
-Phases are dependency ordered. Only the current phase may enter implementation; parallel work is limited to independent slices inside that phase. Each phase must leave a working app and close with its own evidence before the next phase starts.
+Phases are dependency ordered. Only the current phase may enter implementation; parallel work is limited to independent slices inside that phase. Each phase must leave a working app and close with its own evidence before the next phase starts. Route module work to `om-module-scaffold` inside this section.
 
 ### Phase 1 — {Foundation or first complete vertical slice}
 
@@ -205,6 +207,14 @@ Phases are dependency ordered. Only the current phase may enter implementation; 
 | REQ-001 | J-001, `/backend/{route}` | `{entity}`, `GET /api/{path}` | Phase 1 | TEST-001, TEST-002 | AC-001 |
 
 Every requirement must map to a phase, at least one test oracle, and a measurable acceptance criterion. No phase may be a catch-all “integration and polish” bucket for behavior required by earlier slices.
+
+### Extension Surface Traceability
+
+Reuse declared goal IDs; order rows by landing phase. Keep each identity family in one row, including exact capability/source/fact/topology IDs, and name `Phase N`, `TEST-NNN` or an exact integration-test path, and one mechanism classification per row.
+
+| Requirement | Extension surface | Adapted from | Phase | Test | Mechanism |
+|---|---|---|---|---|---|
+| REQ-001 | {surface} | `{capability/source/fact/topology IDs}` | Phase 1 | TEST-001 | emitted-example |
 
 ## Rollout, Migration, and Rollback
 

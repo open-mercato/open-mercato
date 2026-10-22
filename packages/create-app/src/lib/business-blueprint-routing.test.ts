@@ -20,8 +20,27 @@ test('complete capability maps load architecture without escalating routine disc
   assert.match(catalog, /name specialist ownership without implementation procedures/)
   assert.match(catalog, /Explicit AI contract selection still loads its AI guide\/skill; a single known surface stays in its owning area/)
   const root = fs.readFileSync(new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), 'utf8')
-  assert.match(root, /ownership\/capability outline adds `architecture`/)
+  assert.match(root, /App-module capability\/ownership-only maps: `module-data`\+`architecture`\+scaffold\/contracts/)
   assert.match(root, /routine discovery stays in its area/)
+})
+
+test('root separates capability labels from requested work before selecting specialist procedures', () => {
+  for (const source of ['agentic/shared/AGENTS.md.template', 'template/AGENTS.md']) {
+    const root = fs.readFileSync(new URL(`../../${source}`, import.meta.url), 'utf8')
+    const mapRule = root.split('\n').find(line => line.includes('App-module capability/ownership-only maps:'))
+    assert.ok(mapRule, 'The root must qualify capability-only maps before specialist route matching')
+    assert.match(mapRule, /Match all work, not labels/)
+    assert.match(mapRule, /`module-data`\+`architecture`\+scaffold\/contracts/)
+    assert.match(mapRule, /name owners, load only explicit specialist contracts/)
+    assert.ok(root.indexOf(mapRule) < root.indexOf('### Axis 1'))
+    assert.match(root, /Business slice\/multi-seam domain\/API\/command fix \| MUST load `om-module-scaffold` \+ exact `\.ai\/skills\/om-module-scaffold\/references\/business-one-shot-blueprints\.md` key \(units, not ownership\)/)
+    assert.match(root, /`ai-workflow` \| Agent\/tool\/MCP\/OpenCode\/Code Mode\/orchestrator\/AI file or content drafting\/attachment\/override \| `om-create-ai-agent` \+ AI\/workflows/)
+    assert.match(root, /MCP\/OpenCode loads `surface-selector` \+ `ai_assistant` facts/)
+    assert.match(root, /App-owned record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction/)
+    assert.match(root, /Form\/table\/page\/renderer\/middleware\/nav\/i18n\/UI states \| `om-backend-ui-design`/)
+    assert.match(root, /REQUEST: test\/coverage\/prove or exercise API\/browser\/screen sizes\/keyboard\/screen-reader; not implicit fix regressions\/review\/audit\/config checks/)
+    assert.match(root, /Author\/reuse spec\/plan \| Axis 3; phases\+integration coverage \(`integration-coverage`\); no domain routes/)
+  }
 })
 
 test('forecast drill-down tables publish stable extension IDs alongside aggregate safety', () => {

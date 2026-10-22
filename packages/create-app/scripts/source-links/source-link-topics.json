@@ -1121,7 +1121,7 @@
       "topicId": "rule:root#unresolved-architecture-choices",
       "owner": "AGENTS.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "Unresolved capability/ownership/field-vs-history choice; boundary, upgrade, override, or registry failure"
+      "evidence": "Unresolved capability/ownership/field-vs-history; boundary/upgrade/override/registry failure"
     },
     {
       "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#shipped-warranty-claims-reuse",
@@ -1218,7 +1218,7 @@
       "topicId": "rule:root#production-operations-routing",
       "owner": "AGENTS.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "Route production deployment/go-live/operational readiness: `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`. Later: checked-in `.env.example` names/comments only; never read or report live `.env` values. Ask before credentials, billable infrastructure, or live deployment."
+      "evidence": "Production deployment/go-live/operational readiness: `architecture` + `.ai/guides/production-deployment.md`. Routing: never open `.env*`. Later: checked-in `.env.example` names/comments only; never read/report live `.env` values. Ask before credentials, billable infrastructure, or live deployment."
     },
     {
       "topicId": "rule:guides/production-deployment#operational-readiness-contract",
@@ -1383,6 +1383,24 @@
       "owner": ".ai/skills/om-module-scaffold/SKILL.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Complete one-shot modules/CRUD slices MUST directly read step 3/4/7 paths before writing module code: `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/module-surfaces.md`, and `.ai/skills/om-module-scaffold/references/verification.md`. Data/UI/UMES refs add to, never replace, all three."
+    },
+    {
+      "topicId": "rule:root#capability-map-deliverable-boundary",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Match all work, not labels. App-module capability/ownership-only maps: `module-data`+`architecture`+scaffold/contracts; name owners, load only explicit specialist contracts."
+    },
+    {
+      "topicId": "rule:om-backend-ui-design#page-navigation-design",
+      "owner": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Read `.ai/guides/backend-ui.md`; actual page/navigation design adds `references/page-and-navigation.md`."
+    },
+    {
+      "topicId": "rule:guides/spec-delivery#canonical-fact-coverage",
+      "owner": ".ai/guides/spec-delivery.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Only `references/surface-inventory.json`'s `factCoverage` justifies the last four; `negative-fixture` can never ship."
     }
   ]
 }

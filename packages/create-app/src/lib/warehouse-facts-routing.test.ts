@@ -13,7 +13,7 @@ test('warehouse requests resolve installed WMS facts before ownership design', (
 test('resolved business ownership does not independently select architecture', () => {
   for (const source of ['agentic/shared/AGENTS.md.template', 'template/AGENTS.md']) {
     const root = fs.readFileSync(new URL(`../../${source}`, import.meta.url), 'utf8')
-    assert.match(root, /Unresolved capability\/ownership\/field-vs-history choice; boundary, upgrade, override, or registry failure/)
+    assert.match(root, /Unresolved capability\/ownership\/field-vs-history; boundary\/upgrade\/override\/registry failure/)
     assert.match(root, /add architecture only when ownership is unresolved/)
     assert.match(root, /Scaffold module starter; publish\/link an app module/)
   }

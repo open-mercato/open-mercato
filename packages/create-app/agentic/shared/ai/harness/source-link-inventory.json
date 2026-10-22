@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 45,
-    "recordCount": 208,
+    "recordCount": 211,
     "sourceRequiredCount": 131,
-    "readableCount": 208,
+    "readableCount": 211,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -4005,6 +4005,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:guides/spec-delivery#canonical-fact-coverage",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/spec-delivery.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/spec-delivery.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/spec-delivery#metadata-first-covering-spec",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/spec-delivery.md",
@@ -4045,6 +4056,17 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/guides/testing-debugging.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-backend-ui-design#page-navigation-design",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-backend-ui-design/SKILL.md",
       "moduleId": null,
       "capabilityIds": []
     },
@@ -4622,6 +4644,17 @@
     },
     {
       "referenceId": "rule:root#business-modeling-excludes-provider-metadata",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#capability-map-deliverable-boundary",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,

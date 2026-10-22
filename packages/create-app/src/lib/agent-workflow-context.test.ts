@@ -29,8 +29,8 @@ test('engine activity state stays workflow-only while new business persistence s
 
 test('root modeling routes require business-record design rather than existing workflow helper use', () => {
   const roots = [
-    { url: new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), maximumBytes: 11_233 },
-    { url: new URL('../../template/AGENTS.md', import.meta.url), maximumBytes: 11_229 },
+    { url: new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), maximumBytes: 11_256 },
+    { url: new URL('../../template/AGENTS.md', import.meta.url), maximumBytes: 11_252 },
   ]
   for (const root of roots) {
     const text = fs.readFileSync(root.url, 'utf8')
@@ -42,9 +42,9 @@ test('root modeling routes require business-record design rather than existing w
     assert.match(text, /\| `module-data` \| Owned search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
     assert.doesNotMatch(text, /Durable process\/activity\/user task = `module-data` \+ `ai-workflow`/)
     assert.match(text, /Installed-host custom fields\/entities = `umes` \+ `module-data` \+ `om-data-model-design`/)
-    assert.match(text, /scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
+    assert.match(text, /Scalar-ID\/snapshot fixes to persisted records\/commands linked to installed records MUST use `module-data` \+ `umes`/)
     assert.match(text, /Multi-stage waits\/cancel\/restart = durable; reminders and renewal\/batch schedules are `module-data`/)
-    assert.match(text, /Editable records expose `updated_at`\/`updatedAt`; custom update\/delete clients send the version and surface 409s/)
+    assert.match(text, /Editable records expose `updated_at`\/`updatedAt`; custom update\/delete clients send version and surface 409s/)
     assert.match(text, /Entities: `src\/modules\/<id>\/data\/entities\.ts`/)
     assert.ok(Buffer.byteLength(text) <= root.maximumBytes)
   }

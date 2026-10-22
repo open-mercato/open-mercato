@@ -246,6 +246,7 @@ test('spec-only stock-transfer authoring fits the smallest complete observable i
   const complete = [...new Set([...minimum, sourcePaths[1], sectionPath('umes-contributions'), sectionPath('active-extension-bindings'),
     '.agents/skills/om-spec-writing/references/agentic-setup.md', '.agents/skills/om-spec-writing/references/rules.md',
     '.ai/specs/SPEC-000-template.md', '.ai/skills/om-backend-ui-design/references/quality-states.md',
+    '.ai/skills/om-backend-ui-design/references/page-and-navigation.md',
   ])]
   let largestWorst = 0
   for (const preset of ['classic', 'crm', 'empty', 'wms']) {
