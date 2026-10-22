@@ -43,9 +43,11 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       await page.goto(`/backend/promotions/${promotionId}`, { waitUntil: 'domcontentloaded' });
 
       // --- Set the eligible currency through the real "Eligible currencies"
-      // field (Step 8.7, QA F1) before touching the tree, then reload so the
-      // tree builder's independently-fetched `updatedAt` reflects the
-      // metadata save and its own later PUT does not 409 on a stale value. --
+      // field (Step 8.7, QA F1) before touching the tree. No reload needed
+      // here anymore (re-review B1/M1 fix): the page now refreshes the
+      // promotion's `updatedAt` after a metadata save, and propagates it to
+      // the tree builder via `refreshSignal`, so the tree's own later PUT
+      // does not 409 on a stale value.
       const eligibleCurrenciesField = page.locator('[data-crud-field-id="eligibleCurrencies"]');
       await expect(eligibleCurrenciesField).toBeVisible();
       await eligibleCurrenciesField.getByPlaceholder('Search...').fill('USD');
@@ -54,8 +56,16 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       // established pattern TC-PROM-083 already disambiguates with .first()).
       await page.getByRole('button', { name: 'Save promotion' }).first().click();
       await expect(page.getByText('Promotion saved')).toBeVisible();
+      await expect(page.getByText('Record changed')).toHaveCount(0);
 
-      await page.reload({ waitUntil: 'domcontentloaded' });
+      // --- Regression (M1): a SECOND metadata save, right after the first
+      // and without an intervening reload, must not get a spurious 409 from
+      // a stale `updatedAt`. ---------------------------------------------
+      const cumulativeCheckbox = page.getByRole('checkbox', { name: 'Cumulative' });
+      await cumulativeCheckbox.click();
+      await page.getByRole('button', { name: 'Save promotion' }).first().click();
+      await expect(page.getByText('Promotion saved')).toBeVisible();
+      await expect(page.getByText('Record changed')).toHaveCount(0);
 
       await expect(page.getByText('Rules & Benefits')).toBeVisible();
       // The tree builder fetches the promotion's tree independently of the
@@ -133,9 +143,20 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       await page.getByRole('button', { name: 'Save rules' }).click();
       await expect(page.getByText('Rule tree saved').first()).toBeVisible();
 
+      // --- Regression (M1, other direction): a metadata save right after the
+      // tree save, without an intervening reload, must not 409 either — the
+      // tree save just changed the promotion's `updatedAt` server-side, and
+      // the metadata form must have picked that up via `treeVersionToken`.
+      await cumulativeCheckbox.click();
+      await page.getByRole('button', { name: 'Save promotion' }).first().click();
+      await expect(page.getByText('Promotion saved')).toBeVisible();
+      await expect(page.getByText('Record changed')).toHaveCount(0);
+      await expect(cumulativeCheckbox).not.toBeChecked();
+
       await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(page.getByText('Loading rule tree...')).toHaveCount(0, { timeout: 20_000 });
       await expect(page.getByRole('button', { name: 'Add rule' })).toHaveCount(2);
+      await expect(cumulativeCheckbox).not.toBeChecked();
 
       await expect(valueFields).toHaveCount(3);
       await expect(valueFields.nth(0).locator('input')).toHaveValue('150');

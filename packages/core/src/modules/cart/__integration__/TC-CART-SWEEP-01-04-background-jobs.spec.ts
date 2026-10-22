@@ -3,6 +3,12 @@ import { createQueue } from '@open-mercato/queue';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
 import {
+  CART_MARK_ABANDONED_QUEUE,
+  CART_EXPIRE_QUEUE,
+  CART_RELEASE_STALE_LOCKS_QUEUE,
+  CART_PURGE_EXPIRED_QUEUE,
+} from '../lib/queues';
+import {
   cleanupCartStorefrontFixture,
   createCartStorefrontFixture,
   createStorefrontCart,
@@ -32,11 +38,6 @@ import {
  * `purgeExpiredCarts` relies on to never hard-delete a cart a `CartMergeLog` still references.
  * Source: .ai/specs/2026-08-14-cart-module.md §12; Step 4.9 of the run plan.
  */
-
-const CART_MARK_ABANDONED_QUEUE = 'cart:mark-abandoned';
-const CART_EXPIRE_QUEUE = 'cart:expire';
-const CART_RELEASE_STALE_LOCKS_QUEUE = 'cart:release-stale-locks';
-const CART_PURGE_EXPIRED_QUEUE = 'cart:purge-expired';
 
 type SweepTickPayload = { tenantId: string };
 

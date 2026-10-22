@@ -869,9 +869,8 @@ describe('cart.lines.bulkAdd', () => {
 
 // Step 7.5 — §9: "A locked cart that a client tries to mutate returns 423 Locked with the
 // checkout session id, not a generic error." `loadMutableCart`'s own `assertCartNotLocked`
-// call now runs for EVERY caller (`requireActive: true` or `false`), so `.add`/`.update`/
-// `.bulkAdd` get this automatically and `.remove` gets it too per this step's own documented
-// judgment call (see `loadMutableCart`'s and `.remove`'s own comments in `commands/lines.ts`).
+// call runs for EVERY caller, before the `requireActive` branch, so a locked cart always
+// gets 423 regardless of `requireActive`.
 describe('cart lock-awareness (Step 7.5)', () => {
   beforeEach(resetFixtures)
 
@@ -954,9 +953,7 @@ describe('cart lock-awareness (Step 7.5)', () => {
     })
   })
 
-  // Step 7.5's own judgment call: `.remove` now ALSO respects a lock specifically, even
-  // though it stays permissive (`requireActive: false`) for every OTHER non-active status.
-  it('cart.lines.remove ALSO returns 423 cart_locked (the lock-specific carve-out this step adds), not a silent success', async () => {
+  it('cart.lines.remove ALSO returns 423 cart_locked, not a silent success', async () => {
     lockCart()
     seededCartLines = [{
       id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
@@ -987,9 +984,9 @@ describe('cart lock-awareness (Step 7.5)', () => {
     expect(seededCartLines[0].deletedAt).toBeNull()
   })
 
-  // Contrast case: `.remove` stays permissive for a non-active, non-locked status (e.g.
-  // `abandoned`) — only `locked` gets the new carve-out, nothing else changed.
-  it('cart.lines.remove still succeeds (no gate) against an abandoned, non-locked cart', async () => {
+  // `.remove` now requires an active cart, same as `.add`/`.update`/`.bulkAdd`: a stale
+  // token can no longer remove a line from a non-active, non-locked cart (e.g. `abandoned`).
+  it('cart.lines.remove returns 409 cart_not_active carrying the real status for an abandoned cart', async () => {
     seededCarts[0] = { ...seededCarts[0], status: 'abandoned' }
     seededCartLines = [{
       id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
@@ -1004,10 +1001,20 @@ describe('cart lock-awareness (Step 7.5)', () => {
     const em = makeEm()
     const ctx = makeCtx({ em })
 
-    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+    } catch (err) {
+      captured = err
+    }
 
-    expect(result.removed).toBe(true)
-    expect(seededCartLines[0].deletedAt).not.toBeNull()
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+    expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
+      code: 'cart_not_active',
+      status: 'abandoned',
+    })
+    expect(seededCartLines[0].deletedAt).toBeNull()
   })
 })
 
@@ -1016,9 +1023,8 @@ describe('cart lock-awareness (Step 7.5)', () => {
 // tenant/nonexistent lookup. `cart.mdx` documents `409` for this case and `GET /current`
 // already discloses the real `status` with a `200`, so `loadMutableCart`'s `requireActive`
 // branch (`commands/lines.ts`) now throws a distinguishable `409 cart_not_active` carrying
-// that status instead. Only `requireActive: true` callers (`.add`/`.update`/`.bulkAdd`) are
-// affected — `.remove`'s own `requireActive: false` stays permissive, as already covered by
-// the "still succeeds" test just above.
+// that status instead. All four line-mutation callers (`.add`/`.update`/`.bulkAdd`/
+// `.remove`) pass `requireActive: true` and are affected equally.
 describe('cart non-active-cart write gate (Step 8.5, QA F15)', () => {
   beforeEach(resetFixtures)
 

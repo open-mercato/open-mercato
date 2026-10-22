@@ -96,9 +96,16 @@ function locateContainer(
 
 export type RuleTreeBuilderProps = {
   promotionId: string
+  // Bumped by the host page whenever ANOTHER save surface (the promotion metadata
+  // `CrudForm`) changes the promotion's `updatedAt` server-side, so this component's own
+  // locally-tracked version doesn't go stale and 409 the next tree save.
+  refreshSignal?: number
+  // Called after THIS component's own tree save succeeds, so the host page can refresh
+  // the metadata form's `updatedAt` in turn — keeping both save surfaces on one version.
+  onSaved?: () => void
 }
 
-export function RuleTreeBuilder({ promotionId }: RuleTreeBuilderProps) {
+export function RuleTreeBuilder({ promotionId, refreshSignal, onSaved }: RuleTreeBuilderProps) {
   const t = useT()
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -137,6 +144,29 @@ export function RuleTreeBuilder({ promotionId }: RuleTreeBuilderProps) {
       cancelled = true
     }
   }, [promotionId, reloadToken, t])
+
+  // `refreshSignal` bumps only when the metadata `CrudForm` above this component just
+  // changed the promotion's `updatedAt` server-side. A full reload here would discard an
+  // in-progress tree edit (`root`/`isDirty`), so only the version is refreshed — the next
+  // tree save then carries the current `updatedAt` instead of 409ing on a stale one.
+  const refreshSignalMountedRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!refreshSignalMountedRef.current) {
+      refreshSignalMountedRef.current = true
+      return
+    }
+    let cancelled = false
+    async function refreshVersion() {
+      const call = await apiCall<PromotionTreeResponse>(`/api/promotions/${encodeURIComponent(promotionId)}`, undefined, {
+        fallback: { updatedAt: '', ruleGroupTree: null },
+      })
+      if (!cancelled && call.ok && call.result) setUpdatedAt(call.result.updatedAt)
+    }
+    void refreshVersion()
+    return () => {
+      cancelled = true
+    }
+  }, [promotionId, refreshSignal])
 
   const dispatch = React.useCallback((action: TreeAction) => {
     setRoot((current) => (current ? ruleTreeReducer(current, action) : current))
@@ -193,6 +223,7 @@ export function RuleTreeBuilder({ promotionId }: RuleTreeBuilderProps) {
       }
       flash(t('promotions.tree.saved', 'Rule tree saved'), 'success')
       setReloadToken((value) => value + 1)
+      onSaved?.()
     } catch (error) {
       if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((value) => value + 1) })) return
       const issues = extractTreeValidationIssues(error)
@@ -215,7 +246,7 @@ export function RuleTreeBuilder({ promotionId }: RuleTreeBuilderProps) {
     } finally {
       setIsSaving(false)
     }
-  }, [promotionId, root, t, updatedAt])
+  }, [onSaved, promotionId, root, t, updatedAt])
 
   if (isLoading) return <LoadingMessage label={t('promotions.tree.loading', 'Loading rule tree...')} />
   if (loadError) return <ErrorMessage label={loadError} />
