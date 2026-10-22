@@ -5,15 +5,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 
-import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
+import { detectDocker, parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, hostGatewayStep, infraUpStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
-import { removeLeftoverComposeResources } from '../infra.mjs'
+import { devRuntimeArgs, removeLeftoverComposeResources } from '../infra.mjs'
+import { detectDockerRuntime, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
@@ -554,4 +555,231 @@ test('databaseIsInitialized reads the seeded-users probe and tolerates a missing
   assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 0, stdout: '-1\n' }) }), false)
   assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => ({ status: 1, stdout: '' }) }), null)
   assert.equal(databaseIsInitialized(ctx, { runComposeImpl: () => { throw new Error('down') } }), null)
+})
+
+function fakeDockerProbe(responses) {
+  const calls = []
+  const probe = (args) => {
+    calls.push(args.join(' '))
+    return responses[args[0]] ?? { status: 0, stdout: '' }
+  }
+  return { probe, calls }
+}
+
+test('detectDockerRuntime distinguishes missing CLI, missing compose, stopped daemon, no permission and a hung daemon', () => {
+  const missingCli = fakeDockerProbe({ '--version': { error: Object.assign(new Error('spawn docker ENOENT'), { code: 'ENOENT' }) } })
+  assert.equal(detectDockerRuntime({ probe: missingCli.probe }).code, 'cli-missing')
+  assert.deepEqual(missingCli.calls, ['--version'])
+
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ compose: { status: 1, stderr: "docker: 'compose' is not a docker command." } })).code, 'compose-missing')
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ info: { status: 1, stderr: 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' } })).code, 'daemon-stopped')
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ info: { status: 1, stderr: 'permission denied while trying to connect to the Docker daemon socket' } })).code, 'daemon-permission')
+  assert.equal(detectDockerRuntime(fakeDockerProbe({ info: { error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }) } })).code, 'daemon-unresponsive')
+
+  const ok = detectDockerRuntime(fakeDockerProbe({ info: { status: 0, stdout: '27.3.1\n' } }))
+  assert.equal(ok.ok, true)
+  assert.equal(ok.serverVersion, '27.3.1')
+})
+
+test('detectDocker keeps the human reason for doctor and adds the problem code', () => {
+  const stopped = detectDocker(fakeDockerProbe({ info: { status: 1, stderr: 'Cannot connect to the Docker daemon' } }))
+  assert.deepEqual(stopped, { ok: false, code: 'daemon-stopped', reason: 'docker engine not running' })
+})
+
+test('formatInfraProblem explains the fix and always offers the --no-infra opt-out', () => {
+  for (const code of ['cli-missing', 'compose-missing', 'daemon-stopped', 'daemon-unresponsive', 'daemon-permission', 'compose-failed']) {
+    const lines = formatInfraProblem({ code }, { platform: 'linux' })
+    assert.ok(lines.length >= 3, code)
+    assert.match(lines.join('\n'), /yarn setup --no-infra/, code)
+  }
+  assert.match(formatInfraProblem({ code: 'cli-missing' }, { platform: 'darwin' }).join('\n'), /never installs Docker/)
+  assert.match(formatInfraProblem({ code: 'daemon-stopped' }, { platform: 'linux' }).join('\n'), /systemctl start docker/)
+  const ports = formatInfraProblem({ code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] }).join('\n')
+  assert.match(ports, /Port 5432 \(postgres\) is already in use/)
+  assert.match(ports, /POSTGRES_PORT in \.env/)
+  const unhealthy = formatInfraProblem({ code: 'unhealthy', services: [{ service: 'meilisearch', state: 'running', health: 'unhealthy' }], logsCommand: 'docker compose logs meilisearch' }).join('\n')
+  assert.match(unhealthy, /meilisearch: running \(unhealthy\)/)
+  assert.match(unhealthy, /docker compose logs meilisearch/)
+})
+
+test('findPortConflicts only probes services that are not already running in the project', async () => {
+  const probed = []
+  const conflicts = await findPortConflicts([
+    { service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' },
+    { service: 'redis', port: 6379, envKey: 'REDIS_PORT' },
+  ], { running: new Set(['postgres']), probe: async (port) => { probed.push(port); return true } })
+  assert.deepEqual(probed, [6379])
+  assert.deepEqual(conflicts.map((entry) => entry.service), ['redis'])
+})
+
+test('findUnhealthyServices flags missing, exited and failing-healthcheck services', () => {
+  const entries = parseComposePsOutput([
+    JSON.stringify({ Service: 'postgres', State: 'running', Health: 'healthy' }),
+    JSON.stringify({ Service: 'redis', State: 'exited', Health: '' }),
+    JSON.stringify({ Service: 'meilisearch', State: 'running', Health: 'unhealthy' }),
+    JSON.stringify({ Service: 'opencode', State: 'running', Health: '' }),
+  ].join('\n'))
+  assert.deepEqual(findUnhealthyServices(entries, ['postgres', 'redis', 'meilisearch', 'opencode', 'keycloak']).map((entry) => entry.service), ['redis', 'meilisearch', 'keycloak'])
+})
+
+function fakeComposeSpawn({ psBefore = [], psAfter = psBefore, upStatus = 0 } = {}) {
+  const calls = []
+  let upRan = false
+  const spawnSyncImpl = (command, args) => {
+    calls.push(args.join(' '))
+    if (args.includes('ps')) return { status: 0, stdout: (upRan ? psAfter : psBefore).map((entry) => JSON.stringify(entry)).join('\n') }
+    if (args.includes('up')) {
+      upRan = true
+      return { status: upStatus }
+    }
+    return { status: 0, stdout: '' }
+  }
+  return { spawnSyncImpl, calls }
+}
+
+const SERVICES = [
+  { service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' },
+  { service: 'redis', port: 6379, envKey: 'REDIS_PORT' },
+]
+
+test('startInfraServices stops before compose up when the runtime or a port is not usable', async () => {
+  const stopped = fakeComposeSpawn()
+  const noDaemon = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl: stopped.spawnSyncImpl,
+    detect: () => ({ ok: false, code: 'daemon-stopped', detail: 'docker engine not running' }), log: () => {},
+  })
+  assert.equal(noDaemon.problem.code, 'daemon-stopped')
+  assert.deepEqual(stopped.calls, [])
+
+  const busy = fakeComposeSpawn()
+  const conflict = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl: busy.spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async (port) => port === 5432, log: () => {},
+  })
+  assert.equal(conflict.problem.code, 'port-conflict')
+  assert.deepEqual(conflict.problem.ports.map((entry) => entry.port), [5432])
+  assert.ok(!busy.calls.some((call) => call.includes(' up ') || call.startsWith('up')))
+})
+
+test('startInfraServices reuses running containers, waits on health, and never removes volumes', async () => {
+  const fake = fakeComposeSpawn({ psBefore: [{ Service: 'postgres', State: 'running', Health: 'healthy' }] })
+  const logs = []
+  const outcome = await startInfraServices({
+    composeArgs: (extra) => ['compose', '-f', 'x.yml', ...extra], services: SERVICES, upArgs: ['--profile', 'agents'],
+    spawnSyncImpl: fake.spawnSyncImpl, detect: () => ({ ok: true }), portProbe: async () => false, log: (line) => logs.push(line),
+  })
+  assert.equal(outcome.ok, true)
+  assert.deepEqual(outcome.reused, ['postgres'])
+  assert.ok(fake.calls.includes('compose -f x.yml --profile agents up -d --wait'))
+  assert.ok(!fake.calls.some((call) => /down|--volumes|\brm\b/.test(call)))
+  assert.match(logs.join('\n'), /reusing running containers: postgres/)
+})
+
+test('startInfraServices runs slow preparation only after the cheap checks pass and before compose up', async () => {
+  const order = []
+  const fake = fakeComposeSpawn()
+  const spawnSyncImpl = (command, args, options) => {
+    if (args.includes('up')) order.push('up')
+    return fake.spawnSyncImpl(command, args, options)
+  }
+  await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async () => false, beforeUp: () => order.push('prepare'), log: () => {},
+  })
+  assert.deepEqual(order, ['prepare', 'up'])
+
+  const skipped = []
+  await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl: fakeComposeSpawn().spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async () => true, beforeUp: () => skipped.push('prepare'), log: () => {},
+  })
+  assert.deepEqual(skipped, [])
+})
+
+test('startInfraServices reports which services failed their healthcheck after compose up fails', async () => {
+  const fake = fakeComposeSpawn({ upStatus: 1, psAfter: [
+    { Service: 'postgres', State: 'running', Health: 'healthy' },
+    { Service: 'redis', State: 'running', Health: 'unhealthy' },
+  ] })
+  const outcome = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES,
+    spawnSyncImpl: fake.spawnSyncImpl, detect: () => ({ ok: true }), portProbe: async () => false, log: () => {},
+  })
+  assert.equal(outcome.problem.code, 'unhealthy')
+  assert.deepEqual(outcome.problem.services.map((entry) => entry.service), ['redis'])
+  assert.equal(outcome.problem.logsCommand, 'docker compose logs redis')
+
+  const opaque = fakeComposeSpawn({ upStatus: 1, psAfter: [
+    { Service: 'postgres', State: 'running', Health: 'healthy' },
+    { Service: 'redis', State: 'running', Health: 'healthy' },
+  ] })
+  const failed = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES,
+    spawnSyncImpl: opaque.spawnSyncImpl, detect: () => ({ ok: true }), portProbe: async () => false, log: () => {},
+  })
+  assert.equal(failed.problem.code, 'compose-failed')
+})
+
+test('--no-infra: database probes return no verdict without invoking docker compose', () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/app\n')
+  const ctx = { repoRoot: repo, flags: { noInfra: true } }
+  const forbidden = () => { throw new Error('docker compose must not run with --no-infra') }
+  assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: forbidden }), null)
+  assert.equal(probePostgresCredentials(ctx, { runComposeImpl: forbidden }), null)
+  assert.equal(databaseIsInitialized(ctx, { runComposeImpl: forbidden }), null)
+})
+
+test('--no-infra: the container runtime, host gateway and infra steps are skipped and the dev runtime gets the flag', () => {
+  const ctx = { mode: 'hybrid', flags: { noInfra: true } }
+  assert.equal(containerRuntimeStep.appliesTo(ctx), false)
+  assert.equal(hostGatewayStep.appliesTo(ctx), false)
+  assert.equal(infraUpStep.appliesTo(ctx), false)
+  assert.equal(infraUpStep.appliesTo({ mode: 'hybrid', flags: { noInfra: false } }), true)
+
+  assert.deepEqual(devRuntimeArgs(['--verbose'], { noInfra: true }), ['--verbose', '--no-infra'])
+  assert.deepEqual(devRuntimeArgs(['--no-infra'], { noInfra: true }), ['--no-infra'])
+  assert.deepEqual(devRuntimeArgs(['--verbose'], { noInfra: false }), ['--verbose'])
+})
+
+test('an automatic infra failure stops the pipeline before the database step', async () => {
+  const order = []
+  const ctx = quietCtx({
+    mode: 'hybrid',
+    flags: { noInfra: false, profiles: [] },
+    ensureOpencodeImageImpl: () => order.push('opencode-image'),
+    startInfraImpl: async (repoRoot, { beforeUp }) => {
+      assert.equal(typeof beforeUp, 'function')
+      order.push('infra')
+      return { ok: false, problem: { code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] } }
+    },
+  })
+  const lines = []
+  ctx.log = (line) => lines.push(String(line))
+  const outcome = await runSteps([
+    { ...infraUpStep, async check() { return { ok: false, detail: 'starting: postgres' } } },
+    { id: 'database', title: 'Database', async check() { order.push('database'); return { ok: false } }, async apply() {} },
+  ], ctx)
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.failedStep, 'infra-up')
+  assert.deepEqual(order, ['infra'], 'a failed preflight never pulls or builds the OpenCode image')
+  assert.match(lines.join('\n'), /Port 5432 \(postgres\) is already in use/)
+  assert.match(lines.join('\n'), /yarn setup --no-infra/)
+})
+
+test('root package.json exposes yarn setup through the starter while keeping om, infra and dev entries', () => {
+  const rootPackage = JSON.parse(fs.readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8'))
+  assert.equal(rootPackage.scripts.setup, 'node packages/starter/bin/om-start.mjs up')
+  assert.equal(rootPackage.scripts.om, 'node packages/starter/bin/om-start.mjs')
+  assert.equal(rootPackage.scripts['infra:up'], 'node packages/starter/bin/om-start.mjs infra up')
+  assert.equal(rootPackage.scripts['infra:down'], 'node packages/starter/bin/om-start.mjs infra down')
+  assert.ok(rootPackage.scripts.dev)
+  assert.ok(rootPackage.scripts['dev:greenfield'])
+})
+
+test('the generated-app copy of the infra preflight is byte-identical to the starter module', () => {
+  const source = fs.readFileSync(new URL('../infra-preflight.mjs', import.meta.url))
+  const mirror = fs.readFileSync(new URL('../../../create-app/template/scripts/dev-infra-preflight.mjs', import.meta.url))
+  assert.ok(source.equals(mirror), 'run yarn template:sync:fix')
 })

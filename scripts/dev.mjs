@@ -12,6 +12,7 @@ import {
   noteCommandStart,
 } from './dev-log-files.mjs'
 import {
+  extractInitSummaryLines,
   isIgnorableFailureLine,
   isIgnorableTurboLine,
 } from './dev-orchestration-log-policy.mjs'
@@ -229,6 +230,9 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// `--no-infra` (forwarded by `yarn setup --no-infra` and the starter) promises
+// zero Docker calls, so the OpenCode container refresh is skipped entirely.
+const noInfra = args.includes('--no-infra')
 const withMcp = shouldStartMcp({ args, env: process.env, appOnly })
 const mcpPort = resolveMcpPort(process.env)
 const mcpKeyFilePath = resolveMcpKeyFilePath(process.env, process.cwd())
@@ -1675,11 +1679,16 @@ function resolveChildExitCode(result, fallback = 1) {
   return fallback
 }
 
-async function runRawYarnCommand(commandArgs) {
+// `mercato init` prints "Start the dev server: yarn dev" unless told that this
+// runner launches the dev server right after it.
+const INIT_DEV_AUTOSTART_ENV = { OM_INIT_DEV_AUTOSTART: '1' }
+
+async function runRawYarnCommand(commandArgs, options = {}) {
   const child = spawnCommand(yarnCommand, commandArgs, {
     label: commandArgs.join(' '),
     logFile: getDevRunnerLog(),
     mirrorOutput: true,
+    env: options.env,
   })
   const result = await waitForClose(child)
   if (isGracefulShutdownResult(result)) {
@@ -2075,6 +2084,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
       label,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: options.env,
     })
     const result = await waitForClose(child)
     if (isGracefulShutdownResult(result)) {
@@ -2090,6 +2100,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     const child = spawnCommand(yarnCommand, commandArgs, {
       label,
       logFile: getDevRunnerLog(),
+      env: options.env,
     })
     const capturedLines = []
     const capture = (line) => {
@@ -2115,6 +2126,9 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
         stageTotal,
       })
       return
+    }
+    if (options.echoSummaryBox) {
+      for (const line of extractInitSummaryLines(capturedLines)) console.log(line)
     }
   }
 
@@ -2419,6 +2433,10 @@ function listDockerContainerNames() {
 function restartOpencodeContainer(reason) {
   if (opencodeRestartAttempted || shuttingDown) return false
   opencodeRestartAttempted = true
+  if (noInfra) {
+    noteDockerUnavailable('--no-infra was passed, so Docker is never called')
+    return false
+  }
   const names = listDockerContainerNames()
   if (names === null || !names.includes('mercato-opencode')) return false
   console.log(`🔄 ${reason} — restarting the OpenCode container to pick up the fresh MCP key...`)
@@ -2633,7 +2651,7 @@ async function runGreenfieldDev() {
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
-  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5 })
+  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -2644,7 +2662,7 @@ async function runClassicGreenfieldDev() {
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])
-  await runRawYarnCommand(['initialize', '--', '--reinstall'])
+  await runRawYarnCommand(['initialize', '--', '--reinstall'], { env: INIT_DEV_AUTOSTART_ENV })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -2664,8 +2682,8 @@ async function runStandaloneSetup() {
   await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
   await runPassthroughStage(
     '🛠️ Initializing Open Mercato',
-    reinstall ? ['initialize', '--reinstall'] : ['initialize'],
-    { stageCurrent: 4, stageTotal: 5 },
+    reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'],
+    { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true },
   )
   launchStandaloneDev({
     stageCurrent: 4,
@@ -2686,7 +2704,7 @@ async function runClassicStandaloneSetup() {
   await runRawYarnCommand(['install'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['db:migrate'])
-  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize'])
+  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'], { env: INIT_DEV_AUTOSTART_ENV })
   launchStandaloneDev()
 }
 

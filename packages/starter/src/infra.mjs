@@ -7,7 +7,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
+import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
+import { resolveStackPorts } from './constants.mjs'
+import { formatInfraProblem, startInfraServices } from './infra-preflight.mjs'
 
 export function ensureMcpSharedDir(repoRoot) {
   // Pre-create the bind-mount source so dockerd never creates it root-owned
@@ -29,6 +31,43 @@ export function infraUp(repoRooot, { profiles = [] } = {}) {
   // ensureOpencodeImage) — this file never builds.
   upArgs.push('up', '-d', '--wait')
   return runCompose(repoRoot, upArgs).status ?? 1
+}
+
+export const INFRA_SERVICE_PORT_KEYS = {
+  postgres: 'POSTGRES_PORT',
+  redis: 'REDIS_PORT',
+  meilisearch: 'MEILISEARCH_PORT',
+  opencode: 'OPENCODE_PORT',
+}
+
+export function infraServices(repoRoot, env = process.env) {
+  const ports = resolveStackPorts(repoRoot, env)
+  return Object.entries(INFRA_SERVICE_PORT_KEYS).map(([service, envKey]) => ({ service, port: ports[service], envKey }))
+}
+
+// infraUp plus the shared preflight: distinguishes missing CLI / compose,
+// stopped daemon, port conflicts, and failed healthchecks instead of a bare
+// non-zero compose exit. Returns { ok, problem? }; never touches volumes.
+export async function startInfra(repoRoot, { profiles = [], log = console.log, beforeUp, startImpl = startInfraServices } = {}) {
+  ensureMcpSharedDir(repoRoot)
+  return startImpl({
+    composeArgs: (extra) => composeArgs(repoRoot, extra),
+    services: infraServices(repoRoot),
+    upArgs: profiles.flatMap((profile) => ['--profile', profile]),
+    cwd: repoRoot,
+    beforeUp,
+    log,
+  })
+}
+
+// `--no-infra` promises zero Docker calls for the whole run, including the dev
+// runtime the starter launches afterwards (scripts/dev.mjs honors the flag).
+export function devRuntimeArgs(passthrough, { noInfra = false } = {}) {
+  return noInfra && !passthrough.includes('--no-infra') ? [...passthrough, '--no-infra'] : passthrough
+}
+
+export function describeInfraProblem(problem) {
+  return formatInfraProblem(problem, { optOutCommand: 'yarn setup --no-infra' })
 }
 
 export function infraDown(repoRoot, { volumes = false } = {}) {

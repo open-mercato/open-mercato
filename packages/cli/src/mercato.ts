@@ -974,6 +974,7 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
+      const skipIfInitialized = initArgs.includes('--skip-if-initialized')
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1127,6 +1128,12 @@ export async function run(argv = process.argv) {
               'SELECT COUNT(*)::text AS count FROM users',
             )
             const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
+            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0 && skipIfInitialized) {
+              console.log(
+                `✅ Database already initialized (${existingUsersCount} user(s)) — keeping the existing data and skipping the first-run seed.`,
+              )
+              return 0
+            }
             if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
               console.error(
                 `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
@@ -1402,8 +1409,12 @@ export async function run(argv = process.argv) {
       console.log('╔══════════════════════════════════════════════════════════════╗')
       console.log('║  🚀 You\'re now ready to start development!                   ║')
       console.log('║                                                              ║')
-      console.log('║  Start the dev server:                                       ║')
-      console.log('║    yarn dev                                                  ║')
+      if (parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true) {
+        console.log('║  The dev server is starting now (next time run: yarn dev).   ║')
+      } else {
+        console.log('║  Start the dev server:                                       ║')
+        console.log('║    yarn dev                                                  ║')
+      }
       console.log('║                                                              ║')
       console.log('║  Users created:                                              ║')
       for (const entry of createdUsers) {
