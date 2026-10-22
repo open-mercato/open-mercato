@@ -42,15 +42,17 @@ Resolve #7781, #7782, and #7783. The user's reference to #77882 means #7782: imp
 
 ## Progress
 
+PR: #7784
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Contracts and preparation
 
-- [ ] 1.1 Confirm current defects, additive contracts, source specs, and test runner.
+- [x] 1.1 Confirm current defects, additive contracts, source specs, and test runner. — e5fcb3e14
 
 ### Phase 2: Implementation
 
-- [ ] 2.1 Correct Customers and Catalog agent guidance for #7781.
+- [x] 2.1 Correct Customers and Catalog agent guidance for #7781. — 251a9a14c; 71 focused tests and instruction budget passed.
 - [ ] 2.2 Implement and test all four Sales document extension hosts for #7782.
 - [ ] 2.3 Implement and test quote response enrichment for #7783.
 - [ ] 2.4 Update existing specs and compatibility documentation.
