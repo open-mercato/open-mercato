@@ -17,6 +17,7 @@ import type { AiPendingAction } from '../data/entities'
 import {
   AI_RAW_TOOL_AGENT_ID,
   resolveMcpPendingActionTtlSeconds,
+  type AiPendingActionChannel,
   type AiPendingActionFieldDiff,
   type AiPendingActionRecordDiff,
 } from './pending-action-types'
@@ -58,6 +59,14 @@ export interface PrepareMutationInput {
    * agent's code-declared policy stands alone.
    */
   mutationPolicyOverride?: AiAgentMutationPolicy | null
+  /**
+   * Surface the agent run was invoked through. Defaults to `'agent'`; an
+   * agent run on behalf of an MCP / tools-api caller stamps its rows with
+   * that channel so approvers can see where the write came from.
+   */
+  channel?: AiPendingActionChannel
+  apiKeyId?: string | null
+  correlationId?: string | null
   /**
    * Deterministic clock hook for tests. Defaults to `new Date()`.
    */
@@ -482,6 +491,9 @@ export async function prepareMutation(
       sideEffectsSummary,
       recordVersion,
       attachmentIds: normalizeAttachmentIds(normalizedInput),
+      channel: input.channel ?? 'agent',
+      apiKeyId: input.apiKeyId ?? null,
+      correlationId: input.correlationId ?? null,
       now: input.now,
     },
     {

@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-definition'
 import type { AiChatRequestContext, AiUiPart } from './attachment-bridge-types'
 import type { AiToolDefinition, McpToolContext } from './types'
-import { loadAgentRegistry } from './agent-registry'
+import { getAgent, loadAgentRegistry } from './agent-registry'
 import {
   checkAgentPolicy,
   resolveEffectiveMutationPolicy,
@@ -15,6 +15,9 @@ import {
 import { toolRegistry } from './tool-registry'
 import { toSafeZodSchema } from './schema-utils'
 import { prepareMutation } from './prepare-mutation'
+import { resolveAgentRunMutationPolicyOverride } from './agent-channel-policy'
+import type { McpMutationMode } from './mcp-exposure'
+import type { AiPendingActionChannel } from './pending-action-types'
 
 const logger = createLogger('ai_assistant')
 
@@ -71,6 +74,16 @@ export interface ResolveAiAgentToolsInput {
    * per-tenant/org uniqueness within the TTL window.
    */
   conversationId?: string | null
+  /**
+   * Surface the agent runs on behalf of. Defaults to `'agent'` (today's
+   * behaviour). For `'mcp'` / `'tools-api'` the `mutationMode` decides the
+   * effective policy via {@link resolveAgentRunMutationPolicyOverride} and
+   * pending actions are stamped with the channel.
+   */
+  channel?: AiPendingActionChannel
+  mutationMode?: McpMutationMode
+  apiKeyId?: string | null
+  correlationId?: string | null
 }
 
 /**
@@ -112,6 +125,11 @@ export interface ResolvedAgentTools {
    * calls fire during the turn.
    */
   uiPartQueue: AiUiPartQueue
+  /**
+   * Ids of the `AiPendingAction` rows created by the mutation wrapper during
+   * the run, in call order. Empty when no mutation was queued.
+   */
+  pendingActionIds: string[]
 }
 
 function toPolicyAuthContext(ctx: AiChatRequestContext): {
@@ -173,6 +191,10 @@ interface MutationInterceptorOptions {
   mutationPolicyOverride: AiAgentMutationPolicy | null
   conversationId: string | null
   uiPartQueue: AiUiPartQueue
+  channel: AiPendingActionChannel
+  apiKeyId: string | null
+  correlationId: string | null
+  pendingActionIds: string[]
 }
 
 function formatPendingActionToolResult(
@@ -252,6 +274,9 @@ function adaptToolToAiSdk(
               toolCallArgs,
               conversationId: mutation.conversationId,
               mutationPolicyOverride: mutation.mutationPolicyOverride,
+              channel: mutation.channel,
+              apiKeyId: mutation.apiKeyId,
+              correlationId: mutation.correlationId,
             },
             {
               tenantId: mutation.ctx.tenantId,
@@ -263,6 +288,7 @@ function adaptToolToAiSdk(
             },
           )
           mutation.uiPartQueue.enqueue(uiPart)
+          mutation.pendingActionIds.push(pendingAction.id)
           return formatPendingActionToolResult(
             mutation.agent,
             mutation.tool,
@@ -327,7 +353,14 @@ export async function resolveAiAgentTools(
   }
 
   const policyAuth = toPolicyAuthContext(input.authContext)
-  const mutationPolicyOverride = input.mutationPolicyOverride ?? null
+  const channel = input.channel ?? 'agent'
+  const mutationPolicyOverride = resolveAgentRunMutationPolicyOverride({
+    channel,
+    mutationMode: input.mutationMode,
+    declaredPolicy: getAgent(input.agentId)?.mutationPolicy,
+    tenantOverride: input.mutationPolicyOverride,
+    canQueueMutations: typeof input.container !== 'undefined',
+  })
   const agentDecision = checkAgentPolicy({
     agentId: input.agentId,
     authContext: policyAuth,
@@ -341,6 +374,7 @@ export async function resolveAiAgentTools(
   const { agent } = agentDecision
   const tools: Record<string, Tool<unknown, unknown>> = {}
   const uiPartQueue = createAiUiPartQueue()
+  const pendingActionIds: string[] = []
   const effectiveMutationPolicy = resolveEffectiveMutationPolicy(
     agent.mutationPolicy,
     mutationPolicyOverride,
@@ -387,6 +421,10 @@ export async function resolveAiAgentTools(
               mutationPolicyOverride,
               conversationId: input.conversationId ?? null,
               uiPartQueue,
+              channel,
+              apiKeyId: input.apiKeyId ?? null,
+              correlationId: input.correlationId ?? null,
+              pendingActionIds,
             }
           : null
       // Sanitize tool name for model API compatibility: OpenAI requires
@@ -408,5 +446,5 @@ export async function resolveAiAgentTools(
     }
   }
 
-  return { agent, tools, uiPartQueue }
+  return { agent, tools, uiPartQueue, pendingActionIds }
 }

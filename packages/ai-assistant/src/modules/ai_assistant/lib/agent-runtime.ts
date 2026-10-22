@@ -63,6 +63,9 @@ import {
   sanitizeToolNameForModel,
 } from './agent-tools'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
+import { resolveAgentRunMutationPolicyOverride } from './agent-channel-policy'
+import type { McpMutationMode } from './mcp-exposure'
+import type { AiPendingActionChannel } from './pending-action-types'
 import { toolRegistry } from './tool-registry'
 import {
   attachmentPartsToUiFileParts,
@@ -2079,6 +2082,18 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   generateObject?: (
     options: PreparedAiSdkObjectOptions,
   ) => Promise<GenerateObjectResult<unknown> | StreamObjectResult<unknown, unknown, unknown>>
+  /**
+   * Surface the run is invoked on behalf of. Defaults to `'agent'` (today's
+   * behaviour). An MCP / tools-api caller passes its channel and server
+   * `mutationMode`: `direct` / `deny` force the run read-only, `approval`
+   * keeps the agent's own policy and queues its writes as pending actions
+   * stamped with the channel, `apiKeyId` and `correlationId` (spec
+   * `2026-10-21-mcp-tool-exposure-parity-and-audit` §3.1).
+   */
+  channel?: AiPendingActionChannel
+  mutationMode?: McpMutationMode
+  apiKeyId?: string | null
+  correlationId?: string | null
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
@@ -2095,6 +2110,11 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
    * `2026-07-07-lightweight-agent-runtime` Phase 1).
    */
   steps?: LoopStepRecord[]
+  /**
+   * Ids of the pending actions the run's mutation tools queued for approval.
+   * Present only when at least one was created.
+   */
+  pendingActionIds?: string[]
 }
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
@@ -2186,7 +2206,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       input.authContext.organizationId,
     ),
   ])
-  const { agent, tools } = await resolveAiAgentTools({
+  const { agent, tools, pendingActionIds } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
@@ -2194,6 +2214,17 @@ export async function runAiAgentObject<TSchema = unknown>(
     requestedExecutionMode: 'object',
     mutationPolicyOverride,
     container: input.container,
+    channel: input.channel,
+    mutationMode: input.mutationMode,
+    apiKeyId: input.apiKeyId,
+    correlationId: input.correlationId,
+  })
+  const runMutationPolicyOverride = resolveAgentRunMutationPolicyOverride({
+    channel: input.channel,
+    mutationMode: input.mutationMode,
+    declaredPolicy: agent.mutationPolicy,
+    tenantOverride: mutationPolicyOverride,
+    canQueueMutations: typeof input.container !== 'undefined',
   })
 
   const resolvedOutput = resolveStructuredOutput(agent, input.output)
@@ -2216,7 +2247,7 @@ export async function runAiAgentObject<TSchema = unknown>(
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
     agent,
-    mutationPolicyOverride,
+    runMutationPolicyOverride,
   )
 
   const { model } = resolveAgentModel(
@@ -2301,6 +2332,7 @@ export async function runAiAgentObject<TSchema = unknown>(
         outputTokens: toolResult.usage?.outputTokens,
       },
       steps: toolLoopTrace.finalize(null).steps,
+      ...(pendingActionIds.length > 0 ? { pendingActionIds: [...pendingActionIds] } : {}),
     }
   }
 
