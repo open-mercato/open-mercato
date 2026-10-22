@@ -107,11 +107,13 @@ In the Kaldi run this stage took about 11 minutes from `npx` to a working login 
 
 ## Start the Coding Agent
 
-Your app is running. Now start the agent that builds on it. The quickest way is your agent's CLI in the app folder: `claude`, `codex` or `agent` (Cursor CLI, formerly `cursor-agent`). For the best developer experience, use [Cezar](https://github.com/open-mercato/cezar), the open-source (MIT) agentic development IDE: you type a task, Cezar runs the agent in its own worktree and shows the live run next to a preview of your app (the **Preview** tab, **Run app**).
+Your app is running. Now start the agent that builds on it. The quickest way is your agent's CLI in the app folder: `claude`, `codex` or `agent` (Cursor CLI, formerly `cursor-agent`). For the best developer experience, use [Cezar](https://github.com/open-mercato/cezar), the open-source (MIT) agentic development IDE: you type a task, Cezar runs the agent in its own git worktree and streams the run live, with its changes, commits and a terminal one click away.
 
 ```bash
 npx cezar-run                                        # in the app folder; opens Cezar at `http://localhost:4321`
 ```
+
+<p align="center"><img src="./.github/readme/cezar-task.png" alt="Cezar running om-help for a roast batches feature in a fresh Open Mercato app: the agent lists the guides, skills and rules the spec needs" width="100%" /></p>
 
 It works with seven agent CLIs: **Claude Code, Codex, GitHub Copilot CLI, Cursor Agent, OpenCode, Junie and pi**, runs the om-* skills in parallel, on a schedule or on GitHub events, and never merges on its own.
 
