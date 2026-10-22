@@ -57,6 +57,12 @@ export const metadata = {
   DELETE: { requireAuth: false },
 }
 
+const uploadGuardPayloadSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  fileSize: z.number().int().nonnegative(),
+  mimeType: z.string().max(255),
+})
+
 function unavailable(): Response {
   return NextResponse.json({ ok: false, error: 'staff.support.errors.attachmentsUnavailable' }, { status: 503 })
 }
@@ -164,6 +170,7 @@ export async function POST(req: Request) {
     if (!(file instanceof File)) {
       return NextResponse.json({ ok: false, error: t('staff.support.errors.fileRequired', 'Choose a file before uploading.') }, { status: 400 })
     }
+    const uploadPayload = { fileName: file.name, fileSize: file.size, mimeType: file.type }
     const guarded = await runRouteMutationGuards({
       container: scope.container,
       req,
@@ -172,10 +179,13 @@ export async function POST(req: Request) {
         resourceKind: SUPPORT_TICKET_RESOURCE_KIND,
         resourceId: owned.task.id,
         operation: 'update',
-        mutationPayload: { fileName: file.name, fileSize: file.size, mimeType: file.type },
+        mutationPayload: uploadPayload,
       },
     })
     if (!guarded.ok) return guarded.response
+    const effectiveUpload = guarded.modifiedPayload
+      ? uploadGuardPayloadSchema.parse({ ...uploadPayload, ...guarded.modifiedPayload, fileSize: file.size })
+      : uploadPayload
     let uploadService: ScopedAttachmentUploadService | null = null
     try {
       uploadService = scope.container.resolve('attachmentScopedUploadService') as ScopedAttachmentUploadService
@@ -190,9 +200,9 @@ export async function POST(req: Request) {
         organizationId: scope.organizationId,
         entityId: SUPPORT_TICKET_ATTACHMENT_ENTITY_ID,
         recordId: owned.task.id,
-        fileName: file.name,
+        fileName: effectiveUpload.fileName,
         buffer: Buffer.from(await file.arrayBuffer()),
-        declaredMimeType: file.type,
+        declaredMimeType: effectiveUpload.mimeType,
         tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG, customerUploadTag(scope.auth.sub)],
       })
     } catch (error) {

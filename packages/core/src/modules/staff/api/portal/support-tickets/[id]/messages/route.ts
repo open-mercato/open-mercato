@@ -39,6 +39,14 @@ export async function POST(req: Request) {
     const limited = await checkPortalRateLimit(scope, 'message')
     if (limited) return limited
     const body = bodySchema.parse(await readJsonSafe<Record<string, unknown>>(req, {}))
+    const guarded = await runRouteMutationGuards({
+      container: scope.container,
+      req,
+      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
+      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'update', mutationPayload: body },
+    })
+    if (!guarded.ok) return guarded.response
+    const effectiveBody = guarded.modifiedPayload ? bodySchema.parse({ ...body, ...guarded.modifiedPayload }) : body
     const customer = await resolveCustomerDisplay(scope)
     const input: SupportTicketPortalMessageInput = {
       tenantId: scope.tenantId,
@@ -49,15 +57,8 @@ export async function POST(req: Request) {
       customerKind: customer.kind,
       reporterDisplayName: scope.auth.displayName ?? null,
       taskId: owned.task.id,
-      body: body.body,
+      body: effectiveBody.body,
     }
-    const guarded = await runRouteMutationGuards({
-      container: scope.container,
-      req,
-      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'update', mutationPayload: body },
-    })
-    if (!guarded.ok) return guarded.response
     const commandBus = scope.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<SupportTicketPortalMessageInput, SupportTicketMessageResult>(
       staffSupportTicketCommandIds.portalMessage,

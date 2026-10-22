@@ -178,6 +178,16 @@ export async function POST(req: Request) {
     const limited = await checkPortalRateLimit(scope, 'create')
     if (limited) return limited
     const body = createBodySchema.parse(await readJsonSafe<Record<string, unknown>>(req, {}))
+    const guarded = await runRouteMutationGuards({
+      container: scope.container,
+      req,
+      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
+      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: null, operation: 'create', mutationPayload: body },
+    })
+    if (!guarded.ok) return guarded.response
+    const effectiveBody = guarded.modifiedPayload
+      ? createBodySchema.parse({ ...body, ...guarded.modifiedPayload })
+      : body
     const customer = await resolveCustomerDisplay(scope)
     const input: SupportTicketCreateFromPortalInput = {
       tenantId: scope.tenantId,
@@ -187,17 +197,10 @@ export async function POST(req: Request) {
       customerDisplayName: customer.displayName,
       customerKind: customer.kind,
       reporterDisplayName: scope.auth.displayName ?? null,
-      categoryValue: body.categoryValue,
-      subject: body.subject,
-      description: body.description,
+      categoryValue: effectiveBody.categoryValue,
+      subject: effectiveBody.subject,
+      description: effectiveBody.description,
     }
-    const guarded = await runRouteMutationGuards({
-      container: scope.container,
-      req,
-      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: null, operation: 'create', mutationPayload: body },
-    })
-    if (!guarded.ok) return guarded.response
     const commandBus = scope.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<SupportTicketCreateFromPortalInput, SupportTicketCreateResult>(
       staffSupportTicketCommandIds.createFromPortal,
