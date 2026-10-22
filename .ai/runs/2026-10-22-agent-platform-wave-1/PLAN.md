@@ -51,7 +51,7 @@
 | 7 | 7.1 | Add document structure types and locators | dispatch:cheap | done | d51b8a7f7 |
 | 7 | 7.2 | Add the plain-text structure engine and engine registry | dispatch | done | 67eb12c77 |
 | 7 | 7.3 | Add the section structurer | dispatch:capable | done | 16fe4435c |
-| 7 | 7.4 | Add the PDF layout engine | dispatch:capable | todo | — |
+| 7 | 7.4 | Add the PDF layout engine | dispatch:capable | done | 144ea6ccf |
 | 7 | 7.5 | Add the DOCX structure engine | dispatch | todo | — |
 | 8 | 8.1 | Add document structure entities, partition flags, encryption and migration | dispatch:capable | todo | — |
 | 8 | 8.2 | Add partition structure switches to validators, API and form | dispatch | todo | — |

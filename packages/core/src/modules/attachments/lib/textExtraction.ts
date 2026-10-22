@@ -1,19 +1,14 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { createRequire } from 'module'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
+import { openPdfDocument } from './pdfJsLoader'
 
 const logger = createLogger('attachments').child({ component: 'text-extraction' })
 
 // NOTE: child_process is intentionally NOT imported here.
 // This module MUST NOT shell out to any external binary for content extraction.
 // All extraction must use pure-JS libraries. See HUNT-PARSER-01.
-
-const moduleRequire = createRequire(path.join(process.cwd(), 'package.json'))
-const pdfJsPackageRoot = path.dirname(moduleRequire.resolve('pdfjs-dist/package.json'))
-const PDF_CMAP_URL = `${path.join(pdfJsPackageRoot, 'cmaps')}${path.sep}`
-const PDF_STANDARD_FONT_DATA_URL = `${path.join(pdfJsPackageRoot, 'standard_fonts')}${path.sep}`
 
 type ExtractParams = {
   filePath: string
@@ -62,14 +57,8 @@ async function extractPlainText(filePath: string): Promise<string | null> {
 
 async function extractPdfText(filePath: string): Promise<string | null> {
   try {
-    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
     const data = new Uint8Array(await fs.readFile(filePath))
-    const loadingTask = getDocument({
-      data,
-      cMapUrl: PDF_CMAP_URL,
-      cMapPacked: true,
-      standardFontDataUrl: PDF_STANDARD_FONT_DATA_URL,
-    })
+    const loadingTask = await openPdfDocument(data)
     const pdfDocument = await loadingTask.promise
     const textParts: string[] = []
     const maxPages = resolveMaxOcrPages()
