@@ -165,6 +165,28 @@ export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
   maxCallsPerTurn?: number
   /** Declares the tool can receive resolved attachment parts at runtime. */
   supportsAttachments?: boolean
+  /** MCP channel controls. Omitted = exposed (today's behaviour). */
+  mcp?: AiToolMcpOptions
+  /** Identifies the agent the tool runs (set by agent-tool synthesis). */
+  agentRef?: AiToolAgentRef
+}
+
+/**
+ * MCP channel controls for an AI tool.
+ */
+export interface AiToolMcpOptions {
+  /** Set to `false` to hide the tool from MCP servers. Defaults to exposed. */
+  expose?: boolean
+  /** Optional output schema advertised as MCP `outputSchema`. */
+  outputSchema?: z.ZodTypeAny
+}
+
+/**
+ * Reference to the agent a synthesized agent tool runs.
+ */
+export interface AiToolAgentRef {
+  agentId: string
+  engine: 'ai-assistant' | 'dispatcher'
 }
 
 /**

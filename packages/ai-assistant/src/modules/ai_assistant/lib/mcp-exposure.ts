@@ -1,6 +1,7 @@
 import { parseBooleanFromUnknown, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { hasRequiredFeatures } from './auth'
+import type { AiToolAgentRef, AiToolMcpOptions } from './types'
 
 export type McpMutationMode = 'direct' | 'deny' | 'approval'
 
@@ -15,6 +16,8 @@ export type McpExposableTool = {
   name: string
   requiredFeatures?: string[]
   isMutation?: boolean
+  mcp?: AiToolMcpOptions
+  agentRef?: AiToolAgentRef
 }
 
 export type McpExposureCaller = {
@@ -32,10 +35,6 @@ export const DEFAULT_MCP_EXPOSURE_CONFIG: Readonly<McpExposureConfig> = Object.f
   mutationMode: 'direct',
   includeAgentTools: true,
 })
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
 
 function readCliValue(cliArgs: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
@@ -103,22 +102,12 @@ function matchesAnyPattern(toolName: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesToolPattern(toolName, pattern))
 }
 
-function isMcpExposeDisabled(tool: McpExposableTool): boolean {
-  const mcp: unknown = Reflect.get(tool, 'mcp')
-  return isRecord(mcp) && mcp.expose === false
-}
-
-function hasAgentRef(tool: McpExposableTool): boolean {
-  const agentRef: unknown = Reflect.get(tool, 'agentRef')
-  return agentRef !== undefined && agentRef !== null && agentRef !== ''
-}
-
 export function isToolExposed(tool: McpExposableTool, config: McpExposureConfig): boolean {
-  if (isMcpExposeDisabled(tool)) return false
+  if (tool.mcp?.expose === false) return false
   if (config.allow !== null && !matchesAnyPattern(tool.name, config.allow)) return false
   if (matchesAnyPattern(tool.name, config.deny)) return false
   if (config.mutationMode === 'deny' && tool.isMutation === true) return false
-  if (!config.includeAgentTools && hasAgentRef(tool)) return false
+  if (!config.includeAgentTools && tool.agentRef) return false
   return true
 }
 

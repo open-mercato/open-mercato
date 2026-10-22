@@ -7,11 +7,6 @@ import {
   type McpExposureConfig,
 } from '../mcp-exposure'
 
-type TestTool = McpExposableTool & {
-  mcp?: { expose?: boolean }
-  agentRef?: string
-}
-
 const baseConfig: McpExposureConfig = {
   allow: null,
   deny: [],
@@ -19,7 +14,7 @@ const baseConfig: McpExposureConfig = {
   includeAgentTools: true,
 }
 
-function tool(name: string, extra: Partial<TestTool> = {}): TestTool {
+function tool(name: string, extra: Partial<McpExposableTool> = {}): McpExposableTool {
   return { name, ...extra }
 }
 
@@ -161,7 +156,9 @@ describe('isToolExposed', () => {
   })
 
   it('hides agent tools when includeAgentTools is false', () => {
-    const agentTool = tool('agent.customers.account_assistant', { agentRef: 'customers.account_assistant' })
+    const agentTool = tool('agent.customers.account_assistant', {
+      agentRef: { agentId: 'customers.account_assistant', engine: 'ai-assistant' },
+    })
     expect(isToolExposed(agentTool, baseConfig)).toBe(true)
     expect(isToolExposed(agentTool, { ...baseConfig, includeAgentTools: false })).toBe(false)
     expect(isToolExposed(tool('customers.list_people'), { ...baseConfig, includeAgentTools: false })).toBe(true)
@@ -177,7 +174,7 @@ describe('isToolExposed', () => {
 })
 
 describe('filterToolsForCaller', () => {
-  const tools: TestTool[] = [
+  const tools: McpExposableTool[] = [
     tool('customers.list_people', { requiredFeatures: ['customers.people.view'] }),
     tool('customers.update_person', { requiredFeatures: ['customers.people.manage'], isMutation: true }),
     tool('catalog.list_products', { requiredFeatures: ['catalog.products.view'] }),
