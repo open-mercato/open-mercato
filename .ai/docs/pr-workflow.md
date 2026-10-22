@@ -14,6 +14,34 @@ readable taxonomy lives in `.ai/agentic.config.json` (`labels.*`, `qaGate`).
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.
 - Release-line labels are additive: `backport release/vX.Y.x` (cherry-pick into that line once merged), `backport main` (forward-port a line hotfix), `backport` (marks a PR the Backport workflow opened), `skip-changelog` (left out of generated release notes).
 
+## Release-note labels
+
+Generated release notes (`.github/release.yml`) group a PR by its category label and leave out
+PRs labelled `skip-changelog`, so every PR merged into `main` or a `release/v*` line MUST carry
+one of the two. Pick the category from what the PR changes for users, using its
+conventional-commit type as the starting point:
+
+| Change | Label | Notes section |
+|---|---|---|
+| `feat` — new capability or public API | `feature` | ✨ Features |
+| a fix for a security issue, a tenant-isolation or auth flaw, or a vulnerable dependency | `security` | 🔒 Security |
+| `fix` — incorrect behaviour corrected | `bug` | 🐛 Fixes |
+| change confined to `packages/enterprise` or enterprise-only modules | `enterprise` | 🏢 Enterprise |
+| `refactor`, `perf`, `test`, `ci`, `build`, `chore` with no user-visible behaviour | `refactor` | 🧹 Maintenance |
+| `deps` / `chore(deps)` dependency bumps | `dependencies` | 🧹 Maintenance |
+| `docs` only | `documentation` | 🧹 Maintenance |
+| release and branch bookkeeping: version bumps, changelog carry-backs, branch-sync merges | `skip-changelog` | — (left out) |
+
+- One category is the norm; add `security` next to `bug` or `dependencies` when the fix closes a
+  vulnerability (it then lists under Security, the first matching section), and `enterprise` next
+  to the type label when the change ships only in enterprise.
+- The PR title is what the notes print, so it must read as a release-note line: a conventional
+  title stating the user-visible effect (`fix(sales): keep the gross total after a discount edit`).
+- Auto-skills set the label when they open a PR and the review step verifies it
+  (`.ai/skills/om-code-review/SKILL.md`); a reviewer with label permission corrects a missing or
+  wrong category directly, with a one-line rationale comment, instead of only reporting it. Fork
+  contributors cannot set labels, so their PRs are labelled by the review step.
+
 ## Release lines and backports
 
 Every PR targets `main`, the next minor; released minors live on `release/vX.Y.x` and take fixes
