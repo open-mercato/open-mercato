@@ -47,7 +47,7 @@
 | 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | done | 6b67a61c2 |
 | 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | done | 9d77f3904 |
 | 6 | 6.4 | Add eval gate report CLI flags and exit codes | dispatch | done | 2c952a295 |
-| 6 | 6.5 | Add the eval run report route and download menu | dispatch | todo | — |
+| 6 | 6.5 | Add the eval run report route and download menu | dispatch | done | 98ee07f44 |
 | 7 | 7.1 | Add document structure types and locators | dispatch:cheap | todo | — |
 | 7 | 7.2 | Add the plain-text structure engine and engine registry | dispatch | todo | — |
 | 7 | 7.3 | Add the section structurer | dispatch:capable | todo | — |
