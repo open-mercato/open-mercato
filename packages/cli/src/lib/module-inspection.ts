@@ -36,7 +36,7 @@ function inspectFiles(manifest: Record<string, unknown>, packageName: string, fi
 
 function inspectArchive(archive: string, packageName: string, requiredModuleIds: readonly string[]): ArtifactInspection {
   const manifest = record(JSON.parse(execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8', timeout: 15_000 })))
-  const files = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', timeout: 15_000 }).split('\n').filter((file) => file.startsWith('package/')).map((file) => file.slice('package/'.length))
+  const files = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', timeout: 15_000, maxBuffer: 16 * 1024 * 1024 }).split('\n').filter((file) => file.startsWith('package/')).map((file) => file.slice('package/'.length))
   return inspectFiles(manifest, packageName, files, requiredModuleIds, (relativePath) => execFileSync('tar', ['-xOf', archive, `package/${relativePath}`], { encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024 }))
 }
 
@@ -110,7 +110,7 @@ export function inspectNpmModuleTarget(packageSpec: string, packageName: string,
   try {
     const configurationArgs = yarnNpmConfiguration(appDir, packageName, temporaryDir)
     const packedProcess = spawn.sync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', packageSpec, '--ignore-scripts', '--json', '--pack-destination', temporaryDir, ...configurationArgs], {
-      cwd: appDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000,
+      cwd: appDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000, maxBuffer: 16 * 1024 * 1024,
     })
     if (packedProcess.error || packedProcess.status !== 0) throw new Error('Artifact inspection failed')
     const packages: unknown = JSON.parse(packedProcess.stdout)

@@ -10,6 +10,22 @@ describe('module artifact inspection', () => {
   beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-')) })
   afterEach(() => { jest.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
 
+  it('inspects large packages whose artifact indexes exceed the subprocess default buffer', () => {
+    const files = Array.from({ length: 20_000 }, (_, index) => `package/assets/${'fixture'.repeat(10)}-${index}.txt`)
+    const archiveIndex = ['package/src/modules/example/index.ts', 'package/dist/modules/example/index.js', ...files].join('\n')
+    const packOutput = JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz', files: files.map((filePath) => ({ path: filePath, size: 1, mode: 420 })) }])
+    jest.spyOn(spawn, 'sync').mockImplementation((_command, _args, options) => {
+      if ((options?.maxBuffer ?? 1024 * 1024) < Buffer.byteLength(packOutput)) throw new Error('maxBuffer exceeded')
+      return { status: 0, stdout: packOutput, stderr: '', pid: 1, output: [], signal: null }
+    })
+    jest.spyOn(childProcess, 'execFileSync').mockImplementation((_command, args, options) => {
+      if (args?.[0] === '-xOf') return JSON.stringify({ name: '@vendor/example', version: '1.2.3' })
+      if ((options?.maxBuffer ?? 1024 * 1024) < Buffer.byteLength(archiveIndex)) throw new Error('maxBuffer exceeded')
+      return archiveIndex
+    })
+    expect(inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root).moduleIds).toEqual(['example'])
+  })
+
   it('validates selected and active modules without requiring exports for parked modules', () => {
     const packageRoot = path.join(root, 'candidate')
     for (const moduleId of ['alpha', 'beta']) {
