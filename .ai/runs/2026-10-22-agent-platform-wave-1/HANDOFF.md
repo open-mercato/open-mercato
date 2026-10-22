@@ -1,19 +1,18 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-22T16:17:40Z
+**Last updated:** 2026-10-22T21:13:47Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 4 Step 4.1
-**Last commit:** 86d6c763f — docs(ai-assistant): document MCP exposure, audit and approval mode with integration coverage
+**Current phase/step:** Phase 5 Step 5.1
+**Last commit:** a9c8e751e — fix(agent_orchestrator): persist runtime audit rows for principal-bound runs
 
 ## What just happened
-- Phase 3 complete (approval mode, approver feature + notifications, list route + status tool, Pending AI actions page, docs, Playwright coverage) and verified at checkpoint 4 with a UI screenshot.
+- Phase 4 (identity Phase 0: runAs native-run test, runtime-audit scope + allowlist, wrapped write sites, failRun fix) landed and passed checkpoint 5.
 
 ## Next concrete action
-- Step 4.1 — cover a full native AO agent run under runAs (identity spec Phase 0).
+- Step 5.1 — add the AI SDK 7 loop step extraction helper (chat-tracing spec Phase 1).
 
 ## Blockers / open questions
-- Paused at the safety checkpoint for user review; local commits must be pushed by the user before resuming.
 - Pushes to `upstream` are blocked by the local auto-mode policy; the user pushes batches manually.
 
 ## Environment caveats

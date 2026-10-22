@@ -36,9 +36,9 @@
 | 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | done | 279fe4a65 |
 | 3 | 3.8 | Add the Pending AI actions backend page with nav badge | dispatch:capable | done | 01a418e79 |
 | 3 | 3.9 | Document MCP exposure, audit and approval mode with integration tests | dispatch | done | 86d6c763f |
-| 4 | 4.1 | Cover a full native agent run under runAs | dispatch:capable | done | 610e5805c |
-| 4 | 4.2 | Add the runtime-audit write scope and entity allowlist to the no-bypass guard | dispatch | done | df87c9269 |
-| 4 | 4.3 | Wrap AO runtime audit writes in the runtime-audit scope | dispatch | done | 78816c4bb |
+| 4 | 4.1 | Cover a full native agent run under runAs | dispatch:capable | done | d21111368 |
+| 4 | 4.2 | Add the runtime-audit write scope and entity allowlist to the no-bypass guard | dispatch | done | 247141ea8 |
+| 4 | 4.3 | Wrap AO runtime audit writes in the runtime-audit scope | dispatch | done | a9c8e751e |
 | 5 | 5.1 | Add the AI SDK 7 loop step extraction helper | dispatch | todo | — |
 | 5 | 5.2 | Time tool executions per tool call id | dispatch | todo | — |
 | 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | todo | — |

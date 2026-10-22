@@ -44,3 +44,11 @@
 - 18 consecutive Steps landed (0.1, 1.1–1.5, 2.1–2.3, 3.1–3.9); the MCP spec Phases 1–3 are complete and verified.
 - Paused before Phase 4 (identity Phase 0) per the ~20-Step safety checkpoint, for user review and push.
 - Resume: `om-auto-continue-pr-loop 7794` from Step 4.1.
+
+## 2026-10-22T21:13:47Z — run resumed
+- User asked to continue after the safety checkpoint; lock reclaimed; resumed at Step 4.1.
+
+## 2026-10-22T21:13:47Z — checkpoint 5
+- Steps 4.1..4.3 verified: agent_orchestrator jest 1453/1453, enterprise tsc 0 errors, build, app typecheck. UI skipped (none).
+- Finding: the pass/warn guardrail throw happened outside the runner try, leaving runs stuck in `running`; fixed alongside the wrapping.
+- Decision: `AgentRun` is on the runtime-audit allowlist (trace ingest updates it); artifacts go through `withAuditedCommand`.
