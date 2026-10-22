@@ -28,16 +28,23 @@ const DEALS = '/api/customers/deals'
 const STAGES = '/api/customers/pipeline-stages'
 const PIPELINES = '/api/customers/pipelines'
 
-type DealRow = { pipeline_id: string | null; pipeline_stage_id: string | null; title: string }
+type DealRow = { pipeline_id: string | null; pipeline_stage_id: string | null }
 
 async function dealRow(dealId: string): Promise<DealRow | null> {
   return withClient(async (client) => {
     const result = await client.query<DealRow>(
-      'select pipeline_id, pipeline_stage_id, title from customer_deals where id = $1',
+      'select pipeline_id, pipeline_stage_id from customer_deals where id = $1',
       [dealId],
     )
     return result.rows[0] ?? null
   })
+}
+
+async function dealTitle(request: APIRequestContext, token: string, dealId: string): Promise<unknown> {
+  const response = await apiRequest(request, 'GET', `${DEALS}/${encodeURIComponent(dealId)}`, { token })
+  const body = (await readJsonSafe(response)) as { deal?: { title?: unknown } } | null
+  expect(response.ok(), `GET deal failed: status ${response.status()}`).toBeTruthy()
+  return body?.deal?.title
 }
 
 async function stageTransitions(dealId: string, stageId: string): Promise<string[]> {
@@ -159,7 +166,7 @@ test.describe('TC-UNDO-008 deal undo/redo with a deleted pipeline stage', () => 
       })
       const saveBody = await readJsonSafe(saveRes)
       expect(saveRes.ok(), `saving the restored deal failed: status ${saveRes.status()} body ${JSON.stringify(saveBody)}`).toBeTruthy()
-      expect((await dealRow(created.dealId))?.title).toBe(`TC-UNDO-008 Update ${stamp} edited`)
+      expect(await dealTitle(request, token, created.dealId)).toBe(`TC-UNDO-008 Update ${stamp} edited`)
     } finally {
       await cleanup(request, token, ids)
     }
