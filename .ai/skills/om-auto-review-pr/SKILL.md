@@ -32,5 +32,5 @@ This repo requests changes on Medium findings too:
 
 ## Repo conventions the shared workflow already parameterizes
 
-- Base branch: PRs target `develop` (config `baseBranch`); the PR's own `baseRefName` stays authoritative for diffs.
+- Base branch: PRs target `main` (config `baseBranch`; backports target `release/vX.Y.x`); the PR's own `baseRefName` stays authoritative for diffs.
 - Labels, QA gate, and claim protocol: as defined in `.ai/agentic.config.json` and root `AGENTS.md` (QA-approval merge gate: `needs-qa` without `qa-approved` never merges; auto-skills never touch the `qa` pipeline label).

@@ -217,7 +217,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
-| `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `main`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
 
 ### external (open-mercato/skills)
 
@@ -229,7 +229,7 @@ These skills are installed from [open-mercato/skills](https://github.com/open-me
 
 | Skill | When to use |
 |-------|-------------|
-| `om-auto-sec-report` | Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `develop`. Writes markdown + HTML under `.ai/analysis/` with a top-level "Next steps — go deeper" list. |
+| `om-auto-sec-report` | Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `main`. Writes markdown + HTML under `.ai/analysis/` with a top-level "Next steps — go deeper" list. |
 | `om-auto-sec-report-pr` | Paranoid OWASP-oriented security analysis for a SINGLE unit of work — one PR, one spec under `.ai/specs/`, or one branch diff. Hunts non-obvious attack vectors beyond OWASP Top 10, flags same-pattern hotspots elsewhere, and emits "Next steps — go deeper" follow-ups. Writes markdown + HTML under `.ai/analysis/`; runs standalone or as a sub-unit of `om-auto-sec-report`. |
 
 ### analysis
