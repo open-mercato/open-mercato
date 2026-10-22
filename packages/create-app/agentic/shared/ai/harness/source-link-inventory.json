@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 38,
-    "recordCount": 168,
-    "sourceRequiredCount": 128,
-    "readableCount": 168,
+    "ownerCount": 40,
+    "recordCount": 180,
+    "sourceRequiredCount": 129,
+    "readableCount": 180,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -3113,6 +3113,27 @@
       ]
     },
     {
+      "referenceId": "om-module-scaffold:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": "Scaffold a Complete Module",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
       "referenceId": "om-system-extension/extension-branches:api/interceptors.ts",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
@@ -3919,6 +3940,28 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:guides/spec-delivery#metadata-first-covering-spec",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/spec-delivery.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/spec-delivery.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:guides/spec-delivery#scaffold-navigation-handoff",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/spec-delivery.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/spec-delivery.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/testing-debugging.md",
@@ -3948,6 +3991,17 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/skills/om-build-workflow/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-create-ai-agent/attachments-and-overrides#installed-override-facts",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-create-ai-agent/references/attachments-and-overrides.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-create-ai-agent/references/attachments-and-overrides.md",
       "moduleId": null,
       "capabilityIds": []
     },
@@ -4161,7 +4215,51 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold#api-reference-owner-first",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold#source-navigation",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#forecast-stable-hosts",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#shipped-warranty-claims-reuse",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#unresolved-architecture",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "heading": null,
@@ -4195,6 +4293,17 @@
     },
     {
       "referenceId": "rule:om-system-extension#component-override-compatibility",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-system-extension/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-system-extension/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-system-extension#conditional-source-navigation",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-system-extension/SKILL.md",
       "heading": null,
@@ -4282,7 +4391,29 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:root#installed-host-custom-fields",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:root#migration-probe-and-approval",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#spec-authoring-versus-gate-classification",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,
@@ -4305,6 +4436,17 @@
     },
     {
       "referenceId": "rule:root#warehouse-host-facts",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#workflow-state-versus-business-persistence",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,

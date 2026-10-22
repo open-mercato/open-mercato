@@ -1,6 +1,6 @@
 # Standalone Open Mercato App — Agent Rules
 
-Route first; never probe unmatched context.
+Route first; no unmatched probes.
 
 ## Always
 
@@ -34,13 +34,13 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Three-Axis Context Assembler
 
-Routes are additive: ownership is WHO; other axes WHAT. Select every match.
+Additive axes: ownership=WHO, others=WHAT. Select every match.
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
-`debugging` = reported bug/security/drift, not designed failure UI. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Installed-host custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
-Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
+Unified-override audits = `umes` only; unresolved ownership/installed keys add `architecture`/`framework-context`. Durable process/activity/user task = `ai-workflow`; app business persistence/host-state coordination adds `module-data`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
 `backend-ui`: replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
 Staff UI preview/report/bulk = `backend-ui`.
@@ -64,21 +64,21 @@ Installed API/command/record/status/event/UI changes/guards = `umes`; app persis
 
 ### Axis 2 — Work Units
 
-Match every work-unit row; open its skill first.
+Match units; skill first
 
 | Route | Work unit | Skill/context |
 |---|---|---|
 | `architecture` | Scaffold a module starter, publish, or link an app module | `.ai/guides/module-tool.md`; implementation also loads `om-module-scaffold` |
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
-| `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
-| `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
+| `module-data` | Business slice/multi-seam domain/API/command fix | MUST load `om-module-scaffold` + exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key (units, not ownership); ownership/capability outline adds `architecture` |
+| `spec-pr` | Author/reuse spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
 | `architecture` + `integration` + `framework-context` | Provider superseded by installed capability | integration builder + exact framework context |
-| `module-data` | Business entity/link/validator/migration/encryption/lock/transaction; not provider metadata | `om-data-model-design` + contracts |
+| `module-data` | Business-record design: entity/link/validator/migration/encryption/lock/transaction; not helper reuse/provider metadata | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
-| `umes` | Fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
+| `umes` | Installed-host fields/extension entities; links/enrichers/injection/interceptors/guards/subscribers/DOM/hosts/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/AI file or content drafting/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
@@ -103,12 +103,12 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Read matched guides once; only needed references/facts.
-- Hard budgets: guide > skill > references; open a reference only for its named subject.
+- Matched guides once; needed references/facts only.
+- Hard budgets: guide > skill > references; references only for named subjects.
 - `spec-pr` reads template via spec-delivery.
-- Inspect app call sites before bounded `framework-context`.
+- App call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
-- Never bulk-read guide, skill, fact, or source trees.
+- Never bulk-read guide/skill/fact/source trees.
 
 ## Module-Specific Facts
 

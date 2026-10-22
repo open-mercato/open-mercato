@@ -26,3 +26,25 @@ test('engine activity state stays workflow-only while new business persistence s
   assert.match(guide, /Create any one-time\/idempotency key outside a rollback scope or in durable state that survives rollback; reuse it on retry/)
   assert.match(guide, /Organization-owned instances, tasks, activity state, and queries require tenant\+organization and fail closed/)
 })
+
+test('root modeling routes require business-record design rather than existing workflow helper use', () => {
+  const roots = [
+    { url: new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), maximumBytes: 11_233 },
+    { url: new URL('../../template/AGENTS.md', import.meta.url), maximumBytes: 11_229 },
+  ]
+  for (const root of roots) {
+    const text = fs.readFileSync(root.url, 'utf8')
+    const modeling = text.split('\n').find(line => line.includes('`om-data-model-design` + contracts'))
+    assert.ok(modeling)
+    assert.match(modeling, /Business-record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction/)
+    assert.match(modeling, /not helper reuse\/provider metadata/)
+    assert.match(text, /Durable process\/activity\/user task = `ai-workflow`; app business persistence\/host-state coordination adds `module-data`/)
+    assert.doesNotMatch(text, /Durable process\/activity\/user task = `module-data` \+ `ai-workflow`/)
+    assert.match(text, /Installed-host custom fields\/entities = `umes` \+ `module-data` \+ `om-data-model-design`/)
+    assert.match(text, /scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
+    assert.match(text, /Multi-stage waits\/cancel\/restart are durable; reminders and renewal\/batch schedules are `module-data`/)
+    assert.match(text, /Editable records expose `updated_at`\/`updatedAt`; custom update\/delete clients send the version and surface 409s/)
+    assert.match(text, /Put entities in `src\/modules\/<id>\/data\/entities\.ts`/)
+    assert.ok(Buffer.byteLength(text) <= root.maximumBytes)
+  }
+})

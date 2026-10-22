@@ -12,7 +12,7 @@ test('root work units keep provider metadata with its integration owner', () => 
     const text = fs.readFileSync(root, 'utf8')
     const modeling = text.split('\n').find(line => line.includes('`om-data-model-design` + contracts'))
     assert.ok(modeling)
-    assert.match(modeling, /Business entity\/link\/validator\/migration\/encryption\/lock\/transaction; not provider metadata/)
+    assert.match(modeling, /Business-record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction; not helper reuse\/provider metadata/)
     assert.match(text, /\| `integration` \| Provider\/credentials\/health\/webhook\/files\/client\/reconciliation\/package \| `om-integration-builder` \+ integrations \|/)
   }
   const integration = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-integration-builder/SKILL.md', import.meta.url), 'utf8')

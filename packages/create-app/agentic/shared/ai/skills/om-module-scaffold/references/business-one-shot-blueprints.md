@@ -4,7 +4,7 @@ Load this reference when the user describes a business outcome rather than files
 
 ## Route Key
 
-- `M` — `om-module-scaffold` plus architecture/contracts; add `om-data-model-design` when persisting records.
+- `M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` when persisting records.
 - `U` — `om-system-extension` plus the extensions guide for additive installed-module behavior.
 - `P` — `om-integration-builder` plus the integrations guide for a reusable external provider.
 - `B` — `om-backend-ui-design` for admin, public, or portal UI.
@@ -94,7 +94,7 @@ Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic m
 |---|---|---|---|---|
 | “Modify the deals pipeline with our stages, probabilities, and required fields.” | UMES over the installed `customers` deal/pipeline surfaces; app module only for extra persisted policy | `U+B` | inspect exact `customers` hosts/contracts, then add stage-aware fields/validation, board/table rendering, translations, and transition tests | preserve shipped IDs; validate transitions server-side; wildcard ACL; unsupported replacement requires approval |
 | “Add qualification scoring and next-best-action to every deal.” | App module extension entity + UMES enricher/widgets; optional AI tool only if requested | `M+U+B` (`+A`) | score inputs, deterministic calculator, deal list/detail field, recompute event, explainable action panel | score is reproducible and scoped; no hidden AI mutation; optional deals module safe; stale writes conflict |
-| “Build a sales forecast and pipeline coaching dashboard.” | App analytics module + UMES reads/enrichers | `M+U+B` | scoped forecast query, stage-weighted totals, owner/time filters, drill-down, snapshot/export | currency/time-zone correctness; access-filtered aggregates; deterministic totals; no cross-tenant cache keys |
+| “Build a sales forecast and pipeline coaching dashboard.” | App analytics module + UMES reads/enrichers | `M+U+B` | scoped forecast query, stage-weighted totals, owner/time filters, drill-down, snapshot/export; stable table-host, column, and action IDs | currency/time-zone correctness; access-filtered aggregates; deterministic totals; no cross-tenant cache keys |
 
 ## CRM-Integrated Lead Capture
 

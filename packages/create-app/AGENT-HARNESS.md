@@ -77,12 +77,13 @@ The release gate wraps this in a larger ordered sequence.
    file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
-    `src/modules/**` grant can never reach inside it. Ten cases,
-    `OMH-181`, `OMH-203`…`OMH-226` and `OMH-238`, declare it today; every other case is byte-identical to
-    before. Eight are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
-    the former adapts the canonical DataTable bulk-action and operation-progress seams while
-    proving their shared `progressJobId`; the latter writes only `.ai/specs/**`. Immutability
-    refuses either case a write inside the reference root regardless.
+    `src/modules/**` grant can never reach inside it. Twelve cases,
+    `OMH-181`, `OMH-185`, `OMH-193`, `OMH-203`…`OMH-226` and `OMH-238`, declare it today; every other case is byte-identical to
+    before. Eight are read-only. `OMH-181`, `OMH-185`, `OMH-193` and `OMH-223` are the four writable declarers:
+    `OMH-181` adapts the canonical DataTable bulk-action and operation-progress seams while
+    proving their shared `progressJobId`; `OMH-185` and its business twin `OMH-193` build the library module from its exact
+    declared capabilities; `OMH-223` writes only `.ai/specs/**`. Immutability refuses all four
+    a write inside the reference root regardless.
     `OMH-225` selects the operation-progress sources and `OMH-226` the AI tool-pack and
     agent sources, both separately from the DataTable injection seams `OMH-220` selects.
    `OMH-228` does not declare the example root; it follows four explicit source-reference IDs

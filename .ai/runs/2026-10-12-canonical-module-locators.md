@@ -61,10 +61,10 @@ OMH-239 was expanded in its existing `.ai/guides/module-tool.md` owner to cover 
 
 ### October 22 verification snapshot
 
-Runner: local for focused regressions; isolated Linux for live standalone checks. Implementation source baseline: `224cbccb85722ebb33576f884b0e0d3d3ae0df22`.
+Runner: local for focused regressions; isolated Linux for live standalone checks. Final CLI implementation source: `517a3b5397335041c574a241fb7e1f0838affa58`; the standalone harness fixes are still being verified separately.
 
-- All 18 self-contained CLI integration cases passed, including the unchanged existing TC-INT-008 suite and the six added lifecycle cases in TC-INT-009.
-- Scoped CLI suites, shared locator coverage, package builds and CLI typecheck passed. Four additional invalid-binding cases and large-artifact inspection regressions passed after the final source review. Interrupted broad runs are not counted as successful gates.
-- Fresh locally packed empty/CRM/WMS presets passed source/link/hash checks and deterministic validation. The final controller passed all 239 deterministic cases; affected live OMH-239 and OMH-008 passed.
-- The machine knowledge-change manifest passed. Independent final source and knowledge reviews found no remaining blocking findings.
-- The required full live `harness:release` suite and published-head GitHub CI remain in progress. Phase 4.3 remains unchecked until their actual results are recorded. Formal author self-approval is not claimed.
+- All 20 self-contained CLI integration cases passed, including the unchanged existing TC-INT-008 suite and file-directory/archive unknown-origin regressions in TC-INT-009.
+- The six focused CLI suites passed 145 tests; CLI typecheck and build passed. Local file artifacts remain origin-unknown and cannot satisfy an npm-qualified requirement or replace an enabled binding without proven continuity before Yarn. Interrupted broad runs are not counted as successful gates.
+- Fresh locally packed classic/empty/CRM/WMS presets at published head `8fd9fc54adb2063d8c6b540bc1700f5822835e3a` passed source/link/hash checks. Its controller passed all 239 deterministic cases. A separate diagnostic cohort completed 65 routing cases with 42 passes and 23 failures; it does not certify the full release suite or the subsequent uncommitted fixes.
+- The current machine knowledge-change proof is pending. The earlier passing result is historical; the later validation failed and a subsequent retry was interrupted. Independent review of the CLI source found no remaining blocking finding, while harness fixes and their complete evidence remain open.
+- Published-head CI has a failing unit-test job from stale harness assertions, whose updated policy/surface tests pass locally. All 15 integration shards passed on that exact published head. The required full live `harness:release` suite remains incomplete. Phase 4.3 stays unchecked until actual current-head results and final review are recorded. Formal author self-approval is not claimed.

@@ -1097,7 +1097,7 @@
       "topicId": "rule:root#business-modeling-excludes-provider-metadata",
       "owner": "AGENTS.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "Business entity/link/validator/migration/encryption/lock/transaction; not provider metadata"
+      "evidence": "Business-record design: entity/link/validator/migration/encryption/lock/transaction; not helper reuse/provider metadata"
     },
     {
       "topicId": "rule:guides/module-tool#file-artifact-unknown-origin",
@@ -1140,6 +1140,79 @@
       "owner": ".ai/skills/om-evolve-harness/references/case-template.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Declared canonical-example entrypoints and inventory-selected capability files, plus exact source files\nresolved by `context.sourceReferenceIds`, are progressive inputs: exclude them from initial routing\nbudgets while charging every successful read to total files/bytes and the independent example budgets\nwhere applicable. Instruction owners and skills remain initial context even when mapped by a source\nreference. Record every successful context read in `selectedContext`; neither a declared root nor a\nsource reference grants sibling files or undeclared capabilities."
+    },
+    {
+      "topicId": "rule:root#workflow-state-versus-business-persistence",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Durable process/activity/user task = `ai-workflow`; app business persistence/host-state coordination adds `module-data`."
+    },
+    {
+      "topicId": "rule:root#installed-host-custom-fields",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Installed-host custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`."
+    },
+    {
+      "topicId": "om-module-scaffold:references/surface-map.md",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "source-required",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "resolvedPath": "src/modules/example/references/surface-map.md"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#unresolved-architecture",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "`M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` when persisting records."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#forecast-stable-hosts",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "scoped forecast query, stage-weighted totals, owner/time filters, drill-down, snapshot/export; stable table-host, column, and action IDs"
+    },
+    {
+      "topicId": "rule:om-module-scaffold#source-navigation",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For source lookup: [`surface-map.md`](../../../src/modules/example/references/surface-map.md) by default; if outside exact read permissions, use the already-authorized equivalent [`surface-inventory.json`](../../../src/modules/example/references/surface-inventory.json), also for extra metadata; never both indexes."
+    },
+    {
+      "topicId": "rule:om-module-scaffold#api-reference-owner-first",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Every API/schema/command implementation, fix, or reference inspection MUST read `.ai/guides/contracts.md` and `references/api-and-domain.md`"
+    },
+    {
+      "topicId": "rule:om-system-extension#conditional-source-navigation",
+      "owner": ".ai/skills/om-system-extension/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Before following an example source link, start with source lookup: [`surface-map.md`](../../../src/modules/example/references/surface-map.md); machine inventory only for additional metadata; never both indexes."
+    },
+    {
+      "topicId": "rule:root#spec-authoring-versus-gate-classification",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "| `spec-pr` | Author/reuse spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |"
+    },
+    {
+      "topicId": "rule:om-create-ai-agent/attachments-and-overrides#installed-override-facts",
+      "owner": ".ai/skills/om-create-ai-agent/references/attachments-and-overrides.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For installed agent/tool replacement or disable, first read `.ai/guides/modules/ai_assistant/index.md` and the target module's fact sheet before choosing the override."
+    },
+    {
+      "topicId": "rule:guides/spec-delivery#metadata-first-covering-spec",
+      "owner": ".ai/guides/spec-delivery.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Read `.ai/specs/README.md` first, then use bounded metadata/filename lookup in the configured specs path (`.ai/specs`, plus any enterprise directory the config names). Never read a directory as content or report its listing in `selectedContext`. If a covering file matches, read that exact file and choose `reuse-spec` before considering a new specification. A read-only planning decision stops after classification; do not author or amend a file."
+    },
+    {
+      "topicId": "rule:guides/spec-delivery#scaffold-navigation-handoff",
+      "owner": ".ai/guides/spec-delivery.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "module work loads `om-module-scaffold`, which owns canonical-example navigation and exact capability-linked source adaptation."
     }
   ]
 }

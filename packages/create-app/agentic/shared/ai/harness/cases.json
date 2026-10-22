@@ -4260,10 +4260,12 @@
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-build-workflow/SKILL.md",
-        ".ai/guides/modules/workflows/index.md"
+        ".ai/guides/modules/workflows/index.md",
+        ".ai/skills/om-build-workflow/references/activity-contracts.md"
       ],
       "allowedExtra": [
-        ".ai/guides/contracts.md"
+        ".ai/guides/contracts.md",
+        ".ai/guides/framework-contracts.md"
       ],
       "forbidden": [
         ".env*",
@@ -4293,7 +4295,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 540672,
     "relatedCases": [
       "OMH-055"
     ],
@@ -4529,7 +4531,9 @@
         ".ai/guides/contracts.md",
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+        ".ai/skills/om-troubleshooter/references/regression-oracles.md"
       ],
       "forbidden": [
         ".env*",
@@ -4560,7 +4564,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 122880,
     "relatedCases": [
       "OMH-058"
     ],
@@ -17451,13 +17455,27 @@
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
         ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
         ".ai/skills/om-module-scaffold/references/verification.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/lessons.md",
+        ".ai/guides/modules/events/index.md",
+        ".ai/guides/modules/query_index/index.md",
+        ".ai/guides/modules/search/index.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/references/verification.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+        "node_modules/@open-mercato/shared/AGENTS.md",
+        "src/modules/example/README.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
-        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/skills/om-system-extension/references/mechanism-selector.md",
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
@@ -17465,6 +17483,37 @@
         ".env*",
         ".git/**",
         ".mercato/generated/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "module.metadata",
+            "module.acl-features",
+            "module.setup-role-features",
+            "data.entities",
+            "data.validators",
+            "data.migrations",
+            "data.encryption-map",
+            "data.custom-fields",
+            "search.module-config",
+            "api.crud-query-engine-custom-fields",
+            "api.openapi",
+            "commands.write",
+            "commands.undo-redo",
+            "events.crud-indexer-bridge",
+            "ui.page-shell",
+            "ui.datatable",
+            "ui.form-create",
+            "ui.form-edit",
+            "umes.extension-points"
+          ],
+          "maxFiles": 32,
+          "maxBytes": 262144
+        }
       ]
     },
     "requiredDecisions": [
@@ -17540,8 +17589,8 @@
     ],
     "timeoutMs": 600000,
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 245760,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 561152,
     "relatedCases": [
       "OMH-004",
       "OMH-009",
@@ -18361,7 +18410,6 @@
     "requiredDecisions": [
       "extension-mechanism",
       "additive-before-replacement",
-      "extension-entity",
       "eject-last",
       "widget-injection-files",
       "person-detail-tab-spot",
@@ -18381,12 +18429,6 @@
       "context.budget",
       "context.forbidden",
       "patterns.forbidden"
-    ],
-    "frameworkContext": [
-      {
-        "module": "customers",
-        "query": "detail:customers."
-      }
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
@@ -19735,7 +19777,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -19856,7 +19898,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "widgets/components\\.ts"
     ],
     "validators": [
@@ -19981,7 +20023,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "text-\\[[0-9]+px\\]"
     ],
     "validators": [
@@ -20100,7 +20142,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -20192,7 +20234,8 @@
           ],
           "allowedCapabilityIds": [
             "commands.write",
-            "data.entities"
+            "data.entities",
+            "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
           "maxBytes": 245760
@@ -20495,7 +20538,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -20608,7 +20651,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -20709,7 +20752,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [

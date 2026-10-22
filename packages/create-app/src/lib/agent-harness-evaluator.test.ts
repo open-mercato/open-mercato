@@ -932,6 +932,7 @@ export async function callApiActivity(input: CallApiInput, effects: CallApiEffec
 \`)
 const selectedContext = [
   'AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md',
+  '.ai/skills/om-build-workflow/references/activity-contracts.md',
   '.ai/guides/modules/workflows/index.md', ...requiredContext,
 ]
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
@@ -960,7 +961,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('read-only CRM tab routing reads UMES guidance before exact materialized framework spots', { skip: !targetSandboxAvailable }, () => {
+test('an optional CRM tab framework branch reads UMES guidance before exact materialized spots', { skip: !targetSandboxAvailable }, () => {
   const guidance = [
     'AGENTS.md',
     '.ai/guides/extensions.md',
@@ -980,7 +981,6 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
   const decisions = [
     'extension-mechanism',
     'additive-before-replacement',
-    'extension-entity',
     'eject-last',
     'widget-injection-files',
     'person-detail-tab-spot',
@@ -993,6 +993,16 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
     const controller = stageApp()
     const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
     try {
+      const casesPath = path.join(controller, '.ai/harness/cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & { context: { installedVersionFallback: unknown } }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-203')
+      assert.ok(caseRecord)
+      assert.equal(caseRecord.frameworkContext, undefined)
+      assert.deepEqual(caseRecord.context.installedVersionFallback, {
+        allowed: true, reasonCodes: ['INSTALLED_VERSION_CONTRACT_MISMATCH'], maxFiles: 4, maxBytes: 65536,
+      })
+      caseRecord.frameworkContext = [{ module: 'customers', query: 'detail:customers.' }]
+      fs.writeFileSync(casesPath, JSON.stringify(cases))
       fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
       fs.writeFileSync(
         path.join(controller, '.ai', 'guides', 'modules', 'customers', 'index.md'),
@@ -2058,6 +2068,88 @@ for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type
     assert.ok(stored.actualContext.initialPaths.includes('AGENTS.md'))
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+for (const linked of [false, true]) {
+  test(`exact Code Connect references pass real tool startup and full routing accounting, linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, async () => {
+    const root = stageApp()
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-code-connect-deps-')))
+    try {
+      if (linked) {
+        const target = path.join(dependencies, 'node_modules')
+        fs.renameSync(path.join(root, 'node_modules'), target)
+        fs.symlinkSync(target, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai/harness/cases.json'), 'utf8')) as Array<HarnessCase & { expectedRouter: { required: string[] }; requiredDecisions: string[] }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-228')
+      assert.ok(caseRecord)
+      const source = 'node_modules/@open-mercato/ui/figma/button.figma.tsx'
+      const context = [...caseRecord.context.required, source]
+      const initialBytes = caseRecord.context.required.filter(isInitialContextPath).reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const totalBytes = context.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext: context, decisions: caseRecord.requiredDecisions, violations: [] }
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+if (!allowedReads.includes(${JSON.stringify(source)})) process.exit(9)
+const messages = [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, ...${JSON.stringify(context)}.map((file, index) => ({ jsonrpc: '2.0', id: index + 2, method: 'tools/call', params: { name: 'read', arguments: { path: file } } }))]
+const server = spawnSync(process.execPath, ['scripts/agent-harness-tool-server.mjs', process.cwd(), 'read-only', JSON.stringify(allowedReads), '[]'], { input: messages.map((message) => JSON.stringify(message)).join('\\n') + '\\n', encoding: 'utf8', env: {} })
+if (server.status !== 0) throw new Error('actual MCP startup failed: ' + server.stderr)
+const replies = server.stdout.trim().split('\\n').map((line) => JSON.parse(line))
+if (replies.length !== messages.length || replies.some((reply) => reply.result.isError)) throw new Error('actual MCP read failed')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
+for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+`)
+      const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-228'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      const [stored] = storedResults(root)
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+      assert.deepEqual(stored.violations, [])
+      assert.ok(stored.selectedContext.includes(source))
+      assert.ok(stored.actualContext.paths.includes(source))
+      assert.ok(!stored.actualContext.initialPaths.includes(source))
+      assert.equal(stored.actualContext.bytes, totalBytes)
+      assert.equal(stored.declaredContext.bytes, totalBytes)
+      assert.equal(stored.actualContext.initialBytes, initialBytes)
+      assert.equal(stored.declaredContext.initialBytes, initialBytes)
+      const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+        observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+      }
+      const trace = (target: string) => evaluator.observedContext(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: target }, status: 'completed' } }), root, caseRecord, false)
+      const unauthorized = evaluator.observedContext(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: source }, status: 'completed' } }), root, { ...caseRecord, context: { ...caseRecord.context, sourceReferenceIds: [] } }, false)
+      assert.ok(unauthorized.violations.length > 0)
+      assert.ok(!unauthorized.paths.includes(source))
+      const sourceFile = path.join(root, source)
+      const original = fs.readFileSync(sourceFile)
+      for (const shape of ['inside-symlink', 'escaping-symlink', 'directory']) {
+        fs.rmSync(sourceFile)
+        if (shape === 'directory') fs.mkdirSync(sourceFile)
+        else {
+          const target = path.join(shape === 'inside-symlink' ? fs.realpathSync(path.join(root, 'node_modules')) : root, 'other-source.tsx')
+          fs.writeFileSync(target, 'forbidden-source')
+          fs.symlinkSync(target, sourceFile)
+        }
+        const observed = trace(source)
+        assert.ok(observed.violations.length > 0, shape)
+        assert.ok(!observed.paths.includes(source), shape)
+        fs.rmSync(sourceFile, { recursive: true })
+        fs.writeFileSync(sourceFile, original)
+      }
+      const packageRoot = path.join(root, 'node_modules/@open-mercato/ui')
+      const alias = path.join(root, 'node_modules/@open-mercato/other')
+      fs.renameSync(packageRoot, alias)
+      fs.symlinkSync(alias, packageRoot, process.platform === 'win32' ? 'junction' : 'dir')
+      const aliased = trace(source)
+      assert.ok(aliased.violations.length > 0)
+      assert.ok(!aliased.paths.includes(source))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
 
 for (const linked of [false, true]) {
   test(`an explicitly required shared instruction is delivered and fully charged, linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, () => {

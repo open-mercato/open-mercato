@@ -301,6 +301,10 @@ function resolveInstalledInstructionFile(root, relative) {
   } catch { return { violation: 'installed instruction cannot be resolved' } }
 }
 
+function isInstalledAuxiliarySourceRelative(relative) {
+  return relative.replaceAll('\\', '/') === 'node_modules/@open-mercato/ui/figma/button.figma.tsx'
+}
+
 function isInstalledSourceRelative(relative) {
   const segments = relative.replaceAll('\\', '/').split('/')
   const packageSource = segments.length >= 5
@@ -310,13 +314,7 @@ function isInstalledSourceRelative(relative) {
     && segments[3] === 'src'
     && !relative.includes('*')
     && !relative.includes('?')
-  const codeConnectAuxiliary = segments.length === 5
-    && segments[0] === 'node_modules'
-    && segments[1] === '@open-mercato'
-    && segments[2] === 'ui'
-    && segments[3] === 'figma'
-    && /^[a-z0-9-]+\.figma\.tsx$/.test(segments[4])
-  return packageSource || codeConnectAuxiliary
+  return packageSource || isInstalledAuxiliarySourceRelative(relative)
 }
 
 function installedSourceRelativeFromResolved(root, absolute, real) {
@@ -327,7 +325,7 @@ function installedSourceRelativeFromResolved(root, absolute, real) {
   const lexicalRelative = isPathInside(dependencyPath, absolute)
     ? path.relative(root, absolute).replaceAll(path.sep, '/')
     : `node_modules/${path.relative(dependencyRoot, real).replaceAll(path.sep, '/')}`
-  return isInstalledSourceRelative(lexicalRelative)
+  return (isInstalledSourceRelative(lexicalRelative) && (!isInstalledAuxiliarySourceRelative(lexicalRelative) || !resolveInstalledSourceFile(root, lexicalRelative).violation))
     || (isInstalledInstructionRelative(lexicalRelative) && !resolveInstalledInstructionFile(root, lexicalRelative).violation)
     ? lexicalRelative : null
 }
@@ -488,8 +486,13 @@ function resolveInstalledSourceFile(appRoot, relative) {
   if (entry.isSymbolicLink()) return { violation: `installed-source read follows a symbolic link: ${relative}` }
   if (!entry.isFile()) return { violation: `installed-source read must name one exact regular file: ${relative}` }
   try {
-    if (!isPathInside(fs.realpathSync(dependencyPath), fs.realpathSync(absolute))) {
+    const dependencyRoot = fs.realpathSync(dependencyPath)
+    const real = fs.realpathSync(absolute)
+    if (!isPathInside(dependencyRoot, real)) {
       return { violation: `installed-source read resolves outside the dependency root: ${relative}` }
+    }
+    if (isInstalledAuxiliarySourceRelative(relative) && real !== path.join(dependencyRoot, ...relative.replaceAll('\\', '/').split('/').slice(1))) {
+      return { violation: `installed-source read resolves outside its exact dependency path: ${relative}` }
     }
   } catch { return { violation: `installed-source read cannot be resolved: ${relative}` } }
   return { absolute, size: entry.size }
@@ -2529,14 +2532,15 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
     if (!relative.includes('*') && !relative.includes('?')) {
       const absolute = path.resolve(root, relative)
       try {
-        const instruction = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative) : null
-        if (instruction?.violation) {
-          violations.add(`unsafe observed context entry ${relative}: ${instruction.violation}`)
+        const installedContext = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative)
+          : isInstalledAuxiliarySourceRelative(relative) ? resolveInstalledSourceFile(root, relative) : null
+        if (installedContext?.violation) {
+          violations.add(`unsafe observed context entry ${relative}: ${installedContext.violation}`)
           continue
         }
         const entry = fs.lstatSync(absolute)
         if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())
-          || (!instruction && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) {
+          || (!installedContext && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) {
           violations.add(`unsafe observed context entry ${relative}`)
           continue
         }
@@ -2627,10 +2631,11 @@ function contextStats(root, paths, metadata = {}, caseRecord = {}) {
     const absolute = path.resolve(root, relative)
     if (!isPathInside(root, absolute)) continue
     try {
-      const instruction = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative) : null
-      if (instruction?.violation) continue
+      const installedContext = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative)
+        : isInstalledAuxiliarySourceRelative(relative) ? resolveInstalledSourceFile(root, relative) : null
+      if (installedContext?.violation) continue
       const stat = fs.lstatSync(absolute)
-      if (stat.isSymbolicLink() || (!instruction && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) continue
+      if (stat.isSymbolicLink() || (!installedContext && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) continue
       if (stat.isFile()) {
         files += 1
         bytes += stat.size

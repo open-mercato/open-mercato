@@ -453,8 +453,9 @@ test('module scaffold owns the one-way canonical-example handoff', () => {
   )
   assert.match(
     skill,
-    /adapt only the \[`references\/surface-inventory\.json`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/references\/surface-inventory\.json\) rows it names/,
+    /if outside exact read permissions, use the already-authorized equivalent \[`surface-inventory\.json`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/references\/surface-inventory\.json\)/,
   )
+  assert.match(skill, /Adapt only named capability rows/)
   assert.match(
     skill,
     /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
@@ -464,7 +465,7 @@ test('module scaffold owns the one-way canonical-example handoff', () => {
 test('spec-delivery guide owns the expanded branches and the relocated delivery procedure', () => {
   const guide = readAgentic('guides/spec-delivery.md')
   assert.match(guide, /`AGENTS\.md` owns the ordered rule/)
-  assert.match(guide, /a plan-only request stops there/)
+  assert.match(guide, /A read-only planning decision stops after classification; do not author or amend a file/)
   assert.match(guide, /Silence, urgency, an "it's small" estimate, and an earlier generic preference are not overrides/)
   assert.match(guide, /Do not ask when repository evidence/)
   assert.match(guide, /one-way handoff/)
@@ -736,9 +737,9 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   const apiDomain = readAgentic('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /multi-seam domain\/API\/command fix/)
-  assert.match(moduleSkill, /A fix spanning multiple domain, API, or command seams is a business slice/)
-  assert.match(moduleSkill, /also loads that blueprint, `references\/api-and-domain\.md`, and `references\/verification\.md`/)
-  assert.match(moduleSkill, /Every API\/schema\/command implementation or fix MUST read/)
+  assert.match(moduleSkill, /Multi-seam domain\/API\/command fixes are business slices/)
+  assert.match(moduleSkill, /also read that blueprint, `references\/api-and-domain\.md`, and `references\/verification\.md`/)
+  assert.match(moduleSkill, /Every API\/schema\/command implementation, fix, or reference inspection MUST read/)
   assert.match(moduleSkill, /also read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
   assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
@@ -972,9 +973,9 @@ test('CLI-only primitive context remains bounded without dropping compiled-path 
   for (const command of ['yarn generate', 'yarn typecheck', 'yarn lint']) assert.ok(primitiveGate.includes(`\`${command}\``))
   assert.match(primitiveGate, /applicable build/)
   assert.match(primitiveGate, /Changed package paths: pack\/install\+test a disposable consumer/)
-  assert.match(skill, /For complete business modules or CRUD slices, START at/)
+  assert.match(skill, /Complete business modules\/CRUD slices START at/)
   assert.match(skill, /complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are mandatory/)
-  assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* Every API\/schema\/command implementation or fix MUST read/m)
+  assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* Every API\/schema\/command implementation, fix, or reference inspection MUST read/m)
   assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Follow `references\/module-surfaces\.md`/m)
   assert.match(skill, /^7\. \*\*Verify\.\*\* Follow `references\/verification\.md`/m)
 })
