@@ -237,7 +237,7 @@ test('the inventory covers exactly the checked topic registry, in both direction
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
   assert.equal(inventory.derived.sourceRequiredCount, 129)
-  assert.equal(inventory.records.length, 180)
+  assert.equal(inventory.records.length, 182)
   assert.equal(inventory.derived.renderedLinkCount, 131)
 })
 

@@ -146,7 +146,7 @@ test('existing-module UI routing stays inside the backend UI context slice', () 
   assert.match(rootInstructions, /merely hiding\/toggling\/rewiring installed UI does not/)
   assert.match(uiSkill, /page\/form\/table-only/)
   for (const instructions of [rootInstructions, uiSkill]) {
-    assert.match(instructions, /do not load .*contracts.*module-scaffold/i)
+    assert.match(instructions, /(?:do not load .*contracts.*module-scaffold|skip contracts\/module-scaffold\/page\/navigation)/i)
   }
 })
 
@@ -243,6 +243,11 @@ test('generated classic Codex root and representative initial chains fit their b
         name: 'root only',
         paths: ['AGENTS.md'],
         routedMarkers: [] as string[],
+      },
+      {
+        name: 'production deployment readiness',
+        paths: ['AGENTS.md', '.ai/guides/production-deployment.md'],
+        routedMarkers: ['.ai/guides/production-deployment.md'],
       },
       {
         name: 'new module with CRUD data model',

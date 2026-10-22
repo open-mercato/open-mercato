@@ -34,7 +34,7 @@ export const ROUTING_STEP_SLACK_MS = 60_000
 const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
-  '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo',
+  '.mercato/cache', '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo',
 ]
 const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
 const SENSITIVE_AUTH_FILES = new Set(['.git-credentials', '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml', '.yarnrc.yaml'])

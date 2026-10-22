@@ -1213,6 +1213,18 @@
       "owner": ".ai/guides/spec-delivery.md",
       "requirement": "retained-normative-snippet",
       "evidence": "module work loads `om-module-scaffold`, which owns canonical-example navigation and exact capability-linked source adaptation."
+    },
+    {
+      "topicId": "rule:root#production-operations-routing",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Route production deployment/go-live/operational readiness: `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`. Later: checked-in `.env.example` names/comments only; never read or report live `.env` values. Ask before credentials, billable infrastructure, or live deployment."
+    },
+    {
+      "topicId": "rule:guides/production-deployment#operational-readiness-contract",
+      "owner": ".ai/guides/production-deployment.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Classify findings as **required**, **recommended**, or **module-specific**. Do not present every `.env.example` key as mandatory. Ask before accessing or changing credentials, creating billable infrastructure, or starting, changing, or rolling back a live deployment. This guide supports a readiness review; do not perform or claim a live deployment or an unrun check."
     }
   ]
 }

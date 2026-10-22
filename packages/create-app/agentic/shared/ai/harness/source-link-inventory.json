@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 40,
-    "recordCount": 180,
+    "ownerCount": 41,
+    "recordCount": 182,
     "sourceRequiredCount": 129,
-    "readableCount": 180,
+    "readableCount": 182,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -3940,6 +3940,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:guides/production-deployment#operational-readiness-contract",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/production-deployment.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/production-deployment.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/spec-delivery#metadata-first-covering-spec",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/spec-delivery.md",
@@ -4403,6 +4414,17 @@
     },
     {
       "referenceId": "rule:root#migration-probe-and-approval",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#production-operations-routing",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,
