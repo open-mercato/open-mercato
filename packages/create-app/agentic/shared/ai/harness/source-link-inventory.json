@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 35,
-    "recordCount": 159,
+    "recordCount": 165,
     "sourceRequiredCount": 128,
-    "readableCount": 159,
+    "readableCount": 165,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -3908,6 +3908,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:guides/module-tool#file-artifact-unknown-origin",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/module-tool.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/module-tool.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/testing-debugging.md",
@@ -4150,6 +4161,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-system-extension#component-override-compatibility",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-system-extension/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-system-extension/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-system-extension/verification#extension-gate",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-system-extension/references/verification.md",
@@ -4157,6 +4179,17 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/skills/om-system-extension/references/verification.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-troubleshooter#authored-bootstrap-export-repair",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-troubleshooter/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-troubleshooter/SKILL.md",
       "moduleId": null,
       "capabilityIds": []
     },
@@ -4194,6 +4227,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:root#business-modeling-excludes-provider-metadata",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:root#generation-after-discovery-change",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
@@ -4206,6 +4250,28 @@
     },
     {
       "referenceId": "rule:root#migration-probe-and-approval",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#unresolved-architecture-choices",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#warehouse-host-facts",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,

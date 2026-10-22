@@ -1086,6 +1086,42 @@
       "owner": ".ai/skills/om-troubleshooter/SKILL.md",
       "requirement": "retained-normative-snippet",
       "evidence": "A missing tenant or organization must fail before any query (`no-unscoped-query`); read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` when repairing a seeded export or public seam; preserve that seam."
+    },
+    {
+      "topicId": "rule:om-system-extension#component-override-compatibility",
+      "owner": ".ai/skills/om-system-extension/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Component replacement/wrapper/propsTransform MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md` for public IDs/props; others need it only for host-contract changes."
+    },
+    {
+      "topicId": "rule:root#business-modeling-excludes-provider-metadata",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Business entity/link/validator/migration/encryption/lock/transaction; not provider metadata"
+    },
+    {
+      "topicId": "rule:guides/module-tool#file-artifact-unknown-origin",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "A local file artifact establishes neither an npm nor a GitHub origin: omit an unknown `locator`; an active binding replacement must fail before Yarn when its origin cannot be preserved."
+    },
+    {
+      "topicId": "rule:om-troubleshooter#authored-bootstrap-export-repair",
+      "owner": ".ai/skills/om-troubleshooter/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Existing generated app-module export drift: `module-data` + `architecture`, contracts/BC, named signature. Repair authored source+regenerate; scaffold/cache/queue procedures require authoring those contracts."
+    },
+    {
+      "topicId": "rule:root#warehouse-host-facts",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "warehouse→wms"
+    },
+    {
+      "topicId": "rule:root#unresolved-architecture-choices",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Unresolved capability/ownership/field-vs-history choice; boundary, upgrade, override, or registry failure"
     }
   ]
 }

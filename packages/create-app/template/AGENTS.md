@@ -34,7 +34,7 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Three-Axis Context Assembler
 
-Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
+Routes are additive: ownership is WHO; other axes WHAT. Select every match.
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
@@ -52,7 +52,7 @@ Existing installed form/table fields, filters, row/bulk actions without app pers
 
 | Route | Match | Context |
 |---|---|---|
-| `architecture` | Capability/ownership/field-vs-history choice, boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
+| `architecture` | Unresolved capability/ownership/field-vs-history choice; boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
 | `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + named facts |
 | `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
@@ -64,7 +64,7 @@ Installed API/command/record/status/event/UI changes/guards = `umes`; app persis
 
 ### Axis 2 — Work Units
 
-Match every work-unit row; OPEN its skill before selection.
+Match every work-unit row; open its skill first.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -103,7 +103,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once, then only needed references/facts.
+- Read matched guides once; only needed references/facts.
 - Hard budgets: guide > skill > references; open a reference only for its named subject.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
@@ -112,7 +112,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ## Module-Specific Facts
 
-Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync; feature toggle/flag→feature_toggles. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Big fact-sheets: read in sections.
+Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync; feature toggle/flag→feature_toggles. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; warehouse→wms; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Read big facts in sections.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

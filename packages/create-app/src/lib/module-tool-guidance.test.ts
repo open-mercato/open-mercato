@@ -68,3 +68,10 @@ test('receiving a published module preserves runtime identity, source provenance
     'eject-retains-source-provenance',
   ]) assert.ok(receivingCase.requiredDecisions.includes(decision), `missing receiving-module decision ${decision}`)
 })
+
+test('local artifact inspection preserves unknown provenance and protects active bindings', () => {
+  const guide = read('agentic/guides/module-tool.md')
+  assert.match(guide, /local file artifact establishes neither an npm nor a GitHub origin/i)
+  assert.match(guide, /omit an unknown `locator`/i)
+  assert.match(guide, /active binding replacement must fail before Yarn when its origin cannot be preserved/i)
+})
