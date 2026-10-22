@@ -1115,13 +1115,31 @@
       "topicId": "rule:root#warehouse-host-facts",
       "owner": "AGENTS.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "warehouse→wms"
+      "evidence": "warehouse\u2192wms"
     },
     {
       "topicId": "rule:root#unresolved-architecture-choices",
       "owner": "AGENTS.md",
       "requirement": "retained-normative-snippet",
       "evidence": "Unresolved capability/ownership/field-vs-history choice; boundary, upgrade, override, or registry failure"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#shipped-warranty-claims-reuse",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "When shipped, first read `.ai/guides/modules/warranty_claims/index.md`; reuse its claim aggregate, lifecycle, and portal; app-owned distinct data + UMES order/customer links"
+    },
+    {
+      "topicId": "rule:om-integration-builder/sync-and-files#spreadsheet-import-facts-first",
+      "owner": ".ai/skills/om-integration-builder/references/sync-and-files.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For spreadsheet imports, first read `.ai/guides/modules/sync_excel/index.md`; reuse its installed upload/import ownership before designing a parser or endpoint."
+    },
+    {
+      "topicId": "rule:om-evolve-harness/case-template#progressive-source-budget-accounting",
+      "owner": ".ai/skills/om-evolve-harness/references/case-template.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Declared canonical-example entrypoints and inventory-selected capability files, plus exact source files\nresolved by `context.sourceReferenceIds`, are progressive inputs: exclude them from initial routing\nbudgets while charging every successful read to total files/bytes and the independent example budgets\nwhere applicable. Instruction owners and skills remain initial context even when mapped by a source\nreference. Record every successful context read in `selectedContext`; neither a declared root nor a\nsource reference grants sibling files or undeclared capabilities."
     }
   ]
 }

@@ -2153,7 +2153,7 @@
       "oracle.umes.data-table"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 45056,
+    "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-028"
@@ -2438,7 +2438,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 141312,
+    "maxTotalContextBytes": 139264,
     "relatedCases": [
       "OMH-031"
     ]
@@ -16472,13 +16472,28 @@
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
         ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
         ".ai/skills/om-module-scaffold/references/verification.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/lessons.md",
+        ".ai/guides/modules/events/index.md",
+        ".ai/guides/modules/query_index/index.md",
+        ".ai/guides/modules/search/index.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/references/verification.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+        "node_modules/@open-mercato/shared/AGENTS.md",
+        "src/modules/example/README.md",
+        "src/modules/example/references/surface-inventory.json"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
-        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/skills/om-system-extension/references/mechanism-selector.md",
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
@@ -16486,6 +16501,37 @@
         ".env*",
         ".git/**",
         ".mercato/generated/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "module.metadata",
+            "module.acl-features",
+            "module.setup-role-features",
+            "data.entities",
+            "data.validators",
+            "data.migrations",
+            "data.encryption-map",
+            "data.custom-fields",
+            "search.module-config",
+            "api.crud-query-engine-custom-fields",
+            "api.openapi",
+            "commands.write",
+            "commands.undo-redo",
+            "events.crud-indexer-bridge",
+            "ui.page-shell",
+            "ui.datatable",
+            "ui.form-create",
+            "ui.form-edit",
+            "umes.extension-points"
+          ],
+          "maxFiles": 32,
+          "maxBytes": 262144
+        }
       ]
     },
     "requiredDecisions": [
@@ -16527,8 +16573,8 @@
       "oracle.module.complete"
     ],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 245760,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 561152,
     "timeoutMs": 600000,
     "relatedCases": [
       "OMH-004",

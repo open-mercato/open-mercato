@@ -8,8 +8,8 @@
     "cases": "packages/create-app/agentic/shared/ai/harness/cases.json"
   },
   "derived": {
-    "ownerCount": 35,
-    "recordCount": 165,
+    "ownerCount": 38,
+    "recordCount": 168,
     "sourceRequiredCount": 128,
     "renderedLinkCount": 130,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
@@ -3286,6 +3286,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -3319,6 +3320,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -3352,6 +3354,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -3388,6 +3391,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188",
         "OMH-219"
       ],
@@ -3431,6 +3435,7 @@
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188",
         "OMH-219"
       ],
@@ -3495,6 +3500,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188",
         "OMH-219"
       ],
@@ -4407,6 +4413,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-223"
       ],
       "replacesBaselineBlockIds": [],
@@ -4445,6 +4452,7 @@
         "src/modules/example/commands/__tests__/todos.notes-encryption.test.ts"
       ],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-223"
       ],
       "replacesBaselineBlockIds": [
@@ -4484,6 +4492,7 @@
         "src/modules/example/__integration__/todo-priority-validation.spec.ts"
       ],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-223"
       ],
       "replacesBaselineBlockIds": [
@@ -4521,6 +4530,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-223"
       ],
       "replacesBaselineBlockIds": [],
@@ -4554,6 +4564,7 @@
       ],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-223"
       ],
       "replacesBaselineBlockIds": [],
@@ -5403,6 +5414,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5458,6 +5470,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5499,6 +5512,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5555,6 +5569,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5600,6 +5615,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5641,6 +5657,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5681,6 +5698,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5721,6 +5739,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5765,6 +5784,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5807,6 +5827,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5847,6 +5868,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5894,6 +5916,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5946,6 +5969,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -5994,6 +6018,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6038,6 +6063,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6082,6 +6108,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6128,6 +6155,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6180,6 +6208,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6226,6 +6255,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6271,6 +6301,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -6316,6 +6347,7 @@
         "OMH-030",
         "OMH-088",
         "OMH-177",
+        "OMH-185",
         "OMH-190",
         "OMH-220"
       ],
@@ -7204,6 +7236,7 @@
         "OMH-175",
         "OMH-176",
         "OMH-184",
+        "OMH-185",
         "OMH-192",
         "OMH-215"
       ],
@@ -7272,6 +7305,7 @@
         "OMH-175",
         "OMH-176",
         "OMH-184",
+        "OMH-185",
         "OMH-192",
         "OMH-215"
       ],
@@ -7335,6 +7369,7 @@
       "capabilityIds": [],
       "integrationTestPaths": [],
       "affectedCaseIds": [
+        "OMH-185",
         "OMH-188"
       ],
       "replacesBaselineBlockIds": [],
@@ -7484,6 +7519,25 @@
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:8"
       ],
       "evidence": "run `yarn generate`, focused/integration/build tests, and record upstream version for future merges."
+    },
+    {
+      "topicId": "rule:om-evolve-harness/case-template#progressive-source-budget-accounting",
+      "referenceId": "rule:om-evolve-harness/case-template#progressive-source-budget-accounting",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-evolve-harness/references/case-template.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-evolve-harness/references/case-template.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-evolve-harness/references/case-template.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-evolve-harness/references/case-template.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "Declared canonical-example entrypoints and inventory-selected capability files, plus exact source files\nresolved by `context.sourceReferenceIds`, are progressive inputs: exclude them from initial routing\nbudgets while charging every successful read to total files/bytes and the independent example budgets\nwhere applicable. Instruction owners and skills remain initial context even when mapped by a source\nreference. Record every successful context read in `selectedContext`; neither a declared root nor a\nsource reference grants sibling files or undeclared capabilities."
     },
     {
       "topicId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
@@ -7721,6 +7775,69 @@
       "evidence": "Health checks and OAuth refresh retries redact credentials and provider details"
     },
     {
+      "topicId": "rule:om-integration-builder/sync-and-files#spreadsheet-import-facts-first",
+      "referenceId": "rule:om-integration-builder/sync-and-files#spreadsheet-import-facts-first",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/sync-and-files.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/sync-and-files.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/sync-and-files.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-integration-builder/references/sync-and-files.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "For spreadsheet imports, first read `.ai/guides/modules/sync_excel/index.md`; reuse its installed upload/import ownership before designing a parser or endpoint."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#shipped-warranty-claims-reuse",
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#shipped-warranty-claims-reuse",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "targetAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-004",
+        "OMH-071",
+        "OMH-072",
+        "OMH-073",
+        "OMH-074",
+        "OMH-075",
+        "OMH-076",
+        "OMH-077",
+        "OMH-078",
+        "OMH-079",
+        "OMH-080",
+        "OMH-081",
+        "OMH-082",
+        "OMH-093",
+        "OMH-096",
+        "OMH-102",
+        "OMH-105",
+        "OMH-119",
+        "OMH-123",
+        "OMH-130",
+        "OMH-142",
+        "OMH-185",
+        "OMH-192",
+        "OMH-193"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "evidence": "When shipped, first read `.ai/guides/modules/warranty_claims/index.md`; reuse its claim aggregate, lifecycle, and portal; app-owned distinct data + UMES order/customer links"
+    },
+    {
       "topicId": "rule:om-module-scaffold/module-surfaces#search-configuration",
       "referenceId": "rule:om-module-scaffold/module-surfaces#search-configuration",
       "requirement": "retained-normative-snippet",
@@ -7897,7 +8014,8 @@
       "capabilityIds": [],
       "integrationTestPaths": [],
       "affectedCaseIds": [
-        "OMH-030"
+        "OMH-030",
+        "OMH-185"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],

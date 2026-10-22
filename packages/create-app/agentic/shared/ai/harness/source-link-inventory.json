@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 35,
-    "recordCount": 165,
+    "ownerCount": 38,
+    "recordCount": 168,
     "sourceRequiredCount": 128,
-    "readableCount": 165,
+    "readableCount": 168,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -4029,6 +4029,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-evolve-harness/case-template#progressive-source-budget-accounting",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-evolve-harness/references/case-template.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-evolve-harness/references/case-template.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
@@ -4135,6 +4146,28 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/sync-and-files#spreadsheet-import-facts-first",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/sync-and-files.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/sync-and-files.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#shipped-warranty-claims-reuse",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "moduleId": null,
       "capabilityIds": []
     },
