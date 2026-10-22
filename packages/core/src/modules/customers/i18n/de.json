@@ -346,6 +346,8 @@
   "customers.calendar.grid.nextDay": "Nächster Tag",
   "customers.calendar.grid.nonWorking": "Arbeitsfreier Tag",
   "customers.calendar.grid.onPlatform": "über {platform}",
+  "customers.calendar.grid.overflowAria": "{count} weitere Termine, {range}",
+  "customers.calendar.grid.overflowTitle": "{count} überlappende Termine",
   "customers.calendar.grid.previousDay": "Vorheriger Tag",
   "customers.calendar.grid.untitled": "Ohne Titel",
   "customers.calendar.grid.venue": "Ort: {name}",

@@ -104,6 +104,10 @@ test.describe('TC-CAL-006: Calendar conflict surfacing', () => {
         page.getByRole('button', { name: formatToolbarRangeLabel(conflictWeek.from, conflictWeek.to) }),
       ).toBeVisible();
 
+      // Dense overlaps fold into one overflow block (#7500): when the two meetings share a
+      // slot too narrow for both, open it and the listed entries carry the same conflict ring.
+      const overflow = page.getByRole('button', { name: /more events, / }).filter({ hasText: titleA });
+      if (await overflow.count()) await overflow.first().click();
       const blockA = page.getByRole('button', { name: gridBlockName(titleA) });
       const blockB = page.getByRole('button', { name: gridBlockName(titleB) });
       await expect(blockA).toBeVisible();
