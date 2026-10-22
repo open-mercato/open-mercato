@@ -91,17 +91,19 @@ and is out of scope here.
 ### Dev-only preview framing
 
 - `apps/mercato/next.config.ts` and `packages/create-app/template/next.config.ts`
-  compute the frame policy from `NODE_ENV`:
-  - `NODE_ENV === 'development'` (what `next dev` sets when it is unset):
+  export a phase-aware config function and compute the frame policy from the
+  Next.js phase:
+  - `PHASE_DEVELOPMENT_SERVER` (`next dev`):
     `frame-ancestors 'self' http://localhost:* http://127.0.0.1:*` and **no**
     `X-Frame-Options` on the global `/:path*` rule;
-  - every other value (`production`, `test`, custom values such as `staging`):
-    unchanged, `frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN`.
-- The gate is deliberately narrower than the existing `isDevelopment`
-  (`NODE_ENV !== 'production'`). Next.js keeps a preset `test` or custom
-  `NODE_ENV` during `next build` and writes the `headers()` result into the
-  build's routes manifest, which `next start` serves as-is; an
-  `!== 'production'` gate would ship the loopback policy in such a build.
+  - every other phase (`next build`, `next start`, export): unchanged,
+    `frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN`.
+- The gate is the phase, not `NODE_ENV`. `mercato server dev` (what `yarn dev`
+  runs) starts `next dev` with `NODE_ENV=production`, so a `NODE_ENV` gate never
+  relaxes framing in the real dev flow; and `next build` keeps a preset `test`,
+  `development` or custom `NODE_ENV` while writing the `headers()` result into
+  the routes manifest that `next start` serves, so a `NODE_ENV` gate could ship
+  the loopback policy in a production build. The phase has neither problem.
 - The `/api/attachments/file/:path*` rule keeps its own sandbox CSP and
   `X-Frame-Options: SAMEORIGIN` in every mode.
 - Only plain-HTTP loopback origins are added; no wildcard host, no `https:` or
@@ -161,7 +163,7 @@ Splash server only (development, loopback). Additive.
 | Double click opens two Cezar instances | Low | splash | Client in-flight flag, server busy flag, 5 s relaunch cooldown | A deliberate relaunch after 5 s opens another terminal; Cezar itself handles its port |
 | Cezar port 4321 already used by another cockpit | Low | DX | Out of our control; Cezar output is visible in the opened terminal | User can run `npx cezar-run -p <port>` manually |
 | Dev app framed by any local page | Low | dev only | Only `http://localhost:*` / `http://127.0.0.1:*` in development; production keeps `SAMEORIGIN` | Other local dev servers can frame the dev app, which already trusts loopback for HMR |
-| Production build framed cross-origin | High | prod | Loopback framing only when `NODE_ENV === 'development'`; `production`, `test` and custom values stay strict; the production Dockerfile (and Railway, which builds from it) sets `NODE_ENV=production` | `next build --debug-prerender`, or an explicit `NODE_ENV=development next build` (both warned by Next.js as not for production), would carry the dev policy. Covered by tests on both configs |
+| Production build framed cross-origin | High | prod | Loopback framing only in the `next dev` phase; `next build` / `next start` phases always emit `frame-ancestors 'self'` + `SAMEORIGIN`, whatever `NODE_ENV` is (the production Dockerfile and Railway, which builds from it, run `next build`) | None known. Covered by tests on both configs for every phase and `NODE_ENV` combination |
 | Forms `/embed/:slug` policy | Low | forms | The embed carve-out is not wired yet (see forms `page.meta.ts`); the change only widens dev framing to loopback, production stays fail-closed; `TC-FORMS-EMB-006/007` assert the embed-policy API, not global headers | None |
 
 ## Migration & Backward Compatibility
@@ -202,5 +204,6 @@ Browser QA: load the splash during startup and after ready, click
   launching plain `npx cezar-run` in the project root (monorepo, generated app,
   worktree, ephemeral).
 - Allowed loopback origins to frame the app in development only, so Cezar's
-  Preview panel can show it. The gate is `NODE_ENV === 'development'`, so a
-  `next build` under `test` or a custom `NODE_ENV` keeps production headers.
+  Preview panel can show it. The gate is the Next.js development-server
+  phase, so `yarn dev` (which runs `next dev` with `NODE_ENV=production`) gets
+  it and every `next build` keeps production headers.
