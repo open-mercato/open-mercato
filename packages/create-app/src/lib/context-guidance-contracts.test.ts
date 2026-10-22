@@ -453,12 +453,12 @@ test('module scaffold owns the one-way canonical-example handoff', () => {
   )
   assert.match(
     skill,
-    /if outside exact read permissions, use the already-authorized equivalent \[`surface-inventory\.json`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/references\/surface-inventory\.json\)/,
+    /surface-inventory\.json.*upfront for design\/provenance metadata or if default.*surface-map\.md.*outside exact read permissions; otherwise human map/,
   )
   assert.match(skill, /Adapt only named capability rows/)
   assert.match(
     skill,
-    /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
+    /No empty placeholders, `example` tree copies, `ratelimit_probe` reuse, or direct cross-module ORM relationships/,
   )
 })
 
@@ -482,12 +482,12 @@ test('spec-delivery guide owns the expanded branches and the relocated delivery 
 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(skill, /complete one-shot module or CRUD vertical slice/)
-  assert.match(skill, /steps 3, 4, and 7 are mandatory/)
+  assert.match(skill, /Complete one-shot modules\/CRUD slices/)
+  assert.match(skill, /MUST directly read exact step 3\/4\/7 paths before writing/)
   for (const reference of ['api-and-domain.md', 'module-surfaces.md', 'verification.md']) {
     assert.ok(skill.includes(`.ai/skills/om-module-scaffold/references/${reference}`), `missing mandatory one-shot reference ${reference}`)
   }
-  assert.match(skill, /Specialist data\/UI\/UMES procedures add to these three; they never replace them/)
+  assert.match(skill, /Data\/UI\/UMES refs add to, never replace, all three/)
 })
 
 test('data-model skill pins validators beside entities for generated discovery', () => {
@@ -578,14 +578,14 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(root, /`architecture` \| Unresolved capability\/ownership\/field-vs-history choice; boundary, upgrade, override, or registry failure/)
   assert.match(root, /current behavior, authorization, dependents/)
   assert.match(root, /safest customization seam/)
-  assert.match(uiSkill, /field, filter, row action, or bulk action added to an existing installed form\/table/)
-  assert.match(uiSkill, /also requires `om-system-extension`/)
+  assert.match(uiSkill, /Installed form\/table fields, filters and row\/bulk actions are injected UI/)
+  assert.match(uiSkill, /Injected UI also invokes `om-system-extension`; never edit installed pages directly/)
   assert.match(uiSkill, /read `references\/crud-surfaces\.md` and `references\/quality-states\.md`/)
   assert.match(uiSkill, /stable host ID \(`stable-table-host`\)/)
-  assert.match(uiSkill, /Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence\/API\/commands/)
+  assert.match(uiSkill, /No contracts or `om-module-scaffold` without app-owned persistence\/API\/commands/)
   assert.match(uiSkill, /stable host ID \(`stable-host-id`\)/)
   assert.match(uiSkill, /App-owned persisted fields\/entities also require `module-data`, contracts, and `om-data-model-design`/)
-  assert.match(uiSkill, /new server API\/command path instead requires `module-data`, contracts, and `om-module-scaffold`/)
+  assert.match(uiSkill, /new server API\/command paths instead require `module-data`, contracts, and `om-module-scaffold`/)
   assert.match(root, /Installed form\/table fields\/filters\/row\/bulk actions without app persistence = `umes` \+ `backend-ui` only/)
   assert.match(root, /read `crud-surfaces` \+ `quality-states`; skip contracts\/module-scaffold\/page\/navigation/)
   assert.match(root, /installed guard without app persistence = `umes` only, so do not load contracts/)
@@ -739,8 +739,8 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /multi-seam domain\/API\/command fix/)
   assert.match(moduleSkill, /Multi-seam domain\/API\/command fixes are business slices/)
-  assert.match(moduleSkill, /also read that blueprint, `references\/api-and-domain\.md`, and `references\/verification\.md`/)
-  assert.match(moduleSkill, /Every API\/schema\/command implementation, fix, or reference inspection MUST read/)
+  assert.match(moduleSkill, /Business one-shots.*MUST read exact `\.ai\/skills\/om-module-scaffold\/references\/business-one-shot-blueprints\.md`[\s\S]*Multi-seam domain\/API\/command fixes are business slices; read `references\/api-and-domain\.md` and `references\/verification\.md`/)
+  assert.match(moduleSkill, /API\/schema\/command implementation\/fixes\/reference inspection MUST read/)
   assert.match(moduleSkill, /also read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
   assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
@@ -964,7 +964,7 @@ test('CLI-only primitive context remains bounded without dropping compiled-path 
   const primitiveGate = skill.match(/^CLI-only \(no .+$/m)?.[0]
   assert.ok(primitiveGate, 'a narrow CLI primitive must not load complete-module references unconditionally')
   assert.match(primitiveGate, /no domain mutation\/API\/persistence\/UI/)
-  assert.match(primitiveGate, /read the contracts\/compatibility paths in step 3/)
+  assert.match(primitiveGate, /read step 3 contracts\/compatibility/)
   const domainStep = skill.match(/^3\. .+$/m)?.[0]
   assert.ok(domainStep)
   assert.match(domainStep, /`\.ai\/guides\/contracts\.md`/)
@@ -973,11 +973,11 @@ test('CLI-only primitive context remains bounded without dropping compiled-path 
   assert.match(primitiveGate, /trusted scope, `cli\.ts` discovery, source\+compiled command behavior tests/)
   for (const command of ['yarn generate', 'yarn typecheck', 'yarn lint']) assert.ok(primitiveGate.includes(`\`${command}\``))
   assert.match(primitiveGate, /applicable build/)
-  assert.match(primitiveGate, /Changed package paths: pack\/install\+test a disposable consumer/)
+  assert.match(primitiveGate, /Changed package paths: pack\/install\+test disposable consumer/)
   assert.match(skill, /Complete business modules\/CRUD slices START at/)
-  assert.match(skill, /complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are mandatory/)
-  assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* Every API\/schema\/command implementation, fix, or reference inspection MUST read/m)
-  assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/m)
+  assert.match(skill, /Complete one-shot modules\/CRUD slices MUST directly read exact step 3\/4\/7 paths before writing/)
+  assert.match(skill, /^3\. \*\*Domain writes\/APIs\.\*\* API\/schema\/command implementation\/fixes\/reference inspection MUST read/m)
+  assert.match(skill, /^4\. \*\*Module surfaces\.\*\* Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/m)
   assert.match(skill, /^7\. \*\*Verify\.\*\* Follow `references\/verification\.md`/m)
 })
 

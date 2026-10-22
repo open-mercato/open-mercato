@@ -18,5 +18,5 @@ test('resolved business ownership does not independently select architecture', (
     assert.match(root, /Scaffold module starter; publish\/link an app module/)
   }
   const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
-  assert.match(scaffold, /Architecture-only plans follow the root’s `architecture` \+ `module-data` exception/)
+  assert.match(scaffold, /Ownership\/capability-only outlines: first read `\.ai\/guides\/architecture\.md` \+ `references\/discovery-surface-catalog\.md`/)
 })

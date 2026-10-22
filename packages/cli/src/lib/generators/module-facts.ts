@@ -2840,13 +2840,13 @@ function renderOverrideTargetsSection(
   context: ModuleFactsRenderContext,
 ): string {
   if (!targets || targets.length === 0) return `## Exact override targets\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| Domain | Path / key | Supported modes | Referenced fact | Source |'
-  const divider = '|---|---|---|---|---|'
+  const header = '| ID | Domain | Path / key | Supported modes | Referenced fact | Source |'
+  const divider = '|---|---|---|---|---|---|'
   const renderRows = (group: readonly ModuleOverrideTarget[]) => group.map((target) => {
     const path = `\`${renderOverrideTargetPath(target)}\``
     const modes = target.modes.join(', ') || '—'
     const fact = `${target.factRef.factSection}:${target.factRef.factKey}`
-    return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
+    return `| \`${target.id}\` | ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
   })
   const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
   if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact

@@ -36,7 +36,7 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 Route production deployment/go-live/operational readiness: `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`. Later: checked-in `.env.example` names/comments only; never read or report live `.env` values. Ask before credentials, billable infrastructure, or live deployment.
 
-## Three Axes
+## 3 Axes
 
 Additive axes: ownership=WHO, others=WHAT. Select every match.
 
@@ -107,7 +107,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Budgets
 
-- Matched guides once; needed references/facts only.
+- Matched guides once; needed refs/facts only.
 - Budgets: guide > skill > references; named subjects only.
 - `spec-pr` reads template via spec-delivery.
 - App call sites before bounded `framework-context`.
@@ -116,7 +116,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ## Module-Specific Facts
 
-Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync; feature toggle/flag→feature_toggles. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; warehouse→wms; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Read big facts in sections.
+Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync; feature toggle/flag→feature_toggles. Hosts: staff session/auth→auth; CRM customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; warehouse→wms; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Read big facts in sections.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

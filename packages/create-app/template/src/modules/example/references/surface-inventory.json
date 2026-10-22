@@ -2568,6 +2568,10 @@
     "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
   },
   "designFoundation": {
+    "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+    "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+    "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+    "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
     "mappedItemCount": 31,
     "nodeComparisonCounts": {
       "match": 15,

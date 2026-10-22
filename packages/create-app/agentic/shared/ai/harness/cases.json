@@ -6700,6 +6700,7 @@
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
+        ".ai/guides/framework-extension-points.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
@@ -11703,6 +11704,7 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/portal/index.md",
         ".ai/guides/modules/customer_accounts/index.md",
         ".ai/guides/modules/sales/index.md"
       ],
@@ -20215,11 +20217,11 @@
         ".ai/skills/om-module-scaffold/references/api-and-domain.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
-        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+        ".ai/guides/reference-modules/example/index.md"
       ],
       "allowedExtra": [
-        ".ai/specs/SPEC-000-template.md",
-        ".ai/guides/reference-modules/example/index.md"
+        ".ai/specs/SPEC-000-template.md"
       ],
       "forbidden": [
         ".env*",
@@ -20323,7 +20325,7 @@
     "timeoutMs": 600000,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 339968,
     "relatedCases": [
       "OMH-214",
       "OMH-224"

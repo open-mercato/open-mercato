@@ -10,8 +10,8 @@ test('owned app-module blueprints load architecture only for unresolved ownershi
   assert.match(moduleKey, /`om-module-scaffold` plus contracts; architecture only for unresolved ownership/)
   assert.match(moduleKey, /add `om-data-model-design` for new app-owned business data\/schema or persisted fields, not already-owned workflow-engine state/)
   const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
-  assert.match(scaffold, /Architecture-only plans follow the root’s `architecture` \+ `module-data` exception/)
-  assert.match(scaffold, /Read `\.ai\/guides\/architecture\.md` and `references\/planning\.md` only for unresolved ownership/)
+  assert.match(scaffold, /Ownership\/capability-only outlines: first read `\.ai\/guides\/architecture\.md` \+ `references\/discovery-surface-catalog\.md`/)
+  assert.match(scaffold, /Only unresolved implementation ownership adds reads of `\.ai\/guides\/architecture\.md` and `references\/planning\.md`/)
 })
 
 test('complete capability maps load architecture without escalating routine discovery or specialist implementation', () => {
@@ -30,4 +30,19 @@ test('forecast drill-down tables publish stable extension IDs alongside aggregat
   assert.match(forecast, /stable table-host, column, and action IDs/)
   assert.match(forecast, /scoped forecast query, stage-weighted totals, owner\/time filters, drill-down, snapshot\/export/)
   assert.match(forecast, /currency\/time-zone correctness; access-filtered aggregates; deterministic totals; no cross-tenant cache keys/)
+})
+
+test('only an authorized specification-only deliverable defers module implementation procedures', () => {
+  const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
+  const phase = scaffold.split('\n').find(line => /Only user-authorized specification-only deliverables/.test(line))
+  assert.ok(phase, 'The phase exception must require the user-authorized deliverable, not read-only evaluation')
+  assert.match(phase, /ground plans in requested reference owners\/facts/)
+  assert.match(phase, /implementation procedures await implementation authorization/)
+  assert.ok(scaffold.indexOf(phase) < scaffold.indexOf('Complete one-shot modules/CRUD slices MUST'))
+  assert.match(scaffold, /Complete one-shot modules\/CRUD slices MUST directly read exact step 3\/4\/7 paths before writing/)
+  for (const reference of ['api-and-domain.md', 'module-surfaces.md', 'verification.md']) {
+    assert.ok(scaffold.includes(`.ai/skills/om-module-scaffold/references/${reference}`))
+  }
+  assert.match(blueprints, /At library contract selection\/reference planning, directly read `node_modules\/@open-mercato\/shared\/AGENTS\.md`/)
+  assert.match(blueprints, /`\.ai\/skills\/om-system-extension\/references\/verification\.md` for cross-module proof\. Read both before writing or implementation\./)
 })

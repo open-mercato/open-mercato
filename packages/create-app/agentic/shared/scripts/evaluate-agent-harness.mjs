@@ -2611,7 +2611,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
       const absolute = path.resolve(root, relative)
       try {
         const installedContext = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative)
-          : isInstalledAuxiliarySourceRelative(relative) ? resolveInstalledSourceFile(root, relative) : null
+          : isInstalledSourceRelative(relative) ? resolveInstalledSourceFile(root, relative) : null
         if (installedContext?.violation) {
           violations.add(`unsafe observed context entry ${relative}: ${installedContext.violation}`)
           continue
@@ -2706,7 +2706,7 @@ function contextStats(root, paths, metadata = {}, caseRecord = {}) {
     if (!isPathInside(root, absolute)) continue
     try {
       const installedContext = isInstalledInstructionRelative(relative) ? resolveInstalledInstructionFile(root, relative)
-        : isInstalledAuxiliarySourceRelative(relative) ? resolveInstalledSourceFile(root, relative) : null
+        : isInstalledSourceRelative(relative) ? resolveInstalledSourceFile(root, relative) : null
       if (installedContext?.violation) continue
       const stat = fs.lstatSync(absolute)
       if (stat.isSymbolicLink() || (!installedContext && !isPathInside(fs.realpathSync(root), fs.realpathSync(absolute)))) continue
@@ -2888,7 +2888,7 @@ function buildPrompt(caseRecord, root, writable, frameworkContextEntries = []) {
     ? 'Required planning skills remain invoked and selected; the same exact planning-reference exception applies to their route ownership. All other opened routed guides and skills still require their owning routes.'
     : 'Every routed guide or SKILL.md you open selects its owning route: include that route in selectedRouter, or do not open the file.'
   const modeInstruction = writable
-    ? 'This is an explicitly disposable writable evaluation. You must implement the complete request with repeated use of the allowlisted harness write tool before returning the routing object, then re-read the completed implementation. A manifest of intended files, metadata-only stub, TODO, placeholder, or response that only plans/routes fails: create every requested source, API, command, UI, registration, locale, migration snapshot, and focused test surface inside the write allowlist. You may read allowlisted target source files as implementation inputs, but selectedContext records only instruction/fact paths and must never include those target source paths. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
+    ? 'This is an explicitly disposable writable evaluation. You must implement the complete request with repeated use of the allowlisted harness write tool before returning the routing object, then re-read the completed implementation. A manifest of intended files, metadata-only stub, TODO, placeholder, or response that only plans/routes fails: create every requested source, API, command, UI, registration, locale, migration snapshot, and focused test surface inside the write allowlist. You may read allowlisted target source files as implementation inputs. Exclude only implementation source paths writable under allowedWrites from selectedContext. Successful reads of immutable declared source references remain charged context and MUST appear in selectedContext. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
     : 'Work read-only: do not edit files, run mutations, use network access, or inspect environment values. Do not implement the request. Accept the task premise for routing; fixture and implementation-target paths may be absent in this controller, so do not inspect them or report their absence as a blocker.'
   const frameworkContextInstruction = frameworkContextEntries.length
     ? ` The controller has already materialized bounded read-only installed-package evidence for this case. Read every required routed guide and skill before this evidence, then read each exact manifest and search result and every exact source path named by those search results beneath the supplied source root: ${frameworkContextEntries.map((entry) => `manifest=${entry.manifest}; search=${entry.searchResult}; source=${entry.sourceRoot}; query=${JSON.stringify(entry.query)}`).join(' | ')}. You may also follow an exact installed-source link from a generated module fact when it is useful; never enumerate node_modules or read outside @open-mercato package src trees. These successful reads belong in selectedContext.`

@@ -1176,13 +1176,13 @@
       "topicId": "rule:om-module-scaffold#source-navigation",
       "owner": ".ai/skills/om-module-scaffold/SKILL.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "For source lookup: [`surface-map.md`](../../../src/modules/example/references/surface-map.md) by default; if outside exact read permissions, use the already-authorized equivalent [`surface-inventory.json`](../../../src/modules/example/references/surface-inventory.json), also for extra metadata; never both indexes."
+      "evidence": "For source lookup: use [`surface-inventory.json`](../../../src/modules/example/references/surface-inventory.json) upfront for design/provenance metadata or if default [`surface-map.md`](../../../src/modules/example/references/surface-map.md) is outside exact read permissions; otherwise human map. One already-authorized index, never both."
     },
     {
       "topicId": "rule:om-module-scaffold#api-reference-owner-first",
       "owner": ".ai/skills/om-module-scaffold/SKILL.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "Every API/schema/command implementation, fix, or reference inspection MUST read `.ai/guides/contracts.md` and `references/api-and-domain.md`"
+      "evidence": "API/schema/command implementation/fixes/reference inspection MUST read `.ai/guides/contracts.md` and `references/api-and-domain.md`"
     },
     {
       "topicId": "rule:om-system-extension#conditional-source-navigation",
@@ -1236,7 +1236,7 @@
       "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#library-postcommit-owners",
       "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "For library command post-commit cache/index and undo consistency, first read `.ai/guides/modules/query_index/index.md` and `references/runtime-cache-and-queues.md` Cache rules; do not infer queued work."
+      "evidence": "For library post-commit cache/index and undo consistency, first read `.ai/guides/modules/query_index/index.md` and `references/runtime-cache-and-queues.md` Cache rules; do not infer queued work."
     },
     {
       "topicId": "rule:specs/README#maintained-covering-specification-index",
@@ -1261,7 +1261,7 @@
       "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#library-contract-planning",
       "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "During library contract selection/reference planning, directly read `node_modules/@open-mercato/shared/AGENTS.md` for authoritative helpers and `.ai/skills/om-system-extension/references/verification.md` for cross-module proof. Do not defer these reads until writing or after implementation."
+      "evidence": "At library contract selection/reference planning, directly read `node_modules/@open-mercato/shared/AGENTS.md` for authoritative helpers and `.ai/skills/om-system-extension/references/verification.md` for cross-module proof. Read both before writing or implementation."
     },
     {
       "topicId": "rule:guides/spec-delivery#activation-adds-app-capability",
@@ -1305,6 +1305,42 @@
       "requirement": "source-required",
       "href": "../../../../src/modules/example/references/surface-inventory.json",
       "resolvedPath": "src/modules/example/references/surface-inventory.json"
+    },
+    {
+      "topicId": "rule:om-module-scaffold#generated-local-reference-navigation",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "When asked for generated local reference/topology IDs, read `.ai/guides/reference-modules/example/index.md`, then task-matching section links; never guess installed-module fact paths."
+    },
+    {
+      "topicId": "rule:om-module-scaffold#outline-before-implementation-owners",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Ownership/capability-only outlines: first read `.ai/guides/architecture.md` + `references/discovery-surface-catalog.md`; name specialist owners without implementation procedures. Explicit AI contracts load AI guide/skill."
+    },
+    {
+      "topicId": "rule:om-module-scaffold#app-schema-versus-workflow-state",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Invoke `om-data-model-design` for new app-owned business entities/schema/persisted fields or sensitive fields, never engine-owned workflow state alone. Follow `references/data-and-migrations.md`."
+    },
+    {
+      "topicId": "rule:om-backend-ui-design#upfront-design-index-choice",
+      "owner": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For source lookup, use `src/modules/example/references/surface-inventory.json` upfront for design/provenance metadata or if default [`surface-map.md`](../../../src/modules/example/references/surface-map.md) is outside exact read permissions; otherwise human map. One already-authorized index; never both or the tree. One compiling implementation/surface: `references/crud-surfaces.md` and `references/page-and-navigation.md`."
+    },
+    {
+      "topicId": "rule:root#host-facts-match-authentication-owner",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Hosts: staff session/auth→auth; CRM customer/contact/deal/pipeline→customers;"
+    },
+    {
+      "topicId": "rule:om-module-scaffold#authorized-specification-phase",
+      "owner": ".ai/skills/om-module-scaffold/SKILL.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Only user-authorized specification-only deliverables: ground plans in requested reference owners/facts; implementation procedures await implementation authorization."
     }
   ]
 }

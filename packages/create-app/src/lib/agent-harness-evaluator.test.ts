@@ -268,7 +268,8 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('implement the complete request with repeated use of the allowlisted harness write tool')
   || !prompt.includes('A manifest of intended files, metadata-only stub, TODO, placeholder')
-  || !prompt.includes('selectedContext records only instruction/fact paths')
+  || !prompt.includes('Exclude only implementation source paths writable under allowedWrites from selectedContext.')
+  || !prompt.includes('Successful reads of immutable declared source references remain charged context and MUST appear in selectedContext.')
   || !prompt.includes('Call harness.read or harness.write; never call read_mcp_resource or any resource API')) process.exit(10)
 JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 ${sandboxProbe ? `
@@ -2035,9 +2036,16 @@ for (const file of ${JSON.stringify(reads)}) console.log(JSON.stringify({ type: 
   })
 }
 
-test('exact declared installed sources pass full routing while instruction owners remain initial context', { skip: !targetSandboxAvailable }, async () => {
+for (const linked of [false, true]) {
+ test(`exact declared installed sources retain full routing accounting with linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, async () => {
   const root = stageApp()
+  const dependencyParent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-declared-source-deps-')))
   try {
+    if (linked) {
+      const dependencies = path.join(dependencyParent, 'node_modules')
+      fs.renameSync(path.join(root, 'node_modules'), dependencies)
+      fs.symlinkSync(dependencies, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    }
     const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')) as Array<HarnessCase & {
       expectedRouter: { required: string[] }; requiredSkills: string[]; requiredDecisions: string[]
     }>
@@ -2045,6 +2053,7 @@ test('exact declared installed sources pass full routing while instruction owner
     assert.ok(caseRecord)
     const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
       exampleReadAllowlist: (caseRecord: unknown, root: string) => string[]
+      observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
     }
     const sources = evaluator.exampleReadAllowlist(caseRecord, root).filter((entry) => entry.startsWith('node_modules/'))
     assert.equal(sources.length, 3)
@@ -2052,8 +2061,14 @@ test('exact declared installed sources pass full routing while instruction owner
     const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext: context, decisions: caseRecord.requiredDecisions, violations: [] }
     const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find(arg => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+const messages = ${JSON.stringify(context)}.map((file, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'read', arguments: { path: file } } }))
+const reads = spawnSync(process.execPath, ['scripts/agent-harness-tool-server.mjs', process.cwd(), 'read-only', JSON.stringify(allowedReads), '[]'], { input: messages.map(message => JSON.stringify(message)).join('\\n') + '\\n', encoding: 'utf8', env: {} })
+if (reads.status !== 0 || reads.stdout.trim().split('\\n').map(line => JSON.parse(line)).some(reply => reply.result.isError)) throw new Error('Actual declared source read failed')
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
 for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: {
   type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
@@ -2068,8 +2083,43 @@ for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type
     }
     assert.ok(stored.actualContext.initialPaths.includes('.ai/guides/module-tool.md'))
     assert.ok(stored.actualContext.initialPaths.includes('AGENTS.md'))
-  } finally { fs.rmSync(root, { recursive: true, force: true }) }
-})
+    const expectedBytes = context.reduce((sum, file) => sum + fs.statSync(path.join(root, file)).size, 0)
+    assert.equal(stored.actualContext.bytes, expectedBytes)
+    assert.equal(stored.declaredContext.bytes, expectedBytes)
+    const source = sources[0]
+    const readTrace = (file: string, declaration: unknown = caseRecord) => evaluator.observedContext(
+      [...context.filter(entry => !entry.startsWith('node_modules/')), file].map(entry => JSON.stringify({ type: 'item.completed', item: {
+        type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: entry }, status: 'completed',
+      } })).join('\n'), root, declaration, true,
+    )
+    const valid = readTrace(source)
+    assert.deepEqual(valid.violations, [])
+    assert.ok(valid.paths.includes(source))
+    const undeclared = readTrace(source, { ...caseRecord, context: { ...caseRecord.context, required: caseRecord.context.required.filter(file => file !== source), sourceReferenceIds: [] } })
+    assert.ok(undeclared.violations.length > 0)
+    const sibling = path.posix.join(path.posix.dirname(source), 'unrelated.ts')
+    fs.writeFileSync(path.join(root, sibling), 'export const unrelated = true\n')
+    assert.ok(readTrace(sibling).violations.length > 0)
+    const sourceFile = path.join(root, source)
+    const original = fs.readFileSync(sourceFile)
+    for (const shape of ['inside-symlink', 'escaping-symlink', 'directory']) {
+      fs.rmSync(sourceFile)
+      if (shape === 'directory') fs.mkdirSync(sourceFile)
+      else {
+        const target = path.join(shape === 'inside-symlink' ? fs.realpathSync(path.join(root, 'node_modules')) : root, 'other-source.ts')
+        fs.writeFileSync(target, 'forbidden-source')
+        fs.symlinkSync(target, sourceFile)
+      }
+      const invalid = readTrace(source)
+      assert.ok(invalid.violations.length > 0, shape)
+      assert.ok(!invalid.paths.includes(source), shape)
+      fs.rmSync(sourceFile, { recursive: true })
+      fs.writeFileSync(sourceFile, original)
+    }
+
+  } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(dependencyParent, { recursive: true, force: true }) }
+ })
+}
 
 for (const linked of [false, true]) {
   test(`exact Code Connect references pass real tool startup and full routing accounting, linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, async () => {
@@ -5415,5 +5465,15 @@ test('planning references still require successful reads and selected skills and
     const extraRoute = structuredClone(response)
     extraRoute.selectedRouter.push('backend-ui')
     assert.ok(unit.evaluateRouting(record, extraRoute, planningUnitStats(extraRoute), extraRoute.selectedContext, [], root).includes('unexpected route backend-ui'))
+  })
+})
+
+
+test('writable prompts keep immutable declared source references in charged selected context', async () => {
+  await withPlanningRoutingUnit((unit, root) => {
+    const prompt = unit.buildPrompt(specPlanningUnitCase(), root, true)
+    assert.ok(prompt.includes('Exclude only implementation source paths writable under allowedWrites from selectedContext.'))
+    assert.ok(prompt.includes('Successful reads of immutable declared source references remain charged context and MUST appear in selectedContext.'))
+    assert.ok(!prompt.includes('selectedContext records only instruction/fact paths and must never include those target source paths'))
   })
 })

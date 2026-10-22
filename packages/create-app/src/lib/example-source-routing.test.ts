@@ -5,12 +5,15 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { createResolver } from '../../../cli/src/lib/resolver.js'
+import { discoverLocalReferenceModuleSource, discoverPackageModuleSources } from '../../../cli/src/lib/generators/module-facts-discovery.js'
+import { extractLocalReferenceModuleFacts } from '../../../cli/src/lib/generators/module-facts.js'
 
 const read = (relative: string) => fs.readFileSync(new URL(`../../agentic/${relative}`, import.meta.url), 'utf8')
 
 test('CRUD reference inspection reads its procedure owner before following example sources', () => {
   const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(scaffold, /API\/schema\/command implementation, fix, or reference inspection MUST read/)
+  assert.match(scaffold, /API\/schema\/command implementation\/fixes\/reference inspection MUST read/)
   assert.match(scaffold, /`\.ai\/guides\/contracts\.md` and `references\/api-and-domain\.md`/)
   assert.match(scaffold, /START at \[`src\/modules\/example\/README\.md`\]/)
   assert.ok(Buffer.byteLength(scaffold) <= 5_265)
@@ -19,14 +22,57 @@ test('CRUD reference inspection reads its procedure owner before following examp
 test('source lookup defaults to the human index and keeps its exact machine-view exception bounded', () => {
   for (const name of ['om-module-scaffold', 'om-system-extension']) {
     const skill = read(`shared/ai/skills/${name}/SKILL.md`)
-    assert.match(skill, /source lookup:.*\[`.*surface-map\.md`\]/)
     if (name === 'om-module-scaffold') {
-      assert.match(skill, /surface-map\.md.*by default; if outside exact read permissions, use the already-authorized equivalent.*surface-inventory\.json/)
-      assert.match(skill, /also for extra metadata; never both indexes/)
-    } else assert.match(skill, /machine inventory only for additional metadata; never both indexes/)
+      assert.match(skill, /surface-inventory\.json.*upfront for design\/provenance metadata or if default.*surface-map\.md.*is outside exact read permissions; otherwise human map/)
+      assert.match(skill, /One already-authorized index, never both/)
+    } else {
+      assert.match(skill, /source lookup:.*\[`.*surface-map\.md`\]/)
+      assert.match(skill, /machine inventory only for additional metadata; never both indexes/)
+    }
     assert.ok(Buffer.byteLength(skill) <= (name === 'om-module-scaffold' ? 5_265 : 5_026))
   }
   assert.match(read('shared/ai/skills/om-system-extension/SKILL.md'), /Before following an example source link,/)
+})
+
+test('design metadata source lookup selects the machine index upfront instead of reading both indexes', () => {
+  const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
+  assert.match(scaffold, /source lookup: use \[`surface-inventory\.json`\].*upfront for design\/provenance metadata/)
+  assert.match(scaffold, /if default \[`surface-map\.md`\].*is outside exact read permissions; otherwise human map/)
+  assert.match(scaffold, /One already-authorized index, never both/)
+  assert.match(scaffold, /Complete business modules\/CRUD slices START at \[`src\/modules\/example\/README\.md`\]/)
+  assert.match(scaffold, /Adapt only named capability rows/)
+  assert.ok(Buffer.byteLength(scaffold) <= 5_258)
+})
+
+test('UI-only source lookup chooses design metadata before following its default human index', () => {
+  const skill = read('shared/ai/skills/om-backend-ui-design/SKILL.md')
+  const frontend = read('shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md')
+  assert.match(skill, /use `src\/modules\/example\/references\/surface-inventory\.json` upfront for design\/provenance metadata/)
+  assert.match(skill, /if default \[`surface-map\.md`\].*is outside exact read permissions; otherwise human map/)
+  assert.match(skill, /One already-authorized index; never both or the tree/)
+  assert.match(skill, /One compiling implementation\/surface: `references\/crud-surfaces\.md` and `references\/page-and-navigation\.md`/)
+  assert.match(frontend, /already-authorized canonical \[`surface-inventory\.json`\]/)
+  assert.match(skill, /do not load the contracts guide or module-scaffolding skill unless the request also changes a data\/API\/command\/ACL\/setup surface/)
+  assert.ok(Buffer.byteLength(skill) <= 3_269)
+})
+
+test('module data modeling distinguishes new app data and sensitive fields from workflow-owned state', () => {
+  const skill = read('shared/ai/skills/om-module-scaffold/SKILL.md')
+  assert.match(skill, /om-data-model-design` for new app-owned business entities\/schema\/persisted fields or sensitive fields/)
+  assert.match(skill, /never engine-owned workflow state alone/)
+  assert.match(skill, /Follow `references\/data-and-migrations\.md`/)
+})
+
+test('capability-only outlines choose architecture before opening implementation owners', () => {
+  const skill = read('shared/ai/skills/om-module-scaffold/SKILL.md')
+  const workflow = skill.slice(skill.indexOf('## Workflow'))
+  assert.match(workflow, /^## Workflow\n\nOwnership\/capability-only outlines: first read `\.ai\/guides\/architecture\.md` \+ `references\/discovery-surface-catalog\.md`/)
+  assert.match(workflow, /name specialist owners without implementation procedures/)
+  assert.match(workflow, /Explicit AI contracts load AI guide\/skill/)
+  assert.ok(workflow.indexOf('Ownership/capability-only outlines:') < workflow.indexOf('Otherwise select every matching brief/blueprint route'))
+  assert.match(workflow, /never probe then discard routes/)
+  assert.match(workflow, /UMES: only injected\/overridden\/enriched\/intercepted installed surfaces/)
+  assert.match(workflow, /framework context: only named unresolved exact-version details/)
 })
 
 test('a rendered customer tab keeps installed-version fallback conditional and does not require app persistence', () => {
@@ -58,7 +104,7 @@ test('a rendered customer tab keeps installed-version fallback conditional and d
 
 test('the library twins can follow the authorized equivalent index while canonical sources remain read-only', async () => {
   const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(scaffold, /if outside exact read permissions, use the already-authorized equivalent/)
+  assert.match(scaffold, /if default.*surface-map\.md.*is outside exact read permissions/)
   const evaluator = await import(new URL('../../agentic/shared/scripts/evaluate-agent-harness.mjs', import.meta.url).href)
   const records = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
@@ -117,7 +163,7 @@ test('the library twins can follow the authorized equivalent index while canonic
 test('module-surface reference inspection reads its owner before canonical event sources', () => {
   const scaffold = read('shared/ai/skills/om-module-scaffold/SKILL.md')
   assert.match(scaffold, /Module-surface implementation\/reference inspection MUST first read `references\/module-surfaces\.md`/)
-  assert.match(scaffold, /when the brief uses cache or queues, load `references\/runtime-cache-and-queues\.md`/)
+  assert.match(scaffold, /for cache\/queue briefs, load `references\/runtime-cache-and-queues\.md`/)
   assert.ok(Buffer.byteLength(scaffold) <= 5_265)
   assert.match(read('shared/ai/skills/om-module-scaffold/references/module-surfaces.md'), /\[\`events\.ts\`\]/)
 })
@@ -125,7 +171,7 @@ test('module-surface reference inspection reads its owner before canonical event
 test('library command consistency reads its exact index and cache owners without inferring queued work', () => {
   const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
   const library = blueprint.slice(blueprint.indexOf('### Complete Library Contract'))
-  assert.match(library, /For library command post-commit cache\/index and undo consistency, first read `\.ai\/guides\/modules\/query_index\/index\.md` and `references\/runtime-cache-and-queues\.md` Cache rules; do not infer queued work\./)
+  assert.match(library, /For library post-commit cache\/index and undo consistency, first read `\.ai\/guides\/modules\/query_index\/index\.md` and `references\/runtime-cache-and-queues\.md` Cache rules; do not infer queued work\./)
   for (const contract of ['emitCrudUndoSideEffects', 'enforceCommandOptimisticLock', 'withAtomicFlush', 'buildCustomFieldResetMap']) assert.ok(blueprint.includes(contract))
 })
 
@@ -142,8 +188,8 @@ test('customer detail-tab guidance distinguishes installed person and company ho
 test('library contract planning reads shared helper authority and cross-module verification before writing', () => {
   const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
   const library = blueprint.slice(blueprint.indexOf('### Complete Library Contract'))
-  assert.match(library, /During library contract selection\/reference planning, directly read `node_modules\/@open-mercato\/shared\/AGENTS\.md` for authoritative helpers and `\.ai\/skills\/om-system-extension\/references\/verification\.md` for cross-module proof/)
-  assert.match(library, /Do not defer these reads until writing or after implementation\./)
+  assert.match(library, /At library contract selection\/reference planning, directly read `node_modules\/@open-mercato\/shared\/AGENTS\.md` for authoritative helpers and `\.ai\/skills\/om-system-extension\/references\/verification\.md` for cross-module proof/)
+  assert.match(library, /Read both before writing or implementation\./)
   const api = read('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
   assert.match(api, /Before writing a route or command, read `node_modules\/@open-mercato\/shared\/AGENTS\.md`/)
 })
@@ -212,4 +258,38 @@ test('design reference navigation uses authorized canonical metadata without rea
     assert.equal(replies[0].result.content[0].text, fs.readFileSync(path.join(root, inventory), 'utf8'))
     assert.equal(replies[1].result.isError, true)
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+
+test('the bounded override projection exposes every existing identity from the real activated reference extraction', context => {
+  const repository = fileURLToPath(new URL('../../../../', import.meta.url))
+  const packageSources = discoverPackageModuleSources(createResolver(repository))
+  const reference = discoverLocalReferenceModuleSource({ appRoot: fileURLToPath(new URL('../../template/', import.meta.url)), moduleId: 'example' })
+  assert.ok(reference)
+  const coreVersion = JSON.parse(fs.readFileSync(path.join(repository, 'packages/core/package.json'), 'utf8')).version as string
+  const projection = extractLocalReferenceModuleFacts({ packageSources, reference, registryPath: null, coreVersion })
+  const section = projection.directory.sections.find(section => section.slug === 'exact-override-targets')
+  assert.ok(section)
+  const targets = projection.entry.facts.overrideTargets
+  assert.ok(targets && targets.length > 0)
+  for (const target of targets) assert.ok(section.markdown.includes(`| \`${target.id}\` |`), target.id)
+  assert.match(section.markdown, /\| ID \| Domain \| Path \/ key \| Supported modes \| Referenced fact \| Source \|/)
+  assert.ok(section.markdown.includes('overrides.workers'))
+  assert.ok(section.markdown.includes('extensionSurfaces.contributions:'))
+  context.diagnostic(`${targets.length} existing IDs; bounded override section ${Buffer.byteLength(section.markdown)} bytes`)
+})
+
+test('the canonical public design projection carries owned audited and landed provenance without private inventory reads', async () => {
+  const generator = await import(new URL('../../scripts/generate-design-system-inventory.mjs', import.meta.url).href)
+  const owned = JSON.parse(fs.readFileSync(new URL('../../scripts/design-system/design-system-inventory.json', import.meta.url), 'utf8'))
+  const surface = JSON.parse(fs.readFileSync(new URL('../../template/src/modules/example/references/surface-inventory.json', import.meta.url), 'utf8'))
+  const projected = generator.projectSurfaceInventory(surface, owned)
+  assert.equal(projected.designFoundation.prUrl, owned.inputs.foundationPrUrl)
+  assert.equal(projected.designFoundation.landedPrUrl, owned.inputs.foundationLandedPrUrl)
+  assert.equal(projected.designFoundation.auditedHeadSha, owned.inputs.foundationAuditedHeadSha)
+  assert.equal(projected.designFoundation.baselineSha, owned.inputs.foundationBaselineSha)
+  assert.notEqual(projected.designFoundation.auditedHeadSha, projected.designFoundation.baselineSha)
+  assert.equal(projected.designFoundation.publicationStatus, 'not-evidenced')
+  assert.equal(projected.designFoundation.codeConnectArtifactAvailability, 'installed-packed-auxiliary')
+  assert.equal(projected.designFoundation.codeConnectExportStatus, 'not-exported')
 })

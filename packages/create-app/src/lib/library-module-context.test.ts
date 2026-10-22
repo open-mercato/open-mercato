@@ -193,7 +193,7 @@ for (const caseId of ['OMH-185', 'OMH-193']) {
       assert.ok(fs.lstatSync(new URL(file, templateRoot)).isFile())
     }
     const bytes = examplePaths.reduce((sum, file) => sum + fs.statSync(new URL(file, templateRoot)).size, 0)
-    assert.equal(bytes, 254_193)
+    assert.equal(bytes, 254_470)
     assert.ok(bytes <= 262_144)
     assert.ok(!examplePaths.includes('src/modules/example/references/surface-map.md'))
     assert.ok(!examplePaths.some(file => file.includes('/i18n/')))

@@ -71,3 +71,23 @@ test('activating inactive shipped modules adds an app capability while retaining
   assert.match(covering, /source-present and runtime-absent/)
   assert.match(covering, /routes, navigation entries, migrations, seeds, ACL features, workers, and search indexes/)
 })
+
+test('reference-grounded specifications discover the emitted local facts without guessing installed-module paths', () => {
+  const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
+  const referenceIndex = '.ai/guides/reference-modules/example/index.md'
+  assert.ok(scaffold.includes(`\`${referenceIndex}\``))
+  assert.match(scaffold, /generated local reference/)
+  assert.match(scaffold, /task-matching section links/)
+  assert.match(scaffold, /never guess installed-module fact paths/)
+  const cases = JSON.parse(fs.readFileSync(new URL('../../agentic/shared/ai/harness/cases.json', import.meta.url), 'utf8')) as Array<{
+    id: string
+    requiredDecisions: string[]
+    context: { required: string[]; allowedExtra: string[] }
+  }>
+  const planning = cases.filter(record => record.requiredDecisions.includes('generated-topology-identities'))
+  assert.ok(planning.some(record => record.id === 'OMH-223'))
+  for (const record of planning) {
+    assert.ok([...record.context.required, ...record.context.allowedExtra].includes(referenceIndex), record.id)
+    assert.ok(![...record.context.required, ...record.context.allowedExtra].includes('.ai/guides/modules/example/index.md'), record.id)
+  }
+})

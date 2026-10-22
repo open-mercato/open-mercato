@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 44,
-    "recordCount": 195,
+    "recordCount": 201,
     "sourceRequiredCount": 131,
-    "readableCount": 195,
+    "readableCount": 201,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -4038,6 +4038,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-backend-ui-design#upfront-design-index-choice",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-backend-ui-design/frontend-and-design-system#authorized-design-metadata",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
@@ -4291,7 +4302,51 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold#app-schema-versus-workflow-state",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold#authorized-specification-phase",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold#generated-local-reference-navigation",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold#module-surface-reference-owner-first",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/SKILL.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold#outline-before-implementation-owners",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
       "heading": null,
@@ -4512,6 +4567,17 @@
     },
     {
       "referenceId": "rule:root#generation-after-discovery-change",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#host-facts-match-authentication-owner",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,

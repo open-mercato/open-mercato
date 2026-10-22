@@ -882,6 +882,10 @@ export function projectSurfaceInventory(surfaceInventory, inventory) {
       baselineSha: GALLERY_BASELINE_SHA,
     },
     designFoundation: {
+      prUrl: inventory.inputs.foundationPrUrl,
+      landedPrUrl: inventory.inputs.foundationLandedPrUrl,
+      auditedHeadSha: inventory.inputs.foundationAuditedHeadSha,
+      baselineSha: inventory.inputs.foundationBaselineSha,
       mappedItemCount: projection.derived.mappedItemCount,
       nodeComparisonCounts: projection.derived.nodeComparisonCounts,
       designSkillAvailability: projection.derived.designSkillAvailability,

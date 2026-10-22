@@ -27,9 +27,9 @@ test('standalone module tooling has one routed owner for creation, publication a
   assert.match(read('agentic/guides/architecture.md'), /\.ai\/guides\/module-tool\.md/)
   const scaffold = read('agentic/shared/ai/skills/om-module-scaffold/SKILL.md')
   assert.match(scaffold.split('## Workflow')[0], /npx create-mercato-module init <module_id>/)
-  assert.match(scaffold, /skip `init` for existing modules/)
-  assert.match(scaffold, /With terminal access/)
-  assert.match(scaffold, /Without process execution, report that capability gap/)
+  assert.match(scaffold, /existing modules skip `init`/)
+  assert.match(scaffold, /With process access/)
+  assert.match(scaffold, /Without it, report gap; never claim initialization or bypass the tool/)
   assert.match(scaffold, /module-tool\.md/)
 })
 
