@@ -193,7 +193,7 @@ describeWithPostgres('staff fallback-project undo against concurrent task writer
     }
   }
 
-  async function seedFallback(): Promise<Seed> {
+  async function seedFallback(options: { ruleTargetsOtherProject?: boolean } = {}): Promise<Seed> {
     const seed: Seed = {
       tenantId: randomUUID(),
       organizationId: randomUUID(),
@@ -209,7 +209,12 @@ describeWithPostgres('staff fallback-project undo against concurrent task writer
     em.create(StaffTimeTaskStatus, { ...scope, id: seed.statusId, timeProjectId: seed.projectId, name: 'New', slug: 'new', isDefault: true, position: 1000 })
     em.create(StaffTimeProject, { ...scope, id: seed.otherProjectId, name: 'Escalations', code: 'ESC' })
     em.create(StaffTimeTaskStatus, { ...scope, timeProjectId: seed.otherProjectId, id: randomUUID(), name: 'New', slug: 'new', isDefault: true, position: 1000 })
-    em.create(StaffSupportRoutingRule, { ...scope, id: seed.ruleId, categoryValue: null, timeProjectId: seed.projectId })
+    em.create(StaffSupportRoutingRule, {
+      ...scope,
+      id: seed.ruleId,
+      categoryValue: null,
+      timeProjectId: options.ruleTargetsOtherProject ? seed.otherProjectId : seed.projectId,
+    })
     await em.flush()
     mockRouteProjectIds.set(seed.organizationId, seed.projectId)
     return seed
@@ -278,6 +283,14 @@ describeWithPostgres('staff fallback-project undo against concurrent task writer
         where task.organization_id = ? and task.deleted_at is null and project.deleted_at is not null`,
       [seed.organizationId],
     )
+    const [rules] = await em.execute<Array<{ orphaned: number }>>(
+      `select count(*)::int as orphaned
+         from staff_support_routing_rules rule
+         join staff_time_projects project on project.id = rule.time_project_id
+        where rule.organization_id = ? and rule.deleted_at is null and project.deleted_at is not null`,
+      [seed.organizationId],
+    )
+    expect(rules.orphaned).toBe(0)
     return {
       projectDeleted: project.deleted_at !== null,
       ruleDeleted: rule.deleted_at !== null,
@@ -520,6 +533,54 @@ describeWithPostgres('staff fallback-project undo against concurrent task writer
       expect(repointed.ok).toBe(false)
       if (!repointed.ok) expect(repointed.error.status).toBe(404)
       expect(await readState(seed)).toEqual(expect.objectContaining({ projectDeleted: true, ruleDeleted: true, ruleProjectId: seed.projectId }))
+    }, CASE_TIMEOUT_MS)
+
+    it('repoint to the undone project holding the shared project lock commits first and the undo then removes both', async () => {
+      const seed = await seedFallback({ ruleTargetsOtherProject: true })
+      const gate = createGate({ method: 'findOne', entity: 'StaffTimeProject', lockMode: LockMode.PESSIMISTIC_READ })
+
+      const repointing = settle(handler('staff.support.routing_rules.update').execute({ id: seed.ruleId, timeProjectId: seed.projectId }, staffCtx(seed, gate)))
+      await gate.reached.promise
+      const undoing = settle(handler('staff.support.routing_rules.create_fallback_project').undo({ logEntry: fallbackUndoEntry(seed), ctx: staffCtx(seed) }))
+      await waitForLockWaiters(1)
+      gate.release.resolve()
+      const [repointed, undone] = await Promise.all([repointing, undoing])
+
+      expect(repointed.ok).toBe(true)
+      expect(undone.ok).toBe(true)
+      expect(await readState(seed)).toEqual({
+        projectDeleted: true,
+        ruleDeleted: true,
+        ruleProjectId: seed.projectId,
+        liveTasks: 0,
+        orphanedTasks: 0,
+      })
+    }, CASE_TIMEOUT_MS)
+
+    it('undo holding the exclusive project lock commits first and a repoint to that project then refuses', async () => {
+      const seed = await seedFallback({ ruleTargetsOtherProject: true })
+      const gate = createGate({ method: 'count', entity: 'StaffTimeTask' })
+
+      const undoing = settle(handler('staff.support.routing_rules.create_fallback_project').undo({ logEntry: fallbackUndoEntry(seed), ctx: staffCtx(seed, gate) }))
+      await gate.reached.promise
+      const repointing = settle(handler('staff.support.routing_rules.update').execute({ id: seed.ruleId, timeProjectId: seed.projectId }, staffCtx(seed)))
+      await waitForLockWaiters(1)
+      gate.release.resolve()
+      const [undone, repointed] = await Promise.all([undoing, repointing])
+
+      expect(undone.ok).toBe(true)
+      expect(repointed.ok).toBe(false)
+      if (!repointed.ok) {
+        expect(repointed.error.status).toBe(422)
+        expect(repointed.error.body?.code).toBe('support_project_not_found')
+      }
+      expect(await readState(seed)).toEqual({
+        projectDeleted: true,
+        ruleDeleted: false,
+        ruleProjectId: seed.otherProjectId,
+        liveTasks: 0,
+        orphanedTasks: 0,
+      })
     }, CASE_TIMEOUT_MS)
   })
 })

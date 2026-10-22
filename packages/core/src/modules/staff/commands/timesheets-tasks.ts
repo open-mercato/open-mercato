@@ -71,7 +71,7 @@ import {
   ensureTenantScope,
   explicitStaffCommandScope,
   extractUndoPayload,
-  lockLiveProjectForTaskWrite,
+  lockLiveProjectForWrite,
   scopeForDecryption,
   scopedStaffSnapshotWhere,
   staffSnapshotScopeFromContext,
@@ -329,7 +329,7 @@ async function requireProject(
   scope: StaffCommandScope,
   translate: Translate,
 ): Promise<StaffTimeProject> {
-  const project = await lockLiveProjectForTaskWrite(em, timeProjectId, scope)
+  const project = await lockLiveProjectForWrite(em, timeProjectId, scope)
   if (!project) throw projectNotFoundError(translate)
   return project
 }
@@ -948,7 +948,7 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, StaffTimeTaskDeleteResu
       em,
       [
         async () => {
-          const project = await lockLiveProjectForTaskWrite(
+          const project = await lockLiveProjectForWrite(
             em,
             before.timeProjectId,
             explicitStaffCommandScope(before.tenantId, before.organizationId),

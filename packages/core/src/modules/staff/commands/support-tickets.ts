@@ -38,7 +38,7 @@ import {
   taskCrudIndexer,
   TASK_LIST_CACHE_RESOURCE,
 } from './timesheets-tasks'
-import { explicitStaffCommandScope, extractUndoPayload, lockLiveProjectForTaskWrite } from './shared'
+import { explicitStaffCommandScope, extractUndoPayload, lockLiveProjectForWrite } from './shared'
 
 const logger = createLogger('staff').child({ component: 'commands/support-tickets' })
 
@@ -206,7 +206,7 @@ const createFromPortalCommand: CommandHandler<SupportTicketCreateFromPortalInput
           em,
           [
             async () => {
-              const project = await lockLiveProjectForTaskWrite(em, route.timeProjectId, commandScope)
+              const project = await lockLiveProjectForWrite(em, route.timeProjectId, commandScope)
               if (!project) throw categoryUnavailableError(translate)
               const status = await em.findOne(StaffTimeTaskStatus, {
                 timeProjectId: project.id,

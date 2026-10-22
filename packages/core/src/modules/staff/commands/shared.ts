@@ -129,12 +129,13 @@ export async function requireTeamMember(
 
 /**
  * Shared row lock every writer takes before it makes a task live on a project (create,
- * portal intake, restore). The fallback-project undo holds the exclusive lock across its
- * live-task count and the project's soft-delete, so a task write either lands first and
- * blocks the undo, or waits and then sees the project gone. MUST run inside the writer's
+ * portal intake, restore) or points a support routing rule at one. The fallback-project
+ * undo holds the exclusive lock across its checks and the project's soft-delete, so a
+ * writer either lands first and the undo sees it, or waits and then sees the project
+ * gone. Lock order is always project before rule. MUST run inside the writer's
  * transaction; `null` means the project is not live once the lock is granted.
  */
-export async function lockLiveProjectForTaskWrite(
+export async function lockLiveProjectForWrite(
   em: EntityManager,
   timeProjectId: string,
   scope: StaffCommandScope,

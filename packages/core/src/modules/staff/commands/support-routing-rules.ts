@@ -26,7 +26,9 @@ import {
   commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
+  explicitStaffCommandScope,
   extractUndoPayload,
+  lockLiveProjectForWrite,
   scopedStaffSnapshotWhere,
   staffSnapshotScopeFromContext,
   staffSnapshotScopeFromSnapshot,
@@ -117,11 +119,7 @@ async function requireRoutableProject(
   scope: { tenantId: string; organizationId: string },
   translate: Translate,
 ): Promise<void> {
-  const project = await em.findOne(
-    StaffTimeProject,
-    { id: timeProjectId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
-    { fields: ['id'] },
-  )
+  const project = await lockLiveProjectForWrite(em, timeProjectId, explicitStaffCommandScope(scope.tenantId, scope.organizationId))
   if (!project) {
     const message = translate('staff.support.errors.projectNotFound', 'The selected project does not exist in this organization.')
     throw new CrudHttpError(422, { code: 'support_project_not_found', error: message, fieldErrors: { timeProjectId: message } })
@@ -282,15 +280,15 @@ const updateRoutingRuleCommand: CommandHandler<StaffSupportRoutingRuleUpdateInpu
       em,
       [
         async () => {
+          if (parsed.timeProjectId !== undefined && parsed.timeProjectId !== rule.timeProjectId) {
+            await requireRoutableProject(em, parsed.timeProjectId, target, translate)
+          }
           const locked = await em.findOne(
             StaffSupportRoutingRule,
             { id: rule.id, ...target, deletedAt: null },
             { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
           )
           if (!locked) throw notFoundError(translate)
-          if (parsed.timeProjectId !== undefined && parsed.timeProjectId !== rule.timeProjectId) {
-            await requireRoutableProject(em, parsed.timeProjectId, target, translate)
-          }
         },
         () => {
           if (parsed.timeProjectId !== undefined) rule.timeProjectId = parsed.timeProjectId
@@ -332,7 +330,11 @@ const updateRoutingRuleCommand: CommandHandler<StaffSupportRoutingRuleUpdateInpu
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const rule = await em.findOne(StaffSupportRoutingRule, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!rule) return
-    await withAtomicFlush(em, [() => {
+    const { translate } = await resolveTranslations()
+    await withAtomicFlush(em, [async () => {
+      if (rule.timeProjectId === before.timeProjectId) return
+      await requireRoutableProject(em, before.timeProjectId, { tenantId: rule.tenantId, organizationId: rule.organizationId }, translate)
+    }, () => {
       rule.timeProjectId = before.timeProjectId
       rule.isActive = before.isActive
       rule.updatedAt = new Date()
@@ -401,6 +403,7 @@ const deleteRoutingRuleCommand: CommandHandler<{ id?: string }, { ruleId: string
     try {
       await withAtomicFlush(em, [
         async () => {
+          await requireRoutableProject(em, rule.timeProjectId, { tenantId: rule.tenantId, organizationId: rule.organizationId }, translate)
           const newer = await em.findOne(
             StaffSupportRoutingRule,
             {
