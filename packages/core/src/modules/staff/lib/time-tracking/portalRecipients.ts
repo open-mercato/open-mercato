@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { TableNotFoundException } from '@mikro-orm/core'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 const logger = createLogger('staff').child({ component: 'time-tracking/portal-recipients' })
@@ -13,8 +15,16 @@ const logger = createLogger('staff').child({ component: 'time-tracking/portal-re
  * A Kysely query against the string
  * `'customer_users'` reads the mapping without an import edge, exactly the way
  * `warranty_claims/commands/claims.ts` does — and if the table is absent because
- * the module is not installed, the query throws and this returns an empty list,
- * which every caller treats as "no portal audience".
+ * the module is not installed, the query throws "relation does not exist" and the
+ * audience is empty, which every caller treats as "no portal audience".
+ *
+ * Each helper comes in two flavours. The `...Strict` variant returns `[]` only for
+ * an expected empty audience (no rows, or the `customer_accounts` tables absent)
+ * and rethrows any other query failure, so a caller that records "the portal was
+ * told" can retry instead of recording a delivery that never happened. The lenient
+ * variant keeps the historical swallow-and-return-`[]` contract and reports the
+ * unexpected failure to telemetry. Both fail closed: neither ever returns an
+ * unfiltered audience.
  *
  * `customer_users.customer_entity_id` is the FK into `customers:customer_entity`,
  * which is the same id `staff_time_reports.customer_id` holds (EP-44 declares that
@@ -43,11 +53,30 @@ export type PortalRecipientScope = {
 /** A broadcast fan-out, not a mailing list — a customer with more portal users than this gets a truncated audience rather than an unbounded query. */
 export const MAX_PORTAL_RECIPIENTS = 100
 
+const UNDEFINED_TABLE_SQLSTATE = '42P01'
+
 function isNonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-export async function resolvePortalRecipientUserIds(
+/** The `customer_accounts` tables are not installed: an expected "no portal audience", not a failure. */
+export function isPortalTableMissingError(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && typeof current === 'object' && current !== null; depth += 1) {
+    if (current instanceof TableNotFoundException) return true
+    const candidate = current as { code?: unknown; cause?: unknown }
+    if (candidate.code === UNDEFINED_TABLE_SQLSTATE) return true
+    current = candidate.cause
+  }
+  return false
+}
+
+function reportSwallowedRecipientError(err: unknown, code: string): void {
+  if (isPortalTableMissingError(err)) return
+  getTelemetryRuntime()?.reportError(err, { module: 'staff', code })
+}
+
+export async function resolvePortalRecipientUserIdsStrict(
   em: EntityManager,
   scope: PortalRecipientScope,
 ): Promise<string[]> {
@@ -68,10 +97,23 @@ export async function resolvePortalRecipientUserIds(
       .execute()
     return rows.map((row) => row.id).filter(isNonEmpty)
   } catch (err) {
+    if (isPortalTableMissingError(err)) return []
+    throw err
+  }
+}
+
+export async function resolvePortalRecipientUserIds(
+  em: EntityManager,
+  scope: PortalRecipientScope,
+): Promise<string[]> {
+  try {
+    return await resolvePortalRecipientUserIdsStrict(em, scope)
+  } catch (err) {
     logger.warn('Could not resolve portal recipients for a time-tracking customer', {
       customerId: scope.customerId,
       err,
     })
+    reportSwallowedRecipientError(err, 'staff.portal_recipients_resolve_failed')
     return []
   }
 }
@@ -129,10 +171,11 @@ function mergeGrant(grants: Map<string, PortalAclGrant>, userId: string, feature
  * Narrows a portal audience to the customer users holding `requiredFeature`, resolved the
  * way `customer_accounts`' `CustomerRbacService.loadAcl` does: a per-user ACL row replaces
  * the user's role ACLs, a portal admin is unrestricted, and grants match wildcard-aware via
- * `authorizeFeatures`. Read by table name for the same decoupling reason as above; any
- * failure (module absent, query error) fails closed with an empty audience.
+ * `authorizeFeatures`. Read by table name for the same decoupling reason as above. The
+ * strict variant returns `[]` when the module is absent and rethrows any other failure;
+ * neither variant ever returns an unfiltered audience.
  */
-export async function filterPortalRecipientsByFeature(
+export async function filterPortalRecipientsByFeatureStrict(
   em: EntityManager,
   userIds: string[],
   scope: { tenantId: string; organizationId: string },
@@ -177,10 +220,25 @@ export async function filterPortalRecipientsByFeature(
       return authorizeFeatures([requiredFeature], { grantedFeatures: grant.features, unrestricted: grant.isPortalAdmin })
     })
   } catch (err) {
+    if (isPortalTableMissingError(err)) return []
+    throw err
+  }
+}
+
+export async function filterPortalRecipientsByFeature(
+  em: EntityManager,
+  userIds: string[],
+  scope: { tenantId: string; organizationId: string },
+  requiredFeature: string,
+): Promise<string[]> {
+  try {
+    return await filterPortalRecipientsByFeatureStrict(em, userIds, scope, requiredFeature)
+  } catch (err) {
     logger.warn('Could not resolve portal recipient features; treating the audience as empty', {
       feature: requiredFeature,
       err,
     })
+    reportSwallowedRecipientError(err, 'staff.portal_recipients_feature_filter_failed')
     return []
   }
 }

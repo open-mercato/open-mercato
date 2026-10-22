@@ -4,7 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { StaffSupportTicket, StaffTimeTask, StaffTimeTaskComment, StaffTimeTaskStatus } from '../../data/entities'
 import { emitStaffEvent } from '../../events'
-import { filterPortalRecipientsByFeature, resolvePortalRecipientUserIds } from '../time-tracking/portalRecipients'
+import { filterPortalRecipientsByFeatureStrict, resolvePortalRecipientUserIdsStrict } from '../time-tracking/portalRecipients'
 import { derivePortalStatus } from './portalStatus'
 import { PORTAL_SUPPORT_TICKETS_VIEW_FEATURE } from './portalTickets'
 
@@ -21,6 +21,11 @@ export type PortalUpdateKind = 'status' | 'reply'
  * the comment for a reply). The portal event bridge drops an event whose payload
  * repeats one seen in the last 500 ms, so two different changes must never produce
  * identical payloads, while two publishers of the same change still collapse.
+ *
+ * Resolves `true` when the update was emitted and `false` when there is genuinely no
+ * one to tell (no customer, no portal users, nobody holding the view feature, or the
+ * `customer_accounts` module absent). Any other recipient-lookup failure rejects, so a
+ * caller never records a publication that did not happen.
  */
 async function emitPortalUpdate(
   em: EntityManager,
@@ -31,12 +36,12 @@ async function emitPortalUpdate(
   version: string,
 ): Promise<boolean> {
   if (!task.customerId) return false
-  const customerUserIds = await resolvePortalRecipientUserIds(em, {
+  const customerUserIds = await resolvePortalRecipientUserIdsStrict(em, {
     tenantId: task.tenantId,
     organizationId: task.organizationId,
     customerId: task.customerId,
   })
-  const recipientUserIds = await filterPortalRecipientsByFeature(
+  const recipientUserIds = await filterPortalRecipientsByFeatureStrict(
     em,
     customerUserIds,
     { tenantId: task.tenantId, organizationId: task.organizationId },
@@ -88,6 +93,10 @@ function emitActivity(task: StaffTimeTask, ticket: StaffSupportTicket, kind: 'po
  * Concurrent publishers (a reopen followed quickly by a resolve) each run on their own
  * fork, so both can read a stale `portalStatusPublished` and skip; the portal refetches
  * the ticket on every event, so publishing after each status change keeps it correct.
+ *
+ * `portalStatusPublished` advances only after `emitPortalUpdate` settles: an emitted
+ * update or a genuinely empty audience. A recipient-lookup or emit failure propagates
+ * with the marker untouched, so the persistent fan-out retries and republishes.
  */
 export async function publishTaskPortalStatus(
   em: EntityManager,

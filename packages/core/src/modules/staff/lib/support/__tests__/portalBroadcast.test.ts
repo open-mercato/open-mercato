@@ -10,8 +10,8 @@ jest.mock('../../../events', () => ({
 }))
 
 jest.mock('../../time-tracking/portalRecipients', () => ({
-  resolvePortalRecipientUserIds: (...args: unknown[]) => mockResolvePortalRecipients(...args),
-  filterPortalRecipientsByFeature: (...args: unknown[]) => mockFilterPortalRecipients(...args),
+  resolvePortalRecipientUserIdsStrict: (...args: unknown[]) => mockResolvePortalRecipients(...args),
+  filterPortalRecipientsByFeatureStrict: (...args: unknown[]) => mockFilterPortalRecipients(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
