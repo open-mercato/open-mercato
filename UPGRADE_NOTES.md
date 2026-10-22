@@ -370,7 +370,7 @@ No first-party integration or bundle id ends in the suffix, and every other id b
 in `__oauth_grant`. To build a provider on OAuth2 grants, see the
 [OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
 
-### A disconnected communication channel can no longer be set as primary (#ISSUE)
+### A disconnected communication channel can no longer be set as primary (#7799)
 
 `POST /api/communication_channels/channels/{id}/set-primary` now answers
 `409 { error, code: "channel_disconnected" }` for a channel whose `status` is `disconnected`, and
