@@ -60,3 +60,11 @@
 ## 2026-10-22T22:03:41Z — checkpoint 7
 - Steps 6.1..6.5 verified: generate, build, agent_orchestrator jest 1533/1533, enterprise tsc 0, app typecheck, i18n sync.
 - Skipped UI pass: enterprise orchestrator cannot be registered in the ephemeral app even with OM_ENABLE_ENTERPRISE_MODULES(+_AGENTS)=true; TC-AGENT-EVAL-REPORT-001/002 committed but not run locally.
+
+## 2026-10-22T22:30:16Z — checkpoint 8
+- Steps 7.1..7.5 verified: attachments jest 360/360, core tsc 0, build, app typecheck. UI skipped (none).
+- Review item: jszip used by the DOCX test is not a declared devDependency of packages/core.
+
+## 2026-10-22T22:30:16Z — safety checkpoint (paused for review)
+- 17 Steps since resume (4.1–7.5); Phase 8 (8 Steps, migration + worker + API) would exceed the ~20-Step window. Paused at the Phase 7 boundary.
+- Resume: `om-auto-continue-pr-loop 7794` from Step 8.1.

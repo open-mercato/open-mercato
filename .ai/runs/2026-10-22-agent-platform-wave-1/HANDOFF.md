@@ -1,19 +1,19 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-22T22:03:41Z
+**Last updated:** 2026-10-22T22:30:16Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 7 Step 7.1
-**Last commit:** 0fc0190bd — feat(agent_orchestrator): download eval run reports from the API and the run page
+**Current phase/step:** Phase 8 Step 8.1
+**Last commit:** 15995cd08 — feat(attachments): add the DOCX structure engine
 
 ## What just happened
-- Phase 6 (eval Phase 1: judge linkage, report model + flaky detection, Markdown/JUnit renderers, CLI flags/exit codes, report route + download menu) landed and passed checkpoint 7 (enterprise Playwright specs skipped: orchestrator not registrable in the ephemeral app).
+- Phase 7 (document structure engines: types/locators, text engine + registry, structurer, PDF layout engine, DOCX engine) landed and passed checkpoint 8.
 
 ## Next concrete action
-- Step 7.1 — add document structure types and locators (document spec Phase 1).
+- Step 8.1 — add document structure entities, partition flags, encryption and migration. The worker (8.4) must mark extractions `partial` when `pageCharCounts.length < pageCount`.
 
 ## Blockers / open questions
-- Pushes to `upstream` are blocked by the local auto-mode policy; the user pushes batches manually.
+- Paused at the safety checkpoint (17 Steps since resume) for user review; push local commits before resuming.
 
 ## Environment caveats
 - Dev runtime runnable: yes (ephemeral)

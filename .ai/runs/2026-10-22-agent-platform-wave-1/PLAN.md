@@ -48,11 +48,11 @@
 | 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | done | 97b03a230 |
 | 6 | 6.4 | Add eval gate report CLI flags and exit codes | dispatch | done | f231ce3e6 |
 | 6 | 6.5 | Add the eval run report route and download menu | dispatch | done | 0fc0190bd |
-| 7 | 7.1 | Add document structure types and locators | dispatch:cheap | done | d51b8a7f7 |
-| 7 | 7.2 | Add the plain-text structure engine and engine registry | dispatch | done | 67eb12c77 |
-| 7 | 7.3 | Add the section structurer | dispatch:capable | done | 16fe4435c |
-| 7 | 7.4 | Add the PDF layout engine | dispatch:capable | done | 144ea6ccf |
-| 7 | 7.5 | Add the DOCX structure engine | dispatch | done | 7a66d081c |
+| 7 | 7.1 | Add document structure types and locators | dispatch:cheap | done | a3d44b1f0 |
+| 7 | 7.2 | Add the plain-text structure engine and engine registry | dispatch | done | 12dbe4a4e |
+| 7 | 7.3 | Add the section structurer | dispatch:capable | done | bd9503935 |
+| 7 | 7.4 | Add the PDF layout engine | dispatch:capable | done | 905dd4825 |
+| 7 | 7.5 | Add the DOCX structure engine | dispatch | done | 15995cd08 |
 | 8 | 8.1 | Add document structure entities, partition flags, encryption and migration | dispatch:capable | todo | — |
 | 8 | 8.2 | Add partition structure switches to validators, API and form | dispatch | todo | — |
 | 8 | 8.3 | Expose page-scoped OCR and add the OCR structure engine | dispatch | todo | — |
