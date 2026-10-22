@@ -31,7 +31,7 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 
 ## Assumptions
 
-- `NODE_ENV === 'development'` is the right gate for loopback framing: `next dev` sets it when unset, while `next build` keeps a preset `test`/custom value and bakes headers into the build. Narrower than the existing `isDevelopment`, and the safer default.
+- The Next.js phase (`PHASE_DEVELOPMENT_SERVER`) is the right gate for loopback framing. `NODE_ENV` is not: `mercato server dev` runs `next dev` with `NODE_ENV=production` (observed on the running app), and `next build` keeps a preset `test`/custom value while baking headers into the build. Step 2.1 first narrowed the gate to `NODE_ENV === 'development'`; step 2.2 replaced it with the phase after runtime verification showed the dev app still sent `X-Frame-Options`.
 - The pre-existing `detectSplashCodingTools finds Linux fallback binaries outside PATH` failure is host-specific (`/usr/bin/claude` exists on the run host) and fails on `main` too; it is not in scope.
 
 ## Risks
@@ -49,6 +49,7 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 ### Phase 2: Review hardening
 
 - [x] 2.1 Restrict loopback framing to NODE_ENV=development with strict-mode tests — 34be68199
+- [x] 2.2 Gate loopback framing on the Next.js development-server phase — a7f40b7e0
 
 ### Phase 3: Runtime verification
 
