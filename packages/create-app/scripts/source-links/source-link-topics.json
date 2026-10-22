@@ -1050,6 +1050,30 @@
       "requirement": "source-required",
       "href": "../../node_modules/@open-mercato/cli/src/lib/eject.ts",
       "resolvedPath": "node_modules/@open-mercato/cli/src/lib/eject.ts"
+    },
+    {
+      "topicId": "rule:guides/extensions#feature-toggle-facts-first",
+      "owner": ".ai/guides/extensions.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "For feature-toggle work, first open `.ai/guides/modules/feature_toggles/index.md`; select and read that installed module fact sheet before choosing the toggle contract."
+    },
+    {
+      "topicId": "rule:guides/integrations#transactional-provider-facts-first",
+      "owner": ".ai/guides/integrations.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "First read `.ai/guides/modules/channel_resend/index.md` and `.ai/guides/modules/channel_ses/index.md`; reuse a matching installed provider before app-local code."
+    },
+    {
+      "topicId": "rule:guides/integrations#shipping-carrier-facts-first",
+      "owner": ".ai/guides/integrations.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Read `.ai/guides/modules/shipping_carriers/index.md` first; installed `ShippingAdapter`"
+    },
+    {
+      "topicId": "rule:om-integration-builder/provider-families#payment-state-concurrency",
+      "owner": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Atomically compare expected state/version before transitions (`optimistic-lock`); stale attempts conflict/reconcile, never overwrite. Idempotency alone does not prevent stale writes."
     }
   ]
 }

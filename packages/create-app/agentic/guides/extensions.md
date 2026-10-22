@@ -109,6 +109,8 @@ Menu hosts are framework-owned unless the named module facts prove otherwise. Us
 
 ## Feature Toggles
 
+For feature-toggle work, first open `.ai/guides/modules/feature_toggles/index.md`; select and read that installed module fact sheet before choosing the toggle contract. Follow only the needed sections.
+
 - Define one server-resolved toggle and use it consistently in backend behavior, page/menu/widget visibility, workers/subscribers, and APIs.
 - When disabled, choose and test an explicit outcome: hidden, 404/403, no-op, or degraded read. Never leave UI-only gating around a live mutation.
 

@@ -8,7 +8,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 |---|---|
 | Transactional email | `IntegrationDefinition`, tenant credentials, DI sender + health services, retry/redaction, and app activation. There is no installed generic transactional-email adapter contract. |
 | Mailbox/email channel | Installed `communication_channels` hub plus its `ChannelAdapter`, per-user credentials, inbound/outbound conversion, polling/push, health, DI/setup registration. Follow the Gmail/IMAP precedent. |
-| Shipping/carrier | Provider package, service/quote/label/tracking adapter, webhook mapping, idempotent fulfillment updates. |
+| Shipping/carrier | Read `.ai/guides/modules/shipping_carriers/index.md` first; installed `ShippingAdapter`: service/quote/label/tracking, webhook mapping, idempotent fulfillment updates. |
 | Payment gateway | Installed `GatewayAdapter`; `registerGatewayAdapter`, `registerWebhookHandler`, and `registerPaymentGatewayDescriptor`; idempotency keys, signed webhooks, concurrency-safe state machine. |
 | Commerce/ERP sync | `DataSyncAdapter`, mappings/presets, external IDs, cursors, reconciliation, progress. |
 | Generic webhook | Standard signing/verification, replay protection, delivery queue/log/status, scoped configuration. |
@@ -68,7 +68,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 
 ## Email Routing
 
-- First decide whether the request is **transactional delivery** or a **connected mailbox**. SMTP used only for application-generated mail is a transactional provider: register its `IntegrationDefinition`, encrypted credentials, DI sender/health services, and app module, but do not claim it implements a mailbox contract that the installed framework does not expose.
+- Separate **transactional delivery** from **connected mailboxes**. First read `.ai/guides/modules/channel_resend/index.md` and `.ai/guides/modules/channel_ses/index.md`; reuse a matching installed provider before app-local code. App-only SMTP is transactional: register `IntegrationDefinition`, encrypted credentials, DI sender/health services and app activation; never invent a mailbox contract.
 - Gmail, IMAP/SMTP mailboxes, inbox sync, threading, history, or per-user send/receive belong to the installed `communication_channels` module. Implement `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`, set `integration.hub: 'communication_channels'`, register the adapter and exact `healthCheck.service` in `di.ts`, ensure idempotent adapter registration/default grants in `setup.ts`, and activate both the hub and provider in `src/modules.ts`.
 - Use the installed `channel_gmail` and `channel_imap` facts/source as precedent. Thread `userId` on every mailbox credential read/write; tenant-wide transactional credentials must not read per-user rows.
 

@@ -2120,7 +2120,8 @@
         "AGENTS.md",
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -2152,7 +2153,7 @@
       "oracle.umes.data-table"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxInitialContextBytes": 45056,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-028"
@@ -2387,7 +2388,8 @@
       ]
     },
     "requiredSkills": [
-      "om-system-extension"
+      "om-system-extension",
+      "om-backend-ui-design"
     ],
     "optionalSkills": [
       {
@@ -2401,7 +2403,12 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/references/verification.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
@@ -2431,7 +2438,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 126976,
+    "maxTotalContextBytes": 141312,
     "relatedCases": [
       "OMH-031"
     ]

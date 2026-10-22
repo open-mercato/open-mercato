@@ -950,7 +950,6 @@ test('installed-surface ownership does not route an app-owned CLI primitive to U
     const ownershipRule = root.match(/^Installed API\/command\/record\/status\/event\/UI changes\/guards = .+$/m)?.[0]
     assert.ok(ownershipRule, 'installed API/command changes need an installed-surface qualifier')
     assert.match(ownershipRule, /changes\/guards = `umes`/)
-    assert.match(ownershipRule, /app-owned CLI-only primitives alone stay `module-data`/)
     assert.match(ownershipRule, /installed guard without app persistence = `umes` only/)
     assert.match(root, /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
     assert.doesNotMatch(root, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
@@ -960,18 +959,89 @@ test('installed-surface ownership does not route an app-owned CLI primitive to U
 
 test('CLI-only primitive context remains bounded without dropping compiled-path or validation gates', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
-  const primitiveGate = skill.match(/^For a CLI-only primitive .+$/m)?.[0]
+  const primitiveGate = skill.match(/^CLI-only \(no .+$/m)?.[0]
   assert.ok(primitiveGate, 'a narrow CLI primitive must not load complete-module references unconditionally')
-  assert.match(primitiveGate, /no domain mutation, API, persistence, or UI work/)
-  assert.match(primitiveGate, /`\.ai\/guides\/contracts\.md` and `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
-  assert.match(primitiveGate, /skip the example README\/inventory and the procedure references in steps 3, 4, and 7/)
-  assert.match(primitiveGate, /trusted scope, `cli\.ts` discovery, source and compiled-package command behavior tests/)
+  assert.match(primitiveGate, /no domain mutation\/API\/persistence\/UI/)
+  assert.match(primitiveGate, /read the contracts\/compatibility paths in step 3/)
+  const domainStep = skill.match(/^3\. .+$/m)?.[0]
+  assert.ok(domainStep)
+  assert.match(domainStep, /`\.ai\/guides\/contracts\.md`/)
+  assert.match(domainStep, /`\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+  assert.match(primitiveGate, /skip README\/inventory and refs 3\/4\/7/)
+  assert.match(primitiveGate, /trusted scope, `cli\.ts` discovery, source\+compiled command behavior tests/)
   for (const command of ['yarn generate', 'yarn typecheck', 'yarn lint']) assert.ok(primitiveGate.includes(`\`${command}\``))
-  assert.match(primitiveGate, /smallest applicable build gate/)
-  assert.match(primitiveGate, /pack\/install a disposable consumer and verify there/)
+  assert.match(primitiveGate, /applicable build/)
+  assert.match(primitiveGate, /Changed package paths: pack\/install\+test a disposable consumer/)
   assert.match(skill, /For complete business modules or CRUD slices, START at/)
   assert.match(skill, /complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are mandatory/)
-  assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* CLI-only primitives skip this step\. Every API\/schema\/command implementation or fix MUST read/m)
-  assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Unless the CLI-only primitive gate applies, follow `references\/module-surfaces\.md`/m)
-  assert.match(skill, /^7\. \*\*Verify\.\*\* Unless the CLI-only primitive gate applies, follow `references\/verification\.md`/m)
+  assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* Every API\/schema\/command implementation or fix MUST read/m)
+  assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Follow `references\/module-surfaces\.md`/m)
+  assert.match(skill, /^7\. \*\*Verify\.\*\* Follow `references\/verification\.md`/m)
+})
+
+test('feature-toggle extensions resolve installed facts before choosing a contract', () => {
+  const extensions = readAgentic('guides/extensions.md')
+  const featureToggles = extensions.split('## Feature Toggles\n')[1]?.split('\n## ')[0]
+  assert.ok(featureToggles, 'the extensions guide owns feature-toggle selection')
+  assert.match(featureToggles, /first open `\.ai\/guides\/modules\/feature_toggles\/index\.md`/)
+  assert.match(featureToggles, /select and read that installed module fact sheet before choosing the toggle contract/)
+  assert.match(featureToggles, /one server-resolved toggle/)
+  assert.match(featureToggles, /Never leave UI-only gating around a live mutation/)
+  assert.doesNotMatch(featureToggles, /\]\([^)]*guides\/modules\/feature_toggles/)
+  for (const root of [readAgentic('shared/AGENTS.md.template'), readPackage('create-app/template/AGENTS.md')]) {
+    assert.match(root, /feature toggle\/flag→feature_toggles/)
+  }
+})
+
+test('email providers inspect installed transactional facts before app-local implementation', () => {
+  const emailRouting = readAgentic('guides/integrations.md').split('## Email Routing\n')[1]?.split('\n## ')[0]
+  assert.ok(emailRouting)
+  const firstBullet = emailRouting.split('\n').find((line) => line.startsWith('- '))
+  assert.ok(firstBullet)
+  assert.match(firstBullet, /First read `\.ai\/guides\/modules\/channel_resend\/index\.md` and `\.ai\/guides\/modules\/channel_ses\/index\.md`/)
+  assert.match(firstBullet, /reuse a matching installed provider before app-local code/)
+  assert.match(firstBullet, /App-only SMTP is transactional/)
+  assert.match(firstBullet, /`IntegrationDefinition`, encrypted credentials, DI sender\/health services and app activation/)
+  assert.match(firstBullet, /never invent a mailbox contract/)
+  assert.match(emailRouting, /`ChannelAdapter` from `@open-mercato\/core\/modules\/communication_channels\/lib\/adapter`/)
+  assert.match(emailRouting, /`integration\.hub: 'communication_channels'`/)
+  assert.match(emailRouting, /exact `healthCheck\.service` in `di\.ts`/)
+  assert.match(emailRouting, /idempotent adapter registration\/default grants in `setup\.ts`/)
+  assert.match(emailRouting, /Thread `userId` on every mailbox credential read\/write/)
+})
+
+test('shipping providers resolve installed shipping facts before choosing the adapter', () => {
+  const integrations = readAgentic('guides/integrations.md')
+  const shipping = integrations.split('\n').find((line) => line.startsWith('| Shipping/carrier |'))
+  assert.ok(shipping)
+  assert.match(shipping, /Read `\.ai\/guides\/modules\/shipping_carriers\/index\.md` first/)
+  assert.match(shipping, /installed `ShippingAdapter`/)
+  assert.match(shipping, /service\/quote\/label\/tracking/)
+  assert.match(shipping, /webhook mapping, idempotent fulfillment updates/)
+  assert.doesNotMatch(shipping, /\]\([^)]*guides\/modules\/shipping_carriers/)
+  const providerFamilies = readAgentic('shared/ai/skills/om-integration-builder/references/provider-families.md')
+  assert.match(providerFamilies, /installed `ShippingAdapter` plus `registerShippingAdapter`/)
+  assert.match(providerFamilies, /address\/package validation; idempotent fulfillment transitions; signed status callbacks/)
+  assert.match(providerFamilies, /`provider-neutral-domain`/)
+  assert.match(providerFamilies, /`optional-provider`/)
+})
+
+test('payment transitions distinguish optimistic stale-write protection from idempotency', () => {
+  const families = readAgentic('shared/ai/skills/om-integration-builder/references/provider-families.md')
+  const payment = families.split('\n').find((line) => line.startsWith('- **Payment:**'))
+  assert.ok(payment)
+  assert.match(payment, /durable idempotency/)
+  assert.match(payment, /Atomically compare expected state\/version before transitions \(`optimistic-lock`\)/)
+  assert.match(payment, /stale attempts conflict\/reconcile, never overwrite/)
+  assert.match(payment, /Idempotency alone does not prevent stale writes/)
+  assert.match(readAgentic('guides/integrations.md'), /Keep webhook, poll, manual retry, and scheduled sync paths convergent and safe when they race/)
+})
+
+test('integration source handoff requires a named unresolved exact-version symbol', () => {
+  const skill = readAgentic('shared/ai/skills/om-integration-builder/SKILL.md')
+  const handoff = skill.split('\n').find((line) => line.startsWith('- The only local reference is'))
+  assert.ok(handoff)
+  assert.match(handoff, /Use `om-framework-context` only for a named unresolved exact-version symbol/)
+  assert.doesNotMatch(handoff, /Resolve everything else against installed provider source/)
+  assert.match(skill, /Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved/)
 })
