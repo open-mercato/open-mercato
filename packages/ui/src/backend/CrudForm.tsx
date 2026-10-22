@@ -1464,8 +1464,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     if (!root) return
     setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
   }, [])
+  // Sticky offsets resolve against the scroll container's content box, so inside
+  // `DialogContent` (`p-6`, `overflow-y-auto`) a `bottom-0` footer parks 24px above
+  // the dialog edge and scrolled fields stay visible in that padding strip (#7497).
+  // Pull the footer down by the dialog padding (`-bottom-6`), let its own padding
+  // paint that strip (`pb-8` = `py-2` + 24px) and cancel the extra height in normal
+  // flow (`-mb-6`) so a short form gets no blank band below the buttons.
   const dialogFooterClass = isInDialog
-    ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
+    ? 'sticky -bottom-6 left-0 right-0 z-20 -mx-6 -mb-6 px-6 pt-2 pb-8 bg-card border-t border-border/70 sm:-mx-6 sm:px-6'
     : ''
   // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
   // the sticky footer in every dialog whose content fit the viewport (the form sized to
