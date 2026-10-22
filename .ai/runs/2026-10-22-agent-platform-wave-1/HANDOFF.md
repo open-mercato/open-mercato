@@ -13,6 +13,7 @@
 - Step 4.1 — cover a full native AO agent run under runAs (identity spec Phase 0).
 
 ## Blockers / open questions
+- Paused at the safety checkpoint for user review; local commits must be pushed by the user before resuming.
 - Pushes to `upstream` are blocked by the local auto-mode policy; the user pushes batches manually.
 
 ## Environment caveats

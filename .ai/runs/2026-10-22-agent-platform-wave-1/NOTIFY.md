@@ -39,3 +39,8 @@
 - Decision: approve/reject live on the page (not `MutationPreviewCard`'s own buttons) so writes go through `useGuardedMutation`; `GET /ai/actions/:id` additively returns `channel` + `requester`.
 - Decision: deny/approval Playwright specs are gated on the app's `OM_MCP_MUTATION_MODE`.
 - Known gap recorded: `get_pending_action` viewer identity for session-bound server API keys.
+
+## 2026-10-22T16:18:16Z — safety checkpoint (paused for review)
+- 18 consecutive Steps landed (0.1, 1.1–1.5, 2.1–2.3, 3.1–3.9); the MCP spec Phases 1–3 are complete and verified.
+- Paused before Phase 4 (identity Phase 0) per the ~20-Step safety checkpoint, for user review and push.
+- Resume: `om-auto-continue-pr-loop 7794` from Step 4.1.
