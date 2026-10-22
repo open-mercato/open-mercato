@@ -5,12 +5,17 @@ import {
   type MutationGuard,
   type MutationGuardInput,
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('integrations')
 
 type GuardAfterCallback = {
   guard: MutationGuard
   metadata: Record<string, unknown> | null
 }
 
+/** @deprecated Mutation guard grants are resolved from RBAC by `runIntegrationMutationGuards`. */
 export function resolveUserFeatures(auth: unknown): string[] {
   const features = (auth as { features?: unknown })?.features
   if (!Array.isArray(features)) return []
@@ -20,7 +25,7 @@ export function resolveUserFeatures(auth: unknown): string[] {
 export async function runIntegrationMutationGuards(
   container: AwilixContainer,
   input: MutationGuardInput,
-  userFeatures: string[],
+  extraFeatures: string[] = [],
 ): Promise<{
   ok: boolean
   errorBody?: Record<string, unknown>
@@ -28,12 +33,31 @@ export async function runIntegrationMutationGuards(
   modifiedPayload?: Record<string, unknown>
   afterSuccessCallbacks: GuardAfterCallback[]
 }> {
+  const allGuards: MutationGuard[] = [...getAllMutationGuardInstances()]
   const legacyGuard = bridgeLegacyGuard(container)
-  if (!legacyGuard) {
+  if (legacyGuard) allGuards.push(legacyGuard)
+  if (!allGuards.length) {
     return { ok: true, afterSuccessCallbacks: [] }
   }
 
-  return runMutationGuards([legacyGuard], input, { userFeatures })
+  let grantedFeatures: string[] = []
+  try {
+    const rbacService = container.resolve('rbacService') as {
+      getGrantedFeatures?: (
+        userId: string,
+        scope: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<string[]>
+    } | undefined
+    grantedFeatures = await rbacService?.getGrantedFeatures?.(input.userId, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    }) ?? []
+  } catch (err) {
+    logger.error('Failed to resolve mutation guard feature grants', { err })
+  }
+
+  const userFeatures = Array.from(new Set([...grantedFeatures, ...extraFeatures]))
+  return runMutationGuards(allGuards, input, { userFeatures })
 }
 
 export async function runIntegrationMutationGuardAfterSuccess(
@@ -51,9 +75,13 @@ export async function runIntegrationMutationGuardAfterSuccess(
 ): Promise<void> {
   for (const callback of callbacks) {
     if (!callback.guard.afterSuccess) continue
-    await callback.guard.afterSuccess({
-      ...input,
-      metadata: callback.metadata ?? null,
-    })
+    try {
+      await callback.guard.afterSuccess({
+        ...input,
+        metadata: callback.metadata ?? null,
+      })
+    } catch (err) {
+      logger.error('Mutation guard afterSuccess failed', { guardId: callback.guard.id, err })
+    }
   }
 }
