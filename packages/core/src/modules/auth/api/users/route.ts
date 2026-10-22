@@ -734,7 +734,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create user',
-      description: 'Creates a new confirmed user within the specified organization, optional display name, and optional roles.',
+      description: 'Creates a new confirmed user within the specified organization, optional display name, and optional roles. The organization must be within the caller\'s descendant-expanded organization scope, whether or not roles are sent, and the roles must belong to its tenant and be grantable by the caller.',
       requestBody: {
         contentType: 'application/json',
         schema: userCreateSchema,
@@ -749,7 +749,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload or duplicate email', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
-        { status: 403, description: 'Attempted to assign privileged roles', schema: errorResponseSchema },
+        { status: 403, description: 'Attempted to assign privileged roles, or the organization is outside the caller\'s organization scope', schema: errorResponseSchema },
       ],
     },
     PUT: {
