@@ -9,7 +9,7 @@ import type { AiToolDefinition, McpServerConfig, McpToolDefinition, ToolExecutio
 const mockRegisteredTools = new Map<string, McpToolDefinition>()
 const mockFindApiKeyBySecret = jest.fn()
 const mockFindSessionApiKeyWithSecret = jest.fn()
-const mockExecuteTool = jest.fn<Promise<ToolExecutionResult>, [string, unknown, unknown]>()
+const mockExecuteTool = jest.fn<Promise<ToolExecutionResult>, [string, unknown, unknown, unknown?]>()
 
 jest.mock('../tool-registry', () => ({
   getToolRegistry: () => ({
@@ -18,7 +18,8 @@ jest.mock('../tool-registry', () => ({
   }),
 }))
 jest.mock('../tool-executor', () => ({
-  executeTool: (...args: [string, unknown, unknown]) => mockExecuteTool(...args),
+  ...jest.requireActual('../tool-executor'),
+  executeTool: (...args: [string, unknown, unknown, unknown?]) => mockExecuteTool(...args),
 }))
 jest.mock('../tool-loader', () => ({
   loadAllModuleTools: jest.fn(),
@@ -86,6 +87,7 @@ async function startHandler(): Promise<string> {
 type CallToolBody = {
   result?: {
     content?: Array<{ type: string; text: string }>
+    structuredContent?: Record<string, unknown>
     isError?: boolean
     _meta?: { correlationId?: string }
   }
@@ -190,6 +192,40 @@ describe('MCP HTTP server — tools/call audit', () => {
     })
     expect(typeof entry.context.durationMs).toBe('number')
     expect(JSON.stringify(entry)).not.toContain(SECRET_ARG_VALUE)
+  })
+
+  it('returns a pending_approval structured result and audits the pending action id', async () => {
+    const pendingResult = {
+      status: 'pending_approval',
+      pendingActionId: 'pa-1',
+      expiresAt: '2026-10-23T00:00:00.000Z',
+      approvalPath: '/backend/config/ai-assistant/pending-actions/pa-1',
+      summary: { toolName: 'customers.update_person', targetEntityType: null, targetRecordId: null, recordCount: 1 },
+    }
+    mockExecuteTool.mockResolvedValue({
+      success: true,
+      pendingApproval: { pendingActionId: 'pa-1', expiresAt: '2026-10-23T00:00:00.000Z' },
+      result: pendingResult,
+    })
+    const baseUrl = await startHandler()
+
+    const body = await callTool(baseUrl, 'customers.update_person', { id: 'p-1' }, { 'x-correlation-id': 'corr-http-pa' })
+
+    expect(body.result?.isError).toBe(false)
+    expect(body.result?.structuredContent).toEqual(pendingResult)
+    expect(JSON.parse(body.result?.content?.[0]?.text ?? '{}')).toEqual(pendingResult)
+    expect(body.result?._meta).toEqual({ correlationId: 'corr-http-pa' })
+    expect(mockExecuteTool.mock.calls[0][3]).toMatchObject({
+      requester: { userId: 'user-1', apiKeyId: SERVER_KEY_ID },
+      correlationId: 'corr-http-pa',
+    })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'pending_approval',
+      errorCode: null,
+      pendingActionIds: ['pa-1'],
+      correlationId: 'corr-http-pa',
+    })
   })
 
   it('records the session principal and drops the session token from argKeys', async () => {

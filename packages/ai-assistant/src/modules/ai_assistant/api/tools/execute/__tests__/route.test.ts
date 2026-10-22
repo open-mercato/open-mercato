@@ -162,7 +162,12 @@ describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
       'customers.update_person',
       {},
       expect.any(Object),
-      { channel: 'tools-api', mutationMode: 'deny' },
+      {
+        channel: 'tools-api',
+        mutationMode: 'deny',
+        requester: { userId: 'user-1', apiKeyId: null },
+        correlationId: expect.any(String),
+      },
     )
   })
 
@@ -172,7 +177,7 @@ describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
 
     await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
 
-    expect(executeToolMock.mock.calls[0][3]).toEqual({ channel: 'tools-api', mutationMode: 'direct' })
+    expect(executeToolMock.mock.calls[0][3]).toMatchObject({ channel: 'tools-api', mutationMode: 'direct' })
   })
 
   it('returns 403 with the MUTATION_REQUIRES_APPROVAL code in deny mode', async () => {
@@ -196,6 +201,78 @@ describe('POST /api/ai_assistant/tools/execute — mutation mode', () => {
       outcome: 'mutation_denied',
       errorCode: 'MUTATION_REQUIRES_APPROVAL',
       isMutation: true,
+    })
+  })
+
+  it('returns 202 with the pending action when approval mode queues the call', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'approval'
+    executeToolMock.mockResolvedValue({
+      success: true,
+      pendingApproval: { pendingActionId: 'pa-1', expiresAt: '2026-10-23T00:00:00.000Z' },
+      result: { status: 'pending_approval', pendingActionId: 'pa-1' },
+    })
+
+    const response = await POST(
+      buildRequest({ toolName: 'customers.update_person', args: {} }, { 'x-correlation-id': 'corr-approve-1' }),
+    )
+
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({
+      success: true,
+      status: 'pending_approval',
+      pendingActionId: 'pa-1',
+      expiresAt: '2026-10-23T00:00:00.000Z',
+    })
+    expect(executeToolMock.mock.calls[0][3]).toMatchObject({
+      mutationMode: 'approval',
+      correlationId: 'corr-approve-1',
+    })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'pending_approval',
+      errorCode: null,
+      pendingActionIds: ['pa-1'],
+    })
+  })
+
+  it('passes the API key owner as requester instead of the api_key subject', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'approval'
+    authMock.mockResolvedValue({
+      sub: 'api_key:key-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      isApiKey: true,
+      keyId: 'key-1',
+      userId: 'owner-1',
+    })
+    executeToolMock.mockResolvedValue({ success: true, result: {} })
+
+    await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+
+    expect(executeToolMock.mock.calls[0][3]).toMatchObject({
+      requester: { userId: 'owner-1', apiKeyId: 'key-1' },
+    })
+  })
+
+  it('returns 403 with MUTATION_REQUESTER_UNRESOLVED when no requester resolves', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'approval'
+    executeToolMock.mockResolvedValue({
+      success: false,
+      error: 'no requester',
+      errorCode: 'MUTATION_REQUESTER_UNRESOLVED',
+    })
+
+    const response = await POST(buildRequest({ toolName: 'customers.update_person', args: {} }))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      success: false,
+      error: 'no requester',
+      code: 'MUTATION_REQUESTER_UNRESOLVED',
+    })
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'mutation_denied',
+      errorCode: 'MUTATION_REQUESTER_UNRESOLVED',
     })
   })
 })

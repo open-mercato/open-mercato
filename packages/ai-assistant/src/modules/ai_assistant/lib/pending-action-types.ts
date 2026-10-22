@@ -210,3 +210,18 @@ export function resolveAiPendingActionTtlSeconds(
   }
   return parsed
 }
+
+export const MCP_PENDING_ACTION_DEFAULT_TTL_SECONDS = 86400
+export const MCP_PENDING_ACTION_TTL_ENV_VAR = 'OM_MCP_PENDING_ACTION_TTL_SECONDS'
+
+export function resolveMcpPendingActionTtlSeconds(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = env[MCP_PENDING_ACTION_TTL_ENV_VAR]
+  if (raw == null) return MCP_PENDING_ACTION_DEFAULT_TTL_SECONDS
+  const parsed = Number.parseInt(String(raw), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return MCP_PENDING_ACTION_DEFAULT_TTL_SECONDS
+  }
+  return parsed
+}

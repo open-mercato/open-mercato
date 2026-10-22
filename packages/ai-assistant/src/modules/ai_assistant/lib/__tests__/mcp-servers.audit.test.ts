@@ -46,6 +46,7 @@ jest.mock('../tool-registry', () => ({
   }),
 }))
 jest.mock('../tool-executor', () => ({
+  ...jest.requireActual('../tool-executor'),
   executeTool: (...args: unknown[]) => mockExecuteTool(...args),
 }))
 jest.mock('../tool-loader', () => ({
@@ -85,7 +86,12 @@ function makeContainer(): McpServerOptions['container'] {
   } as unknown as McpServerOptions['container']
 }
 
-type ToolResult = { content: Array<{ type: string; text: string }>; isError?: boolean; _meta?: { correlationId?: string } }
+type ToolResult = {
+  content: Array<{ type: string; text: string }>
+  structuredContent?: Record<string, unknown>
+  isError?: boolean
+  _meta?: { correlationId?: string }
+}
 
 async function callStdioTool(name: string, toolArgs: Record<string, unknown>): Promise<ToolResult> {
   await createMcpServer({
@@ -159,7 +165,12 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
       },
     })
     expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
-    expect(mockExecuteTool.mock.calls[0][3]).toEqual({ channel: 'mcp', mutationMode: 'direct' })
+    expect(mockExecuteTool.mock.calls[0][3]).toEqual({
+      channel: 'mcp',
+      mutationMode: 'direct',
+      requester: { userId: 'user-1', apiKeyId: null },
+      correlationId,
+    })
   })
 
   it('maps a stdio UNAUTHORIZED result to denied', async () => {
@@ -180,7 +191,12 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
     const result = await callDevTool('customers.list_people', { id: SECRET_ARG_VALUE })
 
     expect(result.isError).toBe(true)
-    expect(mockExecuteTool.mock.calls[0][3]).toEqual({ channel: 'mcp', mutationMode: 'direct' })
+    expect(mockExecuteTool.mock.calls[0][3]).toEqual({
+      channel: 'mcp',
+      mutationMode: 'direct',
+      requester: { userId: 'owner-1', apiKeyId: 'key-1' },
+      correlationId: result._meta?.correlationId,
+    })
     expect(accessLogEntries).toHaveLength(1)
     expect(accessLogEntries[0]).toMatchObject({
       actorUserId: 'owner-1',
@@ -204,5 +220,37 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
     await expect(callDevTool('customers.update_person', { id: 'p-1' })).rejects.toThrow('boom')
     expect(accessLogEntries).toHaveLength(1)
     expect(accessLogEntries[0].context).toMatchObject({ outcome: 'error', errorCode: 'EXCEPTION', isMutation: true })
+  })
+
+  it.each<[string, (name: string, toolArgs: Record<string, unknown>) => Promise<ToolResult>]>([
+    ['stdio', callStdioTool],
+    ['dev', callDevTool],
+  ])('returns a pending_approval structured result from the %s server', async (_server, callTool) => {
+    const pendingResult = {
+      status: 'pending_approval',
+      pendingActionId: 'pa-1',
+      expiresAt: '2026-10-23T00:00:00.000Z',
+      approvalPath: '/backend/config/ai-assistant/pending-actions/pa-1',
+      summary: { toolName: 'customers.update_person', targetEntityType: null, targetRecordId: null, recordCount: 1 },
+    }
+    mockExecuteTool.mockResolvedValue({
+      success: true,
+      pendingApproval: { pendingActionId: 'pa-1', expiresAt: '2026-10-23T00:00:00.000Z' },
+      result: pendingResult,
+    })
+
+    const result = await callTool('customers.update_person', { id: 'p-1' })
+
+    expect(result.isError).toBe(false)
+    expect(result.structuredContent).toEqual(pendingResult)
+    expect(JSON.parse(result.content[0].text)).toEqual(pendingResult)
+    expect(result._meta?.correlationId).toEqual(expect.any(String))
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'pending_approval',
+      errorCode: null,
+      pendingActionIds: ['pa-1'],
+      correlationId: result._meta?.correlationId,
+    })
   })
 })

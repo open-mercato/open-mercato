@@ -14,9 +14,11 @@ import type {
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
-import type {
-  AiPendingActionFieldDiff,
-  AiPendingActionRecordDiff,
+import {
+  AI_RAW_TOOL_AGENT_ID,
+  resolveMcpPendingActionTtlSeconds,
+  type AiPendingActionFieldDiff,
+  type AiPendingActionRecordDiff,
 } from './pending-action-types'
 
 const logger = createLogger('ai_assistant')
@@ -36,7 +38,8 @@ export class AiMutationPreparationError extends Error {
       | 'read_only_agent'
       | 'tenant_scope_missing'
       | 'container_missing'
-      | 'em_missing',
+      | 'em_missing'
+      | 'requester_unresolved',
     message: string,
   ) {
     super(message)
@@ -75,7 +78,7 @@ const MUTATION_PREVIEW_CARD_COMPONENT_ID = 'mutation-preview-card'
 const NO_RESOLVER_SIDE_EFFECTS_MESSAGE =
   'Tool did not declare a field-diff resolver; action will proceed without a preview.'
 
-function assertTenantScope(ctx: PrepareMutationContext): string {
+function assertTenantScope(ctx: { tenantId: string | null }): string {
   if (!ctx.tenantId) {
     throw new AiMutationPreparationError(
       'tenant_scope_missing',
@@ -267,8 +270,8 @@ function normalizeAttachmentIds(args: Record<string, unknown>): string[] {
 
 async function buildSingleRecordDiff(
   tool: AiToolDefinition,
-  input: PrepareMutationInput,
-  ctx: PrepareMutationContext,
+  toolCallArgs: Record<string, unknown>,
+  handlerContext: McpToolContext,
 ): Promise<{
   fieldDiff: AiPendingActionFieldDiff[]
   targetEntityType: string | null
@@ -287,9 +290,8 @@ async function buildSingleRecordDiff(
       sideEffectsSummary: NO_RESOLVER_SIDE_EFFECTS_MESSAGE,
     }
   }
-  const handlerContext = toolHandlerContext(ctx)
   const before: AiToolLoadBeforeSingleRecord | null = await resolver(
-    input.toolCallArgs as never,
+    toolCallArgs as never,
     handlerContext,
   )
   if (!before) {
@@ -302,7 +304,7 @@ async function buildSingleRecordDiff(
     }
   }
   const hasExplicitAfter = before.after != null
-  const patch = before.after ?? extractPatchFromArgs(input.toolCallArgs)
+  const patch = before.after ?? extractPatchFromArgs(toolCallArgs)
   const fieldDiff = computeFieldDiff(
     before.before,
     patch,
@@ -320,8 +322,8 @@ async function buildSingleRecordDiff(
 
 async function buildBatchRecords(
   tool: AiToolDefinition,
-  input: PrepareMutationInput,
-  ctx: PrepareMutationContext,
+  toolCallArgs: Record<string, unknown>,
+  handlerContext: McpToolContext,
 ): Promise<{
   records: AiPendingActionRecordDiff[] | null
   targetEntityType: string | null
@@ -336,9 +338,8 @@ async function buildBatchRecords(
       sideEffectsSummary: NO_RESOLVER_SIDE_EFFECTS_MESSAGE,
     }
   }
-  const handlerContext = toolHandlerContext(ctx)
   const rows: AiToolLoadBeforeRecord[] = await resolver(
-    input.toolCallArgs as never,
+    toolCallArgs as never,
     handlerContext,
   )
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -350,7 +351,7 @@ async function buildBatchRecords(
   }
   const diffs: AiPendingActionRecordDiff[] = rows.map((row) => {
     const hasExplicitAfter = row.after != null
-    const patch = row.after ?? matchBatchPatch(input.toolCallArgs, row.recordId)
+    const patch = row.after ?? matchBatchPatch(toolCallArgs, row.recordId)
     return {
       recordId: row.recordId,
       entityType: row.entityType,
@@ -369,6 +370,42 @@ async function buildBatchRecords(
     records: diffs,
     targetEntityType: firstEntity ? firstEntity.entityType : null,
     sideEffectsSummary: null,
+  }
+}
+
+type MutationPreview = {
+  fieldDiff: AiPendingActionFieldDiff[]
+  records: AiPendingActionRecordDiff[] | null
+  targetEntityType: string | null
+  targetRecordId: string | null
+  recordVersion: string | null
+  sideEffectsSummary: string | null
+}
+
+async function buildMutationPreview(
+  tool: AiToolDefinition,
+  toolCallArgs: Record<string, unknown>,
+  handlerContext: McpToolContext,
+): Promise<MutationPreview> {
+  if (tool.isBulk === true) {
+    const batch = await buildBatchRecords(tool, toolCallArgs, handlerContext)
+    return {
+      fieldDiff: [],
+      records: batch.records,
+      targetEntityType: batch.targetEntityType,
+      targetRecordId: null,
+      recordVersion: null,
+      sideEffectsSummary: batch.sideEffectsSummary,
+    }
+  }
+  const single = await buildSingleRecordDiff(tool, toolCallArgs, handlerContext)
+  return {
+    fieldDiff: single.fieldDiff,
+    records: null,
+    targetEntityType: single.targetEntityType,
+    targetRecordId: single.targetRecordId,
+    recordVersion: single.recordVersion,
+    sideEffectsSummary: single.sideEffectsSummary,
   }
 }
 
@@ -410,27 +447,14 @@ export async function prepareMutation(
   const em = resolveEm(ctx.container)
   const repo = new AiPendingActionRepository(em)
 
-  const isBulk = tool.isBulk === true
-  let fieldDiff: AiPendingActionFieldDiff[] = []
-  let records: AiPendingActionRecordDiff[] | null = null
-  let targetEntityType: string | null = null
-  let targetRecordId: string | null = null
-  let recordVersion: string | null = null
-  let sideEffectsSummary: string | null = null
-
-  if (isBulk) {
-    const batch = await buildBatchRecords(tool, input, ctx)
-    records = batch.records
-    targetEntityType = batch.targetEntityType
-    sideEffectsSummary = batch.sideEffectsSummary
-  } else {
-    const single = await buildSingleRecordDiff(tool, input, ctx)
-    fieldDiff = single.fieldDiff
-    targetEntityType = single.targetEntityType
-    targetRecordId = single.targetRecordId
-    recordVersion = single.recordVersion
-    sideEffectsSummary = single.sideEffectsSummary
-  }
+  const {
+    fieldDiff,
+    records,
+    targetEntityType,
+    targetRecordId,
+    recordVersion,
+    sideEffectsSummary,
+  } = await buildMutationPreview(tool, input.toolCallArgs, toolHandlerContext(ctx))
 
   const normalizedInput = input.toolCallArgs ?? {}
   const conversationId = input.conversationId ?? null
@@ -481,3 +505,138 @@ export async function prepareMutation(
 }
 
 export const MUTATION_PREVIEW_CARD_COMPONENT = MUTATION_PREVIEW_CARD_COMPONENT_ID
+
+export type RawToolMutationChannel = 'mcp' | 'tools-api'
+
+export interface PrepareRawToolMutationInput {
+  tool: AiToolDefinition
+  toolCallArgs: Record<string, unknown>
+  channel: RawToolMutationChannel
+  requesterUserId: string | null
+  apiKeyId: string | null
+  correlationId: string | null
+  now?: Date
+}
+
+export interface RawToolMutationSummary {
+  toolName: string
+  targetEntityType: string | null
+  targetRecordId: string | null
+  recordCount: number
+}
+
+export interface PrepareRawToolMutationResult {
+  pendingAction: AiPendingAction
+  summary: RawToolMutationSummary
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function resolveRequesterUserId(candidate: string | null): string {
+  if (typeof candidate === 'string' && UUID_PATTERN.test(candidate)) return candidate
+  throw new AiMutationPreparationError(
+    'requester_unresolved',
+    'No user could be resolved as the requester of this mutation; refusing to queue it for approval.',
+  )
+}
+
+/**
+ * Hashes `(tenantId, orgId, channel, requester, toolName, normalizedInput)` so
+ * repeating the identical raw tool call while its pending row is still
+ * `pending` collapses onto that row instead of queueing a duplicate.
+ */
+export function computeRawToolIdempotencyKey(input: {
+  tenantId: string
+  organizationId: string | null
+  channel: RawToolMutationChannel
+  requesterUserId: string
+  toolName: string
+  normalizedInput: Record<string, unknown>
+}): string {
+  const canonical = safeStringify({
+    tenant: input.tenantId,
+    org: input.organizationId ?? null,
+    agent: AI_RAW_TOOL_AGENT_ID,
+    channel: input.channel,
+    requester: input.requesterUserId,
+    tool: input.toolName,
+    input: input.normalizedInput ?? {},
+  })
+  return createHash('sha256').update(canonical).digest('hex')
+}
+
+/**
+ * Queues a raw MCP / `/tools/execute` mutation call as an `AiPendingAction`
+ * (agent id {@link AI_RAW_TOOL_AGENT_ID}) instead of running it. The tool
+ * handler is NEVER invoked here; the write only runs after an approver
+ * confirms the row. Fails closed with `requester_unresolved` when no user id
+ * can be attributed to the call.
+ */
+export async function prepareRawToolMutation(
+  input: PrepareRawToolMutationInput,
+  ctx: McpToolContext,
+): Promise<PrepareRawToolMutationResult> {
+  const { tool } = input
+  if (tool.isMutation !== true) {
+    throw new AiMutationPreparationError(
+      'not_a_mutation_tool',
+      `Tool "${tool.name}" is not a mutation tool; prepareRawToolMutation should not be invoked.`,
+    )
+  }
+  const requesterUserId = resolveRequesterUserId(input.requesterUserId)
+  const tenantId = assertTenantScope(ctx)
+  const em = resolveEm(ctx.container)
+  const repo = new AiPendingActionRepository(em)
+  const organizationId = ctx.organizationId ?? null
+  const normalizedInput = input.toolCallArgs ?? {}
+
+  const preview = await buildMutationPreview(tool, normalizedInput, ctx)
+
+  const idempotencyKey = computeRawToolIdempotencyKey({
+    tenantId,
+    organizationId,
+    channel: input.channel,
+    requesterUserId,
+    toolName: tool.name,
+    normalizedInput,
+  })
+
+  const pendingAction = await repo.create(
+    {
+      agentId: AI_RAW_TOOL_AGENT_ID,
+      toolName: tool.name,
+      idempotencyKey,
+      createdByUserId: requesterUserId,
+      normalizedInput,
+      conversationId: null,
+      targetEntityType: preview.targetEntityType,
+      targetRecordId: preview.targetRecordId,
+      fieldDiff: preview.fieldDiff,
+      records: preview.records,
+      sideEffectsSummary: preview.sideEffectsSummary,
+      recordVersion: preview.recordVersion,
+      attachmentIds: normalizeAttachmentIds(normalizedInput),
+      channel: input.channel,
+      apiKeyId: input.apiKeyId ?? null,
+      correlationId: input.correlationId ?? null,
+      ttlSeconds: resolveMcpPendingActionTtlSeconds(),
+      now: input.now,
+    },
+    {
+      tenantId,
+      organizationId,
+      userId: requesterUserId,
+    },
+  )
+
+  const pendingRecords = Array.isArray(pendingAction.records) ? pendingAction.records : null
+  return {
+    pendingAction,
+    summary: {
+      toolName: tool.name,
+      targetEntityType: pendingAction.targetEntityType ?? null,
+      targetRecordId: pendingAction.targetRecordId ?? null,
+      recordCount: pendingRecords ? pendingRecords.length : 1,
+    },
+  }
+}

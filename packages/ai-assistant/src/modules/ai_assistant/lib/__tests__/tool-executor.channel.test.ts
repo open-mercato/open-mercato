@@ -70,13 +70,13 @@ describe('executeTool channel + mutation mode gate', () => {
     },
   )
 
-  it('approval blocks mutation tools on mcp with MUTATION_REQUIRES_APPROVAL', async () => {
+  it('approval never runs mutation tools on mcp and fails closed without a requester', async () => {
     const result = await executeTool(MUTATION_TOOL, { id: 'p-1' }, buildContext(), {
       channel: 'mcp',
       mutationMode: 'approval',
     })
 
-    expect(result).toMatchObject({ success: false, errorCode: 'MUTATION_REQUIRES_APPROVAL' })
+    expect(result).toMatchObject({ success: false, errorCode: 'MUTATION_REQUESTER_UNRESOLVED' })
     expect(mutationHandler).not.toHaveBeenCalled()
   })
 

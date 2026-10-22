@@ -7,7 +7,7 @@ import {
 import { toolInputJsonSchema } from './tool-input-schema'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getToolRegistry } from './tool-registry'
-import { executeTool } from './tool-executor'
+import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest } from './auth'
 import {
@@ -23,6 +23,7 @@ import {
   isMutationTool,
   mapToolResultToAuditOutcome,
   recordMcpToolCall,
+  resolveAuditActorUserId,
   resolveCorrelationId,
   type McpAuditIdentity,
   type McpAuditOutcome,
@@ -172,7 +173,11 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const startedAt = Date.now()
     const toolArgs = args ?? {}
 
-    const audit = (outcome: McpAuditOutcome, errorCode: string | null) =>
+    const audit = (
+      outcome: McpAuditOutcome,
+      errorCode: string | null,
+      pendingActionIds: string[] | null = null
+    ) =>
       recordMcpToolCall(container, {
         ...auditIdentity,
         toolName: name,
@@ -186,6 +191,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
         errorCode,
         durationMs: Date.now() - startedAt,
         isMutation: isMutationTool(getToolRegistry().getTool(name)),
+        pendingActionIds,
         correlationId,
         args: toolArgs,
       })
@@ -195,11 +201,22 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       result = await executeTool(name, toolArgs, toolContext, {
         channel: 'mcp',
         mutationMode: exposureConfig.mutationMode,
+        requester: {
+          userId: resolveAuditActorUserId(auditIdentity),
+          apiKeyId: auditIdentity.apiKeyId,
+        },
+        correlationId,
       })
     } catch (error) {
       await audit('error', 'EXCEPTION')
       throw error
     }
+
+    if (result.pendingApproval) {
+      await audit(mapToolResultToAuditOutcome(result), null, [result.pendingApproval.pendingActionId])
+      return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
+    }
+
     await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
     if (!result.success) {

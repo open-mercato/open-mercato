@@ -26,14 +26,21 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Execute a specific MCP tool by name',
-      responses: [{ status: 200, description: 'Tool executed. Returns `{ success: true, result }`.' }],
+      responses: [
+        { status: 200, description: 'Tool executed. Returns `{ success: true, result }`.' },
+        {
+          status: 202,
+          description:
+            'Mutation queued for approval because `OM_MCP_MUTATION_MODE=approval`. Returns `{ success: true, status: "pending_approval", pendingActionId, expiresAt }`; the tool handler did not run.',
+        },
+      ],
       errors: [
         { status: 400, description: 'Missing tool name, unknown tool, invalid input, or tool execution error.' },
         { status: 401, description: 'Unauthenticated.' },
         {
           status: 403,
           description:
-            'Caller lacks the tool features, or the tool is a mutation blocked by `OM_MCP_MUTATION_MODE` (`{ success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`).',
+            'Caller lacks the tool features, the tool is a mutation blocked by `OM_MCP_MUTATION_MODE` (`{ success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`), or approval mode could not resolve a requesting user (`code: "MUTATION_REQUESTER_UNRESOLVED"`).',
         },
         { status: 500, description: 'Unexpected failure while executing the tool.' },
       ],
@@ -69,7 +76,11 @@ export async function POST(req: NextRequest) {
   let auditContainer: Awaited<ReturnType<typeof createRequestContainer>> | null = null
   let auditRecorded = false
 
-  const audit = (outcome: McpAuditOutcome, errorCode: string | null) => {
+  const audit = (
+    outcome: McpAuditOutcome,
+    errorCode: string | null,
+    pendingActionIds: string[] | null = null,
+  ) => {
     if (!auditedToolName || auditRecorded) return Promise.resolve()
     auditRecorded = true
     return recordMcpToolCall(auditContainer, {
@@ -87,6 +98,7 @@ export async function POST(req: NextRequest) {
       errorCode,
       durationMs: Date.now() - startedAt,
       isMutation: isMutationTool(getToolRegistry().getTool(auditedToolName)),
+      pendingActionIds,
       correlationId,
       args: auditedArgs,
     })
@@ -130,12 +142,30 @@ export async function POST(req: NextRequest) {
     const result = await executeTool(toolName, args, toolContext, {
       channel: 'tools-api',
       mutationMode: resolveToolsApiMutationMode(),
+      requester: {
+        userId: auth.isApiKey ? auth.userId ?? null : auth.sub,
+        apiKeyId: auth.isApiKey ? auth.keyId ?? null : null,
+      },
+      correlationId,
     })
+
+    if (result.pendingApproval) {
+      const { pendingActionId, expiresAt } = result.pendingApproval
+      await audit(mapToolResultToAuditOutcome(result), null, [pendingActionId])
+      return NextResponse.json(
+        { success: true, status: 'pending_approval', pendingActionId, expiresAt },
+        { status: 202 }
+      )
+    }
+
     await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
-    if (result.errorCode === 'MUTATION_REQUIRES_APPROVAL') {
+    if (
+      result.errorCode === 'MUTATION_REQUIRES_APPROVAL' ||
+      result.errorCode === 'MUTATION_REQUESTER_UNRESOLVED'
+    ) {
       return NextResponse.json(
-        { success: false, error: result.error, code: 'MUTATION_REQUIRES_APPROVAL' },
+        { success: false, error: result.error, code: result.errorCode },
         { status: 403 }
       )
     }

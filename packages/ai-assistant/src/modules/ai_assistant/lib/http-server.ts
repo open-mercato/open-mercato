@@ -6,7 +6,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
-import { executeTool } from './tool-executor'
+import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
@@ -27,6 +27,7 @@ import {
   attachCorrelationMeta,
   mapToolResultToAuditOutcome,
   recordMcpToolCall,
+  resolveAuditActorUserId,
   resolveCorrelationId,
   type McpAuditOutcome,
   type McpAuditPrincipal,
@@ -68,6 +69,7 @@ type ResolvedSessionContext = {
 
 type McpToolCallResponse = {
   content: Array<{ type: 'text'; text: string }>
+  structuredContent?: Record<string, unknown>
   isError?: boolean
 }
 
@@ -384,7 +386,8 @@ async function createMcpServerForRequest(
           const complete = async (
             response: McpToolCallResponse,
             outcome: McpAuditOutcome,
-            errorCode: string | null
+            errorCode: string | null,
+            pendingActionIds: string[] | null = null
           ) => {
             await recordMcpToolCall(toolContext.container, {
               toolName: tool.name,
@@ -402,6 +405,7 @@ async function createMcpServerForRequest(
               errorCode,
               durationMs: Date.now() - startedAt,
               isMutation: tool.isMutation === true,
+              pendingActionIds,
               correlationId,
               args: toolArgs,
             })
@@ -478,8 +482,26 @@ async function createMcpServerForRequest(
             const result = await executeTool(tool.name, toolArgs, effectiveContext, {
               channel: 'mcp',
               mutationMode: exposureConfig.mutationMode,
+              requester: {
+                userId: resolveAuditActorUserId({
+                  sessionUserId: principal === 'session' ? effectiveContext.userId : null,
+                  apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
+                  apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
+                }),
+                apiKeyId: apiKeyRecord.id,
+              },
+              correlationId,
             })
             const outcome = mapToolResultToAuditOutcome(result)
+
+            if (result.pendingApproval) {
+              return complete(
+                buildPendingApprovalMcpResponse(result),
+                outcome,
+                null,
+                [result.pendingApproval.pendingActionId]
+              )
+            }
 
             if (!result.success) {
               logger.error('Tool call failed', { toolName: tool.name, err: result.error, code: result.errorCode, correlationId })

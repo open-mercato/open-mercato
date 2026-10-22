@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
-import { executeTool } from './tool-executor'
+import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
 import {
@@ -24,6 +24,7 @@ import {
   isMutationTool,
   mapToolResultToAuditOutcome,
   recordMcpToolCall,
+  resolveAuditActorUserId,
   resolveCorrelationId,
   type McpAuditIdentity,
   type McpAuditOutcome,
@@ -138,7 +139,11 @@ export function createDevMcpServer(
             log(`Calling tool: ${tool.name}`, JSON.stringify(toolArgs))
           }
 
-          const audit = (outcome: McpAuditOutcome, errorCode: string | null) =>
+          const audit = (
+            outcome: McpAuditOutcome,
+            errorCode: string | null,
+            pendingActionIds: string[] | null = null
+          ) =>
             recordMcpToolCall(toolContext.container, {
               ...auditIdentity,
               toolName: tool.name,
@@ -152,6 +157,7 @@ export function createDevMcpServer(
               errorCode,
               durationMs: Date.now() - startedAt,
               isMutation: isMutationTool(tool),
+              pendingActionIds,
               correlationId,
               args: toolArgs,
             })
@@ -161,11 +167,22 @@ export function createDevMcpServer(
             result = await executeTool(tool.name, toolArgs, toolContext, {
               channel: 'mcp',
               mutationMode: exposureConfig.mutationMode,
+              requester: {
+                userId: resolveAuditActorUserId(auditIdentity),
+                apiKeyId: auditIdentity.apiKeyId,
+              },
+              correlationId,
             })
           } catch (error) {
             await audit('error', 'EXCEPTION')
             throw error
           }
+
+          if (result.pendingApproval) {
+            await audit(mapToolResultToAuditOutcome(result), null, [result.pendingApproval.pendingActionId])
+            return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
+          }
+
           await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
           if (!result.success) {
