@@ -30,7 +30,7 @@
 | 3 | 3.1 | Add the channel option and direct/deny mutation modes to executeTool | dispatch | done | 05801c57b |
 | 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | done | e19bff989 |
 | 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | done | dc22baa8a |
-| 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | todo | — |
+| 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | done | 36fe463d1 |
 | 3 | 3.5 | Run agent tools with their own mutation policy in approval mode | dispatch | todo | — |
 | 3 | 3.6 | Add the approver feature and backoffice approval notifications | dispatch | todo | — |
 | 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | todo | — |

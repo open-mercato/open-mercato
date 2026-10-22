@@ -16,18 +16,22 @@
  * boundary. The Step 5.9 cancel route reuses {@link checkStatusAndExpiry}.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
 import type { AiPendingAction } from '../data/entities'
-import type {
-  AiPendingActionFailedRecord,
-  AiPendingActionRecordDiff,
-  AiPendingActionStatus,
+import {
+  AI_RAW_TOOL_AGENT_ID,
+  type AiPendingActionFailedRecord,
+  type AiPendingActionRecordDiff,
+  type AiPendingActionStatus,
 } from './pending-action-types'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
+import { isToolExposed, resolveMcpExposureConfig, type McpExposureConfig } from './mcp-exposure'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 
 export type PendingActionRecheckCode =
@@ -40,6 +44,10 @@ export type PendingActionRecheckCode =
   | 'attachment_cross_tenant'
   | 'stale_version'
   | 'schema_drift'
+  | 'tool_not_exposed'
+  | 'approver_features_denied'
+  | 'requester_revoked'
+  | 'requester_features_denied'
 
 export interface PendingActionRecheckOkResult {
   ok: true
@@ -90,6 +98,20 @@ export interface PendingActionRecheckInput {
    * (Step 5.4). Missing / null → agent's code-declared policy stands alone.
    */
   mutationPolicyOverride?: AiAgentMutationPolicy | null
+  /**
+   * Exposure config used for raw MCP / tools-api rows. Defaults to the app
+   * process's config resolved from `process.env`.
+   */
+  exposureConfig?: McpExposureConfig
+}
+
+/**
+ * True for rows queued by a raw MCP / `/tools/execute` mutation call (Step
+ * 3.3). These rows carry the synthetic {@link AI_RAW_TOOL_AGENT_ID} and skip
+ * the agent guards in favour of the raw-tool guards below.
+ */
+export function isRawToolPendingAction(action: AiPendingAction): boolean {
+  return (action.channel ?? 'agent') !== 'agent' && action.agentId === AI_RAW_TOOL_AGENT_ID
 }
 
 /**
@@ -190,6 +212,111 @@ export function checkToolWhitelist(
       code: 'read_only_agent',
       message: `Agent "${agent.id}" effective mutationPolicy=read-only; mutation tool "${tool.name}" cannot be executed.`,
     }
+  }
+  return { ok: true }
+}
+
+/**
+ * Raw-tool guard: the tool is still registered, still a mutation tool, and
+ * still exposed by the app process's MCP exposure config.
+ */
+export function checkRawToolExposure(
+  tool: AiToolDefinition | null | undefined,
+  action: AiPendingAction,
+  exposureConfig: McpExposureConfig,
+): PendingActionRecheckResult {
+  if (!tool || tool.isMutation !== true || !isToolExposed(tool, exposureConfig)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'tool_not_exposed',
+      message: `Tool "${action.toolName}" is no longer exposed as a mutation tool.`,
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Raw-tool guard: the approver holds every `requiredFeatures` entry of the
+ * tool they are about to execute under their own identity.
+ */
+export function checkApproverToolFeatures(
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): PendingActionRecheckResult {
+  const required = tool.requiredFeatures ?? []
+  if (!hasRequiredFeatures(required, ctx.userFeatures, ctx.isSuperAdmin)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'approver_features_denied',
+      message: `Approver lacks one of the tool's required features: ${required.join(', ')}`,
+    }
+  }
+  return { ok: true }
+}
+
+function requesterRevoked(message: string): PendingActionRecheckFailResult {
+  return { ok: false, status: 403, code: 'requester_revoked', message }
+}
+
+function requesterFeaturesDenied(required: string[]): PendingActionRecheckFailResult {
+  return {
+    ok: false,
+    status: 403,
+    code: 'requester_features_denied',
+    message: `Requester no longer holds one of the tool's required features: ${required.join(', ')}`,
+  }
+}
+
+/**
+ * Raw-tool guard: the requester is still valid. When the row was queued
+ * through an API key, the key must still exist, not be deleted and not be
+ * expired. The requester's ACL (the API key ACL, else the creator user's
+ * ACL) must still cover the tool's `requiredFeatures`.
+ */
+export async function checkRawToolRequester(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+  options: { now?: Date } = {},
+): Promise<PendingActionRecheckResult> {
+  const now = options.now ?? new Date()
+  const container = ctx.container
+  const em = ctx.em ?? (container ? container.resolve<EntityManager>('em') : undefined)
+  let rbacService: RbacService | null = null
+  try {
+    rbacService = container ? container.resolve<RbacService>('rbacService') : null
+  } catch {
+    rbacService = null
+  }
+  const required = tool.requiredFeatures ?? []
+  const apiKeyId = action.apiKeyId ?? null
+  let principalId = action.createdByUserId
+  let aclScope = { tenantId: action.tenantId, organizationId: action.organizationId ?? null }
+  if (apiKeyId) {
+    if (!em) return requesterRevoked('API key validity check requires an EntityManager.')
+    const apiKey = await findOneWithDecryption<ApiKey>(
+      em,
+      ApiKey,
+      { id: apiKeyId, deletedAt: null },
+      {},
+      { tenantId: action.tenantId, organizationId: action.organizationId ?? null },
+    )
+    if (!apiKey || apiKey.deletedAt || (apiKey.tenantId ?? null) !== action.tenantId) {
+      return requesterRevoked('The API key that requested this action no longer exists.')
+    }
+    if (apiKey.expiresAt && new Date(apiKey.expiresAt).getTime() <= now.getTime()) {
+      return requesterRevoked('The API key that requested this action has expired.')
+    }
+    principalId = `api_key:${apiKey.id}`
+    aclScope = { tenantId: apiKey.tenantId ?? action.tenantId, organizationId: apiKey.organizationId ?? null }
+  }
+  if (!principalId) return requesterRevoked('The requester of this action is unknown.')
+  if (!rbacService) return requesterFeaturesDenied(required)
+  const requesterAcl = await rbacService.loadAcl(principalId, aclScope)
+  if (!hasRequiredFeatures(required, requesterAcl.features, requesterAcl.isSuperAdmin)) {
+    return requesterFeaturesDenied(required)
   }
   return { ok: true }
 }
@@ -368,6 +495,10 @@ export async function runPendingActionRechecks(
   const statusCheck = checkStatusAndExpiry(action, { now })
   if (!statusCheck.ok) return statusCheck
 
+  if (isRawToolPendingAction(action)) {
+    return runRawToolRechecks(input)
+  }
+
   const agentCheck = checkAgentAndFeatures(agent, ctx)
   if (!agentCheck.ok) return agentCheck
 
@@ -381,6 +512,27 @@ export async function runPendingActionRechecks(
 
   const versionCheck = await checkRecordVersion(action, tool!, ctx)
   return versionCheck
+}
+
+async function runRawToolRechecks(
+  input: PendingActionRecheckInput,
+): Promise<PendingActionRecheckResult> {
+  const { action, tool, ctx, now } = input
+  const exposureConfig = input.exposureConfig ?? resolveMcpExposureConfig(process.env, {})
+
+  const exposureCheck = checkRawToolExposure(tool, action, exposureConfig)
+  if (!exposureCheck.ok) return exposureCheck
+
+  const approverCheck = checkApproverToolFeatures(tool!, ctx)
+  if (!approverCheck.ok) return approverCheck
+
+  const requesterCheck = await checkRawToolRequester(action, tool!, ctx, { now })
+  if (!requesterCheck.ok) return requesterCheck
+
+  const attachmentCheck = await checkAttachmentScope(action, ctx)
+  if (!attachmentCheck.ok) return attachmentCheck
+
+  return checkRecordVersion(action, tool!, ctx)
 }
 
 /**
@@ -397,6 +549,10 @@ export const PENDING_ACTION_RECHECK_CODES: ReadonlyArray<PendingActionRecheckCod
   'attachment_cross_tenant',
   'stale_version',
   'schema_drift',
+  'tool_not_exposed',
+  'approver_features_denied',
+  'requester_revoked',
+  'requester_features_denied',
 ]
 
 export function isPendingActionRecheckCode(

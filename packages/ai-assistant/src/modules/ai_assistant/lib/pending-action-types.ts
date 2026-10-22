@@ -29,6 +29,8 @@ export type AiPendingActionChannel = (typeof AI_PENDING_ACTION_CHANNELS)[number]
 
 export const AI_RAW_TOOL_AGENT_ID = 'ai_assistant.raw_tool'
 
+export const AI_PENDING_ACTION_APPROVE_FEATURE = 'ai_assistant.pending_actions.approve'
+
 /**
  * Allowed state-machine edges for `AiPendingAction.status`:
  *

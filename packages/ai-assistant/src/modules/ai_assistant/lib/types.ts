@@ -27,6 +27,18 @@ export interface McpToolContext {
    * `requiredFeatures` coverage at the route gate.
    */
   tool?: AiToolDefinition
+  /**
+   * Set when the handler runs on behalf of a confirmed pending action so the
+   * write can be correlated with the original request and its requester.
+   */
+  auditCorrelation?: McpToolAuditCorrelation
+}
+
+export interface McpToolAuditCorrelation {
+  correlationId: string | null
+  apiKeyId: string | null
+  pendingActionId: string
+  requestedByUserId: string
 }
 
 /**

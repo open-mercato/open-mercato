@@ -43,7 +43,8 @@ export interface PendingActionExecuteContext {
 
 export interface PendingActionExecuteInput {
   action: AiPendingAction
-  agent: AiAgentDefinition
+  /** Null for raw MCP / tools-api rows, which carry no registered agent. */
+  agent: AiAgentDefinition | null
   tool: AiToolDefinition
   ctx: PendingActionExecuteContext
   /** Carried over from the re-check; written onto the row with status=confirmed. */
@@ -291,7 +292,7 @@ function mergeFailedRecords(
 function toToolHandlerContext(
   ctx: PendingActionExecuteContext,
   tool: AiToolDefinition,
-  approvedPendingActionId: string,
+  action: AiPendingAction,
 ): McpToolContext {
   return {
     tenantId: ctx.tenantId,
@@ -301,7 +302,13 @@ function toToolHandlerContext(
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
     tool,
-    approvedPendingActionId,
+    approvedPendingActionId: action.id,
+    auditCorrelation: {
+      correlationId: action.correlationId ?? null,
+      apiKeyId: action.apiKeyId ?? null,
+      pendingActionId: action.id,
+      requestedByUserId: action.createdByUserId,
+    },
   }
 }
 
@@ -321,6 +328,7 @@ export async function executePendingActionConfirm(
   input: PendingActionExecuteInput,
 ): Promise<PendingActionExecuteResult> {
   const { action, agent, tool, ctx, failedRecords, now } = input
+  const agentId = agent?.id ?? action.agentId
   const repo = input.repo ?? new AiPendingActionRepository(ctx.container.resolve('em'))
   const scope = {
     tenantId: ctx.tenantId,
@@ -363,7 +371,7 @@ export async function executePendingActionConfirm(
 
   let handlerOutput: unknown
   try {
-    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool, action.id))
+    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool, action))
   } catch (error) {
     const failureResult: AiPendingActionExecutionResult = {
       error: buildHandlerErrorFromThrown(error, action.normalizedInput),
@@ -374,7 +382,7 @@ export async function executePendingActionConfirm(
     })
     await emitConfirmed(emitter, {
       pendingActionId: failedRow.id,
-      agentId: agent.id,
+      agentId,
       toolName: tool.name,
       status: failedRow.status,
       tenantId: ctx.tenantId,
@@ -412,7 +420,7 @@ export async function executePendingActionConfirm(
       : null
   await emitConfirmed(emitter, {
     pendingActionId: confirmedFinal.id,
-    agentId: agent.id,
+    agentId,
     toolName: tool.name,
     status: confirmedFinal.status,
     tenantId: ctx.tenantId,
