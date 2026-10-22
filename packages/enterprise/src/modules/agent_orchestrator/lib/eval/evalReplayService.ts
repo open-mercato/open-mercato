@@ -208,9 +208,18 @@ async function runCase(
   // gate. Best-effort — a judge failure must not fail an otherwise scored case.
   try {
     const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: caseRun.suiteRunId, ...scope })
-    await runLlmJudgeForRun(em, scope, topLevelRunId, createModelJudge(container), {
-      judgeMayGate: suiteRun?.judgeMayGate ?? false,
-    })
+    await runLlmJudgeForRun(
+      em,
+      scope,
+      topLevelRunId,
+      createModelJudge(container),
+      { judgeMayGate: suiteRun?.judgeMayGate ?? false },
+      {
+        evalCaseRunId: caseRun.id,
+        expected: evalCase.expected ?? null,
+        assertions: parseCaseAssertionRefs(evalCase.assertions),
+      },
+    )
   } catch (error) {
     // Log the SHAPE of the failure, never the error object. Vercel AI SDK errors
     // carry `requestBodyValues.prompt` as an own enumerable property, and that

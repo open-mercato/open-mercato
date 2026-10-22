@@ -43,7 +43,7 @@
 | 5 | 5.2 | Time tool executions per tool call id | dispatch | done | 098973f29 |
 | 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | done | 4b42bc23e |
 | 5 | 5.4 | Record AO native trace tool calls through the extraction helper | dispatch | done | 1ae775ef3 |
-| 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | todo | — |
+| 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | done | 757a4267b |
 | 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | todo | — |
 | 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | todo | — |
 | 6 | 6.4 | Add eval gate report CLI flags and exit codes | dispatch | todo | — |
