@@ -5,6 +5,7 @@
 // packages/create-app/template/scripts/dev-infra-preflight.mjs, where no
 // `packages/starter` directory exists.
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
 import net from 'node:net'
 
 export const INFRA_PROBE_TIMEOUT_MS = 20_000
@@ -125,13 +126,29 @@ export async function findPortConflicts(services, { running = new Set(), probe =
   return conflicts
 }
 
-function remediationFor(problem, platform) {
+// WSL2 reports platform 'linux', but its usual Docker is Docker Desktop on the
+// Windows side, exposed to the distribution through "WSL integration". Telling
+// a WSL user to install Docker Engine would put a second engine next to it.
+export function detectWsl({ env = process.env, readFile = (file) => fs.readFileSync(file, 'utf8') } = {}) {
+  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true
+  try {
+    return /microsoft/i.test(readFile('/proc/version'))
+  } catch {
+    return false
+  }
+}
+
+const WSL_INTEGRATION_HINT = 'Inside WSL: open Docker Desktop on Windows -> Settings -> Resources -> WSL integration, enable it for this distribution, then open a new terminal. (Only install Docker Engine inside WSL if you do not use Docker Desktop.)'
+
+function remediationFor(problem, platform, { wsl = false, databaseUrlFile = '.env', portConflictHints = [] } = {}) {
   switch (problem.code) {
     case 'cli-missing':
       return [
-        platform === 'linux'
-          ? 'Install Docker Engine with the compose plugin: https://docs.docker.com/engine/install/'
-          : 'Install Docker Desktop (https://docs.docker.com/get-started/get-docker/) or Rancher Desktop (https://rancherdesktop.io), then start it.',
+        wsl
+          ? WSL_INTEGRATION_HINT
+          : platform === 'linux'
+            ? 'Install Docker Engine with the compose plugin: https://docs.docker.com/engine/install/'
+            : 'Install Docker Desktop (https://docs.docker.com/get-started/get-docker/) or Rancher Desktop (https://rancherdesktop.io), then start it.',
         'Setup never installs Docker for you.',
       ]
     case 'compose-missing':
@@ -140,9 +157,11 @@ function remediationFor(problem, platform) {
       ]
     case 'daemon-stopped':
       return [
-        platform === 'linux'
-          ? 'Start the engine yourself, for example: sudo systemctl start docker'
-          : 'Start Docker Desktop or Rancher Desktop (or `colima start`) and wait until it reports it is running.',
+        wsl
+          ? 'Start Docker Desktop on Windows and wait until it reports it is running (or start the engine inside WSL if you installed one there).'
+          : platform === 'linux'
+            ? 'Start the engine yourself, for example: sudo systemctl start docker'
+            : 'Start Docker Desktop or Rancher Desktop (or `colima start`) and wait until it reports it is running.',
       ]
     case 'daemon-unresponsive':
       return ['Docker did not answer in time. Restart Docker Desktop / the engine and re-run.']
@@ -153,8 +172,9 @@ function remediationFor(problem, platform) {
     case 'port-conflict':
       return [
         ...problem.ports.map(({ service, port, envKey }) => `Port ${port} (${service}) is already in use by another process.${envKey ? ` Stop that process, or pick a free port with ${envKey} in .env.` : ' Stop that process.'}`),
-        'If you change POSTGRES_PORT, update the port in DATABASE_URL as well.',
+        `If you change POSTGRES_PORT, update the port in DATABASE_URL (${databaseUrlFile}) as well.`,
         '`docker ps` shows containers of other projects that may hold these ports.',
+        ...portConflictHints,
       ]
     case 'unhealthy':
       return [
@@ -162,7 +182,13 @@ function remediationFor(problem, platform) {
         `Inspect the logs: ${problem.logsCommand ?? 'docker compose logs <service>'}`,
       ]
     default:
-      return ['docker compose failed — see the output above, fix the cause and re-run.']
+      return [
+        'docker compose failed — see the output above, fix the cause and re-run.',
+        'Output says "port is already allocated" or "ports are not available"? Another process holds that port: pick a free one with the matching *_PORT in .env.',
+        ...(platform === 'win32'
+          ? ['On Windows the port may sit in a range reserved by Hyper-V/WinNAT (list them: netsh interface ipv4 show excludedportrange protocol=tcp); choose a port outside those ranges.']
+          : []),
+      ]
   }
 }
 
@@ -179,10 +205,18 @@ const PROBLEM_TITLES = {
 
 // Every message ends with the opt-out, so a developer with their own
 // PostgreSQL/Redis/Meilisearch is never stuck behind a Docker problem.
-export function formatInfraProblem(problem, { platform = process.platform, optOutCommand = `yarn setup ${NO_INFRA_FLAG}` } = {}) {
+//   databaseUrlFile    -> where DATABASE_URL lives (apps/mercato/.env in the monorepo)
+//   portConflictHints  -> layout-specific extra lines for port conflicts
+export function formatInfraProblem(problem, {
+  platform = process.platform,
+  optOutCommand = `yarn setup ${NO_INFRA_FLAG}`,
+  wsl = platform === 'linux' && detectWsl(),
+  databaseUrlFile = '.env',
+  portConflictHints = [],
+} = {}) {
   return [
     PROBLEM_TITLES[problem.code] ?? PROBLEM_TITLES['compose-failed'],
-    ...remediationFor(problem, platform).map((line) => `  ${line}`),
+    ...remediationFor(problem, platform, { wsl, databaseUrlFile, portConflictHints }).map((line) => `  ${line}`),
     `  Already running PostgreSQL, Redis and Meilisearch yourself? Re-run with: ${optOutCommand}`,
     '  (it makes no Docker calls and keeps the URLs in your .env).',
   ]
@@ -211,14 +245,23 @@ export async function startInfraServices({
   if (!runtime.ok) return { ok: false, problem: { code: runtime.code, detail: runtime.detail } }
 
   const required = services.map((entry) => entry.service)
+  // null when `compose ps` itself fails (e.g. an interpolation error in .env).
   const listServices = () => {
     const ps = spawnSyncImpl('docker', composeArgs(['ps', '--all', '--format', 'json']), { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    return (ps?.status ?? 1) === 0 ? parseComposePsOutput(ps.stdout) : []
+    return !ps?.error && (ps?.status ?? 1) === 0 ? parseComposePsOutput(ps.stdout) : null
   }
 
-  const running = runningComposeServices(listServices())
-  const conflicts = await findPortConflicts(services, { running, probe: portProbe })
-  if (conflicts.length > 0) return { ok: false, problem: { code: 'port-conflict', ports: conflicts } }
+  const listed = listServices()
+  const running = runningComposeServices(listed ?? [])
+  // Without the project's container list our own running containers would look
+  // like foreign port owners, so the port probe is skipped and `compose up`
+  // reports the real compose error instead.
+  if (listed === null) {
+    log('   could not list this project\'s containers (docker compose ps failed); skipping the port check')
+  } else {
+    const conflicts = await findPortConflicts(services, { running, probe: portProbe })
+    if (conflicts.length > 0) return { ok: false, problem: { code: 'port-conflict', ports: conflicts } }
+  }
 
   const reused = required.filter((service) => running.has(service))
   if (reused.length > 0) log(`   reusing running containers: ${reused.join(', ')} (data preserved)`)
@@ -228,7 +271,8 @@ export async function startInfraServices({
   if (up?.error) return { ok: false, problem: { code: 'compose-failed', detail: up.error.message } }
   if ((up?.status ?? 1) === 0) return { ok: true, reused }
 
-  const unhealthy = findUnhealthyServices(listServices(), required)
+  const after = listServices()
+  const unhealthy = after === null ? [] : findUnhealthyServices(after, required)
   if (unhealthy.length > 0) {
     const logsCommand = `docker ${composeArgs(['logs', unhealthy[0].service]).join(' ')}`
     return { ok: false, problem: { code: 'unhealthy', services: unhealthy, logsCommand } }

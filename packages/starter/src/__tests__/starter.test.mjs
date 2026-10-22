@@ -11,10 +11,10 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, containerRuntimeStep, hostGatewayStep, infraUpStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
-import { devRuntimeArgs, removeLeftoverComposeResources } from '../infra.mjs'
-import { detectDockerRuntime, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
+import { describeInfraProblem, devRuntimeArgs, removeLeftoverComposeResources } from '../infra.mjs'
+import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
@@ -588,12 +588,12 @@ test('detectDocker keeps the human reason for doctor and adds the problem code',
 
 test('formatInfraProblem explains the fix and always offers the --no-infra opt-out', () => {
   for (const code of ['cli-missing', 'compose-missing', 'daemon-stopped', 'daemon-unresponsive', 'daemon-permission', 'compose-failed']) {
-    const lines = formatInfraProblem({ code }, { platform: 'linux' })
+    const lines = formatInfraProblem({ code }, { platform: 'linux', wsl: false })
     assert.ok(lines.length >= 3, code)
     assert.match(lines.join('\n'), /yarn setup --no-infra/, code)
   }
   assert.match(formatInfraProblem({ code: 'cli-missing' }, { platform: 'darwin' }).join('\n'), /never installs Docker/)
-  assert.match(formatInfraProblem({ code: 'daemon-stopped' }, { platform: 'linux' }).join('\n'), /systemctl start docker/)
+  assert.match(formatInfraProblem({ code: 'daemon-stopped' }, { platform: 'linux', wsl: false }).join('\n'), /systemctl start docker/)
   const ports = formatInfraProblem({ code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] }).join('\n')
   assert.match(ports, /Port 5432 \(postgres\) is already in use/)
   assert.match(ports, /POSTGRES_PORT in \.env/)
@@ -782,4 +782,99 @@ test('the generated-app copy of the infra preflight is byte-identical to the sta
   const source = fs.readFileSync(new URL('../infra-preflight.mjs', import.meta.url))
   const mirror = fs.readFileSync(new URL('../../../create-app/template/scripts/dev-infra-preflight.mjs', import.meta.url))
   assert.ok(source.equals(mirror), 'run yarn template:sync:fix')
+})
+
+test('WSL users are sent to Docker Desktop WSL integration instead of installing a second engine', () => {
+  assert.equal(detectWsl({ env: { WSL_DISTRO_NAME: 'Ubuntu' }, readFile: () => '' }), true)
+  assert.equal(detectWsl({ env: {}, readFile: () => 'Linux version 5.15.153.1-microsoft-standard-WSL2' }), true)
+  assert.equal(detectWsl({ env: {}, readFile: () => 'Linux version 6.8.0-45-generic (buildd@lcy02)' }), false)
+  assert.equal(detectWsl({ env: {}, readFile: () => { throw new Error('ENOENT') } }), false)
+
+  const missing = formatInfraProblem({ code: 'cli-missing' }, { platform: 'linux', wsl: true }).join('\n')
+  assert.match(missing, /WSL integration/)
+  assert.doesNotMatch(missing, /Install Docker Engine with the compose plugin/)
+  assert.match(formatInfraProblem({ code: 'daemon-stopped' }, { platform: 'linux', wsl: true }).join('\n'), /Docker Desktop on Windows/)
+  assert.match(formatInfraProblem({ code: 'cli-missing' }, { platform: 'linux', wsl: false }).join('\n'), /Install Docker Engine/)
+})
+
+test('compose failures point at port allocation errors, with the reserved-range check on Windows', () => {
+  const linux = formatInfraProblem({ code: 'compose-failed' }, { platform: 'linux', wsl: false }).join('\n')
+  assert.match(linux, /port is already allocated/)
+  assert.doesNotMatch(linux, /excludedportrange/)
+  assert.match(formatInfraProblem({ code: 'compose-failed' }, { platform: 'win32' }).join('\n'), /excludedportrange/)
+})
+
+test('monorepo port conflicts name apps/mercato/.env and the fixed mercato-* container names', () => {
+  const problem = { code: 'port-conflict', ports: [{ service: 'postgres', port: 5432, envKey: 'POSTGRES_PORT' }] }
+  const monorepo = describeInfraProblem(problem, { platform: 'darwin' }).join('\n')
+  assert.match(monorepo, /DATABASE_URL \(apps\/mercato\/\.env\)/)
+  assert.match(monorepo, /MERCATO_STACK/)
+  assert.match(monorepo, /yarn setup --no-infra/)
+  const standalone = formatInfraProblem(problem, { platform: 'darwin' }).join('\n')
+  assert.match(standalone, /DATABASE_URL \(\.env\)/)
+  assert.doesNotMatch(standalone, /MERCATO_STACK/)
+})
+
+test('startInfraServices skips the port check when compose ps fails instead of blaming our own containers', async () => {
+  const calls = []
+  const logs = []
+  const spawnSyncImpl = (command, args) => {
+    calls.push(args.join(' '))
+    if (args.includes('ps')) return { status: 1, stdout: '', stderr: 'invalid interpolation format' }
+    if (args.includes('up')) return { status: 1 }
+    return { status: 0, stdout: '' }
+  }
+  const probed = []
+  const outcome = await startInfraServices({
+    composeArgs: (extra) => ['compose', ...extra], services: SERVICES, spawnSyncImpl,
+    detect: () => ({ ok: true }), portProbe: async (port) => { probed.push(port); return true }, log: (line) => logs.push(line),
+  })
+  assert.deepEqual(probed, [])
+  assert.equal(outcome.problem.code, 'compose-failed')
+  assert.ok(calls.some((call) => call.includes('up -d --wait')))
+  assert.match(logs.join('\n'), /skipping the port check/)
+})
+
+test('infraUpStep.check only converges once every container is healthy, not merely running', async () => {
+  const psWith = (entries) => () => ({ status: 0, stdout: entries.map((entry) => JSON.stringify(entry)).join('\n') })
+  const healthy = [
+    { Service: 'postgres', State: 'running', Health: 'healthy' },
+    { Service: 'redis', State: 'running', Health: 'healthy' },
+    { Service: 'meilisearch', State: 'running', Health: 'healthy' },
+    { Service: 'opencode', State: 'running', Health: '' },
+  ]
+  const ready = await infraUpStep.check({ repoRoot: '/repo', flags: {}, runComposeImpl: psWith(healthy) })
+  assert.equal(ready.ok, true)
+
+  const ctx = { repoRoot: '/repo', flags: {}, runComposeImpl: psWith([{ ...healthy[0], Health: 'starting' }, ...healthy.slice(1)]) }
+  const starting = await infraUpStep.check(ctx)
+  assert.equal(starting.ok, false)
+  assert.deepEqual(ctx.infraMissing, ['postgres'])
+  assert.match(starting.detail, /postgres \(starting\)/)
+})
+
+test('the database step initializes with --skip-if-initialized so a re-run never aborts on existing users', async () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/shared\n')
+  const invocations = []
+  const ctx = quietCtx({
+    repoRoot: repo,
+    env: {},
+    flags: { noInfra: true },
+    runStreamingImpl: (command, args, options) => {
+      invocations.push({ command, args, env: options.env })
+      return 0
+    },
+  })
+  const checked = await databaseStep.check(ctx)
+  assert.equal(checked.ok, false)
+  await databaseStep.apply(ctx)
+  assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize', '--', '--skip-if-initialized']])
+  assert.equal(invocations[1].env.OM_INIT_DEV_AUTOSTART, '1')
+
+  invocations.length = 0
+  const emptied = quietCtx({ ...ctx, dbReinitialize: true })
+  await databaseStep.apply(emptied)
+  assert.deepEqual(invocations.map((entry) => entry.args), [['db:migrate'], ['initialize']])
 })

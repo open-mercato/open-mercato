@@ -1011,6 +1011,95 @@ describe('init command failure output', () => {
   })
 })
 
+describe('init on an already initialized database', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@db.example.com:6543/shop_a'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('pg')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  function mockSeededDatabase(usersCount: string) {
+    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    jest.doMock('child_process', () => ({ execSync: jest.fn() }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        end: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockImplementation(async (sql: string) => {
+          if (sql.includes('pg_database')) return { rows: [{ exists: 1 }] }
+          if (sql.includes('to_regclass')) return { rows: [{ regclass: 'users' }] }
+          if (sql.includes('COUNT(*)')) return { rows: [{ count: usersCount }] }
+          return { rows: [] }
+        }),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds,
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({ getAppDir: () => '/tmp/test-app' }),
+    }))
+    return { generateEntityIds }
+  }
+
+  it('aborts without --skip-if-initialized and points at the explicit reinstall', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('2')
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    const errors = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(errors).toContain('Initialization aborted: found 2 existing user(s)')
+    expect(generateEntityIds).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('keeps the data, names the target database and exits 0 with --skip-if-initialized', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('3')
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init', '--skip-if-initialized'])
+
+    expect(exitCode).toBe(0)
+    const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(printed).toContain('Database already initialized (3 user(s) in db.example.com:6543/shop_a)')
+    expect(printed).toContain('Check DATABASE_URL in .env')
+    expect(printed).not.toContain('secret')
+    expect(generateEntityIds).not.toHaveBeenCalled()
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
 describe('seed:defaults command', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
 

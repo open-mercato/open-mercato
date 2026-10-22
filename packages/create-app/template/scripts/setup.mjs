@@ -47,10 +47,9 @@ const result = spawnSync(
     ...(noInfra ? [NO_INFRA_FLAG] : []),
     ...forwardedDatabaseFlags,
   ],
-  {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-  },
+  // process.execPath is a real executable, so no shell is needed; with a
+  // shell, cmd.exe would split an unquoted "C:\Program Files\nodejs\node.exe".
+  { stdio: 'inherit' },
 )
 
 if (result.status !== 0) {

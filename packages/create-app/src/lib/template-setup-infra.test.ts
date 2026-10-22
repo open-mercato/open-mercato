@@ -77,14 +77,14 @@ async function makeApp() {
   return { appDir, binDir, emptyBinDir, ports }
 }
 
-type RunOptions = { withDocker?: boolean; mode?: string; env?: Record<string, string> }
+type RunOptions = { withDocker?: boolean; mode?: string; env?: Record<string, string>; scriptsDir?: string }
 
 async function runScript(app: Awaited<ReturnType<typeof makeApp>>, script: string, args: string[], options: RunOptions = {}) {
   const dockerLog = path.join(app.appDir, 'docker.log')
   const devArgsLog = path.join(app.appDir, 'dev-args.json')
   const nodeDir = path.dirname(process.execPath)
   const pathEntries = options.withDocker === false ? [app.emptyBinDir] : [app.binDir, nodeDir, '/usr/bin', '/bin']
-  const child = spawn(process.execPath, [path.join('scripts', script), ...args], {
+  const child = spawn(process.execPath, [path.join(options.scriptsDir ?? 'scripts', script), ...args], {
     cwd: app.appDir,
     env: {
       PATH: pathEntries.join(path.delimiter),
@@ -241,4 +241,26 @@ test('the template ships infra:up / infra:down and every setup variant routes th
   for (const name of ['setup', 'setup:classic', 'setup:reinstall', 'setup:reinstall:classic']) {
     assert.match(pkg.scripts[name], /^node \.\/scripts\/setup\.mjs\b/, name)
   }
+})
+
+test('yarn infra:up still runs when the script is reached through a symlinked directory', { skip }, async () => {
+  const app = await makeApp()
+  try {
+    fs.symlinkSync(path.join(app.appDir, 'scripts'), path.join(app.appDir, 'linked-scripts'), 'dir')
+    const run = await runScript(app, 'infra.mjs', ['up'], { scriptsDir: 'linked-scripts' })
+    assert.equal(run.code, 0, run.output)
+    assert.ok(run.dockerCalls.some((call) => call.includes('up -d --wait')), run.dockerCalls.join('\n'))
+  } finally {
+    fs.rmSync(app.appDir, { recursive: true, force: true })
+  }
+})
+
+test('isDirectRun compares real paths and ignores drive-letter case on Windows', async () => {
+  const { isDirectRun } = await import(new URL('../../template/scripts/infra.mjs', import.meta.url).href)
+  const realpath = (candidate: string) => candidate.replace('/linked/', '/real/')
+  assert.equal(isDirectRun('/app/linked/infra.mjs', '/app/real/infra.mjs', { platform: 'linux', realpath }), true)
+  assert.equal(isDirectRun('/app/real/setup.mjs', '/app/real/infra.mjs', { platform: 'linux', realpath }), false)
+  assert.equal(isDirectRun(undefined, '/app/real/infra.mjs', { platform: 'linux', realpath }), false)
+  const identity = (candidate: string) => candidate
+  assert.equal(isDirectRun('c:\\app\\scripts\\infra.mjs', 'C:\\app\\scripts\\infra.mjs', { platform: 'win32', realpath: identity }), true)
 })

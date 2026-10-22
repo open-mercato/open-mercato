@@ -66,8 +66,20 @@ export function devRuntimeArgs(passthrough, { noInfra = false } = {}) {
   return noInfra && !passthrough.includes('--no-infra') ? [...passthrough, '--no-infra'] : passthrough
 }
 
-export function describeInfraProblem(problem) {
-  return formatInfraProblem(problem, { optOutCommand: 'yarn setup --no-infra' })
+// Monorepo layout: DATABASE_URL lives in apps/mercato/.env, and the compose
+// file pins container names (${MERCATO_STACK:-mercato}-*), so a second checkout
+// clashes on names as well as ports.
+export const MONOREPO_PORT_CONFLICT_HINTS = [
+  'Ports held by mercato-* containers of another checkout of this repo? Stop them there (yarn infra:down), or give this checkout its own stack: MERCATO_STACK=<name> plus free *_PORT values in .env (changing ports alone still collides on the container names; see docker/README.md).',
+]
+
+export function describeInfraProblem(problem, options = {}) {
+  return formatInfraProblem(problem, {
+    optOutCommand: 'yarn setup --no-infra',
+    databaseUrlFile: 'apps/mercato/.env',
+    portConflictHints: MONOREPO_PORT_CONFLICT_HINTS,
+    ...options,
+  })
 }
 
 export function infraDown(repoRoot, { volumes = false } = {}) {

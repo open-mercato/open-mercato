@@ -11,6 +11,7 @@ import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion,
 import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { describeInfraProblem, startInfra } from './infra.mjs'
+import { findUnhealthyServices } from './infra-preflight.mjs'
 import { ensureLlmProvider } from './providers.mjs'
 import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
@@ -252,7 +253,7 @@ export function yarnInvocation(ctx, args) {
 
 function runYarn(ctx, args) {
   const invocation = yarnInvocation(ctx, args)
-  const status = runStreamingSync(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env })
+  const status = (ctx.runStreamingImpl ?? runStreamingSync)(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env })
   if (status !== 0) {
     throw new Error(`yarn ${args.join(' ')} failed (exit ${status}) — fix the error above and re-run; completed steps are skipped.`)
   }
@@ -542,13 +543,19 @@ export const infraUpStep = {
   title: 'Infra containers (postgres, redis, meilisearch, opencode)',
   appliesTo: (ctx) => ctx.mode === 'hybrid' && !ctx.flags.noInfra,
   async check(ctx) {
-    const ps = runCompose(ctx.repoRoot, ['ps', '--format', 'json'], { stdio: 'pipe' })
+    const ps = (ctx.runComposeImpl ?? runCompose)(ctx.repoRoot, ['ps', '--format', 'json'], { stdio: 'pipe' })
     const services = parseComposePsOutput(ps.stdout ?? '')
-    const running = new Set(services.filter((entry) => entry.State === 'running').map((entry) => entry.Service))
     const required = ['postgres', 'redis', 'meilisearch', 'opencode']
-    const missing = required.filter((service) => !running.has(service))
+    // "running" is not enough: a container whose healthcheck is still
+    // `starting` (or `unhealthy`) must go through apply, whose `up --wait`
+    // blocks until it is healthy, before the database step touches postgres.
+    const notReady = findUnhealthyServices(services, required)
+    const missing = notReady.map((entry) => entry.service)
     ctx.infraMissing = missing
-    return { ok: missing.length === 0 && !ctx.flags.rebuild, detail: missing.length === 0 ? 'all infra containers running' : `starting: ${missing.join(', ')}` }
+    const detail = missing.length === 0
+      ? 'all infra containers running and healthy'
+      : `starting: ${notReady.map(({ service, state, health }) => (state === 'running' && health ? `${service} (${health})` : service)).join(', ')}`
+    return { ok: missing.length === 0 && !ctx.flags.rebuild, detail }
   },
   async apply(ctx) {
     const prepareOpencodeImage = ctx.ensureOpencodeImageImpl ?? ensureOpencodeImage
@@ -639,7 +646,13 @@ export const databaseStep = {
       if (alreadyInitialized) {
         ctx.log('   database already initialized (existing data volume) — recording state, skipping first-run seed')
       } else {
-        runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, ['initialize'])
+        // --skip-if-initialized keeps re-runs non-destructive when no probe
+        // could tell (e.g. --no-infra against an external, already seeded
+        // database): init then keeps the data instead of aborting with a hint
+        // to run the destructive --reinstall. An emptied volume (dbReinitialize)
+        // has no users, so it seeds either way; the flag is left off there.
+        const initArgs = ctx.dbReinitialize ? ['initialize'] : ['initialize', '--', '--skip-if-initialized']
+        runYarn({ ...ctx, env: { ...ctx.env, OM_INIT_DEV_AUTOSTART: '1' } }, initArgs)
       }
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }

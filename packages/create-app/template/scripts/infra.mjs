@@ -85,7 +85,7 @@ export async function ensureInfra({
   startImpl = startInfraServices,
 } = {}) {
   const services = resolveInfraServices(projectDir, { env, profiles })
-  log(`🐳 Starting local infrastructure (${services.map(({ service, port }) => `${service} :${port}`).join(', ')})...`)
+  log(`🐳 Local infrastructure: checking Docker, then starting ${services.map(({ service, port }) => `${service} :${port}`).join(', ')}...`)
   const externalHost = externalDatabaseHost(projectDir, env)
   if (externalHost) {
     log(`   DATABASE_URL points at ${externalHost}; it is kept as is. Use --no-infra to skip the local containers.`)
@@ -133,5 +133,22 @@ async function main() {
   process.exit(infraDown({ volumes: options.volumes }))
 }
 
-const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (isDirectRun) await main()
+// Compare real paths: the module URL is already resolved, while argv[1] keeps
+// symlinks, junctions, `subst` drives or another drive-letter case. A plain
+// path.resolve() comparison would then skip main() and `yarn infra:up` would
+// exit 0 without doing anything.
+export function isDirectRun(argvPath = process.argv[1], modulePath = fileURLToPath(import.meta.url), { platform = process.platform, realpath = fs.realpathSync } = {}) {
+  if (!argvPath) return false
+  const normalize = (candidate) => {
+    let resolved = path.resolve(candidate)
+    try {
+      resolved = realpath(resolved)
+    } catch {
+      // Keep the resolved path when the file cannot be stat'ed.
+    }
+    return platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  return normalize(argvPath) === normalize(modulePath)
+}
+
+if (isDirectRun()) await main()
