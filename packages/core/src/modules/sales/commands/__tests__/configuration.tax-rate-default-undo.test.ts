@@ -141,6 +141,34 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
+  it('demotes other defaults when update undo recreates a missing default tax rate', async () => {
+    const em = buildEm(null)
+
+    await runUndo(
+      'sales.tax-rates.update',
+      { before: taxRateSnapshot({ isDefault: true }), after: taxRateSnapshot({ name: 'Renamed VAT', isDefault: true }) },
+      em,
+    )
+
+    expect(em.persist).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(...expectedDemotion)
+  })
+
+  it('still demotes other defaults when the kept isDefault is true', async () => {
+    const record: Record<string, unknown> = { ...taxRateSnapshot({ name: 'Renamed VAT', isDefault: true }) }
+    const em = buildEm(record)
+
+    await runUndo(
+      'sales.tax-rates.update',
+      { before: taxRateSnapshot({ isDefault: true }), after: taxRateSnapshot({ name: 'Renamed VAT', isDefault: true }) },
+      em,
+    )
+
+    expect(record.isDefault).toBe(true)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(...expectedDemotion)
+  })
+
   it('leaves other tax rates untouched when the restored snapshot is not the default', async () => {
     const updateEm = buildEm({ ...taxRateSnapshot({ isDefault: true }) })
     await runUndo(

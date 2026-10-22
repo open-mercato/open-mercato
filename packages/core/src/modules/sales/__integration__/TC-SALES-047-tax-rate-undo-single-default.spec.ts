@@ -71,16 +71,20 @@ async function withDefaultRestored(
   token: string,
   run: (created: string[]) => Promise<void>,
 ) {
-  const originalDefaultId = (await listTaxRates(request, token)).find((row) => row.isDefault)?.id ?? null
+  const originalDefaults = (await listTaxRates(request, token)).filter((row) => row.isDefault)
   const created: string[] = []
   try {
     await run(created)
   } finally {
+    const createdRows = created.length ? await listTaxRates(request, token).catch(() => []) : []
+    const createdOrganizationId = createdRows.find((row) => created.includes(row.id))?.organizationId ?? null
     for (const id of created) {
       await apiRequest(request, 'DELETE', `${COLLECTION}?id=${encodeURIComponent(id)}`, { token }).catch(() => undefined)
     }
-    if (originalDefaultId) {
-      await apiRequest(request, 'PUT', COLLECTION, { token, data: { id: originalDefaultId, isDefault: true } }).catch(
+    const originalDefault =
+      originalDefaults.find((row) => row.organizationId === createdOrganizationId) ?? originalDefaults[0] ?? null
+    if (originalDefault) {
+      await apiRequest(request, 'PUT', COLLECTION, { token, data: { id: originalDefault.id, isDefault: true } }).catch(
         () => undefined,
       )
     }
@@ -123,6 +127,9 @@ test.describe('TC-SALES-047: tax-rate undo keeps a single default', () => {
       expect(deleteRes.status(), 'delete A').toBe(200)
       const deleteA = expectOperation(deleteRes, 'delete A')
       await updateTaxRate(request, token, { id: rateB, isDefault: true })
+      const beforeUndo = await listTaxRates(request, token)
+      expect(beforeUndo.some((row) => row.id === rateA), 'A is deleted').toBe(false)
+      expect(beforeUndo.find((row) => row.id === rateB)?.isDefault, 'B is the default').toBe(true)
 
       await undoOk(request, token, deleteA.undoToken, 'undo delete A')
       await expectSingleDefault(request, token, rateA, [rateB])
@@ -143,6 +150,7 @@ test.describe('TC-SALES-047: tax-rate undo keeps a single default', () => {
         'rename A',
       )
       await updateTaxRate(request, token, { id: rateB, isDefault: true })
+      await expectSingleDefault(request, token, rateB, [rateA])
 
       await undoOk(request, token, renameA.undoToken, 'undo rename A')
       const rows = await listTaxRates(request, token)
