@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -39,7 +38,7 @@ import {
   taskCrudIndexer,
   TASK_LIST_CACHE_RESOURCE,
 } from './timesheets-tasks'
-import { explicitStaffCommandScope, extractUndoPayload } from './shared'
+import { explicitStaffCommandScope, extractUndoPayload, lockLiveProjectForTaskWrite } from './shared'
 
 const logger = createLogger('staff').child({ component: 'commands/support-tickets' })
 
@@ -207,16 +206,7 @@ const createFromPortalCommand: CommandHandler<SupportTicketCreateFromPortalInput
           em,
           [
             async () => {
-              const project = await em.findOne(
-                StaffTimeProject,
-                {
-                  id: route.timeProjectId,
-                  tenantId: parsed.tenantId,
-                  organizationId: parsed.organizationId,
-                  deletedAt: null,
-                },
-                { lockMode: LockMode.PESSIMISTIC_READ },
-              )
+              const project = await lockLiveProjectForTaskWrite(em, route.timeProjectId, commandScope)
               if (!project) throw categoryUnavailableError(translate)
               const status = await em.findOne(StaffTimeTaskStatus, {
                 timeProjectId: project.id,

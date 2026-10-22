@@ -3,7 +3,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { StaffTeamMember } from '../data/entities'
+import { LockMode } from '@mikro-orm/core'
+import { StaffTeamMember, StaffTimeProject } from '../data/entities'
 
 export { ensureOrganizationScope, ensureTenantScope, extractUndoPayload }
 
@@ -124,4 +125,23 @@ export async function requireTeamMember(
   )
   if (!member) throw new CrudHttpError(404, { error: message })
   return member
+}
+
+/**
+ * Shared row lock every writer takes before it makes a task live on a project (create,
+ * portal intake, restore). The fallback-project undo holds the exclusive lock across its
+ * live-task count and the project's soft-delete, so a task write either lands first and
+ * blocks the undo, or waits and then sees the project gone. MUST run inside the writer's
+ * transaction; `null` means the project is not live once the lock is granted.
+ */
+export async function lockLiveProjectForTaskWrite(
+  em: EntityManager,
+  timeProjectId: string,
+  scope: StaffCommandScope,
+): Promise<StaffTimeProject | null> {
+  return em.findOne(
+    StaffTimeProject,
+    applyScopeToWhere<StaffTimeProject>({ id: timeProjectId, deletedAt: null }, scope),
+    { lockMode: LockMode.PESSIMISTIC_READ },
+  )
 }

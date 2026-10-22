@@ -69,7 +69,9 @@ import {
   commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
+  explicitStaffCommandScope,
   extractUndoPayload,
+  lockLiveProjectForTaskWrite,
   scopeForDecryption,
   scopedStaffSnapshotWhere,
   staffSnapshotScopeFromContext,
@@ -327,10 +329,7 @@ async function requireProject(
   scope: StaffCommandScope,
   translate: Translate,
 ): Promise<StaffTimeProject> {
-  const project = await em.findOne(
-    StaffTimeProject,
-    applyScopeToWhere<StaffTimeProject>({ id: timeProjectId, deletedAt: null }, scope),
-  )
+  const project = await lockLiveProjectForTaskWrite(em, timeProjectId, scope)
   if (!project) throw projectNotFoundError(translate)
   return project
 }
@@ -943,11 +942,18 @@ const deleteTaskCommand: CommandHandler<{ id?: string }, StaffTimeTaskDeleteResu
     const restored: StaffTimeTask[] = []
     const restoredTickets: StaffSupportTicket[] = []
     const ticketIds = payload?.cascadedSupportTicketIds ?? []
+    const { translate } = await resolveTranslations()
 
     await withAtomicFlush(
       em,
       [
         async () => {
+          const project = await lockLiveProjectForTaskWrite(
+            em,
+            before.timeProjectId,
+            explicitStaffCommandScope(before.tenantId, before.organizationId),
+          )
+          if (!project) throw projectNotFoundError(translate)
           const tasks = await em.find(StaffTimeTask, {
             id: { $in: ids },
             ...snapshotScopeWhere(snapshotScope),

@@ -75,11 +75,17 @@ function ticketRow(id: string, taskId: string, deletedAt: Date | null = null): R
 
 function makeWorld(tickets: Row[]) {
   const tasks = [taskRow(PARENT_ID, null), taskRow(CHILD_ID, PARENT_ID)]
-  const tableFor = (cls: { name: string }): Row[] => (cls.name === 'StaffTimeTask' ? tasks : cls.name === 'StaffSupportTicket' ? tickets : [])
+  const projects: Row[] = [{ id: 'project-1', tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null }]
+  const lockModes: unknown[] = []
+  const tables: Record<string, Row[]> = { StaffTimeTask: tasks, StaffSupportTicket: tickets, StaffTimeProject: projects }
+  const tableFor = (cls: { name: string }): Row[] => tables[cls.name] ?? []
   const em: Record<string, unknown> = {
     flush: jest.fn(async () => undefined),
     find: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => tableFor(cls).filter((row) => matches(row, where))),
-    findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>) => tableFor(cls).find((row) => matches(row, where)) ?? null),
+    findOne: jest.fn(async (cls: { name: string }, where: Record<string, unknown>, options?: { lockMode?: unknown }) => {
+      if (cls.name === 'StaffTimeProject') lockModes.push(options?.lockMode)
+      return tableFor(cls).find((row) => matches(row, where)) ?? null
+    }),
   }
   em.fork = () => em
   const ctx = {
@@ -93,7 +99,7 @@ function makeWorld(tickets: Row[]) {
       },
     } as unknown as AwilixContainer,
   }
-  return { tasks, ctx }
+  return { tasks, projects, lockModes, ctx }
 }
 
 type DeleteCommand = {
@@ -155,5 +161,26 @@ describe('task delete cascade of support tickets', () => {
     await command.undo({ logEntry: { commandPayload: { undo: { before } } }, ctx })
 
     expect(tickets[0].deletedAt).toBe(earlier)
+  })
+
+  it('undo restores under a shared project lock and refuses once the project was deleted', async () => {
+    const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
+    const tickets = [ticketRow('ticket-parent', PARENT_ID)]
+    const { tasks, projects, lockModes, ctx } = makeWorld(tickets)
+    const command = await loadDeleteCommand()
+
+    const snapshots = { before: await command.prepare({ id: PARENT_ID }, ctx) }
+    const result = await command.execute({ id: PARENT_ID }, ctx)
+    const log = await command.buildLog({ snapshots: snapshots.before, result })
+    projects[0].deletedAt = new Date()
+
+    const error = (await command
+      .undo({ logEntry: { commandPayload: log.payload }, ctx })
+      .then(() => null, (err: unknown) => err)) as { status?: number } | null
+
+    expect(error?.status).toBe(422)
+    expect(lockModes).toEqual([LockMode.PESSIMISTIC_READ])
+    expect(tasks.every((task) => task.deletedAt instanceof Date)).toBe(true)
+    expect(tickets[0].deletedAt).toBeInstanceOf(Date)
   })
 })
