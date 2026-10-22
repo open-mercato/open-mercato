@@ -63,7 +63,13 @@ async function loadCommand(id: string): Promise<RegisteredCommand> {
   return commandRegistry.get(id) as unknown as RegisteredCommand
 }
 
-function makeWorld(options: { assignee?: string | null; isDone?: boolean; raceWinner?: string; raceMovedToDone?: boolean } = {}) {
+function makeWorld(options: {
+  assignee?: string | null
+  isDone?: boolean
+  raceWinner?: string
+  raceMovedToDone?: boolean
+  afterWinningUpdate?: (task: TaskRow) => void
+} = {}) {
   const task: TaskRow = {
     id: TASK_ID,
     tenantId: TENANT_ID,
@@ -87,6 +93,9 @@ function makeWorld(options: { assignee?: string | null; isDone?: boolean; raceWi
     const statusFilter = where.taskStatusId as { $nin?: string[] } | undefined
     if (statusFilter?.$nin?.includes(task.taskStatusId)) return 0
     Object.assign(task, data)
+    const barrier = options.afterWinningUpdate
+    options.afterWinningUpdate = undefined
+    barrier?.(task)
     return 1
   })
   const em: Record<string, unknown> = {
@@ -201,6 +210,41 @@ describe('staff.timesheets.tasks.claim', () => {
     expect(task.assigneeStaffMemberId).toBe(OTHER_MEMBER_ID)
     expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
   })
+
+  it('reports the winning claim even when a manager reassigns before the result is captured, and undo leaves the later assignee alone', async () => {
+    const command = await loadCommand('staff.timesheets.tasks.claim')
+    const managerAssignedAt = new Date('2026-02-02T00:00:00.000Z')
+    const { task, ctx, nativeUpdate } = makeWorld({
+      afterWinningUpdate: (row) => {
+        row.assigneeStaffMemberId = OTHER_MEMBER_ID
+        row.updatedAt = managerAssignedAt
+      },
+    })
+
+    const result = await command.execute({ id: TASK_ID }, ctx)
+    const claimData = nativeUpdate.mock.calls[0][2] as { updatedAt: Date }
+
+    expect(result).toEqual(expect.objectContaining({
+      assigneeStaffMemberId: ACTOR_MEMBER_ID,
+      updatedAt: claimData.updatedAt.toISOString(),
+    }))
+    expect(mockEmitTaskAssigneeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: TASK_ID, assigneeStaffMemberId: ACTOR_MEMBER_ID }),
+      null,
+      'claim',
+      USER_ID,
+    )
+    expect(mockEmitCrudSideEffects.mock.calls[0][0].entity).toEqual(expect.objectContaining({ assigneeStaffMemberId: ACTOR_MEMBER_ID }))
+
+    const log = await command.buildLog({ result })
+    expect(log.payload.undo).toEqual(expect.objectContaining({ previousAssigneeStaffMemberId: null, nextAssigneeStaffMemberId: ACTOR_MEMBER_ID }))
+
+    await command.undo({ logEntry: { commandPayload: log.payload }, ctx })
+
+    expect(task.assigneeStaffMemberId).toBe(OTHER_MEMBER_ID)
+    expect(task.updatedAt).toBe(managerAssignedAt)
+    expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
 })
 
 describe('staff.timesheets.tasks.release', () => {
@@ -228,5 +272,54 @@ describe('staff.timesheets.tasks.release', () => {
     const command = await loadCommand('staff.timesheets.tasks.release')
     const { ctx } = makeWorld({ assignee: ACTOR_MEMBER_ID, raceWinner: OTHER_MEMBER_ID })
     await expectHttpError(command.execute({ id: TASK_ID }, ctx), 409, 'task_assignment_changed')
+  })
+
+  it('announces the release it made even when someone claims the task before the result is captured', async () => {
+    const command = await loadCommand('staff.timesheets.tasks.release')
+    const { task, ctx } = makeWorld({
+      assignee: ACTOR_MEMBER_ID,
+      afterWinningUpdate: (row) => {
+        row.assigneeStaffMemberId = OTHER_MEMBER_ID
+      },
+    })
+
+    const result = await command.execute({ id: TASK_ID }, ctx)
+
+    expect(result).toEqual(expect.objectContaining({ assigneeStaffMemberId: null, previousAssigneeStaffMemberId: ACTOR_MEMBER_ID }))
+    expect(mockEmitTaskAssigneeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: TASK_ID, assigneeStaffMemberId: null }),
+      ACTOR_MEMBER_ID,
+      'release',
+      USER_ID,
+    )
+
+    const log = await command.buildLog({ result })
+    await command.undo({ logEntry: { commandPayload: log.payload }, ctx })
+    expect(task.assigneeStaffMemberId).toBe(OTHER_MEMBER_ID)
+    expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
+  })
+
+  it('undo announces the assignee it restored, not one written after the restore', async () => {
+    const command = await loadCommand('staff.timesheets.tasks.release')
+    const world = makeWorld({ assignee: ACTOR_MEMBER_ID })
+    const result = await command.execute({ id: TASK_ID }, world.ctx)
+    const log = await command.buildLog({ result })
+    world.nativeUpdate.mockImplementationOnce(async (_cls: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      if (world.task.assigneeStaffMemberId !== where.assigneeStaffMemberId) return 0
+      Object.assign(world.task, data)
+      world.task.assigneeStaffMemberId = OTHER_MEMBER_ID
+      return 1
+    })
+    mockEmitTaskAssigneeChanged.mockClear()
+
+    await command.undo({ logEntry: { commandPayload: log.payload }, ctx: world.ctx })
+
+    expect(mockEmitCrudUndoSideEffects.mock.calls[0][0].entity).toEqual(expect.objectContaining({ assigneeStaffMemberId: ACTOR_MEMBER_ID }))
+    expect(mockEmitTaskAssigneeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ id: TASK_ID, assigneeStaffMemberId: ACTOR_MEMBER_ID }),
+      null,
+      'manual',
+      USER_ID,
+    )
   })
 })

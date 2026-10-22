@@ -126,6 +126,23 @@ async function emitTaskSideEffects(ctx: CommandRuntimeContext, task: StaffTimeTa
   else await emitCrudSideEffects(params)
 }
 
+/**
+ * The conditional UPDATE is the only moment this writer owns the row, so the outcome is
+ * built from what it wrote rather than re-read: a later writer may already have replaced
+ * the assignee, and reporting or undoing their value would be wrong.
+ */
+function captureWrittenState(
+  em: EntityManager,
+  task: StaffTimeTask,
+  assigneeStaffMemberId: string | null,
+  updatedAt: Date,
+): StaffTimeTask {
+  em.clear()
+  task.assigneeStaffMemberId = assigneeStaffMemberId
+  task.updatedAt = updatedAt
+  return task
+}
+
 function toResult(task: StaffTimeTask): StaffTimeTaskAssignmentResult {
   return {
     taskId: task.id,
@@ -142,20 +159,23 @@ async function restoreAssignee(
   payload: AssignmentUndoPayload,
 ): Promise<void> {
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const where = {
+    id: payload.taskId,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+    assigneeStaffMemberId: payload.nextAssigneeStaffMemberId,
+    deletedAt: null,
+  }
+  const current = await em.findOne(StaffTimeTask, where)
+  if (!current) return
+  const now = new Date()
   const affected = await em.nativeUpdate(
     StaffTimeTask,
-    {
-      id: payload.taskId,
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId,
-      assigneeStaffMemberId: payload.nextAssigneeStaffMemberId,
-      deletedAt: null,
-    },
-    { assigneeStaffMemberId: payload.previousAssigneeStaffMemberId, updatedAt: new Date() },
+    where,
+    { assigneeStaffMemberId: payload.previousAssigneeStaffMemberId, updatedAt: now },
   )
   if (affected === 0) return
-  const task = await em.findOne(StaffTimeTask, { id: payload.taskId, tenantId: payload.tenantId, organizationId: payload.organizationId })
-  if (!task) return
+  const task = captureWrittenState(em, current, payload.previousAssigneeStaffMemberId, now)
   await emitTaskSideEffects(ctx, task, true)
   emitTaskAssigneeChanged(task, payload.nextAssigneeStaffMemberId, 'manual', ctx.auth?.sub ?? null)
 }
@@ -205,9 +225,7 @@ const claimTaskCommand: CommandHandler<StaffTimeTaskAssignmentInput, StaffTimeTa
       if (!current.assigneeStaffMemberId && doneStatusIds.includes(current.taskStatusId)) throw notClaimable(translate)
       throw alreadyClaimed(translate)
     }
-    em.clear()
-    const claimed = await em.findOne(StaffTimeTask, { id: task.id, tenantId: task.tenantId, organizationId: task.organizationId })
-    if (!claimed) throw notFound(translate)
+    const claimed = captureWrittenState(em, task, staffMemberId, now)
     await emitTaskSideEffects(ctx, claimed)
     emitTaskAssigneeChanged(claimed, null, 'claim', ctx.auth?.sub ?? null)
     return toResult(claimed)
@@ -253,10 +271,11 @@ const releaseTaskCommand: CommandHandler<StaffTimeTaskAssignmentInput, StaffTime
         error: translate('staff.timesheets.errors.notAssignee', 'Only the current assignee can release this task.'),
       })
     }
+    const now = new Date()
     const affected = await em.nativeUpdate(
       StaffTimeTask,
       { id: task.id, tenantId: task.tenantId, organizationId: task.organizationId, assigneeStaffMemberId: staffMemberId, deletedAt: null },
-      { assigneeStaffMemberId: null, updatedAt: new Date() },
+      { assigneeStaffMemberId: null, updatedAt: now },
     )
     if (affected === 0) {
       throw new CrudHttpError(409, {
@@ -264,9 +283,7 @@ const releaseTaskCommand: CommandHandler<StaffTimeTaskAssignmentInput, StaffTime
         error: translate('staff.timesheets.errors.taskChanged', 'The task changed while you were releasing it. Refresh and try again.'),
       })
     }
-    em.clear()
-    const released = await em.findOne(StaffTimeTask, { id: task.id, tenantId: task.tenantId, organizationId: task.organizationId })
-    if (!released) throw notFound(translate)
+    const released = captureWrittenState(em, task, null, now)
     await emitTaskSideEffects(ctx, released)
     emitTaskAssigneeChanged(released, staffMemberId, 'release', ctx.auth?.sub ?? null)
     return { ...toResult(released), previousAssigneeStaffMemberId: staffMemberId }
