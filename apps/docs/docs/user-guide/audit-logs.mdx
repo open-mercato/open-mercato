@@ -39,6 +39,7 @@ Non-numeric, zero, or negative values fall back to the 10s default. The variable
 Access log retention is automatic and environment-configurable:
 
 - **Core resources** (`auth.user`, `auth.role`) are retained for **7 days** by default. Override with `AUDIT_LOGS_CORE_RETENTION_DAYS`.
+- **Extra core resource kinds** can be added with `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` (comma-separated; whitespace and empty entries are ignored). They are appended to the defaults, which always stay core. Recommended entry: `ai_assistant.mcp_tool_call`, so MCP tool-call audit rows follow core retention.
 - **All other resources** rotate after **8 hours** by default. Override with `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`.
 - **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
 

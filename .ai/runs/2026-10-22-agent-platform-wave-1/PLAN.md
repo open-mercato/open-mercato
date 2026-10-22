@@ -26,7 +26,7 @@
 | 1 | 1.5 | Add MCP exposure CLI flags and mcp:list-tools --effective | dispatch | done | bed3a53a3 |
 | 2 | 2.1 | Add the best-effort MCP tool-call audit writer | dispatch | done | 1c03d881a |
 | 2 | 2.2 | Audit every MCP and tools/execute call with correlation ids | dispatch | done | 5e6972fe3 |
-| 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | todo | — |
+| 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | done | 820425d4f |
 | 3 | 3.1 | Add the channel option and direct/deny mutation modes to executeTool | dispatch | todo | — |
 | 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | todo | — |
 | 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | todo | — |
