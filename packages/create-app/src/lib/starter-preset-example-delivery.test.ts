@@ -97,7 +97,8 @@ for (const presetId of PRESET_IDS) {
       assert.match(rootInstructions, /-> proceed \(`direct`\)/)
       assert.match(rootInstructions, /\(`reuse-spec`\)/)
       assert.match(rootInstructions, /ask once \(`ask`\)/)
-      assert.match(rootInstructions, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+      assert.match(rootInstructions, /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+      assert.doesNotMatch(rootInstructions, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
       assert.ok(
         existsSync(join(exampleDir, 'README.md')),
         `preset ${presetId} routes the spec gate at src/modules/example/README.md, which must exist`,

@@ -574,7 +574,7 @@ test('installed behavior discovery and field-versus-history design bind their ex
   const root = readAgentic('shared/AGENTS.md.template')
   const extensionSkill = readAgentic('shared/ai/skills/om-system-extension/SKILL.md')
   const uiSkill = readAgentic('shared/ai/skills/om-backend-ui-design/SKILL.md')
-  assert.match(root, /`architecture` \| Capability\/ownership\/field-vs-history choice/)
+  assert.match(root, /`architecture` \| Unresolved capability\/ownership\/field-vs-history choice; boundary, upgrade, override, or registry failure/)
   assert.match(root, /current behavior, authorization, dependents/)
   assert.match(root, /safest customization seam/)
   assert.match(uiSkill, /field, filter, row action, or bulk action added to an existing installed form\/table/)
