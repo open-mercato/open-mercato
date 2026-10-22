@@ -82,10 +82,10 @@ cancel ──▶ sales.orders.recurrence.cancel ──▶ record effective date 
 | `commands/recurrence.ts` | Recurrence set/replace/remove on quotes and orders before the first invoice; `sales.orders.recurrence.cancel`. |
 | `sales.invoices.create`, `sales.credit_memos.create` | Gain `ctx.transactionalEm` support, as `sales.quotes.convert_to_order` has (`documents.ts` ~6721–6727, 7069–7074): when the caller supplies a transaction they write on it and their post-commit work runs after the caller commits. Behaviour without it is unchanged. |
 | `workers/recurring-invoicing.ts` | Queue `sales.recurring_invoicing`, concurrency 1; issues every due period across organizations, oldest first. |
-| `setup.ts` | Registers **one system-scope schedule** with the optional `schedulerService` (`scopeType: 'system'`, `interval` `3600s`, `targetType: 'queue'`, `sourceModule: 'sales'`; precedent `customer_accounts/setup.ts`), from `onTenantCreated` and idempotently on every worker start, so existing deployments and organizations added later are covered without re-running `seedDefaults`. The CLI `mercato sales run-recurring-invoicing` runs the same path. |
+| `setup.ts` | Registers **one system-scope schedule** with the optional `schedulerService` (`scopeType: 'system'`, `interval` `3600s`, `targetType: 'queue'`, `sourceModule: 'sales'`; precedent: `registerDomainSchedules` in `customer_accounts/setup.ts` `seedDefaults`, the pattern `payment_gateways`, `checkout` and `ai-assistant` follow), from `seedDefaults` and idempotently on every worker start. The schedule is one system row, not per tenant, so no tenant-creation hook registers it; the worker-start registration covers existing deployments and tenants added later without re-running `seedDefaults`. The CLI `mercato sales run-recurring-invoicing` runs the same path. |
 | `services/paymentOrderTotalResolver.ts` | For recurring orders, the amount due is the oldest unpaid invoice's outstanding amount (R8). |
 
-**Time.** Anniversaries are calendar dates; "today" is the deployment's local date (`TZ`). A period is due from 00:00 on its anniversary and is issued at the next hourly run.
+**Time.** Anniversaries are calendar dates; "today" is the deployment's local date (`TZ`). A period is due from 00:00 on its anniversary and is issued at the next hourly run. There is no per-organization timezone: an organization whose local day differs from the deployment's sees its invoices issued, and its cancellation cutoffs applied, on the deployment's day — up to one calendar day early or late near midnight. This is the same documented limitation as in `2026-10-15-property-management.md`; an optional organization timezone can be added later as a nullable `sales_settings` column without migrating stored dates (see Risks).
 
 ## 📝 Data Model
 
@@ -131,7 +131,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 ### Money (R8)
 - For a recurring order, `paid_total`, `refunded_total` and `outstanding` on the order are **derived**: sums over its invoices (outstanding after credits and payments). They are recomputed when an invoice, credit memo, payment or allocation of the order changes.
 - `sales.credit_memos.create` against an invoice reduces that invoice's `outstanding` by the memo's gross amount, floored at zero (for every invoice, not only recurring ones — today a credit memo leaves the invoice's outstanding untouched). A credit beyond what is still outstanding is credit the customer is owed; refunding it uses the existing refund flows.
-- `resolveOrderAmountDue` returns the oldest unpaid invoice's outstanding for a recurring order; payments are allocated to invoices.
+- `resolveOrderAmountDue` returns the oldest unpaid invoice's outstanding for a recurring order; payments are allocated to invoices. This is a new branch: the current implementation (`services/paymentOrderTotalResolver.ts`) reads only the order's own totals and stays unchanged for non-recurring orders.
 - Sales analytics and the new-orders widget count a recurring order's **invoiced** amounts, not its per-period grand total.
 
 ### Cancelling (R4)
@@ -186,6 +186,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 | Unbilled months after a future-dated cancellation | invoicing, consumers | High | `cancelling` keeps billing until the cutoff; tests with future effective dates | Low |
 | Payment gateways or KPIs misread a recurring order | payments, analytics | High | Derived order money fields; resolver uses invoices; analytics use invoiced amounts | Low |
 | Missed invoices when the schedule is missing | invoicing | Medium | System schedule registered on worker start; banner; CLI | Low |
+| Organizations in different timezones in one deployment | invoicing, cancellation | Medium | Anniversaries are calendar dates and "today" is the deployment clock (`TZ`), so an organization in another timezone gets invoices and cutoffs up to one day off near midnight — documented limitation, as in the property-management spec; an optional organization timezone can be added later as a nullable `sales_settings` column without migrating stored dates | Low |
 | Behaviour change: credit memos now reduce invoice outstanding | invoices, payments | Medium | Documented in UPGRADE_NOTES; previously outstanding stayed overstated after a credit | Low |
 | Lost post-commit events after a crash | integrations, consumers | Low | `events_emitted_at` on the ledger row; re-emission on the next run | Low |
 
@@ -238,3 +239,6 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 ### 2026-10-21
 - Initial specification from the property-management review: recurrence on quotes and orders, anniversary invoicing in advance, cancellation with an organization-default settlement (R1–R7, decided with the maintainer).
 - Revised after an adversarial review (maintainer decisions R8–R10): pay per invoice with derived order totals; adjustments apply to every period; a recurring quote cannot be accepted after its start date; only *Cancel recurring order* stops a recurring order. Future-dated cancellations keep billing until the cutoff (`cancelling`) and settle the final period when it comes due; the worker dispatches the invoice and credit-memo commands on its own transaction instead of bypassing the bus; one system-scope schedule covers existing deployments; recurrence row locking shared by cancel and worker; explicit anchor day; idempotent cancel; issue date is the actual issue day; invoices generated by a recurrence cannot be deleted; credit memos reduce invoice outstanding.
+
+### 2026-10-22
+- Review of #7765 by `om-auto-review-pr`: the single-deployment `TZ` assumption is documented in Architecture → Time and as a Risks row (mirroring the property-management spec); the system schedule's registration now cites `seedDefaults` (`customer_accounts/setup.ts` `registerDomainSchedules`) plus worker start, with no tenant-creation hook; the recurring-order branch of `resolveOrderAmountDue` is marked as new logic.
