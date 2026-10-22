@@ -102,7 +102,7 @@ export function resolveGithubModuleTarget(input: string, cwd: string, options: {
     return source
   }
   for (const moduleId of requiredModuleIds) {
-    if (!moduleIds.includes(moduleId)) throw new Error(`Repository ${repository} no longer provides enabled module "${moduleId}". No package was installed.`)
+    if (!moduleIds.includes(moduleId)) continue
     assertModulePackageExports(manifest, packageName, moduleId, files, readSource)
   }
   return { packageName, packageSpec: `${packageName}@github:${repository}#${sha}`, moduleIds, locator: `github:${repository}` }

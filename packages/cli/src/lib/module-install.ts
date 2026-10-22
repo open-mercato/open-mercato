@@ -411,6 +411,9 @@ export async function enableOfficialModule(
   eject = false,
   allowThirdParty = false,
 ): Promise<ModuleCommandResult> {
+  if (!SAFE_PACKAGE_SPEC_PATTERN.test(packageName) || parsePackageNameFromSpec(packageName) !== packageName) {
+    throw new Error('Unsupported installed package binding. Use the installed npm package name or alias, without a locator, path or version selector.')
+  }
   getEnabledModuleIdentities(resolver)
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
   assertThirdPartyAllowed(modulePackage.packageName, allowThirdParty)

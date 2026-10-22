@@ -88,6 +88,14 @@ describe('enableOfficialModule', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it.each(['../outside-package', '/absolute/package', 'npm:package', '@vendor/package@next'])('rejects %s as an installed binding before package resolution', async (binding) => {
+    const resolver = buildResolver(path.join(tmpDir, 'app'), path.join(tmpDir, 'package'), 'export const enabledModules = []\n')
+    const lookup = jest.spyOn(resolver, 'getPackageRoot')
+    await expect(enableOfficialModule(resolver, binding, undefined, false, true)).rejects.toThrow('Unsupported installed package binding')
+    expect(lookup).not.toHaveBeenCalled()
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe('export const enabledModules = []\n')
+  })
+
   it('throws when module is already enabled in modules.ts with the same source', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     const appDir = path.join(tmpDir, 'app')
