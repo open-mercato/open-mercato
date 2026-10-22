@@ -402,8 +402,8 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
     // One-way handoff: the root routes, the module skill owns the procedure.
     assert.match(
       root,
-      /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
-      `${label} must hand approved module work to om-module-scaffold at the canonical example README`,
+      /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
+      `${label} must hand complete business modules or CRUD slices to om-module-scaffold at the canonical example README`,
     )
     assert.doesNotMatch(
       root,
@@ -943,4 +943,35 @@ test('each migrated owner family renders a visible exact-file link into the cano
       `${owner} must render a visible exact-file link to ${requiredTarget}; it links ${JSON.stringify(resolved)}`,
     )
   }
+})
+
+test('installed-surface ownership does not route an app-owned CLI primitive to UMES', () => {
+  for (const root of [readAgentic('shared/AGENTS.md.template'), readPackage('create-app/template/AGENTS.md')]) {
+    const ownershipRule = root.match(/^Installed API\/command\/record\/status\/event\/UI changes\/guards = .+$/m)?.[0]
+    assert.ok(ownershipRule, 'installed API/command changes need an installed-surface qualifier')
+    assert.match(ownershipRule, /changes\/guards = `umes`/)
+    assert.match(ownershipRule, /app-owned CLI-only primitives alone stay `module-data`/)
+    assert.match(ownershipRule, /installed guard without app persistence = `umes` only/)
+    assert.match(root, /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+    assert.doesNotMatch(root, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+    assert.match(root, /\| `module-data` \| Search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
+  }
+})
+
+test('CLI-only primitive context remains bounded without dropping compiled-path or validation gates', () => {
+  const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  const primitiveGate = skill.match(/^For a CLI-only primitive .+$/m)?.[0]
+  assert.ok(primitiveGate, 'a narrow CLI primitive must not load complete-module references unconditionally')
+  assert.match(primitiveGate, /no domain mutation, API, persistence, or UI work/)
+  assert.match(primitiveGate, /`\.ai\/guides\/contracts\.md` and `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+  assert.match(primitiveGate, /skip the example README\/inventory and the procedure references in steps 3, 4, and 7/)
+  assert.match(primitiveGate, /trusted scope, `cli\.ts` discovery, source and compiled-package command behavior tests/)
+  for (const command of ['yarn generate', 'yarn typecheck', 'yarn lint']) assert.ok(primitiveGate.includes(`\`${command}\``))
+  assert.match(primitiveGate, /smallest applicable build gate/)
+  assert.match(primitiveGate, /pack\/install a disposable consumer and verify there/)
+  assert.match(skill, /For complete business modules or CRUD slices, START at/)
+  assert.match(skill, /complete one-shot module or CRUD vertical slice, steps 3, 4, and 7 are mandatory/)
+  assert.match(skill, /^3\. \*\*Build domain writes and APIs\.\*\* CLI-only primitives skip this step\. Every API\/schema\/command implementation or fix MUST read/m)
+  assert.match(skill, /^4\. \*\*Wire module surfaces\.\*\* Unless the CLI-only primitive gate applies, follow `references\/module-surfaces\.md`/m)
+  assert.match(skill, /^7\. \*\*Verify\.\*\* Unless the CLI-only primitive gate applies, follow `references\/verification\.md`/m)
 })
