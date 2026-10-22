@@ -5,7 +5,7 @@ description: Complete standalone Open Mercato business app/module/CRUD slices: d
 
 # Scaffold a Complete Module
 
-Only user-authorized specification-only deliverables: ground plans in requested reference owners/facts; implementation procedures await implementation authorization.
+Only user-authorized specification-only deliverables: read all required/requested reference owners/facts; defer only extra implementation procedures until authorized.
 
 Minimal working slices: `src/modules/<id>/`. Complete business modules/CRUD slices START at [`src/modules/example/README.md`](../../../src/modules/example/README.md). For source lookup: use [`surface-inventory.json`](../../../src/modules/example/references/surface-inventory.json) upfront for design/provenance metadata or if default [`surface-map.md`](../../../src/modules/example/references/surface-map.md) is outside exact read permissions; otherwise human map. One already-authorized index, never both. Adapt only named capability rows. Skill/example `references/`: procedures/indexes.
 

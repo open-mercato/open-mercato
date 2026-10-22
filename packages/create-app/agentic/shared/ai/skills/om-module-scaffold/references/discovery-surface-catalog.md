@@ -32,6 +32,8 @@ Complete module capability/ownership maps read `.ai/guides/architecture.md` and 
 
 Do not use legacy HTTP-method directories or new flat page files. The installed generator's `page.tsx`/`route.ts` scanner and generated facts are authoritative if an older upstream guide shows a retired convention.
 
+Before mapping public discovery/support contracts, read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`.
+
 Compatibility scanners may still read `data/entities.override.*`, `data/entities.*`, `data/schema.*`, legacy `db/*`, or `data/fields.ts`. Treat those as installed read-only/retired inputs, not new app authoring patterns; new entities stay in `data/entities.ts`, and new custom fields/entities use `ce.ts`.
 
 ## Events, Async, and Data Presentation

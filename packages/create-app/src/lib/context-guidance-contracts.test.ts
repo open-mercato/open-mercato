@@ -369,19 +369,19 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
   for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
     const root = read()
     assert.equal(
-      (root.match(/Spec gate before code:/g) ?? []).length,
+      (root.match(/Spec before code:/g) ?? []).length,
       1,
       `${label} must state the spec gate exactly once; one rule, one owner`,
     )
     // The six ordered branches from the decision contract, in order.
     assert.match(
       root,
-      /Spec gate before code: new capability\/architecture\/schema\/API contract\/cross-module\/multi-phase -> spec first \(`spec-first`\)/,
+      /Spec before code: new capability\/architecture\/schema\/API contract\/cross-module\/multi-phase -> spec \(`spec-first`\)/,
       `${label} must require a spec before a new capability, architecture, contract, cross-module, or multi-phase change`,
     )
     assert.match(
       root,
-      /covering `\.ai\/specs` match -> reuse and update it \(`reuse-spec`\)/,
+      /covering `\.ai\/specs` -> reuse\/update \(`reuse-spec`\)/,
       `${label} must reuse a covering spec instead of duplicating it`,
     )
     assert.match(
@@ -391,7 +391,7 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
     )
     assert.match(
       root,
-      /only the request's explicit words waive a feature spec/,
+      /only explicit request words waive a feature spec/,
       `${label} must accept only a current explicit instruction as the skip override`,
     )
     assert.match(
@@ -402,7 +402,7 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
     // One-way handoff: the root routes, the module skill owns the procedure.
     assert.match(
       root,
-      /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
+      /Complete business modules\/CRUD slices: `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
       `${label} must hand complete business modules or CRUD slices to om-module-scaffold at the canonical example README`,
     )
     assert.doesNotMatch(
@@ -586,10 +586,10 @@ test('installed behavior discovery and field-versus-history design bind their ex
   assert.match(uiSkill, /stable host ID \(`stable-host-id`\)/)
   assert.match(uiSkill, /App-owned persisted fields\/entities also require `module-data`, contracts, and `om-data-model-design`/)
   assert.match(uiSkill, /new server API\/command paths instead require `module-data`, contracts, and `om-module-scaffold`/)
-  assert.match(root, /Installed form\/table fields\/filters\/row\/bulk actions without app persistence = `umes` \+ `backend-ui` only/)
+  assert.match(root, /Installed form\/table fields\/filters\/row\/bulk actions without app persistence\/API = `umes` \+ `backend-ui` only/)
   assert.match(root, /read `crud-surfaces` \+ `quality-states`; skip contracts\/module-scaffold\/page\/navigation/)
-  assert.match(root, /installed guard without app persistence = `umes` only, so do not load contracts/)
-  assert.match(root, /read-only behavior\/auth\/dependents\/customization = `framework-context`/)
+  assert.match(root, /installed guards without either = `umes` only: skip contracts/)
+  assert.match(root, /[Rr]ead-only behavior\/auth\/dependents\/customization = `framework-context`/)
   assert.match(root, /`framework-context` \(alone: no extensions guide; report `installed-version`\)/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
   const frameworkContext = readAgentic('shared/ai/skills/om-framework-context/SKILL.md')
@@ -689,7 +689,7 @@ test('integration routing binds installed-record imports and optional carriers a
 test('debugging stays additive to cross-module domain and extension work', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   const debugging = readAgentic('guides/testing-debugging.md')
-  assert.match(root, /Additive axes: ownership=WHO, others=WHAT\. Select every match\./)
+  assert.match(root, /Axes add: ownership=WHO, others=WHAT\. Select every match\./)
   assert.match(root, /`debugging` \| Bug\/security\/drift\/runtime inconsistency \| `\.ai\/guides\/testing-debugging\.md` \+ affected areas/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
   assert.match(root, /A scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
@@ -952,8 +952,8 @@ test('installed-surface ownership does not route an app-owned CLI primitive to U
     const ownershipRule = root.match(/^Installed API\/command\/record\/status\/event\/UI changes\/guards = .+$/m)?.[0]
     assert.ok(ownershipRule, 'installed API/command changes need an installed-surface qualifier')
     assert.match(ownershipRule, /changes\/guards = `umes`/)
-    assert.match(ownershipRule, /installed guard without app persistence = `umes` only/)
-    assert.match(root, /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+    assert.match(ownershipRule, /installed guards without either = `umes` only/)
+    assert.match(root, /Complete business modules\/CRUD slices: `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
     assert.doesNotMatch(root, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
     assert.match(root, /\| `module-data` \| Owned search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
   }

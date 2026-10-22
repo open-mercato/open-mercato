@@ -68,3 +68,17 @@ test('portal principal scope stays distinct from staff authentication and CRM ho
     assert.match(root, /Contract-surface changes .*BACKWARD_COMPATIBILITY/)
   }
 })
+
+
+test('customer-principal API adapters require domain owners while pure installed guards stay slim', () => {
+  for (const relative of ['../../agentic/shared/AGENTS.md.template', '../../template/AGENTS.md']) {
+    const root = fs.readFileSync(new URL(relative, import.meta.url), 'utf8')
+    assert.match(root, /\| `module-data` \| App-owned domain\/data\/API; customer-principal API adapters for staff-only hosts \|/)
+    assert.match(root, /app-owned persistence\/API adapters = `module-data`/)
+    assert.match(root, /installed guards without either = `umes` only: skip contracts/)
+    assert.match(root, /Installed form\/table fields\/filters\/row\/bulk actions without app persistence\/API = `umes` \+ `backend-ui` only/)
+    assert.match(root, /read `crud-surfaces` \+ `quality-states`; skip contracts\/module-scaffold\/page\/navigation/)
+    assert.match(root, /merely hiding\/toggling\/rewiring installed UI does not/)
+    assert.match(root, /portal→portal\+customer_accounts/)
+  }
+})

@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 44,
-    "recordCount": 201,
+    "recordCount": 205,
     "sourceRequiredCount": 131,
-    "readableCount": 201,
+    "readableCount": 205,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -3961,6 +3961,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:guides/module-tool#explanation-installed-contracts",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/module-tool.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/module-tool.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/module-tool#file-artifact-unknown-origin",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/module-tool.md",
@@ -4401,6 +4412,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#onboarding-engine-owned-state",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#onboarding-existing-workflow-and-mail",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
@@ -4435,6 +4457,17 @@
     },
     {
       "referenceId": "rule:om-module-scaffold/discovery-surface-catalog#complete-capability-map-architecture",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/discovery-surface-catalog#public-contract-mapping-compatibility",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
       "heading": null,
@@ -4556,6 +4589,17 @@
     },
     {
       "referenceId": "rule:root#business-modeling-excludes-provider-metadata",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#customer-principal-api-adapters",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,

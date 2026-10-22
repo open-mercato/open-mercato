@@ -373,14 +373,24 @@ test('family 1: a relevant case reads the example entrypoints and several exact 
 
     // The root's own inventory is readable and charged, but it does not satisfy the start rule.
     const inventoryPath = `${EXAMPLE_ROOT}/references/surface-inventory.json`
+    const inventoryReads = [{ path: `${EXAMPLE_ROOT}/README.md` }, { path: inventoryPath }]
+    const inventoryBytes = inventoryReads.reduce((total, entry) => total + fs.statSync(path.join(root, entry.path)).size, 0)
+    assert.ok(inventoryBytes <= 262_144)
     const withInventory = evaluator.evaluateExampleReadPolicy({
-      caseRecord,
+      caseRecord: declaredCase({ maxBytes: inventoryBytes }),
       appRoot: root,
-      reads: [{ path: `${EXAMPLE_ROOT}/README.md` }, { path: inventoryPath }],
+      reads: inventoryReads,
     })
     assert.equal(withInventory.firstViolation, null)
     assert.equal(withInventory.roots[0].files, 2)
+    assert.equal(withInventory.roots[0].bytes, inventoryBytes)
     assert.deepEqual(withInventory.roots[0].entrypoints, ['README.md'])
+    const inventoryOverflow = evaluator.evaluateExampleReadPolicy({
+      caseRecord: declaredCase({ maxBytes: inventoryBytes - 1 }),
+      appRoot: root,
+      reads: inventoryReads,
+    })
+    assert.equal(inventoryOverflow.firstViolation, `example root byte budget exceeded: ${inventoryBytes}/${inventoryBytes - 1}`)
     const inventoryFirst = evaluator.evaluateExampleReadPolicy({
       caseRecord,
       appRoot: root,
@@ -1405,7 +1415,7 @@ test('reachability: every shipped declaring case can afford every capability thr
       context.diagnostic(`${entry.id}: ${files.length} reference files/${bytes} bytes, initial ${initial.length} files/${initialBytes} bytes, total ${total} bytes`)
       if (['OMH-185', 'OMH-193'].includes(entry.id)) {
         assert.equal(inRoot.length, 30)
-        assert.equal(bytes, 254_193)
+        assert.equal(bytes, 254_470)
         assert.ok(initial.includes('node_modules/@open-mercato/shared/AGENTS.md'))
         assert.ok(total >= bytes + fs.statSync(path.join(root, 'node_modules/@open-mercato/shared/AGENTS.md')).size)
       }

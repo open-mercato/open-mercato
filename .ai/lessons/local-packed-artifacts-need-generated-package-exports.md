@@ -2,7 +2,7 @@
 title: "Local packed artifacts need generated package exports before rebuilding"
 modules: ["create_app", "cli"]
 areas: ["architecture", "testing"]
-topics: ["generated-files", "build-output", "package-runtime", "template-sync", "testing"]
+topics: ["generated-files", "build-output", "package-runtime", "template-sync", "testing", "preset-applicability"]
 ---
 
 # Local packed artifacts need generated package exports before rebuilding
@@ -20,5 +20,7 @@ Instruction assertions must likewise target the artifact they describe: source t
 Scaffold-only environment flags must not leak into controller preparation. Unset `OM_SKIP_EXTERNAL_SKILLS` before installing the pinned external skill collection, and verify its exact revision and directory hashes alongside local skill ownership before any live evaluation. A controller containing only local skills is incomplete; preserve its attempts as diagnostics and prepare a new controller rather than certifying or silently repairing the frozen copy.
 
 Measure required context separately from observed optional reads before changing a harness ceiling. An extra selected skill can make an observed run exceed its budget even when every mandatory owner fits. Conversely, prove an unavoidable minimum from the task, owning instructions, visible fact projections and fixed oracle before calibrating an impossible ceiling. Measure all presets and keep safety, write, refusal and semantic checks unchanged.
+
+Validate the full catalog on a fresh fully enabled controller. For reduced presets, preserve their actual failures and check each missing fact against the intentionally disabled module set; do not invent inactive facts or call a failed full-catalog probe a pass. Fresh applicable-preset payload, link, root and pinned-skill proofs remain required.
 
 **Applies to**: Local packed workspace verification, fresh worktrees, standalone harness controllers, and publishable packages with generated exports.

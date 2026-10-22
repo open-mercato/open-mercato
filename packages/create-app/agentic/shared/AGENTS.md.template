@@ -38,7 +38,7 @@ Route production deployment/go-live/operational readiness: `architecture` + `.ai
 
 ## 3 Axes
 
-Additive axes: ownership=WHO, others=WHAT. Select every match.
+Axes add: ownership=WHO, others=WHAT. Select every match.
 
 A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
@@ -46,9 +46,9 @@ A scalar-ID/snapshot fix to persisted records or commands linked to an installed
 
 Unified-override audits = `umes` only; unresolved ownership/installed keys add `architecture`/`framework-context`. Durable process/activity/user task = `ai-workflow`; app business persistence/host-state coordination adds `module-data`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
-`backend-ui`: replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
+Replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
 Staff UI preview/report/bulk = `backend-ui`.
-Installed form/table fields/filters/row/bulk actions without app persistence = `umes` + `backend-ui` only: read `crud-surfaces` + `quality-states`; skip contracts/module-scaffold/page/navigation.
+Installed form/table fields/filters/row/bulk actions without app persistence/API = `umes` + `backend-ui` only: read `crud-surfaces` + `quality-states`; skip contracts/module-scaffold/page/navigation.
 
 `backend-ui`: UI skill `references/quality-states.md`; public/portal/responsive/a11y adds `frontend-and-design-system.md`.
 
@@ -57,14 +57,14 @@ Installed form/table fields/filters/row/bulk actions without app persistence = `
 | Route | Match | Context |
 |---|---|---|
 | `architecture` | Unresolved capability/ownership/field-vs-history choice; boundary, upgrade, override, or registry failure; routine discovery stays in its area | `.ai/guides/architecture.md` + named facts |
-| `module-data` | App-owned domain/data/API | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
+| `module-data` | App-owned domain/data/API; customer-principal API adapters for staff-only hosts | `src/modules/<id>/` + `.ai/guides/contracts.md`; add architecture only when ownership is unresolved |
 | `umes` | Extend/replace installed behavior | `.ai/guides/extensions.md` + named facts |
 | `backend-ui` | Authored/restyled rendered surface or browser UI state/session bootstrap | `.ai/guides/backend-ui.md` + host facts; host-provided integration credentials/health UI alone does not match |
 | `integration` | Provider, spreadsheet/CSV/file I/O, sync/webhook/storage | `.ai/guides/integrations.md`; imports = `integration`; AI consuming files = `ai-workflow`, NEVER `integration` unless transport/storage changes |
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-Installed API/command/record/status/event/UI changes/guards = `umes`; app persistence = `module-data`; installed guard without app persistence = `umes` only, so do not load contracts; read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`). Facts do not. Providers are published, never `packages/*`.
+Installed API/command/record/status/event/UI changes/guards = `umes`; app-owned persistence/API adapters = `module-data`; installed guards without either = `umes` only: skip contracts. Read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`); facts do not. Providers are published, never `packages/*`.
 
 ### Axis 2 — Units
 
@@ -95,7 +95,7 @@ Match units; skill first
 
 ### Axis 3 — Delivery
 
-Spec gate before code: new capability/architecture/schema/API contract/cross-module/multi-phase -> spec first (`spec-first`); covering `.ai/specs` match -> reuse and update it (`reuse-spec`); bug fix/minor fix/docs/dependency/isolated refactor -> proceed (`direct`); only the request's explicit words waive a feature spec; workflow-changing ambiguity -> ask once (`ask`). For complete business modules or CRUD slices, `om-module-scaffold` starts at `src/modules/example/README.md`.
+Spec before code: new capability/architecture/schema/API contract/cross-module/multi-phase -> spec (`spec-first`); covering `.ai/specs` -> reuse/update (`reuse-spec`); bug fix/minor fix/docs/dependency/isolated refactor -> proceed (`direct`); only explicit request words waive a feature spec; workflow-changing ambiguity -> ask once (`ask`). Complete business modules/CRUD slices: `om-module-scaffold` starts at `src/modules/example/README.md`.
 
 Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override. Missing skill: `yarn install-skills`. Commit+ready PR MUST add `spec-pr`, read `.ai/skills/om-auto-create-pr/SKILL.md`, and keep task routes (`delivery-route-preserves-task-routes`).
 
@@ -108,7 +108,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 ### Budgets
 
 - Matched guides once; needed refs/facts only.
-- Budgets: guide > skill > references; named subjects only.
+- Budgets: guide > skill > refs; named subjects only.
 - `spec-pr` reads template via spec-delivery.
 - App call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.

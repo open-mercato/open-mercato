@@ -197,12 +197,12 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     'shared `Input`, `Button`, and `Alert`',
     '`@open-mercato\/ui\/primitives\/input`',
     'async execute(input, ctx)',
-    'Delete undo must call `buildCustomFieldResetMap`',
-    '`yarn generate` and then `yarn typecheck`',
+    'Delete undo calls `buildCustomFieldResetMap`',
+    '`yarn generate`, then `yarn typecheck`',
   ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
-  assert.match(blueprint, /Do not create any test outside `commands\/__tests__\/`/)
+  assert.match(blueprint, /Create no test outside `commands\/__tests__\/` until typecheck is green/)
   assert.match(blueprint, /do not hide oracle-significant behavior in shared helpers/)
-  assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
+  assert.match(blueprint, /Defer optional locales, standalone widget\/event\/enricher files, and extra entities until the required slice generates, tests, and typechecks/)
 })
 
 test('the 240-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {

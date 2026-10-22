@@ -36,8 +36,8 @@ test('only an authorized specification-only deliverable defers module implementa
   const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
   const phase = scaffold.split('\n').find(line => /Only user-authorized specification-only deliverables/.test(line))
   assert.ok(phase, 'The phase exception must require the user-authorized deliverable, not read-only evaluation')
-  assert.match(phase, /ground plans in requested reference owners\/facts/)
-  assert.match(phase, /implementation procedures await implementation authorization/)
+  assert.match(phase, /read all required\/requested reference owners\/facts/)
+  assert.match(phase, /defer only extra implementation procedures until authorized/)
   assert.ok(scaffold.indexOf(phase) < scaffold.indexOf('Complete one-shot modules/CRUD slices MUST'))
   assert.match(scaffold, /Complete one-shot modules\/CRUD slices MUST directly read exact step 3\/4\/7 paths before writing/)
   for (const reference of ['api-and-domain.md', 'module-surfaces.md', 'verification.md']) {
@@ -45,4 +45,21 @@ test('only an authorized specification-only deliverable defers module implementa
   }
   assert.match(blueprints, /At library contract selection\/reference planning, directly read `node_modules\/@open-mercato\/shared\/AGENTS\.md`/)
   assert.match(blueprints, /`\.ai\/skills\/om-system-extension\/references\/verification\.md` for cross-module proof\. Read both before writing or implementation\./)
+})
+
+test('canonical public discovery mappings read compatibility before classifying stable or retired contracts', () => {
+  const catalog = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md', import.meta.url), 'utf8')
+  assert.match(catalog, /Before mapping public discovery\/support contracts, read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+  assert.match(catalog, /Compatibility scanners may still read/)
+  assert.match(catalog, /installed read-only\/retired inputs, not new app authoring patterns/)
+})
+
+test('onboarding reuses workflow-owned checklist state unless distinct app business records are required', () => {
+  const onboarding = blueprints.split('\n').find(line => line.includes('Automate customer onboarding across sales, tasks, and email.'))
+  assert.ok(onboarding)
+  assert.match(onboarding, /Reuse installed workflow-owned checklist\/task state/)
+  assert.match(onboarding, /app persistence only for distinct business records/)
+  assert.match(onboarding, /`M\+W\+U\+B`/)
+  assert.match(onboarding, /add `P` only for actual new provider\/transport\/mailbox work/)
+  for (const guard of ['idempotent steps', 'explicit compensation', 'no credentials in workflow state', 'missing optional provider yields actionable pause']) assert.ok(onboarding.includes(guard))
 })

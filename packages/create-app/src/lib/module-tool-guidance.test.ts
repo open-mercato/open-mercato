@@ -75,3 +75,14 @@ test('local artifact inspection preserves unknown provenance and protects active
   assert.match(guide, /omit an unknown `locator`/i)
   assert.match(guide, /active binding replacement must fail before Yarn when its origin cannot be preserved/i)
 })
+
+test('receiving-app explanations inspect installed contracts before giving alias replacement or ejection advice', () => {
+  const guide = read('agentic/guides/module-tool.md')
+  const receiving = guide.slice(guide.indexOf('## Receiving app:'))
+  assert.match(receiving, /Before explaining or planning receiving-app installation, aliases, provider replacement, or ejection, read the exact installed CLI contracts/)
+  for (const source of ['module-install.ts', 'module-identity.ts', 'eject.ts']) {
+    assert.ok(receiving.includes(`../../node_modules/@open-mercato/cli/src/lib/${source}`))
+  }
+  assert.match(receiving, /These files are read-only evidence/)
+  assert.match(receiving, /report that limitation instead of guessing its behavior/)
+})

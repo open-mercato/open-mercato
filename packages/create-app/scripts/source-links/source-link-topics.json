@@ -1340,7 +1340,31 @@
       "topicId": "rule:om-module-scaffold#authorized-specification-phase",
       "owner": ".ai/skills/om-module-scaffold/SKILL.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "Only user-authorized specification-only deliverables: ground plans in requested reference owners/facts; implementation procedures await implementation authorization."
+      "evidence": "Only user-authorized specification-only deliverables: read all required/requested reference owners/facts; defer only extra implementation procedures until authorized."
+    },
+    {
+      "topicId": "rule:guides/module-tool#explanation-installed-contracts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Before explaining or planning receiving-app installation, aliases, provider replacement, or ejection, read the exact installed CLI contracts"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/discovery-surface-catalog#public-contract-mapping-compatibility",
+      "owner": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Before mapping public discovery/support contracts, read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#onboarding-engine-owned-state",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Reuse installed workflow-owned checklist/task state; app persistence only for distinct business records"
+    },
+    {
+      "topicId": "rule:root#customer-principal-api-adapters",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "App-owned domain/data/API; customer-principal API adapters for staff-only hosts"
     }
   ]
 }

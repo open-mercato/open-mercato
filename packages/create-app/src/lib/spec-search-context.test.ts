@@ -72,6 +72,20 @@ test('activating inactive shipped modules adds an app capability while retaining
   assert.match(covering, /routes, navigation entries, migrations, seeds, ACL features, workers, and search indexes/)
 })
 
+test('the shipped activation specification covers activation without claiming unrelated reference-grounded business features', () => {
+  const covering = fs.readFileSync(new URL('../../agentic/shared/ai/specs/2026-08-06-reference-module-activation.md', import.meta.url), 'utf8')
+  const index = fs.readFileSync(new URL('../../agentic/shared/ai/specs/README.md', import.meta.url), 'utf8')
+  const gate = fs.readFileSync(new URL('../../agentic/guides/spec-delivery.md', import.meta.url), 'utf8')
+  assert.match(covering, /Requests to enable the Todo demo or expose the design-system gallery are covered here — amend this file/)
+  assert.match(covering, /An unrelated new business feature needs its own covering specification even when it reuses either reference module/)
+  assert.match(covering, /New app-owned business features are outside this activation scope/)
+  assert.match(covering, /\| App-owned feature using a reference \| separate covering specification \|/)
+  assert.doesNotMatch(covering, /first app capability on top of either one are covered here|enable either reference module, or build on it/)
+  assert.match(index, /enabling the source-present Todo example and component gallery, feature grants, and migration consequences/)
+  assert.match(gate, /If a covering file matches, read that exact file and choose `reuse-spec`/)
+  assert.match(gate, /Never open a second spec for the same capability/)
+})
+
 test('reference-grounded specifications discover the emitted local facts without guessing installed-module paths', () => {
   const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
   const referenceIndex = '.ai/guides/reference-modules/example/index.md'
