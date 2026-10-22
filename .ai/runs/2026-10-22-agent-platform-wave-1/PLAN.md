@@ -43,11 +43,11 @@
 | 5 | 5.2 | Time tool executions per tool call id | dispatch | done | 098973f29 |
 | 5 | 5.3 | Build chat and object loop traces from the extraction helper | dispatch | done | 4b42bc23e |
 | 5 | 5.4 | Record AO native trace tool calls through the extraction helper | dispatch | done | 1ae775ef3 |
-| 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | done | 757a4267b |
-| 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | done | 6b67a61c2 |
-| 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | done | 9d77f3904 |
-| 6 | 6.4 | Add eval gate report CLI flags and exit codes | dispatch | done | 2c952a295 |
-| 6 | 6.5 | Add the eval run report route and download menu | dispatch | done | 98ee07f44 |
+| 6 | 6.1 | Link replayed judge results to eval case runs and pass expected | dispatch | done | e6390004a |
+| 6 | 6.2 | Build the portable eval report model with flaky detection | dispatch | done | c2fd50b6e |
+| 6 | 6.3 | Render eval reports as Markdown and JUnit | dispatch:cheap | done | 97b03a230 |
+| 6 | 6.4 | Add eval gate report CLI flags and exit codes | dispatch | done | f231ce3e6 |
+| 6 | 6.5 | Add the eval run report route and download menu | dispatch | done | 0fc0190bd |
 | 7 | 7.1 | Add document structure types and locators | dispatch:cheap | todo | — |
 | 7 | 7.2 | Add the plain-text structure engine and engine registry | dispatch | todo | — |
 | 7 | 7.3 | Add the section structurer | dispatch:capable | todo | — |
