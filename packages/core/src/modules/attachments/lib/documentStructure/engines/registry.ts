@@ -1,4 +1,5 @@
 import type { DocumentStructureEngine } from '../types'
+import { docxStructureEngine } from './docx'
 import { pdfLayoutStructureEngine } from './pdfLayout'
 import { textStructureEngine } from './text'
 
@@ -14,7 +15,7 @@ export type DocumentStructureEngineRegistry = {
 }
 
 export function defaultDocumentStructureEngines(): DocumentStructureEngine[] {
-  return [pdfLayoutStructureEngine, textStructureEngine]
+  return [pdfLayoutStructureEngine, docxStructureEngine, textStructureEngine]
 }
 
 export function resolveEngine(
