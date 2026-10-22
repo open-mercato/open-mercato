@@ -6704,6 +6704,7 @@
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/portal/index.md",
         ".ai/guides/modules/customer_accounts/index.md",
         ".ai/guides/modules/sales/index.md",
         ".ai/guides/modules/notifications/index.md"
@@ -18340,7 +18341,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "How can I add a tab to the customer page? Start with the source-present canonical example's injection table and its visible inventory entry to identify the declared customer-detail target. If the exact installed customers contract differs from that local example after inspection, follow only the one exact installed source file the routed facts name and label that read with the declared installed-version contract-mismatch reason. Never enumerate or traverse installed packages.",
+    "prompt": "How can I add tabs to both person and company customer detail pages? Start with the source-present canonical example's injection table and its visible inventory entry to identify its declared person-detail target only. Resolve the separate company host from the required installed customers facts. If the exact installed person contract differs from that local example after inspection, follow only the one exact installed person source file the routed facts name and label that read with the declared installed-version contract-mismatch reason. Never enumerate or traverse installed packages.",
     "tags": [
       "umes",
       "backend-ui",

@@ -72,7 +72,7 @@ Match units; skill first
 
 | Route | Work unit | Skill/context |
 |---|---|---|
-| `architecture` | Scaffold a module starter, publish, or link an app module | `.ai/guides/module-tool.md`; implementation also loads `om-module-scaffold` |
+| `architecture` | Scaffold module starter; publish/link an app module | `.ai/guides/module-tool.md`; implementation also loads `om-module-scaffold` |
 | `architecture` | Explain/choose module, UMES, package, eject | `om-help` for unresolved/comparative choices among these mechanisms |
 | `module-data` | Business slice/multi-seam domain/API/command fix | MUST load `om-module-scaffold` + exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key (units, not ownership); ownership/capability outline adds `architecture` |
 | `spec-pr` | Author/reuse spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
@@ -81,7 +81,7 @@ Match units; skill first
 | `module-data` | Business-record design: entity/link/validator/migration/encryption/lock/transaction; not helper reuse/provider metadata | `om-data-model-design` + contracts |
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
-| `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
+| `module-data` | Owned search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
 | `umes` | Installed-host fields/extension entities; links/enrichers/injection/interceptors/guards/subscribers/DOM/hosts/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/AI file or content drafting/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |

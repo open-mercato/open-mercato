@@ -39,6 +39,7 @@ test('root modeling routes require business-record design rather than existing w
     assert.match(modeling, /Business-record design: entity\/link\/validator\/migration\/encryption\/lock\/transaction/)
     assert.match(modeling, /not helper reuse\/provider metadata/)
     assert.match(text, /Durable process\/activity\/user task = `ai-workflow`; app business persistence\/host-state coordination adds `module-data`/)
+    assert.match(text, /\| `module-data` \| Owned search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
     assert.doesNotMatch(text, /Durable process\/activity\/user task = `module-data` \+ `ai-workflow`/)
     assert.match(text, /Installed-host custom fields\/entities = `umes` \+ `module-data` \+ `om-data-model-design`/)
     assert.match(text, /scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)

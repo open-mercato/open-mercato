@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 42,
-    "recordCount": 187,
-    "sourceRequiredCount": 130,
-    "readableCount": 187,
+    "ownerCount": 44,
+    "recordCount": 195,
+    "sourceRequiredCount": 131,
+    "readableCount": 195,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -1352,6 +1352,27 @@
             "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
           }
         }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:references/surface-inventory.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../src/modules/example/references/surface-inventory.json",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-inventory.json",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
@@ -3962,6 +3983,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:guides/spec-delivery#activation-adds-app-capability",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/spec-delivery.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/spec-delivery.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:guides/spec-delivery#metadata-first-covering-spec",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/guides/spec-delivery.md",
@@ -4002,6 +4034,17 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/guides/testing-debugging.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-backend-ui-design/frontend-and-design-system#authorized-design-metadata",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
       "moduleId": null,
       "capabilityIds": []
     },
@@ -4281,7 +4324,29 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#library-contract-planning",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#library-postcommit-owners",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/business-one-shot-blueprints#onboarding-existing-workflow-and-mail",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "heading": null,
@@ -4314,6 +4379,17 @@
       "capabilityIds": []
     },
     {
+      "referenceId": "rule:om-module-scaffold/discovery-surface-catalog#complete-capability-map-architecture",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
       "referenceId": "rule:om-module-scaffold/module-surfaces#search-configuration",
       "requirement": "retained-normative-snippet",
       "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
@@ -4321,6 +4397,17 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/runtime-cache-and-queues#source-selection-route-boundary",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
       "moduleId": null,
       "capabilityIds": []
     },
@@ -4447,6 +4534,17 @@
     },
     {
       "referenceId": "rule:root#migration-probe-and-approval",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#owned-lifecycle-surfaces",
       "requirement": "retained-normative-snippet",
       "originAsset": "AGENTS.md",
       "heading": null,

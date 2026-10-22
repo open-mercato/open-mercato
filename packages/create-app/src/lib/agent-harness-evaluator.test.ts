@@ -5329,3 +5329,91 @@ test('catalog validation binds each semantic oracle to its own fixed runner', ()
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+function specPlanningUnitCase() {
+  return {
+    id: 'spec-reference-unit', mode: 'spec', evaluationKind: 'implementation',
+    prompt: 'Author only a specification using the explicitly required planning references.',
+    expectedRouter: { required: ['spec-pr'], allowedExtra: [] },
+    requiredSkills: ['om-spec-writing', 'om-module-scaffold', 'om-backend-ui-design'],
+    context: {
+      required: ['AGENTS.md', '.ai/guides/backend-ui.md', '.agents/skills/om-spec-writing/SKILL.md', '.ai/skills/om-module-scaffold/SKILL.md', '.ai/skills/om-backend-ui-design/SKILL.md'],
+      allowedExtra: [] as string[], forbidden: ['.env*', '.git/**'],
+    },
+    allowedWrites: ['.ai/specs/**'], requiredDecisions: [], forbiddenPatterns: [],
+    maxContextFiles: 16, maxInitialContextBytes: 98_304, maxTotalContextBytes: 262_144,
+  }
+}
+
+async function withPlanningRoutingUnit(run: (unit: {
+  evaluateRouting: (record: Record<string, unknown>, response: Record<string, unknown>, stats: Record<string, unknown>, readOrder: string[], writes: string[], root: string) => string[]
+  buildPrompt: (record: Record<string, unknown>, root: string, writable: boolean) => string
+}, root: string) => void) {
+  const root = stageApp()
+  try {
+    const file = path.join(root, 'scripts/evaluate-agent-harness.mjs')
+    fs.appendFileSync(file, '\nexport { evaluateRouting, buildPrompt };\n')
+    await run(await import(pathToFileURL(file).href), root)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+}
+
+function planningUnitResponse(record: ReturnType<typeof specPlanningUnitCase>) {
+  return { selectedRouter: ['spec-pr'], selectedSkills: [...record.requiredSkills], selectedContext: [...record.context.required], decisions: [], violations: [] }
+}
+
+function planningUnitStats(response: ReturnType<typeof planningUnitResponse>) {
+  return { paths: response.selectedContext, initialFiles: response.selectedContext.length, initialBytes: 100, bytes: 100 }
+}
+
+test('spec-only authoring uses exact required domain references without implementation routes or write authority', async () => {
+  await withPlanningRoutingUnit((unit, root) => {
+    const record = specPlanningUnitCase()
+    const response = planningUnitResponse(record)
+    assert.deepEqual(unit.evaluateRouting(record, response, planningUnitStats(response), response.selectedContext, [], root), [])
+    const prompt = unit.buildPrompt(record, root, true)
+    assert.ok(prompt.includes('Explicitly required planning references do not select implementation routes: .ai/guides/backend-ui.md, .ai/skills/om-backend-ui-design/SKILL.md, .ai/skills/om-module-scaffold/SKILL.md.'))
+    assert.ok(prompt.includes('All other opened routed guides and skills still require their owning routes.'))
+    assert.deepEqual(record.allowedWrites, ['.ai/specs/**'])
+  })
+})
+
+for (const scenario of ['ordinary', 'implementation-route', 'source-grant', 'no-grants', 'not-spec-writer', 'wrong-prefix', 'traversal', 'backslash', 'absolute', 'optional-guide', 'undeclared-skill'] as const) {
+  test(`planning-reference ownership exemption rejects ${scenario}`, async () => {
+    await withPlanningRoutingUnit((unit, root) => {
+      const record = specPlanningUnitCase()
+      if (scenario === 'ordinary') record.mode = 'one-shot'
+      else if (scenario === 'implementation-route') record.expectedRouter.required.push('module-data')
+      else if (scenario === 'source-grant') record.allowedWrites.push('src/modules/example_app/**')
+      else if (scenario === 'no-grants') record.allowedWrites = []
+      else if (scenario === 'not-spec-writer') record.requiredSkills = record.requiredSkills.filter(skill => skill !== 'om-spec-writing')
+      else if (scenario === 'wrong-prefix') record.allowedWrites = ['.ai/specifications/**']
+      else if (scenario === 'traversal') record.allowedWrites = ['.ai/specs/../../src/**']
+      else if (scenario === 'backslash') record.allowedWrites = ['.ai/specs/..\\..\\src/**']
+      else if (scenario === 'absolute') record.allowedWrites = ['/.ai/specs/**']
+      else if (scenario === 'optional-guide') {
+        record.context.required = record.context.required.filter(file => file !== '.ai/guides/backend-ui.md')
+        record.context.allowedExtra.push('.ai/guides/backend-ui.md')
+      } else record.requiredSkills = record.requiredSkills.filter(skill => skill !== 'om-backend-ui-design')
+      const response = planningUnitResponse(record)
+      if (!response.selectedContext.includes('.ai/guides/backend-ui.md')) response.selectedContext.push('.ai/guides/backend-ui.md')
+      const violations = unit.evaluateRouting(record, response, planningUnitStats(response), response.selectedContext, [], root)
+      assert.ok(violations.includes('standard context .ai/guides/backend-ui.md requires route backend-ui'), JSON.stringify(violations))
+    })
+  })
+}
+
+test('planning references still require successful reads and selected skills and reject extra routes', async () => {
+  await withPlanningRoutingUnit((unit, root) => {
+    const record = specPlanningUnitCase()
+    const response = planningUnitResponse(record)
+    const missingGuide = structuredClone(response)
+    missingGuide.selectedContext = missingGuide.selectedContext.filter(file => file !== '.ai/guides/backend-ui.md')
+    assert.ok(unit.evaluateRouting(record, missingGuide, planningUnitStats(missingGuide), missingGuide.selectedContext, [], root).includes('required context not observed .ai/guides/backend-ui.md'))
+    const missingSkill = structuredClone(response)
+    missingSkill.selectedSkills = missingSkill.selectedSkills.filter(skill => skill !== 'om-backend-ui-design')
+    assert.ok(unit.evaluateRouting(record, missingSkill, planningUnitStats(missingSkill), missingSkill.selectedContext, [], root).includes('missing skill om-backend-ui-design'))
+    const extraRoute = structuredClone(response)
+    extraRoute.selectedRouter.push('backend-ui')
+    assert.ok(unit.evaluateRouting(record, extraRoute, planningUnitStats(extraRoute), extraRoute.selectedContext, [], root).includes('unexpected route backend-ui'))
+  })
+})

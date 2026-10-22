@@ -2,6 +2,8 @@
 
 Load this reference when deciding which convention files a complete module needs. It is a routing catalog, not a checklist: create only surfaces required by the brief, then run `yarn generate` after adding, removing, or renaming any discovered surface.
 
+Complete module capability/ownership maps read `.ai/guides/architecture.md` and use the architecture-only planning exception; name specialist ownership without loading implementation procedures. Explicit AI contract selection still loads its AI guide/skill; a single known surface stays in its owning area.
+
 ## Ownership and Domain
 
 | Surface | Canonical path | Contract |

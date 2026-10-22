@@ -22,7 +22,7 @@ test('standalone module tooling has one routed owner for creation, publication a
   assert.match(section, /link.*local.*fresh clone/is)
   assert.match(section, /generated.*(?:never edit|do not edit)/is)
   for (const root of ['agentic/shared/AGENTS.md.template', 'template/AGENTS.md']) {
-    assert.match(read(root), /Scaffold a module starter, publish, or link an app module.*module-tool\.md/)
+    assert.match(read(root), /Scaffold module starter; publish\/link an app module.*module-tool\.md/)
   }
   assert.match(read('agentic/guides/architecture.md'), /\.ai\/guides\/module-tool\.md/)
   const scaffold = read('agentic/shared/ai/skills/om-module-scaffold/SKILL.md')

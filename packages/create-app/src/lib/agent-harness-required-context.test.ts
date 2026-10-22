@@ -17,7 +17,45 @@ type HarnessCase = {
   maxContextFiles: number
   maxInitialContextBytes: number
   maxTotalContextBytes: number
+  expectedRouter?: { required: string[]; allowedExtra?: string[] }
 }
+
+test('built-in onboarding keeps its real mandatory initial context within the original ceiling for every preset', (context) => {
+  const records = JSON.parse(fs.readFileSync(new URL('../../agentic/shared/ai/harness/cases.json', import.meta.url), 'utf8')) as HarnessCase[]
+  const record = records.find(record => record.id === 'OMH-097')
+  assert.ok(record)
+  assert.equal(record.maxInitialContextBytes, 66_560)
+  assert.equal(record.maxContextFiles, 12)
+  assert.equal(record.maxTotalContextBytes, 548_864)
+  assert.deepEqual(record.requiredSkills, ['om-module-scaffold', 'om-backend-ui-design', 'om-system-extension', 'om-build-workflow'])
+  assert.ok(![...record.requiredSkills, ...record.context.required].some(value => value.includes('om-data-model-design') || value.includes('om-integration-builder')))
+  assert.ok(![...(record.expectedRouter?.required ?? []), ...(record.expectedRouter?.allowedExtra ?? [])].includes('integration'))
+  const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+  const available = new Set(discoverPackageModuleSources(createResolver(repositoryRoot)).map(source => source.moduleId))
+  for (const preset of ['classic', 'crm', 'empty', 'wms']) {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'om-onboarding-context-'))
+    try {
+      fs.mkdirSync(path.join(fixture, 'src'))
+      fs.mkdirSync(path.join(fixture, '.mercato'))
+      fs.copyFileSync(new URL('../../template/src/modules.ts', import.meta.url), path.join(fixture, 'src/modules.ts'))
+      applyStarterPreset(preset, fixture)
+      const modules = readEnabledModuleIds(path.join(fixture, 'src/modules.ts')).filter(id => available.has(id))
+      const config = { targetDir: fixture, projectName: preset }
+      generateShared(config)
+      injectModuleGuides(path.join(fixture, 'AGENTS.md'), modules)
+      generateCodex(config)
+      enforceRootInstructionBudget(path.join(fixture, 'AGENTS.md'), modules)
+      const initial = record.context.required.filter(file => !file.includes('/references/') && !file.startsWith('.ai/guides/modules/'))
+      const bytes = initial.reduce((total, file) => total + fs.statSync(path.join(fixture, file)).size, 0)
+      const rootBytes = fs.statSync(path.join(fixture, 'AGENTS.md')).size
+      assert.ok(initial.length <= record.maxContextFiles)
+      assert.ok(bytes <= record.maxInitialContextBytes)
+      assert.ok(rootBytes <= STANDALONE_ROOT_TARGET_BYTES)
+      assert.ok(bytes - rootBytes + STANDALONE_ROOT_TARGET_BYTES <= record.maxInitialContextBytes)
+      context.diagnostic(`${preset}: ${bytes} initial bytes; 12KiB root bound ${bytes - rootBytes + STANDALONE_ROOT_TARGET_BYTES}`)
+    } finally { fs.rmSync(fixture, { recursive: true, force: true }) }
+  }
+})
 
 test('DataTable extension context includes both mandatory skills within its measured initial ceiling', () => {
   const cases = JSON.parse(fs.readFileSync(new URL('../../agentic/shared/ai/harness/cases.json', import.meta.url), 'utf8')) as HarnessCase[]

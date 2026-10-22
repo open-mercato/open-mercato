@@ -37,3 +37,37 @@ test('spec implementation delegates exact example navigation to its scaffold own
   assert.doesNotMatch(guide, /starts at `src\/modules\/example\/README\.md` and its `references\/surface-inventory\.json`/)
   assert.match(guide, /Never propose a second teaching module, copy the example tree wholesale, or treat `ratelimit_probe` as a blueprint/)
 })
+
+test('the CRM tab request explicitly covers both hosts without treating the local person example as company evidence', () => {
+  const cases = JSON.parse(fs.readFileSync(new URL('../../agentic/shared/ai/harness/cases.json', import.meta.url), 'utf8')) as Array<{
+    id: string
+    prompt: string
+    requiredDecisions: string[]
+    context: { required: string[]; allowedExtra: string[] }
+  }>
+  const record = cases.find(record => record.id === 'OMH-203')
+  assert.ok(record)
+  assert.match(record.prompt, /both person and company customer detail pages/)
+  assert.match(record.prompt, /identify its declared person-detail target only/)
+  assert.match(record.prompt, /Resolve the separate company host from the required installed customers facts/)
+  assert.match(record.prompt, /If the exact installed person contract differs/)
+  assert.ok(record.context.required.includes('.ai/guides/modules/customers/index.md'))
+  assert.deepEqual(record.context.allowedExtra.filter(file => file.startsWith('node_modules/')), [
+    'node_modules/@open-mercato/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
+  ])
+  for (const decision of ['person-detail-tab-spot', 'company-detail-tab-spot']) assert.ok(record.requiredDecisions.includes(decision))
+  const local = fs.readFileSync(new URL('../../template/src/modules/example/widgets/injection-table.ts', import.meta.url), 'utf8')
+  assert.ok(local.includes('customers.person.detail:details'))
+  assert.ok(!local.includes('customers.company.detail:details'))
+})
+
+test('activating inactive shipped modules adds an app capability while retaining covering-spec reuse', () => {
+  const guide = fs.readFileSync(new URL('../../agentic/guides/spec-delivery.md', import.meta.url), 'utf8')
+  assert.match(guide, /Activating shipped but inactive modules for users adds a new app-visible capability even when their source already exists/)
+  assert.match(guide, /reuse its covering specification rather than treating activation as maintenance or writing a duplicate/)
+  assert.doesNotMatch(guide, /OMH-\d{3}|NEW_CAPABILITY|COVERING_SPEC_FOUND/)
+  assert.match(guide, /A covering spec already exists: implement against it and update it in place/)
+  const covering = fs.readFileSync(new URL('../../agentic/shared/ai/specs/2026-08-06-reference-module-activation.md', import.meta.url), 'utf8')
+  assert.match(covering, /source-present and runtime-absent/)
+  assert.match(covering, /routes, navigation entries, migrations, seeds, ACL features, workers, and search indexes/)
+})

@@ -160,3 +160,115 @@ test('refused protected-source enumeration still fails above the unchanged six-r
     assert.equal(trace.exampleReadPolicy.roots[0].bytes, 0)
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
+
+for (const id of ['OMH-185', 'OMH-193']) {
+  test(`${id} real MCP denied missing references count as refusals without loading context`, () => {
+    const root = fixture()
+    try {
+      const record = records.find(record => record.id === id)
+      assert.ok(record)
+      const missing = `${example}/reference.md`
+      assert.ok(!fs.existsSync(path.join(root, missing)))
+      const allowed = evaluator.caseReadAllowlist(record, true, root)
+      const result = spawnSync(process.execPath, [server, root, 'read-only', JSON.stringify(allowed), '[]'], {
+        input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'read', arguments: { path: missing } } }) + '\n',
+        encoding: 'utf8', env: {},
+      })
+      assert.equal(result.status, 0, result.stderr)
+      const reply = JSON.parse(result.stdout.trim())
+      assert.equal(reply.result.isError, true)
+      const trace = evaluator.observedContext(wire([{ path: 'AGENTS.md' }, { path: missing, refused: reply.result.isError }]), root, record, true)
+      assert.deepEqual(trace.violations, [])
+      assert.deepEqual(trace.paths, ['AGENTS.md'])
+      assert.deepEqual(trace.readOrder, ['AGENTS.md'])
+      assert.deepEqual(trace.refusedPaths, [missing])
+      assert.equal(trace.exampleReadPolicy.roots[0].files, 0)
+      assert.equal(trace.exampleReadPolicy.roots[0].bytes, 0)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+for (const prefix of [example, '.ai/guides']) {
+  test(`missing refused paths under ${prefix} enforce the unchanged six-attempt limit`, () => {
+    const root = fixture()
+    try {
+      const record = records.find(record => record.id === 'OMH-185')
+      assert.ok(record)
+      const missing = Array.from({ length: 7 }, (_, index) => `${prefix}/missing-${index}.md`)
+      const reads = missing.map(file => ({ path: file, refused: true }))
+      const bounded = evaluator.observedContext(wire([{ path: 'AGENTS.md' }, ...reads.slice(0, 6)]), root, record, false)
+      assert.deepEqual(bounded.violations, [])
+      assert.deepEqual(bounded.refusedPaths, missing.slice(0, 6))
+      const overflow = evaluator.observedContext(wire([{ path: 'AGENTS.md' }, ...reads]), root, record, false)
+      assert.deepEqual(overflow.paths, ['AGENTS.md'])
+      assert.deepEqual(overflow.refusedPaths, missing)
+      assert.deepEqual(overflow.violations, ['refused context read budget exceeded: 7/6'])
+      assert.equal(overflow.exampleReadPolicy.roots[0].files, 0)
+      assert.equal(overflow.exampleReadPolicy.roots[0].bytes, 0)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+for (const shape of ['inside-symlink-parent', 'outside-symlink-parent', 'dangling-symlink-parent', 'file-parent', 'missing-forbidden', 'missing-case-forbidden', 'missing-glob']) {
+  test(`a refused missing ${shape} path still fails its safety guard`, () => {
+    const root = fixture()
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'om-refused-missing-outside-'))
+    try {
+      const record = structuredClone(records.find(record => record.id === 'OMH-185'))
+      assert.ok(record)
+      let target = `${example}/unsafe-parent/missing.md`
+      const parent = path.join(root, example, 'unsafe-parent')
+      if (shape === 'inside-symlink-parent') fs.symlinkSync(path.join(root, example, 'references'), parent)
+      else if (shape === 'outside-symlink-parent') fs.symlinkSync(outside, parent)
+      else if (shape === 'dangling-symlink-parent') fs.symlinkSync(path.join(outside, 'absent'), parent)
+      else if (shape === 'file-parent') fs.writeFileSync(parent, 'not a directory')
+      else if (shape === 'missing-forbidden') target = `${example}/.env.missing`
+      else if (shape === 'missing-case-forbidden') {
+        record.context.forbidden.push(target)
+      } else target = `${example}/missing/**`
+      const trace = evaluator.observedContext(wire([{ path: 'AGENTS.md' }, { path: target, refused: true }]), root, record, false)
+      assert.ok(trace.violations.length > 0, shape)
+      assert.deepEqual(trace.paths, ['AGENTS.md'])
+      assert.deepEqual(trace.refusedPaths, [])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+}
+
+test('a successful missing protected reference still fails rather than becoming a refusal', () => {
+  const root = fixture()
+  try {
+    const record = records.find(record => record.id === 'OMH-185')
+    assert.ok(record)
+    const missing = `${example}/reference.md`
+    const trace = evaluator.observedContext(wire([{ path: 'AGENTS.md' }, { path: missing }]), root, record, false)
+    assert.ok(trace.violations.some((message: string) => message.includes('example-root read does not exist')))
+    assert.deepEqual(trace.refusedPaths, [])
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const shape of ['inside-symlink-parent', 'outside-symlink-parent', 'dangling-symlink-parent', 'file-parent']) {
+  test(`missing denied reads outside the example root reject a ${shape}`, () => {
+    const root = fixture()
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'om-refused-missing-parent-'))
+    try {
+      const record = records.find(record => record.id === 'OMH-185')
+      assert.ok(record)
+      const parent = path.join(root, 'unsafe-parent')
+      if (shape === 'inside-symlink-parent') fs.symlinkSync(path.join(root, example), parent)
+      else if (shape === 'outside-symlink-parent') fs.symlinkSync(outside, parent)
+      else if (shape === 'dangling-symlink-parent') fs.symlinkSync(path.join(outside, 'absent'), parent)
+      else fs.writeFileSync(parent, 'not a directory')
+      const target = 'unsafe-parent/missing.md'
+      const trace = evaluator.observedContext(wire([{ path: 'AGENTS.md' }, { path: target, refused: true }]), root, record, false)
+      assert.ok(trace.violations.some((message: string) => message.includes('refused context ancestor')))
+      assert.deepEqual(trace.paths, ['AGENTS.md'])
+      assert.deepEqual(trace.refusedPaths, [])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
+}

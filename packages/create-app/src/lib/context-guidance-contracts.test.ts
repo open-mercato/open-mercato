@@ -955,7 +955,7 @@ test('installed-surface ownership does not route an app-owned CLI primitive to U
     assert.match(ownershipRule, /installed guard without app persistence = `umes` only/)
     assert.match(root, /For complete business modules or CRUD slices, `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
     assert.doesNotMatch(root, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
-    assert.match(root, /\| `module-data` \| Search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
+    assert.match(root, /\| `module-data` \| Owned search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
   }
 })
 

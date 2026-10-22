@@ -1164,7 +1164,7 @@
       "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#unresolved-architecture",
       "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
       "requirement": "retained-normative-snippet",
-      "evidence": "`M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` when persisting records."
+      "evidence": "`M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` for new app-owned business data/schema or persisted fields, not already-owned workflow-engine state."
     },
     {
       "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#forecast-stable-hosts",
@@ -1256,6 +1256,55 @@
       "owner": ".ai/guides/extensions.md",
       "requirement": "retained-normative-snippet",
       "evidence": "For Customers detail tabs, distinguish person and company hosts in installed facts. The example's person spot does not apply to companies; select only the requested exact host."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#library-contract-planning",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "During library contract selection/reference planning, directly read `node_modules/@open-mercato/shared/AGENTS.md` for authoritative helpers and `.ai/skills/om-system-extension/references/verification.md` for cross-module proof. Do not defer these reads until writing or after implementation."
+    },
+    {
+      "topicId": "rule:guides/spec-delivery#activation-adds-app-capability",
+      "owner": ".ai/guides/spec-delivery.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Activating shipped but inactive modules for users adds a new app-visible capability even when their source already exists; reuse its covering specification rather than treating activation as maintenance or writing a duplicate."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/business-one-shot-blueprints#onboarding-existing-workflow-and-mail",
+      "owner": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "`M+W+U+B`; add `P` only for actual new provider/transport/mailbox work; built-in welcome/invite helpers do not require integration"
+    },
+    {
+      "topicId": "rule:om-module-scaffold/discovery-surface-catalog#complete-capability-map-architecture",
+      "owner": ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Complete module capability/ownership maps read `.ai/guides/architecture.md` and use the architecture-only planning exception; name specialist ownership without loading implementation procedures. Explicit AI contract selection still loads its AI guide/skill; a single known surface stays in its owning area."
+    },
+    {
+      "topicId": "rule:om-module-scaffold/runtime-cache-and-queues#source-selection-route-boundary",
+      "owner": ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Source-selection-only requests for existing app-module bulk/progress references stay `module-data`. An unchanged widget filename alone does not require UI or UMES implementation procedures. Actual rendered UI changes or installed-host integration still add their matching routes and guards."
+    },
+    {
+      "topicId": "rule:root#owned-lifecycle-surfaces",
+      "owner": "AGENTS.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "| `module-data` | Owned search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |"
+    },
+    {
+      "topicId": "rule:om-backend-ui-design/frontend-and-design-system#authorized-design-metadata",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "Use design metadata in the already-authorized canonical [`surface-inventory.json`](../../../../src/modules/example/references/surface-inventory.json); follow only the requested family. Do not expand read permissions to controller-private `.ai/harness/` data."
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:references/surface-inventory.json",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/references/surface-inventory.json",
+      "resolvedPath": "src/modules/example/references/surface-inventory.json"
     }
   ]
 }

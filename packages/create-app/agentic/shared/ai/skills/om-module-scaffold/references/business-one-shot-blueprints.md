@@ -4,7 +4,7 @@ Load this reference when the user describes a business outcome rather than files
 
 ## Route Key
 
-- `M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` when persisting records.
+- `M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` for new app-owned business data/schema or persisted fields, not already-owned workflow-engine state.
 - `U` — `om-system-extension` plus the extensions guide for additive installed-module behavior.
 - `P` — `om-integration-builder` plus the integrations guide for a reusable external provider.
 - `B` — `om-backend-ui-design` for admin, public, or portal UI.
@@ -32,11 +32,13 @@ Treat this mapping as a completion checklist, not optional examples. Verify each
 
 ### Complete Library Contract
 
+During library contract selection/reference planning, directly read `node_modules/@open-mercato/shared/AGENTS.md` for authoritative helpers and `.ai/skills/om-system-extension/references/verification.md` for cross-module proof. Do not defer these reads until writing or after implementation.
+
 For library command post-commit cache/index and undo consistency, first read `.ai/guides/modules/query_index/index.md` and `references/runtime-cache-and-queues.md` Cache rules; do not infer queued work.
 
-When the selected row is the complete library app, do a final source-level check against this bounded contract before generation; do not generalize these library IDs into other domains:
+For the complete library app, check this bounded contract at source level before generation; do not generalize library IDs to other domains:
 
-The required procedures plus this bounded contract resolve the library slice's framework choices. Do not route `framework-context` or load its resolver for this slice; spend that context on the three mandatory complete-module references instead.
+This bounded contract and required procedures resolve the library slice's framework choices: do not route `framework-context` or load its resolver; use the three mandatory complete-module references instead.
 
 - Export and default-export `features` with exact IDs `library.books.view` and `library.books.manage`. Export `setup: ModuleSetupConfig = { defaultRoleFeatures }`; a detached `defaultRoleFeatures` export is not discovered setup.
 - Use entity ID `library:book`. The `makeCrudRoute` ORM keys are `tenantField` and `orgField`; its list keys are `schema`, `buildFilters`, and `transformItem`. Keep response transforms in supported `response` callbacks, register `library.books.create`, `library.books.update`, and `library.books.delete` with concrete `registerCommand(...)` calls, and use the installed `createCrudOpenApiFactory` signature exactly.
@@ -144,7 +146,7 @@ Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic m
 | One-shot business brief | Mechanism | Routes | Smallest complete vertical slice | Key invariants |
 |---|---|---|---|---|
 | “Require manager approval for discounts above a threshold.” | Workflow/policy app module + UMES sales mutation guard/UI | `M+U+W+B` | threshold policy, approval task, submit/approve/reject, guarded discount mutation, audit | server-side money comparison; separation of duties; stale document conflict; decision replay cannot double-apply |
-| “Automate customer onboarding across sales, tasks, and email.” | App module + durable workflow + optional providers/UMES | `M+W+U+P+B` | trigger, checklist/tasks, email steps, waits/escalations, progress UI, retry/recovery tests | idempotent steps; explicit compensation; no credentials in workflow state; missing optional provider yields actionable pause |
+| “Automate customer onboarding across sales, tasks, and email.” | App module + durable workflow + optional providers/UMES | `M+W+U+B`; add `P` only for actual new provider/transport/mailbox work; built-in welcome/invite helpers do not require integration | trigger, checklist/tasks, email steps, waits/escalations, progress UI, retry/recovery tests | idempotent steps; explicit compensation; no credentials in workflow state; missing optional provider yields actionable pause |
 | “Synchronize customers and products with our ERP.” | Data-sync provider + thin app mapping/UMES layer | `P+M+U+B` | credentials/health, cursors, inbound/outbound mappings, conflict policy, run UI/progress, retry/CLI | stable external mapping; scope every cursor; deterministic conflict ownership; resumable exactly-once effects |
 | “Add scheduled CSV/SFTP imports and exports with custom mappings.” | Provider for reusable SFTP/storage; app module owns format/mapping | `P+M+B` | format schema, preview/validate, batch job, row errors, export, schedule/progress | path/CSV hardening; encrypted credentials; resumable batches; no scope in untrusted file; formula-injection-safe export |
 

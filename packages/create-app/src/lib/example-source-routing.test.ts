@@ -138,3 +138,78 @@ test('customer detail-tab guidance distinguishes installed person and company ho
   assert.ok(!table.includes('customers.company.detail:details'))
   assert.ok(Buffer.byteLength(guide) <= 12_718)
 })
+
+test('library contract planning reads shared helper authority and cross-module verification before writing', () => {
+  const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
+  const library = blueprint.slice(blueprint.indexOf('### Complete Library Contract'))
+  assert.match(library, /During library contract selection\/reference planning, directly read `node_modules\/@open-mercato\/shared\/AGENTS\.md` for authoritative helpers and `\.ai\/skills\/om-system-extension\/references\/verification\.md` for cross-module proof/)
+  assert.match(library, /Do not defer these reads until writing or after implementation\./)
+  const api = read('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
+  assert.match(api, /Before writing a route or command, read `node_modules\/@open-mercato\/shared\/AGENTS\.md`/)
+})
+
+test('onboarding reuses workflow-owned state and built-in mail without inventing schema or providers', () => {
+  const blueprint = read('shared/ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md')
+  assert.match(blueprint, /add `om-data-model-design` for new app-owned business data\/schema or persisted fields, not already-owned workflow-engine state/)
+  const onboarding = blueprint.split('\n').find(line => line.includes('Automate customer onboarding across sales, tasks, and email.'))
+  assert.ok(onboarding)
+  assert.match(onboarding, /`M\+W\+U\+B`/)
+  assert.match(onboarding, /add `P` only for actual new provider\/transport\/mailbox work; built-in welcome\/invite helpers do not require integration/)
+  for (const guard of ['idempotent steps', 'explicit compensation', 'no credentials in workflow state', 'missing optional provider yields actionable pause']) assert.ok(onboarding.includes(guard))
+  assert.match(blueprint, /`M` — `om-module-scaffold` plus contracts/)
+  assert.match(blueprint, /`P` — `om-integration-builder` plus the integrations guide for a reusable external provider/)
+  const workflow = read('shared/ai/skills/om-build-workflow/SKILL.md')
+  assert.match(workflow, /new app business persistence adds `module-data` \+ `om-data-model-design`/)
+})
+
+test('locating existing bulk-progress sources does not imply implementing UI or an installed-host extension', () => {
+  const runtime = read('shared/ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md')
+  assert.match(runtime, /Source-selection-only requests for existing app-module bulk\/progress references stay `module-data`/)
+  assert.match(runtime, /An unchanged widget filename alone does not require UI or UMES implementation procedures/)
+  assert.match(runtime, /Actual rendered UI changes or installed-host integration still add their matching routes and guards/)
+  for (const guard of ['Carry trusted `tenantId`', 'Enqueue only after commit', 'A handler must be idempotent', 'scope isolation']) assert.ok(runtime.includes(guard))
+})
+
+test('design reference navigation uses authorized canonical metadata without reading controller-private inventories', async () => {
+  const guide = read('shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md')
+  assert.match(guide, /already-authorized canonical \[`surface-inventory\.json`\]/)
+  assert.match(guide, /Do not expand read permissions to controller-private `\.ai\/harness\/` data/)
+  assert.doesNotMatch(guide, /Start with the generated `\.ai\/harness\/design-system-inventory\.json`/)
+  for (const source of [
+    'node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx',
+    'node_modules/@open-mercato/ui/src/primitives/button.tsx',
+    'node_modules/@open-mercato/ui/figma/button.figma.tsx',
+    'src/app/globals.css',
+  ]) assert.ok(guide.includes(`../../../../${source}`), source)
+  for (const guard of ['not a package export or runtime dependency', 'grants no access to the rest of `figma/`', 'do not substitute a monorepo-only skill/snapshot', 'infer Figma publication from parse success', 'network/credential paths']) assert.ok(guide.includes(guard), guard)
+  const evaluator = await import(new URL('../../agentic/shared/scripts/evaluate-agent-harness.mjs', import.meta.url).href)
+  const records = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{ id: string; allowedWrites: string[] }>
+  const record = records.find(record => record.id === 'OMH-223')
+  assert.ok(record)
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-design-reference-'))
+  const inventory = 'src/modules/example/references/surface-inventory.json'
+  const controller = '.ai/harness/design-system-inventory.json'
+  try {
+    fs.cpSync(new URL('../../template/src/modules/example/', import.meta.url), path.join(root, 'src/modules/example'), { recursive: true })
+    fs.mkdirSync(path.dirname(path.join(root, controller)), { recursive: true })
+    fs.writeFileSync(path.join(root, controller), '{}')
+    const metadata = JSON.parse(fs.readFileSync(path.join(root, inventory), 'utf8'))
+    assert.ok(metadata.designSystemReferences.some((reference: { galleryItemIds: string[] }) => reference.galleryItemIds.includes('buttons/button')))
+    assert.equal(metadata.designFoundation.codeConnectArtifactAvailability, 'installed-packed-auxiliary')
+    assert.equal(metadata.designFoundation.publicationStatus, 'not-evidenced')
+    const allowed = evaluator.caseReadAllowlist(record, true, root)
+    assert.ok(allowed.includes(inventory))
+    assert.ok(!allowed.includes(controller))
+    const messages = [inventory, controller].map((file, index) => ({
+      jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'read', arguments: { path: file } },
+    }))
+    const result = spawnSync(process.execPath, [
+      fileURLToPath(new URL('../../agentic/shared/scripts/agent-harness-tool-server.mjs', import.meta.url)),
+      root, 'writable', JSON.stringify(allowed), JSON.stringify(record.allowedWrites),
+    ], { input: messages.map(message => JSON.stringify(message)).join('\n') + '\n', encoding: 'utf8', env: {} })
+    assert.equal(result.status, 0, result.stderr)
+    const replies = result.stdout.trim().split('\n').map(line => JSON.parse(line))
+    assert.equal(replies[0].result.content[0].text, fs.readFileSync(path.join(root, inventory), 'utf8'))
+    assert.equal(replies[1].result.isError, true)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

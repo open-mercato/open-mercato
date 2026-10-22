@@ -15,7 +15,7 @@ test('resolved business ownership does not independently select architecture', (
     const root = fs.readFileSync(new URL(`../../${source}`, import.meta.url), 'utf8')
     assert.match(root, /Unresolved capability\/ownership\/field-vs-history choice; boundary, upgrade, override, or registry failure/)
     assert.match(root, /add architecture only when ownership is unresolved/)
-    assert.match(root, /Scaffold a module starter, publish, or link an app module/)
+    assert.match(root, /Scaffold module starter; publish\/link an app module/)
   }
   const scaffold = fs.readFileSync(new URL('../../agentic/shared/ai/skills/om-module-scaffold/SKILL.md', import.meta.url), 'utf8')
   assert.match(scaffold, /Architecture-only plans follow the root’s `architecture` \+ `module-data` exception/)
