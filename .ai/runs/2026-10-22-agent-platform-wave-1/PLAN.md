@@ -27,11 +27,11 @@
 | 2 | 2.1 | Add the best-effort MCP tool-call audit writer | dispatch | done | 73290b478 |
 | 2 | 2.2 | Audit every MCP and tools/execute call with correlation ids | dispatch | done | f34f8d391 |
 | 2 | 2.3 | Read AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA in access log retention | dispatch:cheap | done | 4e3310ffb |
-| 3 | 3.1 | Add the channel option and direct/deny mutation modes to executeTool | dispatch | done | 05801c57b |
-| 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | done | e19bff989 |
-| 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | done | dc22baa8a |
-| 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | done | 36fe463d1 |
-| 3 | 3.5 | Run agent tools with their own mutation policy in approval mode | dispatch | done | 46c2a75f8 |
+| 3 | 3.1 | Add the channel option and direct/deny mutation modes to executeTool | dispatch | done | 3ec373f9c |
+| 3 | 3.2 | Add channel, api_key_id and correlation_id to ai_pending_actions | dispatch:capable | done | 5e186eb68 |
+| 3 | 3.3 | Queue raw MCP and tools/execute writes as pending actions in approval mode | dispatch:capable | done | 16c6b37ef |
+| 3 | 3.4 | Scope pending actions to owners and approvers with a channel-aware recheck | dispatch:capable | done | bbd5704be |
+| 3 | 3.5 | Run agent tools with their own mutation policy in approval mode | dispatch | done | adae6763c |
 | 3 | 3.6 | Add the approver feature and backoffice approval notifications | dispatch | todo | — |
 | 3 | 3.7 | Add the pending-actions list route and get_pending_action tool | dispatch | todo | — |
 | 3 | 3.8 | Add the Pending AI actions backend page with nav badge | dispatch:capable | todo | — |

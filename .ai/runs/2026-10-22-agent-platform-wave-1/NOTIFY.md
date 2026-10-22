@@ -27,3 +27,9 @@
 ## 2026-10-22T14:45:08Z — checkpoint 2
 - Steps 2.1..2.3 verified: ai-assistant jest 1659/1659, audit_logs jest 153/153, build:packages, typecheck 39/39. UI pass skipped (no UI in window).
 - Decision: dev/stdio MCP servers mint a fresh correlation id per call; HTTP and /tools/execute honour `x-correlation-id`.
+
+## 2026-10-22T15:09:22Z — checkpoint 3
+- Steps 3.1..3.5 verified: ai-assistant jest 1755/1755, build:packages, generate, i18n sync, app typecheck run directly (exit 0).
+- Finding: turbo `yarn typecheck` cache-hits on package source changes; checkpoints now run the app typecheck directly. Checkpoint 2's turbo typecheck claim is superseded.
+- Decision: added `approver_features_denied`; `auditCorrelation` is handler-context only because `main` has no command-audit hook.
+- Decision: MCP/tools-api agent runs without a DI container are forced read-only (cannot queue approvals).
