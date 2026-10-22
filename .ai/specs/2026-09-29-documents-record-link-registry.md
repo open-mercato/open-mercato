@@ -19,7 +19,7 @@ An enabled module can opt one of its non-global custom entities into Documents' 
 
 ## Problem Statement
 
-`DOCUMENT_ENTITY_REGISTRY` in `packages/documents/src/modules/documents/lib/entityRegistry.ts` hard-codes eight record types and the Customers, Catalog, and Sales read paths. `documentEntityTypeSchema` accepts only those strings, and `DocumentEntityLink` stores one nullable target column per built-in type. A module can declare an organization-scoped custom entity in `ce.ts`, but it cannot opt that entity into Documents without editing Documents itself.
+`DOCUMENT_ENTITY_REGISTRY` in `packages/documents/src/modules/documents/lib/entityRegistry.ts` hard-codes eight record types and the Customers, Catalog, and Sales read paths. `documentEntityTypeSchema` accepts only those strings, and `DocumentEntityLink` uses seven nullable target columns plus `customer_kind` to represent the eight types. A module can declare an organization-scoped custom entity in `ce.ts`, but it cannot opt that entity into Documents without editing Documents itself.
 
 The picker is client-side while verification, persistence, templates, relation filters, duplication, undo, and redaction run server-side. A server-only DI registration would leave the browser with a different registry; duplicating client and server declarations would create authorization drift. The design needs one module-owned declaration compiled into both runtime registrations.
 
