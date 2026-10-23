@@ -171,7 +171,11 @@ migrations outside development, and the module is opt-in and off by default, so 
 path to preserve and nothing to dual-write.
 
 Per-phase specs: P1 reuses the module spec, P2–P5 take the relevant sections out of it, and the
-roadmap stays whole as the forward-looking document.
+roadmap stays whole as the forward-looking document. **Done:** P2's slice landed 2026-10-20 as
+[`2026-10-20-marketing-automation-phase-2-delivery.md`](2026-10-20-marketing-automation-phase-2-delivery.md),
+linked from its phase PR (#6865). P3–P5 append their own line here as each phase's spec lands, rather
+than one paragraph claiming all four at once — the phase PRs are siblings cut from the same stack and
+land out of order, and a single shared paragraph is exactly the kind of edit that collides between them.
 
 ## Integration coverage
 

@@ -629,11 +629,16 @@ What each endpoint refuses matters as much as what it records:
   page, not an apology about our statistics.
 
 The signing key is derived from the configured secret with a purpose label, so a tracking token can
-neither be forged from nor confused for anything else signed with the same secret. The secret falls
-back to the platform's data-encryption key material rather than requiring a new variable — tracking
-that only works after an operator reads a changelog is tracking that quietly does nothing — but
-session and JWT secrets are deliberately NOT candidates: a tracking token is handed to every recipient
-and lives in mail archives forever.
+neither be forged from nor confused for anything else signed with the same secret. **There is no
+fallback.** It used to fall back to the platform's data-encryption key material so tracking worked
+without an operator reading a changelog, and that convenience was a forgery hole: `.env.example`
+publishes the fallback key as a constant, so any install that kept it let anybody mint a token this
+module would accept — a signed redirect to an arbitrary URL, writes into any scope, and forged
+unsubscribe and survey tokens. An unset `OM_MARKETING_TRACKING_SECRET` disables tracking instead,
+which is the safe way to be unconfigured. A second `OM_MARKETING_TRACKING_SECRET_PREVIOUS` is
+accepted on verification only, so rotating the secret does not break a link already sitting in
+somebody's mailbox. Session and JWT secrets are deliberately NOT candidates either, for the opposite
+reason: a tracking token is handed to every recipient and lives in mail archives forever.
 
 `marketing_message_send_events` stores no IP address and no user agent. The question this table exists
 to answer never needs them, and a marketing module that quietly builds a device-and-location log of
