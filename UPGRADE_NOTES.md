@@ -80,6 +80,32 @@ then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` 
 enable the full default module set, so this repo's own apps and freshly scaffolded apps are
 unaffected.
 
+### `yarn generate` now enforces `metadata.requires` for every module
+
+The module dependency check described in
+[Module dependency graph](apps/docs/docs/architecture/module-dependencies.mdx) never actually ran:
+the generator tried to load each module's `index` with `require()` — unavailable in the ESM CLI
+build, unable to load packaged TypeScript sources, and executing module side effects when it did
+work — and a bare `catch` skipped validation silently. The generator now reads `metadata.requires`
+from the source syntactically, so **every** declared edge is enforced for the first time, e.g.
+`sales` → `catalog`, `customers`, `dictionaries`; `wms` → `catalog`, `sales`, `feature_toggles`;
+`push_notifications` → `auth`, `devices`, `notifications`, `communication_channels`, `integrations`;
+`documents` → `auth`, `directory`, `attachments`; `channel_resend` / `channel_ses` →
+`communication_channels`, `integrations`; `tillio` → `integrations`, `phone_calls`; `ecommerce` →
+`catalog`, `sales`, `customer_accounts`, `customer_groups`; `forms` → `attachments`,
+`customer_accounts`. The complete list is the edge list in the docs page above. This includes the
+`customers`, `portal`, and `workflows` declarations from #7587 (previous entry), whose check
+therefore actually runs now. One edge is new with this change (#6239): `agent_orchestrator` →
+`workflows`, `api_keys`, `auth`, `attachments`.
+
+**Action for app authors:** if `yarn generate` now stops with `Module dependency check failed`,
+enable the listed modules in `src/modules.ts` (or disable the module that requires them). Such a
+configuration was already broken — it typically surfaced later as
+`Metadata for entity … not found` during `mercato init`.
+
+**Action for module authors:** write `requires` as an array of string literals in the exported
+`metadata` object. A dynamically built or re-exported list is skipped with a `[generate] ⚠` warning.
+
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
 `POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
