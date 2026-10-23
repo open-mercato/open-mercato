@@ -32,6 +32,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -268,6 +269,7 @@ export async function GET(req: Request) {
       // A capacity provider must not empty the dashboard; the KPIs fall back to
       // the flat `targets.dailyHours` arithmetic.
       logger.error('staff.timesheets.my-work capacity resolution failed', { err })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.my_work_capacity_failed' })
     }
 
     const totals = totalsRows[0]

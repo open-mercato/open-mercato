@@ -1,3 +1,9 @@
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 import {
   BUILT_IN_CAPACITY_PROVIDER_ID,
   normalizeCapacityResult,
@@ -15,6 +21,10 @@ const SCOPE = {
 }
 
 const range = { from: '2026-01-01', to: '2026-01-02', workingDays: ['2026-01-01', '2026-01-02'] }
+
+beforeEach(() => {
+  mockReportError.mockClear()
+})
 
 describe('EP-40 asynchronous capacity resolution (#6934)', () => {
   it('answers the flat daily target and names the built-in when nothing is registered', async () => {
@@ -66,9 +76,15 @@ describe('EP-40 asynchronous capacity resolution (#6934)', () => {
       const answer = await resolveTimesheetCapacityAsync('member-1', range, { ...SCOPE, dailyHours: 8 })
       expect(answer.isBuiltIn).toBe(true)
       expect(answer.totalTargetMinutes).toBe(960)
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] contract hours table unavailable' }),
+        { module: 'staff', code: 'staff.capacity_provider_failed', attributes: { providerId: 'test.capacity_rejecting' } },
+      )
     } finally {
       disposeRejecting()
     }
+    mockReportError.mockClear()
 
     const disposeNonsense = registerCapacityProvider({
       id: 'test.capacity_bad_label',
@@ -79,6 +95,11 @@ describe('EP-40 asynchronous capacity resolution (#6934)', () => {
     try {
       const answer = await resolveTimesheetCapacityAsync('member-1', range, { ...SCOPE, dailyHours: 8 })
       expect(answer.providerId).toBe(BUILT_IN_CAPACITY_PROVIDER_ID)
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'staff',
+        code: 'staff.capacity_provider_invalid_answer',
+        attributes: { providerId: 'test.capacity_bad_label' },
+      })
     } finally {
       disposeNonsense()
     }
@@ -210,7 +231,12 @@ describe('resolveCapacityForRange', () => {
         },
       }),
     }
-    for (const container of [garbage, rejecting]) {
+    const cases = [
+      { container: garbage, code: 'staff.capacity_resolver_override_invalid_answer' },
+      { container: rejecting, code: 'staff.capacity_resolver_override_failed' },
+    ]
+    for (const { container, code } of cases) {
+      mockReportError.mockClear()
       const answer = await resolveCapacityForRange({
         container,
         staffMemberId: 'member-1',
@@ -219,6 +245,8 @@ describe('resolveCapacityForRange', () => {
         dailyHours: 8,
       })
       expect(answer).toMatchObject({ isBuiltIn: true, totalTargetMinutes: 480 })
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'staff', code })
     }
   })
 
@@ -285,5 +313,23 @@ describe('resolveCapacityForRange', () => {
     })
     expect(answer.isBuiltIn).toBe(true)
     expect(answer.totalTargetMinutes).toBe(480)
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'staff',
+      code: 'staff.capacity_resolver_unavailable',
+    })
+  })
+
+  it('does not report anything when the override answers a usable target', async () => {
+    const container = {
+      resolve: () => ({ resolveCapacity: () => ({ targetMinutesByDate: { '2026-08-24': 120 }, totalTargetMinutes: 120 }) }),
+    }
+    await resolveCapacityForRange({
+      container,
+      staffMemberId: 'member-1',
+      range: { from: '2026-08-24', to: '2026-08-24' },
+      ...SCOPE,
+      dailyHours: 8,
+    })
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 })

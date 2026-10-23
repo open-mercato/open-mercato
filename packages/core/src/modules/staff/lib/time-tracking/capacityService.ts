@@ -13,6 +13,7 @@
 
 import { eachDayIso, isWeekendIso, type TimesheetDateRange } from '../time-tracking-ui/timesheetPeriod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   normalizeCapacityResult,
   resolveTimesheetCapacity,
@@ -55,7 +56,9 @@ function readResolver(container: ContainerLike): CapacityResolverLike | null {
   try {
     const resolver = container.resolve(CAPACITY_RESOLVER_DI_KEY)
     return resolver && typeof resolver === 'object' ? (resolver as CapacityResolverLike) : null
-  } catch {
+  } catch (err) {
+    logger.warn('the timeCapacityResolver DI key could not be resolved; using the registry', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.capacity_resolver_unavailable' })
     return null
   }
 }
@@ -101,8 +104,13 @@ export async function resolveCapacityForRange(input: {
     }
   } catch (err) {
     logger.error('the timeCapacityResolver override threw; using the registry', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.capacity_resolver_override_failed' })
     return fallback()
   }
   logger.error('the timeCapacityResolver override answered an unusable result; using the registry')
+  getTelemetryRuntime()?.reportError(new Error('[internal] timeCapacityResolver override answered an unusable result'), {
+    module: 'staff',
+    code: 'staff.capacity_resolver_override_invalid_answer',
+  })
   return fallback()
 }

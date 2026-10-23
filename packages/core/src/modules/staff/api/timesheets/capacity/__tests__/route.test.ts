@@ -55,6 +55,12 @@ const container = {
 
 let authValue: Record<string, unknown> | null = { tenantId: tenantA, sub: userId, orgId: organizationId }
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
@@ -94,6 +100,7 @@ describe('GET /api/staff/timesheets/capacity (#6934)', () => {
       { id: colleagueId, userId: null, tenantId: tenantA, organizationId, deletedAt: null },
     ]
     resolveCapacityAsync.mockClear()
+    mockReportError.mockClear()
   })
 
   it('requires the timesheet view feature', () => {
@@ -168,6 +175,10 @@ describe('GET /api/staff/timesheets/capacity (#6934)', () => {
     const response = await GET(getRequest('from=2026-08-24&to=2026-08-24'))
     expect(response.status).toBe(200)
     expect((await response.json()).isBuiltIn).toBe(true)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] boom' }),
+      { module: 'staff', code: 'staff.capacity_resolver_override_failed' },
+    )
   })
 
   it('answers 500, not 400, on an unexpected failure', async () => {
@@ -175,6 +186,15 @@ describe('GET /api/staff/timesheets/capacity (#6934)', () => {
       throw new Error('[internal] database down')
     })
     expect((await GET(getRequest('from=2026-08-24&to=2026-08-24'))).status).toBe(500)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] database down' }),
+      { module: 'staff', code: 'staff.capacity_route_failed' },
+    )
+  })
+
+  it('does not report a client error such as a reversed period', async () => {
+    expect((await GET(getRequest('from=2026-08-25&to=2026-08-24'))).status).toBe(400)
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
   it('answers 403 when the caller has no staff profile', async () => {

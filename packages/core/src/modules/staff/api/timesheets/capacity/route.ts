@@ -26,6 +26,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -159,6 +160,7 @@ export async function GET(req: Request) {
       dailyHours = (await readTimeTrackingSettings(configService, { tenantId })).targets.dailyHours
     } catch (err) {
       logger.warn('staff.timesheets.capacity settings read failed; resolving without a daily target', { err })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.capacity_settings_read_failed' })
     }
 
     const range = { from: query.from, to: query.to }
@@ -189,6 +191,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('staff.timesheets.capacity failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.capacity_route_failed' })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.capacity', 'Failed to load the target.') },

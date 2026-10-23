@@ -17,6 +17,7 @@ import { createStrategyRegistry, BUILT_IN_STRATEGY_PRIORITY } from './registries
 import { selectScopedStrategy, type ScopedResolverContext } from './registries/scope'
 import { runStrategy } from './registries/invoke'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('staff').child({ component: 'time-tracking/capacity' })
 
@@ -224,6 +225,11 @@ export async function resolveTimesheetCapacityAsync(
       strategyId: provider.id,
       err,
     })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'staff',
+      code: 'staff.capacity_provider_failed',
+      attributes: { providerId: provider.id },
+    })
     return builtIn()
   }
   const normalized = normalizeCapacityResult(answer, dateRange)
@@ -231,6 +237,11 @@ export async function resolveTimesheetCapacityAsync(
     logger.error('a capacity provider answered an unusable result; falling back to the built-in', {
       registryId: CAPACITY_PROVIDER_REGISTRY_ID,
       strategyId: provider.id,
+    })
+    getTelemetryRuntime()?.reportError(new Error('[internal] capacity provider answered an unusable result'), {
+      module: 'staff',
+      code: 'staff.capacity_provider_invalid_answer',
+      attributes: { providerId: provider.id },
     })
     return builtIn()
   }

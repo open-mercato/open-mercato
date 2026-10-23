@@ -55,6 +55,12 @@ jest.mock('../../../../lib/timesheets-projects/computeProjectFinancials', () => 
   computeProjectFinancials: jest.fn(async () => new Map()),
 }))
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('../../../../lib/time-tracking/capacityService', () => ({
   resolveCapacityForRange: (...args: unknown[]) => resolveCapacityForRange(...args),
 }))
@@ -66,6 +72,7 @@ const request = () => new Request('http://localhost/api/staff/timesheets/my-work
 describe('GET /api/staff/timesheets/my-work capacity (#6934)', () => {
   beforeEach(() => {
     resolveCapacityForRange.mockReset()
+    mockReportError.mockClear()
   })
 
   it('keeps the flat daily-hours KPIs when capacity resolution fails', async () => {
@@ -76,6 +83,10 @@ describe('GET /api/staff/timesheets/my-work capacity (#6934)', () => {
     expect(kpis.dailyTargetMinutes).not.toBeNull()
     expect(kpis.weekTargetMinutes).toBe(kpis.dailyTargetMinutes * kpis.weekWorkingDays)
     expect(kpis.monthTargetMinutes).toBe(kpis.dailyTargetMinutes * kpis.monthWorkingDays)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] provider down' }),
+      { module: 'staff', code: 'staff.my_work_capacity_failed' },
+    )
   })
 
   it("uses a contributed provider's week and month targets for the caller", async () => {
