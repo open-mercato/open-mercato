@@ -186,5 +186,11 @@
   "attachments.partitions.table.title": "Titel",
   "attachments.partitions.table.visibility": "Sichtbarkeit",
   "attachments.partitions.title": "Anhang-Partitionen",
-  "attachments.storage.nav.title": "Speicher"
+  "attachments.storage.nav.title": "Speicher",
+  "attachments.structure.audit.current": "Dokumentstruktur ist bereits aktuell",
+  "attachments.structure.audit.requested": "Extraktion der Dokumentstruktur angefordert",
+  "attachments.structure.errors.invalidRequest": "Ungültige Anfrage",
+  "attachments.structure.errors.notFound": "Anhang nicht gefunden",
+  "attachments.structure.errors.tooLarge": "Die Datei ist zu groß für die Extraktion der Dokumentstruktur.",
+  "attachments.structure.errors.unsupportedType": "Dieser Dateityp unterstützt keine Extraktion der Dokumentstruktur."
 }

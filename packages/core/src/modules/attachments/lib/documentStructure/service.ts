@@ -604,6 +604,7 @@ export function createAttachmentDocumentStructureService(
         tenantId: grant.scope.tenantId,
         organizationId: grant.scope.organizationId,
         force: input.force === true,
+        onDemand: true,
         ...(input.ocr ? { ocr: input.ocr } : {}),
         requestedByUserId: input.requestedByUserId ?? null,
       })

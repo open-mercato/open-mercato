@@ -15,6 +15,7 @@ export const documentStructureJobSchema = z.object({
   tenantId: z.string().uuid().nullable(),
   organizationId: z.string().uuid().nullable(),
   force: z.boolean().optional(),
+  onDemand: z.boolean().optional(),
   ocr: documentOcrModeSchema.optional(),
   requestedByUserId: z.string().uuid().nullable().optional(),
 })
@@ -25,6 +26,7 @@ export type EnqueueDocumentStructureInput = {
   tenantId: string | null
   organizationId: string | null
   force?: boolean
+  onDemand?: boolean
   ocr?: DocumentStructureJob['ocr']
   requestedByUserId?: string | null
 }
@@ -72,6 +74,7 @@ export async function enqueueDocumentStructureExtraction(
     tenantId: input.tenantId ?? null,
     organizationId: input.organizationId ?? null,
     ...(input.force ? { force: true } : {}),
+    ...(input.onDemand ? { onDemand: true } : {}),
     ...(input.ocr ? { ocr: input.ocr } : {}),
     ...(input.requestedByUserId ? { requestedByUserId: input.requestedByUserId } : {}),
   })

@@ -374,7 +374,8 @@ export async function runDocumentStructureExtraction(
     undefined,
     scope,
   )
-  if (!partition || !partition.extractDocumentStructure) return { kind: 'disabled' }
+  if (!partition) return { kind: 'disabled' }
+  if (!partition.extractDocumentStructure && payload.onDemand !== true) return { kind: 'disabled' }
 
   const registry = deps.registry ?? createDocumentStructureEngineRegistry()
   const extension = fileExtension(attachment.fileName)

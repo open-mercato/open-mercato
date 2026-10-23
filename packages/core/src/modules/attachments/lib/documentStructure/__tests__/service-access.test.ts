@@ -403,6 +403,7 @@ describe('attachmentDocumentStructureService.requestExtraction', () => {
       tenantId: TENANT_A,
       organizationId: ORG_A,
       force: true,
+      onDemand: true,
       ocr: 'never',
       requestedByUserId: '99999999-9999-4999-8999-999999999999',
     })

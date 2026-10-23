@@ -60,7 +60,7 @@
 | 8 | 8.4-review-fix | Keep the previous live extraction when a re-extraction fails | dispatch | done | ceb64a2ca |
 | 8 | 8.5 | Enqueue extraction on upload and purge structure on delete | dispatch | done | 5060a3549 |
 | 8 | 8.6 | Add the document structure service and DI registrations | dispatch | done | fe6806877 |
-| 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | todo | — |
+| 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | done | 5e7ef5732 |
 | 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | todo | — |
 
 ## Goal

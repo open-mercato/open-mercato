@@ -264,6 +264,17 @@ describe('document structure worker', () => {
     expect(deps.resolveForPartition).not.toHaveBeenCalled()
   })
 
+  it('runs an on-demand request even when the partition has structure extraction disabled', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', extractDocumentStructure: false })
+    const filePath = await writeFile('rules-on-demand.txt', 'rules on demand')
+
+    const outcome = await runDocumentStructureExtraction({ ...job, onDemand: true }, buildDeps(fake, filePath, [textEngine()]))
+
+    expect(outcome.kind).toBe('persisted')
+    expect(liveExtractions(fake)).toHaveLength(1)
+  })
+
   it('marks unsupported types as skipped', async () => {
     const fake = createFakeEm()
     seed(fake, { fileName: 'archive.zip', mimeType: 'application/zip' })

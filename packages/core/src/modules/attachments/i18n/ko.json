@@ -186,5 +186,11 @@
   "attachments.partitions.table.title": "제목",
   "attachments.partitions.table.visibility": "공개 범위",
   "attachments.partitions.title": "첨부 파일 파티션",
-  "attachments.storage.nav.title": "저장소"
+  "attachments.storage.nav.title": "저장소",
+  "attachments.structure.audit.current": "문서 구조가 이미 최신 상태입니다",
+  "attachments.structure.audit.requested": "문서 구조 추출이 요청되었습니다",
+  "attachments.structure.errors.invalidRequest": "잘못된 요청입니다",
+  "attachments.structure.errors.notFound": "첨부 파일을 찾을 수 없습니다",
+  "attachments.structure.errors.tooLarge": "파일이 너무 커서 문서 구조를 추출할 수 없습니다.",
+  "attachments.structure.errors.unsupportedType": "이 파일 형식은 문서 구조 추출을 지원하지 않습니다."
 }

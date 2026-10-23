@@ -186,5 +186,11 @@
   "attachments.partitions.table.title": "Título",
   "attachments.partitions.table.visibility": "Visibilidad",
   "attachments.partitions.title": "Particiones de archivos adjuntos",
-  "attachments.storage.nav.title": "Almacenamiento"
+  "attachments.storage.nav.title": "Almacenamiento",
+  "attachments.structure.audit.current": "La estructura del documento ya está actualizada",
+  "attachments.structure.audit.requested": "Extracción de la estructura del documento solicitada",
+  "attachments.structure.errors.invalidRequest": "Solicitud no válida",
+  "attachments.structure.errors.notFound": "Archivo adjunto no encontrado",
+  "attachments.structure.errors.tooLarge": "El archivo es demasiado grande para extraer la estructura del documento.",
+  "attachments.structure.errors.unsupportedType": "Este tipo de archivo no admite la extracción de la estructura del documento."
 }

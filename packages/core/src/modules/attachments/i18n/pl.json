@@ -186,5 +186,11 @@
   "attachments.partitions.table.title": "Tytuł",
   "attachments.partitions.table.visibility": "Widoczność",
   "attachments.partitions.title": "Partycje załączników",
-  "attachments.storage.nav.title": "Magazyn"
+  "attachments.storage.nav.title": "Magazyn",
+  "attachments.structure.audit.current": "Struktura dokumentu jest aktualna",
+  "attachments.structure.audit.requested": "Zlecono wyodrębnienie struktury dokumentu",
+  "attachments.structure.errors.invalidRequest": "Nieprawidłowe żądanie",
+  "attachments.structure.errors.notFound": "Nie znaleziono załącznika",
+  "attachments.structure.errors.tooLarge": "Plik jest zbyt duży, aby wyodrębnić strukturę dokumentu.",
+  "attachments.structure.errors.unsupportedType": "Ten typ pliku nie obsługuje wyodrębniania struktury dokumentu."
 }

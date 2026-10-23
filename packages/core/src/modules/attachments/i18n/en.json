@@ -186,5 +186,11 @@
   "attachments.partitions.table.title": "Title",
   "attachments.partitions.table.visibility": "Visibility",
   "attachments.partitions.title": "Attachment partitions",
-  "attachments.storage.nav.title": "Storage"
+  "attachments.storage.nav.title": "Storage",
+  "attachments.structure.audit.current": "Document structure already current",
+  "attachments.structure.audit.requested": "Document structure extraction requested",
+  "attachments.structure.errors.invalidRequest": "Invalid request",
+  "attachments.structure.errors.notFound": "Attachment not found",
+  "attachments.structure.errors.tooLarge": "The file is too large for document structure extraction.",
+  "attachments.structure.errors.unsupportedType": "This file type does not support document structure extraction."
 }
