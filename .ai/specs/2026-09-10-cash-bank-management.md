@@ -1327,6 +1327,9 @@ automatically.
 
 ## Out of scope
 
+- **Valuation of the outflow of foreign currency (decided 2026-10-23, controller's answer; not designed here).** For a bank account whose currency is not the base currency, every inflow is a lot (date, amount in the account's currency, rate) and an outflow consumes the oldest lot at its rate (FIFO, the default; weighted average permitted; outflow at the rate of the day not offered). The bank line of an outflow is then posted one line per consumed lot, each with the lot's own rate (so the base amount is exact and satisfies GL's consistency rule), and the difference between that cost and the amount at the rate of the day goes to a realized exchange-difference account, kept apart from the unrealized account used by `fx_revaluation`. Needs a lot table owned by this module, a per-account method setting fixed at first posting, reversal that restores the lots, and a realized/unrealized pair of accounts in module config. The inflow side is unchanged: the sales payment entry above creates a lot at `bankRate`. Worked example and reasoning in the Multi-Currency spec (Out of scope).
+
+
 - **Realized FX gain/loss on the AP (`VendorInvoice`/`PaymentBatch`)
   side** — this module computes and posts it only on the
   `sales_invoice` path (see Risks); a `payment_batch` match never
@@ -1890,3 +1893,7 @@ schema. Not yet reviewed by a maintainer.
 - **Rewritten to match the restated posting.** The `matchBankStatementLine` input now has optional `bankRate` and `invoiceRatePaid` instead of `bookedExchangeRate`; they default from the rate the bank applied, otherwise from the NBP Table A rate read with the `source` option (Multi-Currency decision 9g, still to be agreed with OM Core). The invoice's booking rate is its stored `exchangeRate`; a `null` one is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING`. `422 EXCHANGE_RATE_REQUIRED` now means a needed rate could not be resolved. The event payload carries `bankRate` and `invoiceRatePaid`, the match dialog pre-fills both rates with their source, and Testing Strategy covers the two entries, the PLN-account case, the partial payment and the defaults. `BankStatementLine` gains `bankRate`, `invoiceRatePaid` and `fxDifferenceJournalEntryId`.
 - **Earlier changelog entries and review notes still name `bookedExchangeRate`;** they describe the state at the time and are not rewritten.
 - **Not yet reviewed by a maintainer;** the numeric reading of the controller's answer is the team's.
+
+### 2026-10-23 (cont. — controller's answer on the outflow of currency)
+
+- **Decided by the team** (not yet reviewed by a maintainer): FIFO lots per foreign-currency bank account for outflows, as written under Out of scope; realized differences on their own account. The sales receipt posting above is unchanged.
