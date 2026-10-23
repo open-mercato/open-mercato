@@ -46,6 +46,6 @@ Implementing phase 1b–1e behavior. Re-litigating the module/schema design. Wir
 
 ### Phase 2: Close the remaining gaps
 
-- [ ] 2.1 Real-Postgres test for `Migration20261002110000_marketing_trigger_context`'s backfill and rollback (finding 1, trigger-context half)
-- [ ] 2.2 Test that `sendEmail`'s `headers` option reaches the resolved payload untouched (finding 4, sendEmail half)
-- [ ] 2.3 Full validation gate, self-review pass, push, outcome comment
+- [x] 2.1 Real-Postgres test for `Migration20261002110000_marketing_trigger_context`'s backfill and rollback (finding 1, trigger-context half) — `e1cfc0438`
+- [x] 2.2 Test that `sendEmail`'s `headers` option reaches the resolved payload untouched (finding 4, sendEmail half) — `e1cfc0438`
+- [x] 2.3 Full validation gate, self-review pass, push, outcome comment — `e1cfc0438`
