@@ -49,6 +49,8 @@ Refusing a markdown body instead was considered and rejected: it would add a sec
 
 `sendAsUser`'s input contract carries recipients, subject, body and threading headers — it has no place for attachments, context objects or priority. Rather than silently dropping them, the route **rejects** a mailbox send that carries `attachmentIds` or `objects` with a 422 on the `senderChannelId` field. Carrying that payload through the hub is follow-up work (it needs a widened `SendAsUserInput` plus outbound-delivery support), tracked separately.
 
+> 2026-10-19: `SendAsUserInput.attachments` and outbound delivery now exist (`2026-05-21-email-integration-foundation.md` § Amendment — Outbound Attachments). The composer still rejects attachments on this path until it decides which owner its uploads carry and whether a mailbox send re-parents them to the message (#6261).
+
 ## Architecture
 
 ```

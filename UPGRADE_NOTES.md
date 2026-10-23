@@ -289,6 +289,52 @@ the message does not resolve in scope (previously `no_channel_link` with reason
 `message not found`). Code that switches exhaustively over the result, or treated
 `no_channel_link` as "message missing", should handle `not_found` alongside it.
 
+### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
+
+`send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the
+delivery command now passes them to `ChannelAdapter.convertOutbound({ attachments })` for adapters
+whose capabilities advertise `fileSharing: true`. Each item carries the file bytes in the new optional
+`NormalizedAttachment.content` and an empty `url`. The IMAP/SMTP and Gmail adapters now advertise
+`fileSharing: true`; `baseEmailCapabilities` keeps `false`.
+
+`assembleRfc2822` from `communication_channels/lib/email-mime` is deprecated in favor of the async
+`composeEmailMessage` (nodemailer `MailComposer`), which the Gmail adapter now uses. Gmail messages
+therefore fold long encoded headers and quote a display name only when it needs quoting
+(`From: Alice <a@example.com>`).
+
+`channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
+caller puts there. The integration helper `CapturedTestSeedEmail` (and `TestSeedCapturedMessage` in
+`communication_channels/lib/test-seed`) keeps `content.attachments` unchanged: it records the
+attachments handed to the adapter as before. The only items left out are the files the hub read from
+the attachments module, which carry bytes and no URL. The new `content.attachmentDigests` holds a
+version 1 digest (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment
+whose bytes the adapter holds — those hub-read files and decodable `data:` URLs; a remote URL is never
+fetched or digested. Assert on the digests to check what was sent.
+
+A `send-as-user` request that carried an `attachments` field used to be accepted with the field
+silently dropped; the field is now validated, and the request is refused with 422 when it is malformed
+or the mailbox cannot send it. A refusal carries a stable `code` next to `error`. A display-name
+`filename` must keep the stored file's extension and follow the upload rules (no executable
+extension, no control or bidirectional characters). `baseEmailCapabilities.supportedMimeTypes` gains
+xlsx, docx, pptx, xls and doc. A channel connected before the upgrade keeps `fileSharing: false` in
+its stored capability snapshot until it is reconnected; the hub reads the live adapter, so sending
+works either way.
+
+Adapters called directly (not through the hub): IMAP/SMTP now sends `attachment.content` and `data:`
+URLs, and reports a server size rejection as `{ status: 'failed', error: '…message_too_large…' }`
+instead of throwing; Gmail refuses an attachment that only has a remote `url` instead of dropping it.
+
+`assembleRfc2822` is deprecated since 0.9.1 and kept unchanged; removal no earlier than 0.11.0.
+
+**Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
+`attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
+`communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
+assert the exact bytes of a Gmail outbound message may need the new header formatting. An
+`attachmentService` override does not need the new optional `describeScoped`: without it the hub
+validates attachments through `readScoped`. An adapter whose provider allows a different total per
+message declares it in the new optional `ChannelCapabilities.maxTotalBytes` (raw bytes; 25 MB when
+unset); `maxFileSize` stays the per-file limit.
+
 ### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
 
 `GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same

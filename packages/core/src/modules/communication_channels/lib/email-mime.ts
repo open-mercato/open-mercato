@@ -237,6 +237,11 @@ function encodeBodyPart(content: string): { cte: string; body: string } {
  * message directly, e.g. Gmail `users.messages.send`). Emits a
  * `multipart/alternative` body when both html and text are present, otherwise a
  * single-part text or html body.
+ *
+ * @deprecated Since 0.9.1. Use the async `composeEmailMessage`, which carries
+ * attachments and folds long encoded headers. Kept unchanged through the next
+ * minor release; removal no earlier than 0.11.0 (`AssembleRfc2822Input` stays,
+ * because `ComposeEmailMessageInput` extends it).
  */
 export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
@@ -286,6 +291,87 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   headers.push('Content-Type: text/plain; charset=utf-8')
   headers.push(`Content-Transfer-Encoding: ${textPart.cte}`)
   return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + textPart.body, 'utf-8')
+}
+
+export interface ComposeEmailAttachment {
+  fileName: string
+  mimeType: string
+  content: Uint8Array
+  inline?: boolean
+  contentId?: string
+}
+
+export interface ComposeEmailMessageInput extends AssembleRfc2822Input {
+  attachments?: ComposeEmailAttachment[]
+}
+
+type MailComposerBuild = {
+  keepBcc?: boolean
+  build: (callback: (err: Error | null, output: Buffer) => void) => void
+}
+
+type MailComposerCtor = new (mail: Record<string, unknown>) => { compile: () => MailComposerBuild }
+
+let mailComposerPromise: Promise<MailComposerCtor> | null = null
+
+function loadMailComposer(): Promise<MailComposerCtor> {
+  if (!mailComposerPromise) {
+    mailComposerPromise = import('nodemailer/lib/mail-composer').then((mod) => {
+      const loaded = mod as unknown as { default?: MailComposerCtor } & MailComposerCtor
+      const ctor = loaded.default ?? loaded
+      if (typeof ctor !== 'function') throw new Error('[internal] nodemailer MailComposer is unavailable')
+      return ctor
+    })
+    mailComposerPromise.catch(() => {
+      mailComposerPromise = null
+    })
+  }
+  return mailComposerPromise
+}
+
+/**
+ * Build a raw RFC 5322 message with nodemailer's `MailComposer`: folded RFC 2047
+ * headers, RFC 2231 attachment filenames, `multipart/mixed` around the
+ * text/html alternative when attachments are present, and the caller's
+ * Message-ID kept as is so threading can rely on it.
+ *
+ * Bcc stays in the headers because transports that take the encoded message
+ * (Gmail `users.messages.send`) read the recipients from them. Attachments are
+ * passed as bytes only; file and URL access are disabled so a crafted value can
+ * never make the composer read the local disk or fetch a URL.
+ */
+export async function composeEmailMessage(input: ComposeEmailMessageInput): Promise<Buffer> {
+  const MailComposer = await loadMailComposer()
+  const hasBody = Boolean(input.text) || Boolean(input.html)
+  const composer = new MailComposer({
+    from: sanitizeHeaderValue(input.from),
+    to: input.to.map(sanitizeHeaderValue),
+    cc: input.cc.length ? input.cc.map(sanitizeHeaderValue) : undefined,
+    bcc: input.bcc.length ? input.bcc.map(sanitizeHeaderValue) : undefined,
+    subject: input.subject ? sanitizeHeaderValue(input.subject) : undefined,
+    messageId: ensureBrackets(input.messageId),
+    inReplyTo: input.inReplyTo ? ensureBrackets(input.inReplyTo) : undefined,
+    references: input.references?.length ? input.references.map(ensureBrackets) : undefined,
+    text: hasBody ? input.text : '',
+    html: input.html,
+    attachments: (input.attachments ?? []).map((attachment) => ({
+      filename: sanitizeHeaderValue(attachment.fileName) || 'attachment',
+      content: Buffer.from(attachment.content.buffer, attachment.content.byteOffset, attachment.content.byteLength),
+      contentType: attachment.mimeType,
+      contentDisposition: attachment.inline ? 'inline' : 'attachment',
+      ...(attachment.contentId ? { cid: sanitizeHeaderValue(attachment.contentId) } : {}),
+    })),
+    disableFileAccess: true,
+    disableUrlAccess: true,
+  })
+  const compiled = composer.compile()
+  compiled.keepBcc = true
+  return new Promise<Buffer>((resolve, reject) => {
+    compiled.build((err, output) => {
+      if (err) reject(err)
+      else resolve(output)
+    })
+  })
 }
 
 // ── Inbound MIME parsing ──────────────────────────────────────

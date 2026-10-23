@@ -29,6 +29,12 @@ export interface ChannelCapabilities {
   richText: boolean
   fileSharing: boolean
   maxFileSize?: number
+  /**
+   * Largest total of raw attachment bytes in one outbound message, as a
+   * positive number of bytes. When unset the hub caps a message at 25 MB
+   * (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`).
+   */
+  maxTotalBytes?: number
   supportedMimeTypes?: string[]
   readReceipts: boolean
   deliveryReceipts: boolean
@@ -99,7 +105,7 @@ export interface MessageContent {
   text?: string
   html?: string
   bodyFormat?: 'text' | 'markdown' | 'html'
-  attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>
+  attachments?: NormalizedAttachment[]
   raw?: Record<string, unknown>
 }
 
@@ -188,6 +194,12 @@ export interface NormalizedAttachment {
   fileName: string
   fileSize?: number
   inline?: boolean
+  /**
+   * The file bytes, set by the hub for outbound attachments it read from the
+   * attachments module. Adapters prefer it over `url`, decode `data:` URLs
+   * otherwise, and never fetch a remote URL.
+   */
+  content?: Uint8Array
 }
 
 export interface InboundReaction {

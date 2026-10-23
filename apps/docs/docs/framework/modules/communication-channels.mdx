@@ -359,6 +359,7 @@ Each slice ships its own module-local integration specs under `__integration__/`
 | `TC-CHANNEL-EMAIL-001..003` | channel-imap | IMAP provider registration + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-006..008` | channel-gmail | Gmail OAuth router + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-014..020` | hub | Phase 4 cross-provider scenarios: primary swap, admin RBAC, tenant OAuth override, disconnect, send-as-user guard, user-deleted cascade, rich-content widget |
+| `TC-CHANNEL-EMAIL-HUB-007..008` | hub | `send-as-user` attachments: bytes delivered to the adapter, caller-written refs dropped, refusals (no file sharing, wrong owner, other organization, type not allowed) |
 
 Run with:
 

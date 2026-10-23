@@ -15,7 +15,11 @@ export {
   type AttachmentService,
   type CreatedScopedAttachment,
   type CreateScopedAttachmentInput,
+  type DescribedScopedAttachment,
+  type DescribeScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,
 } from './lib/attachment-service'
+
+export { getAttachmentExtension, hasDangerousExecutableExtension } from './lib/security'

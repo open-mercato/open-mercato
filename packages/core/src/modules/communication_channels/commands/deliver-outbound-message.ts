@@ -14,6 +14,12 @@ import {
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
+import {
+  OutboundAttachmentDeliveryError,
+  loadOutboundAttachments,
+  omitOutboundAttachments,
+  readStoredOutboundAttachments,
+} from '../lib/outbound-attachments'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
@@ -428,9 +434,29 @@ const deliverOutboundMessageCommand: CommandHandler<
           mergedReferences = [...mergedReferences, refId]
         }
       }
+      // Attachment bytes are read here, on every attempt, for the channel owner
+      // the send-as-user facade authorized; a file that is gone or no longer
+      // fits fails the delivery permanently rather than sending without it.
+      const storedAttachments = readStoredOutboundAttachments(baseMetadata)
+      if (storedAttachments.length && !channel.userId) {
+        throw new OutboundAttachmentDeliveryError('attachment_unavailable')
+      }
+      const attachments = storedAttachments.length
+        ? await loadOutboundAttachments({
+            container: ctx.container,
+            scope: {
+              userId: channel.userId as string,
+              tenantId: input.scope.tenantId,
+              organizationId: input.scope.organizationId ?? null,
+            },
+            stored: storedAttachments,
+            capabilities: adapter.capabilities,
+          })
+        : undefined
       const converted = await adapter.convertOutbound({
         body: outboundBody,
         bodyFormat: outboundBodyFormat,
+        ...(attachments ? { attachments } : {}),
         channelMetadata: {
           thread_id: mapping.externalThreadRef,
           // Reply targeting is hub-resolved only. `send-as-user` merges
@@ -440,7 +466,7 @@ const deliverOutboundMessageCommand: CommandHandler<
           // resolved a parent, and the uncontested case — no `parentMessageId`,
           // or a parent that does not resolve — is exactly the one a caller
           // controls.
-          ...stripCallerReplyTargeting(baseMetadata),
+          ...stripCallerReplyTargeting(omitOutboundAttachments(baseMetadata)),
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
           ...(replyToExternalId ? { replyToExternalId } : {}),
@@ -515,7 +541,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         // (the RFC2822 id the recipient replies to) — fall back to that.
         // Store it bracket-stripped to match the inbound convention
         // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
-        // which compare against stripped ids — resolve it. `assembleRfc2822`
+        // which compare against stripped ids — resolve it. The MIME composer
         // re-applies brackets when this id is later used to build reply headers.
         messageId: stripBrackets(
           stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??

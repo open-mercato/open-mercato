@@ -243,6 +243,7 @@
     "@mikro-orm/postgresql": "^7.1.14",
     "@types/leaflet": "^1.9.12",
     "@types/leaflet.markercluster": "^1.5.5",
+    "@types/nodemailer": "^8.0.1",
     "@types/sanitize-html": "^2.13.0",
     "@types/semver": "^7.8.0",
     "@xyflow/react": "^12.11.5",
@@ -254,6 +255,7 @@
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "mammoth": "^1.9.0",
+    "nodemailer": "^10.0.10",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
     "resend": "^6.24.0",
@@ -290,7 +292,8 @@
     "react-dom": "19.2.8",
     "testcontainers": "^12.0.3",
     "ts-jest": "^29.4.12",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "typescript-js": "npm:typescript@6.0.3"
   },
   "publishConfig": {
     "access": "public"

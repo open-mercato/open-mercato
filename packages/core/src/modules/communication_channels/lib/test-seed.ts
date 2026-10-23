@@ -1,5 +1,5 @@
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
@@ -9,6 +9,7 @@ import type {
   ConvertOutboundInput,
   GetMessageStatusInput,
   InboundMessage,
+  MessageContent,
   MessageStatus,
   NormalizedInboundMessage,
   SendMessageInput,
@@ -18,6 +19,7 @@ import type {
   VerifyWebhookInput,
 } from './adapter'
 import { baseEmailCapabilities } from './email-capabilities'
+import { resolveOutboundAttachmentBytes } from './outbound-attachments'
 import { hasChannelAdapter, registerChannelAdapter } from './adapter-registry-singleton'
 import { registerSystemEmailProviderConfigResolver } from './system-email-provider-config'
 
@@ -85,11 +87,31 @@ export function isTestChannelSeedingEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase())
 }
 
+/**
+ * Version 1 of the attachment digest the test-seed adapter records. A later
+ * shape gets a new `version` instead of changing this one.
+ */
+export type TestSeedCapturedAttachmentDigest = {
+  version: 1
+  fileName: string
+  mimeType: string
+  fileSize: number
+  sha256: string
+}
+
 export type TestSeedCapturedMessage = {
   capturedAt: string
   externalMessageId: string
   conversationId?: string
-  content: SendMessageInput['content']
+  content: SendMessageInput['content'] & {
+    /**
+     * One digest per attachment whose bytes the adapter holds: the bytes the
+     * hub read from the attachments module, or a decodable `data:` URL.
+     * `attachments` keeps its original shape and records the items as before,
+     * except those hub-read files, which have no URL.
+     */
+    attachmentDigests?: TestSeedCapturedAttachmentDigest[]
+  }
   scope: SendMessageInput['scope']
   metadata?: SendMessageInput['metadata']
   captureCorrelationToken?: string
@@ -284,8 +306,54 @@ async function captureTestSeedMessage(record: TestSeedCapturedMessage): Promise<
  */
 const testSeedCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
+  fileSharing: true,
   conversationHistory: false,
   realtimePush: false,
+}
+
+/**
+ * The attachments as the capture always recorded them. Only the files the hub
+ * read from the attachments module are left out: they carry bytes and no URL,
+ * so they appear in `attachmentDigests` alone.
+ */
+function captureUrlAttachments(content: MessageContent): MessageContent['attachments'] {
+  if (!content.attachments) return undefined
+  const recorded = content.attachments.filter((attachment) => attachment.url || !attachment.content)
+  return recorded.map(({ url, mimeType, fileName, fileSize, inline }) => ({
+    url,
+    mimeType,
+    fileName,
+    ...(fileSize !== undefined ? { fileSize } : {}),
+    ...(inline !== undefined ? { inline } : {}),
+  }))
+}
+
+/**
+ * Record what an attachment carried without writing its bytes to the capture
+ * file: tests compare the digest with the file they uploaded. Only bytes the
+ * adapter already holds are digested; a remote URL is never fetched, and it
+ * stays in `attachments` alone, as does a `data:` URL that does not decode.
+ */
+function captureAttachmentDigests(content: MessageContent): TestSeedCapturedAttachmentDigest[] | undefined {
+  const digests = (content.attachments ?? []).flatMap((attachment): TestSeedCapturedAttachmentDigest[] => {
+    if (!attachment.content && !attachment.url?.startsWith('data:')) return []
+    let bytes: Uint8Array
+    try {
+      bytes = resolveOutboundAttachmentBytes(attachment)
+    } catch {
+      return []
+    }
+    return [
+      {
+        version: 1,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        fileSize: bytes.byteLength,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      },
+    ]
+  })
+  return digests.length ? digests : undefined
 }
 
 /**
@@ -308,7 +376,11 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       capturedAt: new Date().toISOString(),
       externalMessageId,
       conversationId: input.conversationId,
-      content: input.content,
+      content: {
+        ...input.content,
+        attachments: captureUrlAttachments(input.content),
+        attachmentDigests: captureAttachmentDigests(input.content),
+      },
       scope: input.scope,
       metadata: input.metadata,
       captureCorrelationToken: resolveTestEmailCaptureCorrelationToken() ?? undefined,
@@ -336,6 +408,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       content: {
         text: input.body,
         bodyFormat: input.bodyFormat,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       },
       metadata: input.channelMetadata ?? {},
     }
@@ -369,6 +442,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
  */
 const testSeedChatCapabilities: ChannelCapabilities = {
   ...testSeedCapabilities,
+  fileSharing: false,
   recipientFormat: 'provider-native',
 }
 

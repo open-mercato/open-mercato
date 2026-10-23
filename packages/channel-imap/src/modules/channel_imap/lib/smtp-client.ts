@@ -77,6 +77,22 @@ async function loadMailComposer(): Promise<MailComposerCtor | undefined> {
   }
 }
 
+/**
+ * Whether an SMTP send failed because the message is too large: a local
+ * `SIZE` pre-check, or a server answer of 552 / 554 with a size status
+ * (RFC 1870 `5.3.4`, `5.2.3`) or wording. A full recipient mailbox (`5.2.2`)
+ * is not a message size problem, even when its text mentions a size.
+ */
+export function isSmtpMessageTooLarge(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { responseCode, response, message } = error as { responseCode?: number; response?: string; message?: string }
+  const text = `${response ?? ''} ${message ?? ''}`
+  if (/size larger than allowed/i.test(text)) return true
+  if (responseCode !== 552 && responseCode !== 554) return false
+  if (/\b5\.2\.2\b/.test(text)) return false
+  return /5\.3\.4|5\.2\.3|too (large|big)|message size|size exceeds/i.test(text)
+}
+
 // send() composes the message twice (MailComposer for the Sent-folder bytes, then
 // transporter.sendMail), and each composition would generate its own Message-ID.
 // Pinning one up front keeps the Sent copy, the delivered message and the
@@ -120,6 +136,10 @@ class NodemailerClient implements SmtpClient {
           contentDisposition: a.inline ? 'inline' : 'attachment',
         })),
         headers: message.headers,
+        // Attachments are always bytes; never let a value make nodemailer read
+        // the local disk or fetch a URL.
+        disableFileAccess: true,
+        disableUrlAccess: true,
       }
 
       // Build the RFC2822 bytes ourselves via MailComposer so we can capture
