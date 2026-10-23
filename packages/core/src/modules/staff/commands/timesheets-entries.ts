@@ -1472,6 +1472,7 @@ const stopTimerCommand: CommandHandler<StaffTimeEntryStopTimerInput, StopTimerRe
         scopeCtx,
       )
       if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, (await resolveTranslations()).translate)
 
       // Reopening a stopped timer makes it running again, so the
       // single-active-timer invariant (#2855) has to hold afterwards. If the
@@ -1761,6 +1762,7 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
         scopeCtx,
       )
       if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, (await resolveTranslations()).translate)
 
       // The timer was stopped after this start, so the recorded duration and
       // endedAt now depend on the very segment this undo would retire. Reverting

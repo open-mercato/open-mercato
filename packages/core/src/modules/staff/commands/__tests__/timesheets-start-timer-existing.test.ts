@@ -59,6 +59,7 @@ const OTHER_STAFF_MEMBER_ID = '44444444-4444-4444-8444-444444444444'
 const ENTRY_ID = '55555555-5555-4555-8555-555555555555'
 const SEGMENT_ID = '66666666-6666-4666-8666-666666666666'
 const OTHER_ENTRY_ID = '77777777-7777-4777-8777-777777777777'
+const REPORT_ID = '88888888-8888-4888-8888-888888888888'
 
 type StartExistingCommand = {
   execute: (input: unknown, ctx: unknown) => Promise<{
@@ -378,6 +379,36 @@ describe('start_timer_existing command — undo', () => {
 
     expect(stoppedEntry.startedAt).toBeInstanceOf(Date)
     expect(flushCalls).toBe(0)
+  })
+
+  it('refuses with 409 time_entry_locked when a closed report has since locked the entry (#7507)', async () => {
+    const { command, undoState } = await captureUndoState()
+    const { TIME_ENTRY_LOCKED_CODE } = await import('../timesheets-entries')
+
+    findOneOptions.length = 0
+    flushCalls = 0
+    const startedAt = new Date('2026-01-01T09:00:00.000Z')
+    const lockedEntry = makeEntry({ startedAt, source: 'timer', lockedReportId: REPORT_ID })
+    const openedSegment = { id: SEGMENT_ID, timeEntryId: ENTRY_ID, deletedAt: null }
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
+      findOneOptions.push(opts as Record<string, unknown> | undefined)
+      const filter = where as Record<string, unknown>
+      if (filter.id === SEGMENT_ID) return openedSegment
+      return lockedEntry
+    })
+
+    await expect(
+      command.undo!({ input: startInput(), ctx: createCtx(makeEm()), logEntry: undoLogEntry(undoState) }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: TIME_ENTRY_LOCKED_CODE, lockedReportId: REPORT_ID }),
+    })
+
+    expect(lockWasRequested()).toBe(true)
+    expect(flushCalls).toBe(0)
+    expect(lockedEntry.startedAt).toBe(startedAt)
+    expect(lockedEntry.source).toBe('timer')
+    expect(openedSegment.deletedAt).toBeNull()
   })
 
   it('is a no-op when the log entry carries no snapshot', async () => {

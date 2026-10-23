@@ -19,12 +19,16 @@ import {
   loadTimesheetPreference,
   saveTimesheetPreference,
 } from '../../../lib/timesheets/timesheetPreferenceService'
-import { runStaffMutationGuardAfterSuccess, runStaffMutationGuards } from '../../guards'
-import { runTimesheetInterceptors } from '../_shared/withTimesheetInterceptors'
+import {
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../guards'
+import { readSearchParamsRecord, runTimesheetInterceptors } from '../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
-const RESOURCE_KIND = 'staff.timesheets.preference'
+const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.timesheetPreference
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -99,9 +103,19 @@ async function resolveRequestContext(req: Request) {
  */
 export async function GET(req: Request) {
   try {
-    const { em, staffMember, scope } = await resolveRequestContext(req)
+    const { container, auth, em, staffMember, scope } = await resolveRequestContext(req)
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const preference = await loadTimesheetPreference(em, scope, staffMember.id)
-    return NextResponse.json(preference, { status: 200 })
+    return session.respond(200, preference)
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

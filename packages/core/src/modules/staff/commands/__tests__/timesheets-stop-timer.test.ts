@@ -59,6 +59,7 @@ const STAFF_MEMBER_ID = '33333333-3333-4333-8333-333333333333'
 const OTHER_STAFF_MEMBER_ID = '44444444-4444-4444-8444-444444444444'
 const ENTRY_ID = '55555555-5555-4555-8555-555555555555'
 const SEGMENT_ID = '66666666-6666-4666-8666-666666666666'
+const REPORT_ID = '77777777-7777-4777-8777-777777777777'
 
 const SEGMENT_STARTED_AT = new Date('2026-01-01T08:00:00.000Z')
 
@@ -390,6 +391,43 @@ describe('stop_timer command — undo', () => {
     // Reopening would have left the staff member with two running timers.
     expect(restoredEntry.endedAt).toBeInstanceOf(Date)
     expect(flushCalls).toBe(0)
+  })
+
+  it('refuses with 409 time_entry_locked when a closed report has since locked the entry (#7507)', async () => {
+    const { command, undoState } = await captureUndoState()
+    const { TIME_ENTRY_LOCKED_CODE } = await import('../timesheets-entries')
+
+    findOneOptions.length = 0
+    flushCalls = 0
+    const stoppedAt = new Date('2026-01-01T09:00:00.000Z')
+    const lockedEntry = makeEntry({
+      endedAt: stoppedAt,
+      durationMinutes: 60,
+      roundedMinutes: 60,
+      lockedReportId: REPORT_ID,
+    })
+    const stoppedSegment = makeSegment({ endedAt: stoppedAt })
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
+      findOneOptions.push(opts as Record<string, unknown> | undefined)
+      const filter = where as Record<string, unknown>
+      if (filter.id && typeof filter.id === 'object') return null
+      if (filter.id === SEGMENT_ID) return stoppedSegment
+      return lockedEntry
+    })
+
+    await expect(
+      command.undo!({ input: stopInput(), ctx: createCtx(makeEm()), logEntry: undoLogEntry(undoState) }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: TIME_ENTRY_LOCKED_CODE, lockedReportId: REPORT_ID }),
+    })
+
+    expect(lockWasRequested()).toBe(true)
+    expect(flushCalls).toBe(0)
+    expect(lockedEntry.endedAt).toBe(stoppedAt)
+    expect(lockedEntry.durationMinutes).toBe(60)
+    expect(lockedEntry.roundedMinutes).toBe(60)
+    expect(stoppedSegment.endedAt).toBe(stoppedAt)
   })
 
   it('is a no-op when the log entry carries no snapshot', async () => {

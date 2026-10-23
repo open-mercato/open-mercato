@@ -340,7 +340,7 @@ const guardResult = await runStaffMutationGuards(
     tenantId,
     organizationId,
     userId: auth.sub ?? '',
-    resourceKind: 'staff.timesheets.preference',
+    resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timesheetPreference, // 'staff.timesheets.preference'
     resourceId: preferenceId,        // the staff member id when no row exists yet
     operation: 'update',
     requestMethod: req.method,
@@ -735,6 +735,12 @@ Two test cases were realized differently from the § Testing Strategy table. Bot
 `yarn db:generate` emitted `staff_timesheet_preferences_unique_idx` as a **plain non-unique index**, silently dropping both `unique: true` and `where: 'deleted_at IS NULL'` from the entity declaration. This is load-bearing rather than cosmetic: the upsert's `ON CONFLICT … WHERE deleted_at IS NULL` needs a matching partial unique index to infer, and would otherwise fail at runtime. The migration is hand-corrected, following `Migration20260511112759` which exists solely to apply the same correction to the sibling timesheet tables. The snapshot records the index as `unique: false`, matching how the already-corrected sibling is recorded; a re-run reports `staff: no changes`.
 
 ## Changelog
+
+### 2026-10-23 — review fixes (`om-auto-fix-pr`)
+
+- `GET /api/staff/timesheets/my-preferences` now runs the timesheet API interceptor before and after passes, like `PUT` and the sibling `my-projects` / `my-work` reads (staff `AGENTS.md`, BC surface #7). The contract test now checks that every exported handler of an intercepted route reaches `runTimesheetInterceptors`, so a second handler without the wiring fails it.
+- The guard `resourceKind` is published as `STAFF_TIME_TRACKING_RESOURCE_KINDS.timesheetPreference` (`staff.timesheets.preference`, value unchanged) and listed in the staff `AGENTS.md` taxonomy table. The contract test now also rejects a route-local `RESOURCE_KIND = '…'` literal.
+- The TimerBar running-note save sends the entry's `updatedAt` through `withScopedApiRequestHeaders(buildOptimisticLockHeader(…))` and surfaces a 409 with `surfaceRecordConflict`. `useActiveTimesheetTimer` now returns `updatedAt`, and the TimerBar re-reads the active timer after each successful note save so the next save sends the new version.
 
 ### 2026-09-23 — disabled-Start hint when the project read fails
 

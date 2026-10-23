@@ -13,6 +13,7 @@ export type ActiveTimesheetTimer = {
   projectName: string | null
   projectColor: string | null
   notes: string | null
+  updatedAt: string | null
 }
 
 type ActiveTimesheetTimerResult = ActiveTimesheetTimer & {
@@ -38,6 +39,7 @@ const EMPTY_ACTIVE_TIMER: ActiveTimesheetTimer = {
   projectName: null,
   projectColor: null,
   notes: null,
+  updatedAt: null,
 }
 
 export const activeTimesheetTimerQueryKey = () => BASE_ACTIVE_TIMER_KEY
@@ -118,6 +120,7 @@ async function fetchActiveTimesheetTimer(staffMemberId?: string | null): Promise
     projectName: projectDisplay.projectName,
     projectColor: projectDisplay.projectColor,
     notes: getString(active.notes),
+    updatedAt: getString(active.updated_at ?? active.updatedAt),
   }
 }
 

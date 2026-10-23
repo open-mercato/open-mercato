@@ -92,6 +92,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() })
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
 }))
 jest.mock('../startTimer', () => ({ startTimerEntry: jest.fn() }))
 
@@ -148,7 +149,13 @@ describe('TimerBar — note typed while a start is in flight', () => {
       }),
     )
     mockRefresh.mockImplementation(async () => {
-      act(() => mockTimerStore.set(runningTimer('Initial note')))
+      if (!mockTimerStore.state.running) {
+        act(() => mockTimerStore.set(runningTimer('Initial note')))
+      } else {
+        const puts = notesPutCalls()
+        const lastPut = puts[puts.length - 1] as [string, { body: string }] | undefined
+        if (lastPut) act(() => mockTimerStore.set({ notes: JSON.parse(lastPut[1].body).notes }))
+      }
       return mockTimerStore.state
     })
 

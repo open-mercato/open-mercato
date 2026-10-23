@@ -92,6 +92,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() })
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
 }))
 jest.mock('../startTimer', () => ({ startTimerEntry: jest.fn() }))
 

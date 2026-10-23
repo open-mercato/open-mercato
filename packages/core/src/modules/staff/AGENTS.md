@@ -127,6 +127,7 @@ rather than re-typing a string:
 | `taskTag` | `staff.timesheets.task_tag` | `tags/task-assignments` |
 | `settings` | `staff.timesheets.settings` | `settings`, `settings/reapply-rounding` |
 | `accessRequest` | `staff.timesheets.access_request` | `access-requests` |
+| `timesheetPreference` | `staff.timesheets.preference` | `my-preferences` |
 
 These are the **guard** resource kinds. The eight `makeCrudRoute` time-tracking
 resources derive their own tag from the `events` config the factory reads

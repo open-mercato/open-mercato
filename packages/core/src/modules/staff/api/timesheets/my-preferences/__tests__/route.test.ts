@@ -10,6 +10,7 @@ const mockRunStaffMutationGuards = jest.fn()
 const mockRunStaffMutationGuardAfterSuccess = jest.fn()
 const mockEnforceCommandOptimisticLock = jest.fn()
 const mockLoggerError = jest.fn()
+const mockRunTimesheetInterceptors = jest.fn()
 
 const mockEm = { fork: jest.fn(() => mockEm) }
 
@@ -62,10 +63,19 @@ jest.mock('../../../../lib/timesheets/timesheetPreferenceService', () => ({
 }))
 
 jest.mock('../../../guards', () => ({
+  STAFF_TIME_TRACKING_RESOURCE_KINDS: { timesheetPreference: 'staff.timesheets.preference' },
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) => mockRunStaffMutationGuardAfterSuccess(...args)),
 }))
+
+jest.mock('../../_shared/withTimesheetInterceptors', () => {
+  const actual = jest.requireActual('../../_shared/withTimesheetInterceptors')
+  return {
+    ...actual,
+    runTimesheetInterceptors: jest.fn((...args: unknown[]) => mockRunTimesheetInterceptors(...args)),
+  }
+})
 
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -113,6 +123,8 @@ describe('staff timesheets my-preferences route', () => {
     mockIsProjectAssignedToMember.mockResolvedValue(true)
     mockRunStaffMutationGuards.mockResolvedValue({ ok: true, afterSuccessCallbacks: [] })
     mockEnforceCommandOptimisticLock.mockResolvedValue(undefined)
+    const { runTimesheetInterceptors } = jest.requireActual('../../_shared/withTimesheetInterceptors')
+    mockRunTimesheetInterceptors.mockImplementation(runTimesheetInterceptors)
   })
 
   describe('GET', () => {
@@ -135,6 +147,34 @@ describe('staff timesheets my-preferences route', () => {
         { tenantId: 'tenant-1', organizationId: 'org-1' },
         'member-1',
       )
+    })
+
+    it('runs the timesheet API interceptor before pass with the caller scope', async () => {
+      const response = await getHandler(buildGetRequest())
+
+      expect(response.status).toBe(200)
+      expect(mockRunTimesheetInterceptors).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'GET',
+          scope: expect.objectContaining({ userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }),
+        }),
+      )
+    })
+
+    it('answers with the interceptor denial and reads nothing when the before pass blocks the request', async () => {
+      mockRunTimesheetInterceptors.mockResolvedValueOnce({
+        ok: false,
+        response: new Response(JSON.stringify({ error: 'Denied by interceptor' }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        }),
+      })
+
+      const response = await getHandler(buildGetRequest())
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toEqual({ error: 'Denied by interceptor' })
+      expect(mockLoadTimesheetPreference).not.toHaveBeenCalled()
     })
 
     it('rejects an unauthenticated caller', async () => {

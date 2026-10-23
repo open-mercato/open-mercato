@@ -9,7 +9,9 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -113,8 +115,10 @@ function DefaultTimerBar({
   const preference = useTimesheetPreference(staffMemberId)
 
   const activeEntryId = activeTimer.entryId
+  const activeEntryUpdatedAt = activeTimer.updatedAt
   const activeProjectId = activeTimer.projectId
   const isRunning = activeTimer.running
+  const refreshActiveTimer = activeTimer.refresh
 
   const activeProject = projects.find((p) => p.id === activeProjectId)
   const activeProjectName = activeProject?.name ?? activeTimer.projectName
@@ -331,17 +335,23 @@ function DefaultTimerBar({
     }
   }
 
-  const persistRunningDescription = useCallback(async (entryId: string, normalizedDescription: string) => {
+  const persistRunningDescription = useCallback(async (
+    entryId: string,
+    normalizedDescription: string,
+    expectedUpdatedAt: string | null,
+  ) => {
     setIsSavingDescription(true)
     try {
       const notesPayload = { id: entryId, notes: normalizedDescription || null }
       await runMutation({
         operation: () =>
-          apiCallOrThrow('/api/staff/timesheets/time-entries', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(notesPayload),
-          }),
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(expectedUpdatedAt), () =>
+            apiCallOrThrow('/api/staff/timesheets/time-entries', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(notesPayload),
+            }),
+          ),
         context: {
           formId: TIMER_MUTATION_CONTEXT_ID,
           resourceKind: 'staff.timesheets.time_entry',
@@ -353,17 +363,29 @@ function DefaultTimerBar({
         mutationPayload: notesPayload,
       })
       setPersistedDescription(normalizedDescription)
+      // The save bumped the entry's version; without re-reading it the next note
+      // edit would send the stale one and trip a false optimistic-lock conflict.
+      await refreshActiveTimer().catch((refreshErr: unknown) => {
+        logger.warn('staff.timesheets.timer.refreshAfterNoteSaveFailed', { err: refreshErr })
+      })
       return true
     } catch (err) {
-      flash(
-        resolveTimerActionError(err, t('staff.timesheets.my.errors.save', 'Failed to save timesheets.')),
-        'error',
-      )
+      const surfaced = surfaceRecordConflict(err, t, {
+        onRefresh: () => {
+          void refreshActiveTimer()
+        },
+      })
+      if (!surfaced) {
+        flash(
+          resolveTimerActionError(err, t('staff.timesheets.my.errors.save', 'Failed to save timesheets.')),
+          'error',
+        )
+      }
       return false
     } finally {
       setIsSavingDescription(false)
     }
-  }, [runMutation, staffMemberId, retryLastMutation, t])
+  }, [runMutation, staffMemberId, retryLastMutation, refreshActiveTimer, t])
 
   const saveRunningDescription = useCallback((): Promise<boolean> => {
     // Clicking Stop right after editing the note fires the input's blur save and
@@ -376,12 +398,12 @@ function DefaultTimerBar({
     const normalizedPersistedDescription = persistedDescription.trim()
     if (normalizedDescription === normalizedPersistedDescription) return Promise.resolve(true)
 
-    const pending = persistRunningDescription(activeEntryId, normalizedDescription).finally(() => {
+    const pending = persistRunningDescription(activeEntryId, normalizedDescription, activeEntryUpdatedAt).finally(() => {
       pendingNoteSaveRef.current = null
     })
     pendingNoteSaveRef.current = pending
     return pending
-  }, [activeEntryId, description, persistedDescription, persistRunningDescription])
+  }, [activeEntryId, activeEntryUpdatedAt, description, persistedDescription, persistRunningDescription])
 
   useEffect(() => {
     if (!hasPendingNoteSync || !isRunning || !activeEntryId) return
