@@ -548,7 +548,16 @@ automate-then-verify-before-posting model.
   workshop's own `130-1 mBank` example), `label` (text, e.g. "mBank
   PLN"), `isActive` (boolean), tenant/org-scoped, `updatedAt`/
   `deletedAt` (user-editable master data, unlike this document's other
-  two entities).
+  two entities), and, for an account whose currency is not the base currency,
+  `outflowValuationMethod` (`FIFO` default or `WEIGHTED_AVERAGE`, added 2026-10-23, see
+  Foreign-currency lots).
+- `BankAccountLot` (added 2026-10-23) — one lot of foreign currency held on a
+  `BankAccount`: `bankAccountId`, `acquiredOn` (date), `sourceLineId`
+  (nullable FK-id to `BankStatementLine`, `null` for an opening lot),
+  `amountCurrency` and `remainingCurrency` (numeric(19,4)), `rate`
+  (numeric(18,8), base units per 1 unit of the account's currency),
+  tenant/org-scoped, `createdAt`. Only `remainingCurrency` ever changes; a
+  consumed lot stays as history.
 - `BankStatement` — `bankAccountId` (FK-id), `statementDate`,
   `openingBalance`, `closingBalance` (numeric(19,4)), tenant/org-scoped,
   `createdAt`. No `updatedAt`: once created, a statement's own header
@@ -596,6 +605,63 @@ automate-then-verify-before-posting model.
   once (unmatched) and matched at most once (Invariant 1) — a
   correction reverses the `JournalEntry` (when one exists) and creates
   a new line, not an edit (see Out of scope).
+
+### Foreign-currency lots (added 2026-10-23)
+
+**Decided by the team on the controller's answer of 2026-10-23 (FIFO as the
+usual policy, weighted average permitted; not yet reviewed by a maintainer).**
+Applies only to a `BankAccount` whose currency is not the base currency. A
+base-currency account has no lots, no method and no change in behaviour.
+
+- **Method.** `BankAccount.outflowValuationMethod`: `FIFO` (default) or
+  `WEIGHTED_AVERAGE`, chosen when the account is created and fixed once it has
+  a lot (Comarch ERP XL fixes it once per register as well). Outflow at the rate
+  of the day is not offered: the books would show no realized differences, which
+  CIT needs.
+- **Inflow creates a lot.** Every incoming line that posts to the account
+  (`sales_invoice`, incoming `internal_transfer`, incoming `manual_gl_entry`)
+  creates a `BankAccountLot` in the same transaction: the statement amount, the
+  value date and the rate of the bank line of that entry (`bankRate`).
+  `createOpeningLot` (`POST /api/cash-bank-management/accounts/:id/opening-lots`,
+  `statements.manage`) records the balance a tenant already holds at go-live,
+  with a date and rate; it posts nothing, the opening balance entry is the
+  accountant's.
+- **Outflow consumes lots** with `acquiredOn` on or before the line date.
+  `FIFO`: oldest first. `WEIGHTED_AVERAGE`: every open lot is reduced in
+  proportion to what remains, so an outflow leaves the average rate unchanged;
+  the cost is taken at the current average. More than the lots hold is
+  `409 INSUFFICIENT_LOTS`, nothing posted (the account is overdrawn or an
+  opening lot is missing).
+- **Own postings** (outgoing `internal_transfer`, outgoing `manual_gl_entry`):
+  the bank credit is one line per consumed lot (account currency,
+  `amountCurrency` = the consumed amount, the lot's rate, so the base amount is
+  exact under GL's consistency rule; `WEIGHTED_AVERAGE`: one line at the average
+  rate rounded to 8 decimals); the counter-side line is posted at the rate of
+  the day (`bankRate`: the bank's, else NBP Table A of the last published day
+  before the value date); the difference between the two base totals goes to
+  `gainLossAccountId` (the **realized** account) on the side that balances.
+- **`payment_batch` outflow.** Accounts Payable has already credited the cash
+  account at its payment rate when the batch was sent. Matching the line
+  consumes the lots and posts one **cost adjustment entry**
+  (`referenceType: 'cash_bank_management:bank_statement_line_cost_adjustment'`):
+  a line on the account's ledger account in its currency with
+  `amountCurrency = 0` and a base amount of (cost of the consumed lots − the
+  base amount of the batch's cash line, read from its payment entry), and the
+  opposite side on `gainLossAccountId`. Spent at 4.20 what cost 4.00: the cash
+  line was credited 2,100, the cost is 2,000, so the adjustment debits the
+  account by 100 and credits the realized gain by 100. It applies only when the
+  batch's cash account is this account's ledger account; otherwise nothing is
+  posted, as before.
+- **Reconciliation property.** The base balance of the ledger account equals the
+  sum of `remainingCurrency` × lot rate (plus any unrealized valuation not yet
+  reversed), and the balance in the account's currency equals the sum of
+  `remainingCurrency`. The valuation of `fx_revaluation` (Multi-Currency, Out of
+  scope) is then the balance in currency times the valuation rate minus the base
+  balance, posted to the **unrealized** account, never to `gainLossAccountId`.
+- **Not designed:** reversing a matched line restores the lots (the
+  `unmatchBankStatementLine` of Out of scope); lines matched out of date order
+  consume the lots available at match time, which can differ from a strictly
+  chronological FIFO.
 
 ### Access Control (`acl.ts`)
 
@@ -688,7 +754,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     full liability-clearing entry when the batch was sent (see Design
     decisions). Persists `matchedDocumentType: 'payment_batch'`,
     `matchedDocumentId`, `amountMismatch`, `matchedAt`;
-    `matchedJournalEntryId` stays `null`. No event emitted (see
+    `matchedJournalEntryId` stays `null`, except for a foreign-currency bank account, where the match consumes lots and posts the cost adjustment entry of Foreign-currency lots (its id is stored in `matchedJournalEntryId`). No event emitted (see
     Events).
   - **`sales_invoice` (the only path that posts).** Rejects if the
     statement line is outgoing (`amount < 0`) — a `SalesInvoice` match
@@ -998,13 +1064,29 @@ BankAccount {
   organizationId: uuid
   accountNumber: text        // IBAN or local format
   currencyId: uuid           // FK-id to currencies.Currency
-  ledgerAccountId: uuid      // FK-id to ledger.LedgerAccount
+    ledgerAccountId: uuid      // FK-id to ledger.LedgerAccount
   label: text
   isActive: boolean
+  outflowValuationMethod: 'FIFO' | 'WEIGHTED_AVERAGE' | null  // non-null only when currencyId is not the base currency
+
   createdAt: timestamp
   updatedAt: timestamp | null
   deletedAt: timestamp | null
 }
+
+BankAccountLot {
+  id: uuid
+  tenantId: uuid
+  organizationId: uuid
+  bankAccountId: uuid
+  acquiredOn: date
+  sourceLineId: uuid | null   // FK-id to BankStatementLine; null for an opening lot
+  amountCurrency: numeric(19,4)
+  remainingCurrency: numeric(19,4)
+  rate: numeric(18,8)         // base units per 1 unit of the account's currency
+  createdAt: timestamp
+}
+// index (bankAccountId, acquiredOn, createdAt) where remainingCurrency > 0 — FIFO order
 
 BankStatement {
   id: uuid
@@ -1043,7 +1125,7 @@ BankStatementLine {
 
 `internalTransferSuspenseAccountId`, `gainLossAccountId`,
 `customerOverpaymentAccountId` (all FK-id to `ledger.LedgerAccount`) via
-`ModuleConfigService`, owned by this module. Each required before the first
+`ModuleConfigService`, owned by this module. **`gainLossAccountId` is the realized exchange-difference account** (added 2026-10-23: realized and unrealized differences are kept apart, the unrealized one belongs to `fx_revaluation`'s config). Each required before the first
 `matchBankStatementLine` call that needs it: `internal_transfer`
 (`internalTransferSuspenseAccountId`), a foreign-currency `sales_invoice`
 match (`gainLossAccountId`), a `sales_invoice` match with an overpayment
@@ -1062,6 +1144,7 @@ posting's control-account side, since that value
   (thin wrapper over `createBankAccount`). `metadata: { requireAuth: true, requireFeatures: ['cash_bank_management.accounts.manage'] }`.
   Body validated by `data/validators.ts` (zod) before
   `createBankAccount` runs.
+- `POST /api/cash-bank-management/accounts/:id/opening-lots` (added 2026-10-23) — `createOpeningLot`, `{ acquiredOn, amountCurrency, rate }`, foreign-currency accounts only; `metadata: { requireAuth: true, requireFeatures: ['cash_bank_management.statements.manage'] }`.
 - `GET /api/cash-bank-management/accounts` — paginated list, via
   `makeCrudRoute`. `metadata: { requireAuth: true, requireFeatures: ['cash_bank_management.accounts.manage'] }`.
 - `POST /api/cash-bank-management/statements` — creates a
@@ -1200,6 +1283,7 @@ automatically.
   read it.
 - Assert a foreign-currency `sales_invoice` match with **no** rates supplied reads the NBP Table A default (`getRate` called with `source: 'NBP_A'` and the day before the settlement date) and posts with it; assert that when no rate can be resolved it is rejected with `422 EXCHANGE_RATE_REQUIRED` and persists nothing (no line update, no `JournalEntry`); assert an invoice whose stored `exchangeRate` is `null` is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING`.
 - Assert a base-currency invoice paid into a base-currency account with `bankRate` or `invoiceRatePaid` other than `1` supplied is rejected (nothing to convert), and so is an invoice and account in the same foreign currency with two different rates.
+- Lots (added 2026-10-23): a USD account receiving 1,000 at 4.00 creates one lot; spending 500 through a `manual_gl_entry` at a day rate of 4.20 posts one bank credit line (USD 500 at 4.00 = 2,000), the expense at 4.20 (2,100) and 100 on `gainLossAccountId`; the lot's remainder is 500. Two inflows at 4.00 and 4.10 are consumed oldest first. `WEIGHTED_AVERAGE` leaves the average unchanged after an outflow. An outflow above the lots is `409 INSUFFICIENT_LOTS` with nothing posted. A `payment_batch` match on a USD account posts the cost adjustment (cash line credited 2,100 by AP, cost 2,000: debit the account 100, credit `gainLossAccountId` 100) and none on a base-currency account. The base balance of the ledger account equals the sum of remaining lots at their rates after each step.
 - Assert a `payment_batch` match against a `PaymentBatch` fixture whose
   `total_amount` equals the statement line's amount posts **no**
   `JournalEntry`, sets `amountMismatch: false`, and emits no event.
@@ -1327,7 +1411,7 @@ automatically.
 
 ## Out of scope
 
-- **Valuation of the outflow of foreign currency (decided 2026-10-23, controller's answer; not designed here).** For a bank account whose currency is not the base currency, every inflow is a lot (date, amount in the account's currency, rate) and an outflow consumes the oldest lot at its rate (FIFO, the default; weighted average permitted; outflow at the rate of the day not offered). The bank line of an outflow is then posted one line per consumed lot, each with the lot's own rate (so the base amount is exact and satisfies GL's consistency rule), and the difference between that cost and the amount at the rate of the day goes to a realized exchange-difference account, kept apart from the unrealized account used by `fx_revaluation`. Needs a lot table owned by this module, a per-account method setting fixed at first posting, reversal that restores the lots, and a realized/unrealized pair of accounts in module config. The inflow side is unchanged: the sales payment entry above creates a lot at `bankRate`. Worked example and reasoning in the Multi-Currency spec (Out of scope).
+- **Valuation of the outflow of foreign currency: designed in Architecture → Foreign-currency lots (2026-10-23).**  Remaining out of scope: restoring lots on reversal, strictly chronological consumption, and the revaluation run itself (Multi-Currency).
 
 
 - **Realized FX gain/loss on the AP (`VendorInvoice`/`PaymentBatch`)
@@ -1897,3 +1981,7 @@ schema. Not yet reviewed by a maintainer.
 ### 2026-10-23 (cont. — controller's answer on the outflow of currency)
 
 - **Decided by the team** (not yet reviewed by a maintainer): FIFO lots per foreign-currency bank account for outflows, as written under Out of scope; realized differences on their own account. The sales receipt posting above is unchanged.
+
+### 2026-10-23 (cont. — foreign-currency lots designed)
+
+- **Decided by the team** on the controller's answer (not yet reviewed by a maintainer): `BankAccountLot`, `outflowValuationMethod`, lots created by inflows and opening lots, consumption by outflows (one bank line per lot, difference to the realized account), a cost adjustment entry for `payment_batch` outflows, `409 INSUFFICIENT_LOTS`, the realized/unrealized split. Entities, Data Models, Module Config, Commands (`payment_batch`), API Contracts, Testing Strategy and Out of scope updated.
