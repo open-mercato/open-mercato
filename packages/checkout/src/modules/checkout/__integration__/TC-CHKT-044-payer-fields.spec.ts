@@ -133,14 +133,16 @@ test.describe('TC-CHKT-044: Link/template save rejects providers whose required 
     let linkId: string | null = null
     try {
       token = await getAuthToken(request)
-      const template = await postCheckout(request, token, 'templates', {
+      const templateInput = {
         ...createFixedTemplateInput(),
         customerFieldsSchema: DEFAULT_CUSTOMER_FIELDS,
-      })
+      }
+      const template = await postCheckout(request, token, 'templates', templateInput)
       expect(template.status).toBe(201)
       templateId = template.body?.id ?? null
       expect(templateId).toBeTruthy()
       const link = await postCheckout(request, token, 'links', {
+        ...templateInput,
         name: `Linked payer regression ${Date.now()}`,
         templateId,
       })
