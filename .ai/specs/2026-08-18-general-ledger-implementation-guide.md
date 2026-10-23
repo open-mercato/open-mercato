@@ -21,9 +21,9 @@ later, not built yet.
 - **`LedgerAccountType`** — a category (e.g. "Cash", "Revenue").
   Hierarchical (`parentAccountTypeId`), carries `normalBalance` (`DEBIT`/`CREDIT`) and `accountGroupId` — both locked once any account of that type has posted entries.
 - **`LedgerAccountGroup`** — system reference data (the Polish zespoły 0–8), seeded per organization by `setup.ts` → `seedDefaults` (`lib/seeds.ts`); read-only API, no edit path.
-- **`LedgerAccount`** — a concrete account (e.g. "mBank — main"), belongs to one `LedgerAccountType` (immutable once the account has posted entries); optional `parentAccountId`.
+- **`LedgerAccount`** — a concrete account (e.g. "mBank — main"), belongs to one `LedgerAccountType` (immutable once the account has posted entries); optional `parentAccountId`; optional `currencyId` (set on bank accounts only).
 - **`JournalEntry`** — the header of one posted transaction: `operationDate` (required; the business date, and the date the period lock is checked against), `postedAt` (server-set), description, currency, `sequenceNumber` (per-organization, gapless), `type` (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `referenceType`/`referenceId` (empty on everything except a `REVERSAL`, where `reverseJournalEntry` sets them to `'journal_entry'` and the original's id — don't populate them from anywhere else this phase).
-- **`JournalEntryLine`** — one side of one transaction: `accountId`, `debit`, `credit` (exactly one non-zero), `amountCurrency`.
+- **`JournalEntryLine`** — one side of one transaction: `accountId`, `debit`, `credit` (exactly one non-zero, base currency), `amountCurrency`, `currencyId` and `exchangeRate` (the line's own currency, rate and original-currency amount).
 - **`JournalEntrySequence`** — the per-`(tenant_id, organization_id)` counter row `postJournalEntry` increments to allocate `sequenceNumber` (see "Don't use a native Postgres `SEQUENCE`" below).
 
 For exact fields/types, see the full spec's Architecture → Entities.
@@ -83,9 +83,15 @@ anything else compiles or is reachable. High-level shape:
 ## Things that will bite you if you skip them
 
 - **Don't add a `Currency` entity.** One already exists in
-  `packages/core/src/modules/currencies`. `JournalEntry.currencyId` is
-  a plain FK-id to it — no ORM relation, no new entity. This was a
+  `packages/core/src/modules/currencies`. `JournalEntry.currencyId`, `JournalEntryLine.currencyId` and
+  `LedgerAccount.currencyId` are plain FK-ids to it — no ORM relation, no new entity. This was a
   real mistake in an earlier draft of the full spec; don't repeat it.
+- **Resolve a line's currency and rate when you write, never when you
+  read.** Each line carries its own currency, rate and original-currency
+  amount, so one entry can mix currencies and still balances in the base
+  currency. A line that omits them takes the header's values at write
+  time; the stored column is never null, because a read-time "null means
+  the header" rule silently mislabels a line left unset in a mixed entry.
 - **`sequenceNumber` is per `(tenant_id, organization_id)`, not per
   tenant.** Two organizations under the same tenant each start their
   own counter at 1. Test this explicitly — it's easy to get right by

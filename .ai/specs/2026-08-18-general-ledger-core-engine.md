@@ -594,21 +594,13 @@ modification or hiding. The append-only triggers on `journal_entries` and
 `journal_entry_lines` (see Migration) are that protection, so the statutory
 rule and the database enforce the same thing.
 
-**Multi-currency: single currency per entry in this phase, but the
-line retains the original-currency amount.** The header
-(`JournalEntry.currencyId`, `exchangeRate`) fixes one currency per
-transaction; balance validation runs only in the base-currency
-`debit`/`credit` columns, which keeps Phase 1 posting logic simple.
-`JournalEntryLine.amountCurrency` — the amount in the entry's original
-currency — is captured from day one regardless. (Art. 23 ust. 3 UoR requires an
-operation in a foreign currency to be recorded so that both the amount in Polish
-currency and the amount in the foreign currency can be determined; the base-
-currency `debit`/`credit` together with `amountCurrency` and `exchangeRate` do
-that.) The `exchangeRate` is stored as given: a rate with more than 8
-decimal places is rejected on posting, not rounded. FX revaluation and
-multi-currency reporting are out of scope here, but when that work
-starts it reads from data that already exists rather than requiring a
-backfill.
+**Multi-currency: every line carries its own currency, rate and original-currency amount; the entry balances in the base currency.** *(Changed 2026-10-23. The earlier text fixed one currency per entry through the header.)* A `JournalEntryLine` has `currencyId`, `exchangeRate` and `amountCurrency` next to the base-currency `debit`/`credit`, so one entry can mix currencies, for example an EUR invoice paid from a USD bank account in a PLN-based tenant. Balance validation runs only in the base-currency `debit`/`credit` columns (`SUM(debit) = SUM(credit)`), unchanged. The header's `currencyId`/`exchangeRate` stay as the currency and rate of the source document and are the default for a line that omits its own. `postJournalEntry` resolves that default **when it writes**, so a stored line never has a null currency or rate. A read-time "null means the header" rule would be wrong for a line left unset inside an entry that mixes currencies: it would be silently read as the header's currency. A base-currency line stores the base currency, rate `1` and an `amountCurrency` equal to its `debit` or `credit`. `exchangeRate` is base-currency units per one unit of the line's currency, the same direction as on the header, and is stored as given: a rate with more than 8 decimal places is rejected on posting, not rounded. `amountCurrency` stays an unsigned magnitude; the side is the `debit`/`credit` column.
+
+Two consistency rules apply to every line. First, `amountCurrency × exchangeRate` matches the line's `debit` or `credit` within a tolerance. A line with `amountCurrency = 0` is exempt, because an exchange-difference line changes the base value of an open item without changing its foreign amount. Second, a line on an account that has a currency (below) carries that currency. **⚠ NEEDS HUMAN CONFIRMATION:** the tolerance. The working proposal is half the smallest unit of the base currency.
+
+**Account currency.** `LedgerAccount.currencyId` is nullable. It is set on bank accounts: each bank account is its own ledger account whatever its currency (two EUR accounts in two banks are two ledger accounts), and the balance in the account's currency must agree with the bank statement. Settlement accounts (rozrachunki) stay in the base currency, one per contractor, so they have no account currency and each line carries the document's currency. The account currency is immutable once the account has posted lines, like `accountTypeId`.
+
+**Where this comes from.** The controller's answer (Mateusz Duda, incro, e-mail of 2026-10-23): each bank account is a separate ledger account; settlement accounts are kept in the base currency, and every entry carries a currency, an amount in that currency and a rate; a foreign-currency statement is booked in the account's currency with conversion to the base currency, so each line has a currency amount, a currency, a rate and a base amount; an EUR invoice paid from a USD account may be one entry with lines in different currencies, provided currency and rate are line attributes and the entry balances in the base currency; the exchange difference from converting both currencies goes into the same entry as a line, while the difference between the invoice rate and the payment rate is usually booked as a separate entry at settlement. Prior art: ERPNext (debit or credit entered in each row's own account currency, documentation), GnuCash (per split, an amount in the account's commodity and a value in the transaction currency), Odoo (a currency per journal item, from a third-party description, because the Odoo documentation page could not be read). Art. 23 ust. 3 UoR (the amount in Polish currency and the amount in the foreign currency can both be determined) is met line by line. Kieso (17th ed.) has no mechanics for this; Fowler's Quantity and Conversion Ratio patterns (§3.1 and §3.2) say a monetary amount carries its currency and that rates vary over time, which does not decide whether an entry may mix currencies. FX revaluation and multi-currency reporting stay out of scope here; when that work starts it reads from data that already exists rather than requiring a backfill.
 
 **`FiscalPeriod`/`LedgerAccount`/`LedgerAccountType` get a nullable
 `deletedAt`, even though no delete route ships for `FiscalPeriod` in
@@ -784,6 +776,11 @@ suite asserts against, not a workflow it walks through.
   by a deferred DB constraint trigger at commit, so no code path
   (including a bug in a command handler) can persist an unbalanced
   entry.
+- Every posted `JournalEntryLine` has its own currency, rate and
+  original-currency amount, never null. `amountCurrency × exchangeRate`
+  matches the line's base amount within the tolerance (lines with
+  `amountCurrency = 0` excepted), and a line on an account that has a
+  currency carries that currency (see Design decisions, Multi-currency).
 - A posted `JournalEntry`/`JournalEntryLine` is never modified or
   deleted. Correcting one always means posting a new `REVERSAL` entry
   that references the original — never a direct edit, regardless of
@@ -869,7 +866,9 @@ suite asserts against, not a workflow it walks through.
   frozen once the account has posted lines), `accountTypeId`
   (immutable once the account has posted entries — see Design
   decisions), tenant/org scoped, `description` (the account's display
-  name), `updatedAt`, `deletedAt` (nullable, soft delete — see Design
+  name), `currencyId` (FK-id, `uuid`, nullable — set on bank accounts,
+  immutable once the account has posted lines; see Design decisions,
+  Multi-currency), `updatedAt`, `deletedAt` (nullable, soft delete — see Design
   decisions).
 - `JournalEntry` — `sequenceNumber` (`bigint`, unique per
   `(tenant_id, organization_id)`, allocated atomically — see Design
@@ -880,13 +879,17 @@ suite asserts against, not a workflow it walks through.
   ust. 4, see Design decisions), `description`, `type`
   (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `currencyId`
   (FK-id, `uuid`, references `currencies.Currency.id` — no ORM
-  relation), `exchangeRate` (`numeric(18,8)`, nullable — at most 8
+  relation; the source document's currency, the default for lines that omit theirs), `exchangeRate` (`numeric(18,8)`, nullable — at most 8
   decimal places, enforced by validation), `referenceType`,
   `referenceId`, tenant/org scoped. No `updatedAt` — append-only, immutable once
   posted (exempt from optimistic locking, see Design decisions).
 - `JournalEntryLine` — `journalEntryId`, `accountId`, `debit`,
-  `credit` (`numeric(19,4)`), `amountCurrency` (`numeric(19,4)`, an
-  unsigned magnitude in the entry's original currency),
+  `credit` (`numeric(19,4)`, base currency), `amountCurrency` (`numeric(19,4)`, an
+  unsigned magnitude in the line's own currency), `currencyId` (FK-id,
+  `uuid`, not null, references `currencies.Currency.id` — the line's
+  currency), `exchangeRate` (`numeric(18,8)`, not null — base-currency
+  units per one unit of the line's currency, at most 8 decimal places;
+  `1` on a base-currency line),
   `contractorSnapshot` (nullable `json` — see Design decisions),
   `organizationId`, `tenantId` (own scope columns, not just inherited
   via `journalEntryId` — see Design decisions). Same exemption as
@@ -1032,7 +1035,12 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   `operationDate` is not `isLocked` (rejects before any write;
   **corrected 2026-09-18** — was keyed on `postedAt`, see Design
   decisions), rejecting the post outright if no `FiscalPeriod` covers
-  `operationDate` at all; validates debit/credit balance; requires
+  `operationDate` at all; validates debit/credit balance in the base currency; resolves each line's
+  `currencyId`, `exchangeRate` and `amountCurrency` (a line that omits them
+  takes the header's currency and rate, and a base-currency line takes an
+  `amountCurrency` equal to its `debit`/`credit`), then rejects a line whose
+  `amountCurrency × exchangeRate` does not match its `debit`/`credit` within the
+  tolerance, or whose currency differs from its account's `currencyId`; requires
   `operationDate` (art. 23 ust. 2 — see Design decisions;
   `documentType`/`documentNumber`/`documentDate` are accepted but
   optional in this phase); server-sets `postedAt` to the current
@@ -1217,7 +1225,8 @@ Standard `makeCrudRoute` paginated list.
   art. 23 ust. 2, see Design decisions).
 - **Detail (`?id=<uuid>`, added 2026-10-12, PR #6340 review)**: the same
   route returns that one entry with `lines: { id, accountId,
-  accountNumber, accountName, debit, credit }[]`, debit lines first.
+  accountNumber, accountName, debit, credit, currencyId, exchangeRate,
+  amountCurrency }[]`, debit lines first.
   `accountName` is the account's `description`. Scoped to the selected
   organization like the list.
 - **Response 403**: caller lacks `ledger.entries.view`.
@@ -1319,7 +1328,10 @@ are immutable once the account has posted entries — enforced by
 `updateLedgerAccount`, the same class of guard as
 `normalBalance`/`accountGroupId` on `LedgerAccountType` (see Design
 decisions). `deletedAt` backs a soft delete via `makeCrudRoute`,
-blocked once the account has posted entries.
+blocked once the account has posted entries. `currencyId` is nullable and
+set only on bank accounts (see Design decisions, Multi-currency); it is
+immutable once the account has posted lines, and a line posted to an
+account that has one must carry that currency.
 
 
 
@@ -1373,11 +1385,12 @@ Queries / API).
 1. Add `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType`, `LedgerAccount`,
    `JournalEntry` (including `sequenceNumber` and the art. 23 ust. 2
    fields `operationDate`/`documentType`/`documentNumber`/
-   `documentDate`), `JournalEntryLine` (including the nullable `contractorSnapshot` `json` column) and `JournalEntrySequence` (the per-organization counter row) entities (with `updated_at` on the three editable ones) and their
+   `documentDate`), `JournalEntryLine` (including the line's `currencyId`/`exchangeRate`/`amountCurrency` and the nullable `contractorSnapshot` `json` column) and `JournalEntrySequence` (the per-organization counter row) entities (with `updated_at` on the three editable ones) and their
    migration, including the deferred balance-check constraint trigger
    and the per-organization `journal_entry_sequence` counter table. No
-   `Currency` entity — `JournalEntry.currencyId` is a plain FK-id
-   column to `currencies.Currency.id`. Add `encryption.ts` declaring
+   `Currency` entity — `JournalEntry.currencyId`, `JournalEntryLine.currencyId`
+   and `LedgerAccount.currencyId` are plain FK-id columns to
+   `currencies.Currency.id`. Add `encryption.ts` declaring
    `defaultEncryptionMaps` for `JournalEntryLine.contractorSnapshot`
    (PII — see Design decisions) in the same step, since the column and
    its encryption declaration ship together.
@@ -1458,6 +1471,16 @@ Queries / API).
   with all lines.
 - Attempt to post an unbalanced entry and assert both the application-
   layer validation and the database trigger reject it.
+- Post an entry that mixes currencies (EUR invoice paid from a USD bank
+  account, base PLN) and assert it persists balanced in PLN with each
+  line's own currency, rate and `amountCurrency`; assert a line that omits
+  them takes the header's currency and rate and is stored non-null;
+  assert a base-currency line stores rate `1` and `amountCurrency` equal
+  to its amount; assert a line whose `amountCurrency × exchangeRate`
+  differs from its base amount beyond the tolerance is rejected, that an
+  exchange-difference line with `amountCurrency = 0` is accepted, and that
+  a line whose currency differs from its account's `currencyId` is
+  rejected.
 - Attempt to post an entry whose `operationDate` falls in a locked
   fiscal period and assert the command rejects it before any write
   (**corrected 2026-09-18** — was `postedAt`); assert the same entry
@@ -1569,6 +1592,7 @@ own that failure-isolation story.
 cross-module `referenceType`/`referenceId` aren't validated, but said
 nothing about same-module FK-id fields already populated in Phase 1 —
 `JournalEntryLine.accountId`, `JournalEntry.currencyId`,
+`JournalEntryLine.currencyId`, `LedgerAccount.currencyId`,
 `LedgerAccount.accountTypeId`,
 `LedgerAccountType.accountGroupId`. These have
 no database-level FK either, so each write command validates
@@ -1598,6 +1622,15 @@ correctly.
 
 Additive only — new tables, no changes to existing schema. Safe to
 deploy independently of any other module.
+
+**Line currency and rate (2026-10-23).** `JournalEntryLine.currencyId` and
+`exchangeRate` are NOT NULL. While the module is unmerged and not deployed,
+they go into the module's first migration. If a database already holds
+posted lines, the columns have to be added in a second migration and
+backfilled from each entry's header, and the append-only triggers on
+`journal_entry_lines` block that `UPDATE` unless the migration lifts them
+for the statement. `LedgerAccount.currencyId` is nullable, so it needs no
+backfill.
 
 ## Out of scope (tracked separately)
 
@@ -1733,15 +1766,15 @@ deploy independently of any other module.
   Phase 1 of this table carries one dimension type, `CostCenter`, with a
   `writer` column naming the owning consumer (`posting_rules` or
   `fixed_assets`); bank account, fixed asset and currency were dropped
-  until a writer exists (currency duplicates `JournalEntry.currencyId`).
+  until a writer exists (currency is a column of the line, not a dimension).
 - **Multi-currency FX revaluation and reporting.** Scoped narrowly:
   this is period-end revaluation of open foreign-currency balances to
   a current rate (wycena bilansowa), not the transactional exchange-
   rate difference realized when a foreign-currency document settles
   at a different rate than it was booked at — that case is already
-  covered by `JournalEntry.currencyId`/`exchangeRate` (a normal
-  balanced posting with a realized-FX-gain/loss line) and needs no
-  change here. Revaluation is a scheduled, balance-level recompute —
+  covered by the line's currency and rate (a normal balanced posting
+  with a realized-FX-gain/loss line, usually its own entry at
+  settlement) and needs no change here. Revaluation is a scheduled, balance-level recompute —
   a future Multi-Currency spec, not this posting engine.
 - **Country-specific tax/compliance plugins.** **Update (2026-09-16):**
   a first draft of the Core-framework half of this now exists as its
@@ -2821,3 +2854,37 @@ code. Not yet reviewed by a maintainer.
 - `contractorSnapshot.whitelistCheck` comes from `confirmPaymentBatch`
   or, after AP's same-day re-check (#5962), from `markPaymentBatchSent`.
   Wording only.
+
+### 2026-10-23 (currency, rate and original amount on the line — after the controller's answer)
+
+- **Multi-currency decision rewritten.** The decision "single currency per
+  entry in this phase" is replaced. Every `JournalEntryLine` carries its own
+  `currencyId`, `exchangeRate` and `amountCurrency`; the entry still balances
+  only in the base currency. The header's `currencyId`/`exchangeRate` stay as
+  the source document's currency and rate and are the default for a line that
+  omits its own, resolved when `postJournalEntry` writes, so a stored line
+  never has a null currency or rate.
+- **Why.** The controller (Mateusz Duda, incro, e-mail of 2026-10-23) confirmed
+  that an EUR invoice paid from a USD account may be one entry with lines in
+  different currencies, provided currency and rate are line attributes and the
+  entry balances in the base currency, and that each bank account is its own
+  ledger account while settlement accounts stay in the base currency.
+- **Data model.** `JournalEntryLine.currencyId` (not null) and `exchangeRate`
+  (`numeric(18,8)`, not null, `1` on a base-currency line); `amountCurrency` is
+  now the amount in the line's own currency. `LedgerAccount.currencyId`
+  (nullable) is set on bank accounts and is immutable once the account has
+  posted lines.
+- **New rules.** `amountCurrency × exchangeRate` matches the base amount within
+  a tolerance (lines with `amountCurrency = 0` excepted); a line on an account
+  with a currency carries that currency. **⚠ NEEDS HUMAN CONFIRMATION:** the
+  tolerance (working proposal: half the smallest unit of the base currency).
+- **Not decided here.** Whether the header's currency and rate become optional
+  once every caller sets them on the lines. Where realized exchange
+  differences are booked at settlement: the controller says usually a separate
+  entry, while `2026-09-10-cash-bank-management.md` books the gain or loss in the
+  payment's own entry.
+- **Siblings aligned in the same round.** Journal Entry Line Dimension (currency
+  is a line column, not a dimension), Posting Rules Engine (copies currency,
+  rate and amount from the source line), Multi-Currency, Cash & Bank
+  Management, Default Chart of Accounts, GL account balances. Not yet reviewed
+  by a maintainer.
