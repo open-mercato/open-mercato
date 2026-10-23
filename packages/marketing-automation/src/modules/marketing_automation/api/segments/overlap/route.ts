@@ -17,9 +17,14 @@ import { readQueryUuid } from '../../shared.js'
  *
  * Returns no identities. The counts are the answer; naming the overlap would make this a people-listing
  * endpoint with a different permission requirement.
+ *
+ * `resolveSegmentMembers` builds a subject document per candidate and evaluates the segment's
+ * `ConditionExpression` against it — the same audience evaluation `explain`/`preview` gate behind
+ * `customers.people.view`. A segment keyed on a PII field makes `both`/`a.size`/`b.size` a membership
+ * oracle over that field even though no identity is ever named, so this route needs the same grant.
  */
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view'] },
+  GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.view', 'customers.people.view'] },
 }
 
 export const metadata = routeMetadata

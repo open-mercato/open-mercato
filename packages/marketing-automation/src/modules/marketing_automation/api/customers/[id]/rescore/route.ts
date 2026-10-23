@@ -14,9 +14,15 @@ import { readPathUuid } from '../../../shared.js'
  * Rules are applied to everybody by a queued pass and once a day; this is the answer to "I just changed a rule,
  * does it do what I meant for THIS customer" without waiting for either. Idempotent: a second call with nothing
  * changed writes nothing.
+ *
+ * `applyRuleScore` builds the customer's subject document and evaluates every rule's `ConditionExpression`
+ * against it, the same as a campaign audience — a rule keyed on a PII field (an email domain, an address) makes
+ * `matched`/`delta`/`points` a one-bit oracle over that field, same shape as the audience verdict the subject-
+ * document guard test already treats as PII. `customers.people.view` gates it for the same reason it gates that
+ * verdict.
  */
 const routeMetadata = {
-  POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage', 'customers.people.view'] },
 }
 
 export const metadata = routeMetadata

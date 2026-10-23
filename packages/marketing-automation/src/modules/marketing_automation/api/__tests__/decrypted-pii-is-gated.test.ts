@@ -155,3 +155,72 @@ describe('routes that build a subject document', () => {
     })
   }
 })
+
+/**
+ * A route that calls a HELPER which itself builds a subject document and tests an author-controlled
+ * expression against it is the same oracle one level removed, and the two detectors above cannot see it:
+ * neither scans past the route file, so a route that imports the helper — never `subject-document` itself,
+ * never a decrypting finder — is invisible to both.
+ *
+ * `applyRuleScore` (`lib/score-rules.ts`) and `resolveSegmentMembers` (`lib/segment-members.ts`) are exactly
+ * that: each builds a subject document per candidate and evaluates a `ConditionExpression` against it, so a
+ * route built on either hands back a one-bit-per-candidate match/membership oracle over any PII field the
+ * expression names, with no identity and no raw value ever in the response. `segments/overlap` and
+ * `customers/[id]/rescore` were exactly this gap — found by the same review that originally added this file.
+ * `dispatcher.ts`'s `dispatchEvent` is the same shape but reaches no route at all — only an event
+ * subscriber calls it — so it is in the derived list with zero routes to check, not an exception to it.
+ *
+ * The helper list is derived rather than hand-maintained, so a third one added later is caught the same way:
+ * any exported function in `lib/*.ts` (other than the builder itself) whose own body calls
+ * `buildSubjectDocument` is a second-order oracle.
+ */
+describe('routes that call a second-order PII oracle', () => {
+  const LIB_DIR = join(API_ROOT, '..', 'lib')
+
+  function oracleExportsOf(source: string): string[] {
+    const starts = [...source.matchAll(/^export (?:async )?function (\w+)[^{]*\{/gm)]
+    return starts
+      .filter((match, index) => {
+        const bodyStart = match.index! + match[0].length
+        const bodyEnd = index + 1 < starts.length ? starts[index + 1].index! : source.length
+        return source.slice(bodyStart, bodyEnd).includes('buildSubjectDocument(')
+      })
+      .map((match) => match[1])
+  }
+
+  const oracleHelpers = readdirSync(LIB_DIR)
+    .filter((entry) => entry.endsWith('.ts') && entry !== 'subject-document.ts')
+    .map((entry) => ({ module: entry.replace(/\.ts$/, ''), source: readFileSync(join(LIB_DIR, entry), 'utf8') }))
+    .flatMap(({ module, source }) => oracleExportsOf(source).map((name) => ({ module, name })))
+
+  it('finds the known second-order oracle helpers, counted a second way', () => {
+    // Independent of the body-scan above: every function here must at least be IN a file that imports the
+    // builder, or the body-scan found something the file could not possibly have produced.
+    for (const { module } of oracleHelpers) {
+      const source = readFileSync(join(LIB_DIR, `${module}.ts`), 'utf8')
+      expect(source).toMatch(/from '\.\/subject-document(\.js)?'/)
+    }
+    expect(oracleHelpers.map(({ module, name }) => `${module}:${name}`).sort()).toEqual(
+      ['dispatcher:dispatchEvent', 'score-rules:applyRuleScore', 'segment-members:resolveSegmentMembers'],
+    )
+  })
+
+  const oracleRoutes = routeFiles(API_ROOT)
+    .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
+    .filter(({ source }) =>
+      oracleHelpers.some(({ module, name }) =>
+        new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'[^']*${module}(\\.js)?'`).test(source),
+      ),
+    )
+
+  it('finds every route that calls one', () => {
+    expect(oracleRoutes.length).toBeGreaterThan(0)
+  })
+
+  for (const { path, source } of oracleRoutes) {
+    const name = path.slice(path.indexOf('/api/') + 1)
+    it(`${name} checks customers.people.view`, () => {
+      expect(/requireFeatures:\s*\[[^\]]*'customers\.people\.view'/.test(source)).toBe(true)
+    })
+  }
+})
