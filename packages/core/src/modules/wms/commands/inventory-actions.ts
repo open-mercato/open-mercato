@@ -1721,15 +1721,17 @@ export async function applyInventoryMoveInTransaction(
   if (sourceWarehouseId !== input.warehouseId || targetWarehouseId !== input.warehouseId) {
     throw new CrudHttpError(422, { error: 'invalid_location' })
   }
-  const sourceResult = await upsertBalanceBucket(trx, scope, {
+  const sourceBalance = await findExactBalanceForUpdate(trx, scope, {
     warehouseId: input.warehouseId,
     locationId: input.fromLocationId,
     catalogVariantId: input.catalogVariantId,
     lotId: input.lotId,
     serialNumber: input.serialNumber,
   })
-  const sourceBalance = sourceResult.balance
-  const sourceBalanceAction = sourceResult.created ? ('created' as const) : ('updated' as const)
+  if (!sourceBalance) {
+    throw new CrudHttpError(409, { error: 'insufficient_stock' })
+  }
+  const sourceBalanceAction = 'updated' as const
   const targetResult = await upsertBalanceBucket(trx, scope, {
     warehouseId: input.warehouseId,
     locationId: input.toLocationId,
