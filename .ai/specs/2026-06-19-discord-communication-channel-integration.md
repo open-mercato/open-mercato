@@ -468,9 +468,14 @@ recorded in the hub inbox and answered in Discord — see § Interactions dispat
 
 ### 4. Connect the channel in Open Mercato
 
-In `/backend/integrations`, find **Discord**, and connect a channel with the credential fields
-(`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`). `validateCredentials`
-calls `GET /users/@me` to confirm the token before persisting.
+In **Profile → My communication channels → Connect channel → Connect Discord**, connect a channel
+with the credential fields (`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`).
+The dialog is an embedded `CrudForm` that shows the same per-field hints as the integration
+credentials form and validates required fields and the public-key format client-side.
+`validateCredentials` calls `GET /users/@me` to confirm the token before persisting. The
+**Integrations → Discord** credentials form stores a separate, organization-wide credential that
+creates no channel; it backs the health probe, `register-slash-commands`, and any channel without
+its own credential (user guide § Integrations → Discord vs. Connect Discord).
 
 Optional env preconfiguration (provider-owned, applied from `setup.ts`, rerunnable via a provider
 CLI command — same pattern as other providers):
@@ -1162,6 +1167,16 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-23 — Connect Discord dialog on CrudForm with field hints (issue #5592)
+
+- Rebuilt the profile-page Connect Discord dialog on an embedded `CrudForm` with a client-side
+  schema (`lib/connect-form.ts`), mirroring the IMAP dialog: required fields and the 64-hex public
+  key are checked inline before any request, server field errors land on their fields.
+- Each field shows the same help text as the `integration.ts` credential fields; a unit test keeps
+  the two in sync. TC-CHANNEL-DISCORD-014 covers the dialog in the browser.
+- Corrected § 4 above and documented in the user guide how the Integrations → Discord credential
+  differs from a connected channel. No API, schema or credential-shape change.
 
 ### 2026-10-13 — Authenticate system-filed AI reply proposals (issue #7312)
 
