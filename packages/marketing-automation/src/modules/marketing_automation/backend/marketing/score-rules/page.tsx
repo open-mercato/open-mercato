@@ -30,6 +30,16 @@ const RULES_PATH = '/api/marketing_automation/score-rules'
 
 const PAGE_SIZE = 100
 
+/**
+ * Mirrors `MAX_EVALUATED_SCORE_RULES` in `lib/score-rules.ts`.
+ *
+ * Not imported from there — that file pulls in server-only dependencies (the expression evaluator, the
+ * score ledger) a "use client" bundle has no business shipping. The two numbers are asserted equal by
+ * `lib/__tests__/score-rules.test.ts`, so a change to one without the other fails loudly instead of this
+ * note quietly drifting from what the engine actually does.
+ */
+const MAX_EVALUATED_RULES = 200
+
 type ScoreRuleRow = {
   id: string
   name: string
@@ -91,20 +101,32 @@ export default function ScoreRulesPage() {
   const [draft, setDraft] = React.useState<Draft>(EMPTY_DRAFT)
   const [baseline, setBaseline] = React.useState<string>(JSON.stringify(EMPTY_DRAFT))
   const [saving, setSaving] = React.useState(false)
-  const [truncated, setTruncated] = React.useState(false)
+  // Count of ALL rules (enabled and off), so the table and its "showing X of Y" footer stay honest even
+  // though only the enabled ones are ever evaluated.
+  const [total, setTotal] = React.useState(0)
+  const [page, setPage] = React.useState(1)
 
-  const load = React.useCallback(async () => {
+  /**
+   * Whether the engine stops before the end of the list.
+   *
+   * `total` here counts every non-deleted rule, enabled or not, so this is a conservative trigger: it can
+   * show the note on an installation with, say, 210 rules where only 150 are enabled and nothing is actually
+   * truncated. That is the safe direction to be wrong in — the alternative is a second request just to count
+   * the enabled ones, for a note that otherwise reads correctly either way.
+   */
+  const truncated = total > MAX_EVALUATED_RULES
+
+  const load = React.useCallback(async (nextPage: number) => {
     setLoading(true)
     setLoadFailed(false)
     try {
-      const result = await apiCall<{ items?: ScoreRuleRow[]; total?: number }>(`${RULES_PATH}?pageSize=${PAGE_SIZE}&page=1`)
+      const result = await apiCall<{ items?: ScoreRuleRow[]; total?: number }>(`${RULES_PATH}?pageSize=${PAGE_SIZE}&page=${nextPage}`)
       if (!result.ok || !Array.isArray(result.result?.items)) {
         setLoadFailed(true)
         return
       }
       setRows(result.result.items)
-      // Only the first two hundred rules are evaluated, so a longer list is a problem to show, not to page through.
-      setTruncated(typeof result.result.total === 'number' && result.result.total > result.result.items.length)
+      setTotal(typeof result.result.total === 'number' ? result.result.total : result.result.items.length)
     } catch {
       setLoadFailed(true)
     } finally {
@@ -112,7 +134,19 @@ export default function ScoreRulesPage() {
     }
   }, [])
 
-  React.useEffect(() => { void load() }, [load, scopeVersion])
+  // The organization changed under the table — the page a different tenant's rules happened to have is
+  // meaningless here, and asking for it past that tenant's own last page would come back empty. Reset
+  // first, in the SAME effect as the fetch, so an org switch never fetches the old page under the new scope.
+  const previousScopeVersion = React.useRef(scopeVersion)
+  React.useEffect(() => {
+    const switchedScope = previousScopeVersion.current !== scopeVersion
+    previousScopeVersion.current = scopeVersion
+    if (switchedScope && page !== 1) {
+      setPage(1)
+      return
+    }
+    void load(page)
+  }, [load, page, scopeVersion])
 
   const isDirty = JSON.stringify(draft) !== baseline
 
@@ -186,7 +220,7 @@ export default function ScoreRulesPage() {
       }
       flash(t('marketing_automation.scoreRules.saved', 'Rule saved. Scores are being recalculated in the background.'), 'success')
       resetDraft()
-      await load()
+      await load(page)
     } catch (error) {
       if (!extractOptimisticLockConflict(error)) {
         const code = readApiErrorField(error, 'code')
@@ -216,7 +250,7 @@ export default function ScoreRulesPage() {
         ),
       )
       if (selected?.id === row.id) resetDraft()
-      await load()
+      await load(page)
     } catch (error) {
       if (!extractOptimisticLockConflict(error)) {
         flash(t('marketing_automation.scoreRules.deleteFailed', 'Could not remove the rule.'), 'error')
@@ -285,11 +319,20 @@ export default function ScoreRulesPage() {
                   )}
                 />
               )}
+              pagination={{
+                page,
+                pageSize: PAGE_SIZE,
+                total,
+                totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+                onPageChange: setPage,
+              }}
             />
             {truncated ? (
               <div className="text-xs text-muted-foreground">
-                {t('marketing_automation.scoreRules.truncated', 'Only the first {count} rules are listed and evaluated.')
-                  .replace('{count}', String(rows.length))}
+                {t(
+                  'marketing_automation.scoreRules.truncated',
+                  'All {total} rules are listed, but only the first {cap} by name — the enabled ones — are evaluated for a customer. Rules after that are saved and visible, but award nothing.',
+                ).replace('{total}', String(total)).replace('{cap}', String(MAX_EVALUATED_RULES))}
               </div>
             ) : null}
           </div>
