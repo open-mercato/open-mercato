@@ -56,7 +56,12 @@ Land a dependency-check fix so that a module declaring `metadata.requires: ['<ot
 
 ### Phase 3: Verification
 
-- [ ] 3.1 Run the full `validation.commands` gate
+- [x] 3.0 Merge `origin/main` into the branch to clear the `CONFLICTING`/`DIRTY` mergeability state that appeared mid-run (conflict only in `UPGRADE_NOTES.md`, both sides' entries kept) — 6a4962cb8
+- [x] 3.1 Run the full `validation.commands` gate against the merged branch — gate run at 6a4962cb8
+
+  Gate result: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` (39/39 packages), `build:app` all green. `test` green on 47/48 package suites (`@open-mercato/core`: 2423/2423 run suites, 23345/23554 tests, 209 intentionally skipped); the one failure, **not caused by this PR**:
+
+  - `create-mercato-app#test` › `writable-ast-oracles.test.ts` "after phase invokes only the fixed contained target yarn typecheck gate and reports its status" — a wall-clock budget assertion (`yarn typecheck` must finish within 120000ms). Reproduces standalone and twice in a row on this loaded machine (`uptime` load average 7.9–14.3 at the time), same category as the pre-existing `module-facts.bc-guard` CPU-duration flake this PR's own earlier review already documented as tracking machine load, not the diff. `git diff fe29224f3 HEAD -- packages/create-app/src/lib/writable-ast-oracles.test.ts` is empty — this PR's branch never touches that file or anything it depends on, before or after the `origin/main` merge.
 - [ ] 3.2 Run the authoritative code-review pass (`om-auto-review-pr 6862 --autofix`) and land its fixes
 
 ### Phase 4: Finalize
