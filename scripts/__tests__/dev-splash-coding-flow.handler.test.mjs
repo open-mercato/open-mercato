@@ -260,6 +260,7 @@ test('start-building launches plain npx cezar-run in the project root and blocks
     await flow.handleRequest(createBuildingRequest(flow), repeatRes, { ready: false })
     assert.equal(repeatRes.statusCode, 409)
     assert.equal(JSON.parse(repeatRes.body).code, 'already_started')
+    assert.equal(flow.getSnapshot().building.lastResult.code, 'already_started')
 
     clock += 10_000
     fs.rmSync(fixture.outputFile, { force: true })

@@ -839,6 +839,11 @@ export function createDevSplashCodingFlow(options = {}) {
     }
 
     if (buildingState.lastStartedAt !== null && now() - buildingState.lastStartedAt < BUILDING_RELAUNCH_COOLDOWN_MS) {
+      buildingState.lastResult = {
+        kind: 'info',
+        code: 'already_started',
+        message: 'Cezar was just started. Check the terminal window that opened.',
+      }
       writeJson(res, 409, {
         ok: false,
         code: 'already_started',
