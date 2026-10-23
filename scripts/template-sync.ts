@@ -386,6 +386,38 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // Phase 3) enables the suite together with its standalone-harness coverage.
   // { id: 'ecommerce', from: '@open-mercato/core' },`,
   },
+  promotions: {
+    source: `  // Promotions engine (SPEC-055): rule-condition trees, codes, cart effect resolution.
+  { id: 'promotions', from: '@open-mercato/core' },`,
+    template: `  // Promotions engine (.ai/specs/SPEC-055-2026-02-23-promotions-module.md Phases 1-3):
+  // rule-condition trees, promotional codes, and cart effect resolution. Stays commented out
+  // with customer_groups and ecommerce above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/promotions/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'promotions', from: '@open-mercato/core' },`,
+  },
+  cart: {
+    source: `  // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
+  // totals, token-bound public access. Requires catalog, sales and customer_groups.
+  { id: 'cart', from: '@open-mercato/core' },`,
+    template: `  // Channel-agnostic basket module (.ai/specs/2026-08-14-cart-module.md Phases 1-3): priced
+  // lines, promotions, totals, and token-bound public access. Requires catalog, sales,
+  // customer_groups and promotions (packages/core/src/modules/cart/index.ts's own
+  // \`requires\`). Stays commented out with customer_groups and promotions above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/cart/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'cart', from: '@open-mercato/core' },`,
+  },
 }
 
 function commentOutTemplateModules(content: string, rel: string): string {

@@ -252,6 +252,8 @@ const sidebars: SidebarsConfig = {
             "api/directory",
             "api/dashboards",
             "api/customers",
+            "api/cart",
+            "api/promotions",
             "api/integrations-data-sync",
             "api/payment-gateways",
             "api/entities",
