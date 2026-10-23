@@ -184,6 +184,123 @@ variant media, sales channel offer media, the warranty claim attachments tab and
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
 
+### Platform-wide catalogues are indexed once, under the null tenant
+
+An entity type declared through `registerTenantGlobalEntityTypes()` is a catalogue every
+tenant reads, and its source table has neither a `tenant_id` nor an `organization_id`
+column to scope it by. A tenant-scoped reindex used to stamp such rows with the caller's
+tenant, and with the caller's organization when it had one. `entity_indexes` is unique on
+`(entity_type, entity_id, organization_id_coalesced)`, so what that did depended on the
+path. A reindex without an organization (the CLI) wrote the same key as the event path's
+null-scope row and moved that one row into its own tenant: the last tenant to reindex took
+the catalogue from every other, whose leftover tokens then produced hits with no presenter,
+title or URL. A reindex with one (`/api/query_index/reindex` always supplies it) wrote a
+separate copy keyed by that organization, readable there and nowhere else, which only that
+organization's next reindex refreshed - the event path writes the null-scope row.
+
+`reindexEntity()` now writes the projection of a declared catalogue under
+`tenant_id = NULL, organization_id = NULL`, which is already where the event path files it
+(`resolveQueryIndexRecordScope()` resolves a table with neither scope column to a null
+scope and requires the payload to say so). The readers in `@open-mercato/search` gained the
+matching declaration-gated branch on both axes:
+
+- tenant, in `TokenSearchStrategy` and the presenter enricher: `tenant_id = <tenant> OR
+  (tenant_id IS NULL AND entity_type IN <declared catalogues>)`;
+- organization, in `TokenSearchStrategy`: `organization_id IN <selected> OR
+  (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared catalogues>)`,
+  and `SearchService` keeps an organization-less result only for a declared type.
+  `SearchService` passes the selected organization even for a superadmin, so without this
+  a selected-organization search dropped every catalogue hit.
+
+The entity-type conjunct is load-bearing: a table with neither scope column is stored under
+the null scope whether it is a catalogue or private data, so an unqualified NULL branch would
+publish `directory:tenant`, `auth:user_role` and their kind to every tenant. A declared type
+whose table carries `organization_id` but no `tenant_id` is refused with
+`declared-global-but-org-scoped`, so `writesGlobalProjection` and
+`loadQueryIndexRowScope()`'s `kind: 'global'` mean the same thing.
+
+Only the projection moves. Vector work for a declared catalogue keeps the caller's scope -
+`query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and
+`removeOrphans` - because the vector consumers need a real tenant and nothing defines a
+shared vector; its vectors stay filed per tenant, as before.
+
+**Action for module authors.** None beyond the declaration the previous note describes.
+An entity type that is not declared is unaffected in every reader and writer.
+
+**Action for operators.** Reindex each declared catalogue once after upgrading
+(`feature_toggles:feature_toggle`, plus any type your modules declare). The sweep writes
+the canonical rows, then retires every row an earlier sweep stamped with a caller scope,
+whichever tenant stamped it: the projections, their `search_tokens` and their
+`entity_index_coverage` rows. Until then an organization that reindexed before the upgrade
+can be served its old copy alongside the canonical one. The equivalent manual cleanup,
+safe to run once the canonical rows exist, per declared entity type:
+
+```sql
+DELETE FROM entity_indexes
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM search_tokens
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM entity_index_coverage
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL
+        OR (organization_id IS NOT NULL
+            AND organization_id <> '00000000-0000-0000-0000-000000000000'));
+```
+
+### A tenant-scoped reindex of a table with no `tenant_id` column is refused
+
+`reindexEntity()` applied its tenant predicate only when the source table had a
+`tenant_id` column, and silently dropped it otherwise — while still stamping every
+swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
+therefore read every tenant's rows and filed them under whichever tenant ran it, and
+both index readers (`TokenSearchStrategy.search()`, the presenter enricher) match
+`tenant_id` exactly with no NULL branch, so those rows were served as that tenant's
+own. That combination is now refused: `reindexEntity()` returns an empty result and
+logs *"Refusing tenant-scoped reindex of a table with no tenant_id column"*. A
+`tenantId` of `null` or `undefined` is unaffected — it stamps no tenant, so it never
+crossed a boundary.
+
+**Action for module authors.** If a reindex of one of your entity types starts
+returning 0 with that warning, exactly one of two things is true:
+
+1. The table holds per-tenant rows and is missing its `tenant_id` column. Its index
+   was cross-tenant before this release. Add the column, or index the entity through
+   the event path only.
+2. The table is a platform-wide catalogue every tenant is meant to read. Declare it
+   during module registration (a module's `di.ts` is the usual place), before any
+   reindex job runs:
+
+   ```ts
+   import { registerTenantGlobalEntityTypes } from '@open-mercato/core/modules/query_index/lib/tenant-global'
+
+   registerTenantGlobalEntityTypes('billing:plan')
+   ```
+
+   Forgetting the call fails closed: the entity type keeps being refused, and the
+   warning names it. `feature_toggles:feature_toggle` is registered by the platform
+   and needs no action.
+
+**Action for operators.** Existing index rows are not touched — this stops new
+cross-tenant rows being written, it does not clean up old ones. A deployment that has
+run a tenant-scoped reindex of a tenant-less entity type should delete the
+`entity_indexes` and `search_tokens` rows for those entity types and let the event
+path refile the ones that still matter. Entity types whose table has no `tenant_id`
+column, and which are not catalogues, are the ones to check first. Delete the matching
+`entity_index_coverage` rows in the same pass: the guard returns before
+`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
+is never refreshed again and the indexer status page keeps reporting a stale
+base/indexed pair for that entity type.
+
+A refused sweep is now reported as one. `reindexEntity()` returns
+`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
+into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
+`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
+successful zero-row sweep on all three surfaces, so a module author who forgot the
+`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
+to answer "why is this entity type not indexed".
+
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
 `POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,

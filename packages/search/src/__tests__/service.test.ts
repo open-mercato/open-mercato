@@ -255,6 +255,29 @@ describe('SearchService', () => {
       expect(results.map((result) => result.recordId)).toEqual(['rec-a', 'rec-b'])
     })
 
+    it('keeps an organization-less hit only for a declared platform-wide catalogue', async () => {
+      const strategy = createMockStrategy({
+        id: 'test',
+        search: jest.fn().mockResolvedValue([
+          createMockResult({ entityId: 'feature_toggles:feature_toggle', recordId: 'toggle-1', organizationId: null }),
+          createMockResult({ entityId: 'directory:tenant', recordId: 'tenant-row', organizationId: null }),
+          createMockResult({ recordId: 'rec-a', organizationId: 'org-A' }),
+          createMockResult({ recordId: 'rec-b', organizationId: 'org-B' }),
+        ]),
+      })
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['test'],
+      })
+
+      const results = await service.search('test', {
+        tenantId: 'tenant-123',
+        organizationId: 'org-A',
+      })
+
+      expect(results.map((result) => result.recordId).sort()).toEqual(['rec-a', 'toggle-1'])
+    })
+
     it('should fail closed for an empty organization allowlist', async () => {
       const strategy = createMockStrategy({
         id: 'test',

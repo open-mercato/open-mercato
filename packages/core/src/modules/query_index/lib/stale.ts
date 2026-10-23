@@ -130,3 +130,71 @@ export async function purgeOrphans(
     ).catch(() => undefined)
   }
 }
+
+type RetireScopedCatalogueRowsOptions = {
+  entityType: string
+  partitionIndex: number | null
+  partitionCount: number | null
+  /** Records this run failed to write keep their old rows, as in `purgeOrphans`. */
+  excludeRecordIds?: string[]
+}
+
+/**
+ * Retire the projections and tokens a declared platform-wide catalogue accumulated before
+ * its canonical scope became `tenant_id = NULL, organization_id = NULL`.
+ *
+ * Earlier sweeps stamped the caller's tenant and organization. `entity_indexes` is unique on
+ * (entity_type, entity_id, organization_id_coalesced), so a row stamped with an organization
+ * is a different key from the canonical one: the upsert never rewrites it, and
+ * `purgeOrphans`, scoped to the canonical row, never selects it - it survives every sweep,
+ * even the deletion of its source record. Nothing writes a scoped row for such a type any
+ * more (the event path requires a null scope for it, and the sweep now writes one), so every
+ * scoped row is residue whichever tenant stamped it. Only call this for an entity type
+ * `reindexEntity` writes as a global projection.
+ */
+export async function retireScopedCatalogueRows(
+  db: Kysely<any>,
+  options: RetireScopedCatalogueRowsOptions,
+): Promise<void> {
+  const { entityType, partitionIndex, partitionCount } = options
+  const scoped = sql<boolean>`(tenant_id is not null or organization_id is not null)`
+  const inPartition = partitionIndex != null && partitionCount != null
+    ? sql<boolean>`mod(abs(hashtext(entity_id::text)), ${partitionCount}) = ${partitionIndex}`
+    : null
+
+  let projections = db.deleteFrom('entity_indexes').where('entity_type', '=', entityType).where(scoped)
+  if (inPartition) projections = projections.where(inPartition)
+  if (options.excludeRecordIds?.length) {
+    projections = projections.where('entity_id', 'not in', options.excludeRecordIds)
+  }
+  await projections.execute()
+
+  try {
+    if (!(await searchTokensTableExists(db))) return
+    let tokens = db.deleteFrom('search_tokens').where('entity_type', '=', entityType).where(scoped)
+    if (inPartition) tokens = tokens.where(inPartition)
+    if (options.excludeRecordIds?.length) {
+      tokens = tokens.where('entity_id', 'not in', options.excludeRecordIds)
+    }
+    tokens = tokens.where(sql<boolean>`not exists (
+      select 1 from entity_indexes as surviving
+      where surviving.entity_type = ${entityType}
+        and surviving.entity_id = search_tokens.entity_id
+        and surviving.tenant_id is not distinct from search_tokens.tenant_id
+        and surviving.organization_id is not distinct from search_tokens.organization_id
+    )`)
+    await tokens.execute()
+  } catch (searchTokenError) {
+    await recordIndexerError(
+      { db },
+      {
+        source: 'fulltext',
+        handler: 'query_index:retire-scoped-catalogue-rows',
+        error: searchTokenError,
+        entityType,
+        tenantId: null,
+        organizationId: null,
+      },
+    ).catch(() => undefined)
+  }
+}

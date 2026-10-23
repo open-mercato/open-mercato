@@ -70,7 +70,17 @@ function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
   return values
 }
 
-function filterResultsByOrganizationScope(results: SearchResult[], options: SearchOptions): SearchResult[] {
+/**
+ * A result with no organization passes only for an entity type declared through
+ * `registerTenantGlobalEntityTypes()`: a platform-wide catalogue is indexed once with no
+ * organization, so an organization-scoped search would otherwise never return it. Every
+ * other organization-less result is still dropped.
+ */
+function filterResultsByOrganizationScope(
+  results: SearchResult[],
+  options: SearchOptions,
+  isTenantGlobalEntityType: (entityType: string) => boolean,
+): SearchResult[] {
   const organizationIds = normalizeOrganizationFilter(options)
   if (!organizationIds) return results
   if (organizationIds.length === 0) return []
@@ -78,7 +88,8 @@ function filterResultsByOrganizationScope(results: SearchResult[], options: Sear
   const allowed = new Set(organizationIds)
   return results.filter((result) => {
     const organizationId = typeof result.organizationId === 'string' ? result.organizationId.trim() : ''
-    return organizationId.length > 0 && allowed.has(organizationId)
+    if (organizationId.length > 0) return allowed.has(organizationId)
+    return isTenantGlobalEntityType(result.entityId)
   })
 }
 
@@ -189,7 +200,10 @@ export class SearchService {
 
     // Merge and rank results
     const merged = mergeAndRankResults(allResults, this.mergeConfig)
-    const scoped = filterResultsByOrganizationScope(merged, options)
+    const { isTenantGlobalEntityType } = await import(
+      '@open-mercato/core/modules/query_index/lib/tenant-global'
+    )
+    const scoped = filterResultsByOrganizationScope(merged, options, isTenantGlobalEntityType)
 
     // Enrich results missing presenter or navigation metadata
     return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
