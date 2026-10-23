@@ -23,10 +23,10 @@ export function resolveWebhookBodyLimitBytes(
   return Number.isSafeInteger(parsed) ? parsed : fallback
 }
 
-export async function readBoundedRequestBody(
+export async function readBoundedRequestBytes(
   request: Request,
   options?: { maxBytes?: number },
-): Promise<string> {
+): Promise<Uint8Array> {
   const configuredLimit = options?.maxBytes ?? resolveWebhookBodyLimitBytes()
   const maxBytes = Number.isSafeInteger(configuredLimit) && configuredLimit > 0
     ? configuredLimit
@@ -39,7 +39,7 @@ export async function readBoundedRequestBody(
     }
   }
 
-  if (!request.body) return ''
+  if (!request.body) return new Uint8Array(0)
 
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
@@ -66,5 +66,12 @@ export async function readBoundedRequestBody(
     body.set(chunk, offset)
     offset += chunk.byteLength
   }
-  return new TextDecoder().decode(body)
+  return body
+}
+
+export async function readBoundedRequestBody(
+  request: Request,
+  options?: { maxBytes?: number },
+): Promise<string> {
+  return new TextDecoder().decode(await readBoundedRequestBytes(request, options))
 }

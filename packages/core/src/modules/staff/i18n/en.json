@@ -269,6 +269,8 @@
   "staff.leaveRequests.errors.profileLoad": "Failed to load your profile.",
   "staff.leaveRequests.errors.profileRequired": "Create your profile first.",
   "staff.leaveRequests.errors.reject": "Failed to reject leave request.",
+  "staff.leaveRequests.errors.undoAfterDecision": "This leave request has already been approved or rejected and can no longer be undone. Undo the decision first.",
+  "staff.leaveRequests.errors.undoMemberMissing": "The original team member of this leave request no longer exists, so the change cannot be undone.",
   "staff.leaveRequests.form.actions.create": "Create",
   "staff.leaveRequests.form.actions.save": "Save",
   "staff.leaveRequests.form.createTitle": "Create leave request",
