@@ -30,7 +30,7 @@ let rejection: unknown
 // not found". Idempotent enough for a fake store: reseeding into an em
 // `activeEmOrNew()` already returned just adds a second, identical row.
 function seedPostingFixtures(target: FakeEntityManager): void {
-  target.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', deletedAt: null })
+  target.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', isBase: true, decimalPlaces: 2, deletedAt: null })
   target.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
   target.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
 }

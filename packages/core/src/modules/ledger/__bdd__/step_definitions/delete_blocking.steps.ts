@@ -63,6 +63,8 @@ Given('a ledger account has a posted entry', function () {
     accountId,
     debit: '100.0000',
     credit: '0.0000',
+    currencyId: newId(),
+    exchangeRate: '1',
     amountCurrency: '100.0000',
   })
   setActiveLedgerAccountId(accountId)

@@ -11,6 +11,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
+import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { JournalEntryLine, LedgerAccount, LedgerAccountType } from '../data/entities'
 import {
   ledgerAccountCreateSchema,
@@ -79,6 +80,28 @@ async function requireExistingAccountType(
     throw conflict(
       translate('ledger.errors.accountTypeNotFoundForOrg', 'The specified account type does not exist for this organization.'),
     )
+  }
+}
+
+/**
+ * Rejects an account `currencyId` that doesn't exist, is soft-deleted, or
+ * belongs to a different organization/tenant (a plain FK-id, so nothing
+ * else checks it).
+ */
+async function requireExistingCurrency(
+  em: EntityManager,
+  currencyId: string,
+  scope: Scope,
+  translate: TranslateWithFallbackFn,
+): Promise<void> {
+  const currency = await em.findOne(Currency, {
+    id: currencyId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  if (!currency) {
+    throw conflict(translate('ledger.errors.currencyNotFound', 'The specified currency does not exist for this organization.'))
   }
 }
 
@@ -174,6 +197,9 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
     if (parsed.parentAccountId) {
       await requireValidParentAccount(em, parsed.parentAccountId, null, scope, translate)
     }
+    if (parsed.currencyId) {
+      await requireExistingCurrency(em, parsed.currencyId, scope, translate)
+    }
 
     let record!: LedgerAccount
     await runCrudCommandWrite({
@@ -199,6 +225,7 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
             slug: parsed.slug,
             accountTypeId: parsed.accountTypeId,
             parentAccountId: parsed.parentAccountId ?? null,
+            currencyId: parsed.currencyId ?? null,
             description: parsed.description ?? null,
             createdAt: now,
             updatedAt: now,
@@ -256,6 +283,15 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
       await requireExistingAccountType(em, parsed.accountTypeId, scope, translate)
     }
 
+    if (parsed.currencyId !== undefined && (parsed.currencyId ?? null) !== (record.currencyId ?? null)) {
+      if (await accountHasPostedEntries(em, record.id, scope)) {
+        throw conflict(
+          translate('ledger.errors.accountCurrencyImmutableAfterPosting', 'currencyId cannot be changed once this account has posted entries.'),
+        )
+      }
+      if (parsed.currencyId) await requireExistingCurrency(em, parsed.currencyId, scope, translate)
+    }
+
     if (parsed.parentAccountId !== undefined && parsed.parentAccountId !== record.parentAccountId) {
       if (parsed.parentAccountId !== null) {
         await requireValidParentAccount(em, parsed.parentAccountId, record.id, scope, translate)
@@ -280,6 +316,7 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
           if (parsed.slug !== undefined) record.slug = parsed.slug
           if (parsed.accountTypeId !== undefined) record.accountTypeId = parsed.accountTypeId
           if (parsed.parentAccountId !== undefined) record.parentAccountId = parsed.parentAccountId ?? null
+          if (parsed.currencyId !== undefined) record.currencyId = parsed.currencyId ?? null
           if (parsed.description !== undefined) record.description = parsed.description ?? null
           record.updatedAt = new Date()
           em.persist(record)

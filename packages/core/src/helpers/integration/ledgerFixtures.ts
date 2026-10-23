@@ -157,9 +157,12 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
       for (const line of input.lines) {
         await client.query(
           `insert into journal_entry_lines
-             (id, organization_id, tenant_id, journal_entry_id, account_id, debit, credit, amount_currency, contractor_snapshot)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, null)`,
-          [randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit, '0'],
+             (id, organization_id, tenant_id, journal_entry_id, account_id, debit, credit,
+              currency_id, exchange_rate, amount_currency, contractor_snapshot)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, 1, ($6::numeric + $7::numeric), null)`,
+          // Seeded as a base-currency line (rate 1, amount = debit + credit): callers pass the
+          // organization's base currency id as `currencyId`.
+          [randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit, input.currencyId],
         );
       }
       await client.query('commit');

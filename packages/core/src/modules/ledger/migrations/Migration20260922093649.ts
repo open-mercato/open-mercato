@@ -23,7 +23,7 @@ export class Migration20260922093649 extends Migration {
     // existing migration in place rather than adding a new one.
     this.addSql(`create unique index "ledger_account_types_scope_slug_unique" on "ledger_account_types" ("organization_id", "tenant_id", "slug") where "deleted_at" is null;`);
 
-    this.addSql(`create table "ledger_accounts" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "slug" text not null, "account_type_id" uuid not null, "parent_account_id" uuid null, "description" text null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "ledger_accounts_pkey" primary key ("id"));`);
+    this.addSql(`create table "ledger_accounts" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "slug" text not null, "account_type_id" uuid not null, "parent_account_id" uuid null, "currency_id" uuid null, "description" text null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, constraint "ledger_accounts_pkey" primary key ("id"));`);
     this.addSql(`create index "ledger_accounts_scope_idx" on "ledger_accounts" ("organization_id", "tenant_id");`);
     // Same fix as `ledger_account_types_scope_slug_unique` above — a
     // soft-deleted account's slug must be reusable, which a plain table
@@ -57,7 +57,16 @@ export class Migration20260922093649 extends Migration {
     // this same file).
     this.addSql(`create unique index "journal_entries_single_reversal_idx" on "journal_entries" ("reference_type", "reference_id") where "type" = 'REVERSAL' and "reference_type" = 'journal_entry' and "reference_id" is not null;`);
 
-    this.addSql(`create table "journal_entry_lines" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "journal_entry_id" uuid not null, "account_id" uuid not null, "debit" numeric(19,4) not null default 0, "credit" numeric(19,4) not null default 0, "amount_currency" numeric(19,4) not null default 0, "contractor_snapshot" json null, constraint "journal_entry_lines_pkey" primary key ("id"));`);
+    this.addSql(`create table "journal_entry_lines" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "journal_entry_id" uuid not null, "account_id" uuid not null, "debit" numeric(19,4) not null default 0, "credit" numeric(19,4) not null default 0, "currency_id" uuid not null, "exchange_rate" numeric(18,8) not null, "amount_currency" numeric(19,4) not null default 0, "contractor_snapshot" json null, constraint "journal_entry_lines_pkey" primary key ("id"));`);
+    // Line currency (2026-10-23): `currency_id` and `exchange_rate` are NOT NULL
+    // on the line (rate is base-currency units per one unit of the line's
+    // currency; 1 on a base-currency line). `debit`/`credit` stay in the base
+    // currency and the balance trigger below reads only them. Because this
+    // module is unmerged and not deployed, they go into this first migration
+    // rather than a second one; a database that already holds posted lines
+    // would need them added and backfilled from each entry's header, with the
+    // append-only trigger lifted for that statement.
+    this.addSql(`alter table "journal_entry_lines" add constraint "journal_entry_lines_rate_positive_chk" check ("exchange_rate" > 0);`);
     this.addSql(`create index "journal_entry_lines_scope_idx" on "journal_entry_lines" ("organization_id", "tenant_id");`);
     this.addSql(`create index "journal_entry_lines_entry_idx" on "journal_entry_lines" ("organization_id", "journal_entry_id");`);
     this.addSql(`create index "journal_entry_lines_account_idx" on "journal_entry_lines" ("organization_id", "account_id");`);

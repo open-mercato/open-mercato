@@ -93,6 +93,7 @@ type LedgerAccountRow = {
   slug: string
   accountTypeId: string
   parentAccountId: string | null
+  currencyId: string | null
   description: string | null
   createdAt: string | null
   updatedAt: string | null
@@ -105,6 +106,7 @@ const toRow = (account: LedgerAccount): LedgerAccountRow => ({
   slug: String(account.slug),
   accountTypeId: String(account.accountTypeId),
   parentAccountId: account.parentAccountId ?? null,
+  currencyId: account.currencyId ?? null,
   description: account.description ?? null,
   createdAt: account.createdAt ? account.createdAt.toISOString() : null,
   updatedAt: account.updatedAt ? account.updatedAt.toISOString() : null,
@@ -199,6 +201,7 @@ const ledgerAccountListItemSchema = z.object({
   slug: z.string(),
   accountTypeId: z.uuid(),
   parentAccountId: z.uuid().nullable(),
+  currencyId: z.uuid().nullable(),
   description: z.string().nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),

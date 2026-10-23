@@ -42,7 +42,7 @@ Given(
     em = setActiveEm(new FakeEntityManager())
     originalEntryId = newId()
 
-    em.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', deletedAt: null })
+    em.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', isBase: true, decimalPlaces: 2, deletedAt: null })
     em.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
     em.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
 
@@ -85,6 +85,8 @@ Given(
       accountId: CASH_ACCOUNT_ID,
       debit: amount,
       credit: '0',
+      currencyId: CURRENCY_ID,
+      exchangeRate: '1',
       amountCurrency: amount,
       contractorSnapshot: null,
     })
@@ -96,6 +98,8 @@ Given(
       accountId: REVENUE_ACCOUNT_ID,
       debit: '0',
       credit: amount,
+      currencyId: CURRENCY_ID,
+      exchangeRate: '1',
       amountCurrency: amount,
       contractorSnapshot: null,
     })

@@ -74,6 +74,8 @@ function seedPostedLineFor(target: FakeEntityManager, accountId: string): void {
     accountId,
     debit: '100.0000',
     credit: '0.0000',
+    currencyId: newId(),
+    exchangeRate: '1',
     amountCurrency: '100.0000',
   })
 }

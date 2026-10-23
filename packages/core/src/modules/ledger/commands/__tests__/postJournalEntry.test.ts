@@ -107,7 +107,7 @@ function seedLockedPeriod(em: ReturnType<typeof buildFakeEm>, start: string, end
  * never reach `requireValidPostingReferences`.
  */
 function seedCurrencyAndAccounts(em: ReturnType<typeof buildFakeEm>) {
-  em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+  em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, isBase: true, decimalPlaces: 2, deletedAt: null })
   em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
   em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
 }
@@ -234,7 +234,7 @@ describe('ledger.postJournalEntry', () => {
     const command = loadPostJournalEntry()
     const em = buildFakeEm()
     seedOpenPeriod(em, '2026-02-01', '2026-02-28')
-    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, isBase: true, decimalPlaces: 2, deletedAt: null })
     em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
     // REVENUE_ACCOUNT deliberately not seeded.
     const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
@@ -250,7 +250,7 @@ describe('ledger.postJournalEntry', () => {
     const command = loadPostJournalEntry()
     const em = buildFakeEm()
     seedOpenPeriod(em, '2026-02-01', '2026-02-28')
-    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, isBase: true, decimalPlaces: 2, deletedAt: null })
     em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
     // REVENUE_ACCOUNT exists, but soft-deleted — must be treated the same
     // as not existing, not silently accepted because a row is present.
@@ -344,5 +344,217 @@ describe('ledger.postJournalEntry', () => {
     )
     expect(immediateCalls).toHaveLength(CONCURRENT_POSTS)
     expect(deferredCalls).toHaveLength(CONCURRENT_POSTS)
+  })
+})
+
+describe('ledger.postJournalEntry — currency, rate and original amount on the line', () => {
+  const EUR = '66666666-6666-4666-8666-666666666666'
+  const USD = '77777777-7777-4777-8777-777777777777'
+  const BANK_USD = '88888888-8888-4888-8888-888888888888'
+  const PAYABLE = '99999999-9999-4999-8999-999999999999'
+
+  function seedMultiCurrency(em: ReturnType<typeof buildFakeEm>) {
+    seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    // CURRENCY is the base currency (PLN, 2 decimals).
+    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, isBase: true, decimalPlaces: 2, deletedAt: null })
+    em.seed(Currency, { id: EUR, organizationId: ORG, tenantId: TENANT, isBase: false, decimalPlaces: 2, deletedAt: null })
+    em.seed(Currency, { id: USD, organizationId: ORG, tenantId: TENANT, isBase: false, decimalPlaces: 2, deletedAt: null })
+    em.seed(LedgerAccount, { id: PAYABLE, organizationId: ORG, tenantId: TENANT, currencyId: null, deletedAt: null })
+    em.seed(LedgerAccount, { id: BANK_USD, organizationId: ORG, tenantId: TENANT, currencyId: USD, deletedAt: null })
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, currencyId: null, deletedAt: null })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.resetModules()
+  })
+
+  it('stores header currency/rate on a line that omits its own, and rate 1 on a base-currency line', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    // EUR invoice: header EUR @ 4.25. Payable line in EUR (inherits header), expense line in PLN.
+    await command.execute(
+      balancedInput({
+        currencyId: EUR,
+        exchangeRate: '4.25000000',
+        lines: [
+          { accountId: CASH_ACCOUNT, currencyId: CURRENCY, debit: '425.00' },
+          { accountId: PAYABLE, credit: '425.00', amountCurrency: '100.0000' },
+        ],
+      }),
+      ctx,
+    )
+
+    const lines = em.tables.get('JournalEntryLine') ?? []
+    const expense = lines.find((l) => l.accountId === CASH_ACCOUNT)
+    const payable = lines.find((l) => l.accountId === PAYABLE)
+    expect(expense).toMatchObject({ currencyId: CURRENCY, exchangeRate: '1', amountCurrency: '425.00' })
+    expect(payable).toMatchObject({ currencyId: EUR, exchangeRate: '4.25000000', amountCurrency: '100.0000' })
+  })
+
+  it('posts one entry that mixes EUR and USD lines, balanced only in the base currency', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    // EUR payable settled from a USD bank account: 100 EUR @ 4.25 = 425 PLN; 109.0000 USD @ 3.9 = 425.10... use 108.9744 @ 3.9 = 425.00
+    await command.execute(
+      balancedInput({
+        currencyId: EUR,
+        exchangeRate: '4.25000000',
+        lines: [
+          { accountId: PAYABLE, currencyId: EUR, exchangeRate: '4.25000000', debit: '425.00', amountCurrency: '100.0000' },
+          { accountId: BANK_USD, currencyId: USD, exchangeRate: '3.90000000', credit: '425.00', amountCurrency: '108.9744' },
+        ],
+      }),
+      ctx,
+    )
+
+    const lines = em.tables.get('JournalEntryLine') ?? []
+    expect(lines).toHaveLength(2)
+    expect(lines.find((l) => l.accountId === BANK_USD)).toMatchObject({ currencyId: USD, exchangeRate: '3.90000000' })
+  })
+
+  it('rejects a foreign-currency line that omits amountCurrency', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      command.execute(
+        balancedInput({
+          currencyId: EUR,
+          exchangeRate: '4.25000000',
+          lines: [
+            { accountId: PAYABLE, debit: '425.00' },
+            { accountId: CASH_ACCOUNT, currencyId: CURRENCY, credit: '425.00' },
+          ],
+        }),
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: expect.stringMatching(/line 1.*amountCurrency/i) } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects a line in a currency other than the header\'s that carries no rate of its own', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      command.execute(
+        balancedInput({
+          currencyId: EUR,
+          exchangeRate: '4.25000000',
+          lines: [
+            { accountId: PAYABLE, currencyId: USD, debit: '425.00', amountCurrency: '108.9744' },
+            { accountId: CASH_ACCOUNT, currencyId: CURRENCY, credit: '425.00' },
+          ],
+        }),
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: expect.stringMatching(/line 1.*exchange rate/i) } })
+  })
+
+  it('rejects a line whose amountCurrency x rate is off the base amount by more than half a grosz', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      command.execute(
+        balancedInput({
+          currencyId: EUR,
+          exchangeRate: '4.25000000',
+          lines: [
+            { accountId: PAYABLE, debit: '426.00', amountCurrency: '100.0000' },
+            { accountId: CASH_ACCOUNT, currencyId: CURRENCY, credit: '426.00' },
+          ],
+        }),
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: expect.stringMatching(/line 1.*does not match/i) } })
+  })
+
+  it('accepts an exchange-difference line with amountCurrency 0', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await command.execute(
+      balancedInput({
+        currencyId: EUR,
+        exchangeRate: '4.30000000',
+        lines: [
+          { accountId: PAYABLE, currencyId: EUR, exchangeRate: '4.25000000', debit: '425.00', amountCurrency: '100.0000' },
+          { accountId: CASH_ACCOUNT, currencyId: CURRENCY, credit: '430.00' },
+          { accountId: PAYABLE, currencyId: EUR, exchangeRate: '4.30000000', debit: '5.00', amountCurrency: '0' },
+        ],
+      }),
+      ctx,
+    )
+    expect(em.tables.get('JournalEntryLine') ?? []).toHaveLength(3)
+  })
+
+  it('rejects a line whose currency differs from its account\'s currency', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      command.execute(
+        balancedInput({
+          lines: [
+            // BANK_USD is kept in USD; this line is in PLN.
+            { accountId: BANK_USD, currencyId: CURRENCY, debit: '100.00' },
+            { accountId: CASH_ACCOUNT, currencyId: CURRENCY, credit: '100.00' },
+          ],
+        }),
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: expect.stringMatching(/line 1.*account/i) } })
+  })
+
+  it('rejects a line currency that does not exist for the organization', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedMultiCurrency(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      command.execute(
+        balancedInput({
+          lines: [
+            { accountId: CASH_ACCOUNT, currencyId: '00000000-0000-4000-8000-000000000000', exchangeRate: '2', debit: '100.00', amountCurrency: '50.0000' },
+            { accountId: PAYABLE, currencyId: CURRENCY, credit: '100.00' },
+          ],
+        }),
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: expect.stringMatching(/currency/i) } })
+  })
+
+  it('rejects a post when the organization has no base currency', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    em.seed(Currency, { id: CURRENCY, organizationId: ORG, tenantId: TENANT, isBase: false, decimalPlaces: 2, deletedAt: null })
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    em.seed(LedgerAccount, { id: REVENUE_ACCOUNT, organizationId: ORG, tenantId: TENANT, deletedAt: null })
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(command.execute(balancedInput(), ctx)).rejects.toMatchObject({
+      status: 422,
+      body: { error: expect.stringMatching(/base currency/i) },
+    })
   })
 })

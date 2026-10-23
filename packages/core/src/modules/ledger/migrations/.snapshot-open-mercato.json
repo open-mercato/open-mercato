@@ -608,6 +608,23 @@
           "enumItems": [],
           "mappedType": "decimal"
         },
+        "currency_id": {
+          "name": "currency_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "debit": {
           "name": "debit",
           "type": "numeric(19,4)",
@@ -620,6 +637,23 @@
           "precision": 19,
           "scale": 4,
           "default": "0",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "decimal"
+        },
+        "exchange_rate": {
+          "name": "exchange_rate",
+          "type": "numeric(18,8)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": 18,
+          "scale": 8,
+          "default": null,
           "comment": null,
           "collation": null,
           "enumItems": [],
@@ -754,6 +788,11 @@
           "name": "journal_entry_lines_one_sided_chk",
           "expression": "(\"debit\" = 0 OR \"credit\" = 0) AND (\"debit\" > 0 OR \"credit\" > 0)",
           "definition": "check ((\"debit\" = 0 OR \"credit\" = 0) AND (\"debit\" > 0 OR \"credit\" > 0))"
+        },
+        {
+          "name": "journal_entry_lines_rate_positive_chk",
+          "expression": "\"exchange_rate\" > 0",
+          "definition": "check (\"exchange_rate\" > 0)"
         }
       ],
       "triggers": [],
@@ -1325,6 +1364,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "datetime"
+        },
+        "currency_id": {
+          "name": "currency_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
         },
         "deleted_at": {
           "name": "deleted_at",
