@@ -673,7 +673,10 @@ with the current behaviour registered as the built-in default (no behaviour chan
   way. The built-in answer keeps the flat `dailyHours` arithmetic and its "d × h" caption; a
   contributed one shows its `labelKey`/`label` or a neutral "Target". The
   `staff.timesheet:period-footer` context gained `periodFrom`, `periodTo`, `staffMemberId`
-  and `capacityProviderId`.
+  and `capacityProviderId`. A provider, override or route failure falls back to the flat
+  target and is reported through `reportError` (`staff.capacity_*`,
+  `staff.my_work_capacity_failed`). Integration coverage: `TC-STAFF-028` (route access,
+  period validation, My Work week target, the footer caption with no provider registered).
 
 #### EP-41 · `registry` · Report approval / lock policy provider
 - **Edit**: `api/timesheets/reports/[id]/{close,unlock}/route.ts`,
