@@ -82,6 +82,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
   { id: 'sales', from: '@open-mercato/core' },
+  { id: 'purchases', from: '@open-mercato/core' },
   { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
   // Availability contract, policy module, and provider registry (Phase 1+2).
