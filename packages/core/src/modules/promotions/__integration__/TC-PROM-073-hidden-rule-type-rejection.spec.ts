@@ -7,7 +7,7 @@ import { createPromotionFixture, deletePromotionIfExists, promotionTreePath, uni
  * Release-4 rule types (`producer`, `exclude_pharmaceutical`,
  * `consent_flag`, `delivery_method`, `payment_method`, `shipping_address`)
  * is rejected 422 at the write path — `ruleInputSchema` only accepts the
- * eleven shipped types, so an unmatched `ruleType` discriminator fails the
+ * eight shipped types, so an unmatched `ruleType` discriminator fails the
  * tree PUT's own schema parse before any command runs, regardless of
  * whether the admin UI ever offers the hidden type.
  * Source: .ai/specs/SPEC-055-2026-02-23-promotions-module.md §Implementation

@@ -1,7 +1,7 @@
 'use client'
 
 // Inline rule card (Step 1.7, SPEC-055 §UI/UX "Rule Group Tree Builder"): a filterable
-// type dropdown restricted to the eleven Release 4 shipped rule types, plus
+// type dropdown restricted to the eight Release 4 shipped rule types, plus
 // type-specific inline fields driven by `ruleFieldSpecs.ts`, plus a delete button.
 
 import * as React from 'react'
@@ -20,13 +20,10 @@ const RULE_TYPE_LABEL_KEYS: Record<RuleTypeId, { key: string; fallback: string }
   order_value: { key: 'promotions.rules.types.order_value', fallback: 'Order value' },
   order_date: { key: 'promotions.rules.types.order_date', fallback: 'Order date' },
   product_count: { key: 'promotions.rules.types.product_count', fallback: 'Product count' },
-  cart_weight: { key: 'promotions.rules.types.cart_weight', fallback: 'Cart weight' },
   row_total: { key: 'promotions.rules.types.row_total', fallback: 'Row total' },
   product: { key: 'promotions.rules.types.product', fallback: 'Specific product' },
   category: { key: 'promotions.rules.types.category', fallback: 'Category' },
-  product_attribute: { key: 'promotions.rules.types.product_attribute', fallback: 'Product attribute' },
   customer_group: { key: 'promotions.rules.types.customer_group', fallback: 'Customer group' },
-  customer_order_history: { key: 'promotions.rules.types.customer_order_history', fallback: 'Customer order history' },
   code: { key: 'promotions.rules.types.code', fallback: 'Promotion code' },
 }
 
@@ -51,7 +48,7 @@ export function RuleCard({ rule, disabled, onTypeChange, onConfigChange, onDelet
     label: t(RULE_TYPE_LABEL_KEYS[ruleType].key, RULE_TYPE_LABEL_KEYS[ruleType].fallback),
   }))
 
-  const fieldSpecs = RULE_FIELD_SPECS[rule.ruleType]
+  const fieldSpecs = RULE_FIELD_SPECS[rule.ruleType] ?? []
 
   return (
     <div ref={setNodeRef} style={style}>

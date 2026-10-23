@@ -2,7 +2,7 @@
 
 // Generic field renderer shared by `RuleCard.tsx` and `BenefitCard.tsx` (Step 1.7) —
 // reads one `FieldSpec` (`ruleFieldSpecs.ts`) and renders the matching DS primitive,
-// so the eleven rule types and five benefit types do not each need hand-written JSX.
+// so the eight rule types and five benefit types do not each need hand-written JSX.
 
 import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -126,6 +126,7 @@ export function RuleFieldInput({ spec, value, onChange, disabled }: RuleFieldInp
         onChange={(event) => handleTextChange(event.target.value)}
         disabled={disabled}
       />
+      {spec.hintKey ? <span className="text-muted-foreground">{t(spec.hintKey, spec.hintFallback ?? '')}</span> : null}
     </label>
   )
 }

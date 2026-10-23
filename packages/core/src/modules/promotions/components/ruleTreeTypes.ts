@@ -8,7 +8,7 @@
 // `commands/rule-tree.ts` `planRuleGroupTree`), the same convention
 // `packages/ui/src/backend/filters/treeReducer.ts` documents for its own tree.
 //
-// Only the ELEVEN Release 4 shipped rule types and FIVE shipped benefit types are
+// Only the EIGHT Release 4 shipped rule types and FIVE shipped benefit types are
 // offered here — `RELEASE_4_SHIPPED_RULE_TYPES`/`RELEASE_4_SHIPPED_BENEFIT_TYPES` are
 // imported directly from `data/validators.ts` so this file cannot silently drift from
 // the write-path allow-list (the hidden types, including `delivery_discount`, are never
@@ -116,20 +116,14 @@ export function buildDefaultRuleConfig(ruleType: RuleTypeId): Record<string, unk
       return { date: new Date().toISOString().slice(0, 10), operator: 'eq' }
     case 'product_count':
       return { value: 0, operator: 'eq' }
-    case 'cart_weight':
-      return { value: '0', operator: 'eq' }
     case 'row_total':
       return { value: '0', operator: 'eq', productId: null, categoryId: null }
     case 'product':
       return { productId: '', variantId: null, quantity: 1, operator: 'eq' }
     case 'category':
       return { categoryId: '', quantity: 1, operator: 'eq' }
-    case 'product_attribute':
-      return { attributeCode: '', operator: 'eq', value: '' }
     case 'customer_group':
       return { customerGroupId: '' }
-    case 'customer_order_history':
-      return { value: 0, operator: 'eq' }
     case 'code':
       return { codeId: '' }
     default:

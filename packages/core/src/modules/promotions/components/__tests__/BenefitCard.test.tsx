@@ -125,3 +125,26 @@ describe('BenefitCard labels editor locale picker', () => {
     })
   })
 })
+
+describe('BenefitCard tiered discount', () => {
+  it('labels the tier threshold as net and explains the basis', () => {
+    const benefit = createEmptyBenefit(0, 'tiered_discount')
+    renderWithProviders(
+      <DndContext>
+        <SortableContext items={[benefit.clientId]} strategy={verticalListSortingStrategy}>
+          <BenefitCard
+            benefit={benefit}
+            onTypeChange={() => {}}
+            onAppliesToChange={() => {}}
+            onConfigChange={() => {}}
+            onLabelsChange={() => {}}
+            onDelete={() => {}}
+          />
+        </SortableContext>
+      </DndContext>,
+    )
+
+    expect(screen.getByText('Threshold (net)')).toBeInTheDocument()
+    expect(screen.getByText('Compared with the net amount, before tax.')).toBeInTheDocument()
+  })
+})

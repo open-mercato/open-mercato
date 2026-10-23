@@ -15,6 +15,9 @@ import {
   promotionCodeCreateSchema,
   promotionCodeUpdateSchema,
   clearableEndOfDayDateSchema,
+  ruleInputSchema,
+  ruleInputSchemaFull,
+  PROMOTIONS_HIDDEN_RULE_TYPES,
 } from '../validators'
 
 const PROMOTION_ID = '11111111-1111-4111-8111-111111111111'
@@ -214,5 +217,22 @@ describe('promotionUpdateSchema endsAt (QA F7 live repro)', () => {
     const parsed = promotionUpdateSchema.parse({ id: PROMOTION_ID, startsAt: '2026-10-16' })
 
     expect(parsed.startsAt?.toISOString()).toBe('2026-10-16T00:00:00.000Z')
+  })
+})
+
+describe('rule types without a data source', () => {
+  const hiddenRules = [
+    { ruleType: 'cart_weight', config: { value: '0.5', operator: 'gte' } },
+    { ruleType: 'customer_order_history', config: { value: 1, operator: 'gte' } },
+    { ruleType: 'product_attribute', config: { attributeCode: 'style_code', operator: 'eq', value: 'QA-STYLE' } },
+  ]
+
+  it.each(hiddenRules)('rejects a $ruleType rule on the write path', (rule) => {
+    expect(PROMOTIONS_HIDDEN_RULE_TYPES).toContain(rule.ruleType)
+    expect(ruleInputSchema.safeParse(rule).success).toBe(false)
+  })
+
+  it.each(hiddenRules)('keeps the $ruleType model in the full schema', (rule) => {
+    expect(ruleInputSchemaFull.safeParse(rule).success).toBe(true)
   })
 })

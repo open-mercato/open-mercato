@@ -202,10 +202,11 @@ function TiersEditor({
   return (
     <div className="space-y-2">
       <span className="text-xs text-muted-foreground">{t('promotions.fields.tiers', 'Tiers')}</span>
+      <p className="text-xs text-muted-foreground">{t('promotions.fields.netAmountHint', 'Compared with the net amount, before tax.')}</p>
       {tiers.map((tier, index) => (
         <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2">
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-muted-foreground">{t('promotions.fields.tierThreshold', 'Threshold')}</span>
+            <span className="text-muted-foreground">{t('promotions.fields.tierThreshold', 'Threshold (net)')}</span>
             <Input
               type="text"
               inputMode="decimal"

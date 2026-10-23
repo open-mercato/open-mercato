@@ -280,17 +280,17 @@ const shippedRuleVariants = [
   ruleEnvelope('order_value', orderValueConfigSchema),
   ruleEnvelope('order_date', orderDateConfigSchema),
   ruleEnvelope('product_count', productCountConfigSchema),
-  ruleEnvelope('cart_weight', cartWeightConfigSchema),
   ruleEnvelope('row_total', rowTotalConfigSchema),
   ruleEnvelope('product', productConfigSchema),
   ruleEnvelope('category', categoryConfigSchema),
-  ruleEnvelope('product_attribute', productAttributeConfigSchema),
   ruleEnvelope('customer_group', customerGroupConfigSchema),
-  ruleEnvelope('customer_order_history', customerOrderHistoryConfigSchema),
   ruleEnvelope('code', codeRuleConfigSchema),
 ] as const
 
 const hiddenRuleVariants = [
+  ruleEnvelope('customer_order_history', customerOrderHistoryConfigSchema),
+  ruleEnvelope('product_attribute', productAttributeConfigSchema),
+  ruleEnvelope('cart_weight', cartWeightConfigSchema),
   ruleEnvelope('producer', producerConfigSchema),
   ruleEnvelope('exclude_pharmaceutical', excludePharmaceuticalConfigSchema),
   ruleEnvelope('consent_flag', consentFlagConfigSchema),
@@ -303,17 +303,17 @@ export const RELEASE_4_SHIPPED_RULE_TYPES = [
   'order_value',
   'order_date',
   'product_count',
-  'cart_weight',
   'row_total',
   'product',
   'category',
-  'product_attribute',
   'customer_group',
-  'customer_order_history',
   'code',
 ] as const
 
 export const PROMOTIONS_HIDDEN_RULE_TYPES = [
+  'cart_weight',
+  'product_attribute',
+  'customer_order_history',
   'producer',
   'exclude_pharmaceutical',
   'consent_flag',
@@ -322,7 +322,7 @@ export const PROMOTIONS_HIDDEN_RULE_TYPES = [
   'shipping_address',
 ] as const
 
-// Write-path schema (§Implementation Plan Phase 1, step 3): only the eleven Release 4
+// Write-path schema (§Implementation Plan Phase 1, step 3): only the eight Release 4
 // rule types are accepted here. A request naming a hidden type fails to match any
 // variant's `ruleType` literal and the discriminated union rejects it — the rejection
 // a hidden-rule-type write test (`TC-PROM-0xx`) exercises, not merely hiding the type

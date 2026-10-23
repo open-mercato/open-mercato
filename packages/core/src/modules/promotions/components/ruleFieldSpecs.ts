@@ -1,6 +1,6 @@
 // Declarative per-type field layouts for rule and benefit cards (Step 1.7). One
 // generic field renderer (`RuleFieldInput` in `RuleCard.tsx`/`BenefitCard.tsx`) reads
-// these specs instead of hand-writing eleven/five near-identical JSX blocks — the field
+// these specs instead of hand-writing eight/five near-identical JSX blocks — the field
 // `key`/`kind` pairs match `data/validators.ts`'s per-type config schemas field-for-field
 // (Step 1.2) so every value this UI writes parses on save.
 
@@ -13,6 +13,8 @@ export type FieldSpec = {
   kind: FieldKind
   labelKey: string
   labelFallback: string
+  hintKey?: string
+  hintFallback?: string
   nullable?: boolean
 }
 
@@ -38,9 +40,15 @@ export const RULE_FIELD_SPECS: Record<RuleTypeId, FieldSpec[]> = {
     operator,
   ],
   product_count: [integerValue, operator],
-  cart_weight: [value, operator],
   row_total: [
-    value,
+    {
+      key: 'value',
+      kind: 'decimal',
+      labelKey: 'promotions.fields.rowTotalValue',
+      labelFallback: 'Value (net)',
+      hintKey: 'promotions.fields.netAmountHint',
+      hintFallback: 'Compared with the net amount, before tax.',
+    },
     operator,
     { key: 'productId', kind: 'text', labelKey: 'promotions.fields.productId', labelFallback: 'Product ID', nullable: true },
     { key: 'categoryId', kind: 'text', labelKey: 'promotions.fields.categoryId', labelFallback: 'Category ID', nullable: true },
@@ -56,11 +64,6 @@ export const RULE_FIELD_SPECS: Record<RuleTypeId, FieldSpec[]> = {
     { key: 'quantity', kind: 'number', labelKey: 'promotions.fields.quantity', labelFallback: 'Quantity' },
     operator,
   ],
-  product_attribute: [
-    { key: 'attributeCode', kind: 'text', labelKey: 'promotions.fields.attributeCode', labelFallback: 'Attribute code' },
-    operator,
-    { key: 'value', kind: 'text', labelKey: 'promotions.fields.value', labelFallback: 'Value' },
-  ],
   customer_group: [
     {
       key: 'customerGroupId',
@@ -69,7 +72,6 @@ export const RULE_FIELD_SPECS: Record<RuleTypeId, FieldSpec[]> = {
       labelFallback: 'Customer group ID',
     },
   ],
-  customer_order_history: [integerValue, operator],
   code: [{ key: 'codeId', kind: 'text', labelKey: 'promotions.fields.codeId', labelFallback: 'Promotion code ID' }],
 }
 
