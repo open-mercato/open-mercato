@@ -197,6 +197,7 @@ export async function handleFulltextIndexJob(
           entityType,
           recordId,
           tenantId,
+          organizationId: organizationId ?? null,
           details: { jobId: jobCtx.jobId },
         },
       )
@@ -249,6 +250,7 @@ export async function handleFulltextIndexJob(
           handler: 'worker:fulltext:batch-index',
           message: `Indexed ${successCount}/${records.length} records to fulltext`,
           tenantId,
+          organizationId: organizationId ?? null,
           details: { jobId: jobCtx.jobId, requestedCount: records.length, successCount, skippedCount },
         },
       )
@@ -333,6 +335,10 @@ export async function handleFulltextIndexJob(
     const entityId = 'entityId' in job.payload ? job.payload.entityId :
                      'entityType' in job.payload ? (job.payload as { entityType?: string }).entityType : undefined
     const recordId = 'recordId' in job.payload ? job.payload.recordId : undefined
+    // `delete` and `purge` payloads carry no organization, so this is null for them by construction.
+    const organizationId = 'organizationId' in job.payload
+      ? (job.payload as { organizationId?: string | null }).organizationId ?? null
+      : null
 
     await recordIndexerError(
       { em: em ?? undefined },
@@ -343,6 +349,7 @@ export async function handleFulltextIndexJob(
         entityType: entityId,
         recordId,
         tenantId,
+        organizationId,
         payload: job.payload,
       },
     )
