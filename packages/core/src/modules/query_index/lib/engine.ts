@@ -48,7 +48,7 @@ import {
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
-import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
+import { warnOnCiphertextLikeFallback, type CiphertextSearchWarning } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
@@ -623,6 +623,7 @@ export class HybridQueryEngine implements QueryEngine {
           searchRuntime.encryptedFields = null
         }
       }
+      const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
       if (searchFilters.length) {
         this.logSearchDebug('search:init', {
           entity,
@@ -664,6 +665,7 @@ export class HybridQueryEngine implements QueryEngine {
               ? 'no-indexable-tokens'
               : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
             service: this.getEncryptionService(),
+            onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
           })
         }
       }
@@ -687,6 +689,7 @@ export class HybridQueryEngine implements QueryEngine {
             ? 'no-indexable-tokens'
             : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
           service: this.getEncryptionService(),
+          onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
         })
       }
       const hasNonBaseSearchSource = searchSources.some(
@@ -1444,6 +1447,9 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       result = await applyAfterExtensions(result)
+      if (ciphertextSearchWarnings.length) {
+        result.meta = { ...result.meta, ciphertextSearchWarnings }
+      }
       finishProfile({
         result: 'ok', total, page, pageSize,
         itemCount: Array.isArray(items) ? items.length : undefined,
