@@ -73,6 +73,21 @@ const MUTATION_CONTEXT_ID = 'staff.time_tracking.settings'
 const RESOURCE_KIND = 'staff.timesheets.settings'
 const RESOURCE_ID = 'time_tracking'
 const IMPACT_DEBOUNCE_MS = 350
+const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
+
+class TenantScopeChangedError extends Error {
+  constructor() {
+    super('[internal] tenant scope changed before the settings save was sent')
+    this.name = 'TenantScopeChangedError'
+  }
+}
+
+function isTenantScopeChangedResponse(status: number, result: unknown): boolean {
+  return status === 409
+    && typeof result === 'object'
+    && result !== null
+    && (result as { code?: unknown }).code === TENANT_SCOPE_CHANGED_CODE
+}
 
 type MutationContext = {
   formId: string
@@ -247,15 +262,33 @@ export default function TimeTrackingSettingsPage() {
     if (!body) return
     const saveLoadId = latestLoadRef.current
     const saveScope = scopeRef.current
+    const saveTenantId = saveScope.tenantId
+    const saveUrl = saveTenantId
+      ? `${SETTINGS_API}?expectedTenantId=${encodeURIComponent(saveTenantId)}`
+      : SETTINGS_API
+    const reportTenantScopeChanged = () => {
+      flash(
+        t(
+          'staff.time_tracking.settings.tenantChanged',
+          'The tenant changed before the settings were saved. Nothing was saved.',
+        ),
+        'warning',
+      )
+      void loadSettings()
+    }
     setIsSaving(true)
     try {
       const call = await runMutation({
-        operation: () =>
-          apiCall<TimeTrackingSettings>(SETTINGS_API, {
+        operation: async () => {
+          if (saveTenantId !== null && scopeRef.current.tenantId !== saveTenantId) {
+            throw new TenantScopeChangedError()
+          }
+          return apiCall<TimeTrackingSettings>(saveUrl, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
-          }),
+          })
+        },
         context: {
           formId: MUTATION_CONTEXT_ID,
           resourceKind: RESOURCE_KIND,
@@ -264,6 +297,10 @@ export default function TimeTrackingSettingsPage() {
         },
         mutationPayload: body as unknown as Record<string, unknown>,
       })
+      if (isTenantScopeChangedResponse(call.status, call.result)) {
+        reportTenantScopeChanged()
+        return
+      }
       if (!call.ok || !call.result) {
         flash(t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'), 'error')
         return
@@ -281,6 +318,10 @@ export default function TimeTrackingSettingsPage() {
       setDraft(saved)
       flash(t('staff.time_tracking.settings.saved', 'Settings saved.'), 'success')
     } catch (err) {
+      if (err instanceof TenantScopeChangedError) {
+        reportTenantScopeChanged()
+        return
+      }
       logger.error('time tracking settings save failed', { err })
       flash(t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'), 'error')
     } finally {

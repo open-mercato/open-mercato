@@ -45,9 +45,11 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() })
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({ useBackendChrome: jest.fn() }))
 
+const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    runMutation: (input: { operation: () => Promise<unknown> }) => mockRunMutation(input),
     retryLastMutation: jest.fn(async () => true),
   }),
 }))
@@ -291,6 +293,74 @@ describe('time tracking settings page', () => {
       expect(settingsGets).toHaveLength(3)
     })
     expect(screen.getByLabelText('Daily hours target')).toHaveValue('5')
+  })
+
+  it('pins the save to the tenant the form was edited in', async () => {
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?expectedTenantId=tenant-a')
+  })
+
+  it('does not send a save when the tenant changes before the request goes out', async () => {
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    const view = renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+
+    let releaseBeforeSave: () => void = () => undefined
+    const beforeSaveGate = new Promise<void>((resolve) => {
+      releaseBeforeSave = resolve
+    })
+    mockRunMutation.mockImplementationOnce(async ({ operation }) => {
+      await beforeSaveGate
+      return operation()
+    })
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    mockScope = { tenantId: 'tenant-b', organizationId: 'org-b' }
+    mockScopeVersion = 2
+    view.rerender(<TimeTrackingSettingsPage />)
+    releaseBeforeSave()
+
+    await waitFor(() =>
+      expect(mockFlash).toHaveBeenCalledWith(
+        'The tenant changed before the settings were saved. Nothing was saved.',
+        'warning',
+      ),
+    )
+    expect(putBodies).toHaveLength(0)
+  })
+
+  it('reports a save the server refused because the tenant changed', async () => {
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+
+    mockApiCall.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 409,
+      result: { error: 'The selected tenant changed before the request was processed.', code: 'tenant_scope_changed' },
+      response: {} as Response,
+      cacheStatus: null,
+    }) as never)
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() =>
+      expect(mockFlash).toHaveBeenCalledWith(
+        'The tenant changed before the settings were saved. Nothing was saved.',
+        'warning',
+      ),
+    )
+    expect(mockFlash).not.toHaveBeenCalledWith('Settings saved.', 'success')
+    expect(mockFlash).not.toHaveBeenCalledWith('Failed to save the settings.', 'error')
   })
 
   it('re-seeds a pristine form when the organization scope changes', async () => {
