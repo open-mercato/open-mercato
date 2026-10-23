@@ -24,6 +24,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Search no longer indexes the plaintext of encrypted custom fields
+
+`SearchIndexer` now leaves custom fields whose definition is `encrypted` out of the records and custom fields it hands to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which reached the fulltext index and, with vector search on, the embedding provider. The hashed `search_tokens` index is unchanged.
+
+**Action for operators:** values indexed before the upgrade stay in the fulltext and vector indexes until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading.
+
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
 The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.

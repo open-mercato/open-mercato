@@ -26,8 +26,16 @@ import type { EncryptionMapEntry } from './lib/field-policy'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
 import { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+import {
+  createEncryptedCustomFieldKeysResolver,
+  type EncryptedCustomFieldKeysResolver,
+} from './lib/encrypted-custom-field-resolver'
 
 export { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+export {
+  createEncryptedCustomFieldKeysResolver,
+  type EncryptedCustomFieldKeysResolver,
+} from './lib/encrypted-custom-field-resolver'
 
 const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
 
@@ -47,6 +55,12 @@ function getSearchModuleGlobals(): SearchModuleGlobals {
 function shouldExcludeEncryptedFields(): boolean {
   const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+function createUnavailableEncryptedCustomFieldKeysResolver(): EncryptedCustomFieldKeysResolver {
+  return async () => {
+    throw new Error('[internal] Custom-field definitions are unavailable; refusing to index potentially encrypted custom fields')
+  }
 }
 
 function createUnavailableEncryptionMapResolver(): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
@@ -245,10 +259,20 @@ export function registerSearchModule(
     // Queue not available, queue-based vector reindex will be disabled
   }
 
+  let encryptedCustomFieldKeysResolver: EncryptedCustomFieldKeysResolver
+  try {
+    const em = container.resolve<any>('em')
+    const db = em.getKysely() as Kysely<any>
+    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(db)
+  } catch {
+    encryptedCustomFieldKeysResolver = createUnavailableEncryptedCustomFieldKeysResolver()
+  }
+
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
     queryEngine,
     fulltextQueue,
     vectorQueue,
+    encryptedCustomFieldKeysResolver,
   })
 
   // Register in container

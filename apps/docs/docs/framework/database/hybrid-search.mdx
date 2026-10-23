@@ -315,6 +315,8 @@ await indexer.indexRecord({
 })
 ```
 
+Custom fields whose definition is `encrypted` never reach `buildSource`, `formatResult`, `resolveUrl` or `resolveLinks`: the indexer removes them from `ctx.customFields`, from the record's `cf:` / `cf_` keys and from every record a callback loads through `ctx.queryEngine`, so their plaintext stays out of the text a strategy stores or embeds. `IndexableRecord.fields` keeps them for the hashed `search_tokens` index. When the definitions cannot be read, the indexer leaves out every custom field of that entity.
+
 ## Environment Configuration
 
 ```bash

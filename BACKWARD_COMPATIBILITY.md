@@ -602,3 +602,17 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+---
+
+## Search Build Contexts Omit Encrypted Custom Fields (2026-10-23)
+
+Every module's search `buildSource` received custom fields decrypted, so a source that turns them into text, as the customers Company and Person sources do, sent the plaintext of custom fields declared `encrypted` to the fulltext index and the embedding provider, against `packages/search/AGENTS.md` ("Never include encrypted or sensitive fields in `buildSource` text output"). `SearchIndexer` now keeps them out of every build context:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function behaviour (`SearchIndexer` build contexts: `buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`) | `ctx.customFields`, the record's `cf:` / `cf_` keys and every record a callback loads through `ctx.queryEngine` (including custom fields joined from `customFieldSources`) omit custom fields whose definition has `configJson.encrypted`; when the definitions cannot be read, every custom field of that entity is omitted. `IndexableRecord.fields` is unchanged, so the hashed `search_tokens` index still covers them | ⚠️ Behaviour change on a previously-leaking path. Regression-tested in `search-indexer-encrypted-custom-fields.test.ts` |
+| Type definitions, import paths | `SearchIndexerOptions` gains the optional `encryptedCustomFieldKeysResolver`; `@open-mercato/search/di` additionally exports `createEncryptedCustomFieldKeysResolver` and the `EncryptedCustomFieldKeysResolver` type, next to `createEncryptionMapResolver` | ✓ ADDITIVE |
+| Database schema, event IDs, API routes, DI names, ACL features, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A source that built text from an encrypted custom field loses that line, which is the fix; reindex the affected entities to drop values indexed before it (see UPGRADE_NOTES.md).
