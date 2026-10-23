@@ -42,6 +42,7 @@
   "audit_logs.common.refreshing": "Actualizando…",
   "audit_logs.error.load": "No se pudieron cargar los registros",
   "audit_logs.error.redo": "No se pudo rehacer la acción",
+  "audit_logs.error.redo_failed": "No se pudo rehacer la acción",
   "audit_logs.error.undo": "No se pudo deshacer la acción",
   "audit_logs.filters.undoable_only": "Solo deshacibles",
   "audit_logs.hint.view_self_only": "Solo se muestran sus propios cambios. Contacte a un administrador para un acceso más amplio.",

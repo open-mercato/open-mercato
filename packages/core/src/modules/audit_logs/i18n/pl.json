@@ -42,6 +42,7 @@
   "audit_logs.common.refreshing": "Odświeżanie…",
   "audit_logs.error.load": "Nie udało się załadować logów",
   "audit_logs.error.redo": "Nie udało się przywrócić działania",
+  "audit_logs.error.redo_failed": "Nie udało się przywrócić operacji",
   "audit_logs.error.undo": "Nie udało się cofnąć działania",
   "audit_logs.filters.undoable_only": "Tylko do cofnięcia",
   "audit_logs.hint.view_self_only": "Wyświetlane są tylko Twoje zmiany. Skontaktuj się z administratorem, aby uzyskać szerszy dostęp.",
