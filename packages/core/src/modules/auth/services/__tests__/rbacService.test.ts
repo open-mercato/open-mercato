@@ -5,6 +5,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
+import { registerLoggerExtension, type LoggerExtensionRecord } from '@open-mercato/shared/lib/logger'
 import {
   applyAclFeatureOverrides,
   resetModuleContractOverridesForTests,
@@ -1256,14 +1257,25 @@ describe('RbacService', () => {
     })
 
     it('keeps a per-user ACL exclusive and organization-scoped', async () => {
+      const broaderRole: Partial<Role> = { id: 'role-broader' }
       em.findOne.mockImplementation(async (entity: any, where: any) => {
         if (entity === User && where?.id === baseUser.id) return baseUser
-        if (entity === UserAcl) return {
+        if (entity === UserAcl && where?.isSuperAdmin !== true) return {
           isSuperAdmin: false,
           featuresJson: ['eudr.risk.view'],
           organizationsJson: ['org-1'],
         }
         return null
+      })
+      // A role that would grant the feature everywhere. The per-user ACL must still win.
+      em.find.mockImplementation(async (entity: any, where: any) => {
+        if (entity === UserRole) return [{ role: broaderRole }]
+        if (entity === RoleAcl && where?.isSuperAdmin !== true) return [{
+          role: broaderRole,
+          featuresJson: ['eudr.risk.view'],
+          organizationsJson: null,
+        }]
+        return []
       })
 
       const access = await service.resolveFeatureOrganizationAccess(
@@ -1274,11 +1286,6 @@ describe('RbacService', () => {
 
       expect(access.unrestricted).toBe(false)
       expect(access.filterOrganizationIds(organizations)).toEqual(['org-1'])
-      expect(em.find).not.toHaveBeenCalledWith(
-        UserRole,
-        expect.objectContaining({ role: expect.anything() }),
-        expect.anything(),
-      )
     })
 
     it('keeps an empty-organization super-admin role globally authorized', async () => {
@@ -1309,14 +1316,22 @@ describe('RbacService', () => {
       expect(access.filterOrganizationIds(organizations)).toEqual(['org-1', 'org-2'])
     })
 
+    /** Whether a `user_acls` row stamped `tenantId` with `isSuperAdmin: true` satisfies `where`, as the DB would. */
+    const userAclRowMatches = (where: any, tenantId: string) =>
+      (where?.tenantId === undefined || where.tenantId === tenantId)
+      && (where?.isSuperAdmin === undefined || where.isSuperAdmin === true)
+
     it('preserves the existing cross-tenant global super-admin shortcut', async () => {
+      // A platform super-admin's grant lives in their own tenant and still applies when
+      // they look at another tenant.
       const globalSuperAcl = {
         isSuperAdmin: true,
         featuresJson: [],
         organizationsJson: null,
       }
       em.findOne.mockImplementation(async (entity: any, where: any) => {
-        if (entity === UserAcl && where?.isSuperAdmin === true) return globalSuperAcl
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && userAclRowMatches(where, baseUser.tenantId!)) return globalSuperAcl
         return null
       })
 
@@ -1328,6 +1343,27 @@ describe('RbacService', () => {
 
       expect(access.unrestricted).toBe(true)
       expect(access.filterOrganizationIds(organizations)).toEqual(['org-1', 'org-2'])
+    })
+
+    it('does not give the shortcut to a super-admin grant stamped with a foreign tenant', async () => {
+      // The grant names neither the user's own tenant nor the one being asked about.
+      em.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity === User && where?.id === baseUser.id) return baseUser
+        if (entity === UserAcl && userAclRowMatches(where, 'tenant-other')) {
+          return { isSuperAdmin: true, featuresJson: [], organizationsJson: null }
+        }
+        return null
+      })
+      em.find.mockResolvedValue([])
+
+      const access = await service.resolveFeatureOrganizationAccess(
+        baseUser.id!,
+        ['eudr.risk.view'],
+        { tenantId: 'another-tenant' },
+      )
+
+      expect(access.unrestricted).toBe(false)
+      expect(access.filterOrganizationIds(organizations)).toEqual([])
     })
 
     it('keeps an organization-bound API key inside its exact key scope', async () => {
@@ -2061,6 +2097,255 @@ describe('RbacService', () => {
       expect(hasFeatures1).toBe(true)
       expect(hasFeatures2).toBe(true)
       expect(em.findOne).toHaveBeenCalledTimes(callsAfterFirst) // No new queries
+    })
+  })
+
+  // Regression cover for the tenant binding on super-admin grants. These build a
+  // tiny in-memory table and evaluate the real filter the service emits, rather
+  // than keying a mock on the fields the test already expects — otherwise the
+  // test cannot tell a filter that was applied from one that was not.
+  describe('super-admin grant tenant binding', () => {
+    type Row = Record<string, any>
+
+    const idOf = (value: any): string | null => {
+      if (typeof value === 'string') return value
+      if (value && typeof value === 'object' && typeof value.id === 'string') return value.id
+      return null
+    }
+
+    const matches = (where: any, row: Row): boolean => {
+      if (!where || typeof where !== 'object') return true
+      return Object.entries(where).every(([key, expected]) => {
+        const actual = row[key]
+        if (expected && typeof expected === 'object' && Array.isArray((expected as any).$in)) {
+          const wanted = (expected as any).$in.map((v: any) => idOf(v))
+          return wanted.includes(idOf(actual))
+        }
+        if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
+          // Relation sub-filter, e.g. `role: { tenantId, deletedAt: null }`.
+          return actual && typeof actual === 'object' ? matches(expected, actual) : false
+        }
+        if (typeof expected === 'string' && actual && typeof actual === 'object') {
+          return idOf(actual) === expected
+        }
+        if (expected === null) return actual === null || actual === undefined
+        return actual === expected
+      })
+    }
+
+    /** Wire `em.findOne` / `em.find` to evaluate the service's real filters. */
+    const seed = (tables: Map<any, Row[]>) => {
+      const rowsFor = (entity: any) => tables.get(entity) ?? []
+      em.findOne.mockImplementation(async (entity: any, where: any) =>
+        rowsFor(entity).find((row) => matches(where, row)) ?? null)
+      em.find.mockImplementation(async (entity: any, where: any) =>
+        rowsFor(entity).filter((row) => matches(where, row)))
+    }
+
+    const user: Row = { id: 'user-1', tenantId: 'tenant-home', organizationId: 'org-1', deletedAt: null }
+
+    it('ignores a user-level super-admin grant stamped with a foreign tenant', async () => {
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        // The row is real, live and flagged — it simply is not this user's own
+        // tenant's grant. Before the tenant binding it conferred `['*']` in
+        // every scope, so one mis-stamped row was a platform escalation.
+        [UserAcl, [{
+          user, tenantId: 'tenant-other', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null, deletedAt: null,
+        }]],
+        [UserRole, []],
+        [RoleAcl, []],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('keeps a home-tenant super-admin grant global across every scope', async () => {
+      // The anti-regression half: binding the grant to the user's own tenant
+      // must not stop a platform super-admin working inside a customer tenant,
+      // which is what the tenant switcher does on every cross-tenant view.
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        [UserAcl, [{
+          user, tenantId: 'tenant-home', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null, deletedAt: null,
+        }]],
+        [UserRole, []],
+        [RoleAcl, []],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-customer', organizationId: 'org-99' }))
+        .resolves.toEqual({ isSuperAdmin: true, features: ['*'], organizations: null })
+    })
+
+    it('ignores a role-level super-admin grant whose ACL row is stamped with a foreign tenant', async () => {
+      const role: Row = { id: 'role-a', tenantId: 'tenant-home', deletedAt: null }
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        [UserAcl, []],
+        [UserRole, [{ user, role, deletedAt: null }]],
+        // Production shape: one role, two ACL rows, one of them stamped with a
+        // tenant that is not the role's. Only the correctly stamped one counts.
+        [RoleAcl, [{
+          role, tenantId: 'tenant-other', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null, deletedAt: null,
+        }]],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('ignores a super-admin role that belongs to another tenant', async () => {
+      const foreignRole: Row = { id: 'role-foreign', tenantId: 'tenant-other', deletedAt: null }
+      seed(new Map<any, Row[]>([
+        [User, [user]],
+        [UserAcl, []],
+        [UserRole, [{ user, role: foreignRole, deletedAt: null }]],
+        [RoleAcl, [{
+          role: foreignRole, tenantId: 'tenant-other', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null, deletedAt: null,
+        }]],
+      ]))
+
+      await expect(service.loadAcl('user-1', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('grants nothing to a user with no tenant of their own', async () => {
+      const tenantless: Row = { id: 'user-2', tenantId: null, organizationId: null, deletedAt: null }
+      seed(new Map<any, Row[]>([
+        [User, [tenantless]],
+        [UserAcl, [{
+          user: tenantless, tenantId: 'tenant-other', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null, deletedAt: null,
+        }]],
+        [UserRole, []],
+        [RoleAcl, []],
+      ]))
+
+      const records: LoggerExtensionRecord[] = []
+      const dispose = registerLoggerExtension({ emit: (record) => { records.push(record) } })
+      try {
+        await expect(service.loadAcl('user-2', { tenantId: null, organizationId: null }))
+          .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: null })
+
+        // The consequence is larger than the flag - `loadAcl` short-circuits on a null
+        // tenant, so EVERY feature check fails for this principal - and a tenant-less
+        // staff account is a shape the codebase supports deliberately. Returning false in
+        // silence leaves an operator with a locked-out UI and no in-product signal.
+        expect(records.map((record) => record.message)).toContain(
+          'User has no tenant of their own, so no grant can confer super-admin',
+        )
+      } finally {
+        dispose()
+      }
+    })
+
+    it('grants nothing when the grant outlives the user row it names', async () => {
+      // The check now runs after the user load, so a `user_acls` row left behind
+      // by a hard-deleted user no longer confers anything.
+      seed(new Map<any, Row[]>([
+        [User, []],
+        [UserAcl, [{
+          user: { id: 'ghost' }, tenantId: 'tenant-home', isSuperAdmin: true,
+          featuresJson: [], organizationsJson: null, deletedAt: null,
+        }]],
+        [UserRole, []],
+        [RoleAcl, []],
+      ]))
+
+      await expect(service.loadAcl('ghost', { tenantId: 'tenant-home', organizationId: 'org-1' }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: null })
+    })
+
+    // The transaction-bound resolver backs the ACL-grant ceiling and command replay, so it
+    // must apply the same binding as `loadAcl`.
+    describe('loadAclWithEntityManager', () => {
+      const scope = { tenantId: 'tenant-home', organizationId: 'org-1' }
+
+      it('ignores a user-level super-admin grant stamped with a foreign tenant', async () => {
+        seed(new Map<any, Row[]>([
+          [User, [user]],
+          [UserAcl, [{
+            user, tenantId: 'tenant-other', isSuperAdmin: true,
+            featuresJson: [], organizationsJson: null, deletedAt: null,
+          }]],
+          [UserRole, []],
+          [RoleAcl, []],
+        ]))
+
+        await expect(service.loadAclWithEntityManager(em as any, 'user-1', scope))
+          .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+      })
+
+      it('ignores a role-level super-admin grant whose ACL row is stamped with a foreign tenant', async () => {
+        const role: Row = { id: 'role-a', tenantId: 'tenant-home', deletedAt: null }
+        seed(new Map<any, Row[]>([
+          [User, [user]],
+          [UserAcl, []],
+          [UserRole, [{ user, role, deletedAt: null }]],
+          [RoleAcl, [{
+            role, tenantId: 'tenant-other', isSuperAdmin: true,
+            featuresJson: [], organizationsJson: null, deletedAt: null,
+          }]],
+        ]))
+
+        await expect(service.loadAclWithEntityManager(em as any, 'user-1', scope))
+          .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+      })
+
+      it('keeps a home-tenant super-admin grant global across every scope', async () => {
+        seed(new Map<any, Row[]>([
+          [User, [user]],
+          [UserAcl, [{
+            user, tenantId: 'tenant-home', isSuperAdmin: true,
+            featuresJson: [], organizationsJson: null, deletedAt: null,
+          }]],
+          [UserRole, []],
+          [RoleAcl, []],
+        ]))
+
+        await expect(service.loadAclWithEntityManager(em as any, 'user-1', { tenantId: 'tenant-customer', organizationId: 'org-99' }))
+          .resolves.toEqual({ isSuperAdmin: true, features: ['*'], organizations: null })
+      })
+
+      it('grants nothing when the grant outlives the user row it names', async () => {
+        seed(new Map<any, Row[]>([
+          [User, []],
+          [UserAcl, [{
+            user: { id: 'ghost' }, tenantId: 'tenant-home', isSuperAdmin: true,
+            featuresJson: [], organizationsJson: null, deletedAt: null,
+          }]],
+          [UserRole, []],
+          [RoleAcl, []],
+        ]))
+
+        await expect(service.loadAclWithEntityManager(em as any, 'ghost', scope))
+          .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: null })
+      })
+
+      it('reads through, so a memoized answer from loadAcl cannot outlive a revoked grant', async () => {
+        const tables = new Map<any, Row[]>([
+          [User, [user]],
+          [UserAcl, [{
+            user, tenantId: 'tenant-home', isSuperAdmin: true,
+            featuresJson: [], organizationsJson: null, deletedAt: null,
+          }]],
+          [UserRole, []],
+          [RoleAcl, []],
+        ])
+        seed(tables)
+        await expect(service.loadAcl('user-1', scope))
+          .resolves.toEqual({ isSuperAdmin: true, features: ['*'], organizations: null })
+
+        tables.set(UserAcl, [])
+
+        await expect(service.loadAclWithEntityManager(em as any, 'user-1', scope))
+          .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+      })
     })
   })
 })
