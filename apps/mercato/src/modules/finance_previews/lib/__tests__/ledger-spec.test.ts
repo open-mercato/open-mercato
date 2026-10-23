@@ -210,3 +210,20 @@ describe('finance preview registry validation', () => {
     expect(isDate('2026-09-25T00:00:00Z')).toBe(false)
   })
 })
+
+describe('finance preview zero balance display', () => {
+  it('does not show a minus sign for unused credit-normal accounts', () => {
+    const state = configuredLedger()
+    state.accounts = [{
+      number: '209',
+      name: 'Unused liability',
+      type: '20',
+      normal: 'CREDIT',
+      used: false,
+    }]
+    const balances = trialBalance(state, '2026-09-01', '2026-09-30')
+    expect(balances).toHaveLength(1)
+    expect(Object.is(balances[0].opening, -0)).toBe(false)
+    expect(Object.is(balances[0].closing, -0)).toBe(false)
+  })
+})

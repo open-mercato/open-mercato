@@ -259,6 +259,9 @@ test('Asset lifecycle preserves accrued depreciation, caps reversals and dispose
         sessionStorage.getItem('finance-preview-operations-asset-v1') ?? '{}',
       ),
     )
+  await expect.poll(async () => (await readState()).schedule.filter(
+    (row: { accrued: boolean }) => row.accrued,
+  ).length).toBe(1)
   const before = await readState()
   await root
     .getByRole('button', { name: 'Zmień okres amortyzacji', exact: true })
@@ -271,6 +274,7 @@ test('Asset lifecycle preserves accrued depreciation, caps reversals and dispose
   await root
     .getByRole('button', { name: 'Zatwierdź operację', exact: true })
     .click()
+  await expect.poll(async () => (await readState()).schedule.length).toBe(30)
   const revised = await readState()
   expect(
     revised.schedule.filter((row: { accrued: boolean }) => row.accrued),
@@ -344,6 +348,7 @@ test('Asset lifecycle preserves accrued depreciation, caps reversals and dispose
   await root
     .getByRole('button', { name: 'Zatwierdź operację', exact: true })
     .click()
+  await expect.poll(async () => (await readState()).stage).toBe('disposed')
   const disposed = await readState()
   expect(disposed.stage).toBe('disposed')
   expect(
