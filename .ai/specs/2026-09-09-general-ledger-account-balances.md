@@ -1031,7 +1031,14 @@ existing, already-migrated tables.
   logic ("balance validation runs only in the base-currency
   debit/credit columns"); a foreign-currency-denominated balance view
   is a Multi-Currency-spec concern, same boundary #5663 already drew
-  for FX revaluation.
+  for FX revaluation. Since 2026-10-23 every ledger line carries its own
+  currency and `amountCurrency`, and a bank account is its own ledger account
+  with an optional `currencyId`, so a later phase can add the balance in the
+  account's currency (the signed `amountCurrency` of its lines, debit side
+  positive) next to the base-currency balance, with `currency` then carrying
+  that currency. Cash & Bank needs it, because the controller requires the
+  balance in the account's currency to agree with the bank statement. Phase 1
+  is unchanged.
 
 ## Final Compliance Report — 2026-09-09
 
@@ -1330,3 +1337,12 @@ Not yet re-reviewed by `om-auto-review-pr`.
 - No structural changes to Architecture/Data Models/API Contracts from
   this pass — Steps 1-3 of `financial-spec-writing-process` only; Step
   4 (structure) was already satisfied by the existing document.
+
+### 2026-10-23 — balance in the account's currency named as a later phase
+
+- #5663 now gives every ledger line its own currency, rate and
+  `amountCurrency`. Phase 1 stays base-currency only and `currency: null`
+  stays. The Out of scope bullet on multi-currency balances names the balance
+  in the account's currency for accounts that have a `currencyId` as the
+  follow-up, with Cash & Bank as its consumer. Not yet reviewed by a
+  maintainer.
