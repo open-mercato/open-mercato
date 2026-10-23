@@ -30,7 +30,7 @@ Since PR #7324, money is an exact decimal string with a currency code stored nex
 | D3 | Currencies are equal when `code` **and** `decimalPlaces` match. `symbol` is ignored. Arithmetic across unequal currencies throws `CurrencyMismatchError` | ISO JPY (0) and a tenant's JPY (2) are different units of account |
 | D4 | `Money.amount` is exact at any scale. Nothing rounds implicitly. `divideMoney`, `convertMoney` and `roundMoney` require a `MoneyRounding` (`{ decimalPlaces, mode }`), and `allocateMoney` requires `decimalPlaces` | The caller decides the rounding behaviour. Intermediate values (unit price × quantity) keep every digit, as in the parent spec |
 | D5 | v1 operations: add, subtract, sum, multiply, divide, negate, abs, round, allocate, convert, rescale, compare, min/max and sign checks | The full set the user asked for. FX conversion takes an explicit rate and does no rate lookup |
-| D6 | Serialization: `serializeMoney` → `{ amount: string, currencyCode: string }` and a zod `moneyInputSchema`. Persistence: a `MoneyColumns` MikroORM embeddable that snapshots `amount`, `currency_code` and `currency_decimal_places` | MikroORM hydrates synchronously and cannot call the async factory. The precision snapshot makes hydration synchronous and records the precision the amount was written under |
+| D6 | Two wire shapes. An untrusted `MoneyInput` (`{ amount, currencyCode }`, zod `moneyInputSchema`, resolved async against the tenant's current precision). A trusted `MoneySnapshot` (`{ amount, currencyCode, currencyDecimalPlaces }`, restored synchronously) for queues, caches and events. Persistence: a `MoneyColumns` MikroORM embeddable with the `MoneySnapshot` shape | Precision is part of a currency's identity (D3), so anything the system wrote must come back at the precision it was written with. MikroORM hydrates synchronously and cannot call the async factory. Only client input is re-resolved |
 | D7 | `Currency.symbol` is an optional display symbol (`$`). The resolver contract gains an optional `getCurrency(lookup)` that returns code, decimal places and symbol in one read | Additive. A resolver that only implements `getDecimalPlaces` still works and yields `symbol: null` |
 | D8 | Lives in `packages/shared/src/lib/money/`, with the embeddable in `packages/shared/src/lib/db/moneyColumns.ts` | Same layer as `decimal.ts` and `ExactDecimalType`. No module depends on another module |
 | D9 | The project harness enforces `Money` for **all new code** that handles monetary values: agent instructions, the review checklist, the standalone-app harness and an advisory diff check | A value object that is optional in practice gets skipped. "New code only" must mean "new code always", or a third money style piles up next to `number` and `<field>Exact` |
@@ -84,7 +84,10 @@ export type MoneyRounding = Readonly<{ decimalPlaces: number; mode: MoneyRoundin
 ```
 
 - Brands are type-only. An object literal does not type-check as a `Money`, so values come from the functions below.
-- Every `Currency`, `Money` and `Money.amount` is `Object.freeze`d. Freezing the `big.js` instance makes in-place mutation of `c`/`e`/`s` throw in strict mode. `big.js` methods already return new instances.
+- **Deep immutability.** A `big.js` value keeps its digits in a coefficient array (`c`). Freezing only the instance leaves that array writable: on big.js 7.0.1 in strict mode, `Object.freeze(new Big('12.34')).c[0] = 9` silently turns the value into `92.34`. So the rules are:
+  - **Ownership:** every function that stores an amount makes its own copy first (`new Decimal(value)`, where `big.js` copies the array with `c.slice()`). A `Big` the caller still holds is never stored by reference.
+  - **Deep freeze:** `freezeDecimal(value)` freezes `value.c` and then `value`. Every `Money.amount` goes through it, and so do `Money` and `Currency` themselves.
+  - **Non-mutating operations only:** with deep-frozen operands, `plus`, `minus`, `times`, `div`, `round`, `abs`, `neg`, `cmp`, `eq` and `toFixed` work and return new instances (verified on 7.0.1). `mod` does not: it writes to its operands' sign field and throws on a frozen value. It may only be called on fresh copies, as in `allocateMoney` step 4.
 - `MoneyRoundingMode` maps to `big.js` rounding modes 0, 1, 2 and 3. `down` and `up` mean toward and away from zero.
 - `decimalPlaces` must be an integer from 0 to 50, matching the parent spec's validator cap. Anything else throws.
 
@@ -125,7 +128,7 @@ assertSameCurrency(left: Currency, right: Currency): void
 1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty, when any ratio is negative, or when all ratios are zero.
 2. Make the ratios integers by scaling them all by `10^k`, where `k` is the largest number of decimals among them. Let `U = |amount| × 10^decimalPlaces` (an integer number of units) and `S = Σratios`.
 3. Share `i` gets `floor(U × ratio_i / S)` units, computed with exact integer math (`big.js` `div` at `DP = 0`, `RM = down`, on integers).
-4. The leftover `U − Σshares` units (an integer smaller than the number of ratios) go one each to the shares with the largest **exact** remainder `(U × ratio_i) mod S`. Ties go to the lower index. A zero ratio has remainder 0 and never receives a unit.
+4. The leftover `U − Σshares` units (an integer smaller than the number of ratios) go one each to the shares with the largest **exact** remainder `(U × ratio_i) mod S`, computed on the fresh product, never on a stored amount. Ties go to the lower index. A zero ratio has remainder 0 and never receives a unit.
 5. Convert the units back (`× 10^-decimalPlaces`) and restore the sign.
 
 The result always sums exactly to `m`, and the order is decided only by exact integer remainders.
@@ -136,9 +139,17 @@ The result always sums exactly to `m`, and the order is decided only by exact in
 
 ### Serialization (`serialization.ts`)
 
-- `serializeMoney(m)` → `{ amount: decimalToString(m.amount), currencyCode: m.currency.code }`. Precision and symbol are not serialized. A client gets them from `/api/currencies/currencies`.
-- `moneyInputSchema` (zod) → `{ amount: decimalStringSchema, currencyCode: <3-letter code> }`. Its output is a plain `MoneyInput`, **not** a `Money`.
-- `resolveMoney(container, scope, input)` → `Promise<Money>` runs `resolveCurrency` and then `createMoney`. Request input always reaches a `Money` through this async path.
+Money moves in two shapes. They differ in **who** produced them, not in **where** they travel.
+
+| Shape | Produced by | Carries | Read back with |
+|-------|-------------|---------|----------------|
+| `MoneyInput` (**untrusted**) | Clients: request bodies, imports, webhooks | `{ amount, currencyCode }` | `resolveMoney(container, scope, input)`, async, using the tenant's **current** precision |
+| `MoneySnapshot` (**trusted**, internal) | This system: `snapshotMoney(m)` | `{ amount, currencyCode, currencyDecimalPlaces }` | `restoreMoney(snapshot)`, sync, keeping the precision **at the time of the snapshot** |
+
+- `serializeMoney(m)` → `MoneyInput`, for API responses. Precision and symbol are left out; a client gets them from `/api/currencies/currencies`.
+- `moneyInputSchema` (zod) parses request input into a plain `MoneyInput`, **not** a `Money`. Request input always reaches a `Money` through `resolveMoney`.
+- `snapshotMoney(m)` → `MoneySnapshot`, and `moneySnapshotSchema` (zod) validates one. Queues, caches, events, workflow state and persisted JSON all carry a `MoneySnapshot`, never a `MoneyInput`. Precision is part of a currency's identity (D3), so a value sent before a precision change must keep its old precision when it arrives, and mixing it with fresh money must still throw until the receiver calls `rescaleMoney`. A soft-deleted or disabled currency does not stop a snapshot from being restored.
+- `restoreMoney(snapshot)` validates with the same rules as the factory: the code must match `^[A-Z]{3}$`, `currencyDecimalPlaces` must be an integer from 0 to 50, and the amount must pass `toDecimal`. Otherwise it throws. It runs no tenant lookup, which is why it must never receive request input. A request field that claims a precision is a `MoneyInput` with an extra key, and `moneyInputSchema` strips it.
 
 ### Persistence (`packages/shared/src/lib/db/moneyColumns.ts`)
 
@@ -154,8 +165,8 @@ export function moneyFromColumns(columns: MoneyColumns): Money
 ```
 
 - A new entity declares `@Embedded(() => MoneyColumns, { prefix: 'price_', nullable? })`. That produces `price_amount`, `price_currency_code` and `price_currency_decimal_places`.
-- `moneyFromColumns` re-validates the snapshot with the same rules as the factory: the code must match `^[A-Z]{3}$`, `decimalPlaces` must be an integer from 0 to 50, and the amount must pass `toDecimal`. Otherwise it throws. For a nullable embedded field, MikroORM leaves the property `null`, so adopters call `columns ? moneyFromColumns(columns) : null`. A partially null snapshot throws.
-- `moneyFromColumns` is the **one** synchronous path that creates a `Currency`. It restores a snapshot taken by `moneyToColumns`, which itself came from a resolved currency. The symbol is not stored, so the restored value has `symbol: null`. That is harmless because `symbol` does not affect equality (D3).
+- `MoneyColumns` has the `MoneySnapshot` shape. `moneyToColumns` is `snapshotMoney`, and `moneyFromColumns` delegates to `restoreMoney`, so the database and the transport paths share one validation. For a nullable embedded field, MikroORM leaves the property `null`, so adopters call `columns ? moneyFromColumns(columns) : null`. A partially null snapshot throws.
+- `restoreMoney` (and through it `moneyFromColumns`) is the **only** synchronous path that creates a `Currency`. It restores a snapshot taken from a resolved currency. The symbol is not part of a snapshot, so the restored value has `symbol: null`. That is harmless because `symbol` does not affect equality (D3).
 - Entities hold `MoneyColumns`, not `Money`. MikroORM hydrates mutable embeddable instances, so conversion happens at the command or service boundary.
 
 ### Resolver contract extension (`packages/shared/src/lib/currencyPrecision.ts`)
@@ -214,7 +225,12 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 | Currencies module disabled | `currencyPrecisionService` is not registered, so `CurrencyNotResolvedError` |
 | Currency soft-deleted after a `Money` was persisted | `moneyFromColumns` still restores it from the snapshot. A new `resolveCurrency` throws |
 | Tenant changes `decimal_places` (2 → 4) | Restored values carry dp 2 and freshly resolved ones carry dp 4. Mixing them throws `CurrencyMismatchError`. This is a known cost of D3, which the user accepted: a config change surfaces as an error, not as silent mixing. An adopter that reads stored money next to freshly resolved money calls `rescaleMoney(old, fresh, rounding)` at its read boundary. Going from fewer to more decimals is lossless; going from more to fewer follows the caller's rounding |
-| `Money` passed through a queue, cache or `structuredClone` | The brand and the `Big` prototype are lost. Callers must send `serializeMoney` and call `resolveMoney` (or store `MoneyColumns`) on the other side |
+| `Money` passed through a queue, cache or `structuredClone` | The brand and the `Big` prototype are lost. Senders send `snapshotMoney(m)`, and receivers call `restoreMoney`. The receiver gets the precision the sender used, not the current tenant setting |
+| Precision changes (dp 2 → 4) while a snapshot is in a queue | Received with dp 2. Mixing it with freshly resolved money throws `CurrencyMismatchError` until the receiver calls `rescaleMoney`, the same as a stored `MoneyColumns` |
+| Currency soft-deleted or disabled while a snapshot is in a queue | `restoreMoney` still succeeds, since it runs no lookup. A new `resolveCurrency` for that code throws |
+| A client sends `currencyDecimalPlaces` in a request body | `moneyInputSchema` strips it. A request never reaches `restoreMoney` |
+| Caller mutates a `Big` after passing it to `createMoney` | The `Money` is unaffected, because it owns a copy |
+| Code writes `m.amount.c[0] = 9` | Throws a `TypeError` in strict mode, because the coefficient array is frozen |
 | Two copies of `big.js` in a bundle | `toDecimal` accepts `Big` from the shared constructor only. `createMoney` takes strings at module boundaries |
 | `divideMoney` by a value with a non-terminating quotient (`1/3`) | Rounded once to the caller's rounding. No hidden 50-place cut |
 | `allocateMoney` on an amount with more decimals than `decimalPlaces` | `InvalidAllocationError`. The caller rounds first |
@@ -228,13 +244,38 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 |------|----------|------|------------|----------|
 | `@Embeddable` defined in `shared` is not picked up by the module entity discovery or `yarn db:generate` | Medium | ORM | Phase 2 Step 1 proves discovery with a metadata-only test (`connect: false`). If discovery fails, the fallback is to re-export `MoneyColumns` from the adopter's `data/entities.ts`, documented in `packages/shared/AGENTS.md` | Low |
 | Snapshot precision drifts from the tenant setting | Low | Data | Mixing throws (D3) instead of computing silently. A documented `rescaleMoney` path | Low |
-| Adopters bypass `resolveCurrency` by forging a `MoneyColumns` | Low | API misuse | `moneyFromColumns` validates the code and `decimalPlaces`. The AGENTS.md rule says it is for entity hydration only | Low |
+| Adopters bypass `resolveCurrency` by passing request input to `restoreMoney` or by forging `MoneyColumns` | Medium | API misuse | `restoreMoney` validates the code, dp and amount. `moneyInputSchema` strips precision from requests. The Phase 3 review-checklist item: `restoreMoney` only reads snapshots the system wrote itself | Low |
 | PR #7324 changes the decimal toolkit or the resolver type before merging | Medium | Dependency | The draft PR stays draft until #7324 merges, then rebases and re-checks D2/D7 against the merged API | Low |
 | Two money styles coexist (`<field>Exact` vs `Money`) | Low | DX | The `shared` AGENTS.md row states that `Money` is for new code and that existing contracts stay untouched. Phase 3 enforces it for new code | Accepted |
 | The advisory check gives false positives (a non-money `*_value` column) or misses (a money field with an unusual name) | Low | Harness | It stays advisory with an allowlist. The review checklist is the binding gate | Low |
 | The new `AGENTS.md` lines push the root file past the 32 KB budget | Low | Harness | Keep the root to two lines plus a router row, and put the detail in `packages/shared/AGENTS.md` | Low |
 
-Rollback: the change is purely additive with no data migration, so it is reverted by reverting the PR. The optional resolver method can be removed only if no adopter calls `resolveCurrency` with symbols.
+Rollback: see Migration & Backward Compatibility below.
+
+## 📝 Migration & Backward Compatibility
+
+**Existing contracts.** Nothing existing changes. The `number` / `<field>Exact` fields, the `getDecimalPlaces` method, the DI key `currencyPrecisionService` and every existing table stay as they are. There is no data migration.
+
+**New contract surfaces** (classes from `BACKWARD_COMPATIBILITY.md`):
+
+| Surface | BC category | Class once released |
+|---------|-------------|---------------------|
+| `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns` | 4. Import Paths | STABLE |
+| `Money`, `Currency`, `MoneyRounding`, `MoneyRoundingMode`, `MoneyInput`, `MoneySnapshot`, `CurrencyDetails`, the error classes | 2. Type Definitions | STABLE |
+| The Money functions, `resolveCurrency`, `snapshotMoney`/`restoreMoney`, `moneyToColumns`/`moneyFromColumns` | 3. Function Signatures | STABLE |
+| `CurrencyPrecisionResolver.getCurrency?` | 2. Type Definitions | STABLE, and it **MUST stay optional**, the same rule as `TelemetryProvider.reportError?`. Third-party resolvers implement this type |
+| `MoneyColumns` column suffixes (`_amount`, `_currency_code`, `_currency_decimal_places`) | 8. Database Schema | ADDITIVE-ONLY. Adopter tables depend on them |
+
+**Rollback before release.** Until a published version contains these surfaces, nothing outside the repo can depend on them. Reverting the implementation PRs is the rollback.
+
+**Removal or change after release.** Once a version ships them, every surface above follows the deprecation protocol in `BACKWARD_COMPATIBILITY.md`, whatever the actual usage is. For example, `getCurrency` cannot be removed on the grounds that no adopter uses symbols, because any direct consumer of `CurrencyDetails` or `getCurrency` can depend on it. The protocol:
+1. Never remove in the same release.
+2. Mark it `@deprecated`.
+3. Provide a bridge for at least one minor version, for example `getCurrency` built on `getDecimalPlaces` with `symbol: null`, or the old function re-exported from the new path.
+4. Document it in `UPGRADE_NOTES.md`.
+5. Reference a spec with a Migration & Backward Compatibility section.
+
+**Wire formats.** `MoneySnapshot` is persisted in queue payloads and JSON state, so its keys are as stable as a schema: fields may be added, but never renamed or removed. A receiver MUST accept snapshots written by the previous minor version.
 
 ## 📋 Phasing
 
@@ -248,7 +289,10 @@ Rollback: the change is purely additive with no data migration, so it is reverte
 
 1. Add `CurrencyDetails` and the optional `getCurrency` to `currencyPrecision.ts`. Implement it in `CurrencyPrecisionService` on a shared per-request cache. Extend `currencyPrecisionService.test.ts` to cover the symbol, `null` without an organization, and one query for both methods.
 2. Add `lib/money/types.ts`, `errors.ts` and `currency.ts` (`resolveCurrency`, `currenciesEqual`, `assertSameCurrency`). Unit tests: `getCurrency` path, `getDecimalPlaces`-only path, missing service, `null`, a resolver that throws (with `cause`), invalid code, invalid `decimalPlaces`, frozen result.
-3. Add `money.ts`: create, zero, add, subtract, sum, multiply, negate, abs, compare, equals, min/max and sign checks. Unit tests: exactness (`0.1 + 0.2`), cross-currency throws (different code, and same code with different dp), `reduce`/`sort` usage, immutability (mutating a frozen value throws).
+3. Add `money.ts`: create, zero, add, subtract, sum, multiply, negate, abs, compare, equals, min/max and sign checks. Unit tests: exactness (`0.1 + 0.2`), cross-currency throws (different code, and same code with different dp), `reduce`/`sort` usage. Immutability regressions, in strict mode:
+   - `m.amount.c[0] = 9`, `m.amount.s = -1`, `m.currency.decimalPlaces = 4` and `m.amount = …` each throw, and `m` is unchanged;
+   - mutating the caller's own `Big` after `createMoney` leaves `m` unchanged;
+   - every function in the table runs on deep-frozen inputs without throwing and leaves them unchanged, including `allocateMoney`, which uses `mod`.
 4. Add `divideMoney`, `roundMoney`, `convertMoney` and `rescaleMoney` with `MoneyRounding`. Unit tests:
    - every rounding mode, with positive and negative halves;
    - single rounding: a quotient of `0.00499…9` (60 nines) rounded half-up to 2 places must be `0.00`, where a 50-place cut followed by a second rounding would give `0.01`;
@@ -258,7 +302,12 @@ Rollback: the change is purely additive with no data migration, so it is reverte
    - property-style: the parts always sum to the total;
    - tie-breaking by exact remainder: `0.10` split `[1, 1, 1]` gives `[0.04, 0.03, 0.03]`;
    - decimal ratios (`[0.5, 0.25, 0.25]`), negative totals, zero ratios, invalid inputs.
-6. Add `serialization.ts` (`serializeMoney`, `moneyInputSchema`, `resolveMoney`) with round-trip tests. Add the `decimal.ts`-adjacent row to `packages/shared/AGENTS.md`.
+6. Add `serialization.ts` (`serializeMoney`, `moneyInputSchema`, `resolveMoney`, `snapshotMoney`, `moneySnapshotSchema`, `restoreMoney`). Tests:
+   - round-trips for both shapes;
+   - delayed receipt: snapshot JPY at dp 2, change the resolver to dp 4, then `restoreMoney` still gives dp 2, `addMoney` with a freshly resolved JPY throws, and `rescaleMoney` fixes it;
+   - delayed receipt after the currency is soft-deleted (the resolver returns `null`) still restores;
+   - `moneyInputSchema` strips `currencyDecimalPlaces`;
+   - `restoreMoney` rejects an invalid code, dp or amount. Add the `decimal.ts`-adjacent row to `packages/shared/AGENTS.md`.
 
 ### Phase 2 — Persistence
 
@@ -289,3 +338,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 
 - 2026-10-22 — Initial draft.
 - 2026-10-22 — Added D9 and Phase 3: harness enforcement of `Money` for all new monetary code.
+- 2026-10-23 — Review fixes:
+  - `Money.amount` is now deep-frozen, and `Money` owns a copy of its amount. The shallow freeze left big.js's coefficient array writable.
+  - Added a trusted `MoneySnapshot` transport (`snapshotMoney`/`restoreMoney`), separate from the untrusted `MoneyInput`, so values in queues and caches keep their precision.
+  - Replaced the rollback rule with a Migration & Backward Compatibility section that follows `BACKWARD_COMPATIBILITY.md`.
