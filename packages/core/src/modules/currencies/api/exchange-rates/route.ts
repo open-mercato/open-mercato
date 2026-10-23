@@ -83,7 +83,7 @@ const listQuerySchema = z
     toCurrencyCode: z.string().optional(),
     isActive: z.enum(['true', 'false']).optional(),
     source: z.string().optional(),
-    type: z.enum(['buy', 'sell']).optional(),
+    type: z.enum(['buy', 'sell', 'average']).optional(),
   })
   .loose()
 
@@ -95,6 +95,7 @@ type ExchangeRateRow = {
   date: string
   source: string
   type: string | null
+  externalReference: string | null
   isActive: boolean
   createdAt: string | null
   updatedAt: string | null
@@ -110,6 +111,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   date: rate.date.toISOString(),
   source: String(rate.source),
   type: rate.type ?? null,
+  externalReference: rate.externalReference ?? null,
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
   updatedAt: rate.updatedAt ? rate.updatedAt.toISOString() : null,
@@ -194,7 +196,8 @@ const exchangeRateListItemSchema = z.object({
   rate: z.string(),
   date: z.string(),
   source: z.string(),
-  type: z.string().nullable(),
+  type: z.enum(['buy', 'sell', 'average']).nullable(),
+  externalReference: z.string().nullable(),
   isActive: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
