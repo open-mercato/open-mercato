@@ -36,8 +36,10 @@ same conclusion and explicitly punted the topic here:
 
 - **GL core engine (#5663)**, Design decisions: *"Currency is reused
   from the existing `currencies` module"* — `JournalEntry.currencyId`
-  and `JournalEntry.exchangeRate` (header fields) plus
-  `JournalEntryLine.amountCurrency` already exist as of Phase 1 — but
+  and `JournalEntry.exchangeRate` (the source document's currency and
+  rate, header fields) plus, since 2026-10-23, `currencyId`, `exchangeRate`
+  and `amountCurrency` on every `JournalEntryLine` already exist as of
+  Phase 1 — but
   *"Multi-currency FX revaluation and reporting"* is explicitly listed
   as deferred to **"a future Multi-Currency spec."**
 - **GL account balances (#6013)**, API Contracts: `GET
@@ -199,6 +201,14 @@ opposite of the adjusting entry made in the previous period."*
    bookkeeping procedure..."* — the pattern is applied here to a new use
    case, not introduced.
 
+   **Line currency (added 2026-10-23).** The valuation entry changes the base
+   value of open foreign-currency items and never their foreign amounts. Its
+   lines are base-currency lines (the base currency, rate `1`, `amountCurrency`
+   equal to the line's `debit`/`credit`), so the per-currency balances read
+   from the ledger by line currency stay untouched. Each line is netted per
+   control account across currencies, which could not carry a single foreign
+   currency anyway.
+
 6. **A run posts the valuation and its reversing entry together; running
    again for the same period supersedes the earlier run.**
    `fx_revaluation.revalueOpenBalances` for a fiscal period, in one
@@ -232,6 +242,15 @@ opposite of the adjusting entry made in the previous period."*
    `bookedExchangeRate` input can be defaulted from the invoice's own
    stored rate instead of always requiring manual entry — a coordination
    note for #6055, not a redesign (see Risks).
+
+   **Update 2026-10-23.** Every ledger line now carries its own currency and
+   rate, so one settlement entry can hold a bank line in the bank's currency,
+   a receivable line in the invoice's currency and a line for the difference
+   from converting both to the base currency. The controller's practice is
+   that the difference between the invoice rate and the payment rate is
+   usually booked as its own entry at settlement. Whether #6055 books the
+   gain or loss in the payment's entry or in a separate one is open there,
+   and this spec does not decide it.
 
 8. **Legal grounding for base currency, and Art. 30 now Confirmed —
    closed 2026-09-21** (was flagged ⚠ NEEDS HUMAN CONFIRMATION; the
@@ -614,6 +633,14 @@ opposite of the adjusting entry made in the previous period."*
     cross-rate is `4,300 PLN ÷ 4.00 PLN/USD = 1,075 USD` — the
     `bookedExchangeRate` Cash & Bank Management's formula needs is
     `1,075 / 1,000 = 1.075` USD/EUR, not `4.30`.
+
+    **Update 2026-10-23.** With a rate on every ledger line the cross-rate is
+    no longer written to the ledger. In the example the bank line carries
+    USD 1,075 at `4.00` (4,300 PLN) and the receivable line EUR 1,000 at
+    `4.30` (4,300 PLN), each against the base currency. The cross-rate stays
+    only a way to work out the bank-currency amount from the invoice amount
+    for #6055's formula, and the unit problem above still decides when the
+    invoice's stored rate may default `bookedExchangeRate`.
 
 15. **Pre-existing documents get `currencyId` backfilled but not
     `exchangeRate`, and the commands that set a rate belong to the
@@ -1731,8 +1758,8 @@ source):
   the last day before the operation date (art. 30 ust. 2 pkt 2).
 - **Payments:** the caller (AP, AR, bank reconciliation) passes the rate the bank
   actually applied (pkt 1). Where it has none, the document default above is used.
-- **The ledger does not derive rates.** `postJournalEntry` takes `exchangeRate` from
-  the caller. Resolving the default rate belongs to `currencies`, which needs
+- **The ledger does not derive rates.** `postJournalEntry` takes each line's `exchangeRate`
+  (and the header's) from the caller. Resolving the default rate belongs to `currencies`, which needs
   Table A support first (Implementation Plan Step 0).
 - **`fx_revaluation`** posts only the period-end valuation (art. 30 ust. 1), not
   booking-day rates.
@@ -1824,3 +1851,23 @@ Not yet reviewed by a maintainer.
   currency-relevant content. Since #5955's 2026-10-20 decisions it has
   `ContractorBankAccount.currencyCode` (optional ISO 4217 text, no FK,
   informational). Sentence corrected; nothing in this design changes.
+
+### 2026-10-23 — currency and rate on every ledger line
+
+- **Context.** #5663 now gives every `JournalEntryLine` its own `currencyId`,
+  `exchangeRate` and `amountCurrency`, and an entry may mix currencies while
+  balancing in the base currency. The controller (Mateusz Duda, incro,
+  e-mail of 2026-10-23) confirmed this, and added that the difference
+  between the invoice rate and the payment rate is usually booked as its own
+  entry at settlement.
+- **Changed here.** The description of the ledger fields in the opening
+  paragraph; a note under Design decisions 5 (the valuation entry's lines
+  are base-currency lines), 7 (settlement entries and where the
+  gain or loss is booked) and 14 (the cross-rate no longer needs to be
+  written to the ledger); the sentence that the ledger does not derive
+  rates now covers each line's rate.
+- **Not changed.** The valuation, its reversing entry, the rate sources and
+  every other decision. Revaluation still reads the open amounts from the
+  documents, not from ledger balances per currency.
+- **Open.** Whether #6055 books the realized difference in the payment's
+  entry or separately. Not yet reviewed by a maintainer.
