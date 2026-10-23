@@ -27,6 +27,7 @@ import {
   killProcessTree,
   terminateProcessTree,
   registerEphemeralShutdownHandlers,
+  withoutCoverageEnvironment,
 } from '../integration'
 import type { CapturedOutputProcess, ShutdownProcessRef } from '../integration'
 import { resolveSpawnCommand } from '../../spawn'
@@ -1155,6 +1156,36 @@ describe('formatCapturedOutput', () => {
     expect(formatCapturedOutput('only stderr', '')).toBe('only stderr')
     expect(formatCapturedOutput('', 'only stdout')).toBe('only stdout')
     expect(formatCapturedOutput('', '')).toBe('')
+  })
+})
+
+describe('withoutCoverageEnvironment', () => {
+  it('drops NODE_V8_COVERAGE and keeps every other key', () => {
+    const environment: NodeJS.ProcessEnv = {
+      NODE_V8_COVERAGE: '/tmp/coverage/raw',
+      DATABASE_URL: 'postgres://localhost/test',
+      NEXT_PUBLIC_FLAG: '1',
+    }
+
+    expect(withoutCoverageEnvironment(environment)).toEqual({
+      DATABASE_URL: 'postgres://localhost/test',
+      NEXT_PUBLIC_FLAG: '1',
+    })
+  })
+
+  it('does not mutate the input environment', () => {
+    const environment: NodeJS.ProcessEnv = { NODE_V8_COVERAGE: '/tmp/coverage/raw', PORT: '3000' }
+
+    const result = withoutCoverageEnvironment(environment)
+
+    expect(result).not.toBe(environment)
+    expect(environment).toEqual({ NODE_V8_COVERAGE: '/tmp/coverage/raw', PORT: '3000' })
+  })
+
+  it('returns an equal copy when coverage is not configured', () => {
+    const environment: NodeJS.ProcessEnv = { PORT: '3000' }
+
+    expect(withoutCoverageEnvironment(environment)).toEqual({ PORT: '3000' })
   })
 })
 

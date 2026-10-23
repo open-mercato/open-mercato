@@ -458,6 +458,12 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   }
 }
 
+export function withoutCoverageEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = { ...environment }
+  delete result.NODE_V8_COVERAGE
+  return result
+}
+
 function buildEnvironmentFingerprint(environment: NodeJS.ProcessEnv): string {
   const publicKeys = Object.keys(environment)
     .filter((key) => key.startsWith('NEXT_PUBLIC_'))
@@ -3746,6 +3752,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       const environmentFingerprint = buildEnvironmentFingerprint(commandEnvironment)
+      const buildToolEnvironment = withoutCoverageEnvironment(commandEnvironment)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
@@ -3788,7 +3795,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Building packages...`)
           await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         } else {
@@ -3800,14 +3807,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           force: true,
         })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
-          runYarnCommand(['generate'], commandEnvironment, {
+          runYarnCommand(['generate'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
 
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
           await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         }
@@ -3815,7 +3822,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         console.log(`[${options.logPrefix}] Building application...`)
         await resetNextBuildOutputDirectories(options.logPrefix)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
-          runYarnCommand(['build'], commandEnvironment, {
+          runYarnCommand(['build'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
       }
