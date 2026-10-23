@@ -1451,11 +1451,20 @@ export async function run(argv = process.argv) {
       const commandArgs = remaining.filter(Boolean)
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
-        console.log('Usage: yarn mercato module <add|enable|eject> ...')
+        console.log('Usage: yarn mercato module <add|enable|eject|search|info> ...')
         console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
+        console.log('  yarn mercato module search <query> [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]')
+        console.log('  yarn mercato module info <package-or-module-id> [--json]')
         return 0
+      }
+
+      if (subcommand === 'search' || subcommand === 'info') {
+        const { runModuleSearch, runModuleInfo } = await import('./lib/module-search')
+        const { readEnabledModules } = await import('./lib/modules-config')
+        const deps = { readEnabledModules }
+        return subcommand === 'search' ? runModuleSearch(commandArgs, deps) : runModuleInfo(commandArgs, deps)
       }
 
       if (subcommand === 'add') {

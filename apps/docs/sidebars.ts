@@ -347,7 +347,7 @@ const sidebars: SidebarsConfig = {
         {
           type: "category",
           label: "Official Modules",
-          items: ["cli/module-add", "cli/module-enable", "cli/eject"],
+          items: ["cli/module-search", "cli/module-add", "cli/module-enable", "cli/eject"],
         },
       ],
     },

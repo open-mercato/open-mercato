@@ -361,6 +361,11 @@ function upsertModuleSource(objectLiteral: string, from: string): string {
   return objectLiteral.replace(/\}\s*$/, `, from: '${escapeSingleQuotedString(from)}' }`)
 }
 
+export function readEnabledModules(modulesPath: string): ModuleEntry[] {
+  const source = fs.readFileSync(modulesPath, 'utf8')
+  return parseModuleConfigShape(source).occurrences.map((occurrence) => normalizeModuleEntry(occurrence.entry))
+}
+
 export function ensureModuleRegistration(
   modulesPath: string,
   entry: ModuleEntry,

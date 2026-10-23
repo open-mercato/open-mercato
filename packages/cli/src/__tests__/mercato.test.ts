@@ -324,6 +324,36 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('lists module search and info in the module command help', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'module', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('yarn mercato module search <query>')
+      expect(printed).toContain('yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+    })
+
+    it('routes module search without a query to its usage, before any network call', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const searchExit = await run(['node', 'mercato', 'module', 'search'])
+      const infoExit = await run(['node', 'mercato', 'module', 'info'])
+
+      expect(searchExit).toBe(1)
+      expect(infoExit).toBe(1)
+      const printed = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: yarn mercato module search <query>')
+      expect(printed).toContain('Usage: yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('lists the module commands when the help flag sits in the command slot', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
