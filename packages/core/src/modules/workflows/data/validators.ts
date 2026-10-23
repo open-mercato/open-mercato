@@ -25,6 +25,7 @@ import {
   taskPrioritySchema,
   taskReminderSchema,
 } from './task-primitives'
+import { workflowMappingSchema } from './mapping-schemas'
 
 /**
  * Workflows Module - Zod Validators
@@ -338,8 +339,8 @@ export type UserTaskConfig = z.infer<typeof userTaskConfigSchema>
 export const subWorkflowConfigSchema = z.object({
   subWorkflowId: z.string().min(1, 'Sub-workflow ID is required'),
   version: z.number().int().positive().optional(),
-  inputMapping: z.record(z.string(), z.string()).optional(),
-  outputMapping: z.record(z.string(), z.string()).optional(),
+  inputMapping: workflowMappingSchema.optional(),
+  outputMapping: workflowMappingSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
 })
 
@@ -647,6 +648,32 @@ export const workflowErrorHandlerSchema = z.object({
 
 export type WorkflowErrorHandlerConfig = z.infer<typeof workflowErrorHandlerSchema>
 
+function refineStepMappings(
+  step: { stepType: string; config?: Record<string, unknown> },
+  ctx: z.RefinementCtx,
+): void {
+  const mappingFields =
+    step.stepType === 'SUB_WORKFLOW'
+      ? ['inputMapping', 'outputMapping']
+      : step.stepType === 'PARALLEL_JOIN'
+        ? ['outputMapping']
+        : []
+
+  for (const field of mappingFields) {
+    const mapping = step.config?.[field]
+    if (mapping === undefined) continue
+    const parsed = workflowMappingSchema.safeParse(mapping)
+    if (parsed.success) continue
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['config', field, ...issue.path],
+        message: issue.message,
+      })
+    }
+  }
+}
+
 // Step definition
 export const workflowStepSchema = z.object({
   stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -691,6 +718,7 @@ export const workflowStepSchema = z.object({
   // configuration and a conversion back can recover it.
   metadata: z.record(z.string(), z.any()).optional(),
 }).superRefine((step, ctx) => {
+  refineStepMappings(step, ctx)
   if (step.stepType === 'WAIT_FOR_CONDITION') {
     refineWaitForConditionStep(step.config || {}, ctx)
     return
