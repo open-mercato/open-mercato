@@ -828,10 +828,40 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     to it, as today. When the bank currency, the invoice currency and the base
     currency are all different, the settlement-date rate of the bank currency
     to the base currency is a second rate input and is not derived from
-    `bookedExchangeRate`. **⚠ NEEDS HUMAN CONFIRMATION:** (1) the formula above
-    is written in the bank currency; in base-currency terms the gain or loss
-    is the balancing figure of the entry, and the posting has to be restated
-    in those terms before implementation; (2) *decided by the team 2026-10-23 on the controller's e-mail (not yet
+    `bookedExchangeRate`. **Restated in base-currency terms (decided by the team 2026-10-23; not yet
+    reviewed by a maintainer). (1)** The formula above is written in the bank
+    currency and is superseded by this posting; the rest of this paragraph
+    shows the earlier shape. Inputs: `settledAmount` S (invoice currency);
+    `bankRate`, the bank currency's rate to the base currency on the
+    settlement date (what the bank applied, else the Table A default of
+    2026-10-12; `1` for a base-currency account); `invoiceRatePaid`, the
+    invoice currency's rate to the base currency on the settlement date (same
+    rule); and the invoice's own stored `exchangeRate` (`invoiceRateBooked`).
+    `bookedExchangeRate` is no longer an input: with a rate on every line no
+    cross-rate between bank currency and invoice currency is needed, so the unit
+    problem of Multi-Currency Design decision 14 disappears. **Payment
+    entry:** debit the bank line (bank currency, `amountCurrency` = the statement
+    amount, `bankRate`); credit the receivable line (invoice currency, S,
+    `invoiceRatePaid`); credit the overpayment line (bank currency, `bankRate`)
+    when there is one; and one ordinary base-currency line on `gainLossAccountId`
+    for the difference between the base amounts, on the side that balances (the
+    difference from converting the two currencies, plus rounding). **Settlement
+    entry**, its own journal entry (`referenceType:
+    'cash_bank_management:bank_statement_line_fx_difference'`, same
+    `referenceId`): only when the invoice is in a foreign currency and
+    `invoiceRatePaid` differs from `invoiceRateBooked`. One line on the
+    receivable account in the invoice currency with `amountCurrency = 0` (exempt
+    from GL's consistency rule), rate `invoiceRatePaid`, base amount
+    S × (`invoiceRatePaid` − `invoiceRateBooked`), rounded; debit when
+    `invoiceRatePaid` is higher (the payment entry credited the receivable more
+    than it was booked), credit when lower; the opposite side on
+    `gainLossAccountId`. An invoice with `exchangeRate = null` is rejected (422)
+    until the backfill has run. Purchases (Accounts Payable payments) mirror this
+    with the sides reversed. Check: invoice EUR 1,000 at 4.30, payment USD 1,100,
+    `bankRate` 4.00, `invoiceRatePaid` 4.35: payment entry 4,400 − 4,350 = 50
+    to `gainLossAccountId`; settlement entry 1,000 × 0.05 = 50; total 100. With
+    a PLN account receiving 4,350 the payment entry has no difference and the
+    settlement entry carries 50. (2) *decided by the team 2026-10-23 on the controller's e-mail (not yet
     reviewed by a maintainer):* the difference between the invoice rate and the
     payment rate is usually booked as its own entry at settlement, and only the
     difference from converting the two currencies to the base currency goes
@@ -1941,3 +1971,14 @@ schema. Not yet reviewed by a maintainer.
   posting paragraph.
 - **Still open (⚠ (1) there):** the formula restated in base-currency terms,
   and the second rate input. Not yet reviewed by a maintainer.
+
+### 2026-10-23 (cont. — posting restated in base-currency terms)
+
+- **Decided by the team.** The posting for a `sales_invoice` match is restated: a
+  payment entry with the bank, receivable, overpayment and conversion-difference
+  lines, and, when the invoice rate moved, a separate settlement entry with an
+  `amountCurrency = 0` line on the receivable account. `bookedExchangeRate` is
+  replaced by `bankRate`, `invoiceRatePaid` and the invoice's stored rate.
+- **Not rewritten yet:** the input contract, the API, the UI and the tests
+  elsewhere in this document still use `bookedExchangeRate`; they are updated
+  when the restated posting is implemented. Not yet reviewed by a maintainer.
