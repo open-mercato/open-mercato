@@ -269,13 +269,7 @@ maintained by `sales` for invoices (a payment recalculates the order's totals
 only; a created invoice carries whatever the caller wrote, default `0`), so
 the settled portion came out as `0` and the whole line became a gain.
 
-Corrected: the accountant supplies `settledAmount` (in the invoice's
-currency: what the customer's payment settles) and, on a currency mismatch,
-`bookedExchangeRate` (the invoice's booking-date rate). Then
-`gainLoss = statementLineAmountInBankCurrency − (settledAmount ×
-bookedExchangeRate) − overpaymentAmount` is a real figure: what the bank received minus the book
-value of the receivable that payment clears. Same currency: `settledAmount`
-defaults to the line's absolute amount and the gain/loss is `0`. `ledger`'s
+Corrected: the accountant supplies `settledAmount` (in the invoice's currency: what the customer's payment settles). The realized difference is then not one figure compared in the bank currency but the lines of the restated posting (see Commands): a conversion-difference line in the payment entry and, when the invoice rate moved between booking and payment, a settlement entry sized `settledAmount` × (`invoiceRatePaid` − `invoiceRateBooked`). Base-currency invoice into a base-currency account: `settledAmount` defaults to the line's absolute amount and there is no difference. `ledger`'s
 own Out of scope confirms the line currency and rate support "a
 normal balanced posting with a realized-FX-gain/loss line" as a primitive,
 but the engine itself never computes the figure — it only accepts whatever
@@ -302,30 +296,14 @@ mapping). Rejecting instead would leave the line unmatched and, because a line
 is matched at most once, the accountant could not settle the invoice part and
 book the excess in one go. Same currency: `settledAmount` defaults to
 `min(|line|, remaining)` and the excess is computed (`|line| − settledAmount`).
-Different currency: `settledAmount` and `bookedExchangeRate` are required and
-the excess is the explicit `overpaymentAmount` (bank currency, default `0`).
+Invoice currency different from the bank account's: `settledAmount` is required and the excess is the explicit `overpaymentAmount` (bank currency, default `0`).
 Art. 7 ust. 3 was checked against the consolidated text of the Act on
 2026-10-12 (see the knowledge base); that the excess is a liability is our
 reading of it. The account number is the tenant's chart, not prescribed.
 Refunding an overpayment and offsetting it against a later invoice are
 separate movements, not designed here.
 
-**`bookedExchangeRate` is required whenever the matched invoice's**`bookedExchangeRate` is required whenever the matched invoice's
-currency differs from the `BankAccount`'s own — never silently
-defaulted.** Corrected during review: the first draft left this input
-optional with no stated rejection behavior, which would have let a
-genuine foreign-currency match silently skip the gain/loss calculation
-entirely (an implicit, wrong 1:1 rate) if the field were omitted.
-Confirmed: neither `VendorInvoice` nor `SalesInvoice` stores a
-booking-date exchange rate today (checked directly against both
-sibling documents' Data Models — `VendorInvoice` has `currencyId`
-only, `SalesInvoice` has `currencyCode` only, neither has
-`exchangeRate`, unlike `SalesOrder.exchangeRate`) — Phase 1 therefore
-requires the accountant to enter the invoice's original booking-date
-rate manually at match time when currencies differ, and
-`matchBankStatementLine` rejects with a readable error if it's
-omitted in that case (see Commands, Testing Strategy), rather than
-inventing a historical-rate lookup this document has no source for.
+**Rates of a foreign-currency match are inputs with a default, never a silent 1:1.** Corrected during review: the first draft left the rate optional with no stated rejection behavior, which would have let a genuine foreign-currency match skip the difference entirely. Now `bankRate` and `invoiceRatePaid` default from the bank's own rate or the NBP Table A rate (see Commands) and are overridable, and a match that cannot resolve a needed rate rejects with `422 EXCHANGE_RATE_REQUIRED` and writes nothing. The invoice's booking rate is no longer typed in at match time: it is the invoice's own stored `exchangeRate` (Multi-Currency), and an invoice without one is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING` until the backfill has run. 
 
 **`BankAccount` is a distinct concept from `contractors.ContractorBankAccount`
 — the tenant's own account, not a vendor's.** `ContractorBankAccount`
@@ -608,7 +586,7 @@ automate-then-verify-before-posting model.
   matchedDocumentType, matchedDocumentId)`), `overpaymentAmount` (nullable numeric(19,4), in the bank account's currency —
   set only on a `sales_invoice` match: the part of the line booked to
   `customerOverpaymentAccountId`; `0` or `null` when the line settles no more
-  than the balance), `amountMismatch` (nullable boolean, default `null` until matched —
+  than the balance), `bankRate` and `invoiceRatePaid` (nullable numeric(18,8) — set only on a `sales_invoice` match: the rates the payment entry was posted with, kept so the entry can be explained and the event replayed), `fxDifferenceJournalEntryId` (nullable FK-id to `ledger.JournalEntry` — the separate settlement entry, set only when the invoice rate moved between booking and payment), `amountMismatch` (nullable boolean, default `null` until matched —
   added after review: set only on a `payment_batch` match, `true` when
   the statement line's absolute amount differs from
   `PaymentBatch.total_amount`, `false` when it agrees; stays `null` for
@@ -694,7 +672,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   `ledger`, and does so on three of its four paths (`payment_batch` is
   the one exception — corrected after review, see Design decisions for
   why it isn't symmetric with `sales_invoice`). Input:
-  `{ bankStatementLineId, matchedDocumentType: 'sales_invoice' | 'payment_batch' | 'internal_transfer' | 'manual_gl_entry', matchedDocumentId?: string, ledgerAccountId?: string, description?: string, bookedExchangeRate?: number, settledAmount?: number, overpaymentAmount?: number }`.
+  `{ bankStatementLineId, matchedDocumentType: 'sales_invoice' | 'payment_batch' | 'internal_transfer' | 'manual_gl_entry', matchedDocumentId?: string, ledgerAccountId?: string, description?: string, bankRate?: number, invoiceRatePaid?: number, settledAmount?: number, overpaymentAmount?: number }`.
   Rejects if the line is already matched (Invariant 1). Branches on
   `matchedDocumentType`:
   - **`payment_batch` (confirmation/audit only, no `ledger` write).**
@@ -754,131 +732,77 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     3. **Settled amount.** `settledAmount` is the invoice-currency amount
        this payment settles. Same currency: optional, defaults to
        `min(|line|, remaining)`; the excess, `|line| − settledAmount`, is the
-       overpayment. Different currency: required, together with
-       `bookedExchangeRate`; the overpayment is the explicit
-       `overpaymentAmount` (bank currency, default `0`).
+       overpayment. Invoice currency different from the bank account's: required; the overpayment is the explicit `overpaymentAmount` (bank currency, default `0`).
     4. **Overpayment account.** If the overpayment is `> 0`,
        `customerOverpaymentAccountId` (Module Config) must be set, else
        `409 OVERPAYMENT_ACCOUNT_NOT_CONFIGURED`, no partial write.
 
-    `bookedExchangeRate` is defined as *units of the `BankAccount`'s own
-    currency per 1 unit of the invoice's currency* (the same direction
-    `SalesOrder.exchangeRate` already uses elsewhere in `sales`), so
-    `settledAmount` converts to bank currency by **multiplying** by it. If the invoice's `currencyCode` differs from
-    the `BankAccount`'s own `currencyId`, `bookedExchangeRate` is
-    **required**; a same-currency match with a supplied
-    `bookedExchangeRate` that isn't `1` is also rejected (nothing to
-    convert). Missing/invalid rate → rejects with a readable
-    `EXCHANGE_RATE_REQUIRED` error, no partial write (see Design
-    decisions, Testing Strategy). **Update (2026-09-17, revised
-    2026-09-21):** the Multi-Currency spec
-    (`.ai/specs/2026-09-17-multi-currency.md`) proposes
-    `SalesInvoice.exchangeRate`; once that ships,
-    `bookedExchangeRate` can default from the invoice's own stored
-    rate — **but only when the settling `BankAccount`'s currency
-    equals the tenant's base currency** (Multi-Currency's Design
-    decision 14, added in that spec's own maintainer-review pass):
-    the invoice's stored rate is base-currency units per
-    invoice-currency unit, not bank-currency units per
-    invoice-currency unit, so it cannot stand in for
-    `bookedExchangeRate` whenever the bank account's currency differs
-    from base (a three-currency settlement still needs an explicit
-    value or a cross-rate this document would have to derive itself —
-    see that spec's worked example). A caller overriding the default
-    explicitly should remain possible either way. **No settlement
-    precondition (Multi-Currency Design decision 12, revised 2026-10-15):**
-    an earlier draft of that spec made this match reject with 409
-    `PRIOR_VALUATION_NOT_REVERSED` while the target invoice sat in an
-    unreversed `FxRevaluationRun`. That precondition is withdrawn:
-    `fx_revaluation` posts its period-end valuation together with a
-    reversing entry dated the first day of the next period, in one
-    transaction, so by the time a settlement in the new period is matched
-    the unrealized movement is already unwound and this command needs no
-    check, no new error and no dependency on `fx_revaluation`. The
-    default-from-invoice behavior above is not applied yet; it lands with
-    `fx_revaluation`'s own implementation. Computes the realized
-    gain/loss as
-    `statementLineAmountInBankCurrency - (settledAmount * bookedExchangeRate) - overpaymentAmount`
-    (converting the settled invoice amount into bank currency for comparison) and, when non-zero,
-    adds a line to `gainLossAccountId` (Module Config) on whichever
-    side keeps the posting balanced. Reads `sales_invoice_gl_posting`'s
-    own `receivableAccountId` via a scoped
+    **Rates and posting (decided by the team 2026-10-23; not yet reviewed by a
+    maintainer).** Every ledger line carries its own rate to the base currency
+    (#5663), so no cross-rate between the bank currency and the invoice currency is
+    needed and `bookedExchangeRate` is no longer an input. All rates are base-currency
+    units per 1 unit of the line's currency, the direction the ledger uses. The
+    inputs are `bankRate`, the bank currency's rate on the settlement date, and
+    `invoiceRatePaid`, the invoice currency's rate on the settlement date, plus the
+    invoice's own stored `exchangeRate` (`invoiceRateBooked`, frozen at booking, see the
+    Multi-Currency spec). `bankRate` and `invoiceRatePaid` are optional overrides:
+    omitted, each is the rate the bank applied when the statement shows it, otherwise
+    the NBP Table A rate of the last day published before the settlement date, read with
+    `ExchangeRateService.getRate({ ..., source: 'NBP_A' })` (Multi-Currency Design
+    decision 9g; needs the `source` option and the Table A provider). `bankRate` is `1`
+    for a base-currency account and `invoiceRatePaid` is `1` for a base-currency invoice;
+    when the invoice currency equals the bank currency the two are one rate and a
+    differing `invoiceRatePaid` is rejected. When a needed rate was not supplied and no
+    default resolves, the command rejects with `422 EXCHANGE_RATE_REQUIRED` (never a
+    silent 1:1); an invoice whose stored `exchangeRate` is `null` (not yet backfilled)
+    is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING`. A base-currency invoice paid into
+    a base-currency account takes no rate at all, and a supplied rate other than `1` is
+    rejected (nothing to convert). **No settlement precondition (Multi-Currency Design
+    decision 12, revised 2026-10-15):** an earlier draft of that spec made this match
+    reject with 409 `PRIOR_VALUATION_NOT_REVERSED` while the invoice sat in an
+    unreversed `FxRevaluationRun`; that precondition is withdrawn because
+    `fx_revaluation` posts its period-end valuation together with a reversing entry
+    dated the first day of the next period, so this command needs no check and no
+    dependency on `fx_revaluation`. Reads `sales_invoice_gl_posting`'s own
+    `receivableAccountId` via a scoped
     `ModuleConfigService.get('sales_invoice_gl_posting', 'receivableAccountId', { tenantId, organizationId })`
-    call (see Cross-module integration) — rejects with a readable
-    configuration error if unset, rather than posting to an
-    undetermined account. Calls
-    `commandBus.execute('ledger.postJournalEntry', { input, ctx })`
-    with: a debit to the bank account's `ledgerAccountId` (always a
-    debit — the line is always incoming, per the rejection above), a
-    credit line to `sales_invoice_gl_posting`'s `receivableAccountId`
-    for `settledAmount * bookedExchangeRate` (i.e.
-    converted to the bank account's own currency), the excess as a credit to
-    `customerOverpaymentAccountId` when `overpaymentAmount > 0`, and the
-    gain/loss line when present. **Line currency and rate (added 2026-10-23).**
-    The amounts above are in the bank account's currency. #5663 balances an
-    entry in the base currency and gives each line its own currency, rate and
-    original amount, so each line is posted with `amountCurrency` in its own
-    currency and a base-currency `debit`/`credit` (original amount × the line's
-    rate to the base currency): the bank line in the bank account's currency at
-    the settlement-date rate, the receivable line in the invoice's currency at
-    the rate the invoice was booked at, the overpayment line in the bank
-    currency, and the gain or loss line in the base currency as the balancing
-    figure. When the bank account's currency is the base currency the bank
-    line's rate is `1` and `bookedExchangeRate` is the invoice currency's rate
-    to it, as today. When the bank currency, the invoice currency and the base
-    currency are all different, the settlement-date rate of the bank currency
-    to the base currency is a second rate input and is not derived from
-    `bookedExchangeRate`. **Restated in base-currency terms (decided by the team 2026-10-23; not yet
-    reviewed by a maintainer). (1)** The formula above is written in the bank
-    currency and is superseded by this posting; the rest of this paragraph
-    shows the earlier shape. Inputs: `settledAmount` S (invoice currency);
-    `bankRate`, the bank currency's rate to the base currency on the
-    settlement date (what the bank applied, else the Table A default of
-    2026-10-12; `1` for a base-currency account); `invoiceRatePaid`, the
-    invoice currency's rate to the base currency on the settlement date (same
-    rule); and the invoice's own stored `exchangeRate` (`invoiceRateBooked`).
-    `bookedExchangeRate` is no longer an input: with a rate on every line no
-    cross-rate between bank currency and invoice currency is needed, so the unit
-    problem of Multi-Currency Design decision 14 disappears. **Payment
-    entry:** debit the bank line (bank currency, `amountCurrency` = the statement
-    amount, `bankRate`); credit the receivable line (invoice currency, S,
-    `invoiceRatePaid`); credit the overpayment line (bank currency, `bankRate`)
-    when there is one; and one ordinary base-currency line on `gainLossAccountId`
-    for the difference between the base amounts, on the side that balances (the
-    difference from converting the two currencies, plus rounding). **Settlement
+    call (see Cross-module integration) and `gainLossAccountId` from this module's
+    config, and rejects with a readable configuration error if either is unset, rather
+    than posting to an undetermined account. **Payment entry**, through
+    `commandBus.execute('ledger.postJournalEntry', { input, ctx })`: debit the bank
+    account's `ledgerAccountId` (always a debit, the line is always incoming; bank
+    currency, `amountCurrency` = the statement amount, rate `bankRate`); credit
+    `receivableAccountId` (invoice currency, `amountCurrency` = `settledAmount`, rate
+    `invoiceRatePaid`); credit `customerOverpaymentAccountId` (bank currency,
+    `overpaymentAmount`, rate `bankRate`) when `overpaymentAmount > 0`; and, when the base
+    amounts differ, one ordinary base-currency line (rate `1`) on `gainLossAccountId` for
+    the difference, on the side that balances. That difference is the effect of converting
+    two currencies to the base currency plus rounding. Each base amount is the line's
+    original amount times its rate, rounded half up (GL's consistency rule). **Settlement
     entry**, its own journal entry (`referenceType:
-    'cash_bank_management:bank_statement_line_fx_difference'`, same
-    `referenceId`): only when the invoice is in a foreign currency and
-    `invoiceRatePaid` differs from `invoiceRateBooked`. One line on the
-    receivable account in the invoice currency with `amountCurrency = 0` (exempt
-    from GL's consistency rule), rate `invoiceRatePaid`, base amount
-    S × (`invoiceRatePaid` − `invoiceRateBooked`), rounded; debit when
-    `invoiceRatePaid` is higher (the payment entry credited the receivable more
-    than it was booked), credit when lower; the opposite side on
-    `gainLossAccountId`. An invoice with `exchangeRate = null` is rejected (422)
-    until the backfill has run. Purchases (Accounts Payable payments) mirror this
-    with the sides reversed. Check: invoice EUR 1,000 at 4.30, payment USD 1,100,
-    `bankRate` 4.00, `invoiceRatePaid` 4.35: payment entry 4,400 − 4,350 = 50
-    to `gainLossAccountId`; settlement entry 1,000 × 0.05 = 50; total 100. With
-    a PLN account receiving 4,350 the payment entry has no difference and the
-    settlement entry carries 50. (2) *decided by the team 2026-10-23 on the controller's e-mail (not yet
-    reviewed by a maintainer):* the difference between the invoice rate and the
-    payment rate is usually booked as its own entry at settlement, and only the
-    difference from converting the two currencies to the base currency goes
-    into the payment's entry as a balancing line. Worked reading: invoice EUR
-    1,000 at 4.30 (4,300 PLN) paid with USD 1,100 when USD/PLN is 4.00 and
-    EUR/PLN is 4.35. Payment entry: bank USD 1,100 at 4.00 = 4,400, receivable
-    EUR 1,000 at 4.35 = 4,350, exchange difference 50. Settlement entry:
-    receivable from 4.30 to 4.35, 50 PLN on a line with `amountCurrency = 0`
-    against `gainLossAccountId`. This needs the invoice currency's rate on the
-    payment day as a second input next to `bookedExchangeRate` (rule of
-    2026-10-12: the rate the bank applied, else the Table A default). The
-    posting above is not rewritten yet; that is the restatement in (1). `referenceType: 'cash_bank_management:bank_statement_line'`,
+    'cash_bank_management:bank_statement_line_fx_difference'`, same `referenceId`), only
+    when the invoice is in a foreign currency and `invoiceRatePaid` differs from
+    `invoiceRateBooked`: one line on the receivable account in the invoice currency with
+    `amountCurrency = 0` (exempt from GL's consistency rule), rate `invoiceRatePaid`, base
+    amount `settledAmount` × (`invoiceRatePaid` − `invoiceRateBooked`) rounded; a debit
+    when `invoiceRatePaid` is higher (the payment entry credited the receivable by more
+    than it was booked at), a credit when lower; the opposite side on `gainLossAccountId`.
+    The size follows `settledAmount`, never the invoice total, so every partial payment
+    settles its own share. Purchases (Accounts Payable payments) mirror this with the
+    sides reversed. Check: invoice EUR 1,000 booked at 4.30, payment USD 1,100, `bankRate`
+    4.00, `invoiceRatePaid` 4.35: the payment entry is 4,400 against 4,350, 50 to
+    `gainLossAccountId`; the settlement entry is 1,000 × 0.05 = 50; 100 in total. Paid
+    into a PLN account with 4,350 the payment entry has no difference line and the
+    settlement entry carries 50. Source of the structure: the controller's answer of
+    2026-10-23 (the invoice-versus-payment rate difference is usually its own entry at
+    settlement; the difference from converting two currencies sits in the payment's own
+    entry); the numeric reading above is the team's and is not yet confirmed. The payment
+    entry carries  `referenceType: 'cash_bank_management:bank_statement_line'`,
     `referenceId: bankStatementLineId` (no `type` override — defaults
     to GL's own `'NORMAL'`, the same pattern Accounts Payable's
     `postVendorInvoice` call already uses). Persists
     `matchedDocumentType: 'sales_invoice'`, `matchedDocumentId`,
-    `matchedJournalEntryId`, `settledAmount`, `overpaymentAmount`, `matchedAt` on the line in
+    `matchedJournalEntryId`, `fxDifferenceJournalEntryId` (when a settlement entry was posted), `bankRate`, `invoiceRatePaid`, `settledAmount`, `overpaymentAmount`, `matchedAt` on the line in
     the same transaction; `amountMismatch` stays `null` — there is no
     independent "expected amount" to compare against; the remaining-balance
     check above is the guard. Emits
@@ -926,7 +850,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 ### Events (`events.ts`)
 
 - `cash_bank_management.statement_line.matched` — payload
-  `{ documentType: 'sales_invoice', documentId, bankStatementLineId, settledAmount, currencyCode, bankAccountId, bookedExchangeRate, matchedAt }`.
+  `{ documentType: 'sales_invoice', documentId, bankStatementLineId, settledAmount, currencyCode, bankAccountId, bankRate, invoiceRatePaid, matchedAt }`.
   `settledAmount` and `currencyCode` are in the invoice's currency (what a
   `sales` payment against the invoice needs); `bankStatementLineId` is the
   consumer's idempotency key.
@@ -1052,8 +976,7 @@ draft deferred this detail rather than designing it):
   `settledAmount` field (`sales_invoice` only, in the invoice's currency; same currency pre-filled
   with `min(|line|, remaining)` and shown with the invoice's remaining
   balance, foreign currency required) and, when the picked invoice's
-  currency differs from the `BankAccount`'s own, the `bookedExchangeRate`
-  and `overpaymentAmount` fields, or — for the added
+  currency or the `BankAccount`'s differs from the base currency, the `bankRate` and `invoiceRatePaid` fields (each pre-filled with the default rate and its source, editable; one field when the two currencies are the same) and, when the invoice's currency differs from the `BankAccount`'s own, the `overpaymentAmount` field, or — for the added
   `manual_gl_entry` type — a `LedgerAccount` picker plus an optional
   free-text description field, in place of any document lookup)
   submitted via `useGuardedMutation(...).runMutation(...)` against
@@ -1106,7 +1029,11 @@ BankStatementLine {
   matchedDocumentId: uuid | null              // null for internal_transfer/manual_gl_entry (no document)
   matchedLedgerAccountId: uuid | null          // FK-id to ledger.LedgerAccount — set only for manual_gl_entry
   matchedJournalEntryId: uuid | null   // FK-id to ledger.JournalEntry — set for sales_invoice, internal_transfer, and manual_gl_entry matches (all three post); stays null for payment_batch (never posts)
+    bankRate: numeric(18,8) | null       // sales_invoice only: bank currency -> base rate used
+  invoiceRatePaid: numeric(18,8) | null // sales_invoice only: invoice currency -> base rate on the settlement date
+  fxDifferenceJournalEntryId: uuid | null // FK-id to ledger.JournalEntry — the settlement entry, when one was needed
   amountMismatch: boolean | null       // set only for a payment_batch match, see Design decisions
+
   matchedAt: timestamp | null
   createdAt: timestamp
 }
@@ -1142,7 +1069,7 @@ posting's control-account side, since that value
   input). `metadata: { requireAuth: true, requireFeatures: ['cash_bank_management.statements.manage'] }`.
 - `POST /api/cash-bank-management/statements/:id/lines/:lineId/match` —
   `matchBankStatementLine` (zod-validated input, including the
-  conditional `bookedExchangeRate` requirement for `sales_invoice`, the
+  optional `bankRate` / `invoiceRatePaid` overrides for `sales_invoice`, the
   required `ledgerAccountId` for `manual_gl_entry`, the optional
   `description` accepted only for `manual_gl_entry` — falls back to the
   statement line's own `description` when omitted, see Commands — and the
@@ -1155,8 +1082,7 @@ posting's control-account side, since that value
   SETTLED_AMOUNT_EXCEEDS_REMAINING` (explicit `settledAmount` above the
   remaining balance) and `409 OVERPAYMENT_ACCOUNT_NOT_CONFIGURED` (an
   overpayment with no `customerOverpaymentAccountId`); each leaves nothing
-  persisted. Returns `422 EXCHANGE_RATE_REQUIRED` when a currency mismatch has no
-  `bookedExchangeRate` (mirrors Accounts Payable's own
+  persisted. Returns `422 EXCHANGE_RATE_REQUIRED` when a needed rate was not supplied and no default resolves, and `422 INVOICE_EXCHANGE_RATE_MISSING` when the invoice has no stored `exchangeRate` (mirrors Accounts Payable's own
   `422 FISCAL_PERIOD_LOCKED` pattern for a typed, documented rejection
   code); returns the persisted line (including `amountMismatch` when
   set) on success.
@@ -1173,8 +1099,7 @@ All five routes are `openApi`-documented, per `packages/core/AGENTS.md`
 ## Migration & Deployment
 
 Three new tables (`bank_account`, `bank_statement`,
-`bank_statement_line`, the last with the `settledAmount`/`overpaymentAmount`
-columns and the `(tenantId, organizationId, matchedDocumentType,
+`bank_statement_line`, the last with the `settledAmount`/`overpaymentAmount`/`bankRate`/`invoiceRatePaid`/`fxDifferenceJournalEntryId` columns and the `(tenantId, organizationId, matchedDocumentType,
 matchedDocumentId)` index the remaining-balance check reads), zero changes to any `sales`/`accounts_payable`/
 `ledger` table. No seed data — `internalTransferSuspenseAccountId`/
 `gainLossAccountId`/`customerOverpaymentAccountId` must be configured before first use (see Module
@@ -1251,13 +1176,7 @@ automatically.
   `internalTransferSuspenseAccountId` and credits
   `BankAccount.ledgerAccountId` (the reverse of the incoming case),
   and the posting still balances.
-- Assert a foreign-currency `sales_invoice` match with a supplied
-  `settledAmount` and `bookedExchangeRate` computes the gain/loss as
-  `line − settledAmount × bookedExchangeRate`, adds a correctly signed
-  gain/loss line, and the posting still balances. Include a partial
-  `settledAmount` (below the remaining balance) with an actual rate that
-  differs from the booked one and assert the gain/loss is non-zero
-  (regression for the earlier formula, which cancelled to zero).
+- Assert a foreign-currency `sales_invoice` match (invoice EUR 1,000 booked at 4.30, statement USD 1,100, `bankRate` 4.00, `invoiceRatePaid` 4.35) posts a payment entry with the bank line (USD 1,100, base 4,400), the receivable credit (EUR 1,000, base 4,350) and a base-currency line of 50 on `gainLossAccountId`, plus a separate settlement entry (`referenceType: 'cash_bank_management:bank_statement_line_fx_difference'`) with an `amountCurrency = 0` receivable line of 1,000 x 0.05 = 50 against `gainLossAccountId`; both entries balance. Assert the same invoice paid into a PLN account (4,350) has no difference line in the payment entry and the same settlement entry, and that an invoice and account in the same foreign currency with the rate moved posts a balanced payment entry with no difference line plus the settlement entry. Include a partial `settledAmount` (below the remaining balance) and assert the settlement entry is sized on `settledAmount`, not on the invoice total (regression for the earlier formula, which cancelled to zero).
 - Assert a same-currency match without `settledAmount` and a line within the
   balance defaults it to the line's absolute amount, posts no gain/loss line
   and no overpayment line.
@@ -1266,9 +1185,7 @@ automatically.
   balances, and `overpaymentAmount` is persisted; assert it is rejected with
   `OVERPAYMENT_ACCOUNT_NOT_CONFIGURED` (no partial write) when that setting is
   unset.
-- Assert a foreign-currency match with `settledAmount`,
-  `bookedExchangeRate` and `overpaymentAmount` books
-  `line − settledAmount × rate − overpaymentAmount` as gain/loss.
+- Assert a foreign-currency match with `settledAmount`, both rates and `overpaymentAmount` credits the overpayment at `bankRate` to `customerOverpaymentAccountId` and the payment entry still balances with the difference line sized to the remainder.
 - Assert two lines matched to one invoice in turn: the second sees the
   remaining balance reduced by the first, and a second line with an
   explicit `settledAmount` above it is rejected with
@@ -1281,13 +1198,8 @@ automatically.
 - Assert a match succeeds against a `SalesInvoice` whose
   `outstandingAmount` is `0` (the `sales` default), since sizing does not
   read it.
-- Assert a foreign-currency `sales_invoice` match with **no**
-  `bookedExchangeRate` supplied is rejected with
-  `EXCHANGE_RATE_REQUIRED`, and persists nothing (no line update, no
-  `JournalEntry`).
-- Assert a same-currency `sales_invoice` match with a
-  `bookedExchangeRate` other than `1` supplied is rejected (nothing to
-  convert).
+- Assert a foreign-currency `sales_invoice` match with **no** rates supplied reads the NBP Table A default (`getRate` called with `source: 'NBP_A'` and the day before the settlement date) and posts with it; assert that when no rate can be resolved it is rejected with `422 EXCHANGE_RATE_REQUIRED` and persists nothing (no line update, no `JournalEntry`); assert an invoice whose stored `exchangeRate` is `null` is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING`.
+- Assert a base-currency invoice paid into a base-currency account with `bankRate` or `invoiceRatePaid` other than `1` supplied is rejected (nothing to convert), and so is an invoice and account in the same foreign currency with two different rates.
 - Assert a `payment_batch` match against a `PaymentBatch` fixture whose
   `total_amount` equals the statement line's amount posts **no**
   `JournalEntry`, sets `amountMismatch: false`, and emits no event.
@@ -1379,16 +1291,7 @@ automatically.
   monitors for a batch that was sent but never shows up on a
   statement at all — that requires a sweep this document does not
   design (see Out of scope).
-- **Manual exchange-rate entry is error-prone.** Since neither
-  `VendorInvoice` nor `SalesInvoice` stores a booking-date rate, the
-  accountant must recall or look up the original rate at match time —
-  a wrong entry produces a wrong (but still balanced) gain/loss
-  posting, silently. Made somewhat safer this revision:
-  `bookedExchangeRate` is now a required, validated input on a
-  currency mismatch (rejected outright if missing — see Design
-  decisions, Commands) rather than a silently-defaulted optional one,
-  but a *wrong* rate entered deliberately is still undetectable by the
-  system.
+- **A wrong rate override is undetectable.** The rates now default from the bank's own rate or the NBP Table A rate and the invoice's booking rate is its stored `exchangeRate`, so nothing has to be recalled by hand. The accountant can still override `bankRate` or `invoiceRatePaid`; a wrong value entered deliberately produces a wrong but balanced posting, and the system cannot detect it. The booking rate of an invoice is read, not typed, which removes the earlier gap.
 - **Cross-module integration depends on a sibling document's future
   change, in two ways.** The `sales`-side settlement only works
   once `sales_invoice_gl_posting`'s Phase 2 payment bridge exists, and the
@@ -1563,7 +1466,7 @@ verify scope against the Event Storming record before drafting at all
 | checklist §9 (re-checked 2026-10-12) | A check-then-act race is closed with a lock or constraint, or disclosed | Compliant | Two matches against one invoice serialize on the advisory lock; the test asserts it. The `BankStatementLine` is also matched at most once (Invariant 1) |
 | root AGENTS.md (re-checked 2026-10-12) | Filter by `organization_id` on every cross-module read | Compliant (after fix) | The new `ledger.JournalEntry` read for `INVOICE_NOT_POSTED` is now stated as scoped by `tenantId`/`organizationId`; the remaining-balance sum reads `BankStatementLine` through an index that leads with both |
 | root AGENTS.md (re-checked 2026-10-12) | No direct ORM relationships between modules | Compliant | `JournalEntry` is read by `referenceType`/`referenceId` (FK-id style), no relation; `settledAmount`/`overpaymentAmount` are plain columns |
-| packages/events/AGENTS.md (re-checked 2026-10-12) | Event after commit; payload carries what the consumer needs | Compliant | Emitted after the transaction commits; payload now `settledAmount`, `currencyCode`, `bookedExchangeRate`, with `bankStatementLineId` as the consumer's idempotency key |
+| packages/events/AGENTS.md (re-checked 2026-10-12) | Event after commit; payload carries what the consumer needs | Compliant | Emitted after the transaction commits; payload now `settledAmount`, `currencyCode`, `bankRate`, `invoiceRatePaid`, with `bankStatementLineId` as the consumer's idempotency key |
 | packages/core/AGENTS.md → API Routes (re-checked 2026-10-12) | Zod-validated input; documented typed errors | Compliant (after fix) | New input fields and the three typed `409` rejections are listed in API Contracts, each leaving nothing persisted |
 | checklist §5 (re-checked 2026-10-12) | i18n for every user-facing string | Compliant (after fix) | The three new `409` messages and the new match-dialog fields are named in the UI section's `useT()`/`resolveTranslations()` sentence; the locale keys themselves are an implementation task |
 | Migration (re-checked 2026-10-12) | New columns and indexes are described | Compliant (after fix) | `settledAmount`, `overpaymentAmount` and the `(tenantId, organizationId, matchedDocumentType, matchedDocumentId)` index are named under Migration & Deployment |
@@ -1980,5 +1883,10 @@ schema. Not yet reviewed by a maintainer.
   `amountCurrency = 0` line on the receivable account. `bookedExchangeRate` is
   replaced by `bankRate`, `invoiceRatePaid` and the invoice's stored rate.
 - **Not rewritten yet:** the input contract, the API, the UI and the tests
-  elsewhere in this document still use `bookedExchangeRate`; they are updated
-  when the restated posting is implemented. Not yet reviewed by a maintainer.
+  elsewhere in this document still use `bookedExchangeRate`; they are updated in the next entry. Not yet reviewed by a maintainer.
+
+### 2026-10-23 (cont. — input contract, API, UI and tests rewritten)
+
+- **Rewritten to match the restated posting.** The `matchBankStatementLine` input now has optional `bankRate` and `invoiceRatePaid` instead of `bookedExchangeRate`; they default from the rate the bank applied, otherwise from the NBP Table A rate read with the `source` option (Multi-Currency decision 9g, still to be agreed with OM Core). The invoice's booking rate is its stored `exchangeRate`; a `null` one is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING`. `422 EXCHANGE_RATE_REQUIRED` now means a needed rate could not be resolved. The event payload carries `bankRate` and `invoiceRatePaid`, the match dialog pre-fills both rates with their source, and Testing Strategy covers the two entries, the PLN-account case, the partial payment and the defaults. `BankStatementLine` gains `bankRate`, `invoiceRatePaid` and `fxDifferenceJournalEntryId`.
+- **Earlier changelog entries and review notes still name `bookedExchangeRate`;** they describe the state at the time and are not rewritten.
+- **Not yet reviewed by a maintainer;** the numeric reading of the controller's answer is the team's.
