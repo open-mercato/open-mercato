@@ -58,15 +58,6 @@ const webhookCreateResponseSchema = z.object({
   isActive: z.boolean(),
 })
 
-const webhookDetailResponseSchema = webhookListItemSchema.extend({
-  customHeaders: z.record(z.string(), z.string()).nullable(),
-  strategyConfig: z.record(z.string(), z.unknown()).nullable(),
-  timeoutMs: z.number(),
-  rateLimitPerMinute: z.number(),
-  autoDisableThreshold: z.number(),
-  integrationId: z.string().nullable(),
-})
-
 const deleteResponseSchema = z.object({ success: z.literal(true) })
 const errorSchema = z.object({ error: z.string() })
 
@@ -289,7 +280,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Update webhook',
       description: 'Updates an existing webhook configuration.',
       requestBody: { contentType: 'application/json', schema: webhookUpdateSchema, description: 'Fields to update.' },
-      responses: [{ status: 200, description: 'Webhook updated', schema: webhookDetailResponseSchema }],
+      responses: [{ status: 200, description: 'Webhook updated', schema: deleteResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid payload', schema: errorSchema },
         { status: 404, description: 'Not found', schema: errorSchema },
