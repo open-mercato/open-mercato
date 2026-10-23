@@ -39,7 +39,7 @@ amount was booked in a different currency or at a different rate, and
 post one balanced `JournalEntry` — but only for the `SalesInvoice`
 case (see Design decisions for why an Accounts Payable match posts
 nothing new). A matched `SalesInvoice` line emits an event so
-`sales_invoice_gl_posting` can record the payment against `sales`
+`sales_invoices_gl_posting` can record the payment against `sales`
 (the only accounting-side path that actually needs one — Accounts
 Payable already settles at `markPaymentBatchSent` time, so its side of
 matching is a confirmation/audit function, not a settlement trigger).
@@ -67,11 +67,11 @@ invoice's own balances today, and nothing calls it automatically when a
 customer pays directly into the tenant's bank account rather than
 through any flow `sales` itself initiates. This document supplies the
 entity the first gap needs (`BankAccount`) and the event that
-`sales_invoice_gl_posting`'s Phase 2 payment bridge turns into a real
+`sales_invoices_gl_posting`'s Phase 2 payment bridge turns into a real
 `sales.payments.create` call for the second — actually wiring `accounts_payable_payments`'s
 own validators/config to this module's `BankAccount` is a small,
 explicitly named follow-up (see Design decisions, Out of scope), the
-same shape as the `sales_invoice_gl_posting` payment bridge, which that
+same shape as the `sales_invoices_gl_posting` payment bridge, which that
 document owns (its Phase 2) and this one does not implement.
 
 It is not a general ledger reporting tool, a cash-flow forecaster, or
@@ -133,10 +133,10 @@ outgoing line matched to a `SalesInvoice` is rejected, see Commands,
 Out of scope): this command computes the realized gain/loss (if the
 settled amount's currency or rate differs from the invoice's own
 booked rate) and posts one balanced `JournalEntry` itself (bank
-account debit, `sales_invoice_gl_posting`'s own `receivableAccountId`
+account debit, `sales_invoices_gl_posting`'s own `receivableAccountId`
 credit, plus a gain/loss line when non-zero), then emits
 `cash_bank_management.statement_line.matched` so the payment bridge that
-`sales_invoice_gl_posting` owns (its Phase 2) can record the payment in
+`sales_invoices_gl_posting` owns (its Phase 2) can record the payment in
 `sales` through `commandBus.execute('sales.payments.create', ...)` — a
 `sales`-side bookkeeping update, not a second `ledger` posting. Keeping the
 invoice's own `outstandingAmount`/`paidTotalAmount` correct additionally
@@ -196,14 +196,14 @@ leg at all. The corrected design, per match type:
 - **`SalesInvoice` match** (Accounts Receivable): this is genuinely
   new money nobody has recorded. This module posts one balanced
   `JournalEntry` itself — debit `BankAccount.ledgerAccountId`, credit
-  `sales_invoice_gl_posting`'s own `receivableAccountId` (read via a
+  `sales_invoices_gl_posting`'s own `receivableAccountId` (read via a
   scoped `ModuleConfigService` call, the same soft cross-module-config
   read `accounts_payable_payments` already uses for
   `accounts_payable.liabilityAccountId` — no hard `requires` needed for
   a read), plus a gain/loss line when the settled amount's currency or
   rate differs from the invoice's own. It then emits
   `cash_bank_management.statement_line.matched` purely so the payment
-  bridge owned by `sales_invoice_gl_posting` (its Phase 2) can call
+  bridge owned by `sales_invoices_gl_posting` (its Phase 2) can call
   `commandBus.execute('sales.payments.create', ...)` — a `sales`-side
   bookkeeping update, not another `ledger` posting. No event is emitted for a `PaymentBatch`
   or `internal_transfer` match — there is no Phase 1 consumer for
@@ -287,7 +287,7 @@ kinds; art. 46 ust. 2a allows net presentation of financial assets and
 liabilities where the entity has an unconditional right to offset and intends
 to settle net, which can include a receivable and a refund obligation to the
 same customer, so this is a presentation choice for the balance sheet, not a
-posting rule; art. 37 ust. 7 concerns deferred tax only). `sales_invoice_gl_posting` posts to one
+posting rule; art. 37 ust. 7 concerns deferred tax only). `sales_invoices_gl_posting` posts to one
 `receivableAccountId` with no per-customer accounts, so an excess credited
 there would silently reduce the reported receivables and hide the liability.
 Hence a third Module Config value, `customerOverpaymentAccountId` (a
@@ -420,7 +420,7 @@ adopted as a citation here.
   posted automatically as part of the match, not calculated by hand
   outside the system.
 - As a developer running `accounts_payable_payments` or
-  `sales_invoice_gl_posting` in a tenant that hasn't installed this
+  `sales_invoices_gl_posting` in a tenant that hasn't installed this
   module, I need both to keep working exactly as today — this module
   is optional from both of their points of view (a one-way dependency;
   neither ever requires it).
@@ -474,7 +474,7 @@ adopted as a citation here.
 | Fold dunning/interest into this document (it's adjacent on the Event Storming wall) | Rejected 2026-09-10, already decided: interest/dunning runs entirely off `sales.SalesInvoice`'s own due date and `outstandingAmount`, with no dependency on a bank statement existing — its own, separate future document |
 | Fold Cash Flow forecasting / liquidity planning into this document (SPEC-024's framing) | Rejected: the workshop only ever has Cash Flow as a report fed by `#6013`'s ZSiO, never as a forecasting feature; no domain event on the wall asks for it |
 | A historical exchange-rate lookup service, computing FX gain/loss automatically | Rejected for Phase 1: neither `VendorInvoice` nor `SalesInvoice` stores a booking-date rate today: manual rate entry at match time is the honest Phase 1 answer (see Design decisions) |
-| An `accounts_payable_payments` subscriber mirroring the `sales_invoice_gl_posting` one | Deferred, not rejected outright: Accounts Payable already settles at `markPaymentBatchSent` time, so a subscriber here would only add confirmation/audit value, not a missing write (see Out of scope) |
+| An `accounts_payable_payments` subscriber mirroring the `sales_invoices_gl_posting` one | Deferred, not rejected outright: Accounts Payable already settles at `markPaymentBatchSent` time, so a subscriber here would only add confirmation/audit value, not a missing write (see Out of scope) |
 | Leave bank fees/interest to a manual `PK` (Polecenie Księgowania) entry outside this module, since Phase 1's original three match types didn't cover them | Rejected after a literature check (Kieso Appendix 7A — see Design decisions): every real bank statement contains this category of line, and requiring the accountant to leave the reconciling module to record it defeats the point of matching a statement inside `cash_bank_management` in the first place — added `manual_gl_entry` as a fourth match type instead |
 
 ## Literature & Prior Art
@@ -782,7 +782,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 
     1. **The invoice is posted.** A `JournalEntry` with
        `referenceType: 'sales:sales_invoice'` and `referenceId: invoice.id`
-       (the reference `sales_invoice_gl_posting` writes; indexed on
+       (the reference `sales_invoices_gl_posting` writes; indexed on
        `(organizationId, referenceType, referenceId)`) must exist and be
        unreversed (no `REVERSAL` entry pointing at it), else
        `409 INVOICE_NOT_POSTED`. Crediting the receivable for an invoice
@@ -829,9 +829,9 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     unreversed `FxRevaluationRun`; that precondition is withdrawn because
     `fx_revaluation` posts its period-end valuation together with a reversing entry
     dated the first day of the next period, so this command needs no check and no
-    dependency on `fx_revaluation`. Reads `sales_invoice_gl_posting`'s own
+    dependency on `fx_revaluation`. Reads `sales_invoices_gl_posting`'s own
     `receivableAccountId` via a scoped
-    `ModuleConfigService.get('sales_invoice_gl_posting', 'receivableAccountId', { tenantId, organizationId })`
+    `ModuleConfigService.get('sales_invoices_gl_posting', 'receivableAccountId', { tenantId, organizationId })`
     call (see Cross-module integration) and `gainLossAccountId` from this module's
     config, and rejects with a readable configuration error if either is unset, rather
     than posting to an undetermined account. **Payment entry**, through
@@ -962,7 +962,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   the `amountMismatch` comparison. Never reads an individual
   `VendorInvoice` (see Design decisions, Alternatives Considered) and
   never appears in `requires`.
-- **`sales_invoice_gl_posting` (read-only `ModuleConfigService` read,
+- **`sales_invoices_gl_posting` (read-only `ModuleConfigService` read,
   no hard dependency).** Reads that module's own `receivableAccountId`
   Module Config value during the `sales_invoice` path — the same soft,
   scoped cross-module-config read `accounts_payable_payments` already
@@ -972,7 +972,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   `commandBus.execute('sales.payments.create', { input, ctx })`. That
   command requires an `orderId`, while the event carries the invoice id and
   a `currencyId`, so the bridge resolves the invoice to its order and
-  currency itself (decided in `sales_invoice_gl_posting`'s "Contract with
+  currency itself (decided in `sales_invoices_gl_posting`'s "Contract with
   Cash & Bank Management"). This document does not implement the bridge
   (see Out of scope, Risks). Until it exists, a matched payment is recorded
   in `sales` manually (`POST /api/sales/payments`).
@@ -988,7 +988,7 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
   document family, and needs its own issue.
 - **This module is never imported or resolved by `ledger`, `currencies`,
   `sales`, `accounts_payable`, `accounts_payable_payments`, or
-  `sales_invoice_gl_posting`.** One-way dependency direction, matching
+  `sales_invoices_gl_posting`.** One-way dependency direction, matching
   `packages/core/AGENTS.md`.
 
 
@@ -1135,7 +1135,7 @@ it backed was rejected (see Design decisions, Alternatives Considered);
 no replacement config value is owned here for the `sales_invoice`
 posting's control-account side, since that value
 (`receivableAccountId`) is owned and configured by
-`sales_invoice_gl_posting`, read here only via `ModuleConfigService`
+`sales_invoices_gl_posting`, read here only via `ModuleConfigService`
 (see Architecture → Commands, Cross-module integration).
 
 ## API Contracts
@@ -1173,7 +1173,7 @@ posting's control-account side, since that value
   with match status. `metadata: { requireAuth: true, requireFeatures: ['cash_bank_management.statements.manage'] }`.
   No caching declared — a point lookup on the statement's own primary
   key, not a list/aggregate query, the same no-caching rationale
-  `sales_invoice_gl_posting`'s own single-record `GET` route already
+  `sales_invoices_gl_posting`'s own single-record `GET` route already
   documents.
 
 All five routes are `openApi`-documented, per `packages/core/AGENTS.md`
@@ -1186,7 +1186,7 @@ Three new tables (`bank_account`, `bank_statement`,
 matchedDocumentId)` index the remaining-balance check reads), zero changes to any `sales`/`accounts_payable`/
 `ledger` table. No seed data — `internalTransferSuspenseAccountId`/
 `gainLossAccountId`/`customerOverpaymentAccountId` must be configured before first use (see Module
-Config); `sales_invoice_gl_posting.receivableAccountId` is that
+Config); `sales_invoices_gl_posting.receivableAccountId` is that
 module's own configuration, not this one's, but must also be set
 before a `sales_invoice` match can complete (see Risks). No backfill:
 bank statements from before this module is enabled are never imported
@@ -1207,7 +1207,7 @@ automatically.
    + `acl.ts` + `setup.ts` + `encryption.ts`.
 5. The five API routes (with `openApi`, per `packages/core/AGENTS.md`).
 6. Bank-account list page + statement-entry/matching page.
-7. Follow-up (not part of this document): `sales_invoice_gl_posting`'s
+7. Follow-up (not part of this document): `sales_invoices_gl_posting`'s
    Phase 2 payment bridge subscribes to
    `cash_bank_management.statement_line.matched`; invoice-balance
    maintenance is a separate change in `sales`.
@@ -1250,7 +1250,7 @@ automatically.
 - Assert a `sales_invoice` match against a same-currency `SalesInvoice`
   fixture produces a balanced `JournalEntry` with the correct DR/CR
   direction (debit `BankAccount.ledgerAccountId`, credit
-  `sales_invoice_gl_posting`'s `receivableAccountId` — a `sales_invoice`
+  `sales_invoices_gl_posting`'s `receivableAccountId` — a `sales_invoice`
   match is always incoming, see Commands) and emits
   `cash_bank_management.statement_line.matched` with the right payload.
 - Assert a `sales_invoice` match against an outgoing (`amount < 0`)
@@ -1329,7 +1329,7 @@ automatically.
   when a `BankAccount`'s ledger balance and its latest
   `BankStatement.closingBalance` disagree (Invariant 3).
 - Assert `matchBankStatementLine`'s `sales_invoice` path rejects when
-  `sales_invoice_gl_posting`'s `receivableAccountId` Module Config
+  `sales_invoices_gl_posting`'s `receivableAccountId` Module Config
   value is unset, with a readable configuration error and no partial
   write.
 - Assert `BankAccount.accountNumber` round-trips correctly through
@@ -1340,7 +1340,7 @@ automatically.
 
 - **`manual_gl_entry` has no independent check on the picked
   `LedgerAccount` beyond "does it exist."** Unlike `sales_invoice`
-  (whose control account is read from `sales_invoice_gl_posting`'s own
+  (whose control account is read from `sales_invoices_gl_posting`'s own
   config) or `internal_transfer`/`payment_batch` (fixed or
   document-derived targets), `manual_gl_entry` lets the accountant pick
   *any* real `LedgerAccount` — a wrong pick (e.g. posting a bank fee
@@ -1378,7 +1378,7 @@ automatically.
 - **A wrong rate override is undetectable.** The rates now default from the bank's own rate or the NBP Table A rate and the invoice's booking rate is its stored `exchangeRate`, so nothing has to be recalled by hand. The accountant can still override `bankRate` or `invoiceRatePaid`; a wrong value entered deliberately produces a wrong but balanced posting, and the system cannot detect it. The booking rate of an invoice is read, not typed, which removes the earlier gap.
 - **Cross-module integration depends on a sibling document's future
   change, in two ways.** The `sales`-side settlement only works
-  once `sales_invoice_gl_posting`'s Phase 2 payment bridge exists, and the
+  once `sales_invoices_gl_posting`'s Phase 2 payment bridge exists, and the
   invoice's own balances only once `sales` maintains them from allocations.
   Until then a matched `sales_invoice` line posts correctly into `ledger`
   but emits an event nobody consumes, the payment has to be recorded in
@@ -1390,7 +1390,7 @@ automatically.
   being set — `matchBankStatementLine`'s `sales_invoice` path rejects
   cleanly when it isn't (see Commands, Testing Strategy), but a tenant
   that installs this module without ever configuring
-  `sales_invoice_gl_posting` cannot complete a `sales_invoice` match at
+  `sales_invoices_gl_posting` cannot complete a `sales_invoice` match at
   all.
 - **Overpayments are a liability without a per-customer view.** The excess
   goes to one tenant-configured liability account, so the total is right but a
@@ -1454,7 +1454,7 @@ automatically.
   see Design decisions, Commands) — a subscriber would add continuous,
   unprompted monitoring on top of that, not a missing write (see
   Risks).
-- **The `sales_invoice_gl_posting` payment bridge** — owned and specified
+- **The `sales_invoices_gl_posting` payment bridge** — owned and specified
   by that document (its Phase 2); this document only emits the event (see
   Implementation Plan step 7). Invoice-balance maintenance in `sales` is an
   OM Core change designed by neither.
@@ -1484,7 +1484,7 @@ automatically.
 An independent, fresh-context adversarial review of the full first
 draft (against this document's own cited sources: `sales`,
 `accounts_payable`/`accounts_payable_payments`, `ledger`,
-`sales_invoice_gl_posting`, and Fixed Assets as the family's compliance
+`sales_invoices_gl_posting`, and Fixed Assets as the family's compliance
 bar) returned 14 findings, three Critical/High-severity: DR/CR
 direction reversed on the bank-account posting leg; a shared
 "clearing-account" mechanism that would never net to zero and would
@@ -1534,16 +1534,16 @@ verify scope against the Event Storming record before drafting at all
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `BankStatement.bankAccountId`, `BankStatementLine.bankStatementId`/`matchedDocumentId`/`matchedJournalEntryId` are all plain FK-ids, explicitly "no ORM relation" (Architecture → Entities) |
 | root AGENTS.md | Filter by `organization_id` | Compliant | All three entities are tenant/org-scoped (Data Models); the `matchBankStatementLine` command scopes every `sales`/`accounts_payable_payments`/`ledger`/`currencies` read by `tenantId`/`organizationId` (Commands, Testing Strategy) |
-| packages/core/AGENTS.md → Cross-Module Coupling | Hard dependencies via `requires` + direct calls; optional peers via scoped reads/`tryResolve`, degrading safely if absent | Compliant | `ledger`/`currencies` are the only `requires` (hard — this module has no function without them); `sales`, `accounts_payable_payments`, `sales_invoice_gl_posting` are all read-only, scoped, no hard dependency, named explicitly with their degrade-safely behavior (Cross-module integration, Module Dependency) |
+| packages/core/AGENTS.md → Cross-Module Coupling | Hard dependencies via `requires` + direct calls; optional peers via scoped reads/`tryResolve`, degrading safely if absent | Compliant | `ledger`/`currencies` are the only `requires` (hard — this module has no function without them); `sales`, `accounts_payable_payments`, `sales_invoices_gl_posting` are all read-only, scoped, no hard dependency, named explicitly with their degrade-safely behavior (Cross-module integration, Module Dependency) |
 | packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | All five routes documented as `openApi`-documented (API Contracts, File Manifest) |
 | packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Added this revision: each of the five routes lists its own `metadata: { requireAuth, requireFeatures }` (API Contracts) |
-| packages/core/AGENTS.md → CRUD Factory | CRUD APIs use `makeCrudRoute` | Compliant / N/A | `GET /accounts` is a plain paginated list via `makeCrudRoute` (Compliant); `POST /statements`, `POST .../match` are bespoke command-invoking routes, not CRUD collections (N/A — same shape as `sales_invoice_gl_posting`'s own single bespoke route) |
+| packages/core/AGENTS.md → CRUD Factory | CRUD APIs use `makeCrudRoute` | Compliant / N/A | `GET /accounts` is a plain paginated list via `makeCrudRoute` (Compliant); `POST /statements`, `POST .../match` are bespoke command-invoking routes, not CRUD collections (N/A — same shape as `sales_invoices_gl_posting`'s own single bespoke route) |
 | packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `data/validators.ts` validates all three commands' inputs before any business-rule check runs (Commands, API Contracts, File Manifest) |
 | packages/core/AGENTS.md → Encryption | Sensitive/GDPR fields declared in `<module>/encryption.ts` `defaultEncryptionMaps`, read via `findWithDecryption` | Compliant | Fixed this revision (was a deferred gap in the prior draft): `BankAccount.accountNumber` declared in `defaultEncryptionMaps`, matching `contractors.ContractorBankAccount`'s existing precedent for a structurally identical field (Architecture → Encryption, Risks) |
 | packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | Compliant / N/A | `BankAccount` (user-editable master data) has `updatedAt`; `BankStatement`/`BankStatementLine` are explicitly write-once/append-only by design (header immutable; a line is matched at most once — corrections reverse or add a new line, not edit), matching `JournalEntry`'s own immutable-posting precedent (Architecture → Entities, Data Models) |
-| packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales` (scoped read), `accounts_payable_payments` (scoped read), `sales_invoice_gl_posting` (scoped `ModuleConfigService` read + event subscriber owned by that module) are each named with their exact mechanism and "never appears in `requires`" behavior (Cross-module integration) |
+| packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales` (scoped read), `accounts_payable_payments` (scoped read), `sales_invoices_gl_posting` (scoped `ModuleConfigService` read + event subscriber owned by that module) are each named with their exact mechanism and "never appears in `requires`" behavior (Cross-module integration) |
 | packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | The only cross-module write is `commandBus.execute('ledger.postJournalEntry', ...)` (the sanctioned generic mechanism, same as every sibling document); `cash_bank_management.statement_line.matched` is the one declared event, emitted only where a real Phase 1 consumer exists (Events, corrected this revision to drop the payload's dead `payment_batch`/`internal_transfer` cases) |
-| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared on any route — the one `GET` beyond the list is a point lookup on a statement's own primary key, not a list/aggregate query, the same no-caching rationale `sales_invoice_gl_posting`'s single-record `GET` route already documents (API Contracts, added explicitly this revision) |
+| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared on any route — the one `GET` beyond the list is a point lookup on a statement's own primary key, not a list/aggregate query, the same no-caching rationale `sales_invoices_gl_posting`'s single-record `GET` route already documents (API Contracts, added explicitly this revision) |
 | packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; lists use `<DataTable>` with stable `entityId`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Added this revision (Backend Pages): `<CrudForm>` for account create/edit and statement creation; `<DataTable>` with `entityId: 'cash_bank_management:bank_account'`/`'cash_bank_management:bank_statement_line'`; the match dialog (a domain action, not a plain entity edit) uses `useGuardedMutation(...).runMutation(...)` |
 | packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | Added this revision (Backend Pages): all reads/writes on both pages go through `apiCall`/`apiCallOrThrow` |
 | root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | Compliant | Added this revision: `<StatusBadge>` for `isActive`/match-status/`amountMismatch` (semantic tokens only, e.g. `bg-status-success-bg`/`bg-status-warning-bg`, never `bg-green-*`); the match dialog's icon-only close control carries an `aria-label` |
@@ -1574,7 +1574,7 @@ verify scope against the Event Storming record before drafting at all
 ### Non-Compliant Items
 
 None. The two items still carrying real residual risk — the
-`sales_invoice_gl_posting` Phase 2 payment bridge not yet existing, and that
+`sales_invoices_gl_posting` Phase 2 payment bridge not yet existing, and that
 module's `receivableAccountId` needing to be configured before a
 `sales_invoice` match can complete — are cross-module sequencing and
 operational risks, not gaps against any AGENTS.md rule this document
@@ -1660,7 +1660,7 @@ end to end:
   rejected outright, not patched: a `payment_batch` match now posts
   **nothing** to `ledger` (it only sets `amountMismatch`); a
   `sales_invoice` match posts the full entry itself, directly against
-  `sales_invoice_gl_posting`'s own `receivableAccountId` (read via
+  `sales_invoices_gl_posting`'s own `receivableAccountId` (read via
   `ModuleConfigService`), with no intermediate clearing account at all.
   `bankReconciliationClearingAccountId` dropped from Module Config.
   See Design decisions, Alternatives Considered.
@@ -1851,7 +1851,7 @@ above in the new "Literature & Prior Art" section.
 
 ### 2026-10-09 — Ownership of the `sales` payment bridge aligned with #6046
 
-`sales_invoice_gl_posting` (#6046) decided that this document owns the
+`sales_invoices_gl_posting` (#6046) decided that this document owns the
 ledger receipt posting and the `statement_line.matched` event, that its own
 Phase 2 payment bridge records the payment in `sales`, and that `sales`
 owns invoice-balance maintenance. Aligned the text here: the subscriber is
