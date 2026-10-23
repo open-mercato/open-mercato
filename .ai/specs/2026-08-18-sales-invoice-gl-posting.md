@@ -316,6 +316,27 @@ exists. `currencies` joins `requires` as a third hard dependency (see
 Module Dependency) — multi-currency exchange-rate handling itself
 stays out of scope (see Out of scope).
 
+**Foreign-currency invoice (added 2026-10-23).** #5663 now stores a
+currency, a rate and an original-currency amount on every `JournalEntryLine`
+(GL core engine, Design decisions, "Multi-currency"). For an invoice whose
+currency is not the tenant's base currency, `postSalesInvoiceToLedger` passes
+the invoice's `exchangeRate` with the call (once `SalesInvoice.exchangeRate`
+exists, see the update below), and every line (revenue, output
+VAT, receivable) carries `amountCurrency`, its amount in the invoice
+currency, next to `debit`/`credit` in the base currency (the amount ×
+`exchangeRate`, rounded to the base currency's decimal places). GL rejects a
+foreign-currency line without `amountCurrency` and one without a rate, so an
+invoice with `exchangeRate = null` cannot post in a foreign currency until the
+backfill described next has set it.
+**⚠ NEEDS HUMAN CONFIRMATION:** how the rounding remainder is placed so the
+entry balances in the base currency. Converting the net, VAT and gross
+amounts line by line need not add up, and a line that simply absorbs the
+remainder would differ from `amountCurrency × exchangeRate` by more than the
+half-unit tolerance GL proposes and be rejected. Two ways out: a separate
+rounding line with `amountCurrency = 0` on a configured account (exempt from
+that rule), or a wider tolerance. Until the controller answers, this
+document does not pick one.
+
 **Update (2026-09-17, revised 2026-10-15):** the Multi-Currency spec
 ([#6190](https://github.com/open-mercato/open-mercato/pull/6190)) proposes adding
 `SalesInvoice.currencyId`/`exchangeRate` directly, resolved at
@@ -1620,3 +1641,13 @@ precondition now say the comparison is exact, in integer minor units (scale 4,
 `BigInt`, as `ledger`'s `toMinorUnits`), and name #7324 as a shared decimal
 library that is not merged and not depended on. No change to the module's
 behaviour. Not yet reviewed by a maintainer.
+
+### 2026-10-23 — Foreign-currency invoice and the line currency in GL
+
+#5663 stores a currency, a rate and an original-currency amount on every
+journal entry line. The posting section now says that, for a foreign-currency
+invoice, `postSalesInvoiceToLedger` passes the invoice's rate and gives every
+line `amountCurrency` next to the base-currency `debit`/`credit`, and that an
+invoice with a `null` rate cannot post in a foreign currency until the
+backfill has run. Open, ⚠ NEEDS HUMAN CONFIRMATION: where the rounding
+remainder goes so the entry balances in the base currency. Not decided here.
