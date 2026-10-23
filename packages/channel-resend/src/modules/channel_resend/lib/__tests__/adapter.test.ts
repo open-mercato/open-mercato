@@ -51,6 +51,89 @@ describe('ResendChannelAdapter', () => {
     }))
   })
 
+  it('carries RFC 8058 one-click unsubscribe headers from channelMetadata to Resend', async () => {
+    const adapter = getResendChannelAdapter()
+    const converted = await adapter.convertOutbound({
+      body: 'Hello',
+      bodyFormat: 'text',
+      channelMetadata: {
+        to: 'user@example.com',
+        subject: 'Hello',
+        headers: {
+          'List-Unsubscribe': '<https://example.com/unsubscribe>',
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      },
+    })
+
+    await adapter.sendMessage({
+      content: converted.content,
+      credentials: { apiKey: 'key', fromAddress: 'fallback@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: converted.metadata,
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      headers: {
+        'List-Unsubscribe': '<https://example.com/unsubscribe>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    }))
+  })
+
+  it('collapses CR/LF in a header value instead of forwarding the injection attempt', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        headers: { 'X-Campaign': "legit\r\nBcc: attacker@example.com" },
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      headers: { 'X-Campaign': 'legit Bcc: attacker@example.com' },
+    }))
+  })
+
+  it('drops a header name that is not a plain token', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        headers: { 'Bad Name: injected': 'value' },
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.not.objectContaining({ headers: expect.anything() }))
+  })
+
+  it('drops a non-string header value', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: ['user@example.com'],
+        subject: 'Hello',
+        headers: { 'X-Count': 42 },
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.not.objectContaining({ headers: expect.anything() }))
+  })
+
   it('returns a failed result when Resend reports an error', async () => {
     sendMock.mockResolvedValueOnce({ error: { message: 'bad domain' } })
     const adapter = getResendChannelAdapter()
