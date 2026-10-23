@@ -1916,7 +1916,7 @@ Not yet reviewed by a maintainer.
 - **Decision 9c's "operator retries" corrected, new 9g.** A stored Table C row
   stops `getRate` from ever fetching `NBP_A` for that day, and the scheduled
   fetch does not include `NBP_A`. Proposed: an optional `source` on `getRate`
-  and `getRates` (⚠ needs OM Core's agreement).
+  and `getRates` (⚠ needs OM Core's agreement). Proposed to OM Core on 2026-10-23 as issue #7883 (with the Table A provider); the implementation is on the local branch `feat/currencies-source-aware-rate-lookup`, not yet pushed.
 - **Decision 7.** The realized difference follows the controller's e-mail of
   2026-10-23: the two-currency conversion difference in the payment entry, the
   invoice-rate versus payment-rate difference in its own entry. Worked example
