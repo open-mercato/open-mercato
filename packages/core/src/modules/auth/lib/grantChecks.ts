@@ -19,6 +19,7 @@ type GrantCheckContext = {
   actorUserId: string | null | undefined
   tenantId: string | null | undefined
   organizationId?: string | null | undefined
+  requireBoundRbac?: boolean
 }
 
 type RoleGrantCheckInput = GrantCheckContext & {
@@ -31,7 +32,7 @@ type RoleTokenGrantCheckInput = GrantCheckContext & {
 
 type UserDestinationRolesInput = {
   em: EntityManager
-  targetUserId: string
+  targetUserId?: string | null
   destinationTenantId: string | null | undefined
   roleTokens: unknown
 }
@@ -81,6 +82,7 @@ export async function resolveUserDestinationRoles(input: UserDestinationRolesInp
   if (Array.isArray(input.roleTokens)) {
     return resolveRolesForGrant(input.em, normalizeStringList(input.roleTokens), destinationTenantId)
   }
+  if (!input.targetUserId) return []
 
   const links = await findWithDecryption(
     input.em,
@@ -388,10 +390,17 @@ async function loadActorAcl(input: GrantCheckContext): Promise<ActorAcl> {
   const actorUserId = normalizeNullableString(input.actorUserId)
   if (!actorUserId) throw forbidden('Not authorized to grant ACL privileges.')
 
-  const acl = await input.rbacService.loadAcl(actorUserId, {
+  const scope = {
     tenantId: normalizeNullableString(input.tenantId),
     organizationId: normalizeNullableString(input.organizationId),
-  })
+  }
+  const loadBound = input.rbacService.loadAclWithEntityManager
+  if (input.requireBoundRbac && typeof loadBound !== 'function') {
+    throw new Error('[internal] Transaction-bound RBAC resolution is unavailable')
+  }
+  const acl = typeof loadBound === 'function'
+    ? await loadBound.call(input.rbacService, input.em, actorUserId, scope)
+    : await input.rbacService.loadAcl(actorUserId, scope)
 
   return {
     isSuperAdmin: !!acl?.isSuperAdmin,
