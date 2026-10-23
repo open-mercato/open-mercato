@@ -1,7 +1,21 @@
 import type { NotificationAction } from '@open-mercato/shared/modules/notifications/types'
+import { isSafeNotificationHref } from '@open-mercato/shared/modules/notifications/safeHref'
 
-export function isSafeNotificationHref(href: string): boolean {
-  return href.startsWith('/') && !href.startsWith('//')
+export { isSafeNotificationHref }
+
+export function toSafeNotificationHref(href: string | null | undefined): string | null {
+  if (href == null || !isSafeNotificationHref(href)) {
+    return null
+  }
+
+  return href
+}
+
+export function resolveNotificationActionHref(
+  href: string | undefined | null,
+  sourceEntityId: string | undefined | null,
+): string | undefined {
+  return href?.replace('{sourceEntityId}', sourceEntityId ?? '') ?? undefined
 }
 
 export function assertSafeNotificationHref(href: string | undefined | null): string | undefined {

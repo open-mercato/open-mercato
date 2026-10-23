@@ -2,7 +2,17 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Profiler } from '../profiler'
 import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-definition-index'
 
-export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
+/**
+ * `overlap` (additive, 2026-10-05): "has any of" over a multi-valued field. An index-document
+ * string array compiles to jsonb `?|`, a `cf:*` key to any-value-in-set, and an array-typed base
+ * column to `&&`. An empty value list matches nothing.
+ *
+ * `noverlap` (additive, 2026-10-05): "has none of" — the negation of `overlap` on an index-document
+ * string array or an array-typed base column. Only a present array can match (a missing/null key or
+ * NULL column never does); an empty value list excludes nothing. Unsupported on `cf:*` keys, where
+ * it compiles to `false`.
+ */
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'
 
 export enum SortDir {
   Asc = 'asc',
@@ -34,6 +44,8 @@ export type WhereOps<T> = {
   $like?: T extends string ? string : never
   $ilike?: T extends string ? string : never
   $exists?: boolean
+  $overlap?: T extends readonly (infer Element)[] ? Element[] : T[]
+  $noverlap?: T extends readonly (infer Element)[] ? Element[] : T[]
 }
 
 // A field filter can be a direct value (equals) or ops object

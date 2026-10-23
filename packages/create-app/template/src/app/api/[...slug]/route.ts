@@ -346,7 +346,7 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname)
+  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname, req)
   if (!match) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
@@ -466,6 +466,24 @@ async function handleRequest(
     getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
     return finalResponse
   } catch (error) {
+    // A CrudHttpError is a deliberate, typed HTTP outcome (403 from an org-scope
+    // deny, 404 from a guard, 409 from an optimistic lock) that a handler threw
+    // instead of returning. Without this branch it reaches Next as an unhandled
+    // throw and the caller sees a 500 with a leaked stack, hiding the real
+    // decision — so it is answered with its own status and body here rather than
+    // funnelled through the 5xx path below.
+    if (isCrudHttpError(error)) {
+      const response = NextResponse.json(error.body, { status: error.status })
+      await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
+        ...receivedPayload,
+        status: response.status,
+        userId: auth?.sub ?? null,
+        tenantId: auth?.tenantId ?? null,
+        durationMs: Date.now() - startedAt,
+      })
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+      return response
+    }
     // Unhandled throws become 500s (Next renders the error). This is the 5xx
     // error funnel: record the exception (correlated to the active trace) and
     // the request-duration metric, then re-throw unchanged.
