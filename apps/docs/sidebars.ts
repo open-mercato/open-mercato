@@ -346,7 +346,7 @@ const sidebars: SidebarsConfig = {
         "cli/scheduler",
         {
           type: "category",
-          label: "Official Modules",
+          label: "Modules catalog",
           items: ["cli/module-add", "cli/module-enable", "cli/eject"],
         },
       ],
