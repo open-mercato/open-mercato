@@ -68,14 +68,14 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
-| `core` | yes | 15 | Daily-driver skills installed by default. |
+| `core` | yes | 13 | Daily-driver skills installed by default. |
 | `design` | opt-in | 1 | Figma-side design workflow skills. Opt-in — presumes Figma tooling. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
-| `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
+| `analysis` | opt-in | 3 | Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in. |
 | `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 26 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 29 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
@@ -161,8 +161,8 @@ claude
 # With the default install you should see the core tier (e.g. ds-guardian,
 # backend-ui-design, implement-spec, pre-implement-spec, smart-test,
 # create-agents-md, skill-creator, fix-specs, migrate-mikro-orm,
-# create-ai-agent, help, refresh-standalone-harness, share-this-session) plus the external collection (code-review,
-# check-and-commit, spec-writing, integration-tests, auto-create-pr, ...).
+# create-ai-agent, refresh-standalone-harness) plus the external collection (code-review,
+# check-and-commit, spec-writing, integration-tests, auto-create-pr, help, ...).
 
 # Codex
 codex
@@ -202,9 +202,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-fix-specs` | Normalize spec filenames in .ai/specs and .ai/specs/enterprise to the date+slug convention. Use this when legacy `SPEC-*` / `SPEC-ENT-*` names need to be cleaned up, when filename collisions appear after dropping numeric prefixes, or when links must be updated after normalization. |
 | `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
 | `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
-| `om-help` | Open Mercato workflow navigator. Use when asking "what should I do now?", "which skill?", "next steps?", "where do I start?", or "how do I add/build X in Open Mercato?". Covers navigation (recommends the next skill based on git/spec/PR state) and knowledge (answers how-to questions grounded in AGENTS.md). |
 | `om-refresh-standalone-harness` | Refresh the standalone-app AI harness from an explicit local Git release range. Use for "refresh standalone harness", "release harness audit", "scan release range", `--from/--to`, "odśwież harness", or when platform work changes a module, UMES extension point, installed public contract, generator surface, or release. |
-| `om-share-this-session` | Prepare and publicly share a complete sanitized coding-agent session plus a ZIP of this session's generated files, then open an upstream harness-feedback issue. Requires a fresh public-sharing acknowledgement after local privacy validation. |
 
 ### design
 
@@ -217,19 +215,19 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | Skill | When to use |
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
-| `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `main`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
 
 ### external (open-mercato/skills)
 
 These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
 
-`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-qa-pr`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-auto-fix-pr`, `om-close-fixed-issues`, `om-verify-in-repo`, `om-pr-autopilot`, `om-help`, `om-judge-agent-session`, `om-share-this-session`
 
 ### security
 
 | Skill | When to use |
 |-------|-------------|
-| `om-auto-sec-report` | Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `develop`. Writes markdown + HTML under `.ai/analysis/` with a top-level "Next steps — go deeper" list. |
+| `om-auto-sec-report` | Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `main`. Writes markdown + HTML under `.ai/analysis/` with a top-level "Next steps — go deeper" list. |
 | `om-auto-sec-report-pr` | Paranoid OWASP-oriented security analysis for a SINGLE unit of work — one PR, one spec under `.ai/specs/`, or one branch diff. Hunts non-obvious attack vectors beyond OWASP Top 10, flags same-pattern hotspots elsewhere, and emits "Next steps — go deeper" follow-ups. Writes markdown + HTML under `.ai/analysis/`; runs standalone or as a sub-unit of `om-auto-sec-report`. |
 
 ### analysis
@@ -240,6 +238,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) �
 |-------|-------------|
 | `om-app-spec-writing` | Write and review a business-level App Spec — domain model, workflows with ROI, user stories with failure paths, platform gap analysis in atomic commits, and a phased rollout — BEFORE any feature spec or code exists. One level above `om-spec-writing`, which decomposes the finished App Spec into feature specs. Use when the user says "create an app spec", "define business requirements", "what should we build". |
 | `om-gap-analysis` | Grounded platform gap analysis at engagement scale — turn a folder of client docs into an Epic/Story tree where every coverage verdict is re-run by executable gates against a validated checkout of the platform, scored in atomic commits, license-tier-tagged, and synthesized into a client-facing summary + backlog. Verifies coverage against the platform's code; it does not author requirements or specs. |
+| `om-wcag-guardian` | **DRAFT, not for PR enforcement — run only when explicitly asked.** Designs accessibility contracts and reviews UI-impacting changes against WCAG 2.2 AA and the EN 301 549 supplement with verified evidence (components, flows, styles, themes, accessible text, frontend dependencies, message or document templates, sanitizers, importers or exporters). |
 
 ### migration
 
@@ -249,6 +248,7 @@ Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) �
 | `om-auto-upgrade-0.6.6-to-0.6.7` | Migrate downstream Open Mercato user code from 0.6.6 to 0.6.7. Applies the pg-errors import move, safely unwraps proven scheduler queue payload consumers, audits query-index callbacks and removed scheduler metadata, then typechecks and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.6.7", "migrate 0.6.6 to 0.6.7", or "apply the 0.6.7 upgrade notes". |
 | `om-auto-upgrade-0.6.7-to-0.7.0` | Migrate downstream Open Mercato user code from 0.6.7 to 0.7.0. Applies exact TanStack, settings-group, and removed-env edits; audits auth, search, workflow, facts, Redis, webhook, and security-header changes; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.7.0", "migrate 0.6.7 to 0.7.0", or "apply the 0.7.0 upgrade notes". |
 | `om-auto-upgrade-0.7.0-to-0.8.0` | Migrate downstream Open Mercato user code from 0.7.0 to 0.8.0. Audits entry.overrides CLI/worker/scheduler dispatch, sales line discount_amount semantics, AlertDescription ref types, devices API camelCase, deal-status "lost" spelling and canonical vocabulary, the outbound-email Communications Hub provider module, interaction participant userId, makeCrudRoute repeated query params, and createTimeProjectFixture's customerId; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.8.0", "migrate 0.7.0 to 0.8.0", or "apply the 0.8.0 upgrade notes". |
+| `om-auto-upgrade-0.8.0-to-0.9.0` | Migrate downstream Open Mercato user code from 0.8.0 to 0.9.0. Enables `progress` before `customers` in src/modules.ts; audits catalog bulk-delete job scope, redoInput for secret-bearing commands, thrown CrudHttpError statuses, attachment request scope, directory organization hierarchy omission, SUB_WORKFLOW output ports, accent-insensitive search helpers, OpenAI-compatible preset apiMode, snapshot date revival, Gmail oauthClient, host locale overrides, CrudForm injected field ids, ChannelScope null organizations, duplicate ai_assistant encryption maps, WRONG_KEY encryption errors, the telemetry bootstrap, SSE API-key consumers, empty organization scopes, and the route-identity header; validates the app; and reports manual follow-up. Triggers on "upgrade Open Mercato to 0.9.0", "migrate 0.8.0 to 0.9.0", or "apply the 0.9.0 upgrade notes". |
 
 ### infra
 

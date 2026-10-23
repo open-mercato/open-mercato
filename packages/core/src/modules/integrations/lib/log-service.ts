@@ -94,6 +94,45 @@ function reportErrorLog(input: LogInput, scope: IntegrationScope): void {
   }
 }
 
+const LATEST_LOGS_DEFAULT_LIMIT = 1
+const LATEST_LOGS_MAX_LIMIT = 20
+
+function clampLatestLogsLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return LATEST_LOGS_DEFAULT_LIMIT
+  return Math.min(Math.max(Math.floor(limit), 1), LATEST_LOGS_MAX_LIMIT)
+}
+
+/**
+ * @internal Newest-first rows of one integration and scope whose `code` is one of `codes`,
+ * optionally narrowed to rows whose `payload.disconnectId` equals `disconnectId` and to rows
+ * created at or after `createdFrom`.
+ * `limit` defaults to 1 and is clamped to 1–20.
+ */
+export async function findLatestIntegrationLogsByCodes(
+  em: EntityManager,
+  integrationId: string,
+  codes: readonly string[],
+  scope: IntegrationScope,
+  options?: { disconnectId?: string; createdFrom?: Date; limit?: number },
+): Promise<IntegrationLog[]> {
+  if (codes.length === 0) return []
+  const where: FilterQuery<IntegrationLog> = {
+    integrationId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    code: { $in: [...codes] },
+  }
+  if (options?.disconnectId !== undefined) where.payload = { disconnectId: options.disconnectId }
+  if (options?.createdFrom !== undefined) where.createdAt = { $gte: options.createdFrom }
+  return findWithDecryption(
+    em,
+    IntegrationLog,
+    where,
+    { orderBy: { createdAt: 'DESC' }, limit: clampLatestLogsLimit(options?.limit) },
+    scope,
+  )
+}
+
 export function createIntegrationLogService(em: EntityManager) {
   return {
     async write(input: LogInput, scope: IntegrationScope): Promise<IntegrationLog> {

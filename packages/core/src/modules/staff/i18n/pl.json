@@ -269,6 +269,8 @@
   "staff.leaveRequests.errors.profileLoad": "Nie udało się załadować profilu.",
   "staff.leaveRequests.errors.profileRequired": "Najpierw utwórz swój profil.",
   "staff.leaveRequests.errors.reject": "Nie udało się odrzucić wniosku urlopowego.",
+  "staff.leaveRequests.errors.undoAfterDecision": "Ten wniosek urlopowy został już zatwierdzony lub odrzucony i nie można go już cofnąć. Najpierw cofnij decyzję.",
+  "staff.leaveRequests.errors.undoMemberMissing": "Pierwotny członek zespołu tego wniosku urlopowego już nie istnieje, więc nie można cofnąć zmiany.",
   "staff.leaveRequests.form.actions.create": "Utwórz",
   "staff.leaveRequests.form.actions.save": "Zapisz",
   "staff.leaveRequests.form.createTitle": "Utwórz wniosek urlopowy",
