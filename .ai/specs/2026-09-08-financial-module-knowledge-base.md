@@ -2904,3 +2904,56 @@ of Accounts and GL Account Balances in the same round; the ledger code
 - **Open for the `financial_pl` pass.** JPK_KR_PD maps Z_6/Z_9 to the
   header currency in the specs read so far; the mapping has to follow the
   line currency. Recorded here so the pass does not rediscover it.
+
+### 2026-10-23 (cont. — booking-day rate, rounding line, payment-day difference, settlement accounts)
+
+Checked in this pass: the code of `currencies/services/exchangeRateService.ts`
+and `rateFetchingService.ts`; the Multi-Currency, AP, SIGLP, GL, Cash & Bank
+and JPK specs; Comarch Optima's help (currency documents, settlement in
+different currencies); Odoo's and ERPNext's documentation on exchange
+differences at payment; the text of art. 30 ustawy o rachunkowości; articles
+quoting art. 106e ust. 11 and art. 31a ustawy o VAT. The Kieso text was not
+re-read in this pass.
+
+- **`getRate` semantics (confirmed in code).** It tests the requested date
+  first, then steps back day by day up to `maxDaysBack` (default 30), returns
+  `actualDate`, rejects a future date. It fetches from the providers only when
+  no row of any source exists for the date. The scheduled fetch's provider
+  enum is `NBP`, `Raiffeisen Bank Polska`, `Custom` (no Table A). Consequence:
+  a document rate "against the issue date" is the issue day's rate, and a day
+  with a stored Table C row never gets its Table A row fetched on retry.
+  Decided: callers pass operation date − 1 day (documents) or the valuation
+  date; an optional `source` on `getRate` is proposed (Multi-Currency 9f/9g).
+- **Rounding on a foreign-currency invoice.** The law fixes rounding to the
+  full grosz, half up (art. 106e ust. 11); it does not say whether VAT is
+  converted per line or per invoice. Comarch Optima converts net, VAT and gross
+  separately by default and corrects the VAT line when net plus VAT differ from
+  gross (a configurable alternative converts net and derives VAT and gross from
+  it); on multi-line documents it corrects the line with the highest VAT rate;
+  it uses no separate rounding account. In a simulation of 796 invoice amounts at four
+  rates about a quarter differed by more than half a grosz between net plus VAT
+  and gross. Decided by the team: every line is converted on its own and the
+  difference goes to one ordinary base-currency line on `roundingAccountId`
+  (AP, SIGLP).
+- **VAT in złoty.** Art. 106e ust. 11 and art. 31a: the VAT amount in złoty uses
+  the rate of the last business day before the tax obligation arises, which is
+  not always the invoice date. Not in any spec before this pass; it belongs to
+  `financial_pl` (VAT register, JPK_V7, KSeF). Whether KSeF FA(3) requires the
+  złoty VAT on a foreign-currency invoice is unchecked.
+- **Realized difference at payment.** Art. 30 ust. 2 pkt 1 and ust. 4: a payment
+  is booked at the rate actually applied that day, differences go to financial
+  income or costs; nothing says one entry or two. Odoo books the difference in a
+  separate entry in its own journal after reconciliation; ERPNext books it in
+  the payment entry on an exchange gain/loss account; Optima creates it
+  automatically at settlement (not specified further). The controller's e-mail
+  of 2026-10-23 decides for us: conversion difference between two currencies in
+  the payment entry, invoice-rate versus payment-rate difference as its own
+  entry.
+- **Settlement accounts carry no `currencyId`.** The controller keeps one
+  settlement account per contractor in the base currency and a currency on every
+  document line; a currency set on such an account would reject foreign lines.
+- **Gap named.** Revaluation of foreign-currency bank accounts by their balance
+  in the account's currency is not in the Multi-Currency spec (Out of scope).
+- **JPK_KR_PD currency fields.** The Ministry's JPK_KR (v1) instruction marks
+  the foreign-amount and currency-code fields optional; a vendor mapping leaves
+  them empty on PLN lines. Not checked against the JPK_KR_PD XSD.
