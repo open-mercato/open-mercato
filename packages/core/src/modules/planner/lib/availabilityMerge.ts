@@ -3,6 +3,7 @@ type AvailabilityKind = 'availability' | 'unavailability'
 export type AvailabilityRuleLike = {
   id?: string
   rrule: string
+  timezone?: string
   exdates?: string[]
   kind?: AvailabilityKind
   note?: string | null
@@ -28,6 +29,45 @@ type ParsedRule = {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const timezoneFormatters = new Map<string, Intl.DateTimeFormat>()
+
+function zonedParts(instant: Date, timezone: string): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  let formatter = timezoneFormatters.get(timezone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    })
+    if (timezoneFormatters.size >= 64) timezoneFormatters.delete(timezoneFormatters.keys().next().value!)
+    timezoneFormatters.set(timezone, formatter)
+  }
+  const parts = formatter.formatToParts(instant)
+  const number = (kind: string) => Number(parts.find((part) => part.type === kind)?.value)
+  return { year: number('year'), month: number('month'), day: number('day'), hour: number('hour'), minute: number('minute'), second: number('second') }
+}
+
+function zonedWallToInstant(wall: Date, timezone: string): Date | null {
+  const target = wall.getTime()
+  let candidate = target
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = zonedParts(new Date(candidate), timezone)
+    const displayed = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
+    const next = candidate + target - displayed
+    if (next === candidate) return new Date(candidate)
+    candidate = next
+  }
+  return null
+}
+
+function zonedStartOfDay(dayKey: string, timezone: string): Date | null {
+  return zonedWallToInstant(new Date(`${dayKey}T00:00:00Z`), timezone)
+}
+
+function dayKeyForRule(instant: Date, timezone?: string): string {
+  if (!timezone || timezone === 'UTC' || timezone === 'Etc/UTC' || timezone === 'Etc/GMT') return toDayKey(instant)
+  const parts = zonedParts(instant, timezone)
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`
+}
 
 function parseRrule(rule: string): ParsedRule | null {
   const dtStartMatch = rule.match(/DTSTART[:=](\d{8}T\d{6}Z?)/)
@@ -77,10 +117,10 @@ function buildExdateSets(exdates?: string[]) {
   return { dateOnly, dateTime }
 }
 
-function shouldExcludeOccurrence(startAt: Date, exdates?: string[]): boolean {
+function shouldExcludeOccurrence(startAt: Date, exdates?: string[], timezone?: string): boolean {
   const { dateOnly, dateTime } = buildExdateSets(exdates)
   if (dateTime.has(startAt.getTime())) return true
-  const dayKey = startAt.toISOString().slice(0, 10)
+  const dayKey = dayKeyForRule(startAt, timezone)
   return dateOnly.has(dayKey)
 }
 
@@ -92,14 +132,46 @@ function startOfDay(value: Date): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
 }
 
-function expandRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: AvailabilityRange): AvailabilityWindow[] {
+function expandZonedRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: AvailabilityRange, weeklyScheduleTemplate: boolean): AvailabilityWindow[] {
+  const timezone = rule.timezone!
+  const anchor = zonedParts(parsed.startAt, timezone)
+  const anchorWall = Date.UTC(anchor.year, anchor.month - 1, anchor.day, anchor.hour, anchor.minute, anchor.second)
+  const step = parsed.freq === 'WEEKLY' ? 7 * DAY_MS : DAY_MS
+  const duration = parsed.durationMinutes * 60000
+  const windows: AvailabilityWindow[] = []
+  const rangeAnchor = zonedParts(range.start, timezone)
+  const rangeStartWall = Date.UTC(rangeAnchor.year, rangeAnchor.month - 1, rangeAnchor.day, rangeAnchor.hour, rangeAnchor.minute, rangeAnchor.second)
+  const rangeOffset = Math.floor((rangeStartWall - duration - DAY_MS - anchorWall) / step)
+  const skipped = weeklyScheduleTemplate && parsed.freq === 'WEEKLY' && parsed.count === undefined ? rangeOffset : Math.max(0, rangeOffset)
+  let wall = new Date(anchorWall + skipped * step)
+  let remaining = (parsed.count ?? Number.POSITIVE_INFINITY) - skipped
+  while (wall.getTime() <= range.end.getTime() + DAY_MS && remaining > 0) {
+    const start = zonedWallToInstant(wall, timezone)
+    if (start && !shouldExcludeOccurrence(start, rule.exdates, timezone)) {
+      const end = new Date(start.getTime() + duration)
+      if (end > range.start && start < range.end) windows.push({ start, end, ruleId: rule.id })
+    }
+    wall = new Date(wall.getTime() + step)
+    remaining -= 1
+  }
+  return windows
+}
+
+function expandRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: AvailabilityRange, weeklyScheduleTemplate: boolean): AvailabilityWindow[] {
   const { startAt, durationMinutes, freq, count, repeat } = parsed
   if (repeat === 'once') {
-    if (shouldExcludeOccurrence(startAt, rule.exdates)) return []
-    const start = startOfDay(startAt)
-    const end = new Date(start.getTime() + DAY_MS)
+    if (shouldExcludeOccurrence(startAt, rule.exdates, rule.timezone)) return []
+    const dayKey = dayKeyForRule(startAt, rule.timezone)
+    const start = rule.timezone ? zonedStartOfDay(dayKey, rule.timezone) : startOfDay(startAt)
+    if (!start) return []
+    const nextDay = new Date(new Date(`${dayKey}T00:00:00Z`).getTime() + DAY_MS).toISOString().slice(0, 10)
+    const end = rule.timezone ? zonedStartOfDay(nextDay, rule.timezone) : new Date(start.getTime() + DAY_MS)
+    if (!end) return []
     if (end <= range.start || start >= range.end) return []
     return [{ start, end, ruleId: rule.id }]
+  }
+  if (rule.timezone && !['UTC', 'Etc/UTC', 'Etc/GMT'].includes(rule.timezone)) {
+    return expandZonedRule(rule, parsed, range, weeklyScheduleTemplate)
   }
   const durationMs = durationMinutes * 60000
   const windows: AvailabilityWindow[] = []
@@ -110,39 +182,24 @@ function expandRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: Avail
     windows.push({ start, end, ruleId: rule.id })
   }
 
-  if (freq === 'DAILY') {
-    let cursor = new Date(startAt)
-    let remaining = count ?? Number.POSITIVE_INFINITY
-    while (cursor < range.end && remaining > 0) {
-      addWindow(new Date(cursor))
-      cursor = new Date(cursor.getTime() + DAY_MS)
-      remaining -= 1
-    }
-    return windows
-  }
-
-  let cursor = new Date(startAt)
-  let remaining = count ?? Number.POSITIVE_INFINITY
-  if (cursor < range.start) {
-    const diffDays = Math.floor((range.start.getTime() - cursor.getTime()) / DAY_MS)
-    const weeksToAdd = Math.floor(diffDays / 7)
-    if (weeksToAdd > 0) {
-      cursor = new Date(cursor.getTime() + weeksToAdd * 7 * DAY_MS)
-    }
-  }
+  const step = freq === 'WEEKLY' ? 7 * DAY_MS : DAY_MS
+  const rangeOffset = Math.floor((range.start.getTime() - durationMs - startAt.getTime()) / step)
+  const skipped = weeklyScheduleTemplate && freq === 'WEEKLY' && count === undefined ? rangeOffset : Math.max(0, rangeOffset)
+  let cursor = new Date(startAt.getTime() + skipped * step)
+  let remaining = (count ?? Number.POSITIVE_INFINITY) - skipped
   while (cursor < range.end && remaining > 0) {
     addWindow(new Date(cursor))
-    cursor = new Date(cursor.getTime() + 7 * DAY_MS)
+    cursor = new Date(cursor.getTime() + step)
     remaining -= 1
   }
   return windows
 }
 
-function expandRules(rules: AvailabilityRuleLike[], range: AvailabilityRange): AvailabilityWindow[] {
+function expandRules(rules: AvailabilityRuleLike[], range: AvailabilityRange, weeklyScheduleTemplate: boolean): AvailabilityWindow[] {
   const expanded = rules.flatMap((rule) => {
     const parsed = parseRrule(rule.rrule)
     if (!parsed) return []
-    return expandRule(rule, parsed, range)
+    return expandRule(rule, parsed, range, weeklyScheduleTemplate)
   })
   return expanded.sort((a, b) => a.start.getTime() - b.start.getTime())
 }
@@ -171,8 +228,11 @@ function subtractWindow(window: AvailabilityWindow, blockers: AvailabilityWindow
 export function getMergedAvailabilityWindows(params: {
   rules: AvailabilityRuleLike[]
   range: AvailabilityRange
+  respectTimezone?: boolean
+  weeklyScheduleTemplate?: boolean
 }): AvailabilityWindow[] {
-  const parsedRules = params.rules
+  const rules = params.respectTimezone ? params.rules : params.rules.map((rule) => ({ ...rule, timezone: undefined }))
+  const parsedRules = rules
     .map((rule) => {
       const parsed = parseRrule(rule.rrule)
       if (!parsed) return null
@@ -180,16 +240,17 @@ export function getMergedAvailabilityWindows(params: {
     })
     .filter((entry): entry is { rule: AvailabilityRuleLike; parsed: ParsedRule } => entry !== null)
 
-  const overrideDays = new Map<string, AvailabilityKind>()
+  const overrideDays = new Map<string, { kind: AvailabilityKind; dayKey: string; timezone?: string }>()
   parsedRules
     .filter(({ parsed }) => parsed.repeat === 'once')
     .forEach(({ rule, parsed }) => {
-      const dayKey = toDayKey(parsed.startAt)
+      const dayKey = dayKeyForRule(parsed.startAt, rule.timezone)
+      const overrideKey = `${rule.timezone ?? 'UTC'}|${dayKey}`
       const kind = rule.kind === 'unavailability' ? 'unavailability' : 'availability'
       if (kind === 'unavailability') {
-        overrideDays.set(dayKey, 'unavailability')
-      } else if (!overrideDays.has(dayKey)) {
-        overrideDays.set(dayKey, 'availability')
+        overrideDays.set(overrideKey, { kind, dayKey, timezone: rule.timezone })
+      } else if (!overrideDays.has(overrideKey)) {
+        overrideDays.set(overrideKey, { kind, dayKey, timezone: rule.timezone })
       }
     })
 
@@ -200,20 +261,24 @@ export function getMergedAvailabilityWindows(params: {
     .filter(({ parsed, rule }) => parsed.repeat !== 'once' && rule.kind === 'unavailability')
     .map(({ rule }) => rule)
 
-  const availabilityWindows = expandRules(availabilityRules, params.range)
-    .filter((window) => !overrideDays.has(toDayKey(window.start)))
-  const unavailabilityWindows = expandRules(unavailabilityRules, params.range)
+  const availabilityWindows = availabilityRules.flatMap((rule) =>
+    expandRules([rule], params.range, params.weeklyScheduleTemplate === true).filter((window) =>
+      !overrideDays.has(`${rule.timezone ?? 'UTC'}|${dayKeyForRule(window.start, rule.timezone)}`)))
+  const unavailabilityWindows = expandRules(unavailabilityRules, params.range, params.weeklyScheduleTemplate === true)
 
   const merged = unavailabilityWindows.length === 0
     ? availabilityWindows
     : availabilityWindows.flatMap((window) => subtractWindow(window, unavailabilityWindows))
 
   const overrideWindows: AvailabilityWindow[] = []
-  overrideDays.forEach((kind, dayKey) => {
+  overrideDays.forEach(({ kind, dayKey, timezone }) => {
     if (kind !== 'availability') return
-    const start = new Date(`${dayKey}T00:00:00Z`)
+    const start = timezone ? zonedStartOfDay(dayKey, timezone) : new Date(`${dayKey}T00:00:00Z`)
+    if (!start) return
     if (Number.isNaN(start.getTime())) return
-    const end = new Date(start.getTime() + DAY_MS)
+    const nextDay = new Date(new Date(`${dayKey}T00:00:00Z`).getTime() + DAY_MS).toISOString().slice(0, 10)
+    const end = timezone ? zonedStartOfDay(nextDay, timezone) : new Date(start.getTime() + DAY_MS)
+    if (!end) return
     if (end <= params.range.start || start >= params.range.end) return
     overrideWindows.push({ start, end })
   })
