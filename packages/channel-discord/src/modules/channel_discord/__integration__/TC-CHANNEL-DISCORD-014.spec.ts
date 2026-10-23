@@ -34,14 +34,14 @@ test.describe('TC-CHANNEL-DISCORD-014: Connect Discord dialog', () => {
     await expect(dialog.getByText('Enable Developer Mode in Discord, right-click the server, Copy Server ID.', { exact: false })).toBeVisible()
 
     await dialog.getByRole('button', { name: 'Connect', exact: true }).click()
-    await expect(dialog.getByText('This field is required.')).toHaveCount(3)
+    await expect(dialog.getByText('This field is required', { exact: true })).toHaveCount(3)
 
     await dialog.locator('[data-crud-field-id="botToken"] input').fill('not-a-real-token')
     await dialog.locator('[data-crud-field-id="applicationId"] input').fill('123456789012345678')
     await dialog.locator('[data-crud-field-id="publicKey"] input').fill('not-hex')
     await dialog.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(dialog.getByText('Enter the 64-character hex public key from the Developer Portal.')).toBeVisible()
-    await expect(dialog.getByText('This field is required.')).toHaveCount(0)
+    await expect(dialog.getByText('This field is required', { exact: true })).toHaveCount(0)
 
     expect(connectRequests, 'client-side validation must stop the request').toEqual([])
   })
