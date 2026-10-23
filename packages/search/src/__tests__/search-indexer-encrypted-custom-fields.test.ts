@@ -175,6 +175,64 @@ describe('SearchIndexer encrypted custom fields', () => {
     expect(indexed.fields.entity_id).toBe('entity-1')
   })
 
+  it('resolves the encrypted definitions once per entity for a whole indexRecordsById batch', async () => {
+    const resolver = jest.fn(encryptedTaxNumber)
+    const { indexer, searchService, record } = setup({ resolver })
+    const records = ['profile-1', 'profile-2', 'profile-3'].map((id) => ({ ...record, id }))
+    ;(indexer as unknown as { queryEngine: QueryEngine }).queryEngine = {
+      query: jest.fn(async (entity, opts) => {
+        if (entity === parentEntityId) return { items: [], total: 0, page: 1, pageSize: 1 } as QueryResult
+        const wantedId = (opts?.filters as { id?: string } | undefined)?.id
+        const items = records.filter((candidate) => candidate.id === wantedId)
+        return { items, total: items.length, page: 1, pageSize: 1 } as QueryResult
+      }),
+    }
+
+    await indexer.indexRecordsById({
+      items: records.map((candidate) => ({ entityId: companyEntityId, recordId: candidate.id })),
+      tenantId: 'tenant-1',
+    })
+
+    expect(searchService.bulkIndex.mock.calls[0][0]).toHaveLength(3)
+    expect(resolver.mock.calls.filter(([entityId]) => entityId === companyEntityId)).toHaveLength(1)
+  })
+
+  it('excludes a custom field whose query engine alias sanitizes its key', async () => {
+    const { indexer, contexts, record } = setup({ resolver: async () => new Set(['order-ref', 'order_ref']) })
+
+    await indexer.indexRecord({
+      entityId: companyEntityId,
+      recordId: record.id,
+      tenantId: 'tenant-1',
+      record: { ...record, cf_order_ref: 'REF-SECRET' },
+    })
+
+    expect(contexts[0].record).not.toHaveProperty('cf_order_ref')
+  })
+
+  it('applies keys a build callback deletes from a filtered record to the indexed fields', async () => {
+    const { indexer, searchService, record } = setup({ resolver: encryptedTaxNumber })
+    const config = (indexer as unknown as { entityConfigMap: Map<string, { buildSource?: (ctx: SearchBuildContext) => Promise<unknown> }> }).entityConfigMap.get(companyEntityId)
+    const originalBuildSource = config?.buildSource
+    if (config) {
+      config.buildSource = async (ctx) => {
+        delete ctx.record.legal_name
+        return originalBuildSource?.(ctx)
+      }
+    }
+
+    await indexer.indexRecord({
+      entityId: companyEntityId,
+      recordId: record.id,
+      tenantId: 'tenant-1',
+      record: { ...record },
+    })
+
+    const indexed = searchService.index.mock.calls[0][0]
+    expect(indexed.fields).not.toHaveProperty('legal_name')
+    expect(indexed.fields['cf:tax_number']).toBe('GB123456')
+  })
+
   it('excludes every custom field when the encrypted definitions cannot be resolved', async () => {
     const { indexer, searchService, contexts, record } = setup({
       resolver: async () => {

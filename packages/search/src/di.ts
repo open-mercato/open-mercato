@@ -28,8 +28,10 @@ import { createPresenterEnricher } from './lib/presenter-enricher'
 import { createEncryptionMapResolver } from './lib/encryption-map-resolver'
 import {
   createEncryptedCustomFieldKeysResolver,
+  type CustomFieldDefinitionsDatabase,
   type EncryptedCustomFieldKeysResolver,
 } from './lib/encrypted-custom-field-resolver'
+import { reportSearchError } from './lib/debug'
 
 export { createEncryptionMapResolver } from './lib/encryption-map-resolver'
 export {
@@ -55,6 +57,10 @@ function getSearchModuleGlobals(): SearchModuleGlobals {
 function shouldExcludeEncryptedFields(): boolean {
   const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+type KyselyEntityManager = {
+  getKysely<Database>(): Kysely<Database>
 }
 
 function createUnavailableEncryptedCustomFieldKeysResolver(): EncryptedCustomFieldKeysResolver {
@@ -261,10 +267,12 @@ export function registerSearchModule(
 
   let encryptedCustomFieldKeysResolver: EncryptedCustomFieldKeysResolver
   try {
-    const em = container.resolve<any>('em')
-    const db = em.getKysely() as Kysely<any>
-    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(db)
-  } catch {
+    const em = container.resolve<KyselyEntityManager>('em')
+    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(
+      em.getKysely<CustomFieldDefinitionsDatabase>(),
+    )
+  } catch (error) {
+    reportSearchError('SearchModule', error, 'search.custom_field_definitions_unavailable')
     encryptedCustomFieldKeysResolver = createUnavailableEncryptedCustomFieldKeysResolver()
   }
 

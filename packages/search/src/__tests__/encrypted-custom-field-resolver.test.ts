@@ -28,6 +28,14 @@ describe('encrypted custom-field keys resolver', () => {
     expect(Array.from(keys).sort()).toEqual(['national_id', 'tax_number'])
   })
 
+  it('also returns the query engine alias form of a key with characters outside snake_case', async () => {
+    const { db } = createDatabase([{ key: 'Order-Ref', config_json: { encrypted: true } }])
+
+    const keys = await createEncryptedCustomFieldKeysResolver(db as never)('customers:customer_company_profile')
+
+    expect(Array.from(keys).sort()).toEqual(['order-ref', 'order_ref'])
+  })
+
   it('reads non-deleted definitions of the requested entity without a scope filter', async () => {
     const { db, query } = createDatabase([])
 

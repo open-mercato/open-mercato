@@ -10,6 +10,7 @@
 
 import { createLogger, type Logger } from '@open-mercato/shared/lib/logger'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const packageLogger = createLogger('search')
 const componentLoggers = new Map<string, Logger>()
@@ -58,4 +59,25 @@ export function searchWarn(prefix: string, message: string, data?: Record<string
  */
 export function searchError(prefix: string, message: string, data?: Record<string, unknown>): void {
   componentLogger(prefix).error(message, data)
+}
+
+/**
+ * Report a caught failure to the active telemetry backend under a stable
+ * `search.<reason>` code. A telemetry fault degrades to a warning, so reporting
+ * never changes what the caller does next.
+ */
+export function reportSearchError(
+  prefix: string,
+  error: unknown,
+  code: string,
+  attributes?: Record<string, string | number | boolean | undefined>,
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'search', code, attributes })
+  } catch (telemetryError) {
+    componentLogger(prefix).warn('Telemetry error report failed', {
+      code,
+      error: telemetryError instanceof Error ? telemetryError.message : telemetryError,
+    })
+  }
 }

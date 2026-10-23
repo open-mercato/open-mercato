@@ -255,6 +255,9 @@ export type SearchServiceOptions = {
 
 /**
  * Context passed to buildSource, formatResult, resolveUrl, and resolveLinks.
+ * `SearchIndexer` omits custom fields declared `encrypted` from `customFields`, from the record's
+ * `cf:` / `cf_` keys and from records loaded through `queryEngine`; when their definitions cannot be
+ * read, it omits every custom field.
  */
 export type SearchBuildContext = {
   /** The record being indexed */

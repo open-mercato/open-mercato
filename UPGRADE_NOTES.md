@@ -24,11 +24,11 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### Search no longer indexes the plaintext of encrypted custom fields
+### Search sources no longer receive the plaintext of encrypted custom fields
 
-`SearchIndexer` now leaves custom fields whose definition is `encrypted` out of the records and custom fields it hands to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which reached the fulltext index and, with vector search on, the embedding provider. The hashed `search_tokens` index is unchanged.
+`SearchIndexer` now leaves custom fields whose definition is `encrypted` out of the records and custom fields it hands to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which the vector strategy sends to the embedding provider and stores with the vector document, and any source could copy them into the presenter or links stored in the fulltext and vector indexes. The record fields an index receives (`IndexableRecord.fields`) are unchanged: the hashed `search_tokens` index still covers encrypted custom fields, the fulltext driver keeps applying the entity's `fieldPolicy` and `SEARCH_EXCLUDE_ENCRYPTED_FIELDS`, and the vector strategy's fallback text for a record without source text is built from them as before.
 
-**Action for operators:** values indexed before the upgrade stay in the fulltext and vector indexes until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading.
+**Action for operators:** text, presenters and links indexed before the upgrade keep their values until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading.
 
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
