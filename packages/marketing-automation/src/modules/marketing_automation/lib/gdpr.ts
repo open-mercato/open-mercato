@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   MarketingCampaignRun,
   MarketingConsent,
@@ -6,6 +7,7 @@ import {
   MarketingConsentEvent,
   MarketingContactPreference,
   MarketingCustomerScoreEntry,
+  MarketingInboundRequest,
   MarketingSubjectErasure,
   MarketingMessageSend,
   MarketingMessageSendEvent,
@@ -68,6 +70,13 @@ export type SubjectExport = {
    * request to see everything held about somebody does not get to exclude the parts that went wrong.
    */
   undeliveredPayloads: Array<{ source: string; eventId: string | null; payload: Record<string, unknown>; error: string; createdAt: string }>
+  /**
+   * What an outside system posted that named this person, outside of any run.
+   *
+   * The same free-form body as `runs[].triggerContext`, kept here because a post that never matched a
+   * trigger — or arrived before the matching campaign existed — still identified them and is still held.
+   */
+  inboundRequests: Array<{ hookId: string; outcome: string; body: Record<string, unknown> | null; receivedAt: string }>
   /** When this person's marketing data was erased, if it ever was: the only thing erasure writes. */
   erasedAt: string | null
 }
@@ -102,6 +111,7 @@ export async function exportSubjectData(
     referredBy,
     erasure,
     deadLetters,
+    inboundRequests,
   ] = await Promise.all([
     em.find(MarketingConsent, where),
     em.find(MarketingConsentEvent, where, { orderBy: { occurredAt: 'DESC' } }),
@@ -146,6 +156,9 @@ export async function exportSubjectData(
       },
       { orderBy: { createdAt: 'DESC' } },
     ).then((rows) => rows.filter((row) => JSON.stringify(row.payload ?? {}).includes(subjectEntityId))),
+    // `body` is encrypted at rest (the same fix that closed the gap it used to sit outside of) — read through
+    // the decrypting helper, or a subject access request would hand back ciphertext instead of what arrived.
+    findWithDecryption(em, MarketingInboundRequest, where, { orderBy: { receivedAt: 'DESC' } }, scope),
   ])
 
   // Engagement is keyed to the send, not the person, so it is reached through this subject's runs — the
@@ -238,6 +251,12 @@ export async function exportSubjectData(
       payload: row.payload,
       error: row.error,
       createdAt: row.createdAt.toISOString(),
+    })),
+    inboundRequests: inboundRequests.map((row) => ({
+      hookId: row.hookId,
+      outcome: row.outcome,
+      body: row.body ?? null,
+      receivedAt: row.receivedAt.toISOString(),
     })),
     erasedAt: erasure ? erasure.erasedAt.toISOString() : null,
   }

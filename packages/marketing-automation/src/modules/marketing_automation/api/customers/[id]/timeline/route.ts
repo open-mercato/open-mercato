@@ -17,6 +17,7 @@ import {
 } from '../../../../data/entities.js'
 import { findTrigger } from '../../../../lib/trigger-catalog.js'
 import { readPathUuid } from '../../../shared.js'
+import { isOlderThanCursor, pageTimelineEntries, readTimelineCursor } from '../../../../lib/analytics/timeline-page.js'
 
 /**
  * What happened to one person, in order.
@@ -59,6 +60,7 @@ export type TimelineKind =
   | 'sent'
   | 'suppressed'
   | 'failed'
+  | 'pending'
   | 'opened'
   | 'clicked'
   | 'points'
@@ -110,16 +112,13 @@ function readLimit(url: URL): number {
 }
 
 /**
- * The cursor, as an instant rather than an offset.
- *
  * An offset over a merged stream is wrong the moment anything is written between two pages — the reader
- * either sees a row twice or misses one. "Everything older than this" cannot drift.
+ * either sees a row twice or misses one. "Everything older than this" cannot drift. See
+ * `lib/analytics/timeline-page.ts` for the instant-plus-id cursor this builds and how a tie at the exact
+ * same instant is still placed on exactly one page.
  */
-function readBefore(url: URL): Date | null {
-  const raw = url.searchParams.get('before')
-  if (!raw) return null
-  const parsed = new Date(raw)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
+function readBefore(url: URL) {
+  return readTimelineCursor(url.searchParams)
 }
 
 export async function GET(req: Request) {
@@ -139,7 +138,11 @@ export async function GET(req: Request) {
 
   // One more than asked for, from every source: that is what makes `hasMore` an answer rather than a guess.
   const page = limit + 1
-  const olderThan = <T extends string>(field: T) => (before ? { [field]: { $lt: before } } : {})
+  // `$lte`, not `$lt`: the precise cut at the cursor's OWN instant (including the id tiebreak) happens in
+  // `add()` below, over the merged stream. Filtering here with `$lt` would silently drop any row that
+  // shares the cursor's exact instant but lost the tiebreak on the previous page — this over-fetches by
+  // at most the handful of rows at one instant, never under-fetches.
+  const olderThan = <T extends string>(field: T) => (before ? { [field]: { $lte: before.at } } : {})
 
   const runs = await em.find(
     MarketingCampaignRun,
@@ -183,17 +186,20 @@ export async function GET(req: Request) {
       { $or: [{ referrerEntityId: customerId }, { referredEntityId: customerId }], ...scope, ...olderThan('createdAt') },
       { orderBy: { createdAt: 'DESC' }, limit: page },
     ),
-    em.find(
+    // The body is encrypted at rest — nothing on this timeline reads it, but a raw `em.find` would still
+    // leave a ciphertext-bearing entity loaded unmanaged alongside the ones the subscriber already cleans.
+    findWithDecryption(
+      em,
       MarketingInboundRequest,
       { subjectEntityId: customerId, ...scope, ...olderThan('receivedAt') },
       { orderBy: { receivedAt: 'DESC' }, limit: page },
+      scope,
     ),
   ])
 
   const entries: TimelineEntry[] = []
   const add = (entry: TimelineEntry): void => {
-    if (before && new Date(entry.at).getTime() >= before.getTime()) return
-    entries.push(entry)
+    if (isOlderThanCursor(entry, before)) entries.push(entry)
   }
 
   for (const run of runs) {
@@ -213,7 +219,15 @@ export async function GET(req: Request) {
   for (const send of sends) {
     add({
       id: `send:${send.id}`,
-      kind: send.status === 'sent' ? 'sent' : send.status === 'suppressed' ? 'suppressed' : 'failed',
+      // `reserved` is a slot claimed before the provider call runs — in flight, not yet resolved either
+      // way. Folding it into `failed` told a reader a message had bounced when it was still being sent.
+      kind: send.status === 'sent'
+        ? 'sent'
+        : send.status === 'suppressed'
+          ? 'suppressed'
+          : send.status === 'reserved'
+            ? 'pending'
+            : 'failed',
       at: send.sentAt.toISOString(),
       campaignId: send.campaignId ?? null,
       campaignName: null,
@@ -324,8 +338,7 @@ export async function GET(req: Request) {
     })
   }
 
-  entries.sort((left, right) => right.at.localeCompare(left.at))
-  const pageEntries = entries.slice(0, limit)
+  const { pageEntries, hasMore, nextBefore, nextBeforeId } = pageTimelineEntries(entries, limit)
 
   /**
    * Names resolved for the page only.
@@ -345,9 +358,15 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     items: pageEntries,
-    hasMore: entries.length > limit,
+    hasMore,
     /** Pass back as `before` for the next page. Null when this page is the end of the stream. */
-    nextBefore: entries.length > limit ? pageEntries[pageEntries.length - 1]?.at ?? null : null,
+    nextBefore,
+    /**
+     * Pass back as `beforeId` alongside `nextBefore`. Without it a same-instant tie between two sources
+     * at the page boundary is dropped: `before` alone excludes everything at that instant, not just the
+     * entries this page already showed.
+     */
+    nextBeforeId,
   })
 }
 

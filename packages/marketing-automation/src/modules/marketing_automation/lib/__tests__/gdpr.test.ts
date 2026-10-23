@@ -76,11 +76,26 @@ describe('exportSubjectData', () => {
       // words, and the other three are choices they made.
       'MarketingSurveyPrompt', 'MarketingContactPreference', 'MarketingProductWatch', 'MarketingReferralRedemption',
       'MarketingSubjectErasure',
+      // Added after a review found the inbound-request log missing: erasure already deleted these rows,
+      // which means it already agreed they name the subject — the export just never said so.
+      'MarketingInboundRequest',
     ]) {
       expect(queried.has(entity)).toBe(true)
     }
     // Engagement is reached through the runs, because the event table holds no identity of its own.
     expect(queried.has('MarketingMessageSendEvent')).toBe(true)
+  })
+
+  test('includes what an outside system posted about this person', async () => {
+    const { em } = fakeEm({
+      MarketingInboundRequest: [
+        { id: 'req1', hookId: 'hook1', outcome: 'identified', body: { plan: 'pro' }, receivedAt: at },
+      ],
+    })
+    const result = await exportSubjectData(em, 'c1', scope, now)
+    expect(result.inboundRequests).toEqual([
+      { hookId: 'hook1', outcome: 'identified', body: { plan: 'pro' }, receivedAt: at.toISOString() },
+    ])
   })
 
   test('scopes every query by tenant, organization and subject', async () => {

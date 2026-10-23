@@ -950,6 +950,7 @@
   "marketing_automation.timeline.npsAnswered": "Ocena {score} na 10",
   "marketing_automation.timeline.npsAsked": "Pytanie o rekomendację",
   "marketing_automation.timeline.opened": "Otwarcie wiadomości",
+  "marketing_automation.timeline.pending": "Wiadomość w kolejce",
   "marketing_automation.timeline.pointsGained": "+{count} punktów",
   "marketing_automation.timeline.pointsLost": "{count} punktów",
   "marketing_automation.timeline.referralSent": "Użyto kodu polecającego tego klienta",
@@ -1008,5 +1009,6 @@
   "marketing_automation.widgets.overview.orders": "{count} zamówień",
   "marketing_automation.widgets.overview.revenue": "Przypisany przychód",
   "marketing_automation.widgets.overview.sent": "Wysłane wiadomości",
-  "marketing_automation.widgets.overview.window": "Okres"
+  "marketing_automation.widgets.overview.window": "Okres",
+  "notifications.categories.marketing": "Marketing"
 }

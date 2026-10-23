@@ -950,6 +950,7 @@
   "marketing_automation.timeline.npsAnswered": "Respondió {score} sobre 10",
   "marketing_automation.timeline.npsAsked": "Se le preguntó si nos recomendaría",
   "marketing_automation.timeline.opened": "Abrió el mensaje",
+  "marketing_automation.timeline.pending": "Mensaje en cola",
   "marketing_automation.timeline.pointsGained": "+{count} puntos",
   "marketing_automation.timeline.pointsLost": "{count} puntos",
   "marketing_automation.timeline.referralSent": "Se usó su código de recomendación",
@@ -1008,5 +1009,6 @@
   "marketing_automation.widgets.overview.orders": "{count} pedidos",
   "marketing_automation.widgets.overview.revenue": "Ingresos atribuidos",
   "marketing_automation.widgets.overview.sent": "Mensajes enviados",
-  "marketing_automation.widgets.overview.window": "Periodo"
+  "marketing_automation.widgets.overview.window": "Periodo",
+  "notifications.categories.marketing": "Marketing"
 }

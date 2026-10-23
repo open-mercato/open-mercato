@@ -8,6 +8,7 @@ import { findPeopleByAddresses } from '@open-mercato/core/modules/customers/lib/
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingInboundHook } from '../../data/entities.js'
 import { recordInboundRequest } from '../../lib/inbound-requests.js'
+import { isErasedSubject } from '../../lib/gdpr.js'
 import { emitMarketingAutomationEvent } from '../../events.js'
 import { resolveTrackingSecret, resolveTrackingSecrets } from '../../lib/tracking/secret.js'
 import {
@@ -222,7 +223,7 @@ async function resolveSubject(
      */
     if (UUID_PATTERN.test(customerId)) {
       const found = await em.findOne(CustomerEntity, { id: customerId, ...scope, deletedAt: null })
-      if (found) return found.id
+      if (found && !(await isErasedSubject(em, found.id, scope))) return found.id
     }
   }
   if (email) {
@@ -240,8 +241,16 @@ async function resolveSubject(
      * telling the caller would turn a leaked hook URL into an address-existence oracle.
      */
     const matches = await findPeopleByAddresses(em, [email], scope.tenantId, scope.organizationId)
-    if (matches.length > 0) return matches[0].id
+    if (matches.length > 0 && !(await isErasedSubject(em, matches[0].id, scope))) return matches[0].id
   }
+  /**
+   * An erased subject is never re-linked, by either identifier.
+   *
+   * Erasure unlinks every row that named them so a GDPR request stays true; a partner's NEXT post about the
+   * same address would otherwise write a fresh `subject_entity_id` right back onto a new inbound-request row
+   * and quietly undo it. Treated exactly like an unmatched address: the hook's outcome still says nobody
+   * matched, nothing is leaked, and no run starts.
+   */
   return null
 }
 

@@ -11,6 +11,7 @@ import type { StepOutcome } from '../../../../lib/engine/types.js'
 import { findTrigger } from '../../../../lib/trigger-catalog.js'
 import { readPathUuid } from '../../../shared.js'
 import { retryDeadRun } from '../../../../lib/runs.js'
+import { buildEngagementRunFilter, type RunEngagement } from '../../../../lib/analytics/engagement-filter.js'
 import { z } from 'zod'
 
 /**
@@ -101,40 +102,73 @@ export async function GET(req: Request) {
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   /**
-   * Which runs reached this stage, asked once and turned into an id set.
+   * Which runs reached this stage, asked as a correlated EXISTS rather than a materialized id list.
    *
    * The stage is defined by the same rows the funnel counts — a send for "received", a delivery event for
    * the other two — so the filter reads them rather than recomputing anything, and the two screens cannot
-   * drift apart. `distinct` because a run has many sends and many events and the question is only whether
-   * there is at least one.
+   * drift apart. An earlier version collected every matching `run_id` into a JS array first and then
+   * filtered with `id IN (…)`; on a large campaign that list grows with the campaign itself, which is an
+   * unbounded parameter list Postgres should not be asked to plan. `buildEngagementRunFilter` instead emits
+   * one `exists (…)` subquery, correlated on the candidate row, so nothing is collected into memory and the
+   * query's cost does not grow with how many people reached the stage.
    *
    * `em.execute` rather than `getConnection().execute`: the latter takes its own connection from the pool,
    * which puts the statement outside any transaction context it is called within.
    */
-  let engagedRunIds: string[] | null = null
+  const conditions = ['r.campaign_id = ?', 'r.tenant_id = ?', 'r.organization_id = ?']
+  const params: unknown[] = [campaign.id, scope.tenantId, scope.organizationId]
+  if (status) {
+    conditions.push('r.status = ?')
+    params.push(status)
+  }
   if (engagement !== null) {
-    const sql = engagement === 'received'
-      ? `select distinct run_id from marketing_message_sends
-          where tenant_id = ? and organization_id = ? and campaign_id = ? and status = 'sent' and run_id is not null`
-      : `select distinct run_id from marketing_message_send_events
-          where tenant_id = ? and organization_id = ? and campaign_id = ? and type = ?`
-    const params = engagement === 'received'
-      ? [scope.tenantId, scope.organizationId, campaign.id]
-      : [scope.tenantId, scope.organizationId, campaign.id, engagement === 'clicked' ? 'clicked' : 'opened']
-    const rows = await em.execute<Array<{ run_id: string }>>(sql, params)
-    engagedRunIds = rows.map((row) => row.run_id).filter((id): id is string => !!id)
+    const filter = buildEngagementRunFilter(engagement, campaign.id)
+    conditions.push(filter.sql)
+    params.push(...filter.params)
   }
+  const whereSql = conditions.join(' and ')
 
-  // Nobody reached the stage. `$in: []` is a query the ORM should not have to be trusted to get right.
-  if (engagedRunIds !== null && engagedRunIds.length === 0) {
-    return NextResponse.json({ items: [], total: 0, page, pageSize })
-  }
-
-  const [runs, total] = await em.findAndCount(
-    MarketingCampaignRun,
-    { campaignId: campaign.id, ...scope, ...(status ? { status } : {}), ...(engagedRunIds ? { id: { $in: engagedRunIds } } : {}) },
-    { orderBy: { startedAt: 'DESC' }, limit: pageSize, offset: (page - 1) * pageSize },
+  const countRows = await em.execute<Array<{ count: string }>>(
+    `select count(*) as count from marketing_campaign_runs r where ${whereSql}`,
+    params,
   )
+  const total = Number(countRows[0]?.count ?? 0)
+
+  type RawRun = {
+    id: string
+    subject_entity_id: string | null
+    trigger_event_id: string
+    status: string
+    current_step_index: number
+    attempts: number
+    last_error: string | null
+    started_at: Date
+    resume_at: Date | null
+    completed_at: Date | null
+    step_log: unknown
+  }
+  const rawRuns = total === 0 ? [] : await em.execute<RawRun[]>(
+    `select r.id, r.subject_entity_id, r.trigger_event_id, r.status, r.current_step_index,
+            r.attempts, r.last_error, r.started_at, r.resume_at, r.completed_at, r.step_log
+       from marketing_campaign_runs r
+      where ${whereSql}
+      order by r.started_at desc
+      limit ? offset ?`,
+    [...params, pageSize, (page - 1) * pageSize],
+  )
+  const runs = rawRuns.map((row) => ({
+    id: row.id,
+    subjectEntityId: row.subject_entity_id,
+    triggerEventId: row.trigger_event_id,
+    status: row.status,
+    currentStepIndex: row.current_step_index,
+    attempts: row.attempts,
+    lastError: row.last_error,
+    startedAt: row.started_at,
+    resumeAt: row.resume_at,
+    completedAt: row.completed_at,
+    stepLog: row.step_log,
+  }))
 
   /**
    * Who these runs are ABOUT, by name — and only for a reader allowed to know.

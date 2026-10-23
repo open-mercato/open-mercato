@@ -50,6 +50,18 @@ export default function InboundRequestsPage() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
 
+  /**
+   * The hook this screen opened for, if any.
+   *
+   * "Show what arrived" on the hooks screen links here with `?hookId=<id>` already in the URL — it means
+   * ONE hook's requests, not every hook's. Reading it only here, rather than ignoring it, is the whole fix:
+   * without it this screen always showed every request from every hook, which is not what the row action promised.
+   */
+  const hookId = React.useMemo(
+    () => (typeof window === 'undefined' ? null : new URL(window.location.href).searchParams.get('hookId')),
+    [],
+  )
+
   const [rows, setRows] = React.useState<RequestRow[]>([])
   const [retentionDays, setRetentionDays] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -59,8 +71,10 @@ export default function InboundRequestsPage() {
     setLoading(true)
     setLoadFailed(false)
     try {
+      const query = new URLSearchParams({ pageSize: '100' })
+      if (hookId) query.set('hookId', hookId)
       const result = await apiCall<{ items?: RequestRow[]; retentionDays?: number }>(
-        '/api/marketing_automation/inbound-requests?pageSize=100',
+        `/api/marketing_automation/inbound-requests?${query.toString()}`,
       )
       // A non-ok response is not an empty log: `apiCall` resolves on 401/403/500, and an empty table here
       // would claim nothing has ever arrived.
@@ -76,9 +90,9 @@ export default function InboundRequestsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [hookId])
 
-  React.useEffect(() => { void load() }, [load, scopeVersion])
+  React.useEffect(() => { void load() }, [load, scopeVersion, hookId])
 
   const columns = React.useMemo<ColumnDef<RequestRow>[]>(() => [
     {

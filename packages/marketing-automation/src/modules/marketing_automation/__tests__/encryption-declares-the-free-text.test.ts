@@ -3,9 +3,10 @@ import maps from '../encryption'
 /**
  * The module shipped with no `encryption.ts` at all.
  *
- * Defensible for most of its schema — ids, counts, timestamps, enum-shaped strings — and wrong for the two
- * places it holds text it did not write: a survey comment is the customer's own words, and a run's trigger
- * payload is whatever a partner posted to an inbound hook. Core encrypts the equivalent customer comment.
+ * Defensible for most of its schema — ids, counts, timestamps, enum-shaped strings — and wrong for the
+ * three places it holds text it did not write: a survey comment is the customer's own words, a run's
+ * trigger payload is whatever a partner posted to an inbound hook, and the inbound-request log keeps the
+ * SAME partner body a second time, outside any run. Core encrypts the equivalent customer comment.
  */
 describe('the module encryption declaration', () => {
   it('covers the survey comment', () => {
@@ -17,6 +18,16 @@ describe('the module encryption declaration', () => {
     // The declaration is read against the database column, not the entity property.
     const run = maps.find((map) => map.entityId === 'marketing_automation:marketing_campaign_run')
     expect(run?.fields.map((field) => field.field)).toEqual(['trigger_context'])
+  })
+
+  /**
+   * The gap this guards: the inbound-request log stores the SAME partner body `trigger_context` encrypts
+   * when a run starts, but the log itself shipped with no declaration — every row was written in clear
+   * text while the sibling column one hop away was ciphertext.
+   */
+  it('covers the inbound-request body', () => {
+    const inboundRequest = maps.find((map) => map.entityId === 'marketing_automation:marketing_inbound_request')
+    expect(inboundRequest?.fields.map((field) => field.field)).toEqual(['body'])
   })
 
   /**

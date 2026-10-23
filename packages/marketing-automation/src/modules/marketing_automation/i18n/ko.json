@@ -950,6 +950,7 @@
   "marketing_automation.timeline.npsAnswered": "10점 만점에 {score}점 응답",
   "marketing_automation.timeline.npsAsked": "추천 의향을 물음",
   "marketing_automation.timeline.opened": "메시지 열람",
+  "marketing_automation.timeline.pending": "메시지 대기 중",
   "marketing_automation.timeline.pointsGained": "+{count}점",
   "marketing_automation.timeline.pointsLost": "{count}점",
   "marketing_automation.timeline.referralSent": "이 고객의 추천 코드가 사용됨",
@@ -1008,5 +1009,6 @@
   "marketing_automation.widgets.overview.orders": "주문 {count}건",
   "marketing_automation.widgets.overview.revenue": "기여 매출",
   "marketing_automation.widgets.overview.sent": "발송 메시지",
-  "marketing_automation.widgets.overview.window": "기간"
+  "marketing_automation.widgets.overview.window": "기간",
+  "notifications.categories.marketing": "마케팅"
 }

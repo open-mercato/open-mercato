@@ -10,7 +10,8 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
  *  - a survey comment is the customer's own words, the one field in this module they wrote themselves, and the
  *    one that can therefore contain anything including their own name;
  *  - a run's trigger payload is whatever a partner posted to an inbound hook — `readInboundPayload` copies
- *    every key through — so a first name, a phone number and an address all land in it.
+ *    every key through — so a first name, a phone number and an address all land in it;
+ *  - the inbound-request log keeps the SAME partner body verbatim, for the same reason, just outside a run.
  *
  * The trigger payload needed a column of its own to be encryptable at all. It used to live inside the run's
  * `context` jsonb, and the erasure reads that jsonb with SQL (`context ->> 'subjectEntityId'`), which an
@@ -28,6 +29,12 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     entityId: 'marketing_automation:marketing_campaign_run',
     fields: [
       { field: 'trigger_context' },
+    ],
+  },
+  {
+    entityId: 'marketing_automation:marketing_inbound_request',
+    fields: [
+      { field: 'body' },
     ],
   },
 ]

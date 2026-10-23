@@ -20,7 +20,12 @@ type TimelineEntry = {
   detailKey: string | null
 }
 
-type TimelineResponse = { items?: TimelineEntry[]; hasMore?: boolean; nextBefore?: string | null }
+type TimelineResponse = {
+  items?: TimelineEntry[]
+  hasMore?: boolean
+  nextBefore?: string | null
+  nextBeforeId?: string | null
+}
 
 const PAGE_SIZE = 25
 
@@ -37,15 +42,19 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
   const t = useT()
   const [entries, setEntries] = React.useState<TimelineEntry[]>([])
   const [nextBefore, setNextBefore] = React.useState<string | null>(null)
+  const [nextBeforeId, setNextBeforeId] = React.useState<string | null>(null)
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
 
-  const load = React.useCallback(async (before: string | null) => {
+  const load = React.useCallback(async (before: string | null, beforeId: string | null) => {
     setLoading(true)
     setLoadFailed(false)
     const query = new URLSearchParams({ limit: String(PAGE_SIZE) })
     if (before) query.set('before', before)
+    // Without the id tiebreaker a row that shares the cursor's exact instant with one already shown on
+    // the previous page is dropped: `before` alone excludes the whole instant, not just that one row.
+    if (beforeId) query.set('beforeId', beforeId)
     const response = await apiCall<TimelineResponse>(
       `/api/marketing_automation/customers/${customerId}/timeline?${query.toString()}`,
     )
@@ -65,10 +74,11 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
     setEntries((current) => (before ? [...current, ...items] : items))
     setHasMore(Boolean(response.result.hasMore))
     setNextBefore(response.result.nextBefore ?? null)
+    setNextBeforeId(response.result.nextBeforeId ?? null)
     setLoading(false)
   }, [customerId])
 
-  React.useEffect(() => { void load(null) }, [load])
+  React.useEffect(() => { void load(null, null) }, [load])
 
   /**
    * One sentence per kind, written out rather than assembled from parts.
@@ -82,6 +92,7 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
       case 'sent': return t('marketing_automation.timeline.sent', 'Message sent')
       case 'suppressed': return t('marketing_automation.timeline.suppressed', 'Message held back')
       case 'failed': return t('marketing_automation.timeline.failed', 'Message could not be sent')
+      case 'pending': return t('marketing_automation.timeline.pending', 'Message queued')
       case 'opened': return t('marketing_automation.timeline.opened', 'Opened the message')
       case 'clicked': return t('marketing_automation.timeline.clicked', 'Clicked a link')
       case 'points': return entry.amount !== null && entry.amount < 0
@@ -146,7 +157,7 @@ export function CustomerTimeline({ customerId }: { customerId: string }) {
           size="sm"
           className="mt-3"
           disabled={loading}
-          onClick={() => { void load(nextBefore) }}
+          onClick={() => { void load(nextBefore, nextBeforeId) }}
         >
           {t('marketing_automation.timeline.more', 'Show older')}
         </Button>

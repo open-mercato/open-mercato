@@ -689,6 +689,7 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing inbound-request pruning failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, { module: 'marketing_automation', code: 'marketing_automation.inbound_request_pruning_failed' })
   }
 
   /**

@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MarketingInboundRequest } from '../../data/entities.js'
 import { INBOUND_REQUEST_RETENTION_DAYS } from '../../lib/inbound-requests.js'
 
@@ -11,10 +12,12 @@ import { INBOUND_REQUEST_RETENTION_DAYS } from '../../lib/inbound-requests.js'
  *
  * Behind `campaigns.manage` rather than `campaigns.view`, which every other read in this module uses. The
  * rows carry a partner's body verbatim — addresses included — so this is the one list where being allowed to
- * see that hooks exist is not the same as being allowed to read what came through them.
+ * see that hooks exist is not the same as being allowed to read what came through them. `customers.people.view`
+ * is required too, like every other screen in this module that names an identifiable person: the body can
+ * carry a customer's own address, which is this module's usual customers-PII gate, not just a hook secret.
  */
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['marketing_automation.campaigns.manage', 'customers.people.view'] },
 }
 
 export const metadata = routeMetadata
@@ -41,10 +44,10 @@ export async function GET(req: Request) {
     ...(hookId ? { hookId } : {}),
   }
 
-  const [rows, total] = await em.findAndCount(MarketingInboundRequest, where, {
+  const [rows, total] = await findAndCountWithDecryption(em, MarketingInboundRequest, where, {
     orderBy: { receivedAt: 'desc' },
     limit: pageSize,
-  })
+  }, { tenantId: auth.tenantId, organizationId })
 
   return NextResponse.json({
     items: rows.map((row) => ({

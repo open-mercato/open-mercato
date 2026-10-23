@@ -2,12 +2,13 @@ export const metadata = {
   icon: 'inbox',
   requireAuth: true,
   /**
-   * `campaigns.manage`, not `campaigns.view`, which gates every other screen in this group.
+   * `campaigns.manage`, not `campaigns.view`, which gates every other screen in this group — plus
+   * `customers.people.view`, like every other screen in this module that names an identifiable person.
    *
    * The rows hold the body a partner posted, verbatim, addresses included. Being allowed to see that hooks
    * exist is not the same as being allowed to read what came through them.
    */
-  requireFeatures: ['marketing_automation.campaigns.manage'],
+  requireFeatures: ['marketing_automation.campaigns.manage', 'customers.people.view'],
   pageGroup: 'Marketing',
   pageGroupKey: 'marketing_automation.nav.group',
   pageTitle: 'Inbound requests',
