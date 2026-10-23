@@ -4,7 +4,8 @@ import {
   loadCustomFieldDefinitionIndex,
 } from '@open-mercato/shared/lib/crud/custom-fields'
 import { loadEntityFieldsetConfigs } from '@open-mercato/core/modules/entities/lib/fieldsets'
-import { resolveCheckoutPublicCustomFields } from '../customFields'
+import { CHECKOUT_LINK_CUSTOM_FIELDS, CHECKOUT_LINK_FIELDSETS, resolveCheckoutPublicCustomFields } from '../customFields'
+import polishCheckout from '../../i18n/pl.json'
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   decorateRecordWithCustomFields: jest.fn(),
@@ -96,5 +97,29 @@ describe('resolveCheckoutPublicCustomFields', () => {
         tenantId: 'tenant-1',
       },
     )
+  })
+})
+
+
+describe('service-package translations', () => {
+  it('translates all existing seeded service-package labels, sections and help text into Polish', () => {
+    const fieldset = CHECKOUT_LINK_FIELDSETS.find((entry) => entry.code === 'service_package')!
+    const fields = CHECKOUT_LINK_CUSTOM_FIELDS.filter((field) =>
+      field.fieldset === 'service_package' || field.fieldsets?.includes('service_package'),
+    )
+    const texts = [
+      fieldset.label,
+      fieldset.description,
+      ...(fieldset.groups ?? []).flatMap((group) => [group.title, group.hint]),
+      ...fields.flatMap((field) => [field.label, field.description, field.group?.title, field.group?.hint]),
+    ].filter((value): value is string => typeof value === 'string')
+    const dictionary: Record<string, string> = polishCheckout
+    expect(fields.map((field) => field.key)).toEqual([
+      'service_deliverables', 'delivery_timeline', 'session_format', 'support_contact',
+    ])
+    for (const text of texts) {
+      expect(dictionary[text]).toEqual(expect.any(String))
+      expect(dictionary[text]).not.toBe(text)
+    }
   })
 })
