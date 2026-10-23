@@ -177,15 +177,18 @@ referenceType, referenceId, lines: { id, accountId, debit, credit }[]
 }`, so the subscriber uses it to decide *whether* to act (`type`,
 `referenceType`, line ids and accounts). It loads the source entry and
 its lines once, through the same loader `reconcileCostRing` uses, for
-what the payload does not carry: `currencyId`, `exchangeRate` and each
-line's `amountCurrency`. **Decided 2026-10-09:** #5663 is not asked to
+what the payload does not carry: the entry's `currencyId` and
+`exchangeRate` and each line's `currencyId`, `exchangeRate` and `amountCurrency`. **Decided 2026-10-09:** #5663 is not asked to
 widen the payload. The sweeper has no event and needs that read anyway,
 so one loader serves both paths and they cannot drift apart; one
 indexed read per event is cheap. A reclassification copies `currencyId`
-and `exchangeRate` from the source entry and `amountCurrency` from the
-source line (in the ledger `amountCurrency` is an unsigned magnitude,
-which `reverseJournalEntry` also copies unchanged), so the zespół 5 line
-shows the same original-currency amount as the cost it reclassifies.
+and `exchangeRate` from the source entry to its header, and `currencyId`,
+`exchangeRate` and `amountCurrency` from the source line to the new line
+(since 2026-10-23 every ledger line carries its own currency and rate;
+`amountCurrency` is an unsigned magnitude in the line's currency, which
+`reverseJournalEntry` also copies unchanged), so the zespół 5 line shows
+the same currency, rate and original-currency amount as the cost it
+reclassifies and the entry keeps balancing in the base currency.
 **Gap found while checking this:** an earlier draft, and #6711, copied
 only `currencyId`. Amounts are copied verbatim as the ledger's decimal
 strings: the engine does no arithmetic on them in Phase 1 (no
@@ -939,8 +942,9 @@ stay `null` until an admin configures them, exactly like
   - **Either way:** `operationDate` copied from the source entry (#5663
     requires it as non-nullable on every `JournalEntry` — the
     reclassification's business date is the same business event as the
-    source, not "today"), `currencyId` and `exchangeRate` from the source
-    entry, `amountCurrency` from the source line,
+    source, not "today"), `currencyId` and `exchangeRate` of the header from the source
+    entry, and the new line's `currencyId`, `exchangeRate` and
+    `amountCurrency` from the source line,
     `referenceType: 'PostingRulesEngineReclassification'`, `referenceId`
     = the **source line's id** (**corrected 2026-10-09**; it was the
     source entry). Then **ensures** the new zespół 5 line carries the
@@ -1372,7 +1376,8 @@ already configured `PostingRulesSettings` and at least one
   re-review m3).
 - **Currency and emission (added 2026-10-09).** Assert a reclassification
   of a foreign-currency entry carries the source entry's `currencyId` and
-  `exchangeRate` and the source line's `amountCurrency` (also on a
+  `exchangeRate` on the header and the source line's `currencyId`,
+  `exchangeRate` and `amountCurrency` (also on a
   contra-side mirror), and that the engine emits
   `ledger.journal_entry.posted` for its own composed posting after its
   commit and not before, and that the subscriber ignores that event.
@@ -1812,7 +1817,8 @@ the subscriber declares `persistent: false`; `referenceId` is the source
 entry; `findUnreclassifiedEntries` compares counts per entry; the trigger
 set is not restricted (`CLOSING`/`OPENING` entries and clearing-account
 lines are processed); the sentinel `CostCenter` is not protected; `exchangeRate` and
-`amountCurrency` are not copied; the posting is not composed with the
+`amountCurrency` are not copied (and #6340 does not carry a line's own
+currency and rate yet); the posting is not composed with the
 per-line lock and the engine's own posting event is not emitted. Either
 #6711 changes to follow this document or this document changes, before
 either PR merges.
@@ -1874,3 +1880,19 @@ Phase 1 ships the `reconcile-cost-ring` and `lock-fiscal-period` CLI and no
 schedule; running the sweep periodically is left to operations, with an
 open question to reviewers about the preferred scheduling pattern
 (Implementation Plan, step 10; Risks). Not yet reviewed by a maintainer.
+
+### 2026-10-23 — currency, rate and amount are copied from the source line
+
+- **What changed.** #5663 now gives every `JournalEntryLine` its own
+  `currencyId`, `exchangeRate` and `amountCurrency` (one entry may mix
+  currencies and balances in the base currency). A reclassification therefore
+  copies those three values from the source line to the new zespół 5 line, and
+  the header's `currencyId`/`exchangeRate` from the source entry, instead of
+  taking the currency from the header alone. The loader reads them per line;
+  the event payload stays as it is and #5663 is still not asked to widen it.
+- **Unchanged.** The engine does no arithmetic on amounts in Phase 1, so
+  copying a line's currency, rate and amount keeps the entry balanced in the
+  base currency. Cost accounts have no account currency, so the rule "a line
+  on an account with a currency carries that currency" does not apply to them.
+- **For #6711.** The branch has to copy the line's currency and rate once #6340
+  carries them. Not yet reviewed by a maintainer.
