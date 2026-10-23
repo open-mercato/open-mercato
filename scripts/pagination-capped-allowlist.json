@@ -1,5 +1,9 @@
 [
   {
+    "file": "apps/mercato/src/modules/finance_previews/components/OperationsSpecWorkflows.tsx",
+    "reason": "client-side schedule preview: rows come from a locally computed array and total = rows.length, so the count is exact and never capped"
+  },
+  {
     "file": "packages/core/src/modules/dictionaries/components/DictionaryTable.tsx",
     "reason": "entries arrive as a prop; total derives from the locally filtered array"
   },
@@ -42,6 +46,10 @@
   {
     "file": "packages/core/src/modules/wms/components/backend/WmsSkuDetailPage.tsx",
     "reason": "single pageSize=100 fetch, local slice; never reads a server total"
+  },
+  {
+    "file": "packages/create-app/template/src/modules/finance_previews/components/OperationsSpecWorkflows.tsx",
+    "reason": "client-side schedule preview: rows come from a locally computed array and total = rows.length, so the count is exact and never capped"
   },
   {
     "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/page.tsx",
