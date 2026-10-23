@@ -117,8 +117,7 @@ opposite of the adjusting entry made in the previous period."*
 2. **`exchangeRate` is captured once, at document creation — not
    re-resolved at posting time, and not optional once the currency
    differs from base.** This mirrors `FixedAsset.exchangeRate`
-   exactly: resolved once against `acquisitionDate` (there) or
-   `issueDate` (here), stored, and the creating command **rejects**
+   exactly: resolved once, stored, against the booking-day date (decision 9f: the last published day before `acquisitionDate` there, before `issueDate` here), and the creating command **rejects**
    (doesn't silently default to `1` or skip) if the rate-selection
    policy in Design decision 9 can't resolve a usable rate even after
    `ExchangeRateService`'s own `maxDaysBack`/`autoFetch` fallback.
@@ -248,9 +247,7 @@ opposite of the adjusting entry made in the previous period."*
    a receivable line in the invoice's currency and a line for the difference
    from converting both to the base currency. The controller's practice is
    that the difference between the invoice rate and the payment rate is
-   usually booked as its own entry at settlement. Whether #6055 books the
-   gain or loss in the payment's entry or in a separate one is open there,
-   and this spec does not decide it.
+   usually booked as its own entry at settlement. Whether #6055 books the gain or loss in the payment's entry or in a separate one was open; **decided 2026-10-23 on the controller's e-mail** (Mateusz Duda, incro): the difference from converting the bank currency and the invoice currency to the base currency goes into the payment's own entry as an exchange-difference line that balances it, and the difference between the invoice rate and the payment rate is usually its own entry at settlement. Example (PLN base): invoice EUR 1,000 at 4.30 (4,300 PLN) paid with USD 1,100 when USD/PLN is 4.00 and EUR/PLN is 4.35. Payment entry: bank USD 1,100 at 4.00 = 4,400; receivable EUR 1,000 at 4.35 = 4,350; exchange difference 50. Settlement entry: receivable from 4.30 to 4.35, 50 PLN on an `amountCurrency = 0` line against exchange differences. Total gain 100 (4,400 − 4,300). The invoice currency's rate on the payment day follows the rule of 2026-10-12 (the rate the bank applied, else the document default). This spec still does not change #6055's posting; the restatement is in `cash-bank-management.md` (its ⚠ (1)).
 
 8. **Legal grounding for base currency, and Art. 30 now Confirmed —
    closed 2026-09-21** (was flagged ⚠ NEEDS HUMAN CONFIRMATION; the
@@ -378,8 +375,7 @@ opposite of the adjusting entry made in the previous period."*
         **no** source has a row for that date. If `NBP` rows exist for a day
         but `NBP_A` rows do not, the lookup does not continue to the
         previous day for `NBP_A`; the run then ends in 422
-        `EXCHANGE_RATE_UNAVAILABLE` (the intended refusal), and the
-        operator retries once the table is published.
+        `EXCHANGE_RATE_UNAVAILABLE` (the intended refusal), and the operator retries once the table is published. **Corrected 2026-10-23:** a retry meets the same stored rows, so the outcome is closed by the source-aware lookup in decision 9g, not by retrying.
       - *Placement.* The same Table A default rate is needed by AP/AR for
         booking-day rates (decision of 2026-10-12: resolving the default
         rate belongs to `currencies`), so the provider is written in
@@ -454,6 +450,36 @@ opposite of the adjusting entry made in the previous period."*
       requested `valuationDate` after fallback) are persisted on
       `FxRevaluationLine` (see Data Model) — a later re-run or audit
       never has to re-guess which of several candidate rows was used.
+
+   f. **Which date, and what `getRate` does (checked 2026-10-23 against
+      `services/exchangeRateService.ts`).** `getRate({ date })` tests `date`
+      itself first and then steps back one day at a time up to `maxDaysBack`
+      (default 30), and returns `actualDate`; a future date is rejected. A
+      document rate fetched "against `issueDate`" would therefore be the rate
+      dated the issue day, not the rate of the day before that the booking-day
+      rule of 2026-10-12 asks for. Callers pass **`D` = operation date − 1
+      day** for a document and **`D` = `valuationDate`** for the period-end
+      valuation, and take the last published `NBP_A` row on or before `D`.
+      One rule and one fallback serve both; there is no separate behaviour
+      for documents and for valuation. Decided by the team 2026-10-23; not yet
+      reviewed by a maintainer.
+
+   g. **Source-aware lookup in `getRate` (⚠ needs OM Core's agreement; goes
+      into the same PR as the Table A provider).** The fallback caveat under
+      9c is wider than "the operator retries": `getRate` fetches from the
+      providers only when **no** row of any source exists for the date, and the
+      scheduled fetch's provider list (`providerSchema`: `NBP`, `Raiffeisen
+      Bank Polska`, `Custom`) does not contain `NBP_A`. On a day when a Table
+      C row is already stored the `NBP_A` row is therefore never fetched, and
+      a retry meets the same stored rows. Fix: `getRate` and `getRates` take
+      an optional `source`. When it is set, stored rows are filtered by that
+      source, a missing row triggers
+      `fetchRatesForDate(date, scope, { providers: [source] })` (the option
+      exists today) and the lookup steps back a day only when that source has
+      no row. Additive; behaviour is unchanged when `source` is omitted.
+      Rejected alternative: each caller (AP, SIGLP, `fx_revaluation`)
+      re-implements the day-by-day lookback. Until OM Core agrees, the 422
+      `EXCHANGE_RATE_UNAVAILABLE` naming the source stays the outcome.
 
 10. **Validate before any ledger write, serialize per tenant, and keep
     external I/O out of the locked transaction.** An earlier draft
@@ -1013,8 +1039,7 @@ line detail.
   that fallback.
 - **No `NBP_A` (Table A) row for a currency and date, but a Table C or
   Raiffeisen row exists.** Not used: **422 `EXCHANGE_RATE_UNAVAILABLE`**
-  naming the source (Design decision 9c). The statutory rate class is not
-  traded for availability.
+  naming the source (Design decision 9c). The statutory rate class is not traded for availability. With the source-aware lookup (Design decision 9g) the missing `NBP_A` row is first fetched; the 422 remains when the table is not published for that day or any earlier day within `maxDaysBack`.
 - **Two sources both listed in `ratePriority` return a rate for the same
   pair and date.** Resolved deterministically by the list order (Design
   decision 9c); a genuine tie (two equally-ranked manual entries) is
@@ -1196,6 +1221,13 @@ line detail.
   same "reversal not undo" discipline as GL core engine).
 - Point-in-time reconstruction of AP/AR balances beyond the dated filter of Design decision 13 — a change that leaves no dated trace (a document cancelled or re-priced after the valuation date) is not reconstructed; revaluation must run within `valuationGraceDays` of the period it values.
 - Automatic bulk backfill of `exchangeRate` on documents that predate this feature (Design decision 15) — the explicit, per-document `backfill` command of the owning module (`sales`, `accounts_payable`) is the supported path.
+- Revaluation of foreign-currency bank accounts (cash) at the balance-sheet
+  date by their balance in the account's currency (art. 30 ust. 1). The
+  controller works from the account's currency balance, which agrees with the
+  bank statement (e-mail of 2026-10-23). This spec revalues open AP/AR
+  documents only. With `LedgerAccount.currencyId` and `amountCurrency` on every
+  line the balance per account can be read from the ledger; a follow-up spec
+  or a later phase of this one, not designed here.
 - Preventing (rather than detecting after the fact) a tenant's base
   currency from changing once foreign-currency documents exist
   (Design decision 16) — that guard belongs to the `currencies`
@@ -1871,3 +1903,22 @@ Not yet reviewed by a maintainer.
   documents, not from ledger balances per currency.
 - **Open.** Whether #6055 books the realized difference in the payment's
   entry or separately. Not yet reviewed by a maintainer.
+
+### 2026-10-23 (cont. — booking-day date, source-aware lookup, payment-day difference)
+
+- **Booking-day date corrected (decision 2, new 9f).** `getRate` tests the
+  requested date first, so "against `issueDate`" gave the issue day's rate,
+  not the previous day's rate that the rule of 2026-10-12 requires. Documents
+  now pass the operation date − 1 day; the valuation passes `valuationDate`;
+  the same fallback serves both.
+- **Decision 9c's "operator retries" corrected, new 9g.** A stored Table C row
+  stops `getRate` from ever fetching `NBP_A` for that day, and the scheduled
+  fetch does not include `NBP_A`. Proposed: an optional `source` on `getRate`
+  and `getRates` (⚠ needs OM Core's agreement).
+- **Decision 7.** The realized difference follows the controller's e-mail of
+  2026-10-23: the two-currency conversion difference in the payment entry, the
+  invoice-rate versus payment-rate difference in its own entry. Worked example
+  in decision 7.
+- **Out of scope, named.** Revaluation of foreign-currency bank accounts by
+  currency balance.
+- Not yet reviewed by a maintainer.
