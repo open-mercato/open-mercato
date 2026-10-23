@@ -1053,7 +1053,7 @@ final:
   Whether the JPK_KR_PD XSD requires, permits or forbids the foreign-amount
   fields on a base-currency line was not re-read in this pass; the XSD
   checked on 2026-09-12 has to be opened again for `Z_5`–`Z_9` before the
-  builder is written. Until then the rule above is a working default. The Ministry of Finance's brochure for JPK_KR_PD (May 2024, table 12) marks `Z_5`, `Z_6`, `Z_8` and `Z_9` optional ("dla operacji walutowych") and gives no rule for PLN lines, and a vendor mapping (Staria) leaves them empty on PLN lines. The raw XSD is still unread. Earlier note:
+  builder is written. Until then the rule above is a working default. The Ministry of Finance's brochure for JPK_KR_PD (May 2024, table 12) marks `Z_5`, `Z_6`, `Z_8` and `Z_9` optional ("dla operacji walutowych") and gives no rule for PLN lines, and a vendor mapping (Staria) leaves them empty on PLN lines. The XSD `Schemat_JPK_KR_PD(1)_v1-1` was read on 2026-10-23 (text extraction of the schema, `KontoZapis` element; the facets of `TKwotowy` and `TKodWaluty` were not visible): `Z_5` (`TKwotowy`), `Z_6` (`TKodWaluty`), `Z_8` and `Z_9` are all `minOccurs="0"`, `Z_4`–`Z_6` and `Z_7`–`Z_9` form a Debit/Credit choice, the schema carries no rule tying these fields to the line's currency, and **it has no exchange-rate field at all**. So leaving them out on a base-currency line is allowed, and the line's `exchangeRate` stays in the ledger and is not exported. Earlier note:
 - **Q7 — New 2026-10-23: VAT in złoty and art. 31a.** The amounts in this
   filing come from the ledger's base-currency `debit`/`credit`, booked at the
   booking-day rate (art. 30 ust. 2). The VAT register, JPK_V7 and KSeF in
@@ -1061,7 +1061,7 @@ final:
   last business day before the tax obligation arises; art. 106e ust. 11), which
   can differ from the booking rate when the obligation date and the invoice
   date differ. Reconciling the two belongs to `financial_pl`'s VAT side and is
-  not designed here. A secondary source (iFirma) says a foreign-currency KSeF invoice must show the VAT in złoty and the rate used (`KursWalutyZ`, at most six decimals), at the NBP average rate of the last business day before the tax obligation arises; the FA(3) schema fields were not read.
+  not designed here. A secondary source (iFirma) says a foreign-currency KSeF invoice must show the VAT in złoty and the rate used (`KursWalutyZ`, at most six decimals), at the NBP average rate of the last business day before the tax obligation arises; the FA(3) schema itself could not be read on 2026-10-23 (the MF host redirects in a loop). Two more secondary sources (Billit and Inforlex documentation) agree that a foreign-currency invoice carries `KodWaluta`, a conversion rate with at most six decimals (`KursWalutyZ`/`KursWaluty`) and the VAT amount in złoty (`P_14_xW`), but disagree on which of the two rate fields is the header one, so the FA(3) field names stay unverified.
 - **Q3 — Placement:** this document assumes `official-modules` /
   `SPEC-010`, per the existing JPK_V7/KSeF precedent. Not yet physically
   placed there — `official-modules` is not checked out in the
