@@ -230,7 +230,7 @@ async function handleLoginRequest(req: Request) {
     },
   })
   if (!interceptedResponse.ok) {
-    return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
+    return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode, headers: interceptedResponse.headers })
   }
 
   const interceptedBody = interceptedResponse.body
@@ -247,7 +247,7 @@ async function handleLoginRequest(req: Request) {
   // token and skip the outstanding second factor, so it is cleared alongside the swap.
   const authTokenReplacedByInterceptor = authTokenForCookie !== token
 
-  const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
+  const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode, headers: interceptedResponse.headers })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
