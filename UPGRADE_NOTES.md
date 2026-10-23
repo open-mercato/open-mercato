@@ -203,7 +203,10 @@ yarn mercato auth sync-role-acls
 
 It is idempotent, additive (never revokes a hand-added feature) and wildcard-aware (a role
 holding `cart.*`/`promotions.*` gains nothing redundant). Until this runs, staff on existing
-tenants see the new cart/promotions admin UI but every call answers `403`.
+tenants see the new cart/promotions admin UI but every call answers `403`. On a running
+instance the new grants take effect once the permission cache expires (`CACHE_TTL`, about 5
+minutes by default), and the "Promotions" menu group appears after
+`yarn mercato configs cache structural --all-tenants`.
 
 Both modules also register queue-backed sweeper schedules (cart lock/reservation cleanup,
 dynamic-code generation, promotion code-reservation expiry) through the `configs` upgrade-action
