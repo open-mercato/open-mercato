@@ -707,6 +707,21 @@ function TimePickerCard({
     [disabled, slotListRef],
   )
 
+  const selectedIndex = value ? slotList.indexOf(value) : -1
+
+  React.useLayoutEffect(() => {
+    const container = slotListRef.current
+    if (!container || selectedIndex === -1) return
+    const activeSlot = container.querySelectorAll<HTMLElement>('[data-slot="time-picker-slot"]')[selectedIndex]
+    if (!activeSlot) return
+    const slotTop = activeSlot.offsetTop
+    const slotHeight = activeSlot.offsetHeight
+    const isFullyVisible =
+      slotTop >= container.scrollTop && slotTop + slotHeight <= container.scrollTop + container.clientHeight
+    if (isFullyVisible) return
+    container.scrollTop = Math.max(0, slotTop - (container.clientHeight - slotHeight) / 2)
+  }, [selectedIndex, slotListRef])
+
   return (
     <div
       className={cn(
@@ -821,7 +836,7 @@ function TimePickerCard({
       ) : null}
 
       <div
-        className="flex flex-col gap-0.5 overflow-y-auto p-2"
+        className="relative flex flex-col gap-0.5 overflow-y-auto p-2"
         style={{ maxHeight }}
         ref={slotListRef}
         onKeyDown={handleSlotKeyDown}
