@@ -8,6 +8,11 @@
 # relative paths resolve there:
 #   docker compose --project-directory . -f starters/docker/compose.infra.yml up -d
 # or simply: yarn infra:up
+#
+# Published ports bind to 127.0.0.1 so the dev-default credentials are not
+# reachable from other machines (Docker-published ports bypass ufw/iptables
+# INPUT rules on Linux). Set OM_DOCKER_BIND_ADDRESS=0.0.0.0 to expose them, or
+# OM_VERDACCIO_BIND_ADDRESS to move only the registry (see the verdaccio service).
 
 services:
   opencode:
@@ -69,7 +74,7 @@ services:
       # read/write/edit tools so file-agents can produce artifacts (default off).
       OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
     ports:
-      - "${OPENCODE_PORT:-4096}:4096"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${OPENCODE_PORT:-4096}:4096"
     volumes:
       # Host-provisioned MCP API key (see scripts/dev-mcp.mjs). Relative to the
       # repo root because every invocation passes --project-directory.
@@ -108,7 +113,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -124,7 +129,7 @@ services:
     container_name: ${MERCATO_STACK:-mercato}-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
@@ -146,7 +151,7 @@ services:
       MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       MEILI_NO_ANALYTICS: "true"
     ports:
-      - "${MEILISEARCH_PORT:-7700}:7700"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${MEILISEARCH_PORT:-7700}:7700"
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -169,7 +174,7 @@ services:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
-      - "${KEYCLOAK_PORT:-8080}:8080"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${KEYCLOAK_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; cat <&3 | grep -q '200'"]
       interval: 15s
@@ -186,7 +191,7 @@ services:
     profiles:
       - storage-s3
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566"
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: us-east-1
@@ -212,8 +217,12 @@ services:
     environment:
       VERDACCIO_PORT: 4873
       VERDACCIO_PUBLIC_URL: http://localhost:4873
+    # Standalone fullapp builds reach the registry at host.docker.internal:4873.
+    # On native Linux that is the Docker bridge gateway, not loopback: set
+    # OM_VERDACCIO_BIND_ADDRESS to the bridge address (e.g. 172.17.0.1) for a
+    # route only containers and the host can use. See docker/README.md.
     ports:
-      - "${VERDACCIO_PORT:-4873}:4873"
+      - "${OM_VERDACCIO_BIND_ADDRESS:-${OM_DOCKER_BIND_ADDRESS:-127.0.0.1}}:${VERDACCIO_PORT:-4873}:4873"
     volumes:
       - verdaccio_storage:/verdaccio/storage
       - verdaccio_plugins:/verdaccio/plugins
