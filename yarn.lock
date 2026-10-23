@@ -7862,9 +7862,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@modelcontextprotocol/sdk@npm:^1.30.0":
-  version: 1.30.0
-  resolution: "@modelcontextprotocol/sdk@npm:1.30.0"
+"@modelcontextprotocol/sdk@npm:^1.31.0":
+  version: 1.32.1
+  resolution: "@modelcontextprotocol/sdk@npm:1.32.1"
   dependencies:
     "@hono/node-server": "npm:^1.19.9 || ^2.0.5"
     ajv: "npm:^8.17.1"
@@ -7891,7 +7891,7 @@ __metadata:
       optional: true
     zod:
       optional: false
-  checksum: 10/369723a62ce230e55d4fc98549fb080a51916a2004f3907bfca899f5602de8791d9b252038abc6cf120a9d1c75845d2459a471b678c9b9cfc7bae5febf112b63
+  checksum: 10/0078f2782a70d4a73dd49269d01d4d5c4c5a405934ec7a9f496d0007b38dbb518a4cfa742953b46d77dcebf4f2ce5ab0cc68b4fdc9338ddb4e93315c7d3dde16
   languageName: node
   linkType: hard
 
@@ -8588,7 +8588,7 @@ __metadata:
     "@ai-sdk/azure": "npm:^4.0.0"
     "@ai-sdk/google": "npm:^4.0.56"
     "@ai-sdk/openai": "npm:^4.0.50"
-    "@modelcontextprotocol/sdk": "npm:^1.30.0"
+    "@modelcontextprotocol/sdk": "npm:^1.31.0"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
@@ -8642,6 +8642,7 @@ __metadata:
     "@open-mercato/enterprise": "workspace:*"
     "@open-mercato/events": "workspace:*"
     "@open-mercato/gateway-stripe": "workspace:*"
+    "@open-mercato/gateway-tpay": "workspace:*"
     "@open-mercato/marketing-automation": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -9055,7 +9056,10 @@ __metadata:
     "@types/semver": "npm:^7.8.0"
     "@xyflow/react": "npm:^12.11.5"
     ai: "npm:^7.0.83"
+    ajv: "npm:^8.17.1"
+    ajv-formats: "npm:^3.0.1"
     chance: "npm:^1.1.13"
+    cross-env: "npm:^10.1.0"
     date-fns: "npm:4.4.0"
     date-fns-tz: "npm:^3.2.0"
     jest: "npm:^30.4.2"
@@ -9063,6 +9067,7 @@ __metadata:
     leaflet: "npm:^1.9.4"
     leaflet.markercluster: "npm:^1.5.3"
     mammoth: "npm:^1.9.0"
+    pdf-lib: "npm:^1.17.1"
     pdfjs-dist: "npm:^6.2.108"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -9071,6 +9076,7 @@ __metadata:
     semver: "npm:^7.8.5"
     sharp: "npm:^0.35.3"
     svix: "npm:^1.99.1"
+    testcontainers: "npm:^12.0.3"
     ts-jest: "npm:^29.4.12"
     ts-pattern: "npm:^5.0.0"
     typescript: "npm:7.0.2"
@@ -9136,7 +9142,7 @@ __metadata:
     pg: "npm:8.23.0"
     prosemirror-model: "npm:^1.25.9"
     prosemirror-state: "npm:^1.4.4"
-    prosemirror-view: "npm:^1.41.9"
+    prosemirror-view: "npm:^1.42.3"
     puppeteer-core: "npm:^25.3.0"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
@@ -9247,6 +9253,25 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/gateway-tpay@workspace:*, @open-mercato/gateway-tpay@workspace:packages/gateway-tpay":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/gateway-tpay@workspace:packages/gateway-tpay"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    esbuild: "npm:^0.28.2"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+    zod: "npm:^4.4.3"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/shared": "workspace:*"
   languageName: unknown
   linkType: soft
 
@@ -9391,6 +9416,7 @@ __metadata:
     "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
     "@types/sanitize-html": "npm:^2.16.1"
+    cross-env: "npm:^10.1.0"
     dotenv: "npm:^17.4.2"
     gpt-tokenizer: "npm:^3.4.0"
     html-to-text: "npm:^10.0.0"
@@ -9401,6 +9427,7 @@ __metadata:
     re2js: "npm:2.8.6"
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:2.17.5"
+    testcontainers: "npm:^12.0.3"
     ts-jest: "npm:^29.4.12"
     ts-morph: "npm:^28.0.0"
     typescript: "npm:7.0.2"
@@ -9477,7 +9504,7 @@ __metadata:
     "@opentelemetry/instrumentation": "npm:^0.220.0"
     "@opentelemetry/instrumentation-document-load": "npm:^0.65.0"
     "@opentelemetry/instrumentation-fetch": "npm:^0.220.0"
-    "@opentelemetry/instrumentation-pg": "npm:^0.71.0"
+    "@opentelemetry/instrumentation-pg": "npm:^0.73.0"
     "@opentelemetry/instrumentation-undici": "npm:^0.29.0"
     "@opentelemetry/resources": "npm:^2.9.0"
     "@opentelemetry/sdk-logs": "npm:^0.220.0"
@@ -10118,19 +10145,19 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opentelemetry/instrumentation-pg@npm:^0.71.0":
-  version: 0.71.0
-  resolution: "@opentelemetry/instrumentation-pg@npm:0.71.0"
+"@opentelemetry/instrumentation-pg@npm:^0.73.0":
+  version: 0.73.0
+  resolution: "@opentelemetry/instrumentation-pg@npm:0.73.0"
   dependencies:
-    "@opentelemetry/core": "npm:^2.0.0"
-    "@opentelemetry/instrumentation": "npm:^0.219.0"
+    "@opentelemetry/core": "npm:^2.9.0"
+    "@opentelemetry/instrumentation": "npm:^0.221.0"
     "@opentelemetry/semantic-conventions": "npm:^1.34.0"
     "@opentelemetry/sql-common": "npm:^0.42.0"
     "@types/pg": "npm:8.15.6"
     "@types/pg-pool": "npm:2.0.7"
   peerDependencies:
     "@opentelemetry/api": ^1.3.0
-  checksum: 10/5a17ea6fa62c337d40f62ab3cb6387e2c84b45c12166e47ec9de810078e670c6d7142a3643f7573c79b1134402ae385e7e1e123a91a0d0a792638daccbfbaff2
+  checksum: 10/d855cfd55a77ebcaf256818de85429acd6652c8a1d53996193acda8429d27a9a49fcbb52fc9bd83dad1db936914bd7c10d167a2753425083408f8b5c987acd54
   languageName: node
   linkType: hard
 
@@ -10170,6 +10197,19 @@ __metadata:
   peerDependencies:
     "@opentelemetry/api": ^1.3.0
   checksum: 10/3f43fb741cb2a07fdfc16adbc5b8322a6770beb827a83646b41d3e2ee0bbec1c3d39547e41dc5e15b09c3e29ca9aefefa6c4cc9df84ba75527a1e95a1491f73b
+  languageName: node
+  linkType: hard
+
+"@opentelemetry/instrumentation@npm:^0.221.0":
+  version: 0.221.0
+  resolution: "@opentelemetry/instrumentation@npm:0.221.0"
+  dependencies:
+    "@opentelemetry/api-logs": "npm:0.221.0"
+    import-in-the-middle: "npm:^3.0.0"
+    require-in-the-middle: "npm:^8.0.0"
+  peerDependencies:
+    "@opentelemetry/api": ^1.3.0
+  checksum: 10/b7012dd7b56344decf78a3a62786559975f89d6c55602819089268cc6b6109b4cc617795f00b926bf46dfc15334579ae298e78fa865e6c46b0400bfae91971c2
   languageName: node
   linkType: hard
 
@@ -10860,6 +10900,24 @@ __metadata:
     node-forge: "npm:1.3.1"
     verror: "npm:1.10.1"
   checksum: 10/ccc93f3b1bb65e79f6b584278579ba7c228a41656d85c991197ecad79c2c8bb923413729181fe454ad95199cfc50283221553a206942c99f0a4d16901691c6ee
+  languageName: node
+  linkType: hard
+
+"@pdf-lib/standard-fonts@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "@pdf-lib/standard-fonts@npm:1.0.0"
+  dependencies:
+    pako: "npm:^1.0.6"
+  checksum: 10/0dfcedbd16e3f48afcac321f153d81f49ea6030030fa1e05a07bde359629949e27b3d77b39a5c7b0b0ff8af09912765f62a911cd67d488d4dc0b3c1c5ca106f0
+  languageName: node
+  linkType: hard
+
+"@pdf-lib/upng@npm:^1.0.1":
+  version: 1.0.1
+  resolution: "@pdf-lib/upng@npm:1.0.1"
+  dependencies:
+    pako: "npm:^1.0.10"
+  checksum: 10/eecac72f36d51b67acb09f61a7bbb55577ceb6232aa0c1a827aea003126787cede07ad391c0c789ab36164a9a86d1634768c2cf941148743e155de7ed6c34fc3
   languageName: node
   linkType: hard
 
@@ -30156,7 +30214,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pako@npm:~1.0.2":
+"pako@npm:^1.0.10, pako@npm:^1.0.11, pako@npm:^1.0.6, pako@npm:~1.0.2":
   version: 1.0.11
   resolution: "pako@npm:1.0.11"
   checksum: 10/1ad07210e894472685564c4d39a08717e84c2a68a70d3c1d9e657d32394ef1670e22972a433cbfe48976cb98b154ba06855dcd3fcfba77f60f1777634bec48c0
@@ -30431,6 +30489,18 @@ __metadata:
   version: 2.0.1
   resolution: "pathval@npm:2.0.1"
   checksum: 10/f5e8b82f6b988a5bba197970af050268fd800780d0f9ee026e6f0b544ac4b17ab52bebeabccb790d63a794530a1641ae399ad07ecfc67ad337504c85dc9e5693
+  languageName: node
+  linkType: hard
+
+"pdf-lib@npm:^1.17.1":
+  version: 1.17.1
+  resolution: "pdf-lib@npm:1.17.1"
+  dependencies:
+    "@pdf-lib/standard-fonts": "npm:^1.0.0"
+    "@pdf-lib/upng": "npm:^1.0.1"
+    pako: "npm:^1.0.11"
+    tslib: "npm:^1.11.1"
+  checksum: 10/ea8c2c0c813d89ca359a0c831cb2e8a581c569ed44b074316f917942b5baa101f878ce922f1cb87e6f41a035008ba75b52267480aee5d65a5e68c445ee83bc37
   languageName: node
   linkType: hard
 
@@ -31966,6 +32036,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"prosemirror-model@npm:^1.25.12":
+  version: 1.25.12
+  resolution: "prosemirror-model@npm:1.25.12"
+  dependencies:
+    orderedmap: "npm:^2.0.0"
+  checksum: 10/7b8ffb5e0267ddb657d4d5ad2a61179800f913a4bd37dfb9d6ec8eb3449e6852aea64fad139286efad22a6aefd939186432dc3d4852bc82329dcff99272fd5b5
+  languageName: node
+  linkType: hard
+
 "prosemirror-schema-list@npm:^1.5.1":
   version: 1.5.1
   resolution: "prosemirror-schema-list@npm:1.5.1"
@@ -32018,6 +32097,17 @@ __metadata:
     prosemirror-state: "npm:^1.0.0"
     prosemirror-transform: "npm:^1.1.0"
   checksum: 10/09bc9b3c1f8dd837cd5a3aa3027425be20b09dd5380081e8ad64def13929a8e905627350e37bd0d6f878b947cacca1014b181b17fe1df646aec94f76ed0f2d09
+  languageName: node
+  linkType: hard
+
+"prosemirror-view@npm:^1.42.3":
+  version: 1.42.6
+  resolution: "prosemirror-view@npm:1.42.6"
+  dependencies:
+    prosemirror-model: "npm:^1.25.12"
+    prosemirror-state: "npm:^1.0.0"
+    prosemirror-transform: "npm:^1.1.0"
+  checksum: 10/9ab506530f84bddb4521debfe385a3a69f7285d898e03f2bd0ccb11f4714500cdcd13daebefd25b64f00e4366b9346b6e28a86b685f42671000a072f7e81944e
   languageName: node
   linkType: hard
 
@@ -35887,7 +35977,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tslib@npm:^1.9.3":
+"tslib@npm:^1.11.1, tslib@npm:^1.9.3":
   version: 1.14.1
   resolution: "tslib@npm:1.14.1"
   checksum: 10/7dbf34e6f55c6492637adb81b555af5e3b4f9cc6b998fb440dac82d3b42bdc91560a35a5fb75e20e24a076c651438234da6743d139e4feabf0783f3cdfe1dddb

@@ -130,6 +130,21 @@ describe('/api/directory/organization-branding', () => {
     })
   })
 
+  it('denies an explicit empty scope before loading organization branding', async () => {
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId,
+    })
+
+    const response = await GET(new Request('http://localhost/api/directory/organization-branding'))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Forbidden' })
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
   it('updates branding through the organization command and invalidates sidebar cache tags', async () => {
     const response = await PUT(new Request('http://localhost/api/directory/organization-branding', {
       method: 'PUT',
