@@ -773,6 +773,41 @@ describe('CRUD Factory', () => {
     expect(ids).toContain(otherTenant.id)
   })
 
+  it('GET ORM fallback still applies buildFilters scope on a full export when omitAutomaticTenantOrgScope is set', async () => {
+    // Regression test for #7806 — the ORM-fallback counterpart of the query-engine
+    // case covered elsewhere in this file: a full export must not drop the route's
+    // own scope just because it owns visibility itself via omitAutomaticTenantOrgScope.
+    const scopedBuildFilters = jest.fn((_query: any, ctx: any) => ({
+      organizationId: ctx.auth?.orgId ?? null,
+    }))
+    const fallbackRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      list: {
+        schema: querySchema,
+        omitAutomaticTenantOrgScope: true,
+        buildFilters: scopedBuildFilters,
+      },
+    })
+
+    const mine = em.create(Todo, { title: 'Mine', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    mine.id = '550e8400-e29b-41d4-a716-446655440033'
+    await em.persist(mine).flush()
+    const other = em.create(Todo, { title: 'Other', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', tenantId: defaultTenantId }) as Rec
+    other.id = '550e8400-e29b-41d4-a716-446655440034'
+    await em.persist(other).flush()
+
+    const res = await fallbackRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+
+    expect(scopedBuildFilters).toHaveBeenCalledWith({}, expect.objectContaining({
+      auth: expect.objectContaining({ orgId: defaultOrganizationId }),
+    }))
+    const text = await res.text()
+    expect(text).toContain(mine.id)
+    expect(text).not.toContain(other.id)
+  })
+
   it('GET resolves function-form CSV headers and rows per request', async () => {
     // Regression coverage for the additive `(query, ctx)` form of `ListConfig.csv`.
     // A route whose export columns depend on per-request discovery (custom-field keys,
