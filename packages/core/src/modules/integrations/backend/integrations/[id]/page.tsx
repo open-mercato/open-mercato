@@ -298,12 +298,15 @@ function buildCredentialFields(
   t: ReturnType<typeof useT>,
 ): CrudField[] {
   return credFields.map((field) => {
+    const helpText = field.helpTextKey
+      ? t(field.helpTextKey, field.helpText ?? '')
+      : field.helpText
     const baseDescription = field.helpDetails ? (
       <div className="space-y-1">
-        {field.helpText ? <div>{field.helpText}</div> : null}
+        {helpText ? <div>{helpText}</div> : null}
         <WebhookSetupGuide guide={field.helpDetails} />
       </div>
-    ) : field.helpText
+    ) : helpText
     const description = field.type === 'secret' && secretFieldsConfigured[field.key] ? (
       <div className="space-y-1">
         {baseDescription ? <div>{baseDescription}</div> : null}
@@ -314,9 +317,11 @@ function buildCredentialFields(
     ) : baseDescription
     const shared = {
       id: field.key,
-      label: field.label,
+      label: field.labelKey ? t(field.labelKey, field.label) : field.label,
       description,
-      placeholder: field.placeholder,
+      placeholder: field.placeholderKey
+        ? t(field.placeholderKey, field.placeholder ?? '')
+        : field.placeholder,
       required: field.required && !(field.type === 'secret' && secretFieldsConfigured[field.key]),
       visibleWhen: field.visibleWhen,
     }
@@ -342,7 +347,10 @@ function buildCredentialFields(
       return {
         ...shared,
         type: 'select' as const,
-        options: field.options,
+        options: field.options.map((option) => ({
+          ...option,
+          label: option.labelKey ? t(option.labelKey, option.label) : option.label,
+        })),
       }
     }
 
@@ -862,6 +870,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           if (targetValue !== field.visibleWhen.equals) return
         }
         const value = values[field.key]
+        const fieldLabel = field.labelKey ? t(field.labelKey, field.label) : field.label
 
         if (field.type === 'boolean') {
           if (value !== undefined && value !== null && typeof value !== 'boolean') {
@@ -875,7 +884,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: [field.key],
-              message: t('integrations.detail.credentials.validation.required', '{field} is required.', { field: field.label }),
+              message: t('integrations.detail.credentials.validation.required', '{field} is required.', { field: fieldLabel }),
             })
           }
           return
@@ -900,7 +909,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [field.key],
-            message: t('integrations.detail.credentials.validation.required', '{field} is required.', { field: field.label }),
+            message: t('integrations.detail.credentials.validation.required', '{field} is required.', { field: fieldLabel }),
           })
         }
 
@@ -920,7 +929,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [field.key],
-            message: t('integrations.detail.credentials.validation.url', '{field} must be a valid http(s) URL.', { field: field.label }),
+            message: t('integrations.detail.credentials.validation.url', '{field} must be a valid http(s) URL.', { field: fieldLabel }),
           })
         }
 
