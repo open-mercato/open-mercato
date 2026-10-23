@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  bridgeLegacyGuard,
+  runMutationGuards,
+  type MutationGuard,
+  type MutationGuardInput,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { loadConsentState, recordConsent } from '../../../../lib/consent.js'
 import { readPathUuid } from '../../../shared.js'
@@ -32,6 +39,29 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 const logger = createLogger('marketing_automation')
+
+const RESOURCE_KIND = 'marketing_automation.consent'
+
+function resolveUserFeatures(auth: unknown): string[] {
+  const features = (auth as { features?: unknown })?.features
+  if (!Array.isArray(features)) return []
+  return features.filter((value): value is string => typeof value === 'string')
+}
+
+async function runGuards(
+  container: AwilixContainer,
+  userFeatures: string[],
+  input: MutationGuardInput,
+): Promise<{
+  ok: boolean
+  errorBody?: Record<string, unknown>
+  errorStatus?: number
+  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
+}> {
+  const legacyGuard = bridgeLegacyGuard(container)
+  if (!legacyGuard) return { ok: true, afterSuccessCallbacks: [] }
+  return runMutationGuards([legacyGuard], input, { userFeatures })
+}
 
 const bodySchema = z.object({
   channel: z.literal('email'),
@@ -84,6 +114,28 @@ export async function PUT(req: Request) {
   const customer = await em.findOne(CustomerEntity, { id: customerId, ...scope, deletedAt: null })
   if (!customer) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Custom write route → wired through the mutation-guard registry (AGENTS → API Routes), same
+  // as every other non-CRUD mutating route in the module. An operator overriding a customer's
+  // consent is an `update` on the consent resource, keyed by the customer the decision is about.
+  const guardInput: MutationGuardInput = {
+    tenantId: auth.tenantId,
+    organizationId,
+    userId: auth.sub,
+    resourceKind: RESOURCE_KIND,
+    resourceId: customerId,
+    operation: 'update',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
+    mutationPayload: parsed.data,
+  }
+  const guardResult = await runGuards(container, resolveUserFeatures(auth), guardInput)
+  if (!guardResult.ok) {
+    return NextResponse.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   await recordConsent(em, {
     scope,
     subjectEntityId: customerId,
@@ -94,6 +146,11 @@ export async function PUT(req: Request) {
     campaignId: null,
     now: new Date(),
   })
+
+  for (const callback of guardResult.afterSuccessCallbacks) {
+    if (!callback.guard.afterSuccess) continue
+    await callback.guard.afterSuccess({ ...guardInput, resourceId: customerId, metadata: callback.metadata ?? null })
+  }
 
   /**
    * Logged deliberately, and with `sub`.
