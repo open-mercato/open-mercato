@@ -12,6 +12,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { E } from '#generated/entities.ids.generated'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
+import { extensionPoints } from '../../extension-points'
 import {
   buildPersonPayload,
   createPersonFormFields,
@@ -19,6 +21,8 @@ import {
   createPersonFormSchema,
   type PersonFormValues,
 } from '../formConfig'
+
+const PERSON_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -180,6 +184,8 @@ export function CreatePersonDialog({
           key={`${companyId ?? 'no-company'}:${formInstanceKey}`}
           embedded
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
+          injectionSpotId={extensionPoints.hosts.personForm.spotId}
+          legacyInjectionSpotId={PERSON_CREATE_LEGACY_INJECTION_SPOT_ID}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
