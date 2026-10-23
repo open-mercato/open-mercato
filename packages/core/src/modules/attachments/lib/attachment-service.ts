@@ -24,6 +24,7 @@ import {
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
 } from './upload-limits'
+import { purgeDocumentStructure } from './documentStructure/purge'
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
@@ -458,6 +459,11 @@ export class DefaultAttachmentService implements AttachmentService {
 
     const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
     const deleteProviderBytes = () => driver.delete(attachment.partitionCode, attachment.storagePath)
+    await purgeDocumentStructure(
+      em,
+      { attachmentId: attachment.id, tenantId: input.tenantId, organizationId: input.organizationId },
+      { flush: false },
+    )
     em.remove(attachment)
     if (options.flush === false) {
       return deleteProviderBytes
