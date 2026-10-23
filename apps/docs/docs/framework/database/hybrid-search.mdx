@@ -315,7 +315,7 @@ await indexer.indexRecord({
 })
 ```
 
-Custom fields whose definition is `encrypted` never reach `buildSource`, `formatResult`, `resolveUrl` or `resolveLinks`: the indexer removes them from `ctx.customFields`, from the record's `cf:` / `cf_` keys and from every record a callback loads through `ctx.queryEngine`, so their plaintext stays out of the text a strategy stores or embeds. `IndexableRecord.fields` keeps them for the hashed `search_tokens` index. When the definitions cannot be read, the indexer leaves out every custom field of that entity.
+While it indexes a record, the indexer keeps custom fields whose definition is `encrypted` out of the context it passes to `buildSource`, `formatResult`, `resolveUrl` and `resolveLinks`: it removes them from `ctx.customFields`, from the record's `cf:` / `cf_` keys and from every record a callback loads through `ctx.queryEngine`, so their plaintext stays out of the source text, presenter and links that strategies store or embed. `IndexableRecord.fields` keeps them: the hashed `search_tokens` index needs them, the fulltext driver filters fields with the entity's `fieldPolicy` (and `SEARCH_EXCLUDE_ENCRYPTED_FIELDS`), and the vector strategy builds its fallback text from them for a record without source text, so give such entities a `buildSource` and a `fieldPolicy.searchable` list. When the definitions cannot be read, the indexer leaves out every custom field of that entity and reports `search.encrypted_custom_fields_unresolved`. Search-time presenter enrichment still calls the same callbacks with decrypted values to render results; its output is not stored.
 
 ## Environment Configuration
 
