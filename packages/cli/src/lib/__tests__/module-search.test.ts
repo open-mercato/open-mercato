@@ -259,6 +259,28 @@ describe('yarn mercato module search', () => {
     ])
   })
 
+  it('says that nothing verified on the app line matched when every match is hidden', async () => {
+    const io = capture()
+    await runModuleSearch(['ksef'], deps(tempApp({ coreVersion: '0.8.0' }), fixtureFetch().fetchImpl, io))
+    expect(io.stdout).toEqual([
+      'No modules verified on 0.8 matched "ksef".',
+      '1 more module is listed but not verified on 0.8. Use --all-lines.',
+      'Browse the catalog: https://modules.openmercato.com',
+    ])
+  })
+
+  it('prints installable from only while the date is still ahead', async () => {
+    const app = tempApp({ coreVersion: '0.8.0' })
+    const past = capture()
+    await runModuleSearch(['ksef', '--all-lines'], deps(app, fixtureFetch().fetchImpl, past))
+    expect(past.stdout.join('\n')).toContain('@fastwhitecat/integration-ksef-direct 0.1.8')
+    expect(past.stdout.join('\n')).not.toContain('installable from')
+
+    const ahead = capture()
+    await runModuleSearch(['ksef', '--all-lines'], deps(tempApp({ coreVersion: '0.8.0' }), fixtureFetch().fetchImpl, ahead, Date.parse('2026-10-15T12:00:00Z')))
+    expect(ahead.stdout).toContain('  installable from: 2026-10-20')
+  })
+
   it('uses the line of the installed @open-mercato/core, then the package.json range', async () => {
     const { fetchImpl } = fixtureFetch()
     const installed = capture()
@@ -354,8 +376,16 @@ describe('module index download and offline cache', () => {
     const io = capture()
     const code = await runModuleSearch(['ksef', '--json'], deps(tempApp(), fixtureFetch({ fail: true }).fetchImpl, io))
     expect(code).toBe(MODULE_INDEX_UNAVAILABLE_EXIT_CODE)
-    expect(io.stderr).toEqual([MODULE_INDEX_UNAVAILABLE_MESSAGE])
+    expect(io.stderr).toEqual([MODULE_INDEX_UNAVAILABLE_MESSAGE, 'Reason: getaddrinfo ENOTFOUND modules.openmercato.com'])
     expect(io.stdout).toEqual([])
+  })
+
+  it('names the URL and the HTTP status when OM_MODULES_INDEX_URL points to a missing file', async () => {
+    const io = capture()
+    const options = { ...deps(tempApp(), fixtureFetch().fetchImpl, io), env: { OM_MODULES_INDEX_URL: 'https://mirror.example.com/nope.json' } }
+    const code = await runModuleSearch(['ksef'], options)
+    expect(code).toBe(MODULE_INDEX_UNAVAILABLE_EXIT_CODE)
+    expect(io.stderr).toEqual([MODULE_INDEX_UNAVAILABLE_MESSAGE, 'Reason: https://mirror.example.com/nope.json answered 404'])
   })
 
   it('reads OM_MODULES_INDEX_URL', async () => {

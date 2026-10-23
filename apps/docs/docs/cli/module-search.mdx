@@ -83,7 +83,7 @@ Already in Open Mercato core:
 
 ## Network, cache and offline use
 
-The commands download `https://modules.openmercato.com/modules.json` and `built-in.json` (timeout 4 seconds, one retry) and keep a copy in `.mercato/cache/modules-index.json` for 10 minutes, revalidated with its ETag afterwards. Without a connection the cached copy is used and the command prints `Using cached module index from <date>.` on stderr. Without a connection and without a cached copy it prints `Module index unavailable. Check your connection or set OM_MODULES_INDEX_URL.` and exits with code 2.
+The commands download `https://modules.openmercato.com/modules.json` and `built-in.json` (timeout 4 seconds, one retry) and keep a copy in `.mercato/cache/modules-index.json`. For 10 minutes the copy is used as it is, without a request and without a message. After that the copy is revalidated with its ETag; when that fails (no connection, an error from the server), the older copy is used and the command prints `Using cached module index from <date>.` on stderr. Without a copy it prints `Module index unavailable. Check your connection or set OM_MODULES_INDEX_URL.` and, on a second line, the reason (for example `Reason: https://mirror.example.com/nope.json answered 404`), and exits with code 2.
 
 | Environment variable | Description |
 | --- | --- |

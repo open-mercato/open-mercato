@@ -80,9 +80,12 @@ type CacheFile = {
 }
 
 export class ModuleIndexUnavailableError extends Error {
+  readonly detail: string
+
   constructor(detail: string) {
     super(`${MODULE_INDEX_UNAVAILABLE_MESSAGE} (${detail})`)
     this.name = 'ModuleIndexUnavailableError'
+    this.detail = detail
   }
 }
 
@@ -465,7 +468,8 @@ function entryHeading(entry: CatalogEntry, line: string | null): string {
   return `${name}${version ? ` ${version}` : ''}   ${levelLabel(entry, line)}   ${origin} · ${licenseLabel(entry)}`
 }
 
-export function renderSearchHuman(view: ModuleSearchView): string[] {
+/** `today` (YYYY-MM-DD) decides whether `installable from` is still ahead (Yarn age gate). */
+export function renderSearchHuman(view: ModuleSearchView, today: string = new Date().toISOString().slice(0, 10)): string[] {
   const { json } = view
   const out: string[] = []
   if (view.lineNote) out.push(view.lineNote, '')
@@ -489,21 +493,25 @@ export function renderSearchHuman(view: ModuleSearchView): string[] {
       policyLabel(card.agentPolicy) ? `agent policy: ${policyLabel(card.agentPolicy)}` : null,
     ].filter((item): item is string => item !== null)
     if (details.length > 0) out.push(`  ${details.join(' · ')}`)
-    if (card.installableFrom && card.status !== 'verified') out.push(`  installable from: ${card.installableFrom}`)
+    if (card.installableFrom && card.installableFrom > today && card.status !== 'verified') {
+      out.push(`  installable from: ${card.installableFrom}`)
+    }
     out.push(`  install: ${card.install}`)
     out.push(`  more: ${card.card}`)
     out.push('')
   }
-  if (json.results.length === 0 && json.builtIn.length === 0) {
-    out.push(`No modules matched "${json.query}".`)
-    out.push(`Browse the catalog: ${MODULES_SITE_URL}`)
-  }
-  if (json.hidden > 0 && json.line !== null) {
-    out.push(
-      json.hidden === 1
+  const hiddenLine =
+    json.hidden > 0 && json.line !== null
+      ? json.hidden === 1
         ? `1 more module is listed but not verified on ${json.line}. Use --all-lines.`
-        : `${json.hidden} more modules are listed but not verified on ${json.line}. Use --all-lines.`,
-    )
+        : `${json.hidden} more modules are listed but not verified on ${json.line}. Use --all-lines.`
+      : null
+  if (json.results.length === 0 && json.builtIn.length === 0) {
+    out.push(hiddenLine ? `No modules verified on ${json.line} matched "${json.query}".` : `No modules matched "${json.query}".`)
+    if (hiddenLine) out.push(hiddenLine)
+    out.push(`Browse the catalog: ${MODULES_SITE_URL}`)
+  } else if (hiddenLine) {
+    out.push(hiddenLine)
   }
   while (out.length > 0 && out[out.length - 1] === '') out.pop()
   return out
@@ -694,6 +702,7 @@ async function loadForCommand(deps: ModuleSearchDeps): Promise<{ searcher: Catal
 function handleLoadError(error: unknown, stderr: (line: string) => void): number {
   if (error instanceof ModuleIndexUnavailableError) {
     stderr(MODULE_INDEX_UNAVAILABLE_MESSAGE)
+    stderr(`Reason: ${error.detail}`)
     return MODULE_INDEX_UNAVAILABLE_EXIT_CODE
   }
   throw error
@@ -718,8 +727,9 @@ export async function runModuleSearch(args: string[], deps: ModuleSearchDeps = {
     { query: parsed.query, category: parsed.category, kinds: parsed.kinds, allLines: parsed.allLines, limit: parsed.limit },
     loaded.app,
   )
+  const today = new Date(deps.now ? deps.now() : Date.now()).toISOString().slice(0, 10)
   if (parsed.json) stdout(JSON.stringify(view.json, null, 2))
-  else for (const line of renderSearchHuman(view)) stdout(line)
+  else for (const line of renderSearchHuman(view, today)) stdout(line)
   return 0
 }
 
