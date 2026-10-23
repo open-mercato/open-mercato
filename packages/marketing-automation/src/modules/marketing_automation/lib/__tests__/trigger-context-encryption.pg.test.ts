@@ -22,7 +22,10 @@ import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  parseDecryptedFieldValue,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { MarketingCampaignRun } from '../../data/entities'
 import { applyTransition, failRun, type RunScope } from '../runs'
 
@@ -109,7 +112,8 @@ maybe('trigger_context encryption survives applyTransition/failRun against Postg
       attempts: 0,
       claimToken,
     })
-    await em.persistAndFlush(run)
+    em.persist(run)
+    await em.flush()
     return run.id
   }
 
@@ -142,11 +146,18 @@ maybe('trigger_context encryption survives applyTransition/failRun against Postg
     const service = new TenantDataEncryptionService(em)
     const decrypted = await service.decryptEntityPayload(
       RUN_ENTITY_ID,
-      { triggerContext: JSON.parse(stored as string) },
+      // `trigger_context` is a `json` column holding a JSON string literal, so `pg`'s own type
+      // parser already decodes it to the raw ciphertext text — re-parsing it as JSON here would
+      // double-decode and throw.
+      { triggerContext: stored },
       TENANT,
       ORG,
     )
-    expect(decrypted.triggerContext).toEqual(PLAINTEXT_TRIGGER)
+    // `decryptEntityPayload` deliberately leaves the result as a string (issue #1810 — auto-parsing
+    // would crash plain text/string columns that happen to look like JSON); the real read path
+    // restores the object via `restoreDecryptedJsonColumns`/`parseDecryptedFieldValue` for columns
+    // the entity metadata declares `json`/`jsonb`, which is what this mirrors.
+    expect(parseDecryptedFieldValue(decrypted.triggerContext as string)).toEqual(PLAINTEXT_TRIGGER)
   })
 
   it('failRun stores ciphertext, and it decrypts back to the original payload', async () => {
@@ -169,11 +180,11 @@ maybe('trigger_context encryption survives applyTransition/failRun against Postg
     const service = new TenantDataEncryptionService(em)
     const decrypted = await service.decryptEntityPayload(
       RUN_ENTITY_ID,
-      { triggerContext: JSON.parse(stored as string) },
+      { triggerContext: stored },
       TENANT,
       ORG,
     )
-    expect(decrypted.triggerContext).toEqual(PLAINTEXT_TRIGGER)
+    expect(parseDecryptedFieldValue(decrypted.triggerContext as string)).toEqual(PLAINTEXT_TRIGGER)
   })
 
   it('leaves trigger_context null when the transition carries no trigger payload', async () => {
