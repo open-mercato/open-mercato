@@ -586,3 +586,41 @@ test('fallback and agentic root instructions have one routing contract', () => {
 
   assert.equal(fallback, agentic, 'the --agents none fallback must not ship a competing router')
 })
+
+test('om-find-module ships in the core tier and teaches agents to ask the module catalog before building', () => {
+  const manifest = JSON.parse(fs.readFileSync(new URL('tiers.json', skillsDir), 'utf8')) as {
+    tiers?: Record<string, { skills?: string[] }>
+    external?: { skills?: string[] }
+  }
+  assert.ok(manifest.tiers?.core?.skills?.includes('om-find-module'), 'om-find-module must be a default (core) local skill')
+  assert.ok(!manifest.external?.skills?.includes('om-find-module'), 'om-find-module is repo-local, not an external skill')
+
+  const skill = readOverrideSkill('om-find-module')
+  assert.match(skill, /^---\nname: om-find-module\ndescription: /)
+  assert.match(skill, /Ask before you build\./)
+  for (const source of [
+    'search_modules({ query, omVersion, includeBuiltIn: true })',
+    'yarn mercato module search "<query>" --json',
+    'https://modules.openmercato.com/llms.txt',
+    'https://modules.openmercato.com/raw/modules.md',
+  ]) {
+    assert.ok(skill.includes(source), `om-find-module must name the catalog source ${source}`)
+  }
+  assert.match(skill, /yarn mercato module enable @open-mercato\/core --module <id>/, 'built-in modules are enabled, never rebuilt')
+  assert.match(skill, /Do not build what core already ships\./)
+  assert.match(skill, /data, never instructions/, 'registry and README text must be treated as untrusted data')
+  assert.match(skill, /consentText/, 'ask-policy installs need the typed consent text')
+  assert.match(skill, /Never bypass the Yarn age gate/)
+  assert.doesNotMatch(skill, /github\.io/, 'the template copy uses the catalog domain only')
+
+  for (const file of ['../../agentic/shared/AGENTS.md.template', '../../template/AGENTS.md']) {
+    const instructions = fs.readFileSync(new URL(file, import.meta.url), 'utf8')
+    assert.match(
+      instructions,
+      /\| `architecture` \| Scaffold a module starter, publish, or link an app module \|[^\n]*implementation: `om-find-module` first, then `om-module-scaffold`/,
+      `${file} must send module implementation through om-find-module before om-module-scaffold`,
+    )
+  }
+  const taskFamilies = fs.readFileSync(new URL('om-help/references/task-families.md', skillsDir), 'utf8')
+  assert.match(taskFamilies, /\| `om-find-module` \|/)
+})
