@@ -330,6 +330,44 @@ these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enable
 telemetry now starts inside the container. Check that value before upgrading. See
 [`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
 
+### `yarn generate` now enforces a module's declared `requires` dependencies
+
+A module's `metadata.requires: ['<other-module>']` used to be documentation only. The generator
+collected it, but the collection step used a bare `require()` call — and `@open-mercato/cli` is
+built as an ES module, where `require` is undefined. The resulting `ReferenceError` was swallowed
+by a `catch {}`, so the dependency map stayed empty and `yarn generate` never refused any
+combination, no matter what `requires` declared. An installation could enable `eudr` or
+`sync_excel` (or `sales`, `wms`, `push_notifications`, `documents`, `sync_akeneo`, `tillio`, or any
+other module with a `requires` list) without the modules they depend on, generate successfully,
+and only find out at runtime — in `eudr`'s case, by losing the login screen.
+
+`yarn generate` now actually enforces every existing `requires` declaration: it reads
+`metadata.requires` through a real `import()` of the module's `index.ts` with a static,
+AST-based fallback (no `require()` left to break under ESM), and still exits with "Module
+dependency check failed" plus the missing module name when a requirement is not enabled.
+
+**Action for standalone app authors:** if `src/modules.ts` enables a module from the table below
+without the module(s) it requires, `yarn generate` now fails where it previously succeeded. Enable
+the missing module(s), or remove the dependent module, before upgrading.
+
+| Module | Requires |
+|---|---|
+| `api_keys`, `devices` | `auth` |
+| `channel_resend`, `channel_ses` | `communication_channels`, `integrations` |
+| `communication_channels`, `customers` | `progress` |
+| `documents` | `auth`, `directory`, `attachments` |
+| `entities` | `query_index` |
+| `eudr` | `catalog` |
+| `portal` | `customer_accounts` |
+| `push_notifications` | `auth`, `devices`, `notifications`, `communication_channels`, `integrations` |
+| `resources` | `planner` |
+| `sales` | `catalog`, `customers`, `dictionaries` |
+| `staff` | `planner`, `resources` |
+| `sync_akeneo` | `integrations`, `data_sync`, `catalog`, `sales` |
+| `sync_excel` | `customers`, `data_sync` |
+| `tillio` | `integrations`, `phone_calls` |
+| `wms` | `catalog`, `sales`, `feature_toggles` |
+
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
 Companion skill: [`om-auto-upgrade-0.7.0-to-0.8.0`](.ai/skills/om-auto-upgrade-0.7.0-to-0.8.0/SKILL.md).
