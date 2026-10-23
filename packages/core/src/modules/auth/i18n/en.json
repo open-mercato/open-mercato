@@ -504,6 +504,7 @@
   "auth.email.resetPassword.subject": "Reset your password",
   "auth.email.resetPassword.title": "Reset your password",
   "auth.login.brandName": "Open Mercato",
+  "auth.login.errors.crossSiteRequest": "This sign-in request did not come from this application. Open the sign-in page and try again.",
   "auth.login.errors.generic": "An error occurred. Please try again.",
   "auth.login.errors.invalidCredentials": "Invalid email or password",
   "auth.login.errors.permissionDenied": "You do not have permission to access this area. Please contact your administrator.",
