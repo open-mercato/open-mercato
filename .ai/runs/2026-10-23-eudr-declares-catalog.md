@@ -50,9 +50,9 @@ Land a dependency-check fix so that a module declaring `metadata.requires: ['<ot
 
 ### Phase 2: Make `requires` enforcement real
 
-- [ ] 2.1 Replace the three `require()` call sites in `module-registry.ts` with the ESM-safe `loadModuleExportsFromSource` + `extractNamedObjectLiteralExport` path already used for route metadata
-- [ ] 2.2 Add `module-registry-requires-enforcement.test.ts`: a fixture module with a `requires` on a missing module fails generation naming it; the same fixture with the dependency enabled generates cleanly; a static guard asserts no bare `require(` remains in `module-registry.ts`
-- [ ] 2.3 Document the behavior change in `UPGRADE_NOTES.md` with the full list of already-affected modules
+- [x] 2.1 Replace the three `require()` call sites in `module-registry.ts` with the ESM-safe `loadModuleExportsFromSource` + `extractNamedObjectLiteralExport` path already used for route metadata — b57eccf3b
+- [x] 2.2 Add `module-registry-requires-enforcement.test.ts`: a fixture module with a `requires` on a missing module fails generation naming it; the same fixture with the dependency enabled generates cleanly; a static guard asserts no bare `require(` remains in `module-registry.ts` — b57eccf3b
+- [x] 2.3 Document the behavior change in `UPGRADE_NOTES.md` with the full list of already-affected modules — b57eccf3b
 
 ### Phase 3: Verification
 
