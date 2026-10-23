@@ -96,7 +96,7 @@
   "catalog.merchandising_assistant.dock.subtitle": "Catalog",
   "catalog.merchandising_assistant.popover.heading": "AI assistants",
   "catalog.merchandising_assistant.sheet.composerPlaceholder": "Pide descripciones, atributos, títulos o ideas de precios…",
-  "catalog.merchandising_assistant.sheet.description": "Demo de solo lectura. Propone descripciones, atributos, títulos y ajustes de precios para la selección actual. En esta fase no se aplican cambios.",
+  "catalog.merchandising_assistant.sheet.description": "Propone descripciones, atributos, títulos y ajustes de precios para la selección actual. Los cambios confirmados se guardan en el producto.",
   "catalog.merchandising_assistant.sheet.descriptionWithSelection": "Trabajando con {count} productos seleccionados. Pide descripciones, extracción de atributos, sugerencias de título o análisis de precios.",
   "catalog.merchandising_assistant.sheet.dock": "Dock to side",
   "catalog.merchandising_assistant.sheet.selectionPill": "Actuando sobre {count} productos",
