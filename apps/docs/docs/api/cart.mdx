@@ -139,7 +139,7 @@ These three commands exist (`cart/commands/lock.ts`, exposed via the `cartServic
 | `promotion_line_immutable` | 409 | Attempted to edit/remove a gift line |
 | `assortment_scope_required_for_storefront_channel` | 400 | No store context resolved for a route that needs one |
 | `code_reservation_unavailable` | 409 | A promotion code's budget or per-customer limit is exhausted |
-| `cart_not_active` | 409 | A write (not a GET) against a merged/expired/abandoned/converted cart — the response body carries the cart's real `status` |
+| `cart_not_active` | 409 | A write (not a GET) against a merged/expired/converted cart — the response body carries the cart's real `status`. A write against an `abandoned` cart is not refused: it reactivates the cart to `active` and extends its expiry |
 | `cart_merge_scope_mismatch` | 400 | `cart.merge` rejected a cross-store or cross-currency merge |
 | `merge_undo_window_expired` | 409 | `cart.mergeUndo` called past the 15-minute window |
 | `cart_locked` | 423 | The cart is locked (carries `checkoutSessionId`) — reachable once a `checkout` module starts calling `cart.lock` |

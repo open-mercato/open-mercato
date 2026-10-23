@@ -916,7 +916,7 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 | `quantity_capped` | 200 (warning) | Above `maxOrderQuantity`, capped rather than rejected |
 | `cart_locked` | 423 | Carries `checkoutSessionId` (§9) |
 | `cart_has_unavailable_lines` | 409 | `cart.lock` refused while a line is flagged (F7) |
-| `cart_not_active` | 409 | **(rev 9 — F15)** A write was attempted against a non-active cart (merged/expired/abandoned/converted); the response carries the cart's actual `status` |
+| `cart_not_active` | 409 | **(rev 9 — F15, corrected 2026-10-23 — #7880)** A write was attempted against a merged, expired or converted cart; the response carries the cart's actual `status`. An `abandoned` basket is not refused — §9's `abandoned → active` applies: the write reactivates it and extends `expires_at` |
 | `idempotency_key_mismatch` | 422 | §8.2 |
 | `promotion_line_immutable` | 409 | A buyer attempted to edit/remove a gift line (F4) |
 | `proposal_cart_immutable` | 409 | A line/promotion command targeted a `kind = 'proposal'` cart (§7a.1) |
@@ -988,6 +988,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 ---
 
 ## 18) Changelog
+
+### 2026-10-23 (QA round 2 — #7880)
+
+- **#7880**: the F15 fix listed `abandoned` among the states that refuse a write with `409 cart_not_active`, contradicting §9's `abandoned → active` (baskets only, any mutation, extends `expires_at`). Every buyer write path (`cart.lines.add`/`.update`/`.bulkAdd`/`.remove`, `cart.promotions.apply`/`.remove`) now reactivates an `abandoned` basket first (`lib/cartActivity.ts`), clearing `resolved_at` and extending `expires_at` by the §9 default TTL. The same writes now also advance `last_activity_at`, which §4.1 says drives abandonment but no mutation updated before — an actively used basket was swept to `abandoned` 24 h after creation. Proposals are unaffected (their write paths never load `kind = 'basket'`). §15a's `cart_not_active` row and `cart.mdx` corrected.
 
 ### 2026-10-16 (Phase 8 manual-QA fixes — F14, F12, CONC-05, F10, F15, F13)
 

@@ -10,6 +10,7 @@ import type { CodeReservationResult, PromotionsService } from '@open-mercato/cor
 import { Cart, CartLine, CartPromotionApplication } from '../data/entities'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { assertCartNotLocked } from '../lib/lockGuard'
+import { recordBasketMutationActivity } from '../lib/cartActivity'
 import { emitCartEvent } from '../events'
 import type { CartPriceChange } from '../lib/reprice'
 import type { CartPromotionWarning } from '../lib/promotionContext'
@@ -66,6 +67,7 @@ async function loadMutableCart(
   )
   if (!cart) throw notFound('[internal] cart not found')
   assertCartNotLocked(cart)
+  await recordBasketMutationActivity(em, cart)
   if (options.requireActive && cart.status !== 'active') {
     throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
   }

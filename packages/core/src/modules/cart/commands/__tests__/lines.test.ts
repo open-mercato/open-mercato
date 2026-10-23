@@ -159,6 +159,12 @@ function makeEm() {
       seededCartLines.push(row)
     }),
     flush: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async (entity: unknown, where: Row, data: Row) => {
+      if (entity !== Cart) return 0
+      const rows = filterRows(seededCarts, where)
+      rows.forEach((row) => Object.assign(row, data))
+      return rows.length
+    }),
     find: jest.fn(async (entity: unknown, where: Row) => {
       if (entity === CartLine) return filterRows(seededCartLines, where)
       return []
@@ -984,10 +990,8 @@ describe('cart lock-awareness (Step 7.5)', () => {
     expect(seededCartLines[0].deletedAt).toBeNull()
   })
 
-  // `.remove` now requires an active cart, same as `.add`/`.update`/`.bulkAdd`: a stale
-  // token can no longer remove a line from a non-active, non-locked cart (e.g. `abandoned`).
-  it('cart.lines.remove returns 409 cart_not_active carrying the real status for an abandoned cart', async () => {
-    seededCarts[0] = { ...seededCarts[0], status: 'abandoned' }
+  it('cart.lines.remove returns 409 cart_not_active carrying the real status for a converted cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'converted' }
     seededCartLines = [{
       id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
       productId: 'product-1', variantId: null, sku: null, name: 'Widget', optionValues: null,
@@ -1012,9 +1016,40 @@ describe('cart lock-awareness (Step 7.5)', () => {
     expect((captured as { status: number }).status).toBe(409)
     expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
       code: 'cart_not_active',
-      status: 'abandoned',
+      status: 'converted',
     })
     expect(seededCartLines[0].deletedAt).toBeNull()
+  })
+
+  it('cart.lines.remove reactivates an abandoned basket and removes the line', async () => {
+    const abandonedAt = new Date('2026-10-20T10:00:00.000Z')
+    seededCarts[0] = {
+      ...seededCarts[0],
+      status: 'abandoned',
+      resolvedAt: abandonedAt,
+      lastActivityAt: abandonedAt,
+      expiresAt: new Date('2026-10-25T10:00:00.000Z'),
+    }
+    seededCartLines = [{
+      id: 'line-1', tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineNumber: 1,
+      productId: 'product-1', variantId: null, sku: null, name: 'Widget', optionValues: null,
+      quantity: '1', unitPriceNet: '10', unitPriceGross: '12', taxRate: '20', priceKindId: null,
+      priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date(),
+      lineTotals: makeLineTotalsFixture(1), discountTotalNet: null, promotionId: null,
+      origin: 'customer', configuration: null, addedByActorType: 'buyer', addedByActorId: null,
+      metadata: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }]
+    const handler = getHandler<CartLinesRemoveInput, CartLinesRemoveResult>('cart.lines.remove')
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }, ctx)
+
+    expect(seededCarts[0].status).toBe('active')
+    expect(seededCarts[0].resolvedAt).toBeNull()
+    expect(seededCarts[0].lastActivityAt.getTime()).toBeGreaterThan(abandonedAt.getTime())
+    expect(seededCarts[0].expiresAt.getTime()).toBeGreaterThan(Date.now() + 6 * 24 * 60 * 60 * 1000)
+    expect(seededCartLines[0].deletedAt).not.toBeNull()
   })
 })
 
@@ -1079,8 +1114,8 @@ describe('cart non-active-cart write gate (Step 8.5, QA F15)', () => {
     })
   })
 
-  it('cart.lines.bulkAdd returns 409 cart_not_active carrying the real status for an abandoned cart', async () => {
-    seededCarts[0] = { ...seededCarts[0], status: 'abandoned' }
+  it('cart.lines.bulkAdd returns 409 cart_not_active carrying the real status for a converted cart', async () => {
+    seededCarts[0] = { ...seededCarts[0], status: 'converted' }
     const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
     const em = makeEm()
     const ctx = makeCtx({ em })
@@ -1099,7 +1134,7 @@ describe('cart non-active-cart write gate (Step 8.5, QA F15)', () => {
     expect((captured as { status: number }).status).toBe(409)
     expect((captured as { body: Record<string, unknown> }).body).toMatchObject({
       code: 'cart_not_active',
-      status: 'abandoned',
+      status: 'converted',
     })
   })
 

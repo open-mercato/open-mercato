@@ -145,6 +145,12 @@ function makeEm() {
       seededApplications = seededApplications.filter((existing) => existing !== row)
     }),
     flush: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, data: FakeRow) => {
+      if (entity !== Cart) return 0
+      const rows = seededCarts.filter((row) => matchesWhere(row, where))
+      rows.forEach((row) => Object.assign(row, data))
+      return rows.length
+    }),
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
@@ -548,5 +554,32 @@ describe('cart.promotions.apply — trigger 6 (Step 7.4)', () => {
     expect(line.unitPriceNet).toBe('10')
     expect(line.unitPriceGross).toBe('12')
     expect(line.discountTotalNet).toBe('-2.00')
+  })
+})
+
+describe('cart.promotions.apply on an abandoned basket', () => {
+  it('reactivates the basket before reserving the code', async () => {
+    seededCarts = [makeCartFixture({ status: 'abandoned', resolvedAt: new Date('2026-10-20T10:00:00.000Z') })]
+    seededRules = [
+      { id: 'rule-1', promotionId: 'promo-1', ruleType: 'code', config: { codeId: 'code-1' }, tenantId: TENANT_ID, organizationId: ORG_ID },
+    ]
+    seededPromotions = [{ id: 'promo-1', active: true, deletedAt: null, tenantId: TENANT_ID, organizationId: ORG_ID }]
+
+    const handler = commandRegistry.get<CartPromotionsApplyInput, CartPromotionsCommandResult>('cart.promotions.apply')
+    const em = makeEm()
+    const reserveCode = makeReserveCodeMock()
+    const evaluate = jest.fn(async () => ({ appliedPromotions: [] }))
+    const ctx = makeCtx({
+      em,
+      promotionsService: { reserveCode, releaseCode: jest.fn(async () => undefined), extendReservation: jest.fn(async () => undefined) },
+      evaluate,
+    })
+
+    await handler!.execute({ cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, codeString: 'SAVE10' }, ctx)
+
+    expect(seededCarts[0].status).toBe('active')
+    expect(seededCarts[0].resolvedAt).toBeNull()
+    expect(reserveCode).toHaveBeenCalledWith({ codeString: 'SAVE10', cartId: 'cart-1', customerId: null })
+    expect(seededApplications).toHaveLength(1)
   })
 })

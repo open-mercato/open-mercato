@@ -63,6 +63,7 @@ import type { CartPriceChange } from '../lib/reprice'
 import { buildPromotionsEffectsPhase } from '../lib/promotionContext'
 import type { CartPromotionWarning } from '../lib/promotionContext'
 import { assertCartNotLocked } from '../lib/lockGuard'
+import { recordBasketMutationActivity } from '../lib/cartActivity'
 import { emitCartEvent } from '../events'
 // Type-only — erased at compile time, so this carries none of the runtime circularity risk
 // a VALUE import would: `commands/cart.ts` already imports `emitVisibilityRejectedEvent`
@@ -537,6 +538,7 @@ async function loadMutableCart(
   )
   if (!cart) throw notFound('[internal] cart not found')
   assertCartNotLocked(cart)
+  await recordBasketMutationActivity(em, cart)
   if (options.requireActive && cart.status !== 'active') {
     throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
   }

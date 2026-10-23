@@ -18,6 +18,7 @@ import type { CartChannel, CartKind, CartStatus, CartTaxMode } from '../data/ent
 import { cartCreateInputSchema, type CartCreateInput as CartCreateTrustedInput } from '../data/validators'
 import { generateCartToken, hashCartToken } from '../lib/token'
 import { assertCartNotLocked } from '../lib/lockGuard'
+import { resolveCartExpiresAt } from '../lib/cartActivity'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { emitCartEvent } from '../events'
@@ -153,20 +154,6 @@ function resolveAuthenticatedScope(ctx: CommandRuntimeContext): { tenantId: stri
     throw badRequest('[internal] Tenant and organization scope are required to create a cart')
   }
   return { tenantId, organizationId }
-}
-
-// §9: "expires_at reached (default 30 days for identified buyers, 7 for guests)". "Identified"
-// is read as "a winning customer_id resolved" (D3/D3a) — the same signal `Cart.customer_id`
-// itself documents as "the identity that wins". A trusted non-storefront cart with no
-// customerId supplied is treated as a guest for this purpose; nothing in §6a.4/§9 says a POS/
-// agent/API cart gets a different default TTL than a basket would for the same identity state.
-const IDENTIFIED_BUYER_EXPIRY_DAYS = 30
-const GUEST_EXPIRY_DAYS = 7
-const DAY_MS = 24 * 60 * 60 * 1000
-
-function resolveCartExpiresAt(now: Date, customerId: string | null): Date {
-  const days = customerId ? IDENTIFIED_BUYER_EXPIRY_DAYS : GUEST_EXPIRY_DAYS
-  return new Date(now.getTime() + days * DAY_MS)
 }
 
 // §4.1: `Cart.totals` is "Verbatim SalesDocumentCalculationResult.totals" — i.e. the `totals`
