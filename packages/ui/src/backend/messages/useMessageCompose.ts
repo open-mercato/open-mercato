@@ -23,6 +23,8 @@ import {
   useUpdateDraftOperation,
 } from './useMessageComposeOperations'
 
+const ATTACHMENT_LIST_PAGE_SIZE = 100
+
 function toErrorMessage(payload: unknown): string | null {
   if (!payload) return null
   if (typeof payload === 'string') return payload
@@ -237,23 +239,42 @@ export function useMessageCompose({
   const attachmentRecordId = variant === 'compose' && messageId ? messageId : temporaryAttachmentRecordId
 
   const loadAttachmentIds = React.useCallback(async (): Promise<string[]> => {
-    const params = new URLSearchParams()
-    params.set('entityId', attachmentEntityId)
-    params.set('recordId', attachmentRecordId)
+    const collectedIds = new Set<string>()
+    let expectedTotal: number | null = null
+    let page = 1
+    let hasMorePages = true
 
-    const call = await apiCall<AttachmentListResponse>(`/api/attachments?${params.toString()}`)
-    if (!call.ok) {
-      throw new Error(
-        toErrorMessage(call.result)
-        ?? t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.'),
-      )
+    while (hasMorePages) {
+      const params = new URLSearchParams()
+      params.set('entityId', attachmentEntityId)
+      params.set('recordId', attachmentRecordId)
+      params.set('page', String(page))
+      params.set('pageSize', String(ATTACHMENT_LIST_PAGE_SIZE))
+
+      const call = await apiCall<AttachmentListResponse>(`/api/attachments?${params.toString()}`)
+      if (!call.ok) {
+        throw new Error(
+          toErrorMessage(call.result)
+          ?? t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.'),
+        )
+      }
+
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      for (const item of items) {
+        if (typeof item?.id === 'string' && item.id.length > 0) collectedIds.add(item.id)
+      }
+
+      if (page === 1 && typeof call.result?.total === 'number') expectedTotal = call.result.total
+      const totalPages = typeof call.result?.totalPages === 'number' ? call.result.totalPages : page
+      hasMorePages = items.length === ATTACHMENT_LIST_PAGE_SIZE && page < totalPages
+      page += 1
     }
 
-    const items = Array.isArray(call.result?.items) ? call.result.items : []
-    const nextIds = items
-      .map((item) => (typeof item?.id === 'string' ? item.id : ''))
-      .filter((id) => id.length > 0)
+    if (expectedTotal !== null && collectedIds.size < expectedTotal) {
+      throw new Error(t('messages.errors.loadAttachmentOptionsFailed', 'Failed to load attachments.'))
+    }
 
+    const nextIds = Array.from(collectedIds)
     setAttachmentIds(nextIds)
     return nextIds
   }, [attachmentEntityId, attachmentRecordId, t])
@@ -774,6 +795,8 @@ export function useMessageCompose({
     }
 
     if (event.key === 'Escape') {
+      if (event.defaultPrevented) return
+      if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return
       event.preventDefault()
       handleCancel()
     }

@@ -572,6 +572,45 @@ describe('auth command replay authorization', () => {
     expect(harness.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
+  it('denies a create redo into an organization outside the actor scope before mutation or logging', async () => {
+    const scopedOrganization = '99999999-9999-4999-8999-999999999999'
+    const harness = makeHarness({ user: null })
+    harness.ctx.organizationScope = {
+      tenantId: tenantA,
+      selectedId: scopedOrganization,
+      filterIds: [scopedOrganization],
+      allowedIds: [scopedOrganization],
+    }
+    harness.ctx.organizationIds = [scopedOrganization]
+    const sourceLog = {
+      id: 'out-of-scope-create-redo-log',
+      commandId: 'auth.users.create',
+      resourceId: userId,
+      commandPayload: {
+        __redoInput: {
+          email: 'person@example.com',
+          organizationId: organizationA,
+        },
+        undo: { after: userSnapshot({ passwordHash: null }) },
+      },
+    }
+
+    await expect(
+      new CommandBus().execute('auth.users.create', {
+        input: sourceLog.commandPayload.__redoInput,
+        ctx: harness.ctx,
+        redoLogEntry: sourceLog,
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      body: { error: 'Cannot assign user to a destination organization outside actor scope.' },
+    })
+
+    expect(harness.dataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.log).not.toHaveBeenCalled()
+    expect(harness.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
   it('denies role undo when current role-management privilege was revoked', async () => {
     const harness = makeHarness(
       { role: roleSnapshot() },

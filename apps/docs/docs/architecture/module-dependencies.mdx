@@ -59,23 +59,26 @@ The tables below list the modules that ship in the monorepo and the create-app t
 | --- | --- | --- | --- |
 | `api_docs` | API Documentation | — | |
 | `api_keys` | API Keys | `auth` | ✅ (agent_orchestrator) |
-| `attachments` | Attachments | — | ✅ (agent_orchestrator, documents) |
+| `attachments` | Attachments | — | ✅ (agent_orchestrator, documents, forms) |
 | `audit_logs` | Audit & Action Logs | — | |
 | `auth` | Authentication & Accounts | — | ✅ (agent_orchestrator, api_keys, devices, documents, push_notifications) |
 | `business_rules` | Business Rules | — | ✅ (workflows) |
-| `catalog` | Product Catalog | — | ✅ (sales, sync_akeneo, wms) |
+| `catalog` | Product Catalog | — | ✅ (ecommerce, sales, sync_akeneo, wms) |
 | `communication_channels` | Communication Channels | `progress` | ✅ (channel_resend, channel_ses, push_notifications) |
 | `configs` | Configuration | — | |
 | `currencies` | Currencies | — | |
-| `customer_accounts` | Customer Identity & Portal Authentication | — | ✅ (portal) |
-| `customers` | Customer Relationship Management | `progress` | ✅ (sales) |
+| `customer_accounts` | Customer Identity & Portal Authentication | — | ✅ (ecommerce, forms, portal) |
+| `customer_groups` | Customer Groups & B2B Terms | — | ✅ (ecommerce) |
+| `customers` | Customer Relationship Management | `progress`, `dictionaries`, `feature_toggles` | ✅ (sales) |
 | `dashboards` | Admin Dashboards | — | |
 | `data_sync` | Data Sync | — | ✅ (sync_akeneo) |
 | `devices` | Devices | `auth` | ✅ (push_notifications) |
-| `dictionaries` | Shared Dictionaries | — | ✅ (sales) |
+| `dictionaries` | Shared Dictionaries | — | ✅ (customers, sales) |
 | `directory` | Directory (Tenants & Organizations) | — | ✅ (documents) |
+| `ecommerce` | Ecommerce Stores | `catalog`, `sales`, `customer_accounts`, `customer_groups` | |
 | `entities` | Custom Entities & Fields | `query_index` | |
-| `feature_toggles` | Feature Toggles | — | ✅ (wms) |
+| `feature_toggles` | Feature Toggles | — | ✅ (customers, portal, wms) |
+| `forms` | Forms | `attachments`, `customer_accounts` | |
 | `inbox_ops` | InboxOps — Email-to-ERP Agent | — | |
 | `integrations` | Integrations | — | ✅ (channel_resend, channel_ses, push_notifications, sync_akeneo, tillio) |
 | `messages` | Messages | — | |
@@ -84,12 +87,12 @@ The tables below list the modules that ship in the monorepo and the create-app t
 | `perspectives` | Table perspectives | — | |
 | `phone_calls` | Phone Calls | — | ✅ (tillio) |
 | `planner` | Worktime / Availabilities | — | ✅ (resources, staff) |
-| `portal` | Customer Portal | `customer_accounts` | |
+| `portal` | Customer Portal | `customer_accounts`, `feature_toggles` | |
 | `progress` | Progress | — | ✅ (communication_channels, customers) |
 | `push_notifications` | Push Notifications | `auth`, `devices`, `notifications`, `communication_channels`, `integrations` | |
 | `query_index` | Query Indexes | — | ✅ (entities) |
 | `resources` | Resource planning | `planner` | ✅ (staff) |
-| `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (sync_akeneo, wms) |
+| `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (ecommerce, sync_akeneo, wms) |
 | `shipping_carriers` | Shipping Carriers | — | |
 | `staff` | Employees | `planner`, `resources` | |
 | `sync_excel` | Excel / CSV Import | — | |
@@ -147,11 +150,13 @@ api_keys               → auth
 channel_resend         → communication_channels, integrations
 channel_ses            → communication_channels, integrations
 communication_channels → progress
-customers              → progress
+customers              → progress, dictionaries, feature_toggles
 devices                → auth
 documents              → auth, directory, attachments
+ecommerce              → catalog, sales, customer_accounts, customer_groups
 entities               → query_index
-portal                 → customer_accounts
+forms                  → attachments, customer_accounts
+portal                 → customer_accounts, feature_toggles
 push_notifications     → auth, devices, notifications, communication_channels, integrations
 resources              → planner
 sales                  → catalog, customers, dictionaries
@@ -166,7 +171,7 @@ Transitive closures worth noting:
 
 - Enabling `staff` implicitly requires `planner` and `resources` — and `resources` itself requires `planner`, so the effective set is `{ planner, resources, staff }`.
 - Enabling `sync_akeneo` implicitly requires the entire sales chain: `{ catalog, customers, dictionaries, sales, integrations, data_sync, sync_akeneo }`.
-- Enabling `sales` implicitly requires `progress` too, since `sales` requires `customers`, which now requires `progress`.
+- Enabling `sales` implicitly requires `progress` and `feature_toggles` too, since `sales` requires `customers`, which now requires `progress`, `dictionaries`, and `feature_toggles`.
 - `entities` requires `query_index` because hybrid querying for custom entities is delegated to the query-index layer.
 
 A module that does not appear on the right-hand side of any arrow (no module has it as `requires`) is safe to remove from `enabledModules` without breaking another enabled module. That said, individual modules may still have **soft** runtime expectations (for example, a module's UI might link to another module's page) that the dependency graph does not capture — treat the graph as the floor, not the ceiling.
