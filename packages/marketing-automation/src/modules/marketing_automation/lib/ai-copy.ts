@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { withTimeout } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { reportError } from '@open-mercato/telemetry'
 import {
   draftSystemPrompt,
   draftUserPrompt,
@@ -144,13 +145,18 @@ export async function loadBrandVoice(
   let service: ModuleConfigLike
   try {
     service = container.resolve<ModuleConfigLike>('moduleConfigService')
-  } catch {
+  } catch (error) {
+    // An installation with no module-config service configured has no brand voice, which is a
+    // legitimate "no brand voice set" answer. Reported anyway: the two look identical to the author,
+    // who sees a plain draft either way with no signal that something upstream actually broke.
+    reportError(error, { module: 'marketing_automation', code: 'marketing_automation.load_brand_voice_failed' })
     return null
   }
   try {
     const value = await service.getValue<unknown>(MODULE_ID, BRAND_VOICE_CONFIG, { scope })
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
-  } catch {
+  } catch (error) {
+    reportError(error, { module: 'marketing_automation', code: 'marketing_automation.load_brand_voice_failed' })
     return null
   }
 }

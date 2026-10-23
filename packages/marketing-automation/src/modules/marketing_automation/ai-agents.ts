@@ -66,12 +66,24 @@ function fenceAsData(value: string): string {
 }
 
 /**
+ * Every `entityType` the runtime can actually hand this callback.
+ *
+ * `usePageContext` on the client derives it from the URL SEGMENT, not from a dotted entity id: the
+ * campaign editor lives at `/backend/marketing/campaigns/[id]`, so what arrives is the bare folder
+ * name `campaigns` — never `marketing_automation.campaign`. Checking only the dotted form meant this
+ * resolver returned `null` on every real invocation and the agent never saw which campaign was open.
+ * The dotted form is kept too, for a caller that already names the entity explicitly (as the
+ * `customers` module's own resolver does for `person`/`customers.person`).
+ */
+const CAMPAIGN_ENTITY_TYPES = new Set(['campaigns', 'campaign', 'marketing_automation.campaign'])
+
+/**
  * What the agent should know when the operator is looking at one campaign.
  *
  * Without this, "add a reminder two days later" means asking which campaign — while the answer is on screen.
  */
-async function resolveCampaignPageContext(input: AiAgentPageContextInput): Promise<string | null> {
-  if (input.entityType !== 'marketing_automation.campaign') return null
+export async function resolveCampaignPageContext(input: AiAgentPageContextInput): Promise<string | null> {
+  if (!CAMPAIGN_ENTITY_TYPES.has(input.entityType)) return null
   if (!input.tenantId || !input.organizationId) return null
   try {
     const em = input.container.resolve<EntityManager>('em')

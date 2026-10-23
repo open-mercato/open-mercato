@@ -171,7 +171,9 @@ migrations outside development, and the module is opt-in and off by default, so 
 path to preserve and nothing to dual-write.
 
 Per-phase specs: P1 reuses the module spec, P2–P5 take the relevant sections out of it, and the
-roadmap stays whole as the forward-looking document.
+roadmap stays whole as the forward-looking document. **Done, 2026-10-20:**
+[`2026-10-20-marketing-automation-phase-5-ai.md`](2026-10-20-marketing-automation-phase-5-ai.md),
+linked from its phase PR (#6868).
 
 ## Integration coverage
 

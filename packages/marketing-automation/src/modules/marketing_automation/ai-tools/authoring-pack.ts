@@ -1,13 +1,13 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { reportError } from '@open-mercato/telemetry'
 import { MarketingCampaign, MarketingCampaignTrigger } from '../data/entities.js'
 import { campaignDefinitionSchema } from '../data/validators.js'
 import { listMarketingSteps } from '../lib/engine/registry.js'
 import { TRIGGER_CATALOG } from '../lib/trigger-catalog.js'
 import { sweepSourceCatalog } from '../lib/sweep-sources.js'
-import { describeNarrowing, planNarrowing } from '../lib/engine/narrowing.js'
-import { createSqlCandidateSource, resolveCandidates } from '../lib/audience/set-resolver.js'
+import { estimateAudienceSize } from '../lib/audience/estimate.js'
 import { buildCampaignCommandContext } from '../lib/command-context.js'
 import { requireToolScope } from './types.js'
 import type { MarketingAiToolDefinition } from './types.js'
@@ -158,7 +158,7 @@ const estimateAudienceTool: MarketingAiToolDefinition<z.infer<typeof estimateInp
     name: 'marketing_automation.estimate_audience',
     displayName: 'Estimate a marketing audience',
     description:
-      'Counts how many customers an audience expression would reach. Answers `exact` only when the whole expression is answerable in the database; otherwise the number is an upper bound, because the rest is decided per customer at send time. Read-only.',
+      'Counts how many customers an audience expression would reach — the SAME count the campaign editor shows for the same definition. Answers `exact` only when the whole expression is answerable in the database; otherwise the number is an upper bound, because the rest is decided per customer at send time. Read-only.',
     inputSchema: estimateInput,
     requiredFeatures: ['marketing_automation.campaigns.view'],
     tags: ['marketing', 'audience'],
@@ -168,13 +168,13 @@ const estimateAudienceTool: MarketingAiToolDefinition<z.infer<typeof estimateInp
       const parsed = campaignDefinitionSchema.shape.audience.safeParse(input.audience ?? null)
       if (!parsed.success) return { ok: false, reason: 'invalid_audience' }
 
-      const plan = planNarrowing(parsed.data)
-      const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, new Date()))
+      const estimate = await estimateAudienceSize(em, scope, parsed.data, new Date())
       return {
         ok: true,
-        narrowing: describeNarrowing(plan),
-        qualifier: plan.complete ? 'exact' : 'atMost',
-        candidates: candidates.ids ? candidates.ids.length : null,
+        count: estimate.count,
+        narrowing: estimate.narrowing,
+        qualifier: estimate.qualifier,
+        candidates: estimate.candidates,
       }
     },
 }
@@ -301,10 +301,20 @@ const saveCampaignGraphTool: MarketingAiToolDefinition<z.infer<typeof saveInput>
       } catch (error) {
         // The stable validation code, not a prose string: an agent can act on a code and cannot on prose.
         const body = (error as { body?: { code?: unknown; error?: unknown }; status?: number } | null)
+        const code = typeof body?.body?.code === 'string' ? body.body.code : null
+        /**
+         * A validation code means the command refused the save on its merits — the agent sees exactly
+         * what a person's own save would have seen, and that is not a failure worth paging on. Anything
+         * WITHOUT one is not the command speaking: it is an infra, DB or command-bus failure the agent's
+         * generic "save failed" quietly absorbed with no telemetry at all.
+         */
+        if (!code) {
+          reportError(error, { module: 'marketing_automation', code: 'marketing_automation.save_campaign_graph_tool_failed' })
+        }
         return {
           ok: false,
           status: body?.status ?? null,
-          code: typeof body?.body?.code === 'string' ? body.body.code : null,
+          code,
           message: typeof body?.body?.error === 'string' ? body.body.error : 'save failed',
         }
       }

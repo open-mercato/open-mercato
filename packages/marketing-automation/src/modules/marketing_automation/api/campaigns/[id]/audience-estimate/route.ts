@@ -3,11 +3,9 @@ import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { MarketingCampaign } from '../../../../data/entities.js'
 import { campaignDefinitionSchema } from '../../../../data/validators.js'
-import { describeNarrowing, planNarrowing } from '../../../../lib/engine/narrowing.js'
-import { createSqlCandidateSource, resolveCandidates } from '../../../../lib/audience/set-resolver.js'
+import { estimateAudienceSize } from '../../../../lib/audience/estimate.js'
 import { readPathUuid } from '../../../shared.js'
 
 /**
@@ -27,10 +25,6 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
-
-/** Above this many candidates the live-person check is skipped and the bound is reported as-is. */
-const VERIFY_LIMIT = 20_000
-const VERIFY_CHUNK = 500
 
 function readCampaignId(req: Request): string | null {
   // .../campaigns/<id>/audience-estimate
@@ -65,51 +59,8 @@ export async function POST(req: Request) {
   const campaign = await em.findOne(MarketingCampaign, { id: campaignId, ...scope, deletedAt: null })
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const now = new Date()
-  const plan = planNarrowing(parsed.data)
-  const candidates = await resolveCandidates(plan.narrowing, createSqlCandidateSource(em, scope, now))
-  const livePerson = { ...scope, kind: 'person', deletedAt: null } as const
-
-  if (!candidates.ids) {
-    const population = await em.count(CustomerEntity, livePerson)
-    return NextResponse.json({
-      count: population,
-      // No audience at all reaches everybody, exactly; an audience the database could not express
-      // reaches some subset of everybody.
-      qualifier: plan.complete ? 'exact' : 'atMost',
-      narrowing: describeNarrowing(plan),
-      candidates: null,
-      queries: candidates.queries,
-    })
-  }
-
-  if (candidates.ids.length > VERIFY_LIMIT) {
-    return NextResponse.json({
-      count: candidates.ids.length,
-      qualifier: 'atMost',
-      narrowing: describeNarrowing(plan),
-      candidates: candidates.ids.length,
-      queries: candidates.queries,
-    })
-  }
-
-  // A tag assignment or an order can point at a customer who has since been deleted, or at a
-  // company rather than a person — the same filter the sweep applies to its candidates.
-  let live = 0
-  let queries = candidates.queries
-  for (let offset = 0; offset < candidates.ids.length; offset += VERIFY_CHUNK) {
-    const chunk = candidates.ids.slice(offset, offset + VERIFY_CHUNK)
-    live += await em.count(CustomerEntity, { id: { $in: chunk }, ...livePerson })
-    queries += 1
-  }
-
-  return NextResponse.json({
-    count: live,
-    qualifier: plan.complete ? 'exact' : 'atMost',
-    narrowing: describeNarrowing(plan),
-    candidates: candidates.ids.length,
-    queries,
-  })
+  const estimate = await estimateAudienceSize(em, scope, parsed.data, new Date())
+  return NextResponse.json(estimate)
 }
 
 export const openApi = {

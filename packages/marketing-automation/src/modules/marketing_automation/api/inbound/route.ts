@@ -115,11 +115,15 @@ export async function POST(req: Request) {
      * And `received_count = received_count + 1` in SQL rather than read-modify-write in memory: this is the
      * one endpoint in the module that genuinely runs concurrently with itself.
      */
+    /**
+     * A stable KEY, never prose — this row is read back and shown in the admin UI through `t()`, and a
+     * hand-written English sentence stored here would render untranslated for every other locale.
+     */
     const outcome = subjectEntityId
       ? 'identified'
       : payload.customerId || payload.email
-        ? 'no matching customer'
-        : 'no customerId or email in the payload'
+        ? 'no_matching_customer'
+        : 'no_identifier_in_payload'
     await em.execute(
       `update marketing_inbound_hooks
           set received_count = received_count + 1,
@@ -178,7 +182,7 @@ export async function POST(req: Request) {
 /** The shape `customer_entities.id` actually is. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-async function resolveSubject(
+export async function resolveSubject(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
   customerId: string | undefined,

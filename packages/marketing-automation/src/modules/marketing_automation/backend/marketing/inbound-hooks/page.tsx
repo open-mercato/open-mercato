@@ -18,7 +18,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -37,6 +37,21 @@ type HookRow = {
   lastReceivedAt: string | null
   lastOutcome: string | null
   updatedAt: string
+}
+
+/**
+ * `lastOutcome` is a stable KEY written by the public inbound endpoint (`identified`,
+ * `no_matching_customer`, `no_identifier_in_payload`), never prose — the row is read back here and
+ * must render in the viewer's own locale. An unrecognised key (an older row, or a future addition
+ * this build does not know yet) falls back to the key itself rather than throwing.
+ */
+function hookOutcomeLabel(t: TranslateFn, outcome: string): string {
+  const fallbacks: Record<string, string> = {
+    identified: 'Identified a customer',
+    no_matching_customer: 'No matching customer',
+    no_identifier_in_payload: 'No customerId or email in the payload',
+  }
+  return t(`marketing_automation.hooks.outcome.${outcome}`, fallbacks[outcome] ?? outcome)
 }
 
 /**
@@ -179,7 +194,7 @@ export default function InboundHooksPage() {
           {row.original.receivedCount === 0
             ? t('marketing_automation.hooks.neverUsed', 'Never used')
             : `${row.original.receivedCount} · ${row.original.lastReceivedAt ? formatDateTime(row.original.lastReceivedAt) : ''}`}
-          {row.original.lastOutcome ? ` · ${row.original.lastOutcome}` : ''}
+          {row.original.lastOutcome ? ` · ${hookOutcomeLabel(t, row.original.lastOutcome)}` : ''}
         </span>
       ),
     },

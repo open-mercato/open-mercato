@@ -76,8 +76,9 @@ test.describe('TC-MA-020 inbound hooks', () => {
       const afterPost = await apiRequest(request, 'GET', `${HOOKS_PATH}?campaignId=${campaignId}`, { token })
       const activity = await readJsonSafe<{ items?: HookBody[] }>(afterPost)
       expect(activity?.items?.[0]?.receivedCount).toBe(1)
-      // The outcome is visible HERE and nowhere else, which is the point of the 202.
-      expect(activity?.items?.[0]?.lastOutcome).toContain('no customerId')
+      // The outcome is visible HERE and nowhere else, which is the point of the 202. It is a stable
+      // key — never English prose — because the admin UI translates it through `t()`.
+      expect(activity?.items?.[0]?.lastOutcome).toBe('no_identifier_in_payload')
 
       const current = activity?.items?.[0] as HookBody
       const revoked = await apiRequest(request, 'PUT', `${HOOKS_PATH}/${hook!.id}`, {

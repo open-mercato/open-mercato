@@ -15,6 +15,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { canImportSuppressionList as resolveCanImportSuppressionList } from '../../../lib/settings-permissions.js'
 import { useMarketingMutation } from '../../../components/useMarketingMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { readApiErrorField } from '../../../components/apiError'
@@ -53,6 +55,15 @@ export default function MarketingSettingsPage() {
   const runMutation = useMarketingMutation('settings')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
+  /**
+   * The page as a whole is gated on `campaigns.manage`, but the suppression import POSTs to
+   * `/api/marketing_automation/consent/import`, which is gated on `consent.manage` — its own grant on
+   * purpose (see `acl.ts`), so an author has no particular business editing consent. Without this
+   * check a campaign manager without consent rights saw a working-looking file picker that always
+   * answered 403, and the menu/page gate alone could not tell them that in advance.
+   */
+  const { payload: chromePayload } = useBackendChrome()
+  const canImportSuppressionList = resolveCanImportSuppressionList(chromePayload?.grantedFeatures)
 
   const [settings, setSettings] = React.useState<Settings | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -376,47 +387,55 @@ export default function MarketingSettingsPage() {
                 'A CSV of email addresses from the tool you are leaving. Every address that matches a customer here is recorded as unsubscribed, with your reason on it. It can only take people OFF the list: a CSV is not consent, so there is no way to import anybody as subscribed.',
               )}
             </div>
-            <Label htmlFor="suppression-reason">
-              {t('marketing_automation.settings.suppressionReason', 'Where this list came from')}
-            </Label>
-            <Input
-              id="suppression-reason"
-              value={importReason}
-              placeholder={t('marketing_automation.settings.suppressionReasonPlaceholder', 'Unsubscribes exported from our previous tool')}
-              onChange={(event) => setImportReason(event.target.value)}
-            />
-            <Input
-              id="suppression-file"
-              type="file"
-              accept=".csv,text/csv,text/plain"
-              disabled={importing}
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null
-                // The input is reset so choosing the same file twice runs twice — a retry after fixing the reason.
-                event.target.value = ''
-                if (file) void importSuppressionList(file)
-              }}
-            />
-            {importing ? <Spinner /> : null}
-            {importResult ? (
-              <div className="text-xs text-muted-foreground">
-                {t(
-                  'marketing_automation.settings.suppressionResult',
-                  'Suppressed {suppressed}. {already} were already unsubscribed. {unmatched} addresses matched no customer here, and {skipped} rows held no address.',
-                )
-                  .replace('{suppressed}', String(importResult.suppressed))
-                  .replace('{already}', String(importResult.alreadySuppressed))
-                  .replace('{unmatched}', String(importResult.unmatched))
-                  .replace('{skipped}', String(importResult.skipped))}
-                {importResult.truncated
-                  ? ` ${t('marketing_automation.settings.suppressionTruncated', 'The file was longer than one import applies — upload the rest separately.')}`
-                  : ''}
-                {/* A sample, so a typo is distinguishable from somebody who was never a customer here. */}
-                {importResult.unmatchedSample.length > 0 ? (
-                  <div className="mt-1 font-mono">{importResult.unmatchedSample.join(', ')}</div>
+            {canImportSuppressionList ? (
+              <>
+                <Label htmlFor="suppression-reason">
+                  {t('marketing_automation.settings.suppressionReason', 'Where this list came from')}
+                </Label>
+                <Input
+                  id="suppression-reason"
+                  value={importReason}
+                  placeholder={t('marketing_automation.settings.suppressionReasonPlaceholder', 'Unsubscribes exported from our previous tool')}
+                  onChange={(event) => setImportReason(event.target.value)}
+                />
+                <Input
+                  id="suppression-file"
+                  type="file"
+                  accept=".csv,text/csv,text/plain"
+                  disabled={importing}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null
+                    // The input is reset so choosing the same file twice runs twice — a retry after fixing the reason.
+                    event.target.value = ''
+                    if (file) void importSuppressionList(file)
+                  }}
+                />
+                {importing ? <Spinner /> : null}
+                {importResult ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t(
+                      'marketing_automation.settings.suppressionResult',
+                      'Suppressed {suppressed}. {already} were already unsubscribed. {unmatched} addresses matched no customer here, and {skipped} rows held no address.',
+                    )
+                      .replace('{suppressed}', String(importResult.suppressed))
+                      .replace('{already}', String(importResult.alreadySuppressed))
+                      .replace('{unmatched}', String(importResult.unmatched))
+                      .replace('{skipped}', String(importResult.skipped))}
+                    {importResult.truncated
+                      ? ` ${t('marketing_automation.settings.suppressionTruncated', 'The file was longer than one import applies — upload the rest separately.')}`
+                      : ''}
+                    {/* A sample, so a typo is distinguishable from somebody who was never a customer here. */}
+                    {importResult.unmatchedSample.length > 0 ? (
+                      <div className="mt-1 font-mono">{importResult.unmatchedSample.join(', ')}</div>
+                    ) : null}
+                  </div>
                 ) : null}
+              </>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                {t('marketing_automation.settings.suppressionNeedsConsentManage', 'Importing a suppression list needs consent-management rights.')}
               </div>
-            ) : null}
+            )}
           </div>
 
           <div className="space-y-2">

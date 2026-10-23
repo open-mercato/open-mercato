@@ -1,6 +1,14 @@
+const reportError = jest.fn()
+jest.mock('@open-mercato/telemetry', () => ({ reportError: (...a: unknown[]) => reportError(...a) }))
+
 import { marketingAuthoringAiTools } from '../authoring-pack'
 import { requireToolScope } from '../types'
 import aiTools from '../../ai-tools'
+import { estimateAudienceSize } from '../../lib/audience/estimate'
+
+jest.mock('../../lib/audience/estimate', () => ({
+  estimateAudienceSize: jest.fn(),
+}))
 
 const tools = marketingAuthoringAiTools as unknown as Array<{
   name: string
@@ -71,6 +79,119 @@ describe('the marketing AI tool pack', () => {
       triggers: [],
       definition: {},
     }).success).toBe(false)
+  })
+
+  /**
+   * The root cause this guards: the AI tool and the audience-estimate API route each had their own
+   * estimation logic and could report different counts for the same audience. Both now delegate to
+   * `estimateAudienceSize`, so this asserts the tool is a thin wrapper around it rather than a second
+   * implementation drifting back in.
+   */
+  test('estimate_audience delegates to the SAME estimator the audience-estimate API route calls', async () => {
+    const mocked = estimateAudienceSize as jest.Mock
+    mocked.mockReset()
+    mocked.mockResolvedValue({ count: 42, qualifier: 'exact', narrowing: 'all', candidates: null, queries: 0 })
+
+    const estimate = marketingAuthoringAiTools.find((tool) => tool.name.endsWith('estimate_audience'))!
+    const context = {
+      tenantId: 't1',
+      organizationId: 'o1',
+      userId: null,
+      userFeatures: [],
+      isSuperAdmin: false,
+      container: { resolve: () => ({}) },
+    }
+    const result = await estimate.handler({ audience: null }, context as never)
+
+    expect(mocked).toHaveBeenCalledWith({}, { tenantId: 't1', organizationId: 'o1' }, null, expect.any(Date))
+    expect(result).toEqual({ ok: true, count: 42, narrowing: 'all', qualifier: 'exact', candidates: null })
+  })
+
+  /**
+   * The gap this guards: EVERY error from `commandBus.execute` — a validation refusal AND an
+   * unexpected infra/DB failure alike — used to collapse into the same generic `{ ok:false, message:
+   * 'save failed' }` tool result with no telemetry at all. A validation refusal is the command
+   * speaking and needs no report; anything without that shape is a real failure the agent's answer
+   * was quietly absorbing.
+   */
+  /**
+   * The two AI-driven write paths this pack exposes. Both had their failure branches tested only
+   * through input-schema validation; neither had a test proving a SUCCESSFUL write actually reaches
+   * the command bus with the scope and name the agent supplied.
+   */
+  describe('create_campaign writes through the command bus', () => {
+    test('creates a disabled draft and returns its id', async () => {
+      const execute = jest.fn().mockResolvedValue({ result: { id: 'camp-1' } })
+      const create = marketingAuthoringAiTools.find((tool) => tool.name.endsWith('create_campaign'))!
+      const context = {
+        tenantId: 't1',
+        organizationId: 'o1',
+        userId: null,
+        userFeatures: [],
+        isSuperAdmin: false,
+        container: { resolve: () => ({ execute }) },
+      }
+      const result = await create.handler({ name: 'Win-back' }, context as never)
+      expect(execute).toHaveBeenCalledWith(
+        'marketing_automation.campaigns.create',
+        expect.objectContaining({ input: { name: 'Win-back', tenantId: 't1', organizationId: 'o1' } }),
+      )
+      expect(result).toEqual({ id: 'camp-1', isEnabled: false })
+    })
+  })
+
+  describe('save_campaign_graph error reporting', () => {
+    const save = marketingAuthoringAiTools.find((tool) => tool.name.endsWith('save_campaign_graph'))!
+    const input = {
+      campaignId: '11111111-1111-4111-8111-111111111111',
+      updatedAt: '2026-10-20T00:00:00.000Z',
+      name: 'x',
+      triggers: [],
+      definition: {},
+    }
+
+    function contextWithCommandBus(execute: jest.Mock) {
+      return {
+        tenantId: 't1',
+        organizationId: 'o1',
+        userId: null,
+        userFeatures: [],
+        isSuperAdmin: false,
+        container: { resolve: () => ({ execute }) },
+      }
+    }
+
+    beforeEach(() => {
+      reportError.mockReset()
+    })
+
+    test('a successful save reaches the command bus and reports the new version', async () => {
+      const execute = jest.fn().mockResolvedValue({ result: { updatedAt: '2026-10-21T00:00:00.000Z', waitingRuns: 3 } })
+      const result = await save.handler(input, contextWithCommandBus(execute) as never)
+      expect(execute).toHaveBeenCalledWith(
+        'marketing_automation.campaigns.save_graph',
+        expect.objectContaining({ input: expect.objectContaining({ id: input.campaignId, updatedAt: input.updatedAt }) }),
+      )
+      expect(result).toEqual({ ok: true, updatedAt: '2026-10-21T00:00:00.000Z', waitingRuns: 3 })
+      expect(reportError).not.toHaveBeenCalled()
+    })
+
+    test('a validation refusal from the command is surfaced without reporting it', async () => {
+      const execute = jest.fn().mockRejectedValue({
+        status: 409,
+        body: { code: 'marketing_automation.validation.staleVersion', error: 'stale' },
+      })
+      const result = await save.handler(input, contextWithCommandBus(execute) as never)
+      expect(result).toEqual({ ok: false, status: 409, code: 'marketing_automation.validation.staleVersion', message: 'stale' })
+      expect(reportError).not.toHaveBeenCalled()
+    })
+
+    test('an unexpected infra failure is reported, not silently absorbed', async () => {
+      const execute = jest.fn().mockRejectedValue(new Error('connection terminated unexpectedly'))
+      const result = await save.handler(input, contextWithCommandBus(execute) as never)
+      expect(result).toEqual({ ok: false, status: null, code: null, message: 'save failed' })
+      expect(reportError).toHaveBeenCalledTimes(1)
+    })
   })
 })
 
