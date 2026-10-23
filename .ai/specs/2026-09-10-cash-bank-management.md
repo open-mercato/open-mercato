@@ -1,7 +1,7 @@
 # Cash & Bank Management (Bank Statement Reconciliation & Settlement)
 
 **Related:** [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
-(#5663 — `postJournalEntry`; `JournalEntry.currencyId`/`exchangeRate`
+(#5663 — `postJournalEntry`; the line's `currencyId`/`exchangeRate`/`amountCurrency`
 as the transactional-FX primitive; its own Out of scope note that a
 realized-FX-gain/loss *line* is supported by a normal balanced posting
 but never computed by the engine itself), [Accounts Payable
@@ -169,6 +169,16 @@ genuinely multi-currency physical account models it as separate
 `BankAccount` rows sharing the same `accountNumber`/IBAN — an explicit,
 named simplification, not an oversight.
 
+**Each `BankAccount` points at a ledger account of the same currency (added
+2026-10-23).** The controller's practice (e-mail of 2026-10-23): every bank
+account is its own ledger account whatever its currency, two accounts in the
+same currency at two banks are two ledger accounts, and the balance in the
+account's currency must agree with the bank statement. #5663 gives
+`LedgerAccount` a nullable `currencyId` for exactly this, so
+`createBankAccount`/`updateBankAccount` require the `LedgerAccount`'s
+`currencyId` to equal the `BankAccount`'s, and a ledger line posted to that
+account carries that currency.
+
 **Settlement mechanism, corrected after review: this module posts the
 `SalesInvoice` side's `JournalEntry` itself; a `PaymentBatch` match
 posts nothing.** Resolved via Open Question Q2, then corrected during
@@ -266,7 +276,7 @@ currency: what the customer's payment settles) and, on a currency mismatch,
 bookedExchangeRate) − overpaymentAmount` is a real figure: what the bank received minus the book
 value of the receivable that payment clears. Same currency: `settledAmount`
 defaults to the line's absolute amount and the gain/loss is `0`. `ledger`'s
-own Out of scope confirms `JournalEntry.currencyId`/`exchangeRate` support "a
+own Out of scope confirms the line currency and rate support "a
 normal balanced posting with a realized-FX-gain/loss line" as a primitive,
 but the engine itself never computes the figure — it only accepts whatever
 lines a caller constructs, which is why this module owns the calculation.
@@ -672,7 +682,8 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
 ### Commands (Command Pattern, `commands/`)
 
 - `createBankAccount` — input `{ accountNumber, currencyId, ledgerAccountId, label }`.
-  Validates `currencyId`/`ledgerAccountId` resolve to real rows.
+  Validates `currencyId`/`ledgerAccountId` resolve to real rows and that the
+  `LedgerAccount`'s own `currencyId` equals `currencyId`.
   Requires `cash_bank_management.accounts.manage`.
 - `createBankStatement` — input
   `{ bankAccountId, statementDate, openingBalance, closingBalance, lines: { lineDate, amount, description }[] }`.
@@ -803,7 +814,28 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     for `settledAmount * bookedExchangeRate` (i.e.
     converted to the bank account's own currency), the excess as a credit to
     `customerOverpaymentAccountId` when `overpaymentAmount > 0`, and the
-    gain/loss line when present; `referenceType: 'cash_bank_management:bank_statement_line'`,
+    gain/loss line when present. **Line currency and rate (added 2026-10-23).**
+    The amounts above are in the bank account's currency. #5663 balances an
+    entry in the base currency and gives each line its own currency, rate and
+    original amount, so each line is posted with `amountCurrency` in its own
+    currency and a base-currency `debit`/`credit` (original amount × the line's
+    rate to the base currency): the bank line in the bank account's currency at
+    the settlement-date rate, the receivable line in the invoice's currency at
+    the rate the invoice was booked at, the overpayment line in the bank
+    currency, and the gain or loss line in the base currency as the balancing
+    figure. When the bank account's currency is the base currency the bank
+    line's rate is `1` and `bookedExchangeRate` is the invoice currency's rate
+    to it, as today. When the bank currency, the invoice currency and the base
+    currency are all different, the settlement-date rate of the bank currency
+    to the base currency is a second rate input and is not derived from
+    `bookedExchangeRate`. **⚠ NEEDS HUMAN CONFIRMATION:** (1) the formula above
+    is written in the bank currency; in base-currency terms the gain or loss
+    is the balancing figure of the entry, and the posting has to be restated
+    in those terms before implementation; (2) whether the gain or loss stays in
+    this entry. The controller says the difference between the invoice rate
+    and the payment rate is usually booked as its own entry at settlement, and
+    that only the difference from converting the two currencies to the base
+    currency goes into the same entry. `referenceType: 'cash_bank_management:bank_statement_line'`,
     `referenceId: bankStatementLineId` (no `type` override — defaults
     to GL's own `'NORMAL'`, the same pattern Accounts Payable's
     `postVendorInvoice` call already uses). Persists
@@ -1871,3 +1903,22 @@ the first day of the next period, so a settlement in the new period needs no
 gate. Added the read contract for `fx_revaluation` (`matchedDocumentId`,
 `settledAmount`, `lineDate`, `matchedAt`). No change to this module's behaviour or
 schema. Not yet reviewed by a maintainer.
+
+### 2026-10-23 — currency and rate on every ledger line
+
+- **Context.** #5663 now gives every `JournalEntryLine` its own `currencyId`,
+  `exchangeRate` and `amountCurrency`, a `LedgerAccount` an optional
+  `currencyId`, and lets an entry mix currencies while it balances in the base
+  currency. The controller (Mateusz Duda, incro, e-mail of 2026-10-23)
+  confirmed that each bank account is its own ledger account and that one entry
+  may hold lines in different currencies.
+- **Changed.** `BankAccount` is tied to a ledger account of the same currency
+  (new rule in `createBankAccount`/`updateBankAccount`); the posting for a
+  `sales_invoice` match is described line by line with its own currency, rate
+  and base amount; the Related paragraph names the line fields as the FX
+  primitive.
+- **Still one currency per `BankAccount` row.** That decision is the
+  controller's practice and is kept.
+- **Open, marked ⚠.** The gain or loss formula restated in base-currency terms,
+  and whether it stays in the payment's entry or becomes its own entry at
+  settlement. Not yet reviewed by a maintainer.
