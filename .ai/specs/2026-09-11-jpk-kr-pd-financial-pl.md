@@ -1047,13 +1047,25 @@ final:
   hinges on it. Working assumption unchanged until that's answered:
   Group 1 (FY2026, filed by April 2027) is treated as the tighter,
   safer target to build toward.
-- **Q6 — New 2026-10-23, from the line-currency change in `#5663`. ⚠ NEEDS
-  HUMAN CONFIRMATION:** the builder fills `Z_5`/`Z_6` (`Z_8`/`Z_9`) from the
+- **Q6 — New 2026-10-23, from the line-currency change in `#5663`. Assumed
+  confirmed by the team 2026-10-23 (working default):** the builder fills `Z_5`/`Z_6` (`Z_8`/`Z_9`) from the
   line's own currency and amount and leaves them out on a base-currency line.
   Whether the JPK_KR_PD XSD requires, permits or forbids the foreign-amount
   fields on a base-currency line was not re-read in this pass; the XSD
   checked on 2026-09-12 has to be opened again for `Z_5`–`Z_9` before the
-  builder is written. Until then the rule above is a working default.
+  builder is written. Until then the rule above is a working default. Supporting evidence read in
+  this pass: the Ministry of Finance's instruction for JPK_KR (version 1) marks
+  the foreign-currency amount and code fields as optional, and a vendor
+  mapping (Staria) leaves them empty on PLN lines; neither is the JPK_KR_PD XSD.
+- **Q7 — New 2026-10-23: VAT in złoty and art. 31a.** The amounts in this
+  filing come from the ledger's base-currency `debit`/`credit`, booked at the
+  booking-day rate (art. 30 ust. 2). The VAT register, JPK_V7 and KSeF in
+  `financial_pl` show VAT in złoty at the rate of art. 31a ustawy o VAT (the
+  last business day before the tax obligation arises; art. 106e ust. 11), which
+  can differ from the booking rate when the obligation date and the invoice
+  date differ. Reconciling the two belongs to `financial_pl`'s VAT side and is
+  not designed here. Whether KSeF FA(3) requires the złoty VAT amount on a
+  foreign-currency invoice is not checked.
 - **Q3 — Placement:** this document assumes `official-modules` /
   `SPEC-010`, per the existing JPK_V7/KSeF precedent. Not yet physically
   placed there — `official-modules` is not checked out in the
