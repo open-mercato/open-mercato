@@ -43,6 +43,10 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 - 3.1 `next dev` with `NODE_ENV=production` served `frame-ancestors 'self' http://localhost:* http://127.0.0.1:*` and no global `X-Frame-Options`; `next start` on the `build:app` output served `frame-ancestors 'self'` with `X-Frame-Options: SAMEORIGIN`. `/api/attachments/file/*` stayed `default-src 'none'; sandbox` + `SAMEORIGIN` in both phases. Run on loopback ports 51800-51803 with every service URL pointed away from the shared ports.
 - 3.2 Real `dev-splash.html` + `createDevSplashCodingFlow` in headless Chromium, with stub `npx` and `wezterm` binaries: one click opened one terminal running `npx cezar-run` in the nearest `package.json` directory; a second click inside the cooldown got 409 `already_started` and launched nothing; a token-less POST got 403 and a GET got 405. The check found that the status poll erased the `already_started` notice; fixed in 1d5ff8441.
 
+## Validation gate (2026-10-23)
+
+Local mode, turbo concurrency 2, `NODE_OPTIONS=--max-old-space-size=6144`: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` (39/39) and `build:app` passed. `yarn test` passed 46/48 turbo tasks locally; `create-mercato-app#test` failed six `npm pack`-based inventory tests on this host (`npm pack` returned no file list), and the same suite passed in CI's `test` job on 49c3f8798, which carries every code change on this branch.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -63,6 +67,6 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 
 ### Phase 4: Finish
 
-- [ ] 4.1 Full validation gate
+- [x] 4.1 Full validation gate — f6f9593a4
 - [ ] 4.2 om-auto-review-pr autofix pass
 - [ ] 4.3 Evidence, labels and ready for review
