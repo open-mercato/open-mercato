@@ -630,7 +630,9 @@ opposite of the adjusting entry made in the previous period."*
     API, which contradicted each other, and both now say "locked"
     (`FiscalPeriod.isLocked`).
 
-14. **A cross-currency settlement (bank currency ≠ base ≠ invoice
+14. **Superseded 2026-10-23 for Cash & Bank.** `bookedExchangeRate` is no longer an input of `matchBankStatementLine`: with a rate on every ledger line the match takes `bankRate`, `invoiceRatePaid` and the invoice's stored rate, so no cross-rate is needed (`cash-bank-management.md`, Commands). The reasoning below is kept for the record and still applies to anything that would need a bank-currency-per-invoice-currency rate.
+
+    **A cross-currency settlement (bank currency ≠ base ≠ invoice
     currency) cannot default `bookedExchangeRate` from the invoice's
     own stored rate — that rate is in the wrong units.** Design
     decision 7's default-from-invoice coordination note for Cash &
@@ -868,7 +870,7 @@ Decided by the team (2026-10-12): no external review of this direction; the reas
   `PaymentBatchLine.vendorInvoiceId` and `amount`, and, from
   `PaymentBatch`, `status` and `sentOn` (the `operationDate` of the entry
   `markPaymentBatchSent` posts). `sentOn` was added to it on 2026-10-15 (Design decision 18).
-- `cash-bank-management.md` — note that `bookedExchangeRate` can default
+- `cash-bank-management.md` — (superseded 2026-10-23, see Design decision 14: the match now takes `bankRate` and `invoiceRatePaid`) note that `bookedExchangeRate` can default
   from `SalesInvoice.exchangeRate` once populated, **only when the bank
   account's currency equals the tenant's base currency** (Design decision
   14); and list `BankStatementLine.settledAmount`, `lineDate` and the
