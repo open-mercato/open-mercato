@@ -105,6 +105,24 @@ export async function GET(req: Request) {
     lines.push([csvCell(id), csvCell(row?.displayName ?? null), csvCell(row?.primaryEmail ?? null)].join(','))
   }
 
+  const complete = resolution.complete && resolution.ids.length < MAX_ROWS
+  /**
+   * The cap is also written INTO the file, not only into a response header.
+   *
+   * The link that downloads this is a plain `<a href download>` — a browser navigation, not a `fetch` — so no
+   * script in this app ever reads `x-om-segment-export-complete`. A header nobody can see is exactly a silent
+   * cap wearing a header, and the person who opens this in a spreadsheet sees a file that ends cleanly and
+   * looks like everybody. A trailing row keeps the same three columns (so nothing shifts out of alignment)
+   * and a value so distinctive the quoting rules in `csvCell` never mistake it for data.
+   */
+  if (!complete) {
+    lines.push([
+      csvCell('⚠ INCOMPLETE EXPORT'),
+      csvCell(`Only ${resolution.checked} of the segment were checked before the limit was reached`),
+      csvCell('Narrow the segment or re-run to see the rest'),
+    ].join(','))
+  }
+
   const filename = `segment-${segment.slug}.csv`
   return new NextResponse(`${lines.join('\r\n')}\r\n`, {
     headers: {
@@ -113,7 +131,7 @@ export async function GET(req: Request) {
       // Never cached: it is a file of customer data, and an intermediary holding a copy is the problem.
       'cache-control': 'no-store',
       // Says plainly whether the file is everybody or a capped slice, without having to count the lines.
-      'x-om-segment-export-complete': resolution.complete && resolution.ids.length < MAX_ROWS ? 'true' : 'false',
+      'x-om-segment-export-complete': complete ? 'true' : 'false',
       // How much was examined to produce it, so "not complete" is a number rather than a shrug.
       'x-om-segment-export-checked': String(resolution.checked),
     },
