@@ -629,6 +629,54 @@ async seedDefaults({ em, tenantId, organizationId }) {
   this spec did not say which date the payment entry carries; other
   modules that value open balances as of a date (Multi-Currency,
   #6190) need it as a stored column.
+
+  **Currency, rate and the difference entry (added 2026-10-23; decided by
+  the team on the controller's answer for sales payments, see the Cash &
+  Bank spec; not yet reviewed by a maintainer).** Every ledger line now
+  carries its own currency, rate and original amount (GL #5663), so the
+  payment entry is posted in the batch's currency: each DR line to the
+  liability account has `currencyId` = the batch's currency,
+  `amountCurrency` = `PaymentBatchLine.amount` and rate `paymentRate`; the
+  CR line to the cash account carries the batch total at the same rate. The
+  base-currency `debit`/`credit` are the original amount times the rate,
+  rounded half up (GL's consistency rule). `paymentRate` is one rate per
+  batch (invoices of a batch share a currency): the optional `paymentRate`
+  override of the send route, else the NBP Table A rate of the last day
+  published before `sentOn`, read with `ExchangeRateService.getRate({ ...,
+  source: 'NBP_A' })` (Multi-Currency Design decision 9g); `1` for a
+  base-currency batch. A rate that cannot be resolved rejects the send with
+  `422 EXCHANGE_RATE_REQUIRED`, nothing posted. The vendor invoice was booked
+  at its own stored `exchangeRate` (`invoiceRateBooked`, Multi-Currency), so
+  the liability is cleared at a different base amount whenever the two
+  differ. In the same transaction the command posts a second entry, the
+  **difference entry** (`referenceType:
+  'accounts_payable_payments:payment_batch_fx_difference'`, `referenceId:
+  batch.id`, `operationDate: sentOn`), only when some invoice has
+  `paymentRate` ≠ `invoiceRateBooked`: one line per such invoice on the
+  liability account in the batch's currency with `amountCurrency = 0` (exempt
+  from GL's consistency rule), rate `paymentRate`, base amount `amount` ×
+  (`paymentRate` − `invoiceRateBooked`) rounded, a credit when `paymentRate`
+  is higher (the payment entry debited the liability by more than it was
+  booked at) and a debit when lower, and one line on the module's
+  `gainLossAccountId` carrying the net on the opposite side (a loss when the
+  payment cost more złoty than the invoice was booked at). This is the
+  sales-side posting with the sides reversed. An invoice whose stored
+  `exchangeRate` is `null` (not yet backfilled) rejects the send with `422
+  INVOICE_EXCHANGE_RATE_MISSING`, nothing posted. The difference entry's id is
+  stored on the batch (`fxDifferenceJournalEntryId`); the idempotency guard
+  (`postedJournalEntryId`) covers both entries, which are posted together or
+  not at all. Worked check: invoice EUR 1,000 booked at 4.30 (4,300 PLN), sent
+  with `paymentRate` 4.35: payment entry DR liability EUR 1,000 = 4,350, CR
+  cash EUR 1,000 = 4,350; difference entry: credit liability 50
+  (`amountCurrency` 0), debit loss 50. **⚠ NEEDS HUMAN CONFIRMATION —
+  Phase 1 limit:** the cash line is in the batch's currency, so a
+  `defaultCashAccountId` whose `currencyId` differs (for example a PLN account
+  paying a EUR invoice) is rejected by the ledger's account-currency rule and
+  the send fails with `422 CASH_ACCOUNT_CURRENCY_MISMATCH`; paying a
+  foreign-currency invoice from an account in another currency is the
+  conversion case of the Cash & Bank spec and is not posted here. The
+  valuation read contract above is unchanged: the difference entry's lines
+  carry `amountCurrency = 0`, so they change no open currency amount.
 - `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
   delete via `deletedAt`; frees the attached invoices so they can go
   into another batch — logically, by removing `PaymentBatchLine`, not
@@ -758,6 +806,13 @@ deliberately different mechanisms, not by oversight:
   `operationDate` of the payment entry, immutable afterward. `null`
   while `DRAFT`/`CONFIRMED`/`CANCELLED`.
 - `posted_journal_entry_id`: uuid, nullable
+- `payment_rate`: numeric(18,8), nullable (added 2026-10-23). The rate to the
+  base currency the payment entry was posted with; `1` for a base-currency
+  batch; `null` until `SENT`.
+- `fx_difference_journal_entry_id`: uuid, nullable (added 2026-10-23). The
+  difference entry, set only when an invoice's booking rate differed from
+  `payment_rate`; `null` otherwise.
+
 - `updated_at`: timestamptz, nullable (optimistic lock while `status` is `DRAFT`/`CONFIRMED`)
 - `deleted_at`: timestamptz, nullable
 
@@ -791,6 +846,12 @@ quickly exclude invoices attached to any batch whose status isn't
   code — this is a temporary fallback, to be removed once a real
   bank-account-to-ledger-account mapping exists). Owned by this
   document, set in its config UI.
+- `accounts_payable_payments.gainLossAccountId` (added 2026-10-23) — the
+  account that takes the realized exchange difference of the difference entry
+  (the payables counterpart of the sales side's `gainLossAccountId` in Cash &
+  Bank). Owned by this document, set in its config UI; `markPaymentBatchSent`
+  rejects a foreign-currency send with a readable configuration error while it
+  is unset.
 - **`accounts_payable.liabilityAccountId` — read, not owned.** The
   vendor liability account, used as the DR in `markPaymentBatchSent`.
   Set in the sibling document's config UI; this module reads it
@@ -863,11 +924,12 @@ Custom write route (mapped to `update`).
 
 Custom write route (mapped to `update`).
 
-- **Request body** (added 2026-10-15): `{ sentOn?: 'YYYY-MM-DD' }` —
-  optional, default today, not later than today.
-- **Response 200**: `{ id, status: 'SENT', sentOn, postedJournalEntryId }`.
+- **Request body** (added 2026-10-15): `{ sentOn?: 'YYYY-MM-DD', paymentRate?: number }` —
+  `sentOn` optional, default today, not later than today; `paymentRate` (added 2026-10-23) optional, base-currency units per 1 unit of the batch's currency, default the NBP Table A rate, rejected when it is not `1` on a base-currency batch.
+- **Response 200**: `{ id, status: 'SENT', sentOn, postedJournalEntryId, fxDifferenceJournalEntryId }` (`fxDifferenceJournalEntryId` added 2026-10-23, `null` when no difference entry was needed).
 - **Response 409**: `status !== 'CONFIRMED'`.
 - **Response 422**: `sentOn` is later than today.
+- **Response 422 `EXCHANGE_RATE_REQUIRED`**, **`INVOICE_EXCHANGE_RATE_MISSING`**, **`CASH_ACCOUNT_CURRENCY_MISMATCH`** (added 2026-10-23): no rate could be resolved, an invoice of the batch has no stored `exchangeRate`, or the cash account's currency differs from the batch's. Nothing is posted; the batch stays `CONFIRMED`.
 - **Response 422 `PAYMENT_BATCH_NOT_ELIGIBLE`** (added 2026-10-20): the
   same-day re-check (see Design decisions, 2026-10-20) found a line not
   eligible; same body as on `.../confirm`. Nothing is posted; the batch
@@ -1001,6 +1063,20 @@ through the module configuration screen.
   both equal it. Send with a future `sentOn`; assert 422 and the batch
   stays `CONFIRMED`. Send with `sentOn` in a locked period; assert the
   ledger's error is returned and the batch stays `CONFIRMED`.
+- Foreign-currency send (added 2026-10-23): an EUR batch with one invoice
+  of EUR 1,000 booked at 4.30 and `paymentRate` 4.35 posts a payment entry
+  (DR liability EUR 1,000 = 4,350, CR cash EUR 1,000 = 4,350) and a difference
+  entry (credit liability 50 with `amountCurrency` 0, debit `gainLossAccountId`
+  50); both balance; `fxDifferenceJournalEntryId` and `paymentRate` are stored.
+  A lower `paymentRate` swaps the sides. A batch whose invoices were all booked
+  at the payment rate posts no difference entry. Two invoices at different
+  booking rates post one difference entry with a liability line each and one
+  net line on `gainLossAccountId`. Without `paymentRate` the rate is read with
+  `source: 'NBP_A'` for the day before `sentOn`; with none available the send
+  is `422 EXCHANGE_RATE_REQUIRED` and posts nothing; an invoice with a `null`
+  `exchangeRate` is `422 INVOICE_EXCHANGE_RATE_MISSING`; a cash account in
+  another currency is `422 CASH_ACCOUNT_CURRENCY_MISMATCH`; a repeated send is a
+  no-op and posts neither entry again.
 - Same-day re-check at send (added 2026-10-20), acceptance:
   - confirmed and sent on the same Warsaw calendar day → no second
     `contractorBankWhitelistCheck` call; the snapshot's `whitelistCheck`
@@ -1052,6 +1128,11 @@ Added 2026-10-20, for the same-day re-check at `markPaymentBatchSent`
 - **Vendor without a Polish NIP (`NOT_APPLICABLE`).** No `checkedAt`, so
   the line is always re-evaluated; only approval and active status can
   change the outcome; the registry makes no Ministry call.
+- **Payment rate differs from the booking rate (added 2026-10-23).** The
+  payment entry clears the liability at the payment rate and the difference
+  entry moves the remainder to `gainLossAccountId`; a base-currency batch has
+  neither a rate nor a difference entry. The difference entry is posted in the
+  same transaction as the payment entry, never alone.
 - **Retry of a send.** A batch already `SENT` returns the existing
   result without a re-check, so a retry never queries the Ministry or
   changes the evidence after posting.
@@ -1538,3 +1619,21 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
 - Design decisions (2026-10-20), Commands, API Contracts (send route),
   Testing Strategy (acceptance cases) and a new Edge Cases & Failure
   Scenarios section updated.
+
+### 2026-10-23 — currency, rate and difference entry on the payment entry
+
+- **Decided by the team** (not yet reviewed by a maintainer), mirroring the
+  Cash & Bank restatement that follows the controller's answer: the payment
+  entry is posted in the batch's currency with its own rate (`paymentRate`),
+  and the exchange difference between the invoice's booking rate and the
+  payment rate goes into a separate difference entry
+  (`accounts_payable_payments:payment_batch_fx_difference`) with an
+  `amountCurrency = 0` line per invoice on the liability account and the net
+  on `gainLossAccountId`.
+- **New:** `PaymentBatch.paymentRate`, `fxDifferenceJournalEntryId`, module
+  config `gainLossAccountId`, `paymentRate` on the send route, `422
+  EXCHANGE_RATE_REQUIRED` / `INVOICE_EXCHANGE_RATE_MISSING` /
+  `CASH_ACCOUNT_CURRENCY_MISMATCH`, Testing Strategy and Edge Cases.
+- **⚠ Open:** a foreign-currency invoice paid from a cash account in another
+  currency is rejected in Phase 1 and belongs with the conversion case of the
+  Cash & Bank spec.
