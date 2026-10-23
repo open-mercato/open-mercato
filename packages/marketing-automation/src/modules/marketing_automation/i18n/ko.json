@@ -856,5 +856,6 @@
   "marketing_automation.widgets.overview.orders": "주문 {count}건",
   "marketing_automation.widgets.overview.revenue": "기여 매출",
   "marketing_automation.widgets.overview.sent": "발송 메시지",
-  "marketing_automation.widgets.overview.window": "기간"
+  "marketing_automation.widgets.overview.window": "기간",
+  "notifications.categories.marketing": "마케팅"
 }

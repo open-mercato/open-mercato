@@ -856,5 +856,6 @@
   "marketing_automation.widgets.overview.orders": "{count} zamówień",
   "marketing_automation.widgets.overview.revenue": "Przypisany przychód",
   "marketing_automation.widgets.overview.sent": "Wysłane wiadomości",
-  "marketing_automation.widgets.overview.window": "Okres"
+  "marketing_automation.widgets.overview.window": "Okres",
+  "notifications.categories.marketing": "Marketing"
 }

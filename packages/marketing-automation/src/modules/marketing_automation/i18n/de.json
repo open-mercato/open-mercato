@@ -856,5 +856,6 @@
   "marketing_automation.widgets.overview.orders": "{count} Bestellungen",
   "marketing_automation.widgets.overview.revenue": "Zugeordneter Umsatz",
   "marketing_automation.widgets.overview.sent": "Gesendete Nachrichten",
-  "marketing_automation.widgets.overview.window": "Zeitraum"
+  "marketing_automation.widgets.overview.window": "Zeitraum",
+  "notifications.categories.marketing": "Marketing"
 }
