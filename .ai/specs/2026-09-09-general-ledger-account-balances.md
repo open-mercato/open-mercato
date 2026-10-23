@@ -1038,7 +1038,7 @@ existing, already-migrated tables.
   positive) next to the base-currency balance, with `currency` then carrying
   that currency. Cash & Bank needs it, because the controller requires the
   balance in the account's currency to agree with the bank statement. Phase 1
-  is unchanged.
+  is unchanged. The lots Cash & Bank keeps for a foreign-currency account (its own table, FIFO) never replace this balance: the balance in the account's currency from the ledger is the figure that must equal the sum of the remaining lots and the bank statement, and the valuation of `fx_revaluation` reads it.
 
 ## Final Compliance Report — 2026-09-09
 
