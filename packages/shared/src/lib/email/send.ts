@@ -24,6 +24,18 @@ export type SendEmailOptions = {
   from?: string
   replyTo?: string
   attachments?: EmailAttachment[]
+  /**
+   * Extra MIME headers for this message.
+   *
+   * Added for RFC 8058 one-click unsubscribe: `List-Unsubscribe` and `List-Unsubscribe-Post` cannot be
+   * expressed in the body, and Gmail's and Yahoo's bulk-sender rules require them — so a marketing module
+   * without a way to set a header cannot reach the two largest mailboxes whatever else it does right.
+   *
+   * Optional, and a transport may not be able to honour them: a provider API that takes only `to`, `subject`
+   * and a body has nowhere to put one. A transport that cannot set them sends the message without them
+   * rather than failing, because a message with no `List-Unsubscribe` still carries the footer link.
+   */
+  headers?: Record<string, string>
   tenantId?: string
   organizationId?: string | null
 }
@@ -44,6 +56,8 @@ export type ResolvedEmailPayload = {
   fromIsInstanceDefault?: boolean
   replyTo?: string
   attachments?: EmailAttachment[]
+  /** See `SendEmailOptions.headers`. Passed through untouched; a transport honours what it can. */
+  headers?: Record<string, string>
   tenantId?: string
   organizationId?: string | null
 }
@@ -145,6 +159,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
     fromIsInstanceDefault: !options.from,
     replyTo: options.replyTo,
     attachments: options.attachments,
+    headers: options.headers,
     tenantId: options.tenantId,
     organizationId: options.organizationId,
   })

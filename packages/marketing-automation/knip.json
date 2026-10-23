@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "packages/marketing-automation": {
+      "entry": [
+        "src/index.ts",
+        "src/modules/marketing_automation/{index,di,acl,setup,events,ce,notifications,notifications.client,ai-agents,ai-tools}.ts",
+        "src/modules/marketing_automation/{api,backend,frontend,subscribers,workers,widgets,commands,steps,migrations}/**/*.{ts,tsx}",
+        "src/modules/marketing_automation/**/__tests__/**/*.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"]
+    }
+  },
+  "ignoreDependencies": [".*"],
+  "include": ["exports", "types"]
+}
