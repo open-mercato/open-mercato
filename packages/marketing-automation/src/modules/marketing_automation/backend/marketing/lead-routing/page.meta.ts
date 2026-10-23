@@ -10,7 +10,10 @@ const routingIcon = React.createElement(
 export const metadata = {
   icon: routingIcon,
   requireAuth: true,
-  requireFeatures: ['marketing_automation.runs.view'],
+  // Mirrors `api/lead-routing/route.ts`'s GET requirement exactly: that route also needs
+  // `customers.people.view`, because the list it answers includes decrypted customer names. Without this
+  // here, a role holding `runs.view` alone saw the nav entry and the page, then watched every row load fail.
+  requireFeatures: ['marketing_automation.runs.view', 'customers.people.view'],
   pageGroup: 'Marketing',
   pageGroupKey: 'marketing_automation.nav.group',
   pageTitle: 'Lead routing',
