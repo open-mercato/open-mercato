@@ -55,6 +55,8 @@ import type {
 } from '@open-mercato/shared/lib/commands'
 import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { registerEntityIds, getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
 const tenantB = '22222222-2222-4222-8222-222222222222'
@@ -297,6 +299,23 @@ function makeHarness(
 }
 
 describe('auth command replay authorization', () => {
+  // The api_keys module is optional (see module-decoupling.test.ts): its entity
+  // metadata is only registered with the ORM when the module is enabled. This
+  // suite exercises the API-key-referencing path, so it owns its own snapshot of
+  // the process-global entity id registry instead of relying on whatever the
+  // surrounding run happens to have registered.
+  let previousEntityIds: EntityIds | null = null
+
+  beforeEach(() => {
+    previousEntityIds = getEntityIds(false)
+    registerEntityIds({ api_keys: { api_key: 'api_keys:api_key' } })
+  })
+
+  afterEach(() => {
+    registerEntityIds(previousEntityIds ?? ({} as EntityIds))
+    previousEntityIds = null
+  })
+
   it('locks authorization parents and children in the canonical anti-phantom order', async () => {
     const harness = makeHarness({
       userRoles: [
