@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "lib/templates.ts",
+      "kind": "jsx-text",
+      "match": "Have a good one from all of us.",
+      "reason": "Example EMAIL COPY inside a shipped campaign template, not UI. A template is a starting point an author opens and rewrites in their own brand voice before publishing — the body is content the tenant owns, and translating it would ship five versions of a sentence nobody keeps. The screens that present the template are localised; only the draft copy inside it is not."
+    }
+  ]
+}
