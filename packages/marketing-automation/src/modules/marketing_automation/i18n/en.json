@@ -861,5 +861,6 @@
   "marketing_automation.widgets.overview.orders": "{count} orders",
   "marketing_automation.widgets.overview.revenue": "Attributed revenue",
   "marketing_automation.widgets.overview.sent": "Messages sent",
-  "marketing_automation.widgets.overview.window": "Period"
+  "marketing_automation.widgets.overview.window": "Period",
+  "notifications.categories.marketing": "Marketing"
 }
