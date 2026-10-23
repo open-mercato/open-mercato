@@ -1,4 +1,4 @@
-import { attributeLinear, loadAttribution } from '../attribution'
+import { attributeLinear, loadAttribution, loadRevenueTotals, totalRevenueByCurrency } from '../attribution'
 import type { AttributionTouch } from '../attribution'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resetCapabilityCache } from '../../capabilities'
@@ -65,6 +65,77 @@ describe('attributeLinear', () => {
 
   test('nothing in, nothing out', () => {
     expect(attributeLinear([])).toEqual([])
+  })
+})
+
+// The dashboard's own number: one order counted once, whichever campaigns touched it — never a sum
+// over `attributeLinear`'s per-campaign rows, which double-counts orders and loses cents to rounding
+// each campaign's share before adding them up.
+describe('totalRevenueByCurrency', () => {
+  // The exact case the review caught: summing `attributeLinear`'s per-campaign `orders` gave 2 for
+  // one order two campaigns touched. This must report 1.
+  test('an order touched by two campaigns is counted once, not twice', () => {
+    const rows = totalRevenueByCurrency([touch('o1', 'c1', 100), touch('o1', 'c2', 100)])
+    expect(rows).toEqual([{ currencyCode: 'PLN', orders: 1, revenue: 100 }])
+  })
+
+  // The exact case the review caught: summing three already-rounded 33.33 shares loses a cent (99.99
+  // becomes 99.98 or 99.97 depending on how the running total is re-rounded on every iteration).
+  // Summing the UNROUNDED order total directly, once, does not.
+  test('an order touched by three campaigns is counted once, without losing a cent to rounding', () => {
+    const rows = totalRevenueByCurrency([
+      touch('o1', 'c1', 99.99), touch('o1', 'c2', 99.99), touch('o1', 'c3', 99.99),
+    ])
+    expect(rows).toEqual([{ currencyCode: 'PLN', orders: 1, revenue: 99.99 }])
+  })
+
+  test('two orders in different currencies are never summed together', () => {
+    const rows = totalRevenueByCurrency([touch('o1', 'c1', 100, 'PLN'), touch('o2', 'c1', 50, 'EUR')])
+    expect(rows.sort((a, b) => (a.currencyCode ?? '').localeCompare(b.currencyCode ?? ''))).toEqual([
+      { currencyCode: 'EUR', orders: 1, revenue: 50 },
+      { currencyCode: 'PLN', orders: 1, revenue: 100 },
+    ])
+  })
+
+  test('orders accumulate per currency across many orders', () => {
+    const rows = totalRevenueByCurrency([
+      touch('o1', 'c1', 100), touch('o2', 'c1', 100), touch('o2', 'c2', 100), touch('o3', 'c3', 40),
+    ])
+    expect(rows).toEqual([{ currencyCode: 'PLN', orders: 3, revenue: 240 }])
+  })
+
+  test('nothing in, nothing out', () => {
+    expect(totalRevenueByCurrency([])).toEqual([])
+  })
+})
+
+describe('loadRevenueTotals', () => {
+  const scope = { tenantId: 't1', organizationId: 'o1' }
+  const since = new Date('2026-09-01T00:00:00.000Z')
+
+  function fakeEm(rows: unknown[]) {
+    const em = {
+      execute: async () => [{ sales: true, catalog: true }],
+      getConnection: () => ({ execute: async () => rows }),
+    }
+    return em as unknown as EntityManager
+  }
+
+  beforeEach(() => resetCapabilityCache())
+
+  test('one order touched by two campaigns reports one order and its full total', async () => {
+    const em = fakeEm([
+      { order_id: 'o1', campaign_id: 'c1', currency_code: 'PLN', order_total: '100.00' },
+      { order_id: 'o1', campaign_id: 'c2', currency_code: 'PLN', order_total: '100.00' },
+    ])
+    expect(await loadRevenueTotals(em, scope, { windowDays: 7, since })).toEqual([
+      { currencyCode: 'PLN', orders: 1, revenue: 100 },
+    ])
+  })
+
+  test('returns nothing, rather than zero revenue, when there is no sales module', async () => {
+    const em = { execute: async () => [{ sales: false, catalog: false }] } as unknown as EntityManager
+    expect(await loadRevenueTotals(em, scope, { windowDays: 7, since })).toEqual([])
   })
 })
 

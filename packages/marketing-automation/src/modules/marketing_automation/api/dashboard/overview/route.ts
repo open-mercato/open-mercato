@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MarketingCampaign } from '../../../data/entities.js'
-import { loadAttribution } from '../../../lib/analytics/attribution.js'
+import { loadRevenueTotals } from '../../../lib/analytics/attribution.js'
 
 /**
  * The whole organisation's marketing in one read, for the dashboard widget.
@@ -94,28 +94,21 @@ export async function GET(req: Request) {
   ])
   const counts = rows[0] ?? { sent: 0, suppressed: 0, failed: 0, opened: 0, clicked: 0, runs: 0 }
 
-  const [enabled, total, attribution] = await Promise.all([
+  const [enabled, total, revenue] = await Promise.all([
     em.count(MarketingCampaign, { ...scope, deletedAt: null, isEnabled: true }),
     em.count(MarketingCampaign, { ...scope, deletedAt: null }),
     /**
-     * Revenue over the same window, split linearly across the campaigns that touched each order.
+     * Revenue over the same window, per currency, each order counted once no matter how many
+     * campaigns touched it.
      *
      * Not narrowed to one campaign, because the question a dashboard answers is "what did marketing earn" —
      * and the shares are computed across every campaign that touched the order, so narrowing first would
-     * overstate whichever one was asked about.
+     * overstate whichever one was asked about. `loadRevenueTotals` rather than summing `loadAttribution`'s
+     * per-campaign rows: that sum counted an order touched by two campaigns twice and lost a cent to
+     * rounding each campaign's share before adding them up.
      */
-    loadAttribution(em, scope, { windowDays: ATTRIBUTION_WINDOW_DAYS, since }),
+    loadRevenueTotals(em, scope, { windowDays: ATTRIBUTION_WINDOW_DAYS, since }),
   ])
-
-  /** Summed per currency, never across them: one number mixing PLN and EUR means nothing. */
-  const revenue = new Map<string, { currencyCode: string | null; orders: number; revenue: number }>()
-  for (const row of attribution) {
-    const key = row.currencyCode ?? ''
-    const entry = revenue.get(key) ?? { currencyCode: row.currencyCode, orders: 0, revenue: 0 }
-    entry.orders += row.orders
-    entry.revenue = Math.round((entry.revenue + row.revenue) * 100) / 100
-    revenue.set(key, entry)
-  }
 
   return NextResponse.json({
     windowDays: days,
@@ -124,7 +117,7 @@ export async function GET(req: Request) {
     sends: { sent: counts.sent, suppressed: counts.suppressed, failed: counts.failed },
     /** People, not events. */
     engagement: { opened: counts.opened, clicked: counts.clicked },
-    revenue: [...revenue.values()].sort((left, right) => right.revenue - left.revenue),
+    revenue,
   })
 }
 
