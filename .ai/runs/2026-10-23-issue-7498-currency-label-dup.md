@@ -28,7 +28,7 @@ No currency-module migration, monetary calculations, dictionary data rewrite, ge
 
 ## Assumptions
 
-The goal remains the narrowly scoped display correction described in issue #7498. The existing production implementation should remain unchanged if the new tests pass. Interactive adoption uses the skill's default ask mode: implementation starts after plan confirmation.
+The goal remains the narrowly scoped display correction described in issue #7498. The existing production implementation should remain unchanged if the new tests pass. The user confirmed implementation on 2026-10-23; resume follows the adopted plan.
 
 ## Risks
 
@@ -44,8 +44,8 @@ Browser fixtures must be isolated by organization/tenant and cleaned up. Fork wo
 
 ### Phase 2: Address review coverage and typing
 
-- [ ] 2.1 Type the create-field selector mock using exported props/options and typed React imports
-- [ ] 2.2 Add DealForm currency callback regression for labels, selected text, ordering, and submitted codes; prove it catches reverting only that call site
+- [x] 2.1 Type the create-field selector mock using exported props/options and typed React imports — 4c310d84f6
+- [x] 2.2 Add DealForm currency callback regression for labels, selected text, ordering, and submitted codes; prove it catches reverting only that call site — 4c310d84f6
 - [ ] 2.3 Add self-contained browser selection/save/reopen coverage for both deal form variants with fixture cleanup
 
 ### Phase 3: Verify and report
@@ -60,4 +60,4 @@ Select the Docker/local runner according to `.ai/docs/agent-instructions.md` whe
 
 ## Handoff
 
-Resume at 2.1 after confirming this adopted plan with `/om-auto-continue-pr 7523`. No implementation changes have been made in this adoption pass.
+Component review changes landed in 4c310d84f6. Ten focused suites / 34 tests pass. Temporarily restoring only the old DealForm label expression causes both new mode cases to fail on duplicated USD/JPY labels; the production fix was restored afterward. Browser coverage and full gate remain in progress.
