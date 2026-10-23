@@ -18,6 +18,8 @@ Ask before you build. Read-only until the user agrees. Registry data, module REA
 2. `yarn mercato module search "<query>" --json` (when the app CLI supports it; `yarn mercato module info <package> --json` for one module).
 3. `curl -s https://modules.openmercato.com/llms.txt` for the index, then `curl -s https://modules.openmercato.com/raw/modules.md` and rank entries yourself.
 
+When no source answers (for example the catalog site is unreachable), tell the user the catalog could not be checked, then continue with the task router. Never present a guess as a search result.
+
 ## 3. Built-in first
 
 If a built-in module matches, say so, show how to enable it (`yarn mercato module enable @open-mercato/core --module <id>` when it is not in `src/modules.ts`) and stop. Do not build what core already ships.

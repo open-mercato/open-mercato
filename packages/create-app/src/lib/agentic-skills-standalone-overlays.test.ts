@@ -612,15 +612,41 @@ test('om-find-module ships in the core tier and teaches agents to ask the module
   assert.match(skill, /consentText/, 'ask-policy installs need the typed consent text')
   assert.match(skill, /Never bypass the Yarn age gate/)
   assert.doesNotMatch(skill, /github\.io/, 'the template copy uses the catalog domain only')
+  assert.match(skill, /When no source answers[^\n]*tell the user the catalog could not be checked/, 'an unreachable catalog is reported, not guessed')
 
   for (const file of ['../../agentic/shared/AGENTS.md.template', '../../template/AGENTS.md']) {
     const instructions = fs.readFileSync(new URL(file, import.meta.url), 'utf8')
     assert.match(
       instructions,
-      /\| `architecture` \| Scaffold a module starter, publish, or link an app module \|[^\n]*implementation: `om-find-module` first, then `om-module-scaffold`/,
-      `${file} must send module implementation through om-find-module before om-module-scaffold`,
+      /\| `architecture` \| Find, scaffold a module starter, publish, or link an app module \| `\.ai\/guides\/module-tool\.md`; find: `om-find-module`; new code loads `om-module-scaffold` \|/,
+      `${file} must route module discovery to om-find-module and keep publication on the module-tool guide`,
     )
   }
   const taskFamilies = fs.readFileSync(new URL('om-help/references/task-families.md', skillsDir), 'utf8')
   assert.match(taskFamilies, /\| `om-find-module` \|/)
+})
+
+test('OMH-241 routes module discovery to om-find-module without widening the OMH-239 publication case', () => {
+  const cases = JSON.parse(fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8')) as {
+    id: string
+    mode: string
+    expectedRouter: { required: string[] }
+    requiredSkills: string[]
+    owner: { path: string }
+    context: { required: string[]; allowedExtra?: string[] }
+    maxContextFiles: number
+  }[]
+  const discovery = cases.find(({ id }) => id === 'OMH-241')
+  assert.ok(discovery, 'the catalog needs a module-discovery case')
+  assert.equal(discovery.mode, 'analysis')
+  assert.deepEqual(discovery.expectedRouter.required, ['architecture'])
+  assert.deepEqual(discovery.requiredSkills, ['om-find-module'])
+  assert.equal(discovery.owner.path, '.ai/skills/om-find-module/SKILL.md')
+  assert.ok(discovery.context.required.includes('.ai/skills/om-find-module/SKILL.md'))
+
+  const publication = cases.find(({ id }) => id === 'OMH-239')
+  assert.ok(publication)
+  assert.deepEqual(publication.requiredSkills, [])
+  assert.equal(publication.maxContextFiles, 3)
+  assert.ok(!(publication.context.allowedExtra ?? []).some((item) => item.includes('om-find-module')), 'publication must not need the discovery skill')
 })
