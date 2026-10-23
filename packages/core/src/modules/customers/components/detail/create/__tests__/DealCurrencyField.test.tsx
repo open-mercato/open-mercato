@@ -3,6 +3,7 @@
  */
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
+import type { DictionaryEntrySelectProps, DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { DealCurrencyField } from '../DealCurrencyField'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -27,19 +28,19 @@ jest.mock('../../hooks/useCurrencyDictionary', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => {
-  const React = require('react')
+  const React = jest.requireActual<typeof import('react')>('react')
   return {
-    DictionaryEntrySelect: ({ value, onChange, fetchOptions }: any) => {
-      const [options, setOptions] = React.useState([])
+    DictionaryEntrySelect: ({ value, onChange, fetchOptions }: DictionaryEntrySelectProps) => {
+      const [options, setOptions] = React.useState<DictionaryOption[]>([])
       React.useEffect(() => {
         fetchOptions().then(setOptions)
       }, [fetchOptions])
-      const selected = options.find((option: any) => option.value === value)
+      const selected = options.find((option) => option.value === value)
       return React.createElement(
         'div',
         null,
         React.createElement('span', { 'data-testid': 'selected-value' }, selected ? selected.label : ''),
-        options.map((option: any) =>
+        options.map((option) =>
           React.createElement(
             'button',
             { key: option.value, type: 'button', onClick: () => onChange(option.value) },
