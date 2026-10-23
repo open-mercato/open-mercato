@@ -329,6 +329,8 @@ currency and the asset's currency share no recorded exchange rate for
 that date), `acceptFixedAsset` rejects rather than silently skipping the
 comparison.
 
+**Currency of the ledger lines (added 2026-10-23; decided by the team, not yet reviewed by a maintainer).** Since #5663 every ledger line carries its own currency, rate and original amount, so the entries this module posts say which currency they are in. An asset in the base currency posts exactly as before (header currency = base, no rate needed, each line takes the header's values). A foreign-currency asset's capitalization entry (`acceptFixedAsset`) is posted with the header `currencyId` = `FixedAsset.currencyId` and `exchangeRate` = `FixedAsset.exchangeRate` (the booking-day rate of Multi-Currency decision 9f); both lines carry `amountCurrency` = `acquisitionValue` and the base amount `acquisitionValue` × rate rounded half up, so the asset account is debited with the złoty value fixed at acquisition. The initial value of the asset in the base currency is that figure and is not revalued (a fixed asset is not a monetary item); the depreciation schedule, the depreciation entries, impairment and disposal are therefore computed on and posted in the base currency (rate `1`). A foreign-currency asset without a stored `exchangeRate` is rejected at acceptance (the existing `exchange_rate_unavailable`). **⚠ NEEDS HUMAN CONFIRMATION:** the schedule's `plannedAmount` is today written in `acquisitionValue`'s currency; for a foreign-currency asset the base-currency reading above changes it to the base amount, and the data model (a base-value column next to `acquisitionValue`) is not yet changed in this document.
+
 **Disposal / retirement — new, resolved 2026-09-09.** Modeled as its own
 entity, `AssetDisposal`, plus a dedicated command, `disposeAsset` — not a
 status flag alone, because a disposal is itself an accounting event with
@@ -3107,3 +3109,8 @@ center with `PostingRulesSettings.unallocatedCostAccountId`. The default chart
 of accounts template now also has an account type `500` (zespół 5, PR #6439), so
 a `500-99` number would read as a real template account. Text corrected; no
 design change.
+
+### 2026-10-23 — currency of the ledger lines
+
+- **Decided by the team** (not yet reviewed by a maintainer): the capitalization entry of a foreign-currency asset is posted with the asset's currency and booking-day rate on both lines; depreciation, impairment and disposal post in the base currency. A base-currency asset is unchanged.
+- **⚠ Open:** the base-value column and the schedule's currency in the data model are not yet rewritten; the question for the maintainers is whether a foreign-currency asset is in scope for Phase 1 at all.
