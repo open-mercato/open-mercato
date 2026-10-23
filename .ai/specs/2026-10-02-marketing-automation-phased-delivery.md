@@ -173,6 +173,8 @@ path to preserve and nothing to dual-write.
 Per-phase specs: P1 reuses the module spec, P2–P5 take the relevant sections out of it, and the
 roadmap stays whole as the forward-looking document.
 
+- **P3 (analytics), done 2026-10-20:** [`2026-10-20-marketing-automation-phase-3-analytics.md`](2026-10-20-marketing-automation-phase-3-analytics.md), linked from phase PR #6866.
+
 ## Integration coverage
 
 The existing specs are already per-feature, so they travel with their phases: `TC-MA-001..019` with
