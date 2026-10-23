@@ -1951,3 +1951,7 @@ Not yet reviewed by a maintainer.
 - **Decided by the team on Mateusz Duda's answer** (not yet reviewed by a maintainer): FIFO as the default outflow valuation, weighted average permitted, outflow at the rate of the day not offered; realized and unrealized differences on separate accounts; only the balance-sheet-date valuation at the NBP average rate is mandatory, the frequency is the company's choice (consistent with a revaluation run at any period end). Worked example with 100 realized and 50 unrealized in the Out of scope bullet on foreign-currency bank accounts.
 - **Consequence for this spec.** `fx_revaluation` posts its differences to the unrealized account only; realized differences are posted by the module that books the payment (Cash & Bank, Accounts Payable payments) to the realized account.
 - **Not designed yet:** the lots, the per-account method setting and the posting of an outflow at lot cost (Cash & Bank, Out of scope).
+
+### 2026-10-23 (cont. — lots designed in Cash & Bank)
+
+- The lots, the per-account method and the cost adjustment entry for outflows are now designed in `cash-bank-management.md` (Architecture → Foreign-currency lots). For `fx_revaluation`: the base balance of a foreign-currency bank account equals the sum of its remaining lots at their rates, so the valuation of that account is the balance in the account's currency times the valuation rate minus the base balance, posted to the unrealized account. Not yet reviewed by a maintainer.
