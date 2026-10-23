@@ -35,6 +35,7 @@ type TabDef = {
   label: string
   icon?: React.ReactNode
   count?: React.ReactNode
+  priority?: number
 }
 
 export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailTabs'
@@ -42,7 +43,7 @@ export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailT
 export type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
-  injectedTabs?: Array<{ id: string; label: string }>
+  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
   hiddenTabIds?: string[]
   activitiesCount?: number
   dealsCount?: number
@@ -144,8 +145,11 @@ function DefaultPersonDetailTabs({
       ...injectedTabs.map((tab) => ({
         id: tab.id as PersonTabId,
         label: tab.label,
+        priority: tab.priority,
       })),
-    ].filter((tab) => !hidden.has(tab.id))
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
   }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   return (
