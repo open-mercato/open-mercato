@@ -1,19 +1,19 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-22T22:30:16Z
+**Last updated:** 2026-10-23T08:49:20Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 8 Step 8.1
-**Last commit:** 15995cd08 — feat(attachments): add the DOCX structure engine
+**Current phase/step:** Phase 8 Step 8.6
+**Last commit:** 5060a3549 — feat(attachments): extract document structure on upload and purge it on delete
 
 ## What just happened
-- Phase 7 (document structure engines: types/locators, text engine + registry, structurer, PDF layout engine, DOCX engine) landed and passed checkpoint 8.
+- Steps 8.1–8.5 (+8.4-review-fix) landed: structure tables + migration + encryption, partition switches (UI), page-scoped OCR, queue + worker, upload enqueue + purge on delete. Checkpoint 9 passed with a UI screenshot.
 
 ## Next concrete action
-- Step 8.1 — add document structure entities, partition flags, encryption and migration. The worker (8.4) must mark extractions `partial` when `pageCharCounts.length < pageCount`.
+- Step 8.6 — add the document structure service and DI registrations.
 
 ## Blockers / open questions
-- Paused at the safety checkpoint (17 Steps since resume) for user review; push local commits before resuming.
+- none (pushes still done by the user)
 
 ## Environment caveats
 - Dev runtime runnable: yes (ephemeral)

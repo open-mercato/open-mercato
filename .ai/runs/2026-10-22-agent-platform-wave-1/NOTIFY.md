@@ -68,3 +68,11 @@
 ## 2026-10-22T22:30:16Z — safety checkpoint (paused for review)
 - 17 Steps since resume (4.1–7.5); Phase 8 (8 Steps, migration + worker + API) would exceed the ~20-Step window. Paused at the Phase 7 boundary.
 - Resume: `om-auto-continue-pr-loop 7794` from Step 8.1.
+
+## 2026-10-23T08:49:20Z — run resumed
+- User asked to continue; lock reclaimed; resumed at Step 8.1.
+
+## 2026-10-23T08:49:20Z — checkpoint 9
+- Steps 8.1..8.5 (+8.4-review-fix) verified: attachments jest 434/434, core tsc 0, build, i18n sync, UI probe + screenshot on the ephemeral app.
+- Decision (review fix): failed re-extractions keep the previous good extraction live.
+- Note: checkpoints must rebuild packages before starting the ephemeral app (stale dist broke the first start).

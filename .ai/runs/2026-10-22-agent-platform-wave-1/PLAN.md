@@ -53,12 +53,12 @@
 | 7 | 7.3 | Add the section structurer | dispatch:capable | done | bd9503935 |
 | 7 | 7.4 | Add the PDF layout engine | dispatch:capable | done | 905dd4825 |
 | 7 | 7.5 | Add the DOCX structure engine | dispatch | done | 15995cd08 |
-| 8 | 8.1 | Add document structure entities, partition flags, encryption and migration | dispatch:capable | done | 603633020 |
-| 8 | 8.2 | Add partition structure switches to validators, API and form | dispatch | done | b9c090e1e |
-| 8 | 8.3 | Expose page-scoped OCR and add the OCR structure engine | dispatch | done | 7edee055f |
-| 8 | 8.4 | Add the document structure queue and worker | dispatch:capable | done | 40411b071 |
-| 8 | 8.4-review-fix | Keep the previous live extraction when a re-extraction fails | dispatch | done | 99f738c57 |
-| 8 | 8.5 | Enqueue extraction on upload and purge structure on delete | dispatch | done | 698301568 |
+| 8 | 8.1 | Add document structure entities, partition flags, encryption and migration | dispatch:capable | done | 0be444c63 |
+| 8 | 8.2 | Add partition structure switches to validators, API and form | dispatch | done | ece4c398f |
+| 8 | 8.3 | Expose page-scoped OCR and add the OCR structure engine | dispatch | done | d3b63d378 |
+| 8 | 8.4 | Add the document structure queue and worker | dispatch:capable | done | d5fd005bb |
+| 8 | 8.4-review-fix | Keep the previous live extraction when a re-extraction fails | dispatch | done | ceb64a2ca |
+| 8 | 8.5 | Enqueue extraction on upload and purge structure on delete | dispatch | done | 5060a3549 |
 | 8 | 8.6 | Add the document structure service and DI registrations | dispatch | todo | — |
 | 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | todo | — |
 | 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | todo | — |
