@@ -989,6 +989,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       // An entry created manually can still accrue segments afterwards — the
       // segments API adds them, and `start_timer_existing` opens one. Undoing the
       // create must take them with it, on the same instant so `redo` can reverse
@@ -1217,6 +1218,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       // `execute` created the entry and opened a work segment on it, so undoing the
       // start has to retire both. Cascading on the same instant keeps the segment
       // from outliving its parent as a still-running orphan. The cascade queries,
@@ -2016,6 +2018,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) return
+    assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
     entry.date = before.date as unknown as Date
     entry.durationMinutes = before.durationMinutes
     entry.roundedMinutes = before.roundedMinutes ?? null
@@ -2203,6 +2206,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       })
       em.persist(entry)
     } else {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.staffMemberId = before.staffMemberId
       entry.date = before.date as unknown as Date
       entry.durationMinutes = before.durationMinutes

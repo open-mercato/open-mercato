@@ -1412,6 +1412,8 @@
   "sales.returns.quantityExceedsShipped": "Es kann nicht mehr als die versandte Menge zurückgegeben werden. Versenden Sie die Artikel, bevor Sie eine Rücksendung erfassen.",
   "sales.returns.reason": "Grund",
   "sales.returns.reason.placeholder": "Optional",
+  "sales.returns.restoreLineMissing": "Diese Rücksendung kann nicht wiederhergestellt werden: Eine ihrer Auftragspositionen existiert nicht mehr.",
+  "sales.returns.restoreQuantityUnavailable": "Diese Rücksendung kann nicht wiederhergestellt werden: Der Auftrag hat nicht mehr genügend versandte Menge, die zurückgegeben werden kann.",
   "sales.returns.returnNumber": "Rückgabe",
   "sales.returns.returnedAt": "Rückgabedatum",
   "sales.returns.total": "Summe",
