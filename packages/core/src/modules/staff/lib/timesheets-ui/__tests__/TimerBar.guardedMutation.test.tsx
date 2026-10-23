@@ -29,6 +29,21 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
+}))
+
+// TimerBar now also reads the shared timesheet preference to seed its picker
+// (#3750). Stubbed as settled-and-empty so this spec keeps asserting only the
+// guarded-mutation and running-timer behaviour it was written for.
+jest.mock('../useTimesheetPreference', () => ({
+  useTimesheetPreference: () => ({
+    lastProjectId: null,
+    updatedAt: null,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    save: jest.fn().mockResolvedValue(undefined),
+  }),
 }))
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
