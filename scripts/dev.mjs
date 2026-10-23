@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 import spawn from 'cross-spawn'
 import {
@@ -412,6 +413,7 @@ const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
   launchDir: process.cwd(),
+  projectDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
   agenticSetupDir: !isMonorepo && fs.existsSync(path.join(process.cwd(), 'src', 'modules.ts')) ? process.cwd() : null,
 })
 const gitRepoFlow = createDevSplashGitRepoFlow({

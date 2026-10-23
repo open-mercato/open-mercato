@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import { builtinModules } from 'node:module'
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
@@ -22,19 +23,63 @@ const nodeProtocolResolveAlias = Object.fromEntries(
     .map((name) => [`node:${name}`, name]),
 )
 
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "font-src 'self' data: https:",
-  "form-action 'self'",
-  "frame-ancestors 'self'",
-  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-  "img-src 'self' data: blob: https:",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: ws: wss:",
-].join('; ')
+const loopbackFrameAncestors = "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
+const sameOriginFrameAncestors = "frame-ancestors 'self'"
+
+function buildContentSecurityPolicy(frameAncestors: string): string {
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "font-src 'self' data: https:",
+    "form-action 'self'",
+    frameAncestors,
+    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    "img-src 'self' data: blob: https:",
+    "object-src 'none'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+    "style-src 'self' 'unsafe-inline'",
+    "connect-src 'self' https: ws: wss:",
+  ].join('; ')
+}
+
+function buildSecurityHeaders(allowLoopbackFraming: boolean) {
+  const originHeaderName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').trim()
+  const frameAncestors = allowLoopbackFraming ? loopbackFrameAncestors : sameOriginFrameAncestors
+  const globalFrameOptionsHeaders = allowLoopbackFraming
+    ? []
+    : [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }]
+  return [
+    {
+      source: '/:path*',
+      headers: [
+        { key: 'Content-Security-Policy', value: buildContentSecurityPolicy(frameAncestors) },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ...globalFrameOptionsHeaders,
+      ],
+    },
+    {
+      // Attachment file downloads set their own restrictive CSP (sandbox)
+      // in the route handler — override the global app CSP so it is not
+      // replaced at the Next.js config layer.
+      source: '/api/attachments/file/:path*',
+      headers: [
+        { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+      ],
+    },
+    {
+      // Marker header consumed by the custom-domain DNS reverse-resolve check
+      // (see SPEC 2026-04-08-portal-custom-domain-routing). Lets the verifier
+      // tell "request reached our origin" from "request was answered by an
+      // unrelated host that proxied it through Cloudflare/Fastly".
+      source: '/_next/health',
+      headers: [{ key: originHeaderName, value: '1' }],
+    },
+  ]
+}
 
 const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',
@@ -105,39 +150,16 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
     OM_SEARCH_MIN_LEN: process.env.OM_SEARCH_MIN_LEN,
   },
   async headers() {
-    const originHeaderName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').trim()
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-        ],
-      },
-      {
-        // Attachment file downloads set their own restrictive CSP (sandbox)
-        // in the route handler — override the global app CSP so it is not
-        // replaced at the Next.js config layer.
-        source: '/api/attachments/file/:path*',
-        headers: [
-          { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-        ],
-      },
-      {
-        // Marker header consumed by the custom-domain DNS reverse-resolve check
-        // (see SPEC 2026-04-08-portal-custom-domain-routing). Lets the verifier
-        // tell "request reached our origin" from "request was answered by an
-        // unrelated host that proxied it through Cloudflare/Fastly".
-        source: '/_next/health',
-        headers: [{ key: originHeaderName, value: '1' }],
-      },
-    ]
+    return buildSecurityHeaders(false)
   },
 }
 
-export default nextConfig
+// The Next.js phase, not NODE_ENV, decides the frame policy: `mercato server dev`
+// runs `next dev` with NODE_ENV=production, and `next build` writes these headers
+// into the routes manifest that `next start` serves. Only the development server
+// lets local tools on another loopback port (for example the Cezar cockpit's
+// Preview panel) frame the app.
+export default function resolveNextConfig(phase: string): typeof nextConfig {
+  if (phase !== PHASE_DEVELOPMENT_SERVER) return nextConfig
+  return { ...nextConfig, headers: async () => buildSecurityHeaders(true) }
+}

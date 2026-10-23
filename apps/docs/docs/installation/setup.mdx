@@ -224,6 +224,7 @@ When you run `yarn dev` on the host, Open Mercato starts a compact development r
 - Browser auto-open happens on interactive local runs when supported by the OS
 - The terminal still prints both URLs, so you can open them manually if needed
 - Press `d` while `yarn dev` is running to toggle raw logs
+- The `Start building` button opens [Cezar](https://github.com/open-mercato/cezar) for the current project by running plain `npx cezar-run` in a new terminal; it works while the app is still starting
 - Standalone apps can show a `Start coding with AI` menu for detected coding tools
 - Standalone apps can show a GitHub publish panel that creates or publishes the local project through `gh`
 
@@ -259,7 +260,7 @@ To hide the standalone GitHub publish panel from the splash:
 OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev
 ```
 
-To hide the coding-tools menu from the splash:
+To hide the coding-tools menu and the `Start building` button from the splash:
 
 ```bash
 OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
@@ -519,7 +520,7 @@ Key variables you may want to override:
 | `OM_DEV_SPLASH_PORT` | `4000` | Host and container port for the dev splash progress page |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open for the splash on supported local runs |
 | `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Set to `false` to hide the standalone splash GitHub publish panel |
-| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the splash coding-tools menu |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the splash coding-tools menu and the `Start building` (Cezar) button |
 | `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu |
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu |

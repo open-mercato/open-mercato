@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import vm from 'node:vm'
 
 const here = import.meta.dirname
 const root = path.resolve(here, '..', '..')
@@ -140,4 +141,140 @@ test('ephemeral dev runner publishes an explicit splash mode', () => {
   const source = read('scripts/dev-ephemeral.ts')
 
   assert.match(source, /const splashState = {\s*mode: 'ephemeral',/s)
+})
+
+function extractFunctionSource(source, name) {
+  const start = source.indexOf(`      function ${name}(`)
+  assert.notEqual(start, -1, `${name} must exist in the splash`)
+  const end = source.indexOf('\n      }\n', start)
+  return source.slice(start, end + '\n      }\n'.length)
+}
+
+function createBuildingHarness() {
+  const source = read('scripts/dev-splash.html')
+  const element = () => ({
+    hidden: true,
+    disabled: false,
+    textContent: '',
+    title: '',
+    dataset: {},
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value },
+  })
+  const context = {
+    buildingShell: element(),
+    buildingButton: element(),
+    buildingStatus: element(),
+    buildingActionInFlight: false,
+    splashBootstrap: { codingFlow: { enabled: true, actionToken: 'token' } },
+    translations: {
+      en: {
+        buildingButtonLabel: 'Start building',
+        buildingTitle: 'Open Cezar ({command})',
+        buildingResult_started: 'Started {command}',
+        buildingResult_npx_missing: 'npx missing, run {command}',
+        buildingResult_failed: 'Failed, run {command}',
+      },
+    },
+    translateMessage: (value) => value,
+  }
+  context.t = (key, vars = {}) => String(context.translations.en[key] || key)
+    .replace(/\{(\w+)\}/g, (_match, name) => String(vars[name] ?? ''))
+  vm.createContext(context)
+  vm.runInContext(
+    extractFunctionSource(source, 'translateBuildingResult') + extractFunctionSource(source, 'renderBuildingFlow'),
+    context,
+  )
+  return context
+}
+
+test('dev splash renders the Start building button inside the shared status card', () => {
+  const source = read('scripts/dev-splash.html')
+
+  assert.match(source, /<div class="building-shell" id="building-shell" hidden>/)
+  assert.match(source, /<button class="button secondary building-button" id="building-button" type="button">/)
+  assert.match(source, /id="building-status" role="status" aria-live="polite" hidden/)
+  assert.match(source, /renderBuildingFlow\(state\)\s*\n\s*renderCodingFlow\(state\)/)
+})
+
+test('dev splash posts Start building without any command, path, or URL', () => {
+  const source = read('scripts/dev-splash.html')
+  const startBuilding = source.slice(source.indexOf('async function startBuilding()'), source.indexOf('function translateBuildingResult'))
+
+  assert.match(startBuilding, /fetch\('\/actions\/start-building', {/)
+  assert.match(startBuilding, /'x-om-dev-splash-token': codingBootstrap\.actionToken \|\| ''/)
+  assert.match(startBuilding, /body: '\{\}',/)
+  assert.match(startBuilding, /if \(buildingActionInFlight\) return/)
+})
+
+test('dev splash shows Start building while the app is still starting', () => {
+  const harness = createBuildingHarness()
+  harness.renderBuildingFlow({
+    ready: false,
+    failed: false,
+    codingFlow: {
+      enabled: true,
+      busy: false,
+      building: { available: true, reason: null, manualCommand: 'npx cezar-run', lastResult: null },
+    },
+  })
+
+  assert.equal(harness.buildingShell.hidden, false)
+  assert.equal(harness.buildingButton.disabled, false)
+  assert.equal(harness.buildingButton.textContent, 'Start building')
+  assert.equal(harness.buildingButton.title, 'Open Cezar (npx cezar-run)')
+  assert.equal(harness.buildingStatus.hidden, true)
+})
+
+test('dev splash disables Start building and shows the manual command when unavailable', () => {
+  const harness = createBuildingHarness()
+  harness.renderBuildingFlow({
+    ready: true,
+    codingFlow: {
+      enabled: true,
+      building: { available: false, reason: 'npx_missing', manualCommand: 'npx cezar-run', lastResult: null },
+    },
+  })
+
+  assert.equal(harness.buildingButton.disabled, true)
+  assert.equal(harness.buildingStatus.hidden, false)
+  assert.equal(harness.buildingStatus.dataset.kind, 'error')
+  assert.equal(harness.buildingStatus.textContent, 'npx missing, run npx cezar-run')
+})
+
+test('dev splash disables Start building while any splash action is busy and hides it when disabled', () => {
+  const harness = createBuildingHarness()
+  const building = { available: true, reason: null, manualCommand: 'npx cezar-run', lastResult: { kind: 'success', code: 'started', message: 'x' } }
+
+  harness.renderBuildingFlow({ codingFlow: { enabled: true, busy: true, building } })
+  assert.equal(harness.buildingButton.disabled, true)
+  assert.equal(harness.buildingStatus.textContent, 'Started npx cezar-run')
+
+  harness.renderBuildingFlow({ codingFlow: { enabled: false } })
+  assert.equal(harness.buildingShell.hidden, true)
+})
+
+test('dev splash localizes every Start building label in all supported locales', () => {
+  const source = read('scripts/dev-splash.html')
+  const requiredKeys = [
+    'buildingButtonLabel',
+    'buildingTitle',
+    'buildingResult_starting',
+    'buildingResult_started',
+    'buildingResult_already_started',
+    'buildingResult_busy',
+    'buildingResult_failed',
+    'buildingResult_npx_missing',
+    'buildingResult_terminal_missing',
+  ]
+
+  for (const key of requiredKeys) {
+    const occurrences = source.split(`${key}:`).length - 1
+    assert.equal(occurrences, 4, `${key} must be translated for all four splash locales`)
+  }
+})
+
+test('dev runtimes resolve the Start building project directory from their own location', () => {
+  assert.match(read('scripts/dev.mjs'), /projectDir: path\.resolve\(path\.dirname\(fileURLToPath\(import\.meta\.url\)\), '\.\.'\),/)
+  assert.match(read('scripts/dev-ephemeral.ts'), /projectDir: projectRootDirectory,/)
 })
