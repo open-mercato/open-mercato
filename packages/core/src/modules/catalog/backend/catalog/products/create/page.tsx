@@ -176,6 +176,8 @@ const STEP_FIELD_MATCHERS: Record<
     matchField("orderQtyIncrement"),
     matchField("requiresShipping"),
     matchField("isQuoteOnly"),
+    matchField("omnibusExempt"),
+    matchField("firstListedAt"),
     matchField("seoTitle"),
     matchField("seoDescription"),
     matchField("canonicalUrl"),
