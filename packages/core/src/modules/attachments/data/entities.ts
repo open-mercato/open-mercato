@@ -1,4 +1,4 @@
-import { OptionalProps } from '@mikro-orm/core'
+import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
 
@@ -121,10 +121,12 @@ export class AttachmentQuotaReservation {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @Property({ name: 'reserved_bytes', type: 'bigint' })
+  /** Backed by a `bigint` column; hydrate as `number` (safe under Number.MAX_SAFE_INTEGER for attachment byte counts) instead of MikroORM's default JS `bigint`. */
+  @Property({ name: 'reserved_bytes', type: new BigIntType('number') })
   reservedBytes!: number
 
-  @Property({ name: 'actual_bytes', type: 'bigint', nullable: true })
+  /** Backed by a `bigint` column; hydrate as `number`, not MikroORM's default JS `bigint`. */
+  @Property({ name: 'actual_bytes', type: new BigIntType('number'), nullable: true })
   actualBytes?: number | null
 
   @Property({ type: 'text', default: 'reserved' })

@@ -22,6 +22,7 @@ import { Checkbox } from '../primitives/checkbox'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { QueryProvider } from '../theme/QueryProvider'
+import { useBrandStyle } from '../theme/useBrandStyle'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
@@ -605,7 +606,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const { items: topbarInjectedMenuItems } = useInjectedMenuItems('menu:topbar:actions')
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
-  const resolvedLogo = chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
+  const brandStyle = useBrandStyle()
+  const resolvedLogo = brandStyle?.logo ? { src: brandStyle.logo, preserveAspectRatio: true } : chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
   const resolvedBrandName = chromePayload?.brand?.logo?.src
     ? chromePayload.brand.name ?? resolvedProductName
     : resolvedProductName

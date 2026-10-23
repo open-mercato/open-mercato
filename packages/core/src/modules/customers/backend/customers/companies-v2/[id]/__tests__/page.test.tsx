@@ -38,8 +38,9 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
       {entityId}:{recordId}:{title}:{description}
     </div>
   ),
-  ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  ErrorMessage: ({ label }: { label: string }) => <div data-testid="error-message">{label}</div>,
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  RecordNotFoundState: ({ label }: { label: string }) => <div data-testid="record-not-found">{label}</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -344,5 +345,20 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
       expect(crudFormPropsCapture.current).not.toBeNull()
     })
     expect(crudFormPropsCapture.current?.optimisticLockUpdatedAt).toBeUndefined()
+  })
+
+  it('shows the localized not-found state — not the raw server error text — when the id is malformed (400, #6158)', async () => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockRejectedValue(
+      Object.assign(new Error('Invalid company id'), { status: 400 }),
+    )
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'not-a-valid-uuid' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('record-not-found')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/Invalid company id/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
   })
 })

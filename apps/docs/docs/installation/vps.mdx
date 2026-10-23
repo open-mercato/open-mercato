@@ -5,6 +5,10 @@ description: Deploy a production-ready Open Mercato stack to any Linux server or
 
 Deploy the complete Open Mercato stack — application, PostgreSQL, Redis, and Meilisearch — to any Linux server using Docker Compose.
 
+:::info Shared production gate
+Complete the provider-neutral [Production Readiness checklist](../deployment/production-readiness) before sending production traffic here. This guide keeps the VPS-specific Compose, nginx, networking, and volume procedures.
+:::
+
 [![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
 
 ---
@@ -123,8 +127,10 @@ Two variables bound how long tokens signed with the *previous* scheme keep worki
 
 Once the window closes, every token must carry a session id (`sid`) bound to a live session row, which is what makes logout and password reset revoke access immediately. Set `JWT_LEGACY_GRACE_MINUTES=0` on a fresh install: it has no pre-migration tokens to protect.
 
+Inside the window, a customer-portal token without a `sid` still has to prove the customer is signed in somewhere: it is accepted only while that customer has at least one live session row, so revoking their sessions cuts the legacy token off too. Staff tokens do not get that fallback check — a sessionless staff token is accepted for the rest of the window.
+
 :::warning
-Never leave the grace window open indefinitely "just in case". The absolute cutover is mandatory because anyone holding the former raw secret can choose a fresh `iat`; while fallback is open, a legacy token is accepted without a session row and cannot be revoked before it expires.
+Never leave the grace window open indefinitely "just in case". The absolute cutover is mandatory because anyone holding the former raw secret can choose a fresh `iat`, and while fallback is open a sessionless token is bound to no individual session row — so it cannot be revoked one device at a time, only by ending every session the account has.
 :::
 
 ---
@@ -222,17 +228,15 @@ Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
 
 ---
 
-## Production security checklist
+## VPS-specific readiness checks
 
-- [ ] `JWT_SECRET` — strong random value (`openssl rand -hex 32`), set in the `.env` next to the compose file
-- [ ] `JWT_LEGACY_GRACE_MINUTES` — `0` on a fresh install; on an upgraded one, closed again after the migration window
-- [ ] `POSTGRES_PASSWORD` — strong random value
-- [ ] `MEILISEARCH_MASTER_KEY` — strong random value
-- [ ] `NODE_ENV=production`
-- [ ] Database and Redis ports **not** exposed to the public internet
-- [ ] HTTPS configured via reverse proxy
-- [ ] Automated daily backups scheduled for the PostgreSQL volume
-- [ ] Docker resource limits configured for containers
+Use the shared [Production Readiness checklist](../deployment/production-readiness) for the complete security, access, observability, rollout, and rollback gate. For this Compose topology, also verify:
+
+- [ ] The repository-root `.env` used by Compose contains the production values; do not rely on `apps/mercato/.env` to override values passed by the Compose file.
+- [ ] `JWT_SECRET`, `POSTGRES_PASSWORD`, and `MEILISEARCH_MASTER_KEY` are unique strong values. Set `JWT_LEGACY_GRACE_MINUTES=0` for a fresh install, or close the temporary migration window after an upgrade.
+- [ ] PostgreSQL, Redis, and Meilisearch remain on the private Docker network and are not published to the internet.
+- [ ] The nginx routes and body-size limits match the enabled webhook providers and application limits.
+- [ ] Named-volume backups, a restore rehearsal, container resource limits, and disk-space alerts cover this host.
 
 ---
 

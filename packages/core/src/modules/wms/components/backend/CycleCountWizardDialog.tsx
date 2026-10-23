@@ -10,7 +10,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -926,6 +926,19 @@ export function CycleCountWizardDialog({
             body: JSON.stringify(payload),
           })
           if (!call.ok) {
+            const errorBody = await readJsonSafe<{ error?: string; committedQuantity?: string }>(
+              call.response.clone(),
+              null,
+            )
+            if (errorBody?.error === 'insufficient_stock') {
+              throw new Error(
+                t(
+                  'wms.backend.inventory.cycleCount.errors.belowCommitted',
+                  'Counted quantity is below the {committed} units reserved or allocated here. Release the affected reservations before posting this count.',
+                  { committed: errorBody.committedQuantity ?? '' },
+                ),
+              )
+            }
             await raiseCrudError(
               call.response,
               t('wms.backend.inventory.cycleCount.errors.submit', 'Failed to post cycle count.'),

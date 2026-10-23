@@ -48,7 +48,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
       TRAEFIK_LOG_LEVEL: ${TRAEFIK_LOG_LEVEL:-INFO}
       TRAEFIK_CA_SERVER: ${TRAEFIK_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
-      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}
+      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}-v2
     depends_on:
       app:
         condition: service_healthy
@@ -58,7 +58,7 @@ services:
   app:
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}"
+      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}-v2"
       # Platform router — known operator hostnames bypass the domain-check
       # middleware. Configure PLATFORM_PRIMARY_HOST in the deployment env.
       - "traefik.http.routers.platform.rule=Host(`${PLATFORM_PRIMARY_HOST:-openmercato.com}`)"

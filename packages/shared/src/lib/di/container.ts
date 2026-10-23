@@ -224,12 +224,21 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // registrations override this default via Awilix replace semantics —
     // see the enterprise `record_locks` module for the canonical override.
     // Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
-    crudMutationGuardService: asFunction((em: EntityManager) =>
+    // `.proxy()` is load-bearing, not stylistic. The container runs in CLASSIC
+    // injection mode, where Awilix resolves dependencies by parsing PARAMETER
+    // NAMES out of the function source. A bundler that renames `em` to `em2` —
+    // Turbopack does, on a scope collision — makes Awilix look up a registration
+    // that does not exist, and `resolveCrudMutationGuardService` swallows the
+    // AwilixResolutionError and returns null, so `bridgeLegacyGuard` silently
+    // drops the guard and every mutation runs with optimistic locking NOT
+    // enforced. Reading `cradle.em` resolves by property name, which survives
+    // mangling. Pinned by `di-injection-mode.test.ts`.
+    crudMutationGuardService: asFunction((cradle: { em: EntityManager }) =>
       createOptimisticLockGuardService({
-        getEm: () => em,
+        getEm: () => cradle.em,
         readers: getAllOptimisticLockReaders(),
       }),
-    ).scoped(),
+    ).scoped().proxy(),
     // Default OSS command-level optimistic-lock guard, awaited by
     // `enforceCommandOptimisticLockWithGuards` for Command-pattern writes.
     // Header/explicit-token compare only (no `resolveExpected`), so it is

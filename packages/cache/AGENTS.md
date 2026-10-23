@@ -10,6 +10,8 @@ Use `@open-mercato/cache` for all caching needs. MUST NOT use raw Redis, SQLite,
 | SQLite | Use for single-server production deployments; local persistent convenience cache, tuned with WAL/`synchronous=NORMAL` | `CACHE_STRATEGY=sqlite` |
 | Redis | Use for multi-server production or latency-sensitive request paths with frequent cache writes | `CACHE_STRATEGY=redis` |
 
+The `memory` strategy is per process: a write on one instance never invalidates another instance's copy inline. A module relying on tag-based invalidation for correctness across multiple instances (e.g. the webhooks package's subscription cache, `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`) needs `CACHE_STRATEGY=redis`, or a short TTL as a fallback, to converge promptly.
+
 ## Memory Strategy Bounds
 
 The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE`, long-lived workers, memory-backed CRUD list cache) cannot grow without limit on user-controllable key cardinality.
@@ -18,6 +20,16 @@ The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE
 - **`CACHE_MEMORY_MAX_ENTRIES`** — env override for the cap, resolved in the cache service. `.env.example` carries a commented `#CACHE_MEMORY_MAX_ENTRIES=50000`. A non-positive value (or an unparseable one — which is ignored, falling back to the default) disables the cap (**unbounded** — only safe for short-lived per-request instances).
 - **Amortized expired-entry sweep** — expired entries are reclaimed by a budgeted sweep that runs every 256 writes (no per-instance timer, so the per-request default stays leak-free). Each pass scans a bounded slice from the LRU head, so it stays `O(budget)` rather than scanning the whole store. Expired entries beyond the budget are still reclaimed on access, by LRU eviction, or via an explicit `cleanup()`.
 - **Observability** — `stats()` on a memory-backed service surfaces `evictions`, `sweeps`, and `lastSweepReclaimed` (process-global counters) alongside the tenant-scoped `size`/`expired`, so operators can tell whether the bound is actively protecting the process. Other backends omit these fields.
+
+## Value Compression
+
+The redis and sqlite strategies can compress serialized entries (`packages/cache/src/codec.ts`); memory and jsonfile never do.
+
+- **`CACHE_COMPRESSION`** — `off` (default) | `zstd` | `gzip`. zstd runs at level 1, gzip at level 6. A `zstd` setting falls back to `gzip` with one warning on a runtime without zstd (the `node:zlib` zstd API is marked experimental).
+- **`CACHE_COMPRESSION_MIN_BYTES`** — entries smaller than this (default `1024`) stay plain JSON; a compressed form is kept only when it is smaller.
+- **Reads detect the format by magic bytes**, whatever the current setting, so legacy JSON, zstd and gzip entries coexist and switching the setting never strands an entry. Decompression is capped at 64 MiB; a corrupt frame is dropped as a miss.
+- **When to enable:** Redis on another host, or memory-bound Redis — fewer bytes over the network and in memory. Redis on localhost or SQLite saves memory/disk only, at a small read cost.
+- **Rollout:** deploy with compression `off`, enable it only once every instance runs a version with the codec, and set it back to `off` before rolling back to an older version (older versions read compressed entries as misses and delete them).
 
 ## Always
 

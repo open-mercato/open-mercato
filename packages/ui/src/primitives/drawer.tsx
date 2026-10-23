@@ -167,6 +167,8 @@ const DrawerContent = React.forwardRef<
 DrawerContent.displayName = 'DrawerContent'
 
 export type DrawerHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
+  /** Small Figma headers use a bare 24px leading icon. */
+  compact?: boolean
   /**
    * Optional leading icon — rendered inside a size-10 bordered circle
    * badge to the left of the title block. Matches Figma `Drawer Header
@@ -177,7 +179,7 @@ export type DrawerHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
 }
 
 const DrawerHeader = React.forwardRef<HTMLDivElement, DrawerHeaderProps>(
-  ({ className, leading, children, ...props }, ref) => (
+  ({ className, leading, compact = false, children, ...props }, ref) => (
     <div
       ref={ref}
       data-slot="drawer-header"
@@ -193,7 +195,7 @@ const DrawerHeader = React.forwardRef<HTMLDivElement, DrawerHeaderProps>(
         <span
           data-slot="drawer-header-leading"
           aria-hidden="true"
-          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-input bg-background text-muted-foreground"
+          className={cn('inline-flex shrink-0 items-center justify-center text-muted-foreground', compact ? 'size-6' : 'size-10 rounded-full border border-input bg-background')}
         >
           {leading}
         </span>

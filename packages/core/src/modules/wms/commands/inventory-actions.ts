@@ -403,6 +403,41 @@ async function loadProfileForVariant(
   return profile
 }
 
+async function loadEffectiveProfileForVariant(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  catalogVariantId: string,
+  scope: Scope,
+) {
+  const variantProfile = await loadProfileForVariant(em, ctx, catalogVariantId, scope)
+  if (variantProfile) return variantProfile
+  const rows = await em.getConnection().execute<Array<{ product_id: string | null }>>(
+    `select product_id from catalog_product_variants
+     where id = ? and organization_id = ? and tenant_id = ? and deleted_at is null
+     limit 1`,
+    [catalogVariantId, scope.organizationId, scope.tenantId],
+  )
+  const catalogProductId = rows[0]?.product_id
+  if (!catalogProductId) return null
+  const productProfile = await findOneWithDecryption(
+    em,
+    ProductInventoryProfile,
+    {
+      catalogProductId,
+      catalogVariantId: null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  if (!productProfile) return null
+  ensureTenantScope(ctx, productProfile.tenantId)
+  ensureOrganizationScope(ctx, productProfile.organizationId)
+  return productProfile
+}
+
 async function resolveReceiveLotId(
   em: EntityManager,
   ctx: CommandRuntimeContext,
@@ -529,7 +564,7 @@ async function emitLowStockEventIfNeeded(
   scope: Scope,
   catalogVariantId: string,
 ) {
-  const profile = await loadProfileForVariant(em, ctx, catalogVariantId, scope)
+  const profile = await loadEffectiveProfileForVariant(em, ctx, catalogVariantId, scope)
   if (!profile) return
 
   const balances = await listBalancesForVariant(em, ctx, catalogVariantId, scope)
@@ -705,19 +740,37 @@ async function findReservationBucketBalance(
   })
 }
 
+type BalanceBucketInput = {
+  warehouseId: string
+  locationId: string
+  catalogVariantId: string
+  lotId?: string
+  serialNumber?: string
+}
+
+const BALANCE_BUCKET_CREATE_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+
+function balanceBucketCreateLockKey(input: BalanceBucketInput): string {
+  return [
+    'wms:inventory-balance-bucket',
+    input.warehouseId.toLowerCase(),
+    input.locationId.toLowerCase(),
+    input.catalogVariantId.toLowerCase(),
+    input.lotId?.toLowerCase() ?? '',
+    input.serialNumber ?? '',
+  ].join(':')
+}
+
 async function upsertBalanceBucket(
   em: EntityManager,
   scope: Scope,
-  input: {
-    warehouseId: string
-    locationId: string
-    catalogVariantId: string
-    lotId?: string
-    serialNumber?: string
-  },
+  input: BalanceBucketInput,
 ): Promise<{ balance: InventoryBalance; created: boolean }> {
   const existing = await findExactBalanceForUpdate(em, scope, input)
   if (existing) return { balance: existing, created: false }
+  await em.execute(BALANCE_BUCKET_CREATE_LOCK_SQL, [balanceBucketCreateLockKey(input)])
+  const createdConcurrently = await findExactBalanceForUpdate(em, scope, input)
+  if (createdConcurrently) return { balance: createdConcurrently, created: false }
   const balance = em.create(InventoryBalance, {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -1949,6 +2002,15 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
           balanceAction: ('updated' as const),
           idempotentReplay: true,
         }
+      }
+      if (delta < 0 && getAvailableQuantity(balance) < Math.abs(delta) - 0.000001) {
+        throw new CrudHttpError(409, {
+          error: 'insufficient_stock',
+          countedQuantity: toNumericString(input.countedQuantity),
+          committedQuantity: toNumericString(
+            toNumber(balance.quantityReserved) + toNumber(balance.quantityAllocated),
+          ),
+        })
       }
       // Persist movement before setting on-hand so a unique-constraint replay cannot
       // skew the balance and still report idempotentReplay: false.

@@ -226,10 +226,29 @@ export function buildExpiryLotRows(
   return [...expiringRows, ...pastDueRows]
 }
 
+export function resolveEffectiveProfilesByVariant(
+  profiles: ProductInventoryProfile[],
+  variantIdsByProduct: Map<string, string[]> = new Map(),
+): Map<string, ProductInventoryProfile> {
+  const effective = new Map<string, ProductInventoryProfile>()
+  for (const profile of profiles) {
+    const variantId = profile.catalogVariantId
+    if (variantId && !effective.has(variantId)) effective.set(variantId, profile)
+  }
+  for (const profile of profiles) {
+    if (profile.catalogVariantId) continue
+    for (const variantId of variantIdsByProduct.get(profile.catalogProductId) ?? []) {
+      if (!effective.has(variantId)) effective.set(variantId, profile)
+    }
+  }
+  return effective
+}
+
 export function computeLowStockCounts(
   profiles: ProductInventoryProfile[],
   balances: InventoryBalance[],
   warehouseId?: string | null,
+  variantIdsByProduct?: Map<string, string[]>,
 ): { lowStockCount: number; reorderCriticalCount: number } {
   const availableByVariantWarehouse = new Map<string, number>()
   for (const balance of balances) {
@@ -245,9 +264,7 @@ export function computeLowStockCounts(
   let reorderCriticalCount = 0
   const seenLowStockKeys = new Set<string>()
 
-  for (const profile of profiles) {
-    const variantId = profile.catalogVariantId
-    if (!variantId) continue
+  for (const [variantId, profile] of resolveEffectiveProfilesByVariant(profiles, variantIdsByProduct)) {
     const reorderPoint = toOperationalDashboardNumber(profile.reorderPoint)
     const safetyStock = toOperationalDashboardNumber(profile.safetyStock)
     if (reorderPoint <= 0 && safetyStock <= 0) continue
@@ -386,6 +403,35 @@ async function loadAsnReferenceNumbers(
   for (const asn of asns) {
     const label = asn.referenceNumber?.trim()
     if (label) map.set(asn.id, label)
+  }
+  return map
+}
+
+async function loadVariantIdsForProductLevelProfiles(
+  em: EntityManager,
+  scope: OperationalDashboardScope,
+  profiles: ProductInventoryProfile[],
+): Promise<Map<string, string[]>> {
+  const productIds = Array.from(
+    new Set(
+      profiles
+        .filter((profile) => !profile.catalogVariantId && profile.catalogProductId)
+        .map((profile) => profile.catalogProductId),
+    ),
+  )
+  if (productIds.length === 0) return new Map()
+  const rows = await em.getConnection().execute<Array<{ id: string; product_id: string }>>(
+    `select id, product_id from catalog_product_variants
+     where organization_id = ? and tenant_id = ? and product_id in (${productIds.map(() => '?').join(', ')})
+     and is_active = true and deleted_at is null`,
+    [scope.organizationId, scope.tenantId, ...productIds],
+  )
+  const map = new Map<string, string[]>()
+  for (const row of rows) {
+    if (!row.id || !row.product_id) continue
+    const variantIds = map.get(row.product_id) ?? []
+    variantIds.push(row.id)
+    map.set(row.product_id, variantIds)
   }
   return map
 }
@@ -721,10 +767,12 @@ export async function loadOperationalDashboard(
     ),
   ])
 
+  const variantIdsByProduct = await loadVariantIdsForProductLevelProfiles(em, scope, profiles)
   const { lowStockCount, reorderCriticalCount } = computeLowStockCounts(
     profiles,
     balances,
     scope.warehouseId,
+    variantIdsByProduct,
   )
 
   const expiringSoonCount = expiringSoonLots.filter(

@@ -1952,7 +1952,7 @@
   "workflows.triggers.fields.name": "Nazwa",
   "workflows.triggers.fields.priority": "Priorytet",
   "workflows.triggers.hints.contextMapping": "Mapuj wartości z zawartości zdarzenia do początkowego kontekstu przepływu",
-  "workflows.triggers.hints.debounce": "Odczekaj tyle milisekund po zdarzeniu przed uruchomieniem, aby seria podobnych zdarzeń uruchomiła tylko jeden przepływ. Pozostaw puste, aby uruchamiać od razu.",
+  "workflows.triggers.hints.debounce": "Pierwsze pasujące zdarzenie uruchamia instancję natychmiast; kolejne zdarzenia dla tego samego rekordu w tym oknie czasowym (w milisekundach) są pomijane. Pozostaw puste, aby uruchamiać instancję dla każdego zdarzenia.",
   "workflows.triggers.hints.eventPattern": "Użyj * jako znaku wieloznacznego: \"sales.orders.*\" pasuje do dowolnego zdarzenia zamówienia",
   "workflows.triggers.hints.filterConditions": "Wyzwalaj tylko wtedy, gdy zawartość zdarzenia pasuje do tych warunków (wszystkie muszą pasować)",
   "workflows.triggers.hints.maxConcurrent": "Ogranicz liczbę instancji uruchomionych jednocześnie przez ten wyzwalacz; zdarzenia ponad limit są pomijane. Pozostaw puste, aby nie ograniczać.",

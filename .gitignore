@@ -33,6 +33,7 @@ build
 .DS_Store
 *.pem
 /release-output.txt
+/output/
 
 # Exception: Allow public CA certificates for SSL verification
 !certs/*.pem
@@ -197,3 +198,7 @@ starters/company/certs/
 # clean-tree guard refuse the next run.
 .stryker-tmp/
 **/reports/mutation/
+
+# Local Storybook build and generated previews
+packages/ui/storybook-static/
+packages/ui/.storybook/generated/
