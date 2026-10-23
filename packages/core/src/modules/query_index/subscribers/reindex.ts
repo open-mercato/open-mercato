@@ -2,9 +2,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { reindexEntity } from '../lib/reindexer'
+import type { ReindexRefusalReason } from '../lib/reindexer'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { resolveQueryIndexReindexScope } from '../lib/subscriber-scope'
+
+/** Operator-facing text for a sweep that deliberately did no work. */
+const REINDEX_REFUSAL_MESSAGES: Record<ReindexRefusalReason, string> = {
+  'no-tenant-column':
+    'the source table has no tenant_id column and the entity type is not declared tenant-global. ' +
+    'Declare it with registerTenantGlobalEntityTypes() if it is a global catalogue.',
+  'column-probe-failed':
+    'the source table\'s columns could not be read, so no scope could be proven. This is usually ' +
+    'transient - retry the reindex.',
+}
 
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
@@ -167,12 +178,19 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       { processed: result.processed, total: result.total },
       { complete: true },
     )
+    // A refused sweep is byte-identical to a successful zero-row one, so without this the
+    // status page - the one screen built to answer "why is this entity type not indexed" -
+    // reports a green completion with no stated reason. That undercuts the guard's own
+    // safety argument, which is that a missing declaration "shows up in the log".
     await recordIndexerLog(
       { em },
       {
         source: 'query_index',
         handler: 'event:query_index.reindex',
-        message: `Reindex completed for ${entityType}`,
+        level: result.refused ? 'warn' : undefined,
+        message: result.refused
+          ? `Reindex refused for ${entityType}: ${REINDEX_REFUSAL_MESSAGES[result.refused]}`
+          : `Reindex completed for ${entityType}`,
         entityType,
         tenantId: tenantId ?? null,
         organizationId: organizationId ?? null,
@@ -181,6 +199,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
           total: result.total,
           tenantScopes: result.tenantScopes,
           scopes: result.scopes,
+          ...(result.refused ? { refused: result.refused } : {}),
         },
       },
     )
