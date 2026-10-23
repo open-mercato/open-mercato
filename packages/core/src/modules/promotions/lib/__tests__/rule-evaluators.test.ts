@@ -168,6 +168,34 @@ describe('order_date rule', () => {
     const ctx = context({ evaluatedAt: '2026-06-15T00:00:00.000Z' })
     expect(evaluateGroup(g, ctx)).toBe(false)
   })
+  it.each([
+    ['eq', '2026-06-15', '2026-06-15T00:00:00.000Z', true],
+    ['eq', '2026-06-15', '2026-06-15T13:45:12.345Z', true],
+    ['eq', '2026-06-15', '2026-06-15T23:59:59.999Z', true],
+    ['eq', '2026-06-15', '2026-06-16T00:00:00.000Z', false],
+    ['eq', '2026-06-15', '2026-06-14T23:59:59.999Z', false],
+    ['neq', '2026-06-15', '2026-06-15T13:45:00.000Z', false],
+    ['neq', '2026-06-15', '2026-06-16T00:00:00.000Z', true],
+    ['gt', '2026-06-15', '2026-06-15T23:59:59.999Z', false],
+    ['gt', '2026-06-15', '2026-06-16T00:00:00.000Z', true],
+    ['gte', '2026-06-15', '2026-06-14T23:59:59.999Z', false],
+    ['gte', '2026-06-15', '2026-06-15T00:00:00.000Z', true],
+    ['gte', '2026-06-15', '2026-06-20T08:00:00.000Z', true],
+    ['lt', '2026-06-15', '2026-06-14T23:59:59.999Z', true],
+    ['lt', '2026-06-15', '2026-06-15T00:00:00.000Z', false],
+    ['lte', '2026-06-15', '2026-06-15T23:59:59.999Z', true],
+    ['lte', '2026-06-15', '2026-06-16T00:00:00.000Z', false],
+  ])('%s %s at %s evaluates to %s, comparing whole UTC days', (operator, date, evaluatedAt, expected) => {
+    const g = group({ rules: [rule('order_date', { date, operator })] })
+    const ctx = context({ evaluatedAt })
+    expect(evaluateGroup(g, ctx)).toBe(expected)
+  })
+
+  it('fails (never throws) on an unparseable configured date', () => {
+    const g = group({ rules: [rule('order_date', { date: 'not-a-date', operator: 'gte' })] })
+    const ctx = context({ evaluatedAt: '2026-06-15T10:00:00.000Z' })
+    expect(evaluateGroup(g, ctx)).toBe(false)
+  })
 })
 
 describe('product_count rule', () => {

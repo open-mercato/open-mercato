@@ -30,8 +30,29 @@ function compareNumbers(actual: number, operator: ComparisonOperator, threshold:
   }
 }
 
-function compareDates(actualMs: number, operator: ComparisonOperator, thresholdMs: number): boolean {
-  return compareNumbers(actualMs, operator, thresholdMs)
+function compareCalendarDays(actualDay: string, operator: ComparisonOperator, thresholdDay: string): boolean {
+  switch (operator) {
+    case 'eq':
+      return actualDay === thresholdDay
+    case 'neq':
+      return actualDay !== thresholdDay
+    case 'gt':
+      return actualDay > thresholdDay
+    case 'gte':
+      return actualDay >= thresholdDay
+    case 'lt':
+      return actualDay < thresholdDay
+    case 'lte':
+      return actualDay <= thresholdDay
+    default:
+      return false
+  }
+}
+
+function toUtcCalendarDay(value: string): string | null {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
 }
 
 function compareStrings(actual: string, operator: ComparisonOperator, threshold: string): boolean {
@@ -83,9 +104,10 @@ function evaluateOrderDate(config: Record<string, unknown>, context: EvaluationC
   if (!isComparisonOperator(operator)) return false
   if (typeof config.date !== 'string') return false
 
-  const actualMs = new Date(context.evaluatedAt).getTime()
-  const thresholdMs = new Date(config.date).getTime()
-  return compareDates(actualMs, operator, thresholdMs)
+  const actualDay = toUtcCalendarDay(context.evaluatedAt)
+  const thresholdDay = toUtcCalendarDay(config.date)
+  if (!actualDay || !thresholdDay) return false
+  return compareCalendarDays(actualDay, operator, thresholdDay)
 }
 
 function evaluateProductCount(config: Record<string, unknown>, context: EvaluationContext): boolean {
