@@ -380,7 +380,7 @@ describe('document structure worker', () => {
 
     const outcome = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [engine]))
 
-    expect(outcome).toEqual(expect.objectContaining({ status: 'failed' }))
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'persisted', status: 'failed' }))
     const [extraction] = liveExtractions(fake)
     expect(extraction.failureReason).toBe('[internal] document structure extraction failed')
     expect(String(extraction.failureReason)).not.toContain('/secret/path')
@@ -399,6 +399,64 @@ describe('document structure worker', () => {
     expect(liveExtractions(fake)[0]).toEqual(
       expect.objectContaining({ status: 'failed', failureReason: '[internal] document structure extraction timed out' }),
     )
+  })
+
+  it('keeps the previous completed extraction live when a re-extraction fails', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-keep-fail.txt', 'rules keep on failure')
+    const first = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+    const failing = fakeEngine('text', 1, async () => {
+      throw new Error('engine crashed')
+    }, (mimeType) => mimeType === 'text/plain')
+
+    const outcome = await runDocumentStructureExtraction({ ...job, force: true }, buildDeps(fake, filePath, [failing]))
+
+    const previousId = first.kind === 'persisted' ? first.extractionId : null
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'failed_previous_kept', previousExtractionId: previousId }))
+    const live = liveExtractions(fake)
+    expect(live).toHaveLength(1)
+    expect(live[0]).toEqual(expect.objectContaining({ id: previousId, status: 'completed' }))
+    expect(fake.table(AttachmentDocumentSection).filter((section) => section.extractionId === previousId).length).toBeGreaterThan(0)
+    const failed = fake.table(AttachmentDocumentExtraction).find((row) => row.status === 'failed')
+    expect(failed).toEqual(
+      expect.objectContaining({ deletedAt: expect.any(Date), failureReason: '[internal] document structure extraction failed' }),
+    )
+  })
+
+  it('keeps the previous completed extraction live when a re-extraction times out', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-keep-timeout.txt', 'rules keep on timeout')
+    const first = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+    const slow = fakeEngine('text', 2, () => new Promise<DocumentEngineResult>(() => undefined), (mimeType) =>
+      mimeType === 'text/plain',
+    )
+
+    const outcome = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [slow], { timeoutMs: 20 }))
+
+    expect(outcome.kind).toBe('failed_previous_kept')
+    const live = liveExtractions(fake)
+    expect(live).toHaveLength(1)
+    expect(live[0]).toEqual(
+      expect.objectContaining({ id: first.kind === 'persisted' ? first.extractionId : null, status: 'completed' }),
+    )
+  })
+
+  it('aborts without writing when the attachment is deleted mid-job', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-deleted.txt', 'rules deleted mid job')
+    const engine = fakeEngine('text', 1, async () => {
+      fake.table(Attachment).splice(0)
+      return textResult('1. Scope\n\nThis rulebook applies to everyone.')
+    }, (mimeType) => mimeType === 'text/plain')
+
+    const outcome = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [engine]))
+
+    expect(outcome).toEqual({ kind: 'aborted' })
+    expect(fake.table(AttachmentDocumentExtraction)).toHaveLength(0)
+    expect(fake.table(AttachmentDocumentSection)).toHaveLength(0)
   })
 
   it('never processes an attachment from another tenant', async () => {

@@ -57,6 +57,7 @@
 | 8 | 8.2 | Add partition structure switches to validators, API and form | dispatch | done | b9c090e1e |
 | 8 | 8.3 | Expose page-scoped OCR and add the OCR structure engine | dispatch | done | 7edee055f |
 | 8 | 8.4 | Add the document structure queue and worker | dispatch:capable | done | 40411b071 |
+| 8 | 8.4-review-fix | Keep the previous live extraction when a re-extraction fails | dispatch | done | 99f738c57 |
 | 8 | 8.5 | Enqueue extraction on upload and purge structure on delete | dispatch | todo | — |
 | 8 | 8.6 | Add the document structure service and DI registrations | dispatch | todo | — |
 | 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | todo | — |
@@ -220,6 +221,9 @@ None.
 #### Step 8.2 — Add partition structure switches to validators, API and form
 #### Step 8.3 — Expose page-scoped OCR and add the OCR structure engine
 #### Step 8.4 — Add the document structure queue and worker
+#### Step 8.4-review-fix — Keep the previous live extraction when a re-extraction fails
+- A failed or timed-out run must not supersede a live `completed`/`partial`/`skipped` extraction (spec Risks: "A crash leaves the previous extraction live"); record the failure without removing the previous live row. Re-check that the attachment still exists before commit and abort if it was deleted mid-job (spec Risks).
+
 #### Step 8.5 — Enqueue extraction on upload and purge structure on delete
 #### Step 8.6 — Add the document structure service and DI registrations
 #### Step 8.7 — Add document structure API routes, command and integration tests

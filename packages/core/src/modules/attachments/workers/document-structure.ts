@@ -76,6 +76,7 @@ export type DocumentStructureRunOutcome =
   | { kind: 'reused'; extractionId: string }
   | { kind: 'aborted' }
   | { kind: 'persisted'; extractionId: string; status: ExtractionStatus }
+  | { kind: 'failed_previous_kept'; extractionId: string; previousExtractionId: string }
 
 type ExtractionDraft = {
   engine: DocumentStructureEngineName
@@ -288,16 +289,21 @@ async function persistDraft(
     )
     if (!stillExists) return { kind: 'aborted' } satisfies DocumentStructureRunOutcome
     const now = new Date()
-    await tx.nativeUpdate(
-      AttachmentDocumentExtraction,
-      {
-        attachmentId: attachment.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      },
-      { deletedAt: now, updatedAt: now },
-    )
+    const liveFilter = {
+      attachmentId: attachment.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    }
+    const previousGood =
+      draft.status === 'failed'
+        ? (await findWithDecryption(tx, AttachmentDocumentExtraction, liveFilter, undefined, scope)).find(
+            (extraction) => REUSABLE_STATUSES.has(extraction.status),
+          ) ?? null
+        : null
+    if (!previousGood) {
+      await tx.nativeUpdate(AttachmentDocumentExtraction, liveFilter, { deletedAt: now, updatedAt: now })
+    }
     const extractionId = randomUUID()
     const result = draft.result
     const extraction = tx.create(AttachmentDocumentExtraction, {
@@ -320,7 +326,7 @@ async function persistDraft(
       stats: draft.stats,
       requestedByUserId,
       completedAt: now,
-      deletedAt: null,
+      deletedAt: previousGood ? now : null,
     })
     const sections = result
       ? buildSectionRows(result, extractionId, attachment.id, scope).map((row) =>
@@ -330,6 +336,13 @@ async function persistDraft(
     tx.persist(extraction)
     for (const section of sections) tx.persist(section)
     await tx.flush()
+    if (previousGood) {
+      return {
+        kind: 'failed_previous_kept',
+        extractionId,
+        previousExtractionId: previousGood.id,
+      } satisfies DocumentStructureRunOutcome
+    }
     return { kind: 'persisted', extractionId, status: draft.status } satisfies DocumentStructureRunOutcome
   })
 }
@@ -452,6 +465,12 @@ export async function runDocumentStructureExtraction(
         extractionId: outcome.extractionId,
         status: outcome.status,
         engine: draft.engine,
+      })
+    } else if (outcome.kind === 'failed_previous_kept') {
+      logger.warn('Document structure re-extraction failed; previous extraction kept live', {
+        attachmentId: attachment.id,
+        extractionId: outcome.extractionId,
+        previousExtractionId: outcome.previousExtractionId,
       })
     } else {
       logger.info('Attachment removed during structure extraction', { attachmentId: attachment.id })
