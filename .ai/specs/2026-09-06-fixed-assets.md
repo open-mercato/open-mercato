@@ -936,8 +936,7 @@ market doesn't need.
   `AssetClass`), `acquisitionDate`, `acquisitionValue` (`numeric(19,4)`),
   `salvageValue` (`numeric(19,4)`, defaults to `0` — see Design
   Decisions), `currencyId` (FK-id to `currencies.Currency.id`), `exchangeRate`
-  (nullable — rate to the organization's base currency at
-  `acquisitionDate`, mirroring `ledger.JournalEntry.exchangeRate`; see
+  (nullable — rate to the organization's base currency for the booking day before `acquisitionDate` (Multi-Currency Design decision 9f), mirroring `ledger.JournalEntry.exchangeRate`; see
   Design Decisions, low-value threshold currency conversion),
   `entrySource` (`AP_LINKED` / `MANUAL` / `OPENING_BALANCE` /
   `IN_KIND_CONTRIBUTION`), `sourceReferenceId` (nullable FK-id to
