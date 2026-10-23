@@ -539,6 +539,7 @@ function isCommonJsMetadataTarget(expression: ts.Expression): boolean {
 type ExportedMetadataSource =
   | { kind: 'initializer'; expression: ts.Expression }
   | { kind: 're-export' }
+  | { kind: 'no-initializer' }
 
 function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSource | undefined {
   const localNamesExportedAsMetadata = new Set<string>()
@@ -550,7 +551,7 @@ function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSour
       && ts.isNamedExports(statement.exportClause)
     ) {
       for (const element of statement.exportClause.elements) {
-        if (element.name.text !== 'metadata') continue
+        if (element.name.text !== 'metadata' || element.isTypeOnly) continue
         if (statement.moduleSpecifier) return { kind: 're-export' }
         localNamesExportedAsMetadata.add(element.propertyName?.text ?? element.name.text)
       }
@@ -567,7 +568,9 @@ function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSour
         const localName = declaration.name.text
         const exported = (exportsDirectly && localName === 'metadata') || localNamesExportedAsMetadata.has(localName)
         if (!exported) continue
-        return declaration.initializer ? { kind: 'initializer', expression: declaration.initializer } : undefined
+        return declaration.initializer
+          ? { kind: 'initializer', expression: declaration.initializer }
+          : { kind: 'no-initializer' }
       }
       continue
     }
@@ -581,7 +584,9 @@ function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSour
       commonJsInitializer = statement.expression.right
     }
   }
-  return commonJsInitializer ? { kind: 'initializer', expression: commonJsInitializer } : undefined
+  if (commonJsInitializer) return { kind: 'initializer', expression: commonJsInitializer }
+  if (localNamesExportedAsMetadata.size > 0) return { kind: 're-export' }
+  return undefined
 }
 
 /**
@@ -610,6 +615,9 @@ export function extractModuleRequiresFromSource(sourceFile: string): ModuleRequi
   if (!metadataSource) return { status: 'absent' }
   if (metadataSource.kind === 're-export') {
     return { status: 'unresolvable', reason: 'exported metadata is re-exported from another file' }
+  }
+  if (metadataSource.kind === 'no-initializer') {
+    return { status: 'unresolvable', reason: 'exported metadata has no initializer' }
   }
 
   const metadata = unwrapExpression(metadataSource.expression)

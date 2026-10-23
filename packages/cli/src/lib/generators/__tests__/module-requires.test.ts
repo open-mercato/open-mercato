@@ -140,6 +140,8 @@ describe('extractModuleRequiresFromSource', () => {
 
   it.each([
     ['a re-export', `export { metadata } from './meta'`, 're-exported'],
+    ['an imported binding re-exported locally', `import { metadata } from './meta'\nexport { metadata }`, 're-exported'],
+    ['an exported declaration without an initializer', `export let metadata\nmetadata = { requires: ['auth'] }`, 'no initializer'],
     ['a computed key', `export const metadata = { ['requires']: ['auth'] }`, 'computed key'],
     ['an identifier entry', `const DEP = 'auth'\nexport const metadata = { requires: [DEP] }`, 'non-literal entry'],
     ['a spread entry', `const base = ['auth']\nexport const metadata = { requires: [...base, 'attachments'] }`, 'non-literal entry'],
@@ -153,6 +155,15 @@ describe('extractModuleRequiresFromSource', () => {
     const extraction = extractModuleRequiresFromSource(file)
     expect(extraction.status).toBe('unresolvable')
     expect(extraction.status === 'unresolvable' && extraction.reason).toContain(reason)
+  })
+
+  it('ignores a type-only metadata export specifier', () => {
+    const file = writeSource('index.ts', `
+      import type { metadata } from './meta'
+      export { type metadata }
+      export const info = { requires: ['auth'] }
+    `)
+    expect(extractModuleRequiresFromSource(file)).toEqual({ status: 'absent' })
   })
 
   it('returns absent when there is no requires or no file', () => {
