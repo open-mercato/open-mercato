@@ -2977,3 +2977,33 @@ re-read in this pass.
   were not read. The Ministry's JPK_KR_PD brochure (May 2024, table 12) marks
   `Z_5`, `Z_6`, `Z_8`, `Z_9` optional and silent on PLN lines; the raw XSD is
   unread.
+
+### 2026-10-23 (cont. — `source` and the Table A provider implemented, payment contracts rewritten, XSD read)
+
+- **Code (branch `feat/currencies-source-aware-rate-lookup`, local commits
+  7957fc833 and c2fc24ede on `upstream/develop`).** `ExchangeRateService.getRate`
+  and `getRates` take an optional `source`: only rows of that source count, a
+  missing row triggers `fetchRatesForDate(date, scope, { providers: [source] })`,
+  and the lookup steps back a day only when that provider has nothing. Omitted,
+  the behaviour is unchanged. `NBPTableAProvider` (`source: 'NBP_A'`, `XXX -> PLN`
+  mid rates with `type: null`, dated by the table's `effectiveDate`, nothing on
+  404) is registered in `di.ts`; the scheduled fetch configuration is left
+  alone. Tests: the `currencies/services` suite passes (80 tests); not yet
+  discussed with OM Core (Multi-Currency decision 9g).
+- **Specs.** Cash & Bank: the match input, event payload, API errors, UI, data
+  model and tests now use `bankRate` and `invoiceRatePaid` (defaults from the
+  bank's rate or Table A) and the invoice's stored rate instead of
+  `bookedExchangeRate`. Accounts Payable payments: `markPaymentBatchSent` posts
+  in the batch currency with `paymentRate` and a separate difference entry
+  against `gainLossAccountId`; a cash account in another currency is rejected in
+  Phase 1 (⚠ open, belongs with the conversion case in Cash & Bank).
+- **XSD read.** `Schemat_JPK_KR_PD(1)_v1-1`, `KontoZapis`: `Z_5`, `Z_6`, `Z_8`,
+  `Z_9` are `minOccurs="0"`, `Z_4`–`Z_6` and `Z_7`–`Z_9` are a Debit/Credit
+  choice, no rule ties them to the line's currency, and the element has no
+  exchange-rate field, so the ledger's line rate is not exported. Read through
+  text extraction; the facets of `TKwotowy` and `TKodWaluty` were not visible.
+- **FA(3) still unread.** The MF schema host redirected in a loop. Two more
+  secondary sources (Billit, Inforlex) agree that a foreign-currency invoice
+  carries the currency code, a rate with at most six decimals and the VAT amount
+  in złoty (`P_14_xW`), and disagree on whether `KursWalutyZ` is the header rate
+  or the advance-invoice rate, so the field names stay unverified.
