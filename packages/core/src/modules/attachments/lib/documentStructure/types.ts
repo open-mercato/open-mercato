@@ -174,6 +174,7 @@ export type DocumentStructureEngineInput = {
   extension?: string | null
   maxPages?: number
   ocr?: DocumentOcrMode
+  ocrModel?: string | null
 }
 
 export interface DocumentStructureEngine {

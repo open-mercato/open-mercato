@@ -179,12 +179,13 @@ function fakeEngine(id: DocumentStructureEngine['id'], mimeTypes: string[]): Doc
 
 describe('document structure engine registry', () => {
   it('registers the pdf layout and docx engines before the text engine by default', () => {
-    expect(defaultDocumentStructureEngines().map((engine) => engine.id)).toEqual(['pdf_layout', 'docx', 'text'])
+    expect(defaultDocumentStructureEngines().map((engine) => engine.id)).toEqual(['pdf_layout', 'docx', 'text', 'ocr'])
     const registry = createDocumentStructureEngineRegistry()
     expect(registry.resolve('text/markdown', 'md')).toBe(textStructureEngine)
     expect(registry.resolve('application/pdf', 'pdf')?.id).toBe('pdf_layout')
     expect(registry.resolve('application/octet-stream', 'docx')?.id).toBe('docx')
-    expect(registry.resolve('image/png', 'png')).toBeNull()
+    expect(registry.resolve('image/png', 'png')?.id).toBe('ocr')
+    expect(registry.resolve('application/zip', 'zip')).toBeNull()
   })
 
   it('resolves the first supporting engine in order', () => {
