@@ -332,7 +332,7 @@ the branch's existing protection settings):
 ```bash
 gh api -X PUT repos/{owner}/{repo}/branches/<branch>/protection \
   -H "Accept: application/vnd.github+json" \
-  -f 'required_status_checks[strict]=true' \
+  -F 'required_status_checks[strict]=true' \
   -f 'required_status_checks[contexts][]=CI' \
   -F 'enforce_admins=false' \
   -F 'required_pull_request_reviews[required_approving_review_count]=1' \
@@ -458,4 +458,6 @@ runs. After upgrading Open Mercato, refresh the skill with
 `yarn mercato agentic:init --update-harness`, then re-run the generator with
 `--force` to pick up template improvements and newer pinned tool versions.
 Review the diff before you commit it. Between upgrades, Dependabot keeps the
-pinned actions current.
+pinned actions current. Its bumps edit generated files, so a later run reports
+them as conflicts, and `--force` resets those actions to the generator's own
+pins. Dependabot proposes the newer pins again on its next run.

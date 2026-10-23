@@ -251,13 +251,24 @@ jobs:
         with:
           persist-credentials: false
 
+#@if codeScanning
+      # SARIF mode never fails the job, so the blocking run below stays separate.
+      - name: Upload zizmor results to code scanning
+        uses: __OM_ACTION_ZIZMOR__
+        with:
+          inputs: .github
+          version: '__OM_ZIZMOR_VERSION__'
+          min-severity: medium
+          advanced-security: true
+
+#@endif
       - name: Run zizmor
         uses: __OM_ACTION_ZIZMOR__
         with:
           inputs: .github
           version: '__OM_ZIZMOR_VERSION__'
           min-severity: medium
-          advanced-security: __OM_CODE_SCANNING__
+          advanced-security: false
 
 #@endif
 #@if lint

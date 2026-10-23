@@ -79,7 +79,7 @@ The generated workflows follow the same rules zizmor enforces, and the generator
 | `--force` | off | Overwrite generated files that differ from the templates. |
 | `--dry-run`, `--json` | off | Preview only, or print a machine-readable result. |
 
-Options are saved in `.github/om-ci.json`. After an Open Mercato upgrade, `--force` alone refreshes the pipeline to the latest templates and pinned versions and keeps your choices.
+Options are saved in `.github/om-ci.json`. After an Open Mercato upgrade, `--force` alone refreshes the pipeline to the latest templates and pinned versions and keeps your choices. It also resets any action pins Dependabot bumped since the last run to the generator's pins; Dependabot proposes the newer ones again on its next run.
 
 ## What it does not cover
 

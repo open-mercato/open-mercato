@@ -177,9 +177,12 @@ function git(targetDir, args) {
 
 export function detectBranches(targetDir) {
   const remoteHead = git(targetDir, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
+  const conventionalBranch = ['main', 'master'].find((name) => git(targetDir, ['show-ref', '--verify', `refs/heads/${name}`]))
   const defaultBranch = remoteHead.startsWith('origin/')
     ? remoteHead.slice('origin/'.length)
-    : git(targetDir, ['rev-parse', '--abbrev-ref', 'HEAD']) || 'main'
+    : conventionalBranch
+      || git(targetDir, ['rev-parse', '--abbrev-ref', 'HEAD'])
+      || 'main'
   const branches = [defaultBranch === 'HEAD' ? 'main' : defaultBranch]
   const hasDevelop = git(targetDir, ['show-ref', 'refs/remotes/origin/develop']) || git(targetDir, ['show-ref', 'refs/heads/develop'])
   if (hasDevelop && !branches.includes('develop')) branches.push('develop')
@@ -301,6 +304,10 @@ export function resolveConfig(cliOptions, detected, manifest) {
     features.imageScan = false
     notes.imageScan = 'needs the Docker image build'
   }
+  if (features.dast && !features.scheduledSecurity) {
+    features.dast = false
+    notes.dast = 'needs the nightly security scan'
+  }
   const nightlyScans = ['secrets', 'sast', 'imageScan', 'dast'].filter((id) => features[id])
   if (features.scheduledSecurity && nightlyScans.length === 0) {
     features.scheduledSecurity = false
@@ -369,7 +376,6 @@ export function buildPlan(config, features, notes, detected) {
     DEFAULT_BRANCH: config.branches[0],
     SECURITY_CRON,
     CODEQL_CRON,
-    CODE_SCANNING: features.codeScanning ? 'true' : 'false',
     SECURITY_NEEDS: securityNeeds.join(', '),
     BRANCH_LIST: config.branches.map((branch) => `      - ${branch}`).join('\n'),
     BRANCH_MATRIX: config.branches.map((branch) => `'${branch}'`).join(', '),
@@ -464,7 +470,7 @@ function report(outcome) {
   }
   lines.push('', 'Files:')
   for (const result of results) lines.push(`  ${result.status.padEnd(9)} ${result.path}`)
-  const others = detected.existingWorkflows.filter((name) => !['ci.yml', 'audit.yml'].includes(name))
+  const others = detected.existingWorkflows.filter((name) => !REMOVABLE_PATHS.has(`.github/workflows/${name}`))
   if (others.length > 0) {
     lines.push('', `Existing workflows left untouched (check them for duplicated jobs): ${others.join(', ')}`)
   }

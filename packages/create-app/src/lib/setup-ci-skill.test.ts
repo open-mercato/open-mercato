@@ -162,7 +162,10 @@ test('pins every third-party action to a commit SHA and keeps event data out of 
     const all = files.map((file) => read(appDir, file)).join('\n')
     assert.match(all, new RegExp(`${image.replace('/', '\\/')}:[\\w.-]+@sha256:[0-9a-f]{64}`), `${image} is not pinned to a digest`)
   }
-  assert.match(read(appDir, '.github/workflows/ci.yml'), /security-events: write/)
+  const ciWorkflow = read(appDir, '.github/workflows/ci.yml')
+  assert.match(ciWorkflow, /security-events: write/)
+  assert.match(ciWorkflow, /advanced-security: true/)
+  assert.match(ciWorkflow, /advanced-security: false/, 'code scanning must not turn the blocking zizmor run into SARIF-only')
   assert.match(read(appDir, '.github/workflows/security.yml'), /zap-baseline/)
   assert.match(read(appDir, '.github/dependabot.yml'), /default-days: 14/)
   const manifest = JSON.parse(read(appDir, '.github/om-ci.json')) as { options: { enabled: string[] } }
@@ -218,4 +221,22 @@ test('rejects unsafe option values and non-Open Mercato projects', async () => {
   const plainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-setup-ci-plain-'))
   fs.writeFileSync(path.join(plainDir, 'package.json'), JSON.stringify({ name: 'plain' }))
   assert.throws(() => run([], { cwd: plainDir, log: () => {} }), /no @open-mercato\/\* dependency/)
+})
+
+test('drops the DAST scan when the nightly security workflow that hosts it is disabled', async () => {
+  const { run } = await loadGenerator()
+  const appDir = makeApp()
+  assert.equal(run(['--with-dast', '--no-scheduled-security'], { cwd: appDir, log: () => {} }), 0)
+  assert.equal(fs.existsSync(path.join(appDir, '.github/workflows/security.yml')), false)
+  assert.equal(fs.existsSync(path.join(appDir, 'scripts/ci/zap-rules.tsv')), false)
+  assert.match(read(appDir, 'docs/ci/README.md'), /\| Nightly dynamic scan \(OWASP ZAP\) \| disabled — needs the nightly security scan \|/)
+})
+
+test('protects the conventional default branch rather than the checked-out feature branch', async () => {
+  const { detectBranches } = (await import(generatorPath)) as { detectBranches: (targetDir: string) => string[] }
+  const appDir = makeApp()
+  const gitArgs = ['-c', 'user.name=ci', '-c', 'user.email=ci@example.com']
+  execFileSync('git', [...gitArgs, 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: appDir })
+  execFileSync('git', ['checkout', '-q', '-b', 'feat/ci'], { cwd: appDir })
+  assert.deepEqual(detectBranches(appDir), ['main'])
 })
