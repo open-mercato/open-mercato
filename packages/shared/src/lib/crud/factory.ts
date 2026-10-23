@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { getAuthFromCookies, getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { SELECTED_ORGANIZATION_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinEdge } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -562,13 +563,10 @@ function json(data: any, init?: ResponseInit) {
   })
 }
 
-// Name of the selected-organization cookie (mirrors the directory module's
-// OrganizationSwitcher, which writes `om_selected_org=...; path=/; samesite=lax`).
-// Kept as a local literal so shared has no import dependency on a domain package.
-const SELECTED_ORG_COOKIE = 'om_selected_org'
 // Set-Cookie value that expires the stale selection so the next request falls
-// back to the caller's home org. Attributes mirror how the switcher sets it.
-const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
+// back to the caller's home org. Attributes mirror how the directory module's
+// OrganizationSwitcher sets it (`om_selected_org=...; path=/; samesite=lax`).
+const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORGANIZATION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
 
 function attachOperationHeader(res: Response, logEntry: any) {
   if (!res || !(res instanceof Response)) return res
