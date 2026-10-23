@@ -1,5 +1,8 @@
 import { describe, it, expect, jest, afterEach } from '@jest/globals'
 import { NBPTableAProvider } from '../nbpTableA'
+import { ExchangeRateService } from '../../exchangeRateService'
+import { RateFetchingService } from '../../rateFetchingService'
+import { createMockEntityManager, createTestCurrency, TEST_SCOPE as SERVICE_SCOPE } from '../../__tests__/rateFetchingService.setup'
 
 const TEST_DATE = new Date('2026-10-22T00:00:00.000Z')
 const TEST_SCOPE = { tenantId: 'test-tenant', organizationId: 'test-org' }
@@ -60,13 +63,14 @@ describe('NBPTableAProvider', () => {
     expect(rates[1]).toMatchObject({ fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', rate: '3.9987' })
   })
 
-  it('stamps rows with the table effective date as Warsaw midnight in UTC', async () => {
+  it('stamps rows with the table effective date at UTC midnight, the instant getRate matches on', async () => {
     global.fetch = jest.fn(async () => tableAResponse('2026-10-22')) as unknown as typeof fetch
 
     const rates = await new NBPTableAProvider().fetchRates(TEST_DATE, TEST_SCOPE, new Set(['PLN', 'EUR']))
 
-    // 22 Oct 2026 is CEST (UTC+2)
-    expect(rates[0].date.toISOString()).toBe('2026-10-21T22:00:00.000Z')
+    // Not Warsaw midnight (2026-10-21T22:00Z in CEST): ExchangeRateService.normalizeDate looks rows up
+    // by exact UTC midnight, so a Warsaw-midnight stamp would never be found.
+    expect(rates[0].date.toISOString()).toBe('2026-10-22T00:00:00.000Z')
   })
 
   it('returns no rates for a date without a published table (404)', async () => {
@@ -97,5 +101,68 @@ describe('NBPTableAProvider', () => {
 
     expect(rates).toEqual([])
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('NBP_A stored by the fetch flow and read back by ExchangeRateService.getRate', () => {
+  const originalFetch = global.fetch
+
+  afterEach(() => {
+    global.fetch = originalFetch
+  })
+
+  // Only the Friday 16 Oct 2026 table exists; every other day answers 404 like NBP does
+  const nbpFetch = jest.fn(async (input: unknown) => {
+    const url = String(input)
+    return url.includes('/tables/a/2026-10-16/') ? tableAResponse('2026-10-16') : new Response('', { status: 404 })
+  })
+
+  const build = () => {
+    const store: any[] = []
+    const { em } = createMockEntityManager({
+      currencies: [createTestCurrency({ code: 'PLN', isBase: true }), createTestCurrency({ code: 'EUR' })],
+      existingRates: store,
+    })
+    // The mock keeps persisted rows apart from the rows `find` reads: feed them back, like a real table
+    ;(em.persist as jest.Mock).mockImplementation((row: any) => {
+      store.push({ isActive: true, deletedAt: null, ...row })
+    })
+    const fetching = new RateFetchingService(em)
+    fetching.registerProvider(new NBPTableAProvider())
+    return { store, svc: new ExchangeRateService(em, fetching) }
+  }
+
+  it('finds the rate of the requested day on the first lookup', async () => {
+    global.fetch = nbpFetch as unknown as typeof fetch
+    const { store, svc } = build()
+
+    const result = await svc.getRate({
+      fromCurrencyCode: 'EUR',
+      toCurrencyCode: 'PLN',
+      date: new Date('2026-10-16T00:00:00.000Z'),
+      scope: SERVICE_SCOPE,
+      source: 'NBP_A',
+    })
+
+    expect(store).toHaveLength(1)
+    expect(store[0].date.toISOString()).toBe('2026-10-16T00:00:00.000Z')
+    expect(result.rates.map((r) => r.rate)).toEqual(['4.3012'])
+    expect(result.actualDate?.toISOString()).toBe('2026-10-16T00:00:00.000Z')
+  })
+
+  it('steps back from a Sunday to the last published table', async () => {
+    global.fetch = nbpFetch as unknown as typeof fetch
+    const { svc } = build()
+
+    const result = await svc.getRate({
+      fromCurrencyCode: 'EUR',
+      toCurrencyCode: 'PLN',
+      date: new Date('2026-10-18T00:00:00.000Z'),
+      scope: SERVICE_SCOPE,
+      source: 'NBP_A',
+    })
+
+    expect(result.rates.map((r) => r.rate)).toEqual(['4.3012'])
+    expect(result.actualDate?.toISOString()).toBe('2026-10-16T00:00:00.000Z')
   })
 })

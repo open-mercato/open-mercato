@@ -1,5 +1,4 @@
 import { RateProvider, RateProviderResult } from './base'
-import { fromZonedTime } from 'date-fns-tz'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -34,7 +33,8 @@ interface NBPTableAResponse {
  * `source` option of `ExchangeRateService.getRate`.
  *
  * Only the XXX -> PLN direction is stored, with `type: null` because a mid rate has no side.
- * The date of a stored row is the table's `effectiveDate` (the publication day).
+ * The date of a stored row is the table's `effectiveDate` (the publication day) at UTC midnight,
+ * the instant `ExchangeRateService.getRate` matches on.
  */
 export class NBPTableAProvider implements RateProvider {
   readonly name = 'NBP Table A (average rates)'
@@ -81,8 +81,10 @@ export class NBPTableAProvider implements RateProvider {
 
       const table = data[0]
 
-      // Parse as midnight Europe/Warsaw, then convert to UTC for DB storage
-      const effectiveDate = fromZonedTime(`${table.effectiveDate} 00:00:00`, 'Europe/Warsaw')
+      // Stamp the row at UTC midnight of the table's effective date, not at Warsaw midnight:
+      // ExchangeRateService looks rates up by an exact match on UTC midnight of the requested day
+      // (`normalizeDate`), so any other instant would never be found by `getRate`.
+      const effectiveDate = new Date(`${table.effectiveDate}T00:00:00.000Z`)
 
       const results: RateProviderResult[] = table.rates.map((rate) => ({
         fromCurrencyCode: rate.code,
@@ -96,9 +98,10 @@ export class NBPTableAProvider implements RateProvider {
 
       logger.info('Fetched rates', { count: results.length, date: dateStr })
       return results
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
       logger.error('Fetch error', { date: dateStr, err })
-      throw new Error(`Failed to fetch NBP Table A rates: ${err.message}`)
+      throw new Error(`[internal] Failed to fetch NBP Table A rates: ${message}`)
     }
   }
 
