@@ -86,6 +86,9 @@ describe('attachments OCR service hardening', () => {
     expect(mockGenerateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'mock-model',
+        maxRetries: 0,
+        maxOutputTokens: expect.any(Number),
+        abortSignal: expect.any(AbortSignal),
         messages: [
           expect.objectContaining({
             role: 'user',

@@ -69,7 +69,8 @@ for (const relPath of SUPERVISOR_FILES) {
   test(`${relPath} probes the managed runtime directly rather than through the gateway`, () => {
     const source = read(relPath)
     assert.match(source, /function resolveRuntimeProbeBaseUrl\(\)/)
-    assert.match(source, /if \(gatewayMode && devUpstreamPort\) return `http:\/\/127\.0\.0\.1:\$\{devUpstreamPort\}`/)
+    assert.match(source, /upstreamPort: gatewayMode \? devUpstreamPort : null/)
+    assert.match(source, /runtimeUrl: readSplashChildState\(\)\?\.readyUrl/)
   })
 
   test(`${relPath} fails clearly on a public port collision instead of moving the gateway`, () => {

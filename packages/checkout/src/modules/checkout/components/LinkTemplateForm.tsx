@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { formatLocaleNumberInput, parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -107,8 +107,8 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function readNumberInputValue(value: unknown): string {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+function readNumberInputValue(value: unknown, locale?: string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return formatLocaleNumberInput(value, locale)
   if (typeof value === 'string') return value
   return ''
 }
@@ -423,6 +423,7 @@ export function PriceListEditor({
   error?: string
 }) {
   const t = useT()
+  const locale = useLocale()
   const items = Array.isArray(value) ? value : []
 
   const updateItem = React.useCallback(
@@ -491,7 +492,7 @@ export function PriceListEditor({
                       <Input
                         type="text"
                         inputMode="decimal"
-                        value={readNumberInputValue(item.amount)}
+                        value={readNumberInputValue(item.amount, locale)}
                         onChange={(event) =>
                           updateItem(index, {
                             // Stays raw while editing — re-parsing and re-serializing on every
@@ -550,6 +551,7 @@ export function PriceListEditor({
 
 export function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
   const t = useT()
+  const locale = useLocale()
   const pricingMode = readString(values.pricingMode) || 'fixed'
   const pricingModeError = readError(errors, 'pricingMode')
   const fixedPriceAmountError = readError(errors, 'fixedPriceAmount')
@@ -592,7 +594,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.fixedPriceAmount)}
+              value={readNumberInputValue(values.fixedPriceAmount, locale)}
               onChange={(event) => setValue('fixedPriceAmount', event.target.value)}
               placeholder="150"
               className={errorInputClassName(fixedPriceAmountError)}
@@ -616,7 +618,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.fixedPriceOriginalAmount)}
+              value={readNumberInputValue(values.fixedPriceOriginalAmount, locale)}
               onChange={(event) => setValue('fixedPriceOriginalAmount', event.target.value)}
               placeholder="200"
               className={errorInputClassName(fixedPriceOriginalAmountError)}
@@ -643,7 +645,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.customAmountMin)}
+              value={readNumberInputValue(values.customAmountMin, locale)}
               onChange={(event) => setValue('customAmountMin', event.target.value)}
               placeholder="10"
               className={errorInputClassName(customAmountMinError)}
@@ -655,7 +657,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.customAmountMax)}
+              value={readNumberInputValue(values.customAmountMax, locale)}
               onChange={(event) => setValue('customAmountMax', event.target.value)}
               placeholder="500"
               className={errorInputClassName(customAmountMaxError)}

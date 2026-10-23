@@ -734,19 +734,37 @@ async function findReservationBucketBalance(
   })
 }
 
+type BalanceBucketInput = {
+  warehouseId: string
+  locationId: string
+  catalogVariantId: string
+  lotId?: string
+  serialNumber?: string
+}
+
+const BALANCE_BUCKET_CREATE_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+
+function balanceBucketCreateLockKey(input: BalanceBucketInput): string {
+  return [
+    'wms:inventory-balance-bucket',
+    input.warehouseId.toLowerCase(),
+    input.locationId.toLowerCase(),
+    input.catalogVariantId.toLowerCase(),
+    input.lotId?.toLowerCase() ?? '',
+    input.serialNumber ?? '',
+  ].join(':')
+}
+
 async function upsertBalanceBucket(
   em: EntityManager,
   scope: Scope,
-  input: {
-    warehouseId: string
-    locationId: string
-    catalogVariantId: string
-    lotId?: string
-    serialNumber?: string
-  },
+  input: BalanceBucketInput,
 ): Promise<{ balance: InventoryBalance; created: boolean }> {
   const existing = await findExactBalanceForUpdate(em, scope, input)
   if (existing) return { balance: existing, created: false }
+  await em.execute(BALANCE_BUCKET_CREATE_LOCK_SQL, [balanceBucketCreateLockKey(input)])
+  const createdConcurrently = await findExactBalanceForUpdate(em, scope, input)
+  if (createdConcurrently) return { balance: createdConcurrently, created: false }
   const balance = em.create(InventoryBalance, {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -1608,15 +1626,17 @@ const moveInventoryCommand: CommandHandler<InventoryMoveInput, { movementId: str
       if (sourceWarehouseId !== input.warehouseId || targetWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const sourceResult = await upsertBalanceBucket(trx, scope, {
+      const sourceBalance = await findExactBalanceForUpdate(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.fromLocationId,
         catalogVariantId: input.catalogVariantId,
         lotId: input.lotId,
         serialNumber: input.serialNumber,
       })
-      const sourceBalance = sourceResult.balance
-      const sourceBalanceAction = sourceResult.created ? ('created' as const) : ('updated' as const)
+      if (!sourceBalance) {
+        throw new CrudHttpError(409, { error: 'insufficient_stock' })
+      }
+      const sourceBalanceAction = 'updated' as const
       const targetResult = await upsertBalanceBucket(trx, scope, {
         warehouseId: input.warehouseId,
         locationId: input.toLocationId,

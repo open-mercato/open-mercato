@@ -35,10 +35,37 @@ function isSameOriginFlashNavigation(): boolean {
   }
 }
 
+// A page that flashes from a mount effect (e.g. reading an OAuth callback's
+// result params) can run before any `<FlashMessages />` host has attached its
+// listener: on a full page load hydration is split across Suspense boundaries,
+// so the page's effects may commit ahead of the hosts' and the event would be
+// dropped. Keep the latest undelivered message briefly and let the hosts that
+// start listening in the same commit show it, so the primary-host election
+// stays in sync.
+const PENDING_FLASH_MAX_AGE_MS = 5000
+let listeningFlashHostCount = 0
+let pendingFlash: { message: string; type: FlashKind; queuedAt: number } | null = null
+
+function readPendingFlash(): { message: string; type: FlashKind } | null {
+  const pending = pendingFlash
+  if (!pending) return null
+  if (Date.now() - pending.queuedAt > PENDING_FLASH_MAX_AGE_MS) {
+    pendingFlash = null
+    return null
+  }
+  setTimeout(() => {
+    if (pendingFlash === pending) pendingFlash = null
+  }, 0)
+  return pending
+}
+
 // Programmatic API to show a flash message without navigation.
 // Consumers can import { flash } and call flash('text', 'error').
 export function flash(message: string, type: FlashKind = 'info') {
   if (typeof window === 'undefined') return
+  if (listeningFlashHostCount === 0) {
+    pendingFlash = { message, type, queuedAt: Date.now() }
+  }
   const evt = new CustomEvent('flash', { detail: { message, type } })
   window.dispatchEvent(evt)
 }
@@ -222,7 +249,13 @@ function FlashMessagesInner() {
       showFlash(text, t)
     }
     window.addEventListener('flash', handler as EventListener)
-    return () => window.removeEventListener('flash', handler as EventListener)
+    listeningFlashHostCount += 1
+    const pending = readPendingFlash()
+    if (pending) showFlash(pending.message, pending.type)
+    return () => {
+      listeningFlashHostCount -= 1
+      window.removeEventListener('flash', handler as EventListener)
+    }
   }, [showFlash])
 
   const handleDismiss = React.useCallback(() => {
