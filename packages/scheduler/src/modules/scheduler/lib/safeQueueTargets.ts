@@ -159,9 +159,23 @@ export function sanitizeSchedulerTargetPayload(
   }
 }
 
-const queueConsumerCache = new WeakMap<object, Map<string, ModuleWorker[]>>()
+/**
+ * A queue consumer paired with the registry module that declared it.
+ *
+ * The owning module is carried explicitly because a worker id is free-form
+ * metadata: nothing constrains its prefix to match the id of the module that
+ * registers it, and several modules whose id contains `_` spell their worker
+ * ids with `-` (`data_sync` → `data-sync:scheduled`). Ownership must come from
+ * the registry, never from parsing the worker id.
+ */
+type QueueConsumer = {
+  moduleId: string
+  worker: ModuleWorker
+}
 
-function collectQueueConsumers(): Map<string, ModuleWorker[]> {
+const queueConsumerCache = new WeakMap<object, Map<string, QueueConsumer[]>>()
+
+function collectQueueConsumers(): Map<string, QueueConsumer[]> {
   let modules: ReturnType<typeof getModules>
   try {
     modules = getModules()
@@ -173,12 +187,12 @@ function collectQueueConsumers(): Map<string, ModuleWorker[]> {
   const cached = queueConsumerCache.get(modules)
   if (cached) return cached
 
-  const byQueue = new Map<string, ModuleWorker[]>()
+  const byQueue = new Map<string, QueueConsumer[]>()
   for (const mod of modules) {
     for (const worker of mod.workers ?? []) {
       if (!worker.queue) continue
       const consumers = byQueue.get(worker.queue) ?? []
-      consumers.push(worker)
+      consumers.push({ moduleId: mod.id, worker })
       byQueue.set(worker.queue, consumers)
     }
   }
@@ -195,15 +209,13 @@ function collectQueueConsumers(): Map<string, ModuleWorker[]> {
 export function listSchedulerSafeQueueTargets(): SchedulerSafeQueueTarget[] {
   const targets: SchedulerSafeQueueTarget[] = []
   for (const [queue, consumers] of collectQueueConsumers()) {
-    const optedIn = consumers.filter((worker) => worker.schedulerSafe === true)
+    const optedIn = consumers.filter((consumer) => consumer.worker.schedulerSafe === true)
     if (optedIn.length === 0 || optedIn.length !== consumers.length) continue
 
-    const requiredFeatures = [...new Set(optedIn.flatMap((worker) => (
-      Array.isArray(worker.schedulerRequiredFeatures) ? worker.schedulerRequiredFeatures : []
+    const requiredFeatures = [...new Set(optedIn.flatMap((consumer) => (
+      Array.isArray(consumer.worker.schedulerRequiredFeatures) ? consumer.worker.schedulerRequiredFeatures : []
     )))]
-    const ownerModuleIds = [...new Set(consumers.map((worker) => (
-      typeof worker.id === 'string' ? (worker.id.split(':')[0] ?? '') : ''
-    )))]
+    const ownerModuleIds = [...new Set(consumers.map((consumer) => consumer.moduleId))]
     targets.push({ queue, moduleId: ownerModuleIds[0] ?? '', requiredFeatures })
   }
   targets.sort((a, b) => a.queue.localeCompare(b.queue))
@@ -224,15 +236,13 @@ export function getSchedulerQueueRequiredFeatures(queue: string): string[] {
 }
 
 /**
- * The module ids that own workers on this queue, from the live registry.
+ * The module ids that own workers on this queue, as recorded by the live
+ * registry — not as spelled in the workers' own ids (see `QueueConsumer`).
  */
 function findQueueOwnerModuleIds(queue: string): Set<string> {
   const owners = new Set<string>()
-  for (const [candidate, consumers] of collectQueueConsumers()) {
-    if (candidate !== queue) continue
-    for (const worker of consumers) {
-      if (typeof worker.id === 'string') owners.add(worker.id.split(':')[0] ?? '')
-    }
+  for (const consumer of collectQueueConsumers().get(queue) ?? []) {
+    owners.add(consumer.moduleId)
   }
   return owners
 }
