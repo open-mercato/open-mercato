@@ -3,7 +3,7 @@
  *
  * `TIME_TRACKING_SETTING_KEYS` used to be a frozen array, `normalizeTimeTrackingSettings`
  * a hand-written coercion per key, and `staffTimeTrackingSettingsSchema` a literal
- * `z.object`. All three now read this registry, and the eight keys the module shipped
+ * `z.object`. All three now read this registry, and the built-in keys the module ships
  * are registered here as built-ins — so with no contribution the read, the write, the
  * validating schema and the defaults are byte-identical to what they were.
  *
@@ -44,6 +44,8 @@ export const timeTrackingRoundingUnitMinutesSchema = z.union([
 ])
 
 export const timeTrackingRoundingDirectionSchema = z.enum(['up', 'nearest'])
+
+export const timeTrackingEntryModeSchema = z.enum(['task', 'project'])
 
 export type TimeTrackingSettingKeyInput = {
   /** Group the value lives under in the settings object, e.g. `rounding`. */
@@ -120,7 +122,7 @@ export function timeTrackingSettingKeyIds(): string[] {
   return registry.ids()
 }
 
-/** The contributed keys only — the eight built-ins are rendered by the settings page's own form. */
+/** The contributed keys only — the built-ins are rendered by the settings page's own form. */
 export function contributedTimeTrackingSettingKeys(): TimeTrackingSettingKeyDefinition[] {
   return registry.list().filter((entry) => !entry.builtIn)
 }
@@ -164,6 +166,14 @@ const BUILT_IN_SETTING_KEYS: readonly TimeTrackingSettingKeyInput[] = [
     schema: z.boolean(),
     default: true,
     labelKey: 'staff.time_tracking.settings.defaults.chainStart',
+    priority: BUILT_IN_STRATEGY_PRIORITY,
+  },
+  {
+    group: TIME_TRACKING_DEFAULTS_GROUP,
+    key: 'entryMode',
+    schema: timeTrackingEntryModeSchema,
+    default: 'task',
+    labelKey: 'staff.time_tracking.settings.defaults.entryMode',
     priority: BUILT_IN_STRATEGY_PRIORITY,
   },
   {

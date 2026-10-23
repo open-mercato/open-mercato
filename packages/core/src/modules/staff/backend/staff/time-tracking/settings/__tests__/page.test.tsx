@@ -64,7 +64,7 @@ const confirmMock = jest.fn(async () => true)
 
 let settings = {
   rounding: { unitMinutes: 15 as 0 | 5 | 10 | 15, direction: 'up' as 'up' | 'nearest' },
-  defaults: { billable: true, chainStartFromPreviousEnd: true },
+  defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
   targets: { dailyHours: 8 as number | null },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
@@ -114,7 +114,7 @@ beforeEach(() => {
   putBodies.length = 0
   settings = {
     rounding: { unitMinutes: 15, direction: 'up' },
-    defaults: { billable: true, chainStartFromPreviousEnd: true },
+    defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
     targets: { dailyHours: 8 },
     warnings: { overlap: true, runningTimer: true },
     access: { assignmentGraceDays: 14 },
@@ -195,11 +195,22 @@ describe('time tracking settings page', () => {
     await waitFor(() => expect(putBodies).toHaveLength(1))
     expect(putBodies[0]).toEqual({
       rounding: { unitMinutes: 15, direction: 'up' },
-      defaults: { billable: true, chainStartFromPreviousEnd: true },
+      defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 30 },
     })
+  })
+
+  it('saves the entry mode chosen in the entry defaults card', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('radio', { name: 'a project' }))
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    expect((putBodies[0] as { defaults: { entryMode: string } }).defaults.entryMode).toBe('project')
   })
 
   it('keeps Save disabled until something changes and while a field is unsaveable', async () => {

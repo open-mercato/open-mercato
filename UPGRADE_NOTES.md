@@ -483,6 +483,27 @@ fresh proposals. Old cards cannot be distinguished from forgeries; do not backfi
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
 
+### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
+
+The staff time-tracking settings gain a ninth built-in key, `defaults.entryMode`
+(`'task' | 'project'`, default `'task'`). It switches the time entry dialog between logging
+time against a task (today's behaviour) and against a project with an optional task. Tenants
+that never change it see no difference.
+
+**Action for module authors:** none, unless your module already contributes a key with the
+same id through `registerTimeTrackingSettingKey({ group: 'defaults', key: 'entryMode', … })`.
+A contribution cannot replace a built-in, so that registration now throws at load; rename
+your key. Code that asserted the exact `defaults` group shape or counted
+`TIME_TRACKING_SETTING_KEYS` should expect the extra key, and an exhaustive
+`Record<TimeTrackingSettingKey, …>` needs an entry for `'defaults.entryMode'`. Payloads sent to
+`PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
+registry fills in the default.
+
+The ten published time-tracking component `propsSchema`s are now named exports of their
+component files (e.g. `timeEntryDialogPropsSchema` from
+`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`). A replacement can
+import its contract instead of copying it.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:

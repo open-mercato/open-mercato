@@ -74,7 +74,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { GET, PUT, metadata } from '../route'
-import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID } from '../../../../lib/time-tracking/settings'
+import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID, TIME_TRACKING_SETTING_KEYS } from '../../../../lib/time-tracking/settings'
 
 const getRequest = () => new Request('http://localhost/api/staff/timesheets/settings')
 
@@ -87,7 +87,7 @@ const putRequest = (body: unknown) =>
 
 const fullSettings = {
   rounding: { unitMinutes: 15, direction: 'nearest' },
-  defaults: { billable: false, chainStartFromPreviousEnd: false },
+  defaults: { billable: false, chainStartFromPreviousEnd: false, entryMode: 'project' },
   targets: { dailyHours: 6 },
   warnings: { overlap: false, runningTimer: false },
   access: { assignmentGraceDays: 30 },
@@ -119,7 +119,7 @@ describe('staff time tracking settings route', () => {
     expect(body).toEqual(DEFAULT_TIME_TRACKING_SETTINGS)
     expect(body).toEqual({
       rounding: { unitMinutes: 0, direction: 'up' },
-      defaults: { billable: true, chainStartFromPreviousEnd: true },
+      defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
@@ -156,7 +156,7 @@ describe('staff time tracking settings route', () => {
       15,
       { tenantId: tenantA },
     )
-    expect(setValueSpy).toHaveBeenCalledTimes(8)
+    expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
   })
 
   it('applies schema defaults to a partial payload', async () => {
@@ -249,7 +249,7 @@ describe('staff time tracking settings route', () => {
     const response = await PUT(putRequest(fullSettings))
 
     expect(response.status).toBe(200)
-    expect(setValueSpy).toHaveBeenCalledTimes(8)
+    expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
     expect(afterSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         resourceKind: 'staff.timesheets.settings',

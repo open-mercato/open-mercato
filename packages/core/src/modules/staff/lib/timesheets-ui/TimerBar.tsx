@@ -357,7 +357,7 @@ const projectOptionSchema = z.object({
   color: z.string().nullable().optional(),
 })
 
-const timerBarPropsSchema: z.ZodType<TimerBarProps> = z.object({
+export const timerBarPropsSchema: z.ZodType<TimerBarProps> = z.object({
   projects: z.array(projectOptionSchema),
   staffMemberId: z.string().nullable(),
   onTimerStopped: callbackProp<() => void>(),

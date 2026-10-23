@@ -396,7 +396,7 @@ const kanbanTagOptionSchema = z.object({ id: z.string(), label: z.string() })
 
 const kanbanMoveTargetSchema = z.object({ id: z.string(), name: z.string() })
 
-const kanbanCardPropsSchema: z.ZodType<KanbanCardProps> = z.object({
+export const kanbanCardPropsSchema: z.ZodType<KanbanCardProps> = z.object({
   task: opaqueProp<BoardTask>(),
   assigneeName: z.string().nullable(),
   tags: z.array(kanbanTagOptionSchema),
