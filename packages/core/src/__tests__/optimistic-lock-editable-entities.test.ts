@@ -29,6 +29,11 @@ import { join } from 'node:path'
 
 const moduleEntities: Record<string, string[]> = {
   auth: ['User', 'Role'],
+  // The three user-editable forms aggregates. Submissions and revisions are
+  // append-only (revisions carry their own `base_revision_id` concurrency
+  // check), actors are an assignment row, and consent/audit rows are
+  // projections — all outside this guard's remit.
+  forms: ['Form', 'FormVersion', 'FormDistribution'],
   catalog: [
     'CatalogProduct',
     'CatalogProductVariant',
@@ -83,6 +88,8 @@ const moduleEntities: Record<string, string[]> = {
   ],
   messages: ['Message'],
   notifications: ['NotificationTypeOverride', 'NotificationPreference'],
+  availability: ['AvailabilityPolicy'],
+  customer_groups: ['CustomerGroup', 'CustomerGroupTerms'],
 }
 
 function readEntitySource(moduleId: string): string {
@@ -184,6 +191,8 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   WorkflowDefinition: ['workflows/api/definitions/[id]/route.ts'],
   Organization: ['directory/api/organizations/route.ts'],
   Tenant: ['directory/api/tenants/route.ts'],
+  // CustomerGroupTerms — hand-written upsert route; the lock is enforced via
+  // `enforceCommandOptimisticLock` (case c).
 }
 
 function entityHasDeletedAt(moduleId: string, className: string): boolean {
