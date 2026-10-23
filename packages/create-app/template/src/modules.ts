@@ -121,6 +121,22 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
+  // { id: 'ledger', from: '@open-mercato/core' },
+  // Journal Entry Line Dimensions — tags on posted ledger lines. Requires
+  // ledger, so it stays disabled here while ledger is. Tracked in
+  // TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a deliberate
+  // divergence, not drift.
+  // { id: 'journal_entry_line_dimensions', from: '@open-mercato/core' },
+  // Posting Rules Engine — cost reclassification (zespół 4 → 5) on ledger
+  // postings. Requires ledger and journal_entry_line_dimensions, so it stays
+  // disabled here while they are. Tracked in TEMPLATE_COMMENTED_MODULES
+  // (scripts/template-sync.ts) as a deliberate divergence, not drift.
+  // { id: 'posting_rules', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
