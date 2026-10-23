@@ -38,6 +38,11 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 
 - Relaxed framing reaching a production build — mitigated by the narrower gate and tests for `production`, `test` and a custom `NODE_ENV`.
 
+## Runtime verification (2026-10-23)
+
+- 3.1 `next dev` with `NODE_ENV=production` served `frame-ancestors 'self' http://localhost:* http://127.0.0.1:*` and no global `X-Frame-Options`; `next start` on the `build:app` output served `frame-ancestors 'self'` with `X-Frame-Options: SAMEORIGIN`. `/api/attachments/file/*` stayed `default-src 'none'; sandbox` + `SAMEORIGIN` in both phases. Run on loopback ports 51800-51803 with every service URL pointed away from the shared ports.
+- 3.2 Real `dev-splash.html` + `createDevSplashCodingFlow` in headless Chromium, with stub `npx` and `wezterm` binaries: one click opened one terminal running `npx cezar-run` in the nearest `package.json` directory; a second click inside the cooldown got 409 `already_started` and launched nothing; a token-less POST got 403 and a GET got 405. The check found that the status poll erased the `already_started` notice; fixed in 1d5ff8441.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -53,7 +58,7 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 
 ### Phase 3: Runtime verification
 
-- [ ] 3.1 Verify dev and production frame headers on a running app
+- [x] 3.1 Verify dev and production frame headers on a running app — 49c3f8798
 - [x] 3.2 Verify the splash button and the launch action with a test double — 1d5ff8441
 
 ### Phase 4: Finish
