@@ -88,8 +88,10 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
+const mockTranslate = (_key: string, fallback?: string) => fallback ?? ''
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? '',
+  useT: () => mockTranslate,
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
