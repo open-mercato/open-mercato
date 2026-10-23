@@ -3007,3 +3007,12 @@ re-read in this pass.
   carries the currency code, a rate with at most six decimals and the VAT amount
   in złoty (`P_14_xW`), and disagree on whether `KursWalutyZ` is the header rate
   or the advance-invoice rate, so the field names stay unverified.
+
+### 2026-10-23 (cont. — controller's answer on valuing the outflow of currency)
+
+- **Source:** e-mail from Mateusz Duda (controller), 2026-10-23, to the questions on outflow valuation and on separating realized and unrealized differences. Practice and policy, not a checked legal text.
+- **Outflow valuation is accounting policy.** FIFO is the usual choice (each inflow is a lot with its own rate, an outflow consumes the oldest lot at its rate); weighted average is also permitted; an outflow at the rate of the day books no realized differences and pushes all of it to the valuation. For CIT the realized differences would then have to be computed outside the books.
+- **Mandatory valuation** is only the balance at the balance-sheet date at the NBP average rate; a monthly valuation is the company's choice.
+- **Realized and unrealized differences are kept apart** (separate sub-accounts), because only realized differences enter CIT; the exception is the rarely used accounting-law method in the CIT act (not checked against the act).
+- **Worked example:** USD 1,000 in at 4.00, USD 500 out at 4.20, NBP 4.10 at month end: FIFO 100 realized plus 50 unrealized; rate of the day 150 at valuation.
+- **Where it landed:** Multi-Currency (Out of scope bullet and changelog), Cash & Bank (Out of scope: lots, per-account method, one bank line per consumed lot), Accounts Payable payments (Phase 1 credits a foreign-currency cash account at the payment rate until lots exist). Comarch ERP XL (FIFO or LIFO per register, fixed once) is consistent with it.
