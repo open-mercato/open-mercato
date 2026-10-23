@@ -75,6 +75,52 @@ describe('SesChannelAdapter', () => {
     }))
   })
 
+  it('accepts the raw recipient string a direct sendMessage caller passes', async () => {
+    const adapter = getSesChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'Test send' },
+      credentials: { region: 'eu-west-2', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: 'user@example.com', subject: 'Test send', testSend: true },
+    })
+
+    expect(result).toEqual(expect.objectContaining({ status: 'sent', externalMessageId: 'ses-1' }))
+    expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({ to: ['user@example.com'] }))
+  })
+
+  it('splits a comma or semicolon separated recipient string', async () => {
+    const adapter = getSesChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { region: 'eu-west-2', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: 'a@example.com, b@example.com;c@example.com', subject: 'Hello' },
+    })
+
+    expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: ['a@example.com', 'b@example.com', 'c@example.com'],
+    }))
+  })
+
+  it('rejects an empty recipient string without calling the SES transport', async () => {
+    const adapter = getSesChannelAdapter()
+
+    const result = await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { region: 'eu-west-2', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: { to: '  ', subject: 'Hello' },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Email send requires at least one recipient',
+    }))
+    expect(sendMailMock).not.toHaveBeenCalled()
+  })
+
   it('returns a failed result when the SES transport rejects', async () => {
     sendMailMock.mockRejectedValueOnce(new Error('temporary outage'))
     const adapter = getSesChannelAdapter()

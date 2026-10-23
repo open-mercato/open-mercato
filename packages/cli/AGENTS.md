@@ -98,6 +98,8 @@ Do not run `yarn db:migrate` as part of generation unless the user explicitly as
 
 After every module has migrated, `dbMigrate` collects the `queryIndexReindexEntityTypes` declarations exported by the migrations it just applied and queues one persistent `query_index.reindex` per entity type (`packages/cli/src/lib/db/migration-reindex.ts`). This step MUST stay non-fatal: an unreachable event bus degrades to printing the equivalent `mercato query_index rebuild --entity <type> --global`, and `OM_MIGRATION_REINDEX=off` disables it. A migration that rewrites a query-indexed column without declaring leaves `entity_indexes.doc` stale permanently.
 
+After generating, `dbGenerate` runs an advisory encryption map backfill check (`packages/cli/src/lib/db/encryption-backfill-check.ts`): a field declared in an `encryption.ts` that existing tenant scopes in the connected database lack, and that no module migration backfills, is printed as a warning. It MUST stay warn-only; every failure, including an unreachable database, degrades to a warning. It opens a `pg` connection after every `db:generate` (5 s connect timeout), so an offline run can wait that long; `OM_ENCRYPTION_BACKFILL_CHECK=off` disables it.
+
 ## Standalone App Considerations
 
 In standalone apps, generators scan `node_modules/@open-mercato/*/dist/modules/` for compiled `.js` files (not `.ts` source). Ensure packages are built before publishing.

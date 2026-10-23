@@ -283,6 +283,7 @@
   "wms.backend.inventory.cycleCount.errors.ambiguousLot": "이 위치에서 여러 로트가 발견되었습니다. 계속하려면 로트를 선택하세요.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "차이를 커밋하려면 자동 조정을 활성화하세요.",
   "wms.backend.inventory.cycleCount.errors.balance": "현재 시스템을 로드하지 못했습니다.",
+  "wms.backend.inventory.cycleCount.errors.belowCommitted": "집계 수량이 이 위치에 예약 또는 할당된 {committed}개보다 적습니다. 이 집계를 게시하기 전에 해당 예약을 해제하세요.",
   "wms.backend.inventory.cycleCount.errors.scope": "설정을 완료하고 카운트 위치를 선택하세요.",
   "wms.backend.inventory.cycleCount.errors.scopeEstimate": "개수 범위를 예측하지 못했습니다.",
   "wms.backend.inventory.cycleCount.errors.submit": "주기 수를 게시하지 못했습니다.",

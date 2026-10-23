@@ -159,7 +159,7 @@ suite has actually finished a run.
 
 **Update (2026-09-23):** that issue is resolved, and this suite has
 finished a run — `npm run test:bdd` now passes end to end (19
-scenarios, 0 pending; see the account-type/account-scenarios
+scenarios at the time, 0 pending; see the account-type/account-scenarios
 subsection below for a second gap that was still open at the time this
 paragraph was written, since also resolved). The fix was to actually
 swap `cucumber.config.cjs`'s `requireModule` from `tsx/cjs` to a
@@ -205,6 +205,24 @@ logic at all), because `commands/ledgerAccounts.ts` and
 `packages/core/generated/` in this checkout at the time — that generated
 file did not exist. `require`-ing either command module as-is would have
 thrown before any step even ran.
+
+### Update (2026-10-13, PR #6340 review)
+
+`npm run test:bdd` passes end to end: 35 scenarios in 11 feature files, none
+pending. The review of PR #6340 added the scenarios for the numbering rule
+(`account_numbering.feature`), the frozen type and account numbers
+(`account_type_immutability.feature`), the reversal date
+(`journal_entry_reversal.feature`), overlapping periods and generating twelve
+consecutive monthly periods (`fiscal_period_definition.feature`), unlocking a
+period (`fiscal_period_locking.feature`), the append-only entry
+(`posted_entry_immutability.feature`) and the document type and number on an
+entry (`journal_entry_document.feature`). The scenario about an account type's
+parent in `delete_blocking.feature` is gone together with the parent columns.
+
+`posted_entry_immutability.feature` checks that no command or API route edits
+or deletes a posted entry. The database trigger behind it
+(`journal_entries` blocks UPDATE and DELETE) cannot run in the in-memory fake,
+so it is covered by the integration suite against a real database.
 
 ### What this doesn't verify
 

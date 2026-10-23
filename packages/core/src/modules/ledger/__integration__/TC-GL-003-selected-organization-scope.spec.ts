@@ -105,26 +105,26 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
       accountTypeAId = await createAccountTypeFixture(
         request,
         superadminToken,
-        { organizationId: orgAId, tenantId, slug: randomSlug('qa-gl-003-type-a'), name: 'QA Type A', normalBalance: 'DEBIT' },
+        { organizationId: orgAId, tenantId, number: randomSlug('qa-gl-003-type-a'), name: 'QA Type A', normalBalance: 'DEBIT' },
         { headers: headersA },
       );
       accountTypeBId = await createAccountTypeFixture(
         request,
         superadminToken,
-        { organizationId: orgBId, tenantId, slug: randomSlug('qa-gl-003-type-b'), name: 'QA Type B', normalBalance: 'DEBIT' },
+        { organizationId: orgBId, tenantId, number: randomSlug('qa-gl-003-type-b'), name: 'QA Type B', normalBalance: 'DEBIT' },
         { headers: headersB },
       );
 
       accountAId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId: orgAId, tenantId, slug: randomSlug('qa-gl-003-account-a'), accountTypeId: accountTypeAId },
+        { organizationId: orgAId, tenantId, number: randomSlug('qa-gl-003-account-a'), accountTypeId: accountTypeAId },
         { headers: headersA },
       );
       accountBId = await createAccountFixture(
         request,
         superadminToken,
-        { organizationId: orgBId, tenantId, slug: randomSlug('qa-gl-003-account-b'), accountTypeId: accountTypeBId },
+        { organizationId: orgBId, tenantId, number: randomSlug('qa-gl-003-account-b'), accountTypeId: accountTypeBId },
         { headers: headersB },
       );
 

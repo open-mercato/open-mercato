@@ -8,6 +8,7 @@
 import { Given, When, Then } from '@cucumber/cucumber'
 import assert from 'node:assert'
 import '../../commands/postJournalEntry'
+import '../../commands/fiscalPeriods'
 import { FiscalPeriod, LedgerAccount } from '../../data/entities'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { activeEmOrNew, buildCommandContext, executeCommand, FakeEntityManager, newId, ORG_ID, TENANT_ID, captureRejection, setActiveEm } from '../support/world'
@@ -18,6 +19,7 @@ const REVENUE_ACCOUNT_ID = newId()
 const CURRENCY_ID = newId()
 
 let em: FakeEntityManager
+let lockedPeriodId: string
 let outcome: PostJournalEntryResult | null
 let rejection: unknown
 
@@ -31,8 +33,8 @@ let rejection: unknown
 // `activeEmOrNew()` already returned just adds a second, identical row.
 function seedPostingFixtures(target: FakeEntityManager): void {
   target.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', isBase: true, decimalPlaces: 2, deletedAt: null })
-  target.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
-  target.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
+  target.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, number: 'cash', accountTypeId: newId(), deletedAt: null })
+  target.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, number: 'revenue', accountTypeId: newId(), deletedAt: null })
 }
 
 function balancedInput(operationDate: string) {
@@ -52,15 +54,22 @@ function balancedInput(operationDate: string) {
 Given('a fiscal period from {string} to {string} that is locked', function (start: string, end: string) {
   em = setActiveEm(new FakeEntityManager())
   seedPostingFixtures(em)
+  lockedPeriodId = newId()
   em.seed(FiscalPeriod, {
-    id: newId(),
+    id: lockedPeriodId,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
     startDate: new Date(start),
     endDate: new Date(end),
     isLocked: true,
     deletedAt: null,
+    updatedAt: new Date('2026-02-01T00:00:00Z'),
   })
+})
+
+When('I unlock that fiscal period', async function () {
+  const ctx = buildCommandContext(em)
+  await executeCommand('ledger.unlockFiscalPeriod', { id: lockedPeriodId, organizationId: ORG_ID, tenantId: TENANT_ID }, ctx)
 })
 
 // Shared with `journal_entry_reversal.feature`, which uses this same step

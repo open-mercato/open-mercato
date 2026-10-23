@@ -283,6 +283,7 @@
   "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Se encontraron varios lotes en esta ubicación — seleccione un lote para continuar.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Active el autoajuste para confirmar una discrepancia.",
   "wms.backend.inventory.cycleCount.errors.balance": "No se pudo cargar el existente del sistema.",
+  "wms.backend.inventory.cycleCount.errors.belowCommitted": "La cantidad contada es inferior a las {committed} unidades reservadas o asignadas aquí. Libere las reservas afectadas antes de registrar este conteo.",
   "wms.backend.inventory.cycleCount.errors.scope": "Complete la configuración y seleccione una ubicación de conteo.",
   "wms.backend.inventory.cycleCount.errors.scopeEstimate": "No se pudo estimar el ámbito del conteo.",
   "wms.backend.inventory.cycleCount.errors.submit": "No se pudo registrar el conteo cíclico.",

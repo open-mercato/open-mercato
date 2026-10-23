@@ -15,11 +15,14 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { FiscalPeriod } from '../data/entities'
+import { monthRanges } from '../lib/fiscalPeriodRanges'
 import {
   createFiscalPeriodSchema,
+  generateFiscalPeriodsSchema,
   lockFiscalPeriodSchema,
   unlockFiscalPeriodSchema,
   type CreateFiscalPeriodInput,
+  type GenerateFiscalPeriodsInput,
   type LockFiscalPeriodInput,
   type UnlockFiscalPeriodInput,
 } from '../data/validators'
@@ -154,6 +157,88 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
 }
 
 /**
+ * `generateFiscalPeriods` — twelve consecutive calendar months from the first
+ * day of the month the caller names, in one write (PR #5663 review, point 3).
+ * All or nothing: if the span overlaps an existing period nothing is created
+ * and the answer is the same 409 as `createFiscalPeriod`. Same advisory lock
+ * as `createFiscalPeriod`, so a generate and a create for one organization
+ * queue up instead of interleaving.
+ */
+const generateFiscalPeriodsCommand: CommandHandler<GenerateFiscalPeriodsInput, { fiscalPeriodIds: string[] }> = {
+  id: 'ledger.generateFiscalPeriods',
+  async execute(rawInput, ctx) {
+    const input = generateFiscalPeriodsSchema.parse(rawInput ?? {})
+    ensureTenantScope(ctx, input.tenantId)
+    ensureOrganizationScope(ctx, input.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+    const { translate } = await resolveTranslations()
+    const ranges = monthRanges(input.startDate)
+
+    const created = await em.transactional(async (trx) => {
+      await trx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
+        `ledger.fiscal_period:${scope.organizationId}:${scope.tenantId}`,
+      ])
+
+      // One check over the whole span: the twelve months are contiguous, so
+      // any existing period that touches one of them touches the span.
+      const overlapping = await findOverlappingFiscalPeriod(
+        trx,
+        scope,
+        ranges[0].startDate,
+        ranges[ranges.length - 1].endDate,
+      )
+      if (overlapping) {
+        throw conflict(translate('ledger.errors.fiscalPeriodOverlap', 'This date range overlaps an existing fiscal period for this organization.'))
+      }
+
+      const now = new Date()
+      const periods = ranges.map((range) =>
+        trx.create(FiscalPeriod, {
+          id: randomUUID(),
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          startDate: range.startDate,
+          endDate: range.endDate,
+          isLocked: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      )
+      for (const period of periods) trx.persist(period)
+      await trx.flush()
+      return periods
+    })
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    for (const period of created) {
+      emitCrudSideEffects({
+        dataEngine,
+        action: 'created',
+        entity: period,
+        identifiers: { id: period.id, organizationId: period.organizationId, tenantId: period.tenantId },
+        events: ledgerFiscalPeriodCrudEvents,
+        indexer: ledgerFiscalPeriodCrudIndexer,
+      })
+    }
+
+    return { fiscalPeriodIds: created.map((period) => period.id) }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    if (!result) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('ledger.audit.generateFiscalPeriods', 'Generate 12 fiscal periods'),
+      resourceKind: FISCAL_PERIOD_RESOURCE_KIND,
+      resourceId: result.fiscalPeriodIds[0] ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
+}
+
+/**
  * Shared body for `lockFiscalPeriod`/`unlockFiscalPeriod`: load the scoped
  * period, enforce the optimistic-lock guard against the caller's
  * `x-om-ext-optimistic-lock-expected-updated-at` header, flip `isLocked`,
@@ -274,5 +359,6 @@ const unlockFiscalPeriodCommand: CommandHandler<UnlockFiscalPeriodInput, FiscalP
 }
 
 registerCommand(createFiscalPeriodCommand)
+registerCommand(generateFiscalPeriodsCommand)
 registerCommand(lockFiscalPeriodCommand)
 registerCommand(unlockFiscalPeriodCommand)

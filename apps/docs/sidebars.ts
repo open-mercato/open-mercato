@@ -139,6 +139,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
+            "user-guide/tpay-payments",
             "user-guide/payment-transactions",
           ],
         },
@@ -518,6 +519,7 @@ const sidebars: SidebarsConfig = {
             "framework/runtime/logging",
             "framework/runtime/dev-runtime-diagnostics",
             "framework/runtime/error-reporting",
+            "framework/runtime/telemetry",
           ],
         },
         {

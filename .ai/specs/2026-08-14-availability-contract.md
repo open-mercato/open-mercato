@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification |
+| **Status** | Specification (Phase 1 + Phase 2 implemented 2026-09-22; Phase 3 — reservations — still pending) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 2, Phase 0 |
 | **Modules** | `availability` (new), `wms` (extended), `catalog` (unchanged) |
@@ -309,7 +309,7 @@ Standard scoped columns. Exactly one of `variant_id` / `product_id` / neither (s
 | `store_id` | uuid, nullable | null = applies to all stores in the organization |
 | `product_id` | uuid, nullable | `catalog.CatalogProduct.id` |
 | `variant_id` | uuid, nullable | `catalog.CatalogProductVariant.id` |
-| `is_stock_managed` | boolean | `false` → always `not_tracked` |
+| `is_stock_managed` | boolean, nullable | `false` → always `not_tracked`; `null` = inherit from the next row in §5.2 |
 | `allow_backorder` | boolean | Default `false` |
 | `backorder_lead_time_days` | integer, nullable | Displayed to the buyer; required when `allow_backorder` |
 | `preorder_release_at` | timestamptz, nullable | Before this instant the state is `preorder` |
@@ -599,6 +599,20 @@ Ops/support keep abandoned holds from locking up stock.
 ---
 
 ## 18) Changelog
+
+### 2026-09-30 (review fixes on PR #6709)
+- §5.1: `is_stock_managed` is nullable and cascades like the other nullable fields; `null` defers to the next less-specific row and finally to the §5.2 module default. A store-default row created only to set a threshold no longer switches stock tracking off for every product. Migration `Migration20260930120000_availability`.
+- §5.2: when `wms` runs without the `availability` module, its open policy default derives `is_stock_managed` from the inventory profiles it already loaded (tracked only when a `ProductInventoryProfile` exists), matching the module default.
+- Providers resolve their dependencies from the calling request's container (`resolveAvailability(query, { container })`) instead of a closure over the container that registered them.
+
+### 2026-09-22 (Phase 1 + Phase 2 implemented)
+- Implemented §13 Phase 1 (base contract in `packages/shared/src/lib/availability/`, the `availability` module's `AvailabilityPolicy` + 6-level resolution chain + admin CRUD + admin check tool) and Phase 2 (`wms`'s `AvailabilityProvider`: batched sellable-quantity aggregation, safety-stock-once-per-variant, low-stock thresholds, product rollup, 60s-TTL cache with balance-change invalidation). Phase 3 (reservations) remains unimplemented — this spec stays in `.ai/specs/`, not `.ai/specs/implemented/`.
+- Implementation deviations from the literal spec text, each justified against an existing codebase precedent (full rationale in the PR's run folder, `.ai/runs/2026-09-22-release-2-availability-contract/PLAN.md` § Key design decisions):
+  - `resolveAvailability()`'s per-tenant provider selection takes an optional, locally-declared `moduleConfig` reader port rather than importing `ModuleConfigService` directly, keeping `packages/shared` at zero domain dependencies (mirrors `llm-provider-registry.ts`'s existing port/adapter pattern).
+  - The `catalog-only` fallback's optional `AvailabilityPolicy` awareness (§4.3) is wired through a settable module-level hook (`setCatalogOnlyPolicyLookup`) rather than a container parameter on the provider interface, since `packages/shared` has no DI container to receive one.
+  - §6's cache invalidation tag is `wms`'s own single coarse `wms:availability` tag (tenant-scoped automatically), not the literal per-`{tenantId}:{variantId}` tag named in the table — matching the already-shipped `WMS_INVENTORY_CACHE_TAG` precedent and its documented over- vs under-invalidation tradeoff.
+  - `AvailabilityQuery` gained an additive, optional `bypassCache?: boolean` field so §6's "cart re-validation: never cached" row has a caller-facing hook, ahead of any caller in this repository actually needing it (cart/checkout are out of scope here).
+- `events.ts` declares only `availability.policy.{created,updated,deleted}` — `availability.state.changed`, `availability.reservation.*`, and `availability.shortfall.detected` are not declared, since nothing in Phase 1/2 emits them; they belong to Phase 3 / spec 9 and will be added when that work lands.
 
 ### 2026-08-31 (story map)
 - Added §17 User Story Map to support the `om-mockup-prototype` backend click-through: 4 epics, 9 stories, UX acceptance criteria (empty/permission/error/optimistic-lock/keyboard/default-value states applied only where genuinely applicable — Epics C/D are internal service-contract journeys, not end-user screens). No scope change.

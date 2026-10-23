@@ -1,11 +1,7 @@
 Feature: Reversing a posted journal entry
   As an accountant who posted an entry by mistake
-  I want to reverse it with a new, separately numbered entry whose lines
-  are inverted, dated in the reversal's own (open) period rather than the
-  original's
-  So that the correction lands in a period that can still be edited, even
-  when the original entry's own period has since been locked, without
-  ever mutating or deleting the original
+  I want to reverse it with a new, separately numbered entry whose lines are inverted, dated in the reversal's own (open) period rather than the original's
+  So that the correction lands in a period that can still be edited, even when the original entry's own period has since been locked, without ever mutating or deleting the original
 
   Scenario: Reversing an entry into a still-open period succeeds, even though its original period is now locked
     Given a journal entry was posted for "100.00" from "cash" to "revenue", now in a locked period
@@ -26,3 +22,10 @@ Feature: Reversing a posted journal entry
     And that entry has already been reversed, dated "2026-05-15"
     When I try to reverse the original entry again
     Then the attempt is rejected because the entry has already been reversed
+
+  Scenario: A reversal dated before the original entry is rejected
+    Given a journal entry was posted for "100.00" from "cash" to "revenue", now in a locked period
+    And a fiscal period from "2025-12-01" to "2025-12-31" that is open
+    When I reverse that entry with operation date "2025-12-20"
+    Then the attempt is rejected because the reversal is dated before the original entry
+    And no reversal entry is recorded

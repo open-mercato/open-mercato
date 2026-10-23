@@ -82,17 +82,15 @@ const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
-  sortField: z.enum(['slug', 'createdAt', 'updatedAt']).optional(),
+  sortField: z.enum(['number', 'createdAt', 'updatedAt']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   accountTypeId: z.uuid().optional(),
-  parentAccountId: z.uuid().optional(),
 }).loose()
 
 type LedgerAccountRow = {
   id: string
-  slug: string
+  number: string
   accountTypeId: string
-  parentAccountId: string | null
   currencyId: string | null
   description: string | null
   createdAt: string | null
@@ -103,9 +101,8 @@ type LedgerAccountRow = {
 
 const toRow = (account: LedgerAccount): LedgerAccountRow => ({
   id: String(account.id),
-  slug: String(account.slug),
+  number: String(account.number),
   accountTypeId: String(account.accountTypeId),
-  parentAccountId: account.parentAccountId ?? null,
   currencyId: account.currencyId ?? null,
   description: account.description ?? null,
   createdAt: account.createdAt ? account.createdAt.toISOString() : null,
@@ -129,7 +126,6 @@ export async function GET(req: Request) {
     sortField: url.searchParams.get('sortField') ?? undefined,
     sortDir: url.searchParams.get('sortDir') ?? undefined,
     accountTypeId: url.searchParams.get('accountTypeId') ?? undefined,
-    parentAccountId: url.searchParams.get('parentAccountId') ?? undefined,
   })
   if (!parsed.success) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 400 })
@@ -140,7 +136,7 @@ export async function GET(req: Request) {
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
 
-  const { id, page, pageSize, search, sortField, sortDir, accountTypeId, parentAccountId } = parsed.data
+  const { id, page, pageSize, search, sortField, sortDir, accountTypeId } = parsed.data
   let filter: Record<string, unknown> = {
     tenantId: auth.tenantId,
     deletedAt: null,
@@ -163,25 +159,24 @@ export async function GET(req: Request) {
     filter = mergeIdFilter(filter, parseIdsParam(rawIds), { idsParamProvided: true })
   }
   if (accountTypeId) filter.accountTypeId = accountTypeId
-  if (parentAccountId) filter.parentAccountId = parentAccountId
   if (search) {
     filter.$or = [
-      { slug: { $ilike: `%${escapeLikePattern(search)}%` } },
+      { number: { $ilike: `%${escapeLikePattern(search)}%` } },
       { description: { $ilike: `%${escapeLikePattern(search)}%` } },
     ]
   }
 
   const fieldMap: Record<string, string> = {
-    slug: 'slug',
+    number: 'number',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
   }
   const orderBy: Record<string, 'ASC' | 'DESC'> = {}
   if (sortField) {
-    const mapped = fieldMap[sortField] || 'slug'
+    const mapped = fieldMap[sortField] || 'number'
     orderBy[mapped] = sortDir === 'desc' ? 'DESC' : 'ASC'
   } else {
-    orderBy.slug = 'ASC'
+    orderBy.number = 'ASC'
   }
 
   const offset = (page - 1) * pageSize
@@ -198,9 +193,8 @@ export const DELETE = crud.DELETE
 
 const ledgerAccountListItemSchema = z.object({
   id: z.uuid(),
-  slug: z.string(),
+  number: z.string(),
   accountTypeId: z.uuid(),
-  parentAccountId: z.uuid().nullable(),
   currencyId: z.uuid().nullable(),
   description: z.string().nullable(),
   createdAt: z.string().nullable(),
@@ -222,7 +216,7 @@ export const openApi = createLedgerCrudOpenApi({
     schema: ledgerAccountUpdateSchema,
     responseSchema: defaultOkResponseSchema,
     description:
-      'Updates an existing account by id. `accountTypeId` cannot be changed once the account has posted journal entries.',
+      'Updates an existing account by id. `number` and `accountTypeId` cannot be changed once the account has posted journal entries; the description stays editable. In a Polish group the number must start with its type number.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),

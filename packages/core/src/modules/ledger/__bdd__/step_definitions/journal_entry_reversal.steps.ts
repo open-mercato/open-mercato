@@ -43,8 +43,8 @@ Given(
     originalEntryId = newId()
 
     em.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', isBase: true, decimalPlaces: 2, deletedAt: null })
-    em.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'cash', accountTypeId: newId(), deletedAt: null })
-    em.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, slug: 'revenue', accountTypeId: newId(), deletedAt: null })
+    em.seed(LedgerAccount, { id: CASH_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, number: 'cash', accountTypeId: newId(), deletedAt: null })
+    em.seed(LedgerAccount, { id: REVENUE_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, number: 'revenue', accountTypeId: newId(), deletedAt: null })
 
     // The original's own period: seeded as *locked* only after the fact —
     // it was open when the original was posted, and has since been closed,
@@ -193,4 +193,16 @@ Then('the attempt is rejected because the entry has already been reversed', func
   const err = rejection as { status?: number; body?: { error?: string } }
   assert.strictEqual(err.status, 409)
   assert.match(String(err.body?.error), /already been reversed/i)
+})
+
+Then('the attempt is rejected because the reversal is dated before the original entry', function () {
+  assert.ok(rejection, 'expected reverseJournalEntry to reject, but it succeeded')
+  const err = rejection as { status?: number; body?: { error?: string } }
+  assert.strictEqual(err.status, 400)
+  assert.match(String(err.body?.error), /earlier than the date of the entry/i)
+})
+
+Then('no reversal entry is recorded', async function () {
+  const reversals = await em.find(JournalEntry, { type: 'REVERSAL' })
+  assert.strictEqual(reversals.length, 0, 'a rejected reversal must not leave an entry behind')
 })

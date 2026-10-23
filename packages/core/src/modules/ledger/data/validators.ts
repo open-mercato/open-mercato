@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ACCOUNT_NUMBER_MAX_LENGTH } from '../lib/accountNumbering'
 
 // Numeric columns backing `debit`/`credit`/`amount_currency` are
 // `numeric(19,4)` — matches `JournalEntryLine`'s own column precision
@@ -115,7 +116,15 @@ export const postJournalEntrySchema = z
     // relying on this check alone.
     referenceType: z.string().max(100).nullable().optional(),
     referenceId: z.uuid().nullable().optional(),
-    lines: z.array(journalEntryLineInputSchema).min(2, 'A journal entry requires at least two lines.'),
+    // `.min(n, 'message')` is a built-in length check with no `params` hook for
+    // `translateZodIssues`, so the rule is a `.refine()` — same as `moneyStringSchema`.
+    lines: z.array(journalEntryLineInputSchema).refine((lines) => lines.length >= 2, {
+      message: 'A journal entry requires at least two lines.',
+      params: {
+        i18nKey: 'ledger.errors.journalEntryTooFewLines',
+        i18nFallback: 'A journal entry requires at least two lines.',
+      },
+    }),
   })
   .refine(
     (data) => {
@@ -177,6 +186,23 @@ export const createFiscalPeriodSchema = z
 
 export type CreateFiscalPeriodInput = z.infer<typeof createFiscalPeriodSchema>
 
+// `generateFiscalPeriods` input: twelve consecutive calendar months starting
+// on `startDate`, which must be the first day of a month (PR #5663 review,
+// point 3). The ranges themselves are built in `lib/fiscalPeriodRanges.ts`.
+export const generateFiscalPeriodsSchema = z
+  .object({
+    organizationId: z.uuid(),
+    tenantId: z.uuid(),
+    startDate: z.coerce.date(),
+  })
+  .refine((data) => data.startDate.getUTCDate() === 1, {
+    message: 'startDate must be the first day of a month.',
+    path: ['startDate'],
+    params: { i18nKey: 'ledger.errors.fiscalPeriodStartNotFirstOfMonth', i18nFallback: 'startDate must be the first day of a month.' },
+  })
+
+export type GenerateFiscalPeriodsInput = z.infer<typeof generateFiscalPeriodsSchema>
+
 // `lockFiscalPeriod` / `unlockFiscalPeriod` input. The expected `updatedAt`
 // version is not a schema field — per the spec it travels as the
 // `x-om-ext-optimistic-lock-expected-updated-at` request header, read by
@@ -197,9 +223,8 @@ export type UnlockFiscalPeriodInput = z.infer<typeof unlockFiscalPeriodSchema>
 export const ledgerAccountCreateSchema = z.object({
   organizationId: z.uuid(),
   tenantId: z.uuid(),
-  slug: z.string().min(1).max(100),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH),
   accountTypeId: z.uuid(),
-  parentAccountId: z.uuid().nullable().optional(),
   // Set only on single-currency accounts (bank accounts).
   currencyId: z.uuid().nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
@@ -211,11 +236,10 @@ export const ledgerAccountUpdateSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid().optional(),
   tenantId: z.uuid().optional(),
-  slug: z.string().min(1).max(100).optional(),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH).optional(),
   // Immutable once the account has posted entries — enforced at the
   // command layer (commands/ledgerAccounts.ts), not by this schema.
   accountTypeId: z.uuid().optional(),
-  parentAccountId: z.uuid().nullable().optional(),
   // Immutable once the account has posted lines — enforced at the command
   // layer (commands/ledgerAccounts.ts), not by this schema.
   currencyId: z.uuid().nullable().optional(),
@@ -239,10 +263,9 @@ export type LedgerAccountDeleteInput = z.infer<typeof ledgerAccountDeleteSchema>
 export const ledgerAccountTypeCreateSchema = z.object({
   organizationId: z.uuid(),
   tenantId: z.uuid(),
-  slug: z.string().min(1).max(100),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH),
   name: z.string().min(1).max(200),
   normalBalance: z.enum(['DEBIT', 'CREDIT']),
-  parentAccountTypeId: z.uuid().nullable().optional(),
   accountGroupId: z.uuid().nullable().optional(),
 })
 
@@ -252,22 +275,20 @@ export const ledgerAccountTypeUpdateSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid().optional(),
   tenantId: z.uuid().optional(),
-  slug: z.string().min(1).max(100).optional(),
+  number: z.string().min(1).max(ACCOUNT_NUMBER_MAX_LENGTH).optional(),
   name: z.string().min(1).max(200).optional(),
   // Immutable (together with accountGroupId) once any account of this type
   // has posted entries — enforced at the command layer
   // (commands/ledgerAccountTypes.ts), not by this schema.
   normalBalance: z.enum(['DEBIT', 'CREDIT']).optional(),
-  parentAccountTypeId: z.uuid().nullable().optional(),
   accountGroupId: z.uuid().nullable().optional(),
 })
 
 export type LedgerAccountTypeUpdateInput = z.infer<typeof ledgerAccountTypeUpdateSchema>
 
 // `deleteLedgerAccountType` input. Soft-delete only; blocked at the
-// command layer when any account of this type has posted entries, or when
-// another account type still names this one as its `parentAccountTypeId`
-// (see commands/ledgerAccountTypes.ts).
+// command layer when any account of this type has posted entries or an
+// account still uses it (see commands/ledgerAccountTypes.ts).
 export const ledgerAccountTypeDeleteSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid().optional(),

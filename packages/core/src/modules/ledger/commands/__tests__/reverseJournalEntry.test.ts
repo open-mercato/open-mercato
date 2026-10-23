@@ -285,4 +285,48 @@ describe('ledger.reverseJournalEntry', () => {
       body: { error: expect.stringMatching(/itself a reversal/i) },
     })
   })
+
+  // PR #6340 review, item 5: a reversal restates an earlier entry, so it
+  // cannot carry an operation date earlier than the entry it reverses.
+  it('rejects a reversal dated before the entry it reverses, before writing anything', async () => {
+    const command = loadReverseJournalEntry()
+    const em = buildFakeEm()
+    seedOriginalEntry(em) // original operationDate 2026-01-15
+    seedOpenPeriod(em, 'period-jan-early-open', '2025-12-01', '2025-12-31')
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await expect(
+      command.execute(
+        { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2025-12-20' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 400, body: { error: expect.stringMatching(/earlier than the date of the entry/i) } })
+
+    // Nothing was posted, so no sequence number was consumed either.
+    expect((em.tables.get('JournalEntry') ?? []).filter((e) => e.type === 'REVERSAL')).toHaveLength(0)
+    const retry = await (async () => {
+      seedOpenPeriod(em, 'period-may-open', '2026-05-01', '2026-05-31')
+      return command.execute(
+        { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-05-15' },
+        ctx,
+      )
+    })()
+    expect(retry.sequenceNumber).toBe(2)
+  })
+
+  it('accepts a reversal dated the same day as the entry it reverses', async () => {
+    const command = loadReverseJournalEntry()
+    const em = buildFakeEm()
+    seedOriginalEntry(em)
+    // Same-day correction: re-open the original's own period.
+    const period = (em.tables.get('FiscalPeriod') ?? []).find((p) => p.id === 'period-original-now-locked')
+    if (period) period.isLocked = false
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    const result = await command.execute(
+      { organizationId: ORG, tenantId: TENANT, journalEntryId: ORIGINAL_ENTRY_ID, operationDate: '2026-01-15' },
+      ctx,
+    )
+    expect(result.sequenceNumber).toBe(2)
+  })
 })

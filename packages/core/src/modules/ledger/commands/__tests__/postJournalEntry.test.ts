@@ -139,6 +139,20 @@ describe('ledger.postJournalEntry', () => {
     expect(totalDebit).toBeCloseTo(100)
   })
 
+  it('records the authenticated subject as postedBy and ignores a caller-supplied value (art. 14 ust. 4 UoR)', async () => {
+    const command = loadPostJournalEntry()
+    const em = buildFakeEm()
+    seedOpenPeriod(em, '2026-02-01', '2026-02-28')
+    seedCurrencyAndAccounts(em)
+    const { ctx } = buildFakeCtx(em, { organizationId: ORG, tenantId: TENANT })
+
+    await command.execute(balancedInput({ postedBy: 'someone-else' }), ctx)
+
+    const entries = em.tables.get('JournalEntry') ?? []
+    expect(entries).toHaveLength(1)
+    expect(entries[0].postedBy).toBe('user-1')
+  })
+
   it('rejects an entry whose debits and credits do not sum to the same total, before touching any fiscal period', async () => {
     const command = loadPostJournalEntry()
     const em = buildFakeEm()

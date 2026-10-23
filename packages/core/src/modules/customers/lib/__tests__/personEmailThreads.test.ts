@@ -10,6 +10,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 import { buildPersonEmailThreads } from '../personEmailThreads'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+
+const defaultUsers = [
+  { id: 'u1', name: 'Ada Owner', email: 'ada@org.com' },
+  { id: 'u2', name: 'Ben Teammate', email: 'ben@org.com' },
+]
 
 const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
@@ -80,11 +86,12 @@ const interactions = [
  *   - 'MessageChannelLink' (string)      → hub links
  *   - 'Message' (string)                 → hub messages
  */
-function mockHubReads(interactionRows: unknown[]) {
+function mockHubReads(interactionRows: unknown[], users: unknown[] = defaultUsers) {
   mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
     if (entity === CustomerInteraction) return interactionRows as never
     if (entity === 'MessageChannelLink') return links as never
     if (entity === 'Message') return messages as never
+    if (entity === User) return users as never
     return [] as never
   })
 }
@@ -191,6 +198,76 @@ describe('buildPersonEmailThreads', () => {
       { visibility: { $ne: 'private' } },
       { authorUserId: 'u1' },
     ])
+  })
+
+  describe('sender attribution (who an outbound message is credited to)', () => {
+    // Outbound mail has no `from` in channelMetadata, so before conversation
+    // sharing the UI could assume outbound == "me". Sharing breaks that: a
+    // teammate reads mail they did not write, and crediting it to them would
+    // misattribute a colleague's email to the reader.
+    it("flags the viewer's own outbound mail as authored by them", async () => {
+      mockHubReads(interactions)
+      const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+      const outbound = threads.find((t) => t.threadKey === 'T1')!.messages[1]
+      expect(outbound.direction).toBe('outbound')
+      expect(outbound.authoredByViewer).toBe(true)
+      // No lookup needed for your own mail — the UI renders "You".
+      expect(outbound.authorName).toBeNull()
+    })
+
+    it("credits a colleague's shared outbound mail to them, not to the viewer", async () => {
+      mockHubReads(interactions)
+      // u2 reads u1's conversation through a share.
+      const threads = await buildPersonEmailThreads({} as never, {
+        ...baseOpts,
+        viewerUserId: 'u2',
+        userFeatures: [],
+        sharedConversations: [{ personEntityId: 'P1', ownerUserId: 'u1' }],
+      })
+      const outbound = threads.find((t) => t.threadKey === 'T1')!.messages[1]
+      expect(outbound.authoredByViewer).toBe(false)
+      expect(outbound.authorName).toBe('Ada Owner')
+    })
+
+    it('falls back to the author email when the user has no name', async () => {
+      mockHubReads(interactions, [{ id: 'u1', name: null, email: 'ada@org.com' }])
+      const threads = await buildPersonEmailThreads({} as never, {
+        ...baseOpts,
+        viewerUserId: 'u2',
+        userFeatures: [],
+        sharedConversations: [{ personEntityId: 'P1', ownerUserId: 'u1' }],
+      })
+      const outbound = threads.find((t) => t.threadKey === 'T1')!.messages[1]
+      expect(outbound.authorName).toBe('ada@org.com')
+    })
+
+    it('leaves authorName null when the author cannot be resolved (UI shows a generic label)', async () => {
+      mockHubReads(interactions, [])
+      const threads = await buildPersonEmailThreads({} as never, {
+        ...baseOpts,
+        viewerUserId: 'u2',
+        userFeatures: [],
+        sharedConversations: [{ personEntityId: 'P1', ownerUserId: 'u1' }],
+      })
+      const outbound = threads.find((t) => t.threadKey === 'T1')!.messages[1]
+      expect(outbound.authoredByViewer).toBe(false)
+      expect(outbound.authorName).toBeNull()
+    })
+
+    it('never credits an inbound message to the viewer', async () => {
+      mockHubReads(interactions)
+      const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+      const inbound = threads.find((t) => t.threadKey === 'T1')!.messages[0]
+      expect(inbound.direction).toBe('inbound')
+      expect(inbound.authoredByViewer).toBe(false)
+    })
+
+    it('does not look up the viewer\'s own id', async () => {
+      mockHubReads(interactions)
+      await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+      const userReads = mockFindWithDecryption.mock.calls.filter((c) => c[1] === User)
+      expect(userReads).toHaveLength(0)
+    })
   })
 
   it('returns an empty list when the person has no email interactions', async () => {

@@ -39,13 +39,13 @@ function seedCurrency(target: FakeEntityManager, code: string, isBase: boolean):
   return id
 }
 
-function seedAccount(target: FakeEntityManager, slug: string, currencyId: string | null): string {
+function seedAccount(target: FakeEntityManager, number: string, currencyId: string | null): string {
   const id = newId()
   target.seed(LedgerAccount, {
     id,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
-    slug,
+    number,
     accountTypeId: newId(),
     currencyId,
     deletedAt: null,
