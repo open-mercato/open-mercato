@@ -119,6 +119,80 @@ describe('reserveInventoryForConfirmedOrder', () => {
     )
   })
 
+  it('does not treat staging-only stock as reservable warehouse availability', async () => {
+    loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) return []
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            warehouse: { id: 'warehouse-1' },
+            location: { id: 'staging-1', type: 'staging' },
+          },
+        ]
+      }
+      return []
+    })
+
+    const queryEngine = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ items: [{ id: 'order-1', order_number: 'SO-STG' }] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: 'line-1',
+              kind: 'product',
+              product_variant_id: 'variant-1',
+              quantity: '4',
+              line_number: 1,
+            },
+          ],
+        }),
+    }
+
+    const em = { fork: () => ({}) }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await reserveInventoryForConfirmedOrder(
+      {
+        orderId: 'order-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'featureTogglesService') return featureTogglesService
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    )
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(emitWmsEventMock).toHaveBeenCalledWith(
+      'wms.inventory.reservation_shortfall',
+      expect.objectContaining({
+        orderId: 'order-1',
+        shortfalls: [
+          expect.objectContaining({
+            catalogVariantId: 'variant-1',
+            shortfallQuantity: 4,
+          }),
+        ],
+      }),
+    )
+  })
+
   it('continues reserving other variants and emits shortfall when one line lacks stock', async () => {
     loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
     findWithDecryptionMock.mockImplementation(async (_em, entity) => {

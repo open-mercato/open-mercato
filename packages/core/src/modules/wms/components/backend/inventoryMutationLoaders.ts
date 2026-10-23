@@ -405,6 +405,26 @@ export async function loadBinLocationOptions(
   }
 }
 
+export async function loadStagingLocationOptions(
+  warehouseId: string,
+  query?: string,
+): Promise<CrudFieldOption[]> {
+  if (!warehouseId) return []
+  try {
+    const [staging, dock] = await Promise.all([
+      loadLocationPage(warehouseId, { type: 'staging', search: query }),
+      loadLocationPage(warehouseId, { type: 'dock', search: query }),
+    ])
+    const byId = new Map<string, CrudFieldOption>()
+    for (const option of mapLocationOptions([...(staging.items ?? []), ...(dock.items ?? [])])) {
+      byId.set(option.value, option)
+    }
+    return Array.from(byId.values())
+  } catch {
+    return []
+  }
+}
+
 export async function loadZoneOptions(
   warehouseId: string,
   query?: string,

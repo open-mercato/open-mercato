@@ -37,7 +37,7 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import {
-  inventoryMovementReasonLabel,
+  formatInventoryMovementActivitySubtitle,
   type InventoryDisplayTranslator,
 } from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
@@ -411,17 +411,16 @@ function formatMovementSubtitle(
   row: InventoryMovementRow,
   t: InventoryDisplayTranslator,
 ): string | null {
-  const reasonLabel = inventoryMovementReasonLabel(
+  return formatInventoryMovementActivitySubtitle(
     {
       reasonCode: row.reason_code,
       reason: row.reason,
       movementType: row.type,
+      referenceType: row.reference_type,
+      referenceId: row.reference_id,
     },
     t,
   )
-  if (reasonLabel) return reasonLabel
-  if (row.reference_type && row.reference_id) return `${row.reference_type} · ${row.reference_id}`
-  return null
 }
 
 function formatMovementLocation(row: InventoryMovementRow): string {

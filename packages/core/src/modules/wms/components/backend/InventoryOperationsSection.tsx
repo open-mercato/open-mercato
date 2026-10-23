@@ -1,9 +1,18 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { ArrowDown, ArrowLeftRight, ClipboardList, ShieldCheck, SlidersHorizontal, Upload } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowLeftRight,
+  ClipboardList,
+  PackageCheck,
+  ShieldCheck,
+  SlidersHorizontal,
+  Upload,
+} from 'lucide-react'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
 import { ImportInventoryDialog } from './ImportInventoryDialog'
@@ -67,6 +76,7 @@ export function InventoryOperationsSection({
   if (
     !access.canAdjust &&
     !access.canReceive &&
+    !access.canManageAsn &&
     !access.canReserve &&
     !access.canMove &&
     !access.canCycleCount &&
@@ -112,10 +122,18 @@ export function InventoryOperationsSection({
             {t('wms.backend.inventory.operations.reserve', 'Reserve')}
           </Button>
         ) : null}
+        {access.canManageAsn || access.canReceive ? (
+          <Button type="button" variant="outline" asChild>
+            <Link href="/backend/wms/asns">
+              <PackageCheck className="size-4" />
+              {t('wms.backend.inventory.operations.receiveAsn', 'Receive ASN')}
+            </Link>
+          </Button>
+        ) : null}
         {access.canReceive ? (
           <Button type="button" variant="default" onClick={() => setReceiveOpen(true)}>
             <ArrowDown className="size-4" />
-            {t('wms.backend.inventory.operations.receive', 'Receive stock')}
+            {t('wms.backend.inventory.operations.receive', 'Receive stock (no ASN)')}
           </Button>
         ) : null}
       </SectionCard>

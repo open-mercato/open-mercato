@@ -62,6 +62,10 @@ type WmsEnrichment = {
   reservationSummary: {
     status: string
     reservationIds: string[]
+    reservations?: Array<{
+      id: string
+      reservationLabel: string
+    }>
   }
 }
 
@@ -368,6 +372,11 @@ test.describe('TC-WMS-003: Sales Order WMS Enrichment', () => {
       expect(wms?.assignedWarehouseId).toBe(warehouseId)
       expect(wms?.reservationSummary.status).toBe('fully_reserved')
       expect(wms?.reservationSummary.reservationIds).toContain(reservationId)
+      const activeReservation = wms?.reservationSummary.reservations?.find(
+        (item) => item.id === reservationId,
+      )
+      expect(activeReservation?.reservationLabel).toBeTruthy()
+      expect(activeReservation?.reservationLabel).not.toBe(reservationId)
       expect(wms?.stockSummary).toEqual([
         {
           catalogVariantId: variantId,

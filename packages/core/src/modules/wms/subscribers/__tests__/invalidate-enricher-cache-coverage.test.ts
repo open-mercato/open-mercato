@@ -29,6 +29,14 @@ const EVENTS_WITHOUT_ENRICHED_DATA = new Set([
   'wms.zone.updated',
   'wms.location.created',
   'wms.location.updated',
+  // Putaway task status is not projected by the inventory enrichers. Quantity
+  // moves on complete emit inventory_balance / inventory_movement events that
+  // already invalidate via their own subscribers.
+  'wms.putaway.created',
+  'wms.putaway.assigned',
+  'wms.putaway.started',
+  'wms.putaway.completed',
+  'wms.putaway.cancelled',
 ])
 
 describe('WMS inventory enricher cache invalidation coverage', () => {
