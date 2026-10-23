@@ -124,9 +124,7 @@ async function unusable(): Promise<NextResponse> {
   )
 }
 
-async function handle(req: Request, comment: string | null): Promise<NextResponse> {
-  const verified = readAnswer(req)
-  if (!verified) return unusable()
+async function handle(req: Request, verified: VerifiedAnswer, comment: string | null): Promise<NextResponse> {
   const { claims, score } = verified
 
   const { locale, t } = await resolveTranslations()
@@ -205,11 +203,19 @@ async function enforceLimit(req: Request): Promise<NextResponse | null> {
   })
 }
 
-/** Records the score and the comment together, in one action by the person who meant it. */
+/**
+ * Records the score and the comment together, in one action by the person who meant it.
+ *
+ * The token is verified BEFORE the body is read. Reading the body first spends the memory and the
+ * work of parsing it on every unauthenticated request this endpoint ever receives, token or no token —
+ * the one thing a signed-token gate is supposed to avoid paying for.
+ */
 export async function POST(req: Request) {
   const limited = await enforceLimit(req)
   if (limited) return limited
-  return handle(req, await readComment(req))
+  const verified = readAnswer(req)
+  if (!verified) return unusable()
+  return handle(req, verified, await readComment(req))
 }
 
 export const openApi = {
