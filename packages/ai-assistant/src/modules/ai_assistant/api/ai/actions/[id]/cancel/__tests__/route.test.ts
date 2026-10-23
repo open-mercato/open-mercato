@@ -13,12 +13,24 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => ({
-  AiPendingActionRepository: jest.fn().mockImplementation(() => ({
-    getById: repoGetByIdMock,
-    setStatus: repoSetStatusMock,
-  })),
-}))
+jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => {
+  const actual = jest.requireActual('../../../../../../data/repositories/AiPendingActionRepository')
+  return {
+    ...actual,
+    AiPendingActionRepository: jest.fn().mockImplementation(() => ({
+      getById: repoGetByIdMock,
+      getByIdForApprover: async (
+        id: string,
+        scope: { tenantId: string; organizationId?: string | null },
+        viewer: { userId: string; canApproveAny: boolean },
+      ) => {
+        const row = await repoGetByIdMock(id, scope)
+        return row && actual.canViewerAccessPendingAction(row, viewer) ? row : null
+      },
+      setStatus: repoSetStatusMock,
+    })),
+  }
+})
 
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { POST } from '../route'
@@ -132,6 +144,47 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     authMock.mockResolvedValueOnce(null)
     const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
     expect(response.status).toBe(401)
+  })
+
+  describe('owner / approver visibility', () => {
+    it('another user without the approve feature gets 404 on a chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe('pending_action_not_found')
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('another user without the approve feature gets 404 on an MCP row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('an approver cancels another user\'s MCP row but gets 404 on their chat row', async () => {
+      const approverAcl = {
+        features: ['ai_assistant.view', 'ai_assistant.pending_actions.approve'],
+        isSuperAdmin: false,
+      }
+      authMock.mockResolvedValue({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      loadAclMock.mockResolvedValue(approverAcl)
+
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }))
+      const mcpResponse = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+      expect(mcpResponse.status).toBe(200)
+      expect((await mcpResponse.json()).pendingAction.status).toBe('cancelled')
+
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+      const chatResponse = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+      expect(chatResponse.status).toBe(404)
+    })
   })
 
   it('happy path: pending → cancelled returns 200 with pendingAction.status === cancelled', async () => {

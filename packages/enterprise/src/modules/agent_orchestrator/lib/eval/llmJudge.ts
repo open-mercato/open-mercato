@@ -14,6 +14,8 @@ import {
   scoreVerdict,
   type JudgeRubric,
 } from './judgeRubric'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
+import { resolveEffectiveAssertions, type EvalCaseAssertionRef } from './assertionResolution'
 
 export const judgeVerdictSchema = z.object({
   /** `null` means the judge skipped — excluded from aggregation, never a failure. */
@@ -71,8 +73,8 @@ export function createModelJudge(container: AwilixContainer): JudgeFn {
   }
 }
 
-function rubricFor(assertion: AgentEvalAssertion): JudgeRubric | null {
-  return normalizeJudgeRubric(assertion.config, assertion.description?.trim() || assertion.title)
+function rubricFor(assertion: AgentEvalAssertion, config: unknown = assertion.config): JudgeRubric | null {
+  return normalizeJudgeRubric(config, assertion.description?.trim() || assertion.title)
 }
 
 export type RunLlmJudgeResult = { judged: number; skipped: number }
@@ -84,6 +86,20 @@ export type RunLlmJudgeResult = { judged: number; skipped: number }
  * result shape, two policies — not two judge implementations.
  */
 export type GatePolicy = { judgeMayGate: boolean }
+
+/**
+ * Ties a judge pass to one replayed eval case run. Present only on the eval plane:
+ * the results carry `evalCaseRunId` so the suite aggregate sees them, the judge
+ * receives the case's `expected`, and the case's assertion refs decide which judge
+ * assertions apply. Absent on the online plane, where behaviour is unchanged.
+ */
+export type JudgeCaseLinkage = {
+  evalCaseRunId: string
+  expected?: unknown
+  assertions?: ReadonlyArray<EvalCaseAssertionRef>
+}
+
+type JudgeTarget = { assertion: AgentEvalAssertion; config: unknown; configError: boolean }
 
 /**
  * Run the enabled `llm_judge` assertions for a run and append `warn` results.
@@ -98,6 +114,7 @@ export async function runLlmJudgeForRun(
   runId: string,
   judge: JudgeFn,
   policy: GatePolicy = { judgeMayGate: false },
+  linkage?: JudgeCaseLinkage,
 ): Promise<RunLlmJudgeResult> {
   const run = await findOneWithDecryption(
     em,
@@ -118,17 +135,26 @@ export async function runLlmJudgeForRun(
   })
   if (!assertions.length) return { judged: 0, skipped: 0 }
 
+  const targets: JudgeTarget[] = linkage
+    ? resolveEffectiveAssertions(assertions, linkage.assertions ?? []).map((entry) => ({
+        assertion: entry.assertion,
+        config: entry.config,
+        configError: Boolean(entry.configError),
+      }))
+    : assertions.map((assertion) => ({ assertion, config: assertion.config, configError: false }))
+  const caseRunLink = linkage ? { evalCaseRunId: linkage.evalCaseRunId } : {}
+
   const existing = await em.find(AgentEvalResult, { agentRunId: run.id, tenantId: scope.tenantId, organizationId: scope.organizationId })
   const alreadyJudged = new Set(existing.map((result) => result.assertionId))
 
   let judged = 0
   let skipped = 0
-  for (const assertion of assertions) {
+  for (const { assertion, config, configError } of targets) {
     if (alreadyJudged.has(assertion.id)) {
       skipped += 1
       continue
     }
-    const rubric = rubricFor(assertion)
+    const rubric = configError ? null : rubricFor(assertion, config)
     if (!rubric) {
       // An unusable rubric is a config fault, recorded as SKIPPED so it stays
       // visible without ever counting as a failed assertion.
@@ -137,6 +163,7 @@ export async function runLlmJudgeForRun(
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
           agentRunId: run.id,
+          ...caseRunLink,
           assertionId: assertion.id,
           assertionKey: assertion.key,
           passed: null,
@@ -149,12 +176,15 @@ export async function runLlmJudgeForRun(
       continue
     }
 
-    const verdict = await judge({ rubric, runOutput: run.output })
+    const verdict = await judge(
+      linkage ? { rubric, runOutput: run.output, expected: linkage.expected ?? null } : { rubric, runOutput: run.output },
+    )
     em.persist(
       em.create(AgentEvalResult, {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         agentRunId: run.id,
+        ...caseRunLink,
         assertionId: assertion.id,
         assertionKey: assertion.key,
         passed: verdict.passed,
@@ -168,7 +198,7 @@ export async function runLlmJudgeForRun(
     )
     judged += 1
   }
-  await em.flush()
+  await withRuntimeAuditWrite(() => em.flush())
 
   return { judged, skipped }
 }

@@ -127,6 +127,8 @@
   "attachments.partitions.errors.s3Disabled": "Ta partycja korzysta z S3, ale S3 jest wyłączone. Ustaw OM_ENABLE_STORAGE_S3=true i uruchom ponownie aplikację.",
   "attachments.partitions.errors.s3EnvPrefixRequired": "Prefiks zmiennych środowiskowych jest wymagany przy osobnym źródle poświadczeń.",
   "attachments.partitions.errors.save": "Nie udało się zapisać partycji.",
+  "attachments.partitions.extractDocumentStructure.help": "Przetwarzaj przesłane pliki PDF i DOCX na konspekt rozdziałów, sekcji i klauzul z odniesieniami do stron.",
+  "attachments.partitions.extractDocumentStructure.label": "Wyodrębniaj strukturę dokumentu",
   "attachments.partitions.form.codeLabel": "Kod",
   "attachments.partitions.form.codePlaceholder": "np. marketingAssets",
   "attachments.partitions.form.descriptionLabel": "Opis",
@@ -162,6 +164,9 @@
   "attachments.partitions.form.storageDriverS3DisabledHelp": "S3 jest wyłączone. Ustaw OM_ENABLE_STORAGE_S3=true i uruchom ponownie, aby włączyć partycje S3.",
   "attachments.partitions.form.titleLabel": "Tytuł",
   "attachments.partitions.form.titlePlaceholder": "np. Zasoby marketingowe",
+  "attachments.partitions.indexDocumentSections.help": "Każda wyodrębniona sekcja będzie wyszukiwana osobno. Wymaga wyodrębniania struktury dokumentu.",
+  "attachments.partitions.indexDocumentSections.label": "Indeksuj sekcje dokumentu w wyszukiwarce",
+  "attachments.partitions.indexDocumentSections.warning": "Tekst sekcji trafia do magazynów wyszukiwania pełnotekstowego i wektorowego jako zwykły tekst, nawet gdy szyfrowanie danych dzierżawcy jest włączone. Nie włączaj tej opcji dla partycji zawierających dane osobowe lub poufne.",
   "attachments.partitions.locked.description": "Partycje załączników są zarządzane przez domyślne zmienne środowiskowe, gdy włączony jest tryb demonstracyjny lub onboardingowy.",
   "attachments.partitions.locked.hint": "Zaktualizuj poniższe zmienne środowiskowe, aby ponownie włączyć konfigurację w aplikacji.",
   "attachments.partitions.locked.title": "Ustawienia partycji zablokowane",
@@ -181,5 +186,11 @@
   "attachments.partitions.table.title": "Tytuł",
   "attachments.partitions.table.visibility": "Widoczność",
   "attachments.partitions.title": "Partycje załączników",
-  "attachments.storage.nav.title": "Magazyn"
+  "attachments.storage.nav.title": "Magazyn",
+  "attachments.structure.audit.current": "Struktura dokumentu jest aktualna",
+  "attachments.structure.audit.requested": "Zlecono wyodrębnienie struktury dokumentu",
+  "attachments.structure.errors.invalidRequest": "Nieprawidłowe żądanie",
+  "attachments.structure.errors.notFound": "Nie znaleziono załącznika",
+  "attachments.structure.errors.tooLarge": "Plik jest zbyt duży, aby wyodrębnić strukturę dokumentu.",
+  "attachments.structure.errors.unsupportedType": "Ten typ pliku nie obsługuje wyodrębniania struktury dokumentu."
 }

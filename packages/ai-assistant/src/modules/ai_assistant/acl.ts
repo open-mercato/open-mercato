@@ -42,6 +42,12 @@ export const features = [
     module: 'ai_assistant',
     dependsOn: ['ai_assistant.mcp_servers.view'],
   },
+  {
+    id: 'ai_assistant.pending_actions.approve',
+    title: 'Approve AI pending actions',
+    module: 'ai_assistant',
+    dependsOn: ['ai_assistant.view'],
+  },
 ]
 
 export default features

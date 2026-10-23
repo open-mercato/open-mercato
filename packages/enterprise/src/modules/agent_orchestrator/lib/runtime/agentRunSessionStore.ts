@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentRunSession } from '../../data/entities'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 /**
  * Cross-process correlation store for OpenCode file-agent runs. The runner and
@@ -77,7 +78,7 @@ export class DbAgentRunSessionStore implements AgentRunSessionStore {
       outcome: null,
     })
     em.persist(row)
-    await em.flush()
+    await withRuntimeAuditWrite(() => em.flush())
   }
 
   async resolveActiveAgentId(sessionToken: string): Promise<string | null> {
@@ -102,7 +103,7 @@ export class DbAgentRunSessionStore implements AgentRunSessionStore {
     if (row.status === 'completed') return 'already_completed'
     row.status = 'completed'
     row.outcome = outcome
-    await em.flush()
+    await withRuntimeAuditWrite(() => em.flush())
     return 'completed'
   }
 
@@ -115,7 +116,7 @@ export class DbAgentRunSessionStore implements AgentRunSessionStore {
 
   async dispose(sessionToken: string): Promise<void> {
     const em = this.em()
-    await em.nativeDelete(AgentRunSession, { sessionToken })
+    await withRuntimeAuditWrite(() => em.nativeDelete(AgentRunSession, { sessionToken }))
   }
 }
 

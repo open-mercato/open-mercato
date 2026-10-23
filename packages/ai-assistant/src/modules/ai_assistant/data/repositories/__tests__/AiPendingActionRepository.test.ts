@@ -30,6 +30,9 @@ type Row = {
   expiresAt: Date
   resolvedAt: Date | null
   resolvedByUserId: string | null
+  channel: 'agent' | 'mcp' | 'tools-api'
+  apiKeyId: string | null
+  correlationId: string | null
 }
 
 let idCounter = 0
@@ -47,6 +50,15 @@ function rowMatchesWhere(row: Row, where: any): boolean {
     return false
   }
   if (where.status && row.status !== where.status) return false
+  if (where.toolName && row.toolName !== where.toolName) return false
+  if (where.createdByUserId && row.createdByUserId !== where.createdByUserId) return false
+  if (typeof where.channel === 'string' && row.channel !== where.channel) return false
+  if (where.channel && typeof where.channel === 'object' && '$ne' in where.channel) {
+    if (row.channel === where.channel.$ne) return false
+  }
+  if (Array.isArray(where.$or)) {
+    if (!where.$or.some((clause: any) => rowMatchesWhere(row, clause))) return false
+  }
   if (where.expiresAt && typeof where.expiresAt === 'object') {
     if ('$lt' in where.expiresAt) {
       if (!(row.expiresAt.getTime() < (where.expiresAt.$lt as Date).getTime())) {
@@ -80,12 +92,18 @@ function mockEm() {
   const find = async (_entity: unknown, where: any, options?: any): Promise<Row[]> => {
     let rows = store.filter((row) => rowMatchesWhere(row, where))
     rows = applyOrder(rows, options?.orderBy)
-    if (typeof options?.limit === 'number') rows = rows.slice(0, options.limit)
+    const offset = typeof options?.offset === 'number' ? options.offset : 0
+    if (typeof options?.limit === 'number') rows = rows.slice(offset, offset + options.limit)
     return rows
   }
 
   const em: any = {
     find,
+    findAndCount: async (_entity: unknown, where: any, options?: any) => {
+      const total = store.filter((row) => rowMatchesWhere(row, where)).length
+      const rows = await find(_entity, where, options)
+      return [rows, total]
+    },
     findOne: async (_entity: unknown, where: any, options?: any) => {
       const rows = await find(_entity, where, options)
       return rows[0] ?? null
@@ -117,6 +135,9 @@ function mockEm() {
         expiresAt: data.expiresAt instanceof Date ? data.expiresAt : new Date(),
         resolvedAt: data.resolvedAt ?? null,
         resolvedByUserId: data.resolvedByUserId ?? null,
+        channel: data.channel ?? 'agent',
+        apiKeyId: data.apiKeyId ?? null,
+        correlationId: data.correlationId ?? null,
       }
       return row
     },
@@ -353,5 +374,176 @@ describe('AiPendingActionRepository', () => {
     const pending = await repo.listPendingForAgent('catalog.assistant', ctx)
     expect(pending).toHaveLength(1)
     expect(pending[0].idempotencyKey).toBe('p-2')
+  })
+
+  it('defaults channel to agent and stores null api key / correlation ids', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+
+    const row = await repo.create(baseInput({ idempotencyKey: 'chan-default' }), ctx)
+
+    expect(row.channel).toBe('agent')
+    expect(row.apiKeyId).toBeNull()
+    expect(row.correlationId).toBeNull()
+  })
+
+  it('persists channel, apiKeyId and correlationId and keeps idempotency for non-agent rows', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+
+    const first = await repo.create(
+      baseInput({
+        idempotencyKey: 'chan-mcp',
+        agentId: 'ai_assistant.raw_tool',
+        channel: 'mcp',
+        apiKeyId: 'key-1',
+        correlationId: 'corr-1',
+      }),
+      ctx,
+    )
+    const second = await repo.create(
+      baseInput({ idempotencyKey: 'chan-mcp', channel: 'mcp', correlationId: 'corr-2' }),
+      ctx,
+    )
+
+    expect(first.channel).toBe('mcp')
+    expect(first.apiKeyId).toBe('key-1')
+    expect(first.correlationId).toBe('corr-1')
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
+  describe('caller visibility', () => {
+    const scope = { tenantId: tenantAlpha, organizationId: 'org-1' }
+
+    async function seedRows() {
+      const em = mockEm()
+      const repo = new AiPendingActionRepository(em)
+      const base = new Date('2026-10-22T10:00:00.000Z').getTime()
+      const ownChat = await repo.create(
+        baseInput({ idempotencyKey: 'own-chat', createdByUserId: 'owner', now: new Date(base) }),
+        { ...scope, userId: 'owner' },
+      )
+      const ownMcp = await repo.create(
+        baseInput({
+          idempotencyKey: 'own-mcp',
+          createdByUserId: 'owner',
+          channel: 'mcp',
+          toolName: 'customers.people.update',
+          now: new Date(base + 1000),
+        }),
+        { ...scope, userId: 'owner' },
+      )
+      const otherChat = await repo.create(
+        baseInput({ idempotencyKey: 'other-chat', createdByUserId: 'other', now: new Date(base + 2000) }),
+        { ...scope, userId: 'other' },
+      )
+      const otherToolsApi = await repo.create(
+        baseInput({
+          idempotencyKey: 'other-tools',
+          createdByUserId: 'other',
+          channel: 'tools-api',
+          now: new Date(base + 3000),
+        }),
+        { ...scope, userId: 'other' },
+      )
+      const foreignOrg = await repo.create(
+        baseInput({ idempotencyKey: 'foreign-org', createdByUserId: 'owner', channel: 'mcp' }),
+        { tenantId: tenantAlpha, organizationId: 'org-2', userId: 'owner' },
+      )
+      const foreignTenant = await repo.create(
+        baseInput({ idempotencyKey: 'foreign-tenant', createdByUserId: 'owner', channel: 'mcp' }),
+        { tenantId: tenantBeta, organizationId: 'org-1', userId: 'owner' },
+      )
+      return { repo, ownChat, ownMcp, otherChat, otherToolsApi, foreignOrg, foreignTenant }
+    }
+
+    it('getByIdForApprover returns own rows regardless of channel', async () => {
+      const { repo, ownChat, ownMcp } = await seedRows()
+      const viewer = { userId: 'owner', canApproveAny: false }
+
+      expect((await repo.getByIdForApprover(ownChat.id, scope, viewer))?.id).toBe(ownChat.id)
+      expect((await repo.getByIdForApprover(ownMcp.id, scope, viewer))?.id).toBe(ownMcp.id)
+    })
+
+    it('getByIdForApprover exposes non-agent rows only to approvers and never chat rows of others', async () => {
+      const { repo, otherChat, otherToolsApi } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+      const plainUser = { userId: 'owner', canApproveAny: false }
+
+      expect((await repo.getByIdForApprover(otherToolsApi.id, scope, approver))?.id).toBe(otherToolsApi.id)
+      expect(await repo.getByIdForApprover(otherToolsApi.id, scope, plainUser)).toBeNull()
+      expect(await repo.getByIdForApprover(otherChat.id, scope, approver)).toBeNull()
+      expect(await repo.getByIdForApprover(otherChat.id, scope, plainUser)).toBeNull()
+    })
+
+    it('getByIdForApprover never crosses tenant or organization scope', async () => {
+      const { repo, foreignOrg, foreignTenant } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+
+      expect(await repo.getByIdForApprover(foreignOrg.id, scope, approver)).toBeNull()
+      expect(await repo.getByIdForApprover(foreignTenant.id, scope, approver)).toBeNull()
+    })
+
+    it('listForCaller returns only own rows for a non-approver, newest first', async () => {
+      const { repo, ownChat, ownMcp } = await seedRows()
+
+      const result = await repo.listForCaller(
+        scope,
+        { userId: 'owner', canApproveAny: false },
+        {},
+        { page: 1, pageSize: 50 },
+      )
+
+      expect(result.total).toBe(2)
+      expect(result.items.map((row) => row.id)).toEqual([ownMcp.id, ownChat.id])
+    })
+
+    it('listForCaller adds non-agent rows of others for approvers but never their chat rows', async () => {
+      const { repo, ownChat, ownMcp, otherToolsApi } = await seedRows()
+
+      const result = await repo.listForCaller(
+        scope,
+        { userId: 'owner', canApproveAny: true },
+        {},
+        { page: 1, pageSize: 50 },
+      )
+
+      expect(result.total).toBe(3)
+      expect(result.items.map((row) => row.id)).toEqual([otherToolsApi.id, ownMcp.id, ownChat.id])
+    })
+
+    it('listForCaller honours mine, channel, toolName and status filters', async () => {
+      const { repo, ownMcp, otherToolsApi } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+      const page = { page: 1, pageSize: 50 }
+
+      const mine = await repo.listForCaller(scope, approver, { mine: true }, page)
+      expect(mine.items.every((row) => row.createdByUserId === 'owner')).toBe(true)
+      expect(mine.total).toBe(2)
+
+      const toolsApi = await repo.listForCaller(scope, approver, { channel: 'tools-api' }, page)
+      expect(toolsApi.items.map((row) => row.id)).toEqual([otherToolsApi.id])
+
+      const byTool = await repo.listForCaller(scope, approver, { toolName: 'customers.people.update' }, page)
+      expect(byTool.items.map((row) => row.id)).toEqual([ownMcp.id])
+
+      const cancelled = await repo.listForCaller(scope, approver, { status: 'cancelled' }, page)
+      expect(cancelled.total).toBe(0)
+    })
+
+    it('listForCaller paginates and reports the full total', async () => {
+      const { repo, ownChat, ownMcp, otherToolsApi } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+
+      const first = await repo.listForCaller(scope, approver, {}, { page: 1, pageSize: 2 })
+      const second = await repo.listForCaller(scope, approver, {}, { page: 2, pageSize: 2 })
+
+      expect(first.total).toBe(3)
+      expect(first.items.map((row) => row.id)).toEqual([otherToolsApi.id, ownMcp.id])
+      expect(second.items.map((row) => row.id)).toEqual([ownChat.id])
+    })
   })
 })

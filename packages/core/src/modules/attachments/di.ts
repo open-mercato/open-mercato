@@ -7,10 +7,28 @@ import { createAttachmentQuotaService, type AttachmentQuotaService } from './lib
 import { scheduleAttachmentQuotaRecovery } from './lib/quota-recovery-queue'
 import { AttachmentTargetAccessService } from './lib/target-access-service'
 import { ScopedAttachmentUploadService } from './lib/scoped-upload-service'
+import {
+  createDocumentStructureEngineRegistry,
+  DOCUMENT_STRUCTURE_ENGINES_DI_KEY,
+} from './lib/documentStructure/engines/registry'
+import {
+  ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY,
+  createAttachmentDocumentStructureService,
+} from './lib/documentStructure/service'
+import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
 
 export function register(container: AppContainer) {
   container.register({
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
+    [DOCUMENT_STRUCTURE_ENGINES_DI_KEY]: asFunction(() => createDocumentStructureEngineRegistry()).singleton(),
+    [ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY]: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
+      createAttachmentDocumentStructureService({
+        em,
+        enqueue: (input) => enqueueDocumentStructureExtraction(container, input),
+      }),
+    )
+      .scoped()
+      .proxy(),
     attachmentQuotaService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
       createAttachmentQuotaService(em),
     )

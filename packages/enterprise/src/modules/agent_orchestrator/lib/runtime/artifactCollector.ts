@@ -5,6 +5,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { putArtifactBytes, type MinimalContainer } from './artifactFileStore'
 import type { CaptureArtifactsInput } from '../../commands/artifacts'
+import { withAuditedCommand } from '../identity/agentWriteScope'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'artifact-collector' })
 
@@ -169,17 +170,19 @@ export async function collectArtifacts(args: {
 
   let capturedCount = 0
   if (collected.length > 0) {
-    const result = await args.commandBus.execute<CaptureArtifactsInput, { artifactIds: string[] }>(
-      'agent_orchestrator.artifact.capture',
-      {
-        input: {
-          tenantId: args.tenantId,
-          organizationId: args.organizationId,
-          runId: args.runId,
-          artifacts: collected,
+    const result = await withAuditedCommand(() =>
+      args.commandBus.execute<CaptureArtifactsInput, { artifactIds: string[] }>(
+        'agent_orchestrator.artifact.capture',
+        {
+          input: {
+            tenantId: args.tenantId,
+            organizationId: args.organizationId,
+            runId: args.runId,
+            artifacts: collected,
+          },
+          ctx: args.commandCtx,
         },
-        ctx: args.commandCtx,
-      },
+      ),
     )
     capturedCount = result.result.artifactIds.length
   }

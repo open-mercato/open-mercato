@@ -3,6 +3,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
+import { purgeDocumentStructure } from '../documentStructure/purge'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
 import { ScopedAttachmentUploadService } from '../scoped-upload-service'
@@ -23,6 +24,10 @@ jest.mock('../partitions', () => ({
 }))
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
+
+jest.mock('../documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0 })),
+}))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
@@ -207,6 +212,10 @@ function createInput(overrides: Record<string, unknown> = {}) {
 async function expectStatus(promise: Promise<unknown>, status: number) {
   await expect(promise).rejects.toMatchObject<Partial<CrudHttpError>>({ status })
 }
+
+beforeEach(() => {
+  jest.mocked(purgeDocumentStructure).mockClear()
+})
 
 describe('DefaultAttachmentService', () => {
   afterEach(() => {
@@ -502,6 +511,14 @@ describe('DefaultAttachmentService', () => {
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(driver.delete.mock.invocationCallOrder[0])
+    expect(purgeDocumentStructure).toHaveBeenCalledWith(
+      em,
+      { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { flush: false },
+    )
+    expect(jest.mocked(purgeDocumentStructure).mock.invocationCallOrder[0]).toBeLessThan(
+      em.flush.mock.invocationCallOrder[0],
+    )
   })
 
   it('does not release an attachment carrying another assignment', async () => {
@@ -526,6 +543,7 @@ describe('DefaultAttachmentService', () => {
 
     expect(driver.delete).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
+    expect(purgeDocumentStructure).not.toHaveBeenCalled()
   })
 
   // `expectedAssignment` is a required field, but this service is resolved
@@ -570,6 +588,11 @@ describe('DefaultAttachmentService', () => {
         expectedAssignment: { type: 'documents:document', id: 'document-1' },
       }, { em, flush: false })
       expect(driver.delete).not.toHaveBeenCalled()
+      expect(purgeDocumentStructure).toHaveBeenCalledWith(
+        em,
+        { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        { flush: false },
+      )
     }], { transaction: true, label: 'attachments.release' })
 
     expect(em.commit).toHaveBeenCalledTimes(1)

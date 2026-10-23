@@ -21,6 +21,7 @@ import { withRunContext } from './runContext'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
+  buildNativeStepRecord,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
@@ -214,45 +215,7 @@ export class NativeAgentRunner {
     const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
     const recordStep = async (event: unknown): Promise<void> => {
-      const raw = event as {
-        toolCalls?: Array<{
-          toolName?: string
-          args?: unknown
-          result?: unknown
-          experimental_toToolResultError?: { code?: string; message?: string }
-          startTime?: number
-          endTime?: number
-        }>
-        finishReason?: string
-        usage?: { inputTokens?: number; outputTokens?: number }
-        response?: { modelId?: string }
-      }
-      stepRecords.push({
-        modelId: raw.response?.modelId ?? 'unknown',
-        finishReason: raw.finishReason ?? 'stop',
-        usage: {
-          inputTokens: raw.usage?.inputTokens ?? 0,
-          outputTokens: raw.usage?.outputTokens ?? 0,
-        },
-        toolCalls: (raw.toolCalls ?? []).map((toolCall) => ({
-          toolName: toolCall.toolName ?? 'unknown',
-          args: toolCall.args ?? {},
-          result: toolCall.result,
-          ...(toolCall.experimental_toToolResultError
-            ? {
-                error: {
-                  code: String(toolCall.experimental_toToolResultError.code ?? 'unknown'),
-                  message: String(toolCall.experimental_toToolResultError.message ?? ''),
-                },
-              }
-            : {}),
-          durationMs:
-            typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
-              ? toolCall.endTime - toolCall.startTime
-              : 0,
-        })),
-        endedAtMs: Date.now(),
-      })
+      stepRecords.push(buildNativeStepRecord(event, Date.now()))
     }
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
@@ -516,24 +479,33 @@ export class NativeAgentRunner {
 
     // Pass/warn: persist the audit rows (one per check). A pass verdict records
     // pass rows but otherwise does NOT change behavior; warn proceeds + flags.
-    const guardResults: GuardResults = await persistVerdict({ em: guardEm }, guardScope, {
-      verdict,
-      capability: agentId,
-      phase: 'output',
-      proposalId: null,
-    })
+    let guardResults: GuardResults
+    let result: AgentResult
+    try {
+      guardResults = await persistVerdict({ em: guardEm }, guardScope, {
+        verdict,
+        capability: agentId,
+        phase: 'output',
+        proposalId: null,
+      })
 
-    const result = shapeResult(entry.resultKind, parsed.data, agentId)
+      result = shapeResult(entry.resultKind, parsed.data, agentId)
 
-    await completeRun(this.commandBus, commandCtx, {
-      runId,
-      output: result,
-      resultKind: entry.resultKind,
-      // Proposal runs surface the proposal's confidence on the run row;
-      // researcher runs have no confidence semantics → null (renders `—`).
-      confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
-      ...buildUsageStamp(),
-    })
+      await completeRun(this.commandBus, commandCtx, {
+        runId,
+        output: result,
+        resultKind: entry.resultKind,
+        // Proposal runs surface the proposal's confidence on the run row;
+        // researcher runs have no confidence semantics → null (renders `—`).
+        confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
+        ...buildUsageStamp(),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+      await captureTrace()
+      throw err
+    }
 
     if (result.kind === 'proposal') {
       await createProposal(this.commandBus, commandCtx, {

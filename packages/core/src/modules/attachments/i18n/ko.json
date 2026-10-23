@@ -127,6 +127,8 @@
   "attachments.partitions.errors.s3Disabled": "이 파티션은 S3를 사용하지만 S3는 비활성화되어 있습니다. OM_ENABLE_STORAGE_S3=true로 설정하고 앱을 다시 시작하세요.",
   "attachments.partitions.errors.s3EnvPrefixRequired": "별도의 자격 증명 소스를 사용하는 경우 자격 증명 env 접두사가 필요합니다.",
   "attachments.partitions.errors.save": "파티션 저장에 실패했습니다.",
+  "attachments.partitions.extractDocumentStructure.help": "업로드된 PDF 및 DOCX 파일을 페이지 참조가 포함된 장, 절, 조항 개요로 분석합니다.",
+  "attachments.partitions.extractDocumentStructure.label": "문서 구조 추출",
   "attachments.partitions.form.codeLabel": "코드",
   "attachments.partitions.form.codePlaceholder": "예: marketingAssets",
   "attachments.partitions.form.descriptionLabel": "설명",
@@ -162,6 +164,9 @@
   "attachments.partitions.form.storageDriverS3DisabledHelp": "S3가 비활성화되었습니다. OM_ENABLE_STORAGE_S3=true로 설정하고 다시 시작하여 S3 파티션을 활성화합니다.",
   "attachments.partitions.form.titleLabel": "제목",
   "attachments.partitions.form.titlePlaceholder": "예: 마케팅 자산",
+  "attachments.partitions.indexDocumentSections.help": "추출된 각 섹션을 개별적으로 검색할 수 있습니다. 문서 구조 추출이 필요합니다.",
+  "attachments.partitions.indexDocumentSections.label": "검색에서 문서 섹션 색인",
+  "attachments.partitions.indexDocumentSections.warning": "테넌트 데이터 암호화가 켜져 있어도 섹션 텍스트가 평문으로 전문 검색 및 벡터 검색 저장소에 전송됩니다. 개인 정보나 기밀 데이터가 있는 파티션에서는 사용하지 마세요.",
   "attachments.partitions.locked.description": "데모 또는 온보딩 모드가 활성화된 동안 첨부 파일 파티션은 환경 기본값으로 관리됩니다.",
   "attachments.partitions.locked.hint": "앱 내 구성을 다시 활성화하려면 아래 환경 변수를 업데이트하세요.",
   "attachments.partitions.locked.title": "파티션 설정이 잠겨 있습니다",
@@ -181,5 +186,11 @@
   "attachments.partitions.table.title": "제목",
   "attachments.partitions.table.visibility": "공개 범위",
   "attachments.partitions.title": "첨부 파일 파티션",
-  "attachments.storage.nav.title": "저장소"
+  "attachments.storage.nav.title": "저장소",
+  "attachments.structure.audit.current": "문서 구조가 이미 최신 상태입니다",
+  "attachments.structure.audit.requested": "문서 구조 추출이 요청되었습니다",
+  "attachments.structure.errors.invalidRequest": "잘못된 요청입니다",
+  "attachments.structure.errors.notFound": "첨부 파일을 찾을 수 없습니다",
+  "attachments.structure.errors.tooLarge": "파일이 너무 커서 문서 구조를 추출할 수 없습니다.",
+  "attachments.structure.errors.unsupportedType": "이 파일 형식은 문서 구조 추출을 지원하지 않습니다."
 }

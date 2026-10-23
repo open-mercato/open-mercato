@@ -6,6 +6,7 @@ import {
   Property,
 } from '@mikro-orm/decorators/legacy'
 import type {
+  AiPendingActionChannel,
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
   AiPendingActionFieldDiff,
@@ -119,6 +120,10 @@ export class AiAgentPromptOverride {
   name: 'ai_pending_actions_tenant_org_agent_status_idx',
   properties: ['tenantId', 'organizationId', 'agentId', 'status'],
 })
+@Index({
+  name: 'ai_pending_actions_tenant_org_status_channel_created_idx',
+  properties: ['tenantId', 'organizationId', 'status', 'channel', 'createdAt'],
+})
 export class AiPendingAction {
   [OptionalProps]?:
     | 'createdAt'
@@ -136,6 +141,9 @@ export class AiPendingAction {
     | 'resolvedAt'
     | 'resolvedByUserId'
     | 'queueMode'
+    | 'channel'
+    | 'apiKeyId'
+    | 'correlationId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -208,6 +216,15 @@ export class AiPendingAction {
 
   @Property({ name: 'resolved_by_user_id', type: 'uuid', nullable: true })
   resolvedByUserId?: string | null
+
+  @Property({ name: 'channel', type: 'text', default: 'agent' })
+  channel: AiPendingActionChannel = 'agent'
+
+  @Property({ name: 'api_key_id', type: 'uuid', nullable: true })
+  apiKeyId?: string | null
+
+  @Property({ name: 'correlation_id', type: 'text', nullable: true })
+  correlationId?: string | null
 }
 
 /**

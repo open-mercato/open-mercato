@@ -1,5 +1,15 @@
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
-import { getAgentActorScope, isAuditedCommandActive } from './agentWriteScope'
+import {
+  AgentContextBundle,
+  AgentEvalResult,
+  AgentGuardrailCheck,
+  AgentRun,
+  AgentRunArtifact,
+  AgentRunSession,
+  AgentSpan,
+  AgentToolCall,
+} from '../../data/entities'
+import { getAgentActorScope, isAuditedCommandActive, isRuntimeAuditWriteActive } from './agentWriteScope'
 
 /**
  * Thrown by the flush-time write-interceptor when a `kind='agent'` actor attempts
@@ -17,6 +27,36 @@ export class AgentWriteBypassError extends Error {
     )
     this.name = 'AgentWriteBypassError'
   }
+}
+
+/**
+ * Agent-orchestrator runtime-audit entities admitted under an agent actor while
+ * `withRuntimeAuditWrite` is active. `AgentRun` is included because trace ingest
+ * updates the run row. Every other entity keeps failing closed.
+ */
+const RUNTIME_AUDIT_ENTITY_CLASSES = [
+  AgentGuardrailCheck,
+  AgentContextBundle,
+  AgentSpan,
+  AgentToolCall,
+  AgentEvalResult,
+  AgentRunArtifact,
+  AgentRunSession,
+  AgentRun,
+] as const
+
+const RUNTIME_AUDIT_ENTITY_CLASS_SET: ReadonlySet<unknown> = new Set<unknown>(RUNTIME_AUDIT_ENTITY_CLASSES)
+
+const RUNTIME_AUDIT_ENTITY_NAMES: ReadonlySet<string> = new Set(
+  RUNTIME_AUDIT_ENTITY_CLASSES.map((entityClass) => entityClass.name),
+)
+
+export function isRuntimeAuditEntity(args: EventArgs<unknown>): boolean {
+  const meta = args.meta as { class?: unknown; className?: string } | undefined
+  if (typeof meta?.class === 'function') return RUNTIME_AUDIT_ENTITY_CLASS_SET.has(meta.class)
+  const ctor = (args.entity as { constructor?: unknown } | null | undefined)?.constructor
+  if (typeof ctor === 'function' && RUNTIME_AUDIT_ENTITY_CLASS_SET.has(ctor)) return true
+  return typeof meta?.className === 'string' && RUNTIME_AUDIT_ENTITY_NAMES.has(meta.className)
 }
 
 function entityNameOf(args: EventArgs<unknown>): string {
@@ -60,6 +100,8 @@ export class AgentKindNoBypassSubscriber implements EventSubscriber<unknown> {
     if (!getAgentActorScope()) return
     // Inside the agent's own audited Command write → legitimate, attributed write.
     if (isAuditedCommandActive()) return
+    // Inside the runtime's own audit write → only the AO runtime-audit allowlist passes.
+    if (isRuntimeAuditWriteActive() && isRuntimeAuditEntity(args)) return
     // Agent actor active + no audited-command context → fail closed.
     throw new AgentWriteBypassError(operation, entityNameOf(args))
   }

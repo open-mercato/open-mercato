@@ -1,4 +1,5 @@
 import { z, type ZodTypeAny } from 'zod'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 
@@ -1562,6 +1563,30 @@ export const evalCaseRunListQuerySchema = z.object({
   after: z.string().optional(),
 })
 export type EvalCaseRunListQuery = z.infer<typeof evalCaseRunListQuerySchema>
+
+const queryBooleanSchema = z
+  .string()
+  .optional()
+  .transform((raw, ctx) => {
+    if (raw === undefined || raw === '') return false
+    const parsed = parseBooleanToken(raw)
+    if (parsed === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected a boolean' })
+      return z.NEVER
+    }
+    return parsed
+  })
+
+export const EVAL_REPORT_FORMATS = ['json', 'md', 'junit'] as const
+export type EvalReportFormat = (typeof EVAL_REPORT_FORMATS)[number]
+
+export const evalReportQuerySchema = z.object({
+  format: z.enum(EVAL_REPORT_FORMATS).default('json'),
+  partial: queryBooleanSchema,
+  includePayloads: queryBooleanSchema,
+  evidenceMaxChars: z.coerce.number().int().min(100).max(20000).optional(),
+})
+export type EvalReportQuery = z.infer<typeof evalReportQuerySchema>
 
 /**
  * Eval-case authoring. `input`/`expected` are free-form per agent (the agent's own

@@ -36,6 +36,7 @@ export type AgentActorScope = {
 
 const agentActorStorage = new AsyncLocalStorage<AgentActorScope>()
 const auditedCommandStorage = new AsyncLocalStorage<true>()
+const runtimeAuditWriteStorage = new AsyncLocalStorage<true>()
 
 /**
  * Run `fn` with `scope` bound as the current agent-actor context. Established by
@@ -65,4 +66,21 @@ export function withAuditedCommand<T>(fn: () => Promise<T>): Promise<T> {
 /** True iff the current async context is inside an audited Command write. */
 export function isAuditedCommandActive(): boolean {
   return auditedCommandStorage.getStore() === true
+}
+
+/**
+ * Run `fn` inside a runtime-audit write scope. The agent runtime's own
+ * observability writes (spans, tool calls, guardrail checks, context bundles,
+ * eval results, run artifacts, run sessions and the run row updated by trace
+ * ingest) execute inside this so the flush-time guard admits them under an agent
+ * actor. Only the agent-orchestrator runtime-audit entity allowlist passes; any
+ * other entity flushed in the same scope still fails closed.
+ */
+export function withRuntimeAuditWrite<T>(fn: () => Promise<T>): Promise<T> {
+  return runtimeAuditWriteStorage.run(true, fn)
+}
+
+/** True iff the current async context is inside a runtime-audit write. */
+export function isRuntimeAuditWriteActive(): boolean {
+  return runtimeAuditWriteStorage.getStore() === true
 }

@@ -39,7 +39,7 @@ Both servers run in plain Node, and a tool call imports the API route module beh
 
 ### How ACL gates which tools appear
 
-The dev server filters the available tools by the API key's ACL **at startup**. The key's roles and features decide which tools are visible:
+Every server lists only the tools the caller may call. The dev server filters by the API key's ACL **at startup**; the production HTTP server (`mcp:serve-http`) filters `tools/list` **per request** (see [Filtered `tools/list`](#filtered-toolslist-on-mcpserve-http)); the stdio server filters by its resolved auth context. The [exposure config](#exposure-config) is applied first in all three. The key's roles and features decide which tools are visible:
 
 - A key with **no** roles or features sees **only** the `context_whoami` tool — the one tool with no required features.
 - Bind the key to a role like `admin` (which aggregates every module's `<module>.*` grants) so all tools appear.
@@ -165,7 +165,7 @@ After a correct setup with an `admin`-scoped API key, the MCP server exposes **7
 | **Code Mode meta-tools** | `search`, `execute` | `ai_assistant.view` | Discover and call the full API surface from JavaScript (see below). |
 | **Module tool packs** | 67 typed tools | per-tool `requiredFeatures` | Typed `defineAiTool` tools such as `customers.list_people`, `customers.list_companies`, `customers.list_deals`, `catalog.list_products`, `catalog.list_offers`, `catalog.search_products`, `search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.list_agents`, `meta.describe_agent`, and more. |
 
-Each module tool declares its own `requiredFeatures`, so a tool appears only if the API key's ACL covers it. In dev the tool list is filtered by the key's features at startup; in production each call is checked. Wildcard grants (`module.*`, `*`) match concrete required features.
+Each module tool declares its own `requiredFeatures`, so a tool appears only if the caller's ACL covers it and the [exposure config](#exposure-config) lets it through. In dev the tool list is filtered by the key's features at startup; in production `tools/list` is filtered per request and every call is checked again. Wildcard grants (`module.*`, `*`) match concrete required features. The counts above are for an unrestricted exposure config.
 
 ### Reaching any API endpoint
 
@@ -194,6 +194,130 @@ MCP serves **tools, not agents**. The typed AI agents (`defineAiAgent` definitio
 You can still **see** the agent catalog from within MCP: `meta.list_agents` enumerates the agents the caller is allowed to invoke, and `meta.describe_agent` returns an agent's details. And because every tool an agent is allowed to call is itself in the MCP tool list, an MCP client already has the full underlying toolset — just not the agent orchestration layer.
 
 :::
+
+## Exposure, audit and mutation modes
+
+These controls apply to all three MCP servers (`mcp:dev`, `mcp:serve-http`, stdio `mcp:serve`). The mutation mode also applies to `POST /api/ai_assistant/tools/execute`, which is the same kind of channel: a raw tool call with no agent in between.
+
+### Exposure config {#exposure-config}
+
+The exposure config decides which registered tools a server offers at all, before any per-caller ACL filtering:
+
+| Setting | CLI flag | Env var | Default |
+|---------|----------|---------|---------|
+| Allowlist (tool names or prefix globs ending in `*`, comma-separated) | `--tools <csv>` | `OM_MCP_TOOL_ALLOWLIST` | unset = every tool |
+| Denylist (same syntax) | `--exclude-tools <csv>` | `OM_MCP_TOOL_DENYLIST` | empty |
+| Mutation mode | `--mutation-mode direct\|deny\|approval` | `OM_MCP_MUTATION_MODE` | `direct` |
+| Include tools that wrap AI agents | `--no-agent-tools` (hides them) | `OM_MCP_AGENT_TOOLS` (boolean) | `true` |
+
+Precedence per setting: CLI flag, then env var, then default. The flags are accepted by `mcp:serve` and `mcp:serve-http`; `mcp:dev` reads the env vars only. An invalid `--mutation-mode` refuses to start; an invalid `OM_MCP_MUTATION_MODE` falls back to `direct` and logs a warning.
+
+A tool is exposed when all of these hold:
+
+1. it does not opt out with `mcp: { expose: false }` on its definition;
+2. it matches the allowlist (when one is set);
+3. it does not match the denylist (the denylist wins over the allowlist);
+4. it is not a mutation tool while the mode is `deny` (in `deny` mode mutation tools are hidden from `tools/list`);
+5. it is not an agent-wrapping tool while agent tools are disabled.
+
+```bash
+# Only CRM read tools plus search, writes blocked
+mercato ai_assistant mcp:serve-http --tools "customers.list_*,customers.get_*,search*" --mutation-mode deny
+```
+
+Inspect the effective set without starting a server:
+
+```bash
+# Exposure config only (OM_MCP_* env + flags)
+yarn mercato ai_assistant mcp:list-tools --effective --tools "customers.*"
+# Exposure config plus the ACL of an API key, exactly as mcp:serve-http computes tools/list
+yarn mercato ai_assistant mcp:list-tools --as-api-key "$MCP_KEY"
+```
+
+The servers log the resolved config at startup. When the mode is `direct` and at least one mutation tool is exposed, they log a warning that lists those tools.
+
+### Filtered `tools/list` on `mcp:serve-http` {#filtered-toolslist-on-mcpserve-http}
+
+`mcp:serve-http` registers, per request, only the tools that pass the exposure config **and** the list principal's ACL, so `tools/list` and `tools/call` see the same set. Per-call ACL checks still run on every `tools/call`.
+
+The list principal is:
+
+- the session user, when the request carries an `x-om-session-token: sess_…` header (the same session token that tool calls pass as `_sessionToken`). An invalid or expired header returns `401`;
+- otherwise the server API key's own ACL (its roles and features).
+
+Without the header, a server key that carries no features lists only `context_whoami`. Clients that act for a user (for example OpenCode in the web chat) send the header so the list matches what the user can call.
+
+`GET /health` on the HTTP server reports the exposure in effect (counts and mode, never tool names):
+
+```json
+{"status":"ok","tools":70,"exposure":{"allowlist":false,"denylistCount":0,"mutationMode":"approval","toolCount":70,"agentToolCount":0},"timestamp":"..."}
+```
+
+### Audit of MCP tool calls
+
+Every `tools/call` on the three servers and every `POST /api/ai_assistant/tools/execute` writes one `access_logs` row (best effort, bounded to 500 ms, never blocks or fails the call):
+
+| Field | Value |
+|-------|-------|
+| `resource_kind` | `ai_assistant.mcp_tool_call` |
+| `resource_id` | the tool name |
+| `access_type` | `call` |
+| actor | the session user, else the API key's session user, else the key's `createdBy` user |
+| `context` | `channel` (`mcp` / `tools-api`), `mcpServer` (`http` / `dev` / `stdio` / `null`), `apiKeyId`, `sessionKeyId`, `principal`, `outcome` (`ok`, `denied`, `invalid_input`, `error`, `mutation_denied`, `pending_approval`, `dispatcher_unavailable`), `errorCode`, `durationMs`, `isMutation`, `pendingActionIds`, `correlationId`, `argKeys` |
+
+Argument **values** are never stored, only the argument names (`argKeys`, without `_sessionToken`).
+
+Every call gets a correlation id: the `x-correlation-id` request header when it is valid (max 128 characters, `[A-Za-z0-9._:-]`), otherwise a fresh UUID. MCP tool results echo it as `_meta.correlationId`, so a client can quote it when reporting a problem.
+
+Retention: access logs outside the core resource kinds rotate after `AUDIT_LOGS_NON_CORE_RETENTION_HOURS` (default 8 hours). To keep MCP audit rows for the core window (`AUDIT_LOGS_CORE_RETENTION_DAYS`), add the kind to `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA`:
+
+```bash
+AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA=ai_assistant.mcp_tool_call
+```
+
+### Mutation modes
+
+`OM_MCP_MUTATION_MODE` (or `--mutation-mode`) decides what happens when an MCP client or `/tools/execute` calls a tool with `isMutation: true`:
+
+| Mode | Behaviour |
+|------|-----------|
+| `direct` (default) | The tool handler runs immediately, as before. |
+| `deny` | Mutation tools are hidden from `tools/list`. A call returns `MUTATION_REQUIRES_APPROVAL`; `/tools/execute` answers `403 { success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`. |
+| `approval` | The call is validated (exposure, the tool's `requiredFeatures`, input schema) and stored as a pending action; the handler does **not** run. A human approves or rejects it later. |
+
+:::warning Use `approval` in production
+`direct` stays the default for backward compatibility, but it lets any API key with the right features write data with no human in the loop. Set `OM_MCP_MUTATION_MODE=approval` for production deployments that expose write tools over MCP or `/tools/execute`, or `deny` when MCP clients should be read-only.
+:::
+
+In `approval` mode:
+
+- An MCP `tools/call` returns a normal (non-error) result whose structured content is `{ status: "pending_approval", pendingActionId, expiresAt, approvalPath, ... }`.
+- `POST /api/ai_assistant/tools/execute` returns `202 { success: true, status: "pending_approval", pendingActionId, expiresAt }`.
+- When no requesting user can be resolved (for example an API key with neither a session user nor a creator), the call is refused with `MUTATION_REQUESTER_UNRESOLVED` (`403` on `/tools/execute`).
+- Pending rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`, 24 hours). Chat-created rows keep `AI_PENDING_ACTION_TTL_SECONDS`.
+- Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode (their writes are queued the same way and the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
+
+### Approving pending actions
+
+Pending MCP and `/tools/execute` actions are approved on the **Pending AI actions** page at `/backend/config/ai-assistant/pending-actions`. It lists rows with their tool, target, requester, channel, and expiry; the detail view shows the mutation preview and **Approve** / **Reject** (with an optional reason) buttons.
+
+- **Who can act.** The requester, and any user in the same tenant and organization with the `ai_assistant.pending_actions.approve` feature (granted to `admin` by default). Everyone else gets `404`. Chat-created rows stay owner-only.
+- **Notifications.** A new row notifies the requester and every approver in the backoffice (`ai_assistant.pending_action.awaiting_approval`); the notifications are removed when the row is approved, rejected, or expires.
+- **Re-checks at approval.** Before running, the server re-checks that the tool is still exposed as a mutation tool (`tool_not_exposed`), that the approver holds the tool's `requiredFeatures` (`approver_features_denied`), and that the requester still exists and still holds them (`requester_revoked`, `requester_features_denied`). Record-version and schema-drift checks run as for chat approvals.
+- **Execution identity.** An approved write runs under the **approver's** identity and ACL, so the command's audit trail names the human who approved it.
+- **APIs.** `GET /api/ai_assistant/ai/actions` lists rows visible to the caller (filters `status`, `channel`, `toolName`, `mine`; `pageSize` ≤ 100) and returns `channel` and `requester: { userId, apiKeyId }` per row. `GET /api/ai_assistant/ai/actions/:id`, `POST …/:id/confirm` and `POST …/:id/cancel` (body `{ reason? }`) act on one row.
+- **Status from MCP.** The read-only tool `ai_assistant.get_pending_action` returns the status of a pending action the caller can see, so an MCP client can poll the outcome of a queued write.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_MCP_TOOL_ALLOWLIST` | unset | Comma-separated tool names or `prefix*` globs to expose. Unset exposes every tool. |
+| `OM_MCP_TOOL_DENYLIST` | unset | Comma-separated tool names or `prefix*` globs to hide. Wins over the allowlist. |
+| `OM_MCP_MUTATION_MODE` | `direct` | `direct`, `deny`, or `approval`. Also applies to `/api/ai_assistant/tools/execute`. Recommended in production: `approval`. |
+| `OM_MCP_AGENT_TOOLS` | `true` | Set to `false` to hide tools that wrap AI agents. |
+| `OM_MCP_PENDING_ACTION_TTL_SECONDS` | `86400` | Expiry of pending actions created by MCP and `/tools/execute`. |
+| `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` | unset | Add `ai_assistant.mcp_tool_call` to keep MCP audit rows for the core retention window. |
 
 ## Extending the MCP server
 
@@ -289,6 +413,8 @@ Fix it by adding the route's feature(s) to the tool — **never** by weakening t
 | `ERR_MODULE_NOT_FOUND: Cannot find package '@/.mercato' …` then `Registered 0 module-contributed AI tools` (historical) | The generated registry was imported through the Next.js-only `@/` path alias, which a standalone Node process can't resolve | Update to a build where the loader resolves the generated registry from disk for standalone servers |
 | `MCP_SERVER_API_KEY not set` badge in the app | Only concerns the production `mcp:serve` / in-app web-chat path | Ignore it for `mcp:dev` + Claude Code; set `MCP_SERVER_API_KEY` only if you run `yarn mcp:serve` |
 | `execute` / API-backed tools fail to reach data | The Next.js app isn't running | Run `yarn dev` (the app on port 3000; override the base URL via `APP_URL` / `NEXT_PUBLIC_APP_URL`) |
+| A tool is missing although the key has its features | The exposure config hides it (allowlist/denylist, `deny` mode for mutation tools, or `OM_MCP_AGENT_TOOLS=false`) | Run `mcp:list-tools --effective` and check the `OM_MCP_*` env vars and CLI flags |
+| A write returns `pending_approval` (or `202` on `/tools/execute`) | `OM_MCP_MUTATION_MODE=approval` | Approve it on **Pending AI actions** (`/backend/config/ai-assistant/pending-actions`) |
 | Claude Code doesn't see updated tools after a change | Stale server or stale connection | `yarn generate`, restart `yarn mcp:dev`, then reconnect via `/mcp` in Claude Code |
 
 ### Notes
@@ -301,4 +427,5 @@ Fix it by adding the route's feature(s) to the tool — **never** by weakening t
 - `curl http://localhost:3001/health` checks the server is up.
 - In Claude Code, `/mcp` shows the current connection state.
 - `yarn mercato ai_assistant mcp:list-tools --verbose` lists all registered tools and their required features.
+- `yarn mercato ai_assistant mcp:list-tools --effective` (or `--as-api-key <secret>`) lists only the tools the exposure config (and that key's ACL) would expose.
 :::

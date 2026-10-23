@@ -7,12 +7,29 @@ import {
 import { toolInputJsonSchema } from './tool-input-schema'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getToolRegistry } from './tool-registry'
-import { executeTool } from './tool-executor'
+import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest } from './auth'
+import {
+  collectMcpExposureWarnings,
+  buildDirectMutationModeWarning,
+  describeMcpExposureConfig,
+  filterToolsForCaller,
+  resolveMcpExposureConfig,
+} from './mcp-exposure'
+import {
+  EMPTY_MCP_AUDIT_IDENTITY,
+  attachCorrelationMeta,
+  isMutationTool,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveAuditActorUserId,
+  resolveCorrelationId,
+  type McpAuditIdentity,
+  type McpAuditOutcome,
+} from './mcp-audit'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 
 const formatStderrError = (error: unknown): string =>
@@ -27,6 +44,7 @@ const writeStderrLine = (line: string): void => {
  */
 export async function createMcpServer(options: McpServerOptions): Promise<Server> {
   const { config, container, context, allowUnauthenticatedSuperadmin } = options
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
 
   // Treat empty / whitespace-only secrets as missing so a blank api key cannot
   // fall through into an unauthenticated branch.
@@ -40,6 +58,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
   let userId: string | null = null
   let userFeatures: string[] = []
   let isSuperAdmin = false
+  let auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY
 
   // API key authentication takes precedence
   if (apiKeySecret) {
@@ -52,12 +71,19 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userId = authResult.userId
     userFeatures = authResult.features
     isSuperAdmin = authResult.isSuperAdmin
+    auditIdentity = {
+      apiKeyId: authResult.keyId,
+      apiKeySessionUserId: authResult.keySessionUserId ?? null,
+      apiKeyCreatedBy: authResult.keyCreatedBy ?? null,
+      sessionUserId: null,
+    }
     writeStderrLine(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
   } else if (context && context.userId) {
     // Manual context with a real user — load that user's ACL.
     tenantId = context.tenantId
     organizationId = context.organizationId
     userId = context.userId
+    auditIdentity = { ...EMPTY_MCP_AUDIT_IDENTITY, sessionUserId: context.userId }
 
     try {
       const rbacService = container.resolve('rbacService') as {
@@ -117,15 +143,11 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const registry = getToolRegistry()
     const tools = Array.from(registry.getTools().values())
 
-    // Filter tools based on user permissions
-    const rbacService = container.resolve<RbacService>('rbacService')
-    const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, userFeatures, isSuperAdmin, rbacService)
-    )
+    const accessibleTools = filterToolsForCaller(tools, exposureConfig, { features: userFeatures, isSuperAdmin })
 
     if (config.debug) {
       writeStderrLine(
-        `[MCP Server] Listing ${accessibleTools.length}/${tools.length} tools (filtered by ACL)`
+        `[MCP Server] Listing ${accessibleTools.length}/${tools.length} tools (filtered by exposure config and ACL)`
       )
     }
 
@@ -147,28 +169,82 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       writeStderrLine(`[MCP Server] Calling tool: ${name} argKeys=${Object.keys(args ?? {}).join(',')}`)
     }
 
-    const result = await executeTool(name, args ?? {}, toolContext)
+    const correlationId = resolveCorrelationId(null)
+    const startedAt = Date.now()
+    const toolArgs = args ?? {}
+
+    const audit = (
+      outcome: McpAuditOutcome,
+      errorCode: string | null,
+      pendingActionIds: string[] | null = null
+    ) =>
+      recordMcpToolCall(container, {
+        ...auditIdentity,
+        toolName: name,
+        tenantId,
+        organizationId,
+        channel: 'mcp',
+        mcpServer: 'stdio',
+        sessionKeyId: null,
+        principal: 'api_key',
+        outcome,
+        errorCode,
+        durationMs: Date.now() - startedAt,
+        isMutation: isMutationTool(getToolRegistry().getTool(name)),
+        pendingActionIds,
+        correlationId,
+        args: toolArgs,
+      })
+
+    let result: Awaited<ReturnType<typeof executeTool>>
+    try {
+      result = await executeTool(name, toolArgs, toolContext, {
+        channel: 'mcp',
+        mutationMode: exposureConfig.mutationMode,
+        requester: {
+          userId: resolveAuditActorUserId(auditIdentity),
+          apiKeyId: auditIdentity.apiKeyId,
+        },
+        correlationId,
+      })
+    } catch (error) {
+      await audit('error', 'EXCEPTION')
+      throw error
+    }
+
+    if (result.pendingApproval) {
+      await audit(mapToolResultToAuditOutcome(result), null, [result.pendingApproval.pendingActionId])
+      return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
+    }
+
+    await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
     if (!result.success) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({ error: result.error, code: result.errorCode }),
-          },
-        ],
-        isError: true,
-      }
+      return attachCorrelationMeta(
+        {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ error: result.error, code: result.errorCode }),
+            },
+          ],
+          isError: true,
+        },
+        correlationId
+      )
     }
 
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result.result, null, 2),
-        },
-      ],
-    }
+    return attachCorrelationMeta(
+      {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result.result, null, 2),
+          },
+        ],
+      },
+      correlationId
+    )
   })
 
   return server
@@ -216,7 +292,8 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     writeStderrLine('[MCP Server] Search indexing skipped (search service not available)')
   }
 
-  const server = await createMcpServer(options)
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
+  const server = await createMcpServer({ ...options, exposureConfig })
   const transport = new StdioServerTransport()
 
   const toolCount = getToolRegistry().listToolNames().length
@@ -234,6 +311,21 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   }
 
   writeStderrLine(`[MCP Server] Tools registered: ${toolCount}`)
+  writeStderrLine(
+    `[MCP Server] Exposure config: ${JSON.stringify(
+      describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())),
+    )}`
+  )
+  for (const warning of collectMcpExposureWarnings(process.env)) {
+    writeStderrLine(`[MCP Server] WARN ${warning}`)
+  }
+  const directMutationWarning = buildDirectMutationModeWarning(
+    exposureConfig,
+    Array.from(getToolRegistry().getTools().values()),
+  )
+  if (directMutationWarning) {
+    writeStderrLine(`[MCP Server] WARN ${directMutationWarning}`)
+  }
 
   await server.connect(transport)
 

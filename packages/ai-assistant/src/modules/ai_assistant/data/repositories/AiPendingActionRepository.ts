@@ -1,5 +1,6 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import {
+  findAndCountWithDecryption,
   findOneWithDecryption,
   findWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
@@ -8,6 +9,7 @@ import {
   AI_PENDING_ACTION_ALLOWED_TRANSITIONS,
   AiPendingActionStateError,
   resolveAiPendingActionTtlSeconds,
+  type AiPendingActionChannel,
   type AiPendingActionExecutionResult,
   type AiPendingActionFailedRecord,
   type AiPendingActionFieldDiff,
@@ -37,10 +39,56 @@ export interface AiPendingActionCreateInput {
   recordVersion?: string | null
   attachmentIds?: string[]
   queueMode?: AiPendingActionQueueMode
+  channel?: AiPendingActionChannel
+  apiKeyId?: string | null
+  correlationId?: string | null
   /** Optional explicit TTL in seconds; overrides the env/default TTL. */
   ttlSeconds?: number
   /** Optional explicit `now` for deterministic tests. */
   now?: Date
+}
+
+export interface AiPendingActionCreateOutcome {
+  row: AiPendingAction
+  created: boolean
+}
+
+export interface AiPendingActionApproverScope {
+  tenantId: string
+  organizationId?: string | null
+}
+
+export interface AiPendingActionViewer {
+  userId: string
+  canApproveAny: boolean
+}
+
+export interface AiPendingActionListFilters {
+  status?: AiPendingActionStatus
+  channel?: AiPendingActionChannel
+  toolName?: string
+  mine?: boolean
+}
+
+export interface AiPendingActionListPage {
+  page: number
+  pageSize: number
+}
+
+export interface AiPendingActionListResult {
+  items: AiPendingAction[]
+  total: number
+}
+
+const AI_PENDING_ACTION_LIST_MAX_PAGE_SIZE = 100
+
+export function canViewerAccessPendingAction(
+  row: Pick<AiPendingAction, 'createdByUserId' | 'channel'>,
+  viewer: AiPendingActionViewer,
+): boolean {
+  if (!viewer?.userId) return false
+  if (row.createdByUserId === viewer.userId) return true
+  return (row.channel ?? 'agent') !== 'agent' && viewer.canApproveAny === true
 }
 
 export interface AiPendingActionSetStatusExtra {
@@ -77,6 +125,14 @@ export class AiPendingActionRepository {
     input: AiPendingActionCreateInput,
     ctx: AiPendingActionContext,
   ): Promise<AiPendingAction> {
+    const outcome = await this.createOrReuse(input, ctx)
+    return outcome.row
+  }
+
+  async createOrReuse(
+    input: AiPendingActionCreateInput,
+    ctx: AiPendingActionContext,
+  ): Promise<AiPendingActionCreateOutcome> {
     if (!ctx?.tenantId) {
       throw new Error('AiPendingActionRepository.create requires tenantId')
     }
@@ -124,7 +180,7 @@ export class AiPendingActionRepository {
         },
       )
       if (existing && existing.status === 'pending') {
-        return existing
+        return { row: existing, created: false }
       }
       // Terminal stale row would collide on the unique
       // `(tenantId, organizationId, idempotencyKey)` constraint when we
@@ -164,6 +220,9 @@ export class AiPendingActionRepository {
         createdByUserId: input.createdByUserId,
         status: 'pending' as AiPendingActionStatus,
         queueMode: (input.queueMode ?? 'inline') as AiPendingActionQueueMode,
+        channel: input.channel ?? 'agent',
+        apiKeyId: input.apiKeyId ?? null,
+        correlationId: input.correlationId ?? null,
         executionResult: null,
         createdAt: now,
         expiresAt,
@@ -171,7 +230,7 @@ export class AiPendingActionRepository {
         resolvedByUserId: null,
       } as unknown as AiPendingAction)
       await tx.persist(row).flush()
-      return row
+      return { row, created: true }
     })
   }
 
@@ -195,6 +254,60 @@ export class AiPendingActionRepository {
       },
     )
     return row ?? null
+  }
+
+  async getByIdForApprover(
+    id: string,
+    scope: AiPendingActionApproverScope,
+    viewer: AiPendingActionViewer,
+  ): Promise<AiPendingAction | null> {
+    const row = await this.getById(id, scope)
+    if (!row) return null
+    return canViewerAccessPendingAction(row, viewer) ? row : null
+  }
+
+  async listForCaller(
+    scope: AiPendingActionApproverScope,
+    viewer: AiPendingActionViewer,
+    filters: AiPendingActionListFilters,
+    page: AiPendingActionListPage,
+  ): Promise<AiPendingActionListResult> {
+    if (!scope?.tenantId || !viewer?.userId) return { items: [], total: 0 }
+    const pageSize = Math.max(
+      1,
+      Math.min(Math.floor(page?.pageSize || 1), AI_PENDING_ACTION_LIST_MAX_PAGE_SIZE),
+    )
+    const pageNumber = Math.max(1, Math.floor(page?.page || 1))
+    const where: Record<string, unknown> = {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    }
+    if (filters?.status) where.status = filters.status
+    if (filters?.channel) where.channel = filters.channel
+    if (filters?.toolName) where.toolName = filters.toolName
+    if (filters?.mine || !viewer.canApproveAny) {
+      where.createdByUserId = viewer.userId
+    } else {
+      where.$or = [
+        { createdByUserId: viewer.userId },
+        { channel: { $ne: 'agent' } },
+      ]
+    }
+    const [items, total] = await findAndCountWithDecryption<AiPendingAction>(
+      this.em,
+      AiPendingAction,
+      where as FilterQuery<AiPendingAction>,
+      {
+        orderBy: { createdAt: 'desc' },
+        limit: pageSize,
+        offset: (pageNumber - 1) * pageSize,
+      },
+      {
+        tenantId: scope.tenantId ?? null,
+        organizationId: scope.organizationId ?? null,
+      },
+    )
+    return { items, total }
   }
 
   async listPendingForAgent(

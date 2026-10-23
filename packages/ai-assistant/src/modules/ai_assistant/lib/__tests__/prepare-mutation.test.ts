@@ -90,6 +90,9 @@ type Row = {
   expiresAt: Date
   resolvedAt: Date | null
   resolvedByUserId: string | null
+  channel: string
+  apiKeyId: string | null
+  correlationId: string | null
 }
 
 let idCounter = 0
@@ -154,6 +157,9 @@ function mockEm() {
         expiresAt: data.expiresAt instanceof Date ? data.expiresAt : new Date(),
         resolvedAt: data.resolvedAt ?? null,
         resolvedByUserId: data.resolvedByUserId ?? null,
+        channel: data.channel ?? 'agent',
+        apiKeyId: data.apiKeyId ?? null,
+        correlationId: data.correlationId ?? null,
       }
       return row
     },
@@ -631,6 +637,44 @@ describe('prepareMutation', () => {
       { ...baseCtx, container },
     )
     expect(pendingAction.attachmentIds).toEqual(['att-1', 'att-2'])
+  })
+
+  it('stamps rows with the agent channel by default', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({ name: 'catalog.products.update', isMutation: true })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { pendingAction } = await prepareMutation(
+      { agent, tool, toolCallArgs: { productId: 'p-1' } },
+      { ...baseCtx, container },
+    )
+    expect(pendingAction.channel).toBe('agent')
+    expect(pendingAction.apiKeyId).toBeNull()
+    expect(pendingAction.correlationId).toBeNull()
+  })
+
+  it('persists channel, apiKeyId and correlationId when supplied', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({ name: 'catalog.products.update', isMutation: true })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { pendingAction } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: { productId: 'p-1' },
+        channel: 'mcp',
+        apiKeyId: 'key-1',
+        correlationId: 'corr-1',
+      },
+      { ...baseCtx, container },
+    )
+    expect(pendingAction.channel).toBe('mcp')
+    expect(pendingAction.apiKeyId).toBe('key-1')
+    expect(pendingAction.correlationId).toBe('corr-1')
+    expect(em.__store[0].channel).toBe('mcp')
   })
 })
 

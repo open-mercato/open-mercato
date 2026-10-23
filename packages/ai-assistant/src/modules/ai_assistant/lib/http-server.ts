@@ -6,13 +6,33 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
-import { executeTool } from './tool-executor'
+import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
+import {
+  collectMcpExposureWarnings,
+  filterToolsForCaller,
+  isToolExposed,
+  buildDirectMutationModeWarning,
+  describeMcpExposureConfig,
+  resolveMcpExposureConfig,
+  type McpExposureCaller,
+  type McpExposureConfig,
+} from './mcp-exposure'
 import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
-import type { McpServerConfig, McpToolContext } from './types'
+import {
+  CORRELATION_ID_HEADER,
+  attachCorrelationMeta,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveAuditActorUserId,
+  resolveCorrelationId,
+  type McpAuditOutcome,
+  type McpAuditPrincipal,
+} from './mcp-audit'
+import type { AiToolDefinition, McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
@@ -27,6 +47,61 @@ export type McpHttpServerOptions = {
   config: McpServerConfig
   container: AwilixContainer
   port: number
+  exposureConfig?: McpExposureConfig
+  cliArgs?: Record<string, unknown>
+}
+
+export type McpHttpRequestHandlerOptions = {
+  config: McpServerConfig
+  container: AwilixContainer
+  exposureConfig: McpExposureConfig
+  port?: number
+}
+
+export type McpHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
+
+const SESSION_TOKEN_HEADER = 'x-om-session-token'
+
+type ResolvedSessionContext = {
+  context: McpToolContext
+  sessionKeyId: string
+}
+
+type McpToolCallResponse = {
+  content: Array<{ type: 'text'; text: string }>
+  structuredContent?: Record<string, unknown>
+  isError?: boolean
+}
+
+function buildToolErrorResponse(payload: Record<string, unknown>): McpToolCallResponse {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(payload),
+      },
+    ],
+    isError: true,
+  }
+}
+
+function listRegistryTools(): AiToolDefinition[] {
+  return Array.from(getToolRegistry().getTools().values()) as AiToolDefinition[]
+}
+
+function listExposedTools(exposureConfig: McpExposureConfig): AiToolDefinition[] {
+  return listRegistryTools().filter((tool) => isToolExposed(tool, exposureConfig))
+}
+
+function buildExposureHealth(exposureConfig: McpExposureConfig) {
+  const exposedTools = listExposedTools(exposureConfig)
+  return {
+    allowlist: exposureConfig.allow !== null,
+    denylistCount: exposureConfig.deny.length,
+    mutationMode: exposureConfig.mutationMode,
+    toolCount: exposedTools.length,
+    agentToolCount: exposedTools.filter((tool) => Boolean(tool.agentRef)).length,
+  }
 }
 
 /**
@@ -38,7 +113,7 @@ async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
   debug?: boolean
-): Promise<McpToolContext | null> {
+): Promise<ResolvedSessionContext | null> {
   try {
     const em = baseContext.container.resolve<EntityManager>('em')
     const rbacService = baseContext.container.resolve<RbacService>('rbacService')
@@ -80,14 +155,17 @@ async function resolveSessionContext(
     }
 
     return {
-      tenantId: sessionKey.tenantId ?? null,
-      organizationId: sessionKey.organizationId ?? null,
-      userId,
-      container: baseContext.container,
-      userFeatures: acl.features,
-      isSuperAdmin: acl.isSuperAdmin,
-      // Use the decrypted session secret for API calls (not the MCP server key)
-      apiKeySecret: sessionSecret,
+      sessionKeyId: sessionKey.id,
+      context: {
+        tenantId: sessionKey.tenantId ?? null,
+        organizationId: sessionKey.organizationId ?? null,
+        userId,
+        container: baseContext.container,
+        userFeatures: acl.features,
+        isSuperAdmin: acl.isSuperAdmin,
+        // Use the decrypted session secret for API calls (not the MCP server key)
+        apiKeySecret: sessionSecret,
+      },
     }
   } catch (error) {
     if (debug) {
@@ -148,29 +226,92 @@ async function resolveApiKeyContext(
   }
 }
 
+function buildApiKeyToolContext(
+  apiKeyRecord: ApiKey,
+  container: AwilixContainer,
+  apiKeySecret: string
+): McpToolContext {
+  return {
+    tenantId: apiKeyRecord.tenantId ?? null,
+    organizationId: apiKeyRecord.organizationId ?? null,
+    userId: apiKeyRecord.createdBy ?? null,
+    container,
+    userFeatures: [],
+    isSuperAdmin: false,
+    apiKeySecret,
+  }
+}
+
 /**
- * Create a stateless MCP server instance for a single request.
- * Tools are registered without pre-filtering - permission checks happen at execution time
- * based on the session token provided in each tool call.
+ * Resolve the `tools/list` principal for an API key secret exactly as the HTTP server does for a
+ * request without a session token header. Returns null when the key is unknown or expired.
  */
-function createMcpServerForRequest(
+export async function resolveApiKeyListCaller(
+  container: AwilixContainer,
+  apiKeySecret: string
+): Promise<McpExposureCaller | null> {
+  const em = container.resolve<EntityManager>('em')
+  const apiKeyRecord = await findApiKeyBySecret(em, apiKeySecret)
+  if (!apiKeyRecord) return null
+  const toolContext = buildApiKeyToolContext(apiKeyRecord, container, apiKeySecret)
+  const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext)
+  const listContext = apiKeyContext ?? toolContext
+  return { features: listContext.userFeatures, isSuperAdmin: listContext.isSuperAdmin }
+}
+
+/**
+ * Resolve the principal whose ACL filters `tools/list` for a request.
+ * A session token header selects the session user's ACL; otherwise the server API key's ACL applies.
+ * Returns null when the session token header is present but invalid or expired.
+ */
+async function resolveListPrincipal(
   config: McpServerConfig,
   toolContext: McpToolContext,
-  apiKeyRecord: ApiKey
-): McpServer {
+  apiKeyRecord: ApiKey,
+  sessionHeaderToken: string | undefined
+): Promise<McpExposureCaller | null> {
+  if (sessionHeaderToken) {
+    const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, config.debug)
+    if (!resolvedSession) return null
+    return { features: resolvedSession.context.userFeatures, isSuperAdmin: resolvedSession.context.isSuperAdmin }
+  }
+  const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
+  const listContext = apiKeyContext ?? toolContext
+  return { features: listContext.userFeatures, isSuperAdmin: listContext.isSuperAdmin }
+}
+
+/**
+ * Create a stateless MCP server instance for a single request.
+ * Only tools passing the exposure config and the list principal's ACL are registered, so
+ * `tools/list` and `tools/call` see the same set. Per-call ACL checks still run at execution time
+ * based on the session token provided in each tool call.
+ * Returns null when the `x-om-session-token` header is invalid or expired.
+ */
+async function createMcpServerForRequest(
+  config: McpServerConfig,
+  toolContext: McpToolContext,
+  apiKeyRecord: ApiKey,
+  exposureConfig: McpExposureConfig,
+  sessionHeaderToken: string | undefined,
+  correlationId: string
+): Promise<McpServer | null> {
+  const listPrincipal = await resolveListPrincipal(config, toolContext, apiKeyRecord, sessionHeaderToken)
+  if (!listPrincipal) return null
+
   const server = new McpServer(
     { name: config.name, version: config.version },
     { capabilities: { tools: {} } }
   )
 
-  const registry = getToolRegistry()
-  const tools = Array.from(registry.getTools().values())
+  const tools = filterToolsForCaller(listRegistryTools(), exposureConfig, listPrincipal)
 
   if (config.debug) {
-    logger.debug('Registering tools (ACL checked per-call via session token)', { toolCount: tools.length })
+    logger.debug('Registering tools filtered for list principal (ACL also checked per-call)', {
+      toolCount: tools.length,
+      listPrincipal: sessionHeaderToken ? 'session' : 'api_key',
+    })
   }
 
-  // Register ALL tools - permission checks happen at execution time via session token
   for (const tool of tools) {
     if (config.debug) {
       logger.debug('Registering tool', { toolName: tool.name })
@@ -224,6 +365,7 @@ function createMcpServerForRequest(
         },
         async (args: unknown) => {
           const toolArgs = (args ?? {}) as Record<string, unknown>
+          const startedAt = Date.now()
 
           // Extract session token from args
           const sessionToken = toolArgs._sessionToken as string | undefined
@@ -234,29 +376,60 @@ function createMcpServerForRequest(
             toolName: tool.name,
             hasSessionToken: !!sessionToken,
             argKeys: Object.keys(toolArgs ?? {}).join(','),
+            correlationId,
           })
 
-          // Resolve user context from session token
           let effectiveContext = toolContext
+          let principal: McpAuditPrincipal = 'api_key'
+          let sessionKeyId: string | null = null
+
+          const complete = async (
+            response: McpToolCallResponse,
+            outcome: McpAuditOutcome,
+            errorCode: string | null,
+            pendingActionIds: string[] | null = null
+          ) => {
+            await recordMcpToolCall(toolContext.container, {
+              toolName: tool.name,
+              tenantId: effectiveContext.tenantId,
+              organizationId: effectiveContext.organizationId,
+              sessionUserId: principal === 'session' ? effectiveContext.userId : null,
+              apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
+              apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
+              channel: 'mcp',
+              mcpServer: 'http',
+              apiKeyId: apiKeyRecord.id,
+              sessionKeyId,
+              principal,
+              outcome,
+              errorCode,
+              durationMs: Date.now() - startedAt,
+              isMutation: tool.isMutation === true,
+              pendingActionIds,
+              correlationId,
+              args: toolArgs,
+            })
+            return attachCorrelationMeta(response, correlationId)
+          }
+
+          // Resolve user context from session token
           if (sessionToken) {
-            const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
-            if (sessionContext) {
+            const resolvedSession = await resolveSessionContext(sessionToken, toolContext, config.debug)
+            if (resolvedSession) {
               // Session context includes the decrypted API key secret + session ID for memory layer
-              effectiveContext = { ...sessionContext, sessionId: sessionToken }
+              effectiveContext = { ...resolvedSession.context, sessionId: sessionToken }
+              principal = 'session'
+              sessionKeyId = resolvedSession.sessionKeyId
             } else {
               // Session token expired - return user-friendly error for AI to relay
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
-                      code: 'SESSION_EXPIRED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+              return complete(
+                buildToolErrorResponse({
+                  error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
+                  code: 'SESSION_EXPIRED',
+                }),
+                'denied',
+                'SESSION_EXPIRED'
+              )
             }
           } else {
             // No session token — fall back to header API key auth
@@ -264,18 +437,14 @@ function createMcpServerForRequest(
             if (apiKeyContext) {
               effectiveContext = apiKeyContext
             } else if (!effectiveContext.userId && effectiveContext.userFeatures.length === 0) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+              return complete(
+                buildToolErrorResponse({
+                  error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
+                  code: 'UNAUTHORIZED',
+                }),
+                'denied',
+                'UNAUTHORIZED'
+              )
             }
 
             // Derive a fallback sessionId from the API key so all tool calls
@@ -298,57 +467,71 @@ function createMcpServerForRequest(
               rbacService
             )
             if (!hasAccess) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: `Insufficient permissions for tool "${tool.name}". Required: ${tool.requiredFeatures.join(', ')}`,
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+              return complete(
+                buildToolErrorResponse({
+                  error: `Insufficient permissions for tool "${tool.name}". Required: ${tool.requiredFeatures.join(', ')}`,
+                  code: 'UNAUTHORIZED',
+                }),
+                'denied',
+                'UNAUTHORIZED'
+              )
             }
           }
 
           try {
-            const result = await executeTool(tool.name, toolArgs, effectiveContext)
+            const result = await executeTool(tool.name, toolArgs, effectiveContext, {
+              channel: 'mcp',
+              mutationMode: exposureConfig.mutationMode,
+              requester: {
+                userId: resolveAuditActorUserId({
+                  sessionUserId: principal === 'session' ? effectiveContext.userId : null,
+                  apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
+                  apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
+                }),
+                apiKeyId: apiKeyRecord.id,
+              },
+              correlationId,
+            })
+            const outcome = mapToolResultToAuditOutcome(result)
+
+            if (result.pendingApproval) {
+              return complete(
+                buildPendingApprovalMcpResponse(result),
+                outcome,
+                null,
+                [result.pendingApproval.pendingActionId]
+              )
+            }
 
             if (!result.success) {
-              logger.error('Tool call failed', { toolName: tool.name, err: result.error, code: result.errorCode })
-              return {
+              logger.error('Tool call failed', { toolName: tool.name, err: result.error, code: result.errorCode, correlationId })
+              return complete(
+                buildToolErrorResponse({ error: result.error, code: result.errorCode }),
+                outcome,
+                result.errorCode ?? null
+              )
+            }
+
+            logger.debug('Tool call succeeded', { toolName: tool.name, correlationId })
+            return complete(
+              {
                 content: [
                   {
                     type: 'text' as const,
-                    text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                    text: JSON.stringify(result.result, null, 2),
                   },
                 ],
-                isError: true,
-              }
-            }
-
-            logger.debug('Tool call succeeded', { toolName: tool.name })
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify(result.result, null, 2),
-                },
-              ],
-            }
+              },
+              outcome,
+              null
+            )
           } catch (err) {
-            logger.error('Tool call threw', { toolName: tool.name, err })
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error', code: 'EXCEPTION' }),
-                },
-              ],
-              isError: true,
-            }
+            logger.error('Tool call threw', { toolName: tool.name, err, correlationId })
+            return complete(
+              buildToolErrorResponse({ error: err instanceof Error ? err.message : 'Unknown error', code: 'EXCEPTION' }),
+              'error',
+              'EXCEPTION'
+            )
           }
         }
       )
@@ -400,6 +583,151 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
+ * Build the HTTP request handler for the MCP server without binding a port.
+ */
+export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOptions): McpHttpRequestHandler {
+  const { config, container, exposureConfig } = options
+  const port = options.port ?? 0
+
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    const url = new URL(req.url || '/', `http://localhost:${port}`)
+
+    // Health check endpoint
+    if (url.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        status: 'ok',
+        tools: getToolRegistry().listToolNames().length,
+        exposure: buildExposureHealth(exposureConfig),
+        timestamp: new Date().toISOString(),
+      }))
+      return
+    }
+
+    if (url.pathname !== '/mcp') {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Not found' }))
+      return
+    }
+
+    logger.debug('Request received', { method: req.method, path: url.pathname })
+
+    // Extract headers
+    const headers: Record<string, string | undefined> = {}
+    for (const [key, value] of Object.entries(req.headers)) {
+      headers[key] = Array.isArray(value) ? value[0] : value
+    }
+
+    // Server-level authentication via database lookup
+    const providedApiKey = extractApiKeyFromHeaders(headers)
+    if (!providedApiKey) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'API key required (x-api-key header)' }))
+      return
+    }
+
+    // Validate API key against database (prefix lookup + bcrypt verify + expiry check)
+    const em = container.resolve<EntityManager>('em')
+    const apiKeyRecord = await findApiKeyBySecret(em, providedApiKey)
+    if (!apiKeyRecord) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid or expired API key' }))
+      return
+    }
+
+    if (config.debug) {
+      logger.debug('Server-level auth passed', { method: req.method, keyPrefix: apiKeyRecord.keyPrefix })
+    }
+
+    // Create base tool context using API key's tenant/org scope
+    // Session tokens can override with user-specific permissions
+    const toolContext = buildApiKeyToolContext(apiKeyRecord, container, providedApiKey)
+
+    try {
+      const mcpServer = await createMcpServerForRequest(
+        config,
+        toolContext,
+        apiKeyRecord,
+        exposureConfig,
+        headers[SESSION_TOKEN_HEADER],
+        resolveCorrelationId(headers[CORRELATION_ID_HEADER])
+      )
+      if (!mcpServer) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid or expired session token' }))
+        return
+      }
+
+      // Create stateless transport (no session ID generator = stateless)
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: req.method === 'POST',
+      })
+
+      if (config.debug) {
+        // Check registered tools on the server
+        const registeredTools = (mcpServer as any)._registeredTools || {}
+        logger.debug('Registered tools in McpServer', { toolNames: Object.keys(registeredTools).join(',') })
+        logger.debug('Tool handlers initialized', { initialized: (mcpServer as any)._toolHandlersInitialized })
+      }
+
+      // Connect server to transport
+      await mcpServer.connect(transport)
+
+      // Handle the request
+      if (req.method === 'POST') {
+        const body = await parseJsonBody(req)
+        await transport.handleRequest(req, res, body)
+      } else {
+        await transport.handleRequest(req, res)
+      }
+
+      // Cleanup after response finishes
+      res.on('finish', () => {
+        transport.close()
+        mcpServer.close()
+        if (config.debug) {
+          logger.debug('Request completed, cleaned up')
+        }
+      })
+    } catch (error) {
+      logger.error('Error handling request', { err: error })
+      if (!res.headersSent) {
+        // Handle payload too large error
+        if (error instanceof Error && error.message === 'Request payload too large') {
+          res.writeHead(413, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Request payload too large (max 1MB)' }))
+          return
+        }
+
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: `Internal server error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            id: null,
+          })
+        )
+      }
+    }
+  }
+}
+
+function logExposureConfig(exposureConfig: McpExposureConfig): void {
+  logger.info('MCP exposure config', describeMcpExposureConfig(exposureConfig, listRegistryTools()))
+  for (const warning of collectMcpExposureWarnings(process.env)) {
+    logger.warn(warning)
+  }
+  const directMutationWarning = buildDirectMutationModeWarning(exposureConfig, listRegistryTools())
+  if (directMutationWarning) {
+    logger.warn(directMutationWarning)
+  }
+}
+
+/**
  * Run MCP server with HTTP transport (stateless mode).
  *
  * Each request creates a new MCP server instance and transport.
@@ -407,6 +735,7 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
  */
 export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<void> {
   const { config, container, port } = options
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
 
   await loadAllModuleTools()
 
@@ -462,127 +791,9 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     logger.warn('Search indexing skipped (search service not available)', { err: error })
   }
 
-  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url || '/', `http://localhost:${port}`)
+  logExposureConfig(exposureConfig)
 
-    // Health check endpoint
-    if (url.pathname === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({
-        status: 'ok',
-        tools: getToolRegistry().listToolNames().length,
-        timestamp: new Date().toISOString(),
-      }))
-      return
-    }
-
-    if (url.pathname !== '/mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Not found' }))
-      return
-    }
-
-    logger.debug('Request received', { method: req.method, path: url.pathname })
-
-    // Extract headers
-    const headers: Record<string, string | undefined> = {}
-    for (const [key, value] of Object.entries(req.headers)) {
-      headers[key] = Array.isArray(value) ? value[0] : value
-    }
-
-    // Server-level authentication via database lookup
-    const providedApiKey = extractApiKeyFromHeaders(headers)
-    if (!providedApiKey) {
-      res.writeHead(401, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'API key required (x-api-key header)' }))
-      return
-    }
-
-    // Validate API key against database (prefix lookup + bcrypt verify + expiry check)
-    const em = container.resolve<EntityManager>('em')
-    const apiKeyRecord = await findApiKeyBySecret(em, providedApiKey)
-    if (!apiKeyRecord) {
-      res.writeHead(401, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Invalid or expired API key' }))
-      return
-    }
-
-    if (config.debug) {
-      logger.debug('Server-level auth passed', { method: req.method, keyPrefix: apiKeyRecord.keyPrefix })
-    }
-
-    // Create base tool context using API key's tenant/org scope
-    // Session tokens can override with user-specific permissions
-    const toolContext: McpToolContext = {
-      tenantId: apiKeyRecord.tenantId ?? null,
-      organizationId: apiKeyRecord.organizationId ?? null,
-      userId: apiKeyRecord.createdBy ?? null,
-      container,
-      userFeatures: [],
-      isSuperAdmin: false,
-      apiKeySecret: providedApiKey,
-    }
-
-    try {
-      // Create stateless transport (no session ID generator = stateless)
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-        enableJsonResponse: req.method === 'POST',
-      })
-
-      // Create new server for this request
-      const mcpServer = createMcpServerForRequest(config, toolContext, apiKeyRecord)
-
-      if (config.debug) {
-        // Check registered tools on the server
-        const registeredTools = (mcpServer as any)._registeredTools || {}
-        logger.debug('Registered tools in McpServer', { toolNames: Object.keys(registeredTools).join(',') })
-        logger.debug('Tool handlers initialized', { initialized: (mcpServer as any)._toolHandlersInitialized })
-      }
-
-      // Connect server to transport
-      await mcpServer.connect(transport)
-
-      // Handle the request
-      if (req.method === 'POST') {
-        const body = await parseJsonBody(req)
-        await transport.handleRequest(req, res, body)
-      } else {
-        await transport.handleRequest(req, res)
-      }
-
-      // Cleanup after response finishes
-      res.on('finish', () => {
-        transport.close()
-        mcpServer.close()
-        if (config.debug) {
-          logger.debug('Request completed, cleaned up')
-        }
-      })
-    } catch (error) {
-      logger.error('Error handling request', { err: error })
-      if (!res.headersSent) {
-        // Handle payload too large error
-        if (error instanceof Error && error.message === 'Request payload too large') {
-          res.writeHead(413, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Request payload too large (max 1MB)' }))
-          return
-        }
-
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            error: {
-              code: -32603,
-              message: `Internal server error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-            id: null,
-          })
-        )
-      }
-    }
-  })
+  const httpServer = createServer(createMcpHttpRequestHandler({ config, container, exposureConfig, port }))
 
   const toolCount = getToolRegistry().listToolNames().length
 

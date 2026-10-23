@@ -1,11 +1,18 @@
 import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
+import type {
+  DocumentSectionKind,
+  DocumentSectionSource,
+  DocumentStructureEngineName,
+  ExtractionSkipReason,
+  ExtractionStatus,
+} from '../lib/documentStructure/types'
 
 @Entity({ tableName: 'attachment_partitions' })
 @Unique({ name: 'attachment_partitions_code_unique', properties: ['code'] })
 export class AttachmentPartition {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'extractDocumentStructure' | 'indexDocumentSections'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -33,6 +40,12 @@ export class AttachmentPartition {
 
   @Property({ name: 'ocr_model', type: 'text', nullable: true })
   ocrModel?: string | null
+
+  @Property({ name: 'extract_document_structure', type: 'boolean', default: false })
+  extractDocumentStructure: boolean = false
+
+  @Property({ name: 'index_document_sections', type: 'boolean', default: false })
+  indexDocumentSections: boolean = false
 
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
@@ -159,4 +172,157 @@ export class AttachmentQuotaReservation {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'attachment_document_extractions' })
+@Index({ name: 'attachment_document_extractions_scope_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'attachment_document_extractions_attachment_idx', properties: ['attachmentId', 'createdAt'] })
+@Index({
+  name: 'attachment_document_extractions_live_unique',
+  expression:
+    `create unique index "attachment_document_extractions_live_unique" on "attachment_document_extractions" ("attachment_id", "content_sha256", "engine_version") where deleted_at is null`,
+})
+export class AttachmentDocumentExtraction {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'status'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'attachment_id', type: 'uuid' })
+  attachmentId!: string
+
+  @Property({ name: 'partition_code', type: 'text' })
+  partitionCode!: string
+
+  @Property({ name: 'content_sha256', type: 'varchar', length: 64 })
+  contentSha256!: string
+
+  @Property({ type: 'varchar', length: 32 })
+  engine!: DocumentStructureEngineName
+
+  @Property({ name: 'engine_version', type: 'int' })
+  engineVersion!: number
+
+  @Property({ type: 'varchar', length: 20, default: 'pending' })
+  status: ExtractionStatus = 'pending'
+
+  @Property({ name: 'skip_reason', type: 'varchar', length: 40, nullable: true })
+  skipReason?: ExtractionSkipReason | null
+
+  @Property({ name: 'page_count', type: 'int', nullable: true })
+  pageCount?: number | null
+
+  @Property({ name: 'section_count', type: 'int', nullable: true })
+  sectionCount?: number | null
+
+  @Property({ name: 'char_count', type: 'int', nullable: true })
+  charCount?: number | null
+
+  @Property({ name: 'ocr_page_count', type: 'int', nullable: true })
+  ocrPageCount?: number | null
+
+  @Property({ name: 'normalized_text', type: 'text', nullable: true })
+  normalizedText?: string | null
+
+  @Property({ name: 'failure_reason', type: 'text', nullable: true })
+  failureReason?: string | null
+
+  @Property({ type: 'json', nullable: true })
+  stats?: Record<string, unknown> | null
+
+  @Property({ name: 'requested_by_user_id', type: 'uuid', nullable: true })
+  requestedByUserId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'attachment_document_sections' })
+@Index({ name: 'attachment_document_sections_extraction_ordinal_idx', properties: ['extractionId', 'ordinal'] })
+@Index({ name: 'attachment_document_sections_number_label_idx', properties: ['attachmentId', 'numberLabel'] })
+@Index({ name: 'attachment_document_sections_anchor_key_idx', properties: ['attachmentId', 'anchorKey'] })
+@Index({ name: 'attachment_document_sections_scope_idx', properties: ['tenantId', 'organizationId'] })
+export class AttachmentDocumentSection {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'extraction_id', type: 'uuid' })
+  extractionId!: string
+
+  @Property({ name: 'attachment_id', type: 'uuid' })
+  attachmentId!: string
+
+  @Property({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId?: string | null
+
+  @Property({ type: 'int' })
+  ordinal!: number
+
+  @Property({ type: 'smallint' })
+  depth!: number
+
+  @Property({ type: 'varchar', length: 20 })
+  kind!: DocumentSectionKind
+
+  @Property({ name: 'number_label', type: 'varchar', length: 64, nullable: true })
+  numberLabel?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  heading?: string | null
+
+  @Property({ name: 'heading_path', type: 'json' })
+  headingPath!: string[]
+
+  @Property({ type: 'text' })
+  text!: string
+
+  @Property({ name: 'page_start', type: 'int', nullable: true })
+  pageStart?: number | null
+
+  @Property({ name: 'page_end', type: 'int', nullable: true })
+  pageEnd?: number | null
+
+  @Property({ name: 'char_start', type: 'int' })
+  charStart!: number
+
+  @Property({ name: 'char_end', type: 'int' })
+  charEnd!: number
+
+  @Property({ name: 'anchor_key', type: 'varchar', length: 32 })
+  anchorKey!: string
+
+  @Property({ name: 'text_sha256', type: 'varchar', length: 64 })
+  textSha256!: string
+
+  @Property({ name: 'token_estimate', type: 'int' })
+  tokenEstimate!: number
+
+  @Property({ type: 'varchar', length: 16 })
+  source!: DocumentSectionSource
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }
