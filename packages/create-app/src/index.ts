@@ -12,7 +12,9 @@ import {
   validateImportedReadyAppSnapshot,
   validateSlug,
 } from './lib/ready-apps.js'
-import { applyStarterPreset } from './lib/apply-starter-preset.js'
+import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js'
+import { runCatalogStep } from './lib/catalog/catalog-step.js'
+import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
@@ -29,6 +31,8 @@ interface Options {
   initGit?: boolean
   agents?: string
   experimentalHooksValidator?: boolean
+  modules?: string
+  modulePicker: boolean
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
@@ -62,6 +66,10 @@ ${pc.bold('Options:')}
   --experimental-hooks-validator
                      Install experimental gate-evidence/typecheck validator hooks
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
+  --modules <list>   Plan modules from the Open Mercato Modules catalog (comma-separated
+                     module ids or npm names verified on this version); writes
+                     .mercato/catalog-selection.json and prints their install commands
+  --module-picker    Pick catalog modules interactively (off by default; needs a terminal)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -78,6 +86,8 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --agents codex --experimental-hooks-validator
   npx create-mercato-app my-store --agents all
   npx create-mercato-app my-store --agents none
+  npx create-mercato-app my-store --preset crm --modules gateway_stripe
+  npx create-mercato-app my-store --module-picker
   npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
@@ -107,6 +117,8 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     initGit: undefined,
     agents: undefined,
     experimentalHooksValidator: undefined,
+    modules: undefined,
+    modulePicker: false,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -126,6 +138,11 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       index += 1
     } else if (arg === '--experimental-hooks-validator') {
       options.experimentalHooksValidator = true
+    } else if (arg === '--modules') {
+      options.modules = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--module-picker') {
+      options.modulePicker = true
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
     } else if (arg === '--init-git') {
@@ -492,7 +509,16 @@ async function maybeRunAgenticSetup(
   }
 }
 
-function printTemplateNextSteps(appName: string, agenticConfigured: boolean): void {
+function printCatalogNextSteps(catalogCommands: string[]): void {
+  if (catalogCommands.length === 0) return
+  console.log(pc.green('Modules you planned from the catalog:'))
+  console.log(pc.dim('  # After yarn install, in this order (each command runs yarn generate for you):'))
+  for (const command of catalogCommands) console.log(pc.cyan(`  ${command}`))
+  console.log(pc.dim('  # Then yarn db:migrate. The plan is saved in .mercato/catalog-selection.json'))
+  console.log('')
+}
+
+function printTemplateNextSteps(appName: string, agenticConfigured: boolean, catalogCommands: string[] = []): void {
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
@@ -514,6 +540,7 @@ function printTemplateNextSteps(appName: string, agenticConfigured: boolean): vo
   console.log(pc.cyan('  yarn initialize'))
   console.log(pc.cyan('  yarn dev'))
   console.log('')
+  printCatalogNextSteps(catalogCommands)
   console.log('Docker alternatives:')
   console.log(pc.dim('  # Before Docker: cp .env.example .env && yarn install'))
   console.log(pc.dim('  # Docker expects your local app env and dependencies to be prepared first'))
@@ -562,6 +589,38 @@ function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
   console.log('')
 }
 
+async function maybeRunCatalogStep(
+  targetDir: string,
+  presetId: string,
+  requested: string[] | null,
+  picker: boolean,
+): Promise<string[]> {
+  const preset = resolvePreset(presetId)
+  const presetModuleIds = preset.isClassic ? null : preset.modules.map((entry) => entry.id)
+  const interactive = picker && Boolean(process.stdin.isTTY && process.stdout.isTTY)
+  const rl = interactive ? createInterface({ input: process.stdin, output: process.stdout }) : null
+  const ask = rl
+    ? (question: string) =>
+        new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+    : null
+
+  try {
+    const result = await runCatalogStep({
+      targetDir,
+      version: PACKAGE_VERSION,
+      requested,
+      picker,
+      presetModuleIds,
+      ask,
+      log: (line) => console.log(line),
+      warn: (line) => console.log(pc.yellow(line)),
+    })
+    return result.commands
+  } finally {
+    rl?.close()
+  }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const { appName: appNameArg, options } = parseArgs(argv)
 
@@ -604,6 +663,13 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     )
   }
 
+  if ((options.modules !== undefined || options.modulePicker) && readyAppSource) {
+    throw new Error(
+      '--modules and --module-picker are not supported with --app/--app-url. Imported ready apps keep their own module set.',
+    )
+  }
+  const requestedCatalogModules = options.modules !== undefined ? parseModulesFlag(options.modules) : null
+
   // Resolve (and validate) the agentic selection up front so a bad --agents
   // value fails before any scaffolding work happens.
   const agentSelection = resolveAgentSelection(options)
@@ -635,6 +701,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     applyStarterPreset(presetId, targetDir)
   }
 
+  let catalogCommands: string[] = []
+  if (!readyAppSource && (requestedCatalogModules !== null || options.modulePicker)) {
+    catalogCommands = await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, options.modulePicker)
+  }
+
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
 
@@ -652,7 +723,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (readyAppSource) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    printTemplateNextSteps(appName, agenticConfigured)
+    printTemplateNextSteps(appName, agenticConfigured, catalogCommands)
   }
   printGitHubSyncInstructions(gitResult)
 
