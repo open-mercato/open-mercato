@@ -90,7 +90,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Checkout Wireframes](2026-03-19-checkout-simple-checkout-wireframes.md) | 2026-03-19 | Simple Checkout Wireframes | Companion wireframes for the Simple Checkout spec |
 | [Registry](implemented/2026-03-20-decentralize-module-registry-generator.md) | 2026-03-20 | Decentralize Module Registry Generator | CLI refactoring for decentralized module registry generation |
 | [Sync Playbook](2026-03-20-official-modules-platform-sync-playbook.md) | 2026-03-20 | Official Modules Platform Sync Playbook | Playbook for syncing official modules with platform releases |
-| [Snapshots](2026-03-21-open-mercato-develop-snapshot-release.md) | 2026-03-21 | Develop Snapshot Release | Develop branch snapshot release workflow |
+| [Snapshots](2026-03-21-open-mercato-develop-snapshot-release.md) | 2026-03-21 | Develop Snapshot Release | Snapshot release workflow (pushes to `main`, `develop` dist-tag) |
 | [Webhooks](2026-03-23-inbound-webhook-handlers.md) | 2026-03-23 | Inbound Webhook Handlers | Inbound webhook handler architecture and registration |
 | [Build Check](2026-03-25-safe-build-dev-coexistence.md) | 2026-03-25 | Safe Package Verification Build | Isolated `build:check` output so verification builds never touch live `dist/` artifacts |
 | [Not Found](implemented/2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |

@@ -30,6 +30,7 @@ import {
   resolveDevBundlerDecision,
   resolveRequestedDevBundler,
 } from './dev-inotify-limits.mjs'
+import { DOCKER_PROBE_TIMEOUT_MS, classifyDockerProbe } from './dev-docker-availability.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import {
   MCP_HEALTH_POLL_INTERVAL_MS,
@@ -46,6 +47,7 @@ import {
   nextMcpRestartDelayMs,
   resolveMcpKeyFilePath,
   resolveMcpPort,
+  shouldRetryMcpProvisioning,
   shouldStartMcp,
 } from './dev-mcp.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
@@ -55,6 +57,7 @@ import { assertLocalSplashRequest, resolveSplashBindHost } from './dev-splash-sh
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import { DevRuntimeConfigError, resolveDevRuntimeConfig } from './dev-runtime-config.mjs'
 import { createDevRuntimeSupervisor } from './dev-runtime-supervisor.mjs'
+import { selectRuntimeProbeBaseUrl } from './dev-runtime-probe.mjs'
 import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
 import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
 import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
@@ -429,12 +432,12 @@ function resolveExpectedAppBaseUrl() {
   return resolveDevBaseUrl(process.env).url
 }
 
-// The continuous probe always talks to the managed runtime directly, so in
-// gateway mode it must target the internal loopback port rather than the public
-// gateway it is meant to diagnose.
 function resolveRuntimeProbeBaseUrl() {
-  if (gatewayMode && devUpstreamPort) return `http://127.0.0.1:${devUpstreamPort}`
-  return resolveExpectedAppBaseUrl()
+  return selectRuntimeProbeBaseUrl({
+    upstreamPort: gatewayMode ? devUpstreamPort : null,
+    runtimeUrl: readSplashChildState()?.readyUrl,
+    configuredUrl: resolveExpectedAppBaseUrl(),
+  })
 }
 
 function resolveExpectedBackendUrl() {
@@ -2312,6 +2315,12 @@ async function provisionMcpApiKey() {
       return true
     }
 
+    if (!shouldRetryMcpProvisioning(capturedLines)) {
+      console.warn('⚠️ MCP is disabled — the ai_assistant module is not enabled in this app.')
+      console.warn('   ↳ enable ai_assistant (or pick a preset that includes it) to use MCP, then restart the dev runner (MCP startup is not re-armed in a running session), or silence this with --no-mcp / OM_DEV_WITH_MCP=0. The app keeps running without MCP.')
+      return false
+    }
+
     if (looksLikePermissionError(capturedLines)) {
       console.warn(`⚠️ MCP key provisioning hit a permission error writing ${mcpKeyFilePath}.`)
       console.warn('   ↳ if Docker created .mercato/mcp-shared as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
@@ -2383,12 +2392,35 @@ function opencodeRestartCommand() {
   return 'docker compose --profile agents restart opencode'
 }
 
+// Docker is optional. Explain the skip once per dev session so a developer who
+// does not run Docker is not left wondering why OpenCode was never refreshed.
+let dockerUnavailableNoticeShown = false
+
+function noteDockerUnavailable(detail) {
+  if (dockerUnavailableNoticeShown) return
+  dockerUnavailableNoticeShown = true
+  console.warn(`ℹ️ Skipping the OpenCode container refresh — ${detail}.`)
+  console.warn('   ↳ Docker is optional: it is only used to restart the containerized OpenCode agent.')
+  console.warn('   ↳ The app, the dev server and the MCP server are unaffected.')
+}
+
+// Returns the running container names, or null when Docker cannot answer.
+function listDockerContainerNames() {
+  const probe = classifyDockerProbe(
+    spawnSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8', timeout: DOCKER_PROBE_TIMEOUT_MS }),
+  )
+  if (!probe.available) {
+    noteDockerUnavailable(probe.detail)
+    return null
+  }
+  return probe.names
+}
+
 function restartOpencodeContainer(reason) {
   if (opencodeRestartAttempted || shuttingDown) return false
   opencodeRestartAttempted = true
-  const running = spawnSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
-  const names = running.error || running.status !== 0 ? [] : String(running.stdout ?? '').split('\n').map((line) => line.trim())
-  if (!names.includes('mercato-opencode')) return false
+  const names = listDockerContainerNames()
+  if (names === null || !names.includes('mercato-opencode')) return false
   console.log(`🔄 ${reason} — restarting the OpenCode container to pick up the fresh MCP key...`)
   updateSplashState({ activity: 'Restarting OpenCode to pick up the fresh MCP key' })
   const restart = spawnSync('docker', ['restart', 'mercato-opencode'], { encoding: 'utf8', timeout: 120_000 })
@@ -2405,7 +2437,9 @@ async function checkOpencodeMcpWiring() {
   if (status === null || status === 'connected') return
   if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
     console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
-    console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
+    // Without Docker the compose hint is not actionable; the stale-key warning
+    // above still is, however OpenCode happens to be running.
+    if (!dockerUnavailableNoticeShown) console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
     return
   }
   await sleepUnlessShuttingDown(30_000)

@@ -85,6 +85,10 @@ both-or-neither invariant (audited for #2109):
   one path that can construct a partial-null row; copy the **source attachment's**
   scope pair when wiring new callers, and apply the creation guard if this path is
   refactored.
+- `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts` (`upsertAsset`)
+  — product media go through `attachmentScopedUploadService` with the importer's scope
+  (both set) and the public `productsMedia` partition, so it cannot use
+  `attachmentService.createScoped` (private partitions only). Safe.
 
 ## Validation Commands
 
