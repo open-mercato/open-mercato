@@ -17,6 +17,7 @@ import { assertAttachmentScopeInvariant } from '../lib/access'
 import type { StorageDriverFactory } from '../lib/drivers'
 import {
   createDocumentStructureEngineRegistry,
+  DOCUMENT_STRUCTURE_ENGINES_DI_KEY,
   type DocumentStructureEngineRegistry,
 } from '../lib/documentStructure/engines/registry'
 import {
@@ -491,13 +492,17 @@ function resolveOptional<T>(ctx: HandlerContext, name: string): T | undefined {
   }
 }
 
+export function resolveDocumentStructureWorkerDeps(ctx: HandlerContext): DocumentStructureWorkerDeps {
+  return {
+    em: ctx.resolve<EntityManager>('em'),
+    storageDriverFactory: ctx.resolve<StorageDriverFactory>('storageDriverFactory'),
+    registry: resolveOptional<DocumentStructureEngineRegistry>(ctx, DOCUMENT_STRUCTURE_ENGINES_DI_KEY),
+  }
+}
+
 export default async function handle(
   job: QueuedJob<DocumentStructureJob>,
   ctx: HandlerContext,
 ): Promise<void> {
-  await runDocumentStructureExtraction(job.payload, {
-    em: ctx.resolve<EntityManager>('em'),
-    storageDriverFactory: ctx.resolve<StorageDriverFactory>('storageDriverFactory'),
-    registry: resolveOptional<DocumentStructureEngineRegistry>(ctx, 'documentStructureEngineRegistry'),
-  })
+  await runDocumentStructureExtraction(job.payload, resolveDocumentStructureWorkerDeps(ctx))
 }

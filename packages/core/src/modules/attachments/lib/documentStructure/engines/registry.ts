@@ -4,6 +4,8 @@ import { ocrStructureEngine } from './ocr'
 import { pdfLayoutStructureEngine } from './pdfLayout'
 import { textStructureEngine } from './text'
 
+export const DOCUMENT_STRUCTURE_ENGINES_DI_KEY = 'attachmentDocumentStructureEngines'
+
 export type RegisterDocumentStructureEngineOptions = {
   prepend?: boolean
 }
