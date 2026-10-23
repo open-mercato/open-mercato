@@ -396,6 +396,16 @@ aktywa finansowe:**
 | `100` / Kasa / DEBIT | `100-1` Kasa złotowa |
 | `130` / Rachunki bankowe / DEBIT | `130-1` Rachunek bieżący PLN; `130-2` Rachunek walutowy EUR |
 
+**Account currency of `130-2` (added 2026-10-23).** #5663 gives `LedgerAccount`
+an optional `currencyId`, set on bank accounts, and the controller's practice
+is one ledger account per bank account whatever its currency. The template
+holds no currency ids, so the import leaves `currencyId` null on every row,
+`130-2` included; the accountant sets it with `updateLedgerAccount` while the
+account has no posted lines, or Cash & Bank requires it to match when a
+`BankAccount` is tied to the account. **⚠ NEEDS HUMAN CONFIRMATION:** an
+autonomous default; resolving `EUR` to the tenant's currency during the import
+would add a cross-module read the import does not make today.
+
 **Zespół 2 — Rozrachunki i roszczenia:**
 
 | `LedgerAccountType` | Child `LedgerAccount` rows |
@@ -1251,3 +1261,11 @@ The ⚠ marker on the `CREDIT` sign of `490` is replaced by an explicit note tha
 it is a team decision: the Act does not prescribe account numbers or normal
 balances, and the sign follows the engine's posting direction (the engine credits
 `490` for every class 4 posting). No external accounting source was consulted.
+
+### 2026-10-23 — account currency of the foreign-currency bank account
+
+- `LedgerAccount` has an optional `currencyId` (#5663, 2026-10-23). The import
+  does not set it, including on `130-2`; the account currency is set later and
+  is immutable once the account has posted lines. No change to the template,
+  the command or its permissions. Marked ⚠ as an autonomous default. Not yet
+  reviewed by a maintainer.
