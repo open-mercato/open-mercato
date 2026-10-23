@@ -279,11 +279,12 @@ with `z.enum(DIMENSION_TYPES)`, so a typo'd or made-up type fails at the
 command boundary instead of a consumer's read silently finding nothing.
 Phase 1 lists only a type that has a named writer (see "Writers and line
 ownership"); `BankAccount`, `FixedAsset` and `Currency` are added when a
-consumer that writes them exists. `Currency` is not a candidate
-regardless of writers while GL fixes one currency per entry through
-`JournalEntry.currencyId` and stores `amountCurrency` on the line (#5663):
-a line-level currency tag would duplicate, and could contradict, the
-entry header. The `dimension_type` database column itself stays `text`,
+consumer that writes them exists. `Currency` is not a candidate,
+and since 2026-10-23 for a different reason: #5663 gives every
+`JournalEntryLine` its own `currencyId`, `exchangeRate` and
+`amountCurrency`, so currency is a column of the line and not a
+dimension, and a dimension tag would duplicate that column and could
+contradict it. The `dimension_type` database column itself stays `text`,
 not a Postgres enum — adding a type is a one-line change to
 `DIMENSION_TYPES` plus a validation-layer deploy, not a migration; the enum lives at the validation layer, not the schema layer.
 
@@ -1332,3 +1333,14 @@ heads (#5663, #6015, #6014) before editing:
   differs from the context's is rejected (`403`) instead of being
   ignored; a system-actor caller sets `ctx.selectedOrganizationId`, which
   `OM_ENFORCE_ORG_SCOPE_STRICT` requires.
+
+### 2026-10-23 — currency is a column of the line
+
+- **Currency stays out of `DIMENSION_TYPES`, for a new reason.** The text said a
+  line-level currency tag would duplicate the entry header
+  (`JournalEntry.currencyId`). #5663 now puts `currencyId`, `exchangeRate` and
+  `amountCurrency` on every `JournalEntryLine`, and one entry may mix
+  currencies, so the line's currency is a first-class column and a `Currency`
+  dimension would duplicate it. The 2026-09-25 m4 entry above that gives the
+  header as the reason is kept as history and superseded by this one.
+- No change to the data model, the commands or the `CostCenter` writers.
