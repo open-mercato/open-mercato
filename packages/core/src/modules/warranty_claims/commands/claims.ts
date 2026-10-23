@@ -1420,7 +1420,7 @@ function assertClaimUpdateFields(claim: WarrantyClaim, input: ClaimUpdateInput):
 
 function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, customerName: string | null, orderNumber: string | null): void {
   if (hasOwn(input, 'customerId')) claim.customerId = input.customerId ?? null
-  if (hasOwn(input, 'customerName')) claim.customerName = customerName
+  if (hasOwn(input, 'customerId') || hasOwn(input, 'customerName')) claim.customerName = customerName
   if (hasOwn(input, 'orderId')) {
     claim.orderId = input.orderId ?? null
     claim.orderNumber = orderNumber

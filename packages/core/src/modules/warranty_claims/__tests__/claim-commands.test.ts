@@ -1202,6 +1202,21 @@ describe('warranty claim commands', () => {
     expect(claim.orderNumber).toBeNull()
   })
 
+  test('update refreshes the customer name snapshot when only the customer id changes', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerId: null, customerName: 'Previous Customer Ltd' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: CUSTOMER_ID,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+  })
+
   test('customer replies raise the awaiting-staff-reply flag and staff actions clear it', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('in_review')
