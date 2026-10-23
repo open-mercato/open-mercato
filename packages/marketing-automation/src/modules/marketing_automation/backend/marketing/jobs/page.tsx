@@ -124,12 +124,24 @@ export default function MarketingJobsPage() {
       meta: { truncate: false },
       cell: ({ row }) => {
         const counters = row.original.counters ?? {}
-        const entries = Object.entries(counters)
-        if (entries.length === 0) {
+        /**
+         * `truncated` is a flag, not a count — rendered as a warning badge rather than a neutral chip, so a
+         * capped bulk action or export reads as the incomplete answer it is rather than a number sitting next
+         * to the others. The job's own counters (`checked`, `applied`) already say how far it got; this says
+         * it did not get everywhere.
+         */
+        const { truncated, ...rest } = counters
+        const entries = Object.entries(rest)
+        if (entries.length === 0 && !truncated) {
           return <span className="text-xs text-muted-foreground">—</span>
         }
         return (
           <span className="flex flex-wrap gap-1">
+            {Boolean(truncated) && (
+              <StatusBadge variant="warning">
+                {t('marketing_automation.jobs.counter.truncated', 'Stopped at the limit — not everybody was reached')}
+              </StatusBadge>
+            )}
             {entries.map(([key, value]) => (
               <span key={key} className="rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
                 {`${t(`marketing_automation.jobs.counter.${key}`, key)}: ${value}`}
