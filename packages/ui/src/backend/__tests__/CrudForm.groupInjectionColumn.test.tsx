@@ -77,7 +77,7 @@ describe('CrudForm injected group column placement (#4400)', () => {
 
     expect(container.querySelector('[data-crud-injection-region]')).toBeNull()
     const twoColumnGrid = Array.from(container.querySelectorAll('div')).find((node) =>
-      node.className.includes('7fr_3fr'),
+      node.className.includes('minmax(0,7fr)_minmax(0,3fr)'),
     )
     expect(twoColumnGrid).toBeUndefined()
   })
@@ -94,5 +94,11 @@ describe('CrudForm injected group column placement (#4400)', () => {
     const secondaryRegion = container.querySelector('[data-crud-injection-region]')
     expect(secondaryRegion).toBeTruthy()
     expect(secondaryRegion?.querySelector('[data-testid="portal-users-widget"]')).toBeTruthy()
+
+    const twoColumnGrid = Array.from(container.querySelectorAll('div')).find((node) =>
+      node.className.includes('minmax(0,7fr)') && node.className.includes('minmax(0,3fr)'),
+    )
+    expect(twoColumnGrid).toBeTruthy()
+    expect(secondaryRegion?.className).toContain('min-w-0')
   })
 })

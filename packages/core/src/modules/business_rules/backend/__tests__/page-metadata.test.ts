@@ -14,7 +14,7 @@ import { metadata as logsDetailRouteMetadata } from '../../api/logs/[id]/route'
 
 const declaredFeatureIds = new Set(features.map((feature) => feature.id))
 
-const LOCALES = ['en', 'pl', 'de', 'es', 'ko'] as const
+const LOCALES = ['en', 'pl', 'de', 'es', 'ko', 'pt'] as const
 
 // These pages draw labels from two dictionaries that only meet at runtime inside
 // `loadDictionary`: `rules.nav.*` ships in the app dictionary while
@@ -92,7 +92,7 @@ describe('business_rules backend page metadata', () => {
     ['rules/[id]', ruleEditMetadata],
     ['sets/create', setCreateMetadata],
     ['sets/[id]', setEditMetadata],
-  ])('resolves every declared label key of %s in all five locales', (_page, metadata) => {
+  ])('resolves every declared label key of %s in all six locales', (_page, metadata) => {
     const keys = localizedKeysOf(metadata)
     expect(keys.length).toBeGreaterThan(0)
     expect(unresolvedKeys(keys)).toEqual([])

@@ -4,8 +4,9 @@ import es from '../i18n/es.json'
 import pl from '../i18n/pl.json'
 import de from '../i18n/de.json'
 import ko from '../i18n/ko.json'
+import pt from '../i18n/pt.json'
 
-const locales: Record<string, Record<string, string>> = { en, es, pl, de, ko }
+const locales: Record<string, Record<string, string>> = { en, es, pl, de, ko, pt }
 
 const BANNER_KEY = 'auth.login.tenantBanner'
 

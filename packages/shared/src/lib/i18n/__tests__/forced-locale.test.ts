@@ -10,12 +10,15 @@ describe('resolveForcedLocale', () => {
   it('returns the forced locale when set to a supported value', () => {
     expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'pl' })).toBe('pl')
     expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'de' })).toBe('de')
+    expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'pt' })).toBe('pt')
   })
 
   it('normalizes region and casing to a supported base locale', () => {
     expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'PL' })).toBe('pl')
     expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'pl-PL' })).toBe('pl')
     expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'en_US' })).toBe('en')
+    expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'pt-BR' })).toBe('pt')
+    expect(resolveForcedLocale({ OM_FORCE_LOCALE: 'pt_BR' })).toBe('pt')
   })
 
   it('returns null for unsupported locales rather than forcing garbage', () => {
