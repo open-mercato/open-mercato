@@ -176,6 +176,8 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [Route contract edits must load the real handler](lessons/route-contract-edits-must-load-the-real-handler.md) — area:testing; module:attachments; topic:api-contracts,runtime-startup,testing
+
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
 
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
