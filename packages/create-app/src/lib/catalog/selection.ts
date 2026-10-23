@@ -23,7 +23,8 @@ export function parseModulesFlag(value: string): string[] {
 
 const sameName = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()
 
-function findModules(request: string, modules: readonly CatalogModule[]): CatalogModule[] {
+/** Modules matching a `--modules` item by ID, npm name or locator (`npm:<name>`). */
+export function findCatalogModules(request: string, modules: readonly CatalogModule[]): CatalogModule[] {
   const name = request.replace(/^npm:/i, '')
   const byId = modules.filter((entry) => sameName(entry.id, name))
   if (byId.length > 0) return byId
@@ -47,7 +48,7 @@ export function resolveCatalogSelection(
     if (trail.has(key)) return
     trail.add(key)
     for (const requirement of entry.requires) {
-      const matches = findModules(requirement, selectable).filter((candidate) => `${candidate.from}#${candidate.id}` !== key)
+      const matches = findCatalogModules(requirement, selectable).filter((candidate) => `${candidate.from}#${candidate.id}` !== key)
       if (matches.length > 0) {
         for (const match of matches) visit(match, 'required', trail)
         continue
@@ -61,7 +62,7 @@ export function resolveCatalogSelection(
   }
 
   for (const request of requests) {
-    const matches = findModules(request, selectable)
+    const matches = findCatalogModules(request, selectable)
     if (matches.length === 0) {
       unknown.push(request)
       continue

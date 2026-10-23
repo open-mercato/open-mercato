@@ -20,6 +20,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
 
+function toInstallByLine(value: unknown): Record<string, string> | null {
+  if (!isRecord(value)) return null
+  const commands: Record<string, string> = {}
+  for (const [line, command] of Object.entries(value)) if (isString(command)) commands[line] = command
+  return commands
+}
+
 function toCatalogModule(value: unknown): CatalogModule | null {
   if (!isRecord(value)) return null
   const license = value.license
@@ -53,6 +60,7 @@ function toCatalogModule(value: unknown): CatalogModule | null {
     tier,
     verifiedOn: value.verifiedOn,
     install: value.install,
+    installByLine: toInstallByLine(value.installByLine),
   }
 }
 
@@ -109,7 +117,31 @@ export async function fetchPickerCatalog(options: {
   return { status: 'unavailable', url, reason }
 }
 
+/**
+ * Install command for an app on `line`: the catalog's command for that line, else `install` when `line` is the
+ * latest line (`lines[0]`). Null otherwise: `install` pins the version verified on the latest line, which was
+ * never verified on an older line or on `next`.
+ */
+export function installCommandFor(entry: CatalogModule, line: string, lines: readonly string[]): string | null {
+  const command = entry.installByLine?.[line]
+  if (command !== undefined) return command
+  return line === lines[0] ? entry.install : null
+}
+
+const verifiedOnLine = (index: PickerIndex, line: string): CatalogModule[] =>
+  index.modules.filter((entry) => entry.source !== 'core' && entry.verifiedOn.includes(line))
+
+/** Non-core modules verified on the line, each with the install command of that line. */
 export function selectableModules(index: PickerIndex, line: string | null): CatalogModule[] {
   if (line === null) return []
-  return index.modules.filter((entry) => entry.source !== 'core' && entry.verifiedOn.includes(line))
+  return verifiedOnLine(index, line).flatMap((entry) => {
+    const install = installCommandFor(entry, line, index.lines)
+    return install === null ? [] : [{ ...entry, install }]
+  })
+}
+
+/** Modules verified on the line for which the catalog gives no install command on that line; left out of the picker. */
+export function modulesWithoutLineInstall(index: PickerIndex, line: string | null): CatalogModule[] {
+  if (line === null) return []
+  return verifiedOnLine(index, line).filter((entry) => installCommandFor(entry, line, index.lines) === null)
 }

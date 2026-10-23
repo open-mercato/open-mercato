@@ -26,7 +26,11 @@
         "0.9",
         "next"
       ],
-      "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party"
+      "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+      "installByLine": {
+        "0.9": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+        "next": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party"
+      }
     },
     {
       "id": "data_sync",
@@ -44,7 +48,8 @@
       },
       "tier": "listed",
       "verifiedOn": [],
-      "install": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party"
+      "install": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
+      "installByLine": {}
     },
     {
       "id": "durable_work",
@@ -62,7 +67,10 @@
       "verifiedOn": [
         "0.9"
       ],
-      "install": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party"
+      "install": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party",
+      "installByLine": {
+        "0.9": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party"
+      }
     },
     {
       "id": "agent_orchestrator",
@@ -78,7 +86,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module agent_orchestrator"
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module agent_orchestrator",
+      "installByLine": {}
     },
     {
       "id": "record_locks",
@@ -94,7 +103,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module record_locks"
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module record_locks",
+      "installByLine": {}
     },
     {
       "id": "security",
@@ -110,7 +120,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module security"
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module security",
+      "installByLine": {}
     },
     {
       "id": "sso",
@@ -126,7 +137,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module sso"
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module sso",
+      "installByLine": {}
     },
     {
       "id": "system_status_overlays",
@@ -142,7 +154,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module system_status_overlays"
+      "install": "yarn mercato module add @open-mercato/enterprise@0.9.0 --module system_status_overlays",
+      "installByLine": {}
     },
     {
       "id": "gateway_stripe",
@@ -160,7 +173,10 @@
       "verifiedOn": [
         "0.9"
       ],
-      "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0"
+      "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+      "installByLine": {
+        "0.9": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0"
+      }
     },
     {
       "id": "gateway_tpay",
@@ -176,7 +192,8 @@
       },
       "tier": "listed",
       "verifiedOn": [],
-      "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+      "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+      "installByLine": {}
     },
     {
       "id": "marketing_consents",
@@ -192,7 +209,8 @@
       },
       "tier": "listed",
       "verifiedOn": [],
-      "install": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party"
+      "install": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
+      "installByLine": {}
     },
     {
       "id": "currencies",
@@ -208,7 +226,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module enable @open-mercato/core --module currencies"
+      "install": "yarn mercato module enable @open-mercato/core --module currencies",
+      "installByLine": {}
     },
     {
       "id": "data_sync",
@@ -224,7 +243,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module enable @open-mercato/core --module data_sync"
+      "install": "yarn mercato module enable @open-mercato/core --module data_sync",
+      "installByLine": {}
     },
     {
       "id": "wms",
@@ -244,7 +264,8 @@
       },
       "tier": null,
       "verifiedOn": [],
-      "install": "yarn mercato module enable @open-mercato/core --module wms"
+      "install": "yarn mercato module enable @open-mercato/core --module wms",
+      "installByLine": {}
     }
   ]
 }

@@ -1,6 +1,7 @@
 import {
   catalogLineFor,
   fetchPickerCatalog,
+  modulesWithoutLineInstall,
   resolvePickerUrl,
   selectableModules,
   type CatalogFetch,
@@ -9,6 +10,7 @@ import {
   buildSelectionFile,
   CATALOG_SELECTION_FILE,
   describeModule,
+  findCatalogModules,
   installCommands,
   resolveCatalogSelection,
   writeSelectionFile,
@@ -92,11 +94,14 @@ function reportSelection(
   selection: CatalogSelection,
   line: string,
   coreModules: readonly CatalogModule[],
+  withoutLineInstall: readonly CatalogModule[],
   options: CatalogStepOptions,
 ): void {
   for (const request of selection.unknown) {
     const core = coreModules.find((entry) => entry.id === request.trim().toLowerCase())
-    if (core && (options.presetModuleIds === null || options.presetModuleIds.includes(core.id))) {
+    if (findCatalogModules(request, withoutLineInstall).length > 0) {
+      options.warn(`${request} is verified on ${line}, but the module catalog gives no install command for ${line} yet. Add it later from ${MODULES_SITE_URL}.`)
+    } else if (core && (options.presetModuleIds === null || options.presetModuleIds.includes(core.id))) {
       options.log(`${core.id} is built into Open Mercato core and the preset already enables it.`)
     } else if (core) {
       options.warn(`${core.id} is built into Open Mercato core, not a package: ${core.install}`)
@@ -139,21 +144,29 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
     return EMPTY_RESULT
   }
   const selectable = selectableModules(fetched.index, line)
+  const withoutLineInstall = modulesWithoutLineInstall(fetched.index, line)
   const requests = [...(options.requested ?? [])]
   if (options.picker) {
     if (!options.ask) {
       options.warn('--module-picker needs an interactive terminal; skipped. Use --modules <list> instead.')
-    } else if (selectable.length === 0) {
-      options.warn(`No catalog modules are verified on ${line} yet.`)
     } else {
-      const picked = await promptCatalogModules(options.ask, selectable, line, options.log, options.warn)
-      for (const entry of picked) if (!requests.includes(entry.id)) requests.push(entry.id)
+      if (withoutLineInstall.length > 0) {
+        options.warn(
+          `Left out of the list: ${withoutLineInstall.map((entry) => entry.id).join(', ')}. The module catalog verifies them on ${line} but gives no install command for ${line} yet.`,
+        )
+      }
+      if (selectable.length === 0) {
+        if (withoutLineInstall.length === 0) options.warn(`No catalog modules are verified on ${line} yet.`)
+      } else {
+        const picked = await promptCatalogModules(options.ask, selectable, line, options.log, options.warn)
+        for (const entry of picked) if (!requests.includes(entry.id)) requests.push(entry.id)
+      }
     }
   }
   if (requests.length === 0) return EMPTY_RESULT
   const selection = resolveCatalogSelection(requests, selectable, options.presetModuleIds)
   const coreModules = fetched.index.modules.filter((entry) => entry.source === 'core')
-  reportSelection(selection, line, coreModules, options)
+  reportSelection(selection, line, coreModules, withoutLineInstall, options)
   if (selection.selected.length === 0) return EMPTY_RESULT
   const selectionFile = writeSelectionFile(options.targetDir, buildSelectionFile(url, fetched.index, line, selection))
   options.log(`  Saved to ${CATALOG_SELECTION_FILE}. Nothing is installed until you run the commands below.`)

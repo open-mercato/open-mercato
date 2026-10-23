@@ -16,7 +16,10 @@ export type CatalogModule = {
   license: CatalogLicense
   tier: 'listed' | 'verified' | null
   verifiedOn: string[]
+  /** Command with the version the catalog verified on its latest line (`lines[0]`). */
   install: string
+  /** Command per verified line (`picker.json` `installByLine`); null when the catalog does not publish it. */
+  installByLine: Record<string, string> | null
 }
 
 export type PickerIndex = {

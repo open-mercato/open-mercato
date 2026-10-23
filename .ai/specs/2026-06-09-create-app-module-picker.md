@@ -81,7 +81,8 @@ set during scaffolding** and **no way to discover modules beyond core**:
   It stays the backstop.
 - **Installation** exists: `yarn mercato module add <package>[@version] [--module <id>] [--allow-third-party]`
   and `yarn mercato module enable <package> --module <id>` (`packages/cli/src/lib/module-install.ts`). The
-  catalog's `install` field is exactly that command, pinned to the version verified on the line.
+  catalog's `installByLine[line]` is exactly that command, pinned to the version verified on that line
+  (`install` is the same command for the latest line).
 
 ---
 
@@ -125,7 +126,8 @@ scaffold base template + applyStarterPreset()   unchanged
 NEW (only with --modules or --module-picker): runCatalogStep()
        |- fetchPickerCatalog()       picker.json, 4 s timeout + 1 retry; unavailable -> notice, skip
        |- catalogLineFor(version)    create-app version -> catalog line, or skip with a notice
-       |- selectableModules()        non-core entries whose verifiedOn contains the line
+       |- selectableModules()        non-core entries whose verifiedOn contains the line and that have an
+       |                             install command for it (installCommandFor)
        |- promptCatalogModules()     with --module-picker on a TTY: numbered list, origin, license, level
        |- resolveCatalogSelection()  --modules + picks, requires closure, unknown / ambiguous / unmet notes
        '- writeSelectionFile()       .mercato/catalog-selection.json
@@ -154,7 +156,12 @@ export type CatalogModule = {
   license: { spdx: string | null; kind: 'osi' | 'proprietary' | 'enterprise' | 'unknown' }
   tier: 'listed' | 'verified' | null
   verifiedOn: string[]             // catalog lines with a verified install receipt, e.g. ['0.9', 'next']
-  install: string                  // exact command, e.g. 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0'
+  install: string                  // exact command for the latest line (lines[0]), e.g.
+                                   // 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0'
+  installByLine: Record<string, string> | null
+                                   // exact command per line in verifiedOn, with the version verified on that
+                                   // line (catalog `version.recommended[line]`); null from a catalog that
+                                   // predates the field
 }
 
 export type PickerIndex = { schemaVersion: 1; generatedAt: string; lines: string[]; modules: CatalogModule[] }
@@ -172,7 +179,14 @@ Fetch contract (`fetch-catalog.ts`):
 - Line mapping: `major.minor` of the create-app version when the catalog lists that line; a `*-develop.*`
   prerelease maps to `next`; anything else offers nothing (notice:
   `The module catalog does not verify modules for Open Mercato <version> yet.`).
-- Selectable = `source !== 'core'` and `verifiedOn` contains the line. Core modules are the presets' job
+- Install command for the app's line (`installCommandFor`): `installByLine[line]`, else `install` only when the
+  line is the latest one (`lines[0]`, the catalog lists the latest line first). `install` pins the version
+  verified on the latest line, so an app on an older line or on `next` never gets it: a module verified on that
+  line without a command for it is left out with a notice (`Left out of the list: ...` in the picker,
+  `<id> is verified on <line>, but the module catalog gives no install command for <line> yet.` for
+  `--modules`).
+- Selectable = `source !== 'core'`, `verifiedOn` contains the line and the line has an install command; the
+  item carries that command as its `install`. Core modules are the presets' job
   (Phase 2); a core ID passed to `--modules` is answered with its `module enable` command, or "the preset
   already enables it".
 
@@ -183,7 +197,7 @@ Fetch contract (`fetch-catalog.ts`):
   `Third-party modules run with access to all tenants' data. Check the license before you pick.`
 - The plan summary repeats origin and license per module and, when community or third-party modules were
   picked, states that their commands carry `--allow-third-party`.
-- The commands are the catalog's `install` strings: exact versions verified on the line,
+- The commands are the catalog's commands for the app's line: exact versions verified on that line,
   `--allow-third-party` outside `@open-mercato/*`, `--module <id>` for multi-module packages. Phase 2 writes
   `src/modules.ts` only after the same license display and only through `module add`, so
   `--allow-third-party` is always an explicit part of the command the user runs.
@@ -356,7 +370,10 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 
 - `parsePickerIndex`: published `picker.json`, malformed items dropped, unknown schema rejected.
 - `catalogLineFor`: `0.9.0 -> 0.9`, `0.8.3 -> 0.8`, develop prerelease -> `next`, untested version -> null.
-- `selectableModules`: non-core items verified on the line only.
+- `selectableModules`: non-core items verified on the line only, each with the command of that line.
+- `installCommandFor` / `modulesWithoutLineInstall`: `installByLine[line]` wins (a `next` version differs from
+  the latest one); without `installByLine` only the latest line gets `install`, other lines leave the module
+  out.
 - `fetchPickerCatalog`: default URL, `OM_MODULES_PICKER_URL`, retry after a network error and after a 5xx,
   no retry after a 404, unsupported body, hanging request cut by the timeout.
 - `resolveCatalogSelection`: ID, npm name and locator matches; unknown and unverified requests; required
@@ -364,7 +381,8 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 - `buildSelectionFile`: full file content.
 - `runCatalogStep`: `--modules` writes the plan and returns commands; offline and untested line return nothing
   with a notice and write no file; core IDs answered with `module enable`; interactive picker with license and
-  level shown and an invalid answer re-asked; no TTY skips the picker but keeps `--modules`.
+  level shown and an invalid answer re-asked; no TTY skips the picker but keeps `--modules`; a develop build
+  plans the `next` version; a module without a command for a line other than latest is left out with a notice.
 
 ### Integration tests (`yarn test:create-app:integration`, planned with Phase 1 follow-up)
 
@@ -395,7 +413,8 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 | Catalog fetch slows or hangs scaffolding | Medium | Only with the opt-in flags; 4 s timeout, one retry, then a notice. | Up to about 8 s added when the catalog is down and a flag is used. |
 | User installs third-party code without noticing | High | Origin and license shown before the choice and in the summary; commands carry `--allow-third-party`; nothing installed by the scaffolder. | The user still runs the commands; `module add` is the consent point. |
 | `picker.json` shape changes | Medium | Additive-only contract with `schemaVersion`; unknown version = unavailable, malformed items dropped. | A new required field would be ignored until create-app reads it. |
-| Catalog verified a version that later breaks | Low | `install` pins the version verified on the line; the catalog keeps the last verified version when a new release fails. | Bugs not covered by the catalog's install receipt. |
+| App on a line other than latest gets a version verified only on latest | Medium | `installByLine[line]`; without it only the latest line uses `install`, other lines leave the module out with a notice. | A catalog without `installByLine` offers nothing on `0.8` or `next`. |
+| Catalog verified a version that later breaks | Low | The command pins the version verified on the app's line; the catalog keeps the last verified version when a new release fails. | Bugs not covered by the catalog's install receipt. |
 | Preset does not enable a core module a pick requires | Medium | Named with its `module enable` command; the generate-time validator is the final gate. | `classic` preset is not resolved in Phase 1. |
 
 ---
@@ -415,7 +434,8 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   install ordering).
 - 2026-10-23: Revised catalog-first. Catalog source is `https://modules.openmercato.com/picker.json`
   (`OM_MODULES_PICKER_URL`) with `source: core | official | community | third-party | enterprise`, license,
-  tier, `verifiedOn` and exact `install`; official-modules repository and submodule phases withdrawn; picks
+  tier, `verifiedOn` and exact install commands per verified line (`installByLine`, `install` for the latest
+  line); official-modules repository and submodule phases withdrawn; picks
   are planned (commands + `.mercato/catalog-selection.json`), never installed by the scaffolder; license and
   `--allow-third-party` shown before any choice. Phase 1 implemented behind `--modules` and
   `--module-picker` (default off). Core customization moved to Phase 2. Refs #3304.

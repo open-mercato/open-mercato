@@ -8,6 +8,8 @@ import {
   catalogLineFor,
   DEFAULT_PICKER_URL,
   fetchPickerCatalog,
+  installCommandFor,
+  modulesWithoutLineInstall,
   parsePickerIndex,
   resolvePickerUrl,
   selectableModules,
@@ -27,12 +29,31 @@ import type { PickerIndex } from './types.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixture = (): unknown => JSON.parse(readFileSync(join(__dirname, '__fixtures__', 'picker.json'), 'utf8'))
 const index = parsePickerIndex(fixture()) as PickerIndex
+const KSEF_NEXT = 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.7 --allow-third-party'
+
+/** The fixture with ksef verified on `next` in an older version than on the latest line. */
+function fixtureWithNextVersion(): Record<string, unknown> {
+  const body = fixture() as { modules: Record<string, unknown>[] }
+  for (const entry of body.modules) {
+    if (entry.id === 'integration_ksef_direct') {
+      entry.installByLine = { ...(entry.installByLine as Record<string, string>), next: KSEF_NEXT }
+    }
+  }
+  return body
+}
+
+/** picker.json as published before `installByLine`: only the latest-line `install`. */
+function fixtureWithoutInstallByLine(): Record<string, unknown> {
+  const body = fixture() as { modules: Record<string, unknown>[] }
+  for (const entry of body.modules) delete entry.installByLine
+  return body
+}
 
 function response(status: number, body: unknown): CatalogResponse {
   return { status, ok: status >= 200 && status < 300, json: async () => body }
 }
 
-function fakeFetch(plan: ('ok' | 'error' | 'timeout' | 404 | 503 | 'garbage')[]) {
+function fakeFetch(plan: ('ok' | 'error' | 'timeout' | 404 | 503 | 'garbage')[], body: () => unknown = fixture) {
   const calls: { url: string; headers: Record<string, string> }[] = []
   const fetchImpl: CatalogFetch = async (url, init) => {
     calls.push({ url, headers: init.headers })
@@ -41,7 +62,7 @@ function fakeFetch(plan: ('ok' | 'error' | 'timeout' | 404 | 503 | 'garbage')[])
     if (step === 'timeout') throw new Error('The operation was aborted due to timeout')
     if (step === 404 || step === 503) return response(step, null)
     if (step === 'garbage') return response(200, { schemaVersion: 2 })
-    return response(200, fixture())
+    return response(200, body())
   }
   return { fetchImpl, calls }
 }
@@ -69,6 +90,10 @@ test('parsePickerIndex reads the published picker.json and drops malformed modul
   assert.equal(index.schemaVersion, 1)
   assert.deepEqual(index.lines, ['0.9', '0.8', 'next'])
   assert.equal(index.modules.length, 14)
+  assert.deepEqual(index.modules.find((entry) => entry.id === 'integration_ksef_direct')?.installByLine, {
+    '0.9': 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
+    next: 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
+  })
   const broken = { ...(fixture() as Record<string, unknown>), modules: [{ id: 'x' }, ...index.modules] }
   assert.equal(parsePickerIndex(broken)?.modules.length, 14)
   assert.equal(parsePickerIndex({ schemaVersion: 2 }), null)
@@ -90,6 +115,30 @@ test('selectableModules offers only non-core modules verified on the line', () =
   )
   assert.deepEqual(selectableModules(index, 'next').map((entry) => entry.id), ['integration_ksef_direct'])
   assert.deepEqual(selectableModules(index, null), [])
+})
+
+test('installCommandFor pins the version verified on the line of the app', () => {
+  const withNext = parsePickerIndex(fixtureWithNextVersion()) as PickerIndex
+  const ksef = withNext.modules.find((entry) => entry.id === 'integration_ksef_direct')!
+  assert.equal(installCommandFor(ksef, '0.9', withNext.lines), 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party')
+  assert.equal(installCommandFor(ksef, 'next', withNext.lines), KSEF_NEXT)
+  assert.equal(installCommandFor(ksef, '0.8', withNext.lines), null)
+  assert.deepEqual(
+    selectableModules(withNext, 'next').map((entry) => entry.install),
+    [KSEF_NEXT],
+  )
+})
+
+test('without installByLine only the latest line gets the catalog install command', () => {
+  const legacy = parsePickerIndex(fixtureWithoutInstallByLine()) as PickerIndex
+  const ksef = legacy.modules.find((entry) => entry.id === 'integration_ksef_direct')!
+  assert.equal(ksef.installByLine, null)
+  assert.equal(installCommandFor(ksef, '0.9', legacy.lines), ksef.install)
+  assert.equal(installCommandFor(ksef, 'next', legacy.lines), null)
+  assert.deepEqual(selectableModules(legacy, '0.9').map((entry) => entry.id), ['integration_ksef_direct', 'durable_work', 'gateway_stripe'])
+  assert.deepEqual(selectableModules(legacy, 'next'), [])
+  assert.deepEqual(modulesWithoutLineInstall(legacy, 'next').map((entry) => entry.id), ['integration_ksef_direct'])
+  assert.deepEqual(modulesWithoutLineInstall(legacy, '0.9'), [])
 })
 
 test('resolvePickerUrl defaults to modules.openmercato.com and honours OM_MODULES_PICKER_URL', () => {
@@ -238,6 +287,48 @@ test('runCatalogStep with --modules writes .mercato/catalog-selection.json and r
   assert.deepEqual(warnings, [])
   assert.ok(logs.some((line) => line.includes('integration_ksef_direct from @fastwhitecat/integration-ksef-direct (third-party · MIT · verified on 0.9)')))
   assert.ok(logs.some((line) => line.includes('--allow-third-party')))
+})
+
+test('runCatalogStep on a develop build installs the version verified on next', async () => {
+  const { options, warnings } = stepOptions({
+    version: '0.10.1-develop.7583.1.0c886d0a14',
+    requested: ['integration_ksef_direct'],
+    presetModuleIds: null,
+    fetchImpl: fakeFetch(['ok'], fixtureWithNextVersion).fetchImpl,
+  })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, [KSEF_NEXT])
+  const saved = JSON.parse(readFileSync(result.selectionFile ?? '', 'utf8'))
+  assert.equal(saved.line, 'next')
+  assert.equal(saved.modules[0].install, KSEF_NEXT)
+  assert.deepEqual(warnings, [])
+})
+
+test('runCatalogStep leaves out a module without an install command for a line other than latest', async () => {
+  const fetchImpl = fakeFetch(['ok'], fixtureWithoutInstallByLine).fetchImpl
+  const requested = stepOptions({
+    version: '0.10.1-develop.7583.1.0c886d0a14',
+    requested: ['integration_ksef_direct'],
+    presetModuleIds: null,
+    fetchImpl,
+  })
+  assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null })
+  assert.deepEqual(requested.warnings, [
+    'integration_ksef_direct is verified on next, but the module catalog gives no install command for next yet. Add it later from https://modules.openmercato.com.',
+  ])
+
+  const picker = stepOptions({
+    version: '0.10.1-develop.7583.1.0c886d0a14',
+    picker: true,
+    ask: async () => {
+      throw new Error('the picker must not ask without modules to offer')
+    },
+    fetchImpl,
+  })
+  assert.deepEqual(await runCatalogStep(picker.options), { commands: [], selectionFile: null })
+  assert.deepEqual(picker.warnings, [
+    'Left out of the list: integration_ksef_direct. The module catalog verifies them on next but gives no install command for next yet.',
+  ])
 })
 
 test('runCatalogStep never blocks scaffolding when the catalog is offline', async () => {
