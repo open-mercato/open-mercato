@@ -1,5 +1,7 @@
 export {}
 
+import type { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CatalogOptionSchemaTemplate,
   CatalogPriceHistoryEntry,
@@ -309,6 +311,22 @@ function loadDeleteCommand() {
   return deleteCommand
 }
 
+// `jest.isolateModules` gives '../products' its own fresh copy of every module it
+// requires, including `@mikro-orm/core` — so a `UniqueConstraintViolationException`
+// built from the top-level import fails `instanceof` against the one the isolated
+// `../products` module catches internally. Capture the isolated class instead.
+function loadDeleteCommandWithIsolatedMikroOrm() {
+  let deleteCommand: any
+  let IsolatedUniqueConstraintViolationException: typeof UniqueConstraintViolationException
+  jest.isolateModules(() => {
+    require('../products')
+    deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.delete')?.[0]
+    IsolatedUniqueConstraintViolationException = require('@mikro-orm/core').UniqueConstraintViolationException
+  })
+  expect(deleteCommand).toBeDefined()
+  return { deleteCommand, UniqueConstraintViolationException: IsolatedUniqueConstraintViolationException! }
+}
+
 function buildContext(store: Store) {
   const dataEngine = { markOrmEntityChange: jest.fn() }
   const container = {
@@ -494,6 +512,7 @@ describe('catalog.products.delete undo', () => {
     ])
     expect(log.context.cacheAliases).toEqual([
       'catalog.product',
+      'catalog.offer',
       'catalog.variant',
       'catalog.price',
       'catalog.product.unit.conversion',
@@ -633,6 +652,36 @@ describe('catalog.products.delete undo', () => {
     expect(ids(store, CatalogProductUnitConversion)).toEqual([])
     expect(setCustomFieldsIfAny).not.toHaveBeenCalled()
   })
+
+  it.each([
+    { constraint: 'catalog_products_handle_scope_unique', field: 'handle' },
+    { constraint: 'catalog_products_sku_scope_unique', field: 'sku' },
+  ])(
+    'reports a named $field conflict instead of the raw error when undo flush hits $constraint',
+    async ({ constraint, field }) => {
+      const store = createStore()
+      seedCatalog(store)
+      const { deleteCommand, UniqueConstraintViolationException: IsolatedUniqueConstraintViolationException } =
+        loadDeleteCommandWithIsolatedMikroOrm()
+      const ctx = buildContext(store)
+      const { logEntry } = await deleteProduct(store, deleteCommand, ctx)
+      const constraintError = new IsolatedUniqueConstraintViolationException(
+        new Error(`duplicate key value violates unique constraint "${constraint}"`),
+      )
+      ;(constraintError as unknown as Record<string, unknown>).constraint = constraint
+      store.em.flush.mockImplementationOnce(async () => {
+        throw constraintError
+      })
+
+      const error = await deleteCommand.undo({ logEntry, ctx }).catch((caught: unknown) => caught)
+
+      expect(isCrudHttpError(error)).toBe(true)
+      expect((error as { status: number }).status).toBe(400)
+      expect(
+        ((error as { body: Record<string, Record<string, string>> }).body).fieldErrors?.[field],
+      ).toBeDefined()
+    },
+  )
 
   it('refuses a child snapshot that points at another product', async () => {
     const store = createStore()

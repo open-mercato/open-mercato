@@ -1,11 +1,13 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { FeatureToggle } from '../data/entities'
 import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema } from '../data/validators'
 import { FeatureToggleOverride } from '../data/entities'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -16,6 +18,7 @@ type OverrideSnapshot = {
   toggleId: string
   tenantId: string
   value?: any
+  updatedAt: string | null
 }
 
 type OverrideUndoPayload = {
@@ -31,6 +34,7 @@ async function loadOverrideSnapshot(em: EntityManager, toggleId: string, tenantI
       toggleId: toggleId,
       tenantId: tenantId,
       value: undefined,
+      updatedAt: null,
     }
   }
 
@@ -39,7 +43,19 @@ async function loadOverrideSnapshot(em: EntityManager, toggleId: string, tenantI
     toggleId: record.toggle.id,
     tenantId: record.tenantId,
     value: record.value,
+    updatedAt: record.updatedAt ? record.updatedAt.toISOString() : null,
   }
+}
+
+async function throwOverrideUndoConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'feature_toggles.errors.overrideUndoConflict',
+      'This override changed since the action you are undoing. Undo was refused.',
+    ),
+    code: 'feature_toggles.errors.overrideUndoConflict',
+  })
 }
 
 const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInput, { overrideToggleId: string | null }> = {
@@ -96,7 +112,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
     return {
       actionLabel: translate('feature_toggles.audit.overrides.changeState', 'Change override state'),
       resourceKind: 'feature_toggles.overrides',
-      resourceId: before.id,
+      resourceId: before.id ?? after.id,
       snapshotBefore: before,
       snapshotAfter: after,
       tenantId: before.tenantId,
@@ -116,27 +132,42 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<OverrideUndoPayload>(logEntry)
     const before = payload?.before
+    const after = payload?.after
 
     if (!before) return
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    if (!before.id) {
-      await em.nativeDelete(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
-    } else {
-      const existing = await em.findOne(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
-      if (existing) {
-        existing.value = before.value
-      } else {
-        em.create(FeatureToggleOverride, {
-          id: before.id,
-          toggle: before.toggleId,
-          tenantId: before.tenantId,
-          value: before.value ?? {},
-        })
-      }
-    }
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        const existing = await em.findOne(
+          FeatureToggleOverride,
+          { toggle: before.toggleId, tenantId: before.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        )
+        const currentId = existing?.id ?? null
+        const currentUpdatedAt = existing?.updatedAt ? existing.updatedAt.toISOString() : null
+        const expectedId = after?.id ?? null
+        const expectedUpdatedAt = after?.updatedAt ?? null
+        if (currentId !== expectedId || currentUpdatedAt !== expectedUpdatedAt) {
+          await throwOverrideUndoConflict()
+        }
+
+        if (!before.id) {
+          await em.nativeDelete(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
+        } else if (existing) {
+          existing.value = before.value
+        } else {
+          em.create(FeatureToggleOverride, {
+            id: before.id,
+            toggle: before.toggleId,
+            tenantId: before.tenantId,
+            value: before.value ?? {},
+          })
+        }
+      },
+    ], { transaction: true, label: 'feature_toggles.overrides.changeState.undo' })
+
     const toggle = await findOneWithDecryption(em, FeatureToggle, { id: before.toggleId })
     if (toggle) {
       const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
