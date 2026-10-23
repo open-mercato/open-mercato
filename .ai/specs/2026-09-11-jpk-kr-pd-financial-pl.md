@@ -685,7 +685,9 @@ lines), not a sibling top-level node — a wording fix, not a design
 change**, since this document's `iterateJournalEntries` +
 `iterateJournalEntryLines` pairing already reads them exactly this way.
 Field-checked against `JournalEntryLine`'s real schema (`journalEntryId`,
-`accountId`, `debit`, `credit`, `amountCurrency`, `contractorSnapshot`):
+`accountId`, `debit`, `credit`, `currencyId`, `exchangeRate`, `amountCurrency`,
+`contractorSnapshot` — the line currency and rate were added by `#5663` on
+2026-10-23):
 
 | `KontoZapis` field | Meaning | Source |
 |---|---|---|
@@ -693,8 +695,8 @@ Field-checked against `JournalEntryLine`'s real schema (`journalEntryId`,
 | `Z_2` | line description | **No source.** No per-line description field exists — a real gap; `JournalEntry.description` is header-level only |
 | `Z_3` | account | `accountId` (unchanged) |
 | `Z_4`/`Z_7` | debit / credit amount | `debit` / `credit` (unchanged) |
-| `Z_5`/`Z_8` | debit / credit amount in foreign currency (mutually exclusive with the base-currency side, per line) | `amountCurrency` — one field naturally covers both, since a line only ever has a non-zero debit or credit |
-| `Z_6`/`Z_9` | currency code for the foreign-currency amount | `JournalEntry.currencyId` (header-level; resolved to a code), not a separate per-line field — reasonable, since `#5663` scopes currency at the entry, not the line |
+| `Z_5`/`Z_8` | debit / credit amount in foreign currency (mutually exclusive with the base-currency side, per line) | `amountCurrency` — one field naturally covers both, since a line only ever has a non-zero debit or credit. Read only for a line whose `currencyId` is not the base currency; a base-currency line stores `amountCurrency` equal to its `debit`/`credit`, which is not a foreign amount |
+| `Z_6`/`Z_9` | currency code for the foreign-currency amount | **`JournalEntryLine.currencyId`** (line-level; resolved to the ISO code). Corrected 2026-10-23: this was mapped to `JournalEntry.currencyId` "since `#5663` scopes currency at the entry", which no longer holds — a line can be in a different currency than the header (an invoice in one currency paid from a bank account in another), and the header currency would then be wrong for the line |
 
 This confirms the read-service shape (`#6038`) and this document's own
 DTOs are broadly on the right track for `Z_3`/`Z_4`/`Z_7`, but the
@@ -807,8 +809,8 @@ XSD verification for the full gap analysis):**
 | `Z_2` (line description) | **No source — confirmed gap**, `JournalEntry.description` is header-level only |
 | `Z_3` (account) | `JournalEntryLine.accountId` |
 | `Z_4`/`Z_7` (debit/credit) | `JournalEntryLine.debit`/`.credit` |
-| `Z_5`/`Z_8` (foreign-currency amount, whichever side is non-zero) | `JournalEntryLine.amountCurrency` |
-| `Z_6`/`Z_9` (currency code) | `JournalEntry.currencyId` (header-level) |
+| `Z_5`/`Z_8` (foreign-currency amount, whichever side is non-zero) | `JournalEntryLine.amountCurrency`, for a line whose currency is not the base currency |
+| `Z_6`/`Z_9` (currency code) | `JournalEntryLine.currencyId` (line-level, resolved to the ISO code; corrected 2026-10-23 from the header's) |
 
 `LedgerAccountGroup` (`jurisdiction: 'PL'`, zespoły 0–8, already seeded
 per the GL core spec) supplies the chart-of-accounts classification
@@ -1045,6 +1047,13 @@ final:
   hinges on it. Working assumption unchanged until that's answered:
   Group 1 (FY2026, filed by April 2027) is treated as the tighter,
   safer target to build toward.
+- **Q6 — New 2026-10-23, from the line-currency change in `#5663`. ⚠ NEEDS
+  HUMAN CONFIRMATION:** the builder fills `Z_5`/`Z_6` (`Z_8`/`Z_9`) from the
+  line's own currency and amount and leaves them out on a base-currency line.
+  Whether the JPK_KR_PD XSD requires, permits or forbids the foreign-amount
+  fields on a base-currency line was not re-read in this pass; the XSD
+  checked on 2026-09-12 has to be opened again for `Z_5`–`Z_9` before the
+  builder is written. Until then the rule above is a working default.
 - **Q3 — Placement:** this document assumes `official-modules` /
   `SPEC-010`, per the existing JPK_V7/KSeF precedent. Not yet physically
   placed there — `official-modules` is not checked out in the
@@ -1268,3 +1277,12 @@ usage, `jpkGenerateSchema`/`jpkSubmitSchema`/`jpkFilingUpsertSchema` in
 -- used to correct Blocker #1/#2 and resolve Q5 (Major #3) from
 unverified guesses to Confirmed findings; see Architecture -> Design
 decisions, Data Model, and Open Questions.
+
+2026-10-23 addition (`#5663` gives every journal entry line its own
+currency, rate and original amount, after the controller's answer — see the
+knowledge base, 2026-10-23): `Z_6`/`Z_9` now read the line's `currencyId`
+instead of the entry header's, and `Z_5`/`Z_8` are read only for a line in a
+foreign currency. Edited in the Dziennik/KontoZapis mapping (Architecture →
+Primary-source XSD verification) and the Data Model table; new Open Question
+Q6. No other mapping row changes: `debit`/`credit` stay in the base currency,
+so `Z_4`/`Z_7`, the control sums and `D_11` are unaffected.
