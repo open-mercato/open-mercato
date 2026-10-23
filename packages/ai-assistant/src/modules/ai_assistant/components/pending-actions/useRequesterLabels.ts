@@ -24,7 +24,7 @@ export function useRequesterLabels(userIds: ReadonlyArray<string | null | undefi
     for (const userId of userIds) {
       if (typeof userId === 'string' && userId.length > 0) unique.add(userId)
     }
-    return [...unique].sort().slice(0, 100).join(',')
+    return [...unique].sort((left, right) => left.localeCompare(right)).slice(0, 100).join(',')
   }, [userIds])
 
   const query = useQuery<Record<string, string>>({

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { buildQueryParams } from '@open-mercato/shared/lib/crud/query-params'
 import {
   bridgeLegacyGuard,
@@ -160,6 +161,10 @@ export async function POST(req: Request, ctx: DocumentStructureRouteContext) {
     )
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     logger.error('Failed to request document structure extraction', {
       err: error,
       attachmentId: resolved.attachmentId,

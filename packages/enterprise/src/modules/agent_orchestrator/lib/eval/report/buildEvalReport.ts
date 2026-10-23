@@ -349,7 +349,7 @@ export async function buildEvalReport(
   )
   const models = Array.from(
     new Set(runs.map((run) => run.model).filter((value): value is string => typeof value === 'string' && value.length > 0)),
-  ).sort()
+  ).sort((left, right) => left.localeCompare(right))
   const countStatus = (target: AgentEvalCaseRun['status']) =>
     current.caseRuns.filter((entry) => entry.status === target).length
   const evalSetVersion = suiteRun.evalSetVersion ?? null

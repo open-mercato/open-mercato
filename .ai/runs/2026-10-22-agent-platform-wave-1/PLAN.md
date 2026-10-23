@@ -62,6 +62,7 @@
 | 8 | 8.6 | Add the document structure service and DI registrations | dispatch | done | fe6806877 |
 | 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | done | 5e7ef5732 |
 | 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | done | cc62b581e |
+| 8 | 8.8-gate-fix | Fix final-gate guard failures: interceptor catch mapping, explicit sort comparators, notification registry docs | dispatch | done | aa1f354b7 |
 
 ## Goal
 
@@ -229,3 +230,8 @@ None.
 #### Step 8.7 — Add document structure API routes, command and integration tests
 #### Step 8.8 — Add the structure CLI and env documentation
 - Per the spec's Phase 2 and the triage notes (reuse `OM_ATTACHMENT_OCR_MAX_PAGES`; purge respects `releaseScoped` `flush:false`; integration `TC-ATT-STRUCT-001..005`).
+
+#### Step 8.8-gate-fix — Fix final-gate guard failures: interceptor catch mapping, explicit sort comparators, notification registry docs
+- `command-interceptor-http-coverage.test.ts`: map interceptor rejections in the catch chain of `attachments/api/structure/[id]/route.ts`.
+- `explicit-sort-comparators.test.ts`: add explicit comparators at `useRequesterLabels.ts:27`, `mcp-exposure.ts:167`, `buildEvalReport.ts:352`.
+- `apps/docs/__tests__/notification-registry.test.mjs`: list `ai_assistant.pending_action.awaiting_approval` in `notification-delivery.mdx` and update the registry count.

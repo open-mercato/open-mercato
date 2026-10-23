@@ -164,7 +164,7 @@ export function listExposedMutationToolNames(
   return tools
     .filter((tool) => tool.isMutation === true && isToolExposed(tool, config))
     .map((tool) => tool.name)
-    .sort()
+    .sort((left, right) => left.localeCompare(right))
 }
 
 export function buildDirectMutationModeWarning(
