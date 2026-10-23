@@ -9,6 +9,10 @@ description: Deploy a standalone Open Mercato app to Railway with one repeatable
 
 The command records Railway resource IDs locally, so running it again updates the same project instead of creating a duplicate.
 
+:::info Shared production gate
+Complete the provider-neutral [Production Readiness checklist](./production-readiness) before sending production traffic to Railway. This guide covers the Railway-specific CLI, token, source, domain, volume, and state behavior.
+:::
+
 :::info Availability
 This command was implemented for [issue #2414](https://github.com/open-mercato/open-mercato/issues/2414). Use a CLI release that includes `mercato deploy railway`; older releases do not provide it.
 :::
@@ -325,7 +329,9 @@ Review current [Railway pricing](https://railway.com/pricing) and project usage 
 
 Use `--dry-run` to review the planned resources and `--no-worker` when a dedicated worker is not needed. Run `--cleanup` for test projects you no longer use.
 
-## Security checklist
+## Railway-specific security checklist
+
+Use the shared [Production Readiness checklist](./production-readiness) for TLS, application secrets, access control, backups, observability, validation, rollout, and rollback. For Railway itself:
 
 - Prefer `RAILWAY_API_TOKEN`, the interactive prompt, or the protected token cache over `--token`.
 - Never commit env files, Account tokens, private keys, or `.mercato/railway.json.local`.

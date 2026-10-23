@@ -21,6 +21,7 @@
  * its per-entry results straight into the freeze records.
  */
 
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -58,7 +59,7 @@ import {
   reportReferenceYear,
   withReportReferenceRetry,
 } from '../lib/timesheets-reports/reportReference'
-import { loadReportData } from '../lib/timesheets-reports/loadReportData'
+import { loadClosedReportFreezes, loadReportData } from '../lib/timesheets-reports/loadReportData'
 import { reportSheetLabels } from '../lib/timesheets-reports/reportLabels'
 import {
   computeReportTotals,
@@ -864,8 +865,10 @@ registerCommand(deleteReportCommand)
  *  - **An entry already locked by another report keeps that lock.** When the
  *    D-5 opt-in pulls a previously billed hour into a second report, this report
  *    records what it billed, but ownership of the lock stays with the report
- *    that froze it first — otherwise unlocking the earlier report would leave
- *    the hour editable while a later closed report still quotes it.
+ *    that froze it first. The lock is a denormalized "some closed report quotes
+ *    this hour", so it must outlive whichever of them is unlocked first: the
+ *    unlock command hands it to a remaining closed report instead of clearing
+ *    it.
  */
 export type StaffTimeReportCloseResult = {
   reportId: string
@@ -947,6 +950,7 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
             timeProjectIds,
             periodFrom: report.periodFrom,
             periodTo: report.periodTo,
+            currentReportId: report.id,
           })
           const options = {
             grouping: report.grouping,
@@ -1159,10 +1163,26 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
  * index would otherwise refuse the re-close. The numbers they held are copied
  * into the `unlocked` event's metadata, so the audit trail keeps what was
  * frozen.
+ *
+ * An entry is freed only when no other closed report quotes it. The D-5 opt-in
+ * lets a later report re-include an hour this one froze; `locked_report_id` is
+ * the denormalized form of "a closed report quotes this hour", so for such an
+ * entry the lock moves to the earliest remaining closed report rather than
+ * being cleared — clearing it would let the hour be edited, moved or deleted
+ * underneath a closed report that still prints it.
+ *
+ * Unlocks of reports that share an entry must not interleave: one of them
+ * could hand the lock to the other while that other is on its way back to
+ * draft, leaving the entry locked by a report nobody can unlock. Every entry
+ * this report quotes is therefore row-locked, in id order, BEFORE the other
+ * reports are read.
  */
 export type StaffTimeReportUnlockResult = {
   reportId: string
+  /** Entries no closed report quotes any more, so they are editable again. */
   unlockedEntryCount: number
+  /** Entries still quoted by another closed report, which now owns their lock. */
+  transferredLockCount: number
 }
 
 const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeReportUnlockResult> = {
@@ -1192,35 +1212,87 @@ const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeR
 
     const actorId = actorUserId(ctx)
     let unlockedEntryCount = 0
+    let transferredLockCount = 0
     let frozenEntries: StaffTimeReportEntry[] = []
     let lockedRows: StaffTimeEntry[] = []
-    const frozenTotals = {
-      totalAmount: report.totalAmount,
-      totalBillableMinutes: report.totalBillableMinutes ?? null,
-      totalNonbillableMinutes: report.totalNonbillableMinutes ?? null,
-    }
+    const nextLockOwnerByEntryId = new Map<string, StaffTimeReport>()
+    let frozenTotals: {
+      totalAmount: string | null
+      totalBillableMinutes: number | null
+      totalNonbillableMinutes: number | null
+    } = { totalAmount: null, totalBillableMinutes: null, totalNonbillableMinutes: null }
 
     await withAtomicFlush(
       em,
       [
         async () => {
+          // The status was checked before the transaction opened; a concurrent
+          // unlock of this same report may have won since.
+          const stillClosed = await em.find(
+            StaffTimeReport,
+            {
+              id: report.id,
+              tenantId: report.tenantId,
+              organizationId: report.organizationId,
+              status: 'closed',
+              deletedAt: null,
+            },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+          )
+          const [lockedReport] = stillClosed
+          if (!lockedReport) throw reportNotClosedError(translate)
+          // Read under the row lock, copied before the report goes back to draft.
+          frozenTotals = {
+            totalAmount: lockedReport.totalAmount ?? null,
+            totalBillableMinutes: lockedReport.totalBillableMinutes ?? null,
+            totalNonbillableMinutes: lockedReport.totalNonbillableMinutes ?? null,
+          }
+
           frozenEntries = await em.find(StaffTimeReportEntry, {
             reportId: report.id,
             tenantId: report.tenantId,
             organizationId: report.organizationId,
           })
-          lockedRows = await em.find(StaffTimeEntry, {
-            lockedReportId: report.id,
-            tenantId: report.tenantId,
-            organizationId: report.organizationId,
-          })
+          const quotedEntryIds = Array.from(new Set(frozenEntries.map((frozen) => frozen.timeEntryId)))
+          const quotedRows = await em.find(
+            StaffTimeEntry,
+            {
+              $or:
+                quotedEntryIds.length > 0
+                  ? [{ id: { $in: quotedEntryIds } }, { lockedReportId: report.id }]
+                  : [{ lockedReportId: report.id }],
+              tenantId: report.tenantId,
+              organizationId: report.organizationId,
+            },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
+          )
+          lockedRows = quotedRows.filter((row) => row.lockedReportId === report.id)
+
+          // Read only now that the rows are locked, so a report sharing one of
+          // these entries has either finished its own unlock or waits for this one.
+          const freezesByEntryId = await loadClosedReportFreezes(
+            em,
+            { tenantId: report.tenantId, organizationId: report.organizationId },
+            lockedRows.map((row) => row.id),
+          )
+          for (const [timeEntryId, freezes] of freezesByEntryId) {
+            const nextOwner = freezes.find((freeze) => freeze.report.id !== report.id)
+            if (nextOwner) nextLockOwnerByEntryId.set(timeEntryId, nextOwner.report)
+          }
         },
         () => {
           const now = new Date()
           for (const row of lockedRows) {
+            const nextOwner = nextLockOwnerByEntryId.get(row.id)
+            row.updatedAt = now
+            if (nextOwner) {
+              row.lockedReportId = nextOwner.id
+              row.lockedAt = nextOwner.closedAt ?? now
+              transferredLockCount += 1
+              continue
+            }
             row.lockedReportId = null
             row.lockedAt = null
-            row.updatedAt = now
             unlockedEntryCount += 1
           }
           for (const frozen of frozenEntries) em.remove(frozen)
@@ -1243,6 +1315,7 @@ const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeR
               actorUserId: actorId,
               metadata: {
                 unlockedEntryCount,
+                transferredLockCount,
                 frozenEntryCount: frozenEntries.length,
                 frozenTotalAmount: frozenTotals.totalAmount,
                 frozenBillableMinutes: frozenTotals.totalBillableMinutes,
@@ -1298,7 +1371,7 @@ const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeR
       })
     }
 
-    return { reportId: report.id, unlockedEntryCount }
+    return { reportId: report.id, unlockedEntryCount, transferredLockCount }
   },
   buildLog: async ({ snapshots, ctx, input }) => {
     const before = (snapshots.before as { snapshot?: ReportSnapshot } | undefined)?.snapshot
