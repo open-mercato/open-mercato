@@ -54,7 +54,7 @@ Ship issue #7790's initial behavior — a **Start building** splash button that 
 ### Phase 3: Runtime verification
 
 - [ ] 3.1 Verify dev and production frame headers on a running app
-- [ ] 3.2 Verify the splash button and the launch action with a test double
+- [x] 3.2 Verify the splash button and the launch action with a test double — 1d5ff8441
 
 ### Phase 4: Finish
 
