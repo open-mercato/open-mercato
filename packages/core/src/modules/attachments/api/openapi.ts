@@ -80,6 +80,8 @@ export const partitionSchema = z.object({
   ocrModel: z.string().nullable(),
   storageDriver: z.string().optional().describe('Storage driver: local (default) or s3'),
   configJson: z.record(z.string(), z.unknown()).nullable().optional().describe('Driver-specific configuration'),
+  extractDocumentStructure: z.boolean().describe('Whether uploads are parsed into a document outline and sections'),
+  indexDocumentSections: z.boolean().describe('Whether extracted document sections are indexed in search'),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
   envKey: z.string(),
@@ -89,25 +91,7 @@ export const partitionListResponseSchema = z.object({
   items: z.array(partitionSchema),
 })
 
-export const partitionCreateSchema = z.object({
-  code: z
-    .string()
-    .min(2)
-    .max(60)
-    .regex(/^[A-Za-z0-9_-]+$/)
-    .describe('Partition code (letters, numbers, dashes, underscores)'),
-  title: z.string().min(1).max(120).describe('Partition title'),
-  description: z.string().max(500).nullable().optional().describe('Optional description'),
-  isPublic: z.boolean().optional().describe('Whether partition is publicly accessible'),
-  requiresOcr: z.boolean().optional().describe('Whether OCR should be performed on uploads'),
-  ocrModel: z.string().max(50).nullable().optional().describe('OCR model to use'),
-  storageDriver: z.enum(['local', 's3']).optional().default('local').describe('Storage driver to use'),
-  configJson: z.record(z.string(), z.unknown()).nullable().optional().describe('Driver-specific configuration (e.g. S3 bucket, region, endpoint)'),
-})
-
-export const partitionUpdateSchema = partitionCreateSchema.extend({
-  id: z.string().uuid().describe('Partition ID'),
-})
+export { partitionCreateSchema, partitionUpdateSchema } from '../data/validators'
 
 export const partitionResponseSchema = z.object({
   item: partitionSchema,

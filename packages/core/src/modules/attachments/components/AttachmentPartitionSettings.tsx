@@ -7,6 +7,8 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import {
   Select,
   SelectContent,
@@ -44,6 +46,8 @@ type Partition = {
   ocrModel: string | null
   storageDriver: string
   configJson: Record<string, unknown> | null
+  extractDocumentStructure?: boolean
+  indexDocumentSections?: boolean
   envKey: string
   createdAt: string | null
   updatedAt?: string | null
@@ -69,6 +73,8 @@ const DEFAULT_FORM = {
   s3Region: '',
   s3Endpoint: '',
   s3ForcePathStyle: false,
+  extractDocumentStructure: false,
+  indexDocumentSections: false,
 }
 
 const ALL_STORAGE_DRIVER_OPTIONS = [
@@ -162,6 +168,9 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
         s3Region: typeof cfg.region === 'string' ? cfg.region : '',
         s3Endpoint: typeof cfg.endpoint === 'string' ? cfg.endpoint : '',
         s3ForcePathStyle: cfg.forcePathStyle === true,
+        extractDocumentStructure: state.entry.extractDocumentStructure === true,
+        indexDocumentSections:
+          state.entry.extractDocumentStructure === true && state.entry.indexDocumentSections === true,
       })
     } else {
       setForm(DEFAULT_FORM)
@@ -230,6 +239,8 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
         ocrModel: form.ocrModel.trim() || null,
         storageDriver: form.storageDriver,
         configJson: s3ConfigJson,
+        extractDocumentStructure: form.extractDocumentStructure,
+        indexDocumentSections: form.extractDocumentStructure && form.indexDocumentSections,
       }
       const method = dialog.mode === 'create' ? 'POST' : 'PUT'
       const body =
@@ -537,6 +548,43 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
                 </p>
               </div>
             )}
+            <SwitchField
+              id="partition-extract-document-structure"
+              checked={form.extractDocumentStructure}
+              onCheckedChange={(checked) =>
+                setForm((prev) => ({
+                  ...prev,
+                  extractDocumentStructure: checked,
+                  indexDocumentSections: checked ? prev.indexDocumentSections : false,
+                }))
+              }
+              label={t('attachments.partitions.extractDocumentStructure.label', 'Extract document structure')}
+              description={t(
+                'attachments.partitions.extractDocumentStructure.help',
+                'Parse uploaded PDF and DOCX files into an outline of chapters, sections and clauses with page references.',
+              )}
+            />
+            <SwitchField
+              id="partition-index-document-sections"
+              checked={form.indexDocumentSections}
+              disabled={!form.extractDocumentStructure}
+              onCheckedChange={(checked) => setForm((prev) => ({ ...prev, indexDocumentSections: checked }))}
+              label={t('attachments.partitions.indexDocumentSections.label', 'Index document sections in search')}
+              description={t(
+                'attachments.partitions.indexDocumentSections.help',
+                'Make each extracted section searchable on its own. Requires document structure extraction.',
+              )}
+            />
+            {form.extractDocumentStructure && form.indexDocumentSections ? (
+              <Alert status="warning">
+                <AlertDescription>
+                  {t(
+                    'attachments.partitions.indexDocumentSections.warning',
+                    'Section text is sent to the fulltext and vector search stores in plaintext, even when tenant data encryption is enabled. Do not enable this for partitions holding personal or confidential data.',
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="partition-storage-driver">
                 {t('attachments.partitions.form.storageDriverLabel', 'Storage Driver')}
