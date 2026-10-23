@@ -13,8 +13,14 @@
  * cost of leaking one address.
  */
 
-/** Conservative: local@domain.tld, the shape every transport quotes. */
-const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+/**
+ * Conservative: local@domain.tld, the shape every transport quotes.
+ *
+ * Exported so a caller that must redact the same shape somewhere this module cannot run a JS
+ * `.replace` — a Postgres `GROUP BY`, for one — can reuse `.source` instead of copying the pattern
+ * text and risking the two drifting apart.
+ */
+export const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 
 export const REDACTED_EMAIL = '[redacted-email]'
 

@@ -1,4 +1,5 @@
-import { LINK_REPORT_LIMIT, buildLinkReport } from '../links'
+import { LINK_REPORT_LIMIT, LINK_SQL, buildLinkReport } from '../links'
+import { EMAIL_PATTERN, REDACTED_EMAIL } from '../../redact'
 
 const row = (url: string, people: number, clicks: number, stepIds: string[] | null = ['s1']) => ({
   url,
@@ -60,5 +61,32 @@ describe('buildLinkReport', () => {
   it('does not claim truncation when the rows exactly fill the limit', () => {
     const rows = Array.from({ length: LINK_REPORT_LIMIT }, (_, index) => row(`https://shop.example/${index}`, 1, 1))
     expect(buildLinkReport(rows, 1).truncated).toBe(false)
+  })
+
+  /**
+   * A personalised link — `{{customer.email}}` interpolated into the href before tracking is
+   * added — must never reach this report as a raw address, and every recipient's variant of it
+   * must collapse back into one row rather than splitting the ranking apart.
+   *
+   * `LINK_SQL` groups in Postgres, which this unit test cannot run, so it asserts the redaction
+   * both ways: the SAME expression is used in the select list and the group by (so grouping and
+   * output can never disagree), and the pattern embedded in the SQL — read back as a RegExp — is
+   * `lib/redact.ts`'s own `EMAIL_PATTERN`, applied to a realistic personalised link, actually
+   * removes the address rather than matching nothing.
+   */
+  it('redacts a personalised link before grouping, in both the select and the group by', () => {
+    const redactedExpression = `regexp_replace(e.link_url, '${EMAIL_PATTERN.source}', '${REDACTED_EMAIL}', 'g')`
+    const selectClause = LINK_SQL.slice(LINK_SQL.indexOf('select'), LINK_SQL.indexOf('from'))
+    const groupByClause = LINK_SQL.slice(LINK_SQL.indexOf('group by'), LINK_SQL.indexOf('order by'))
+    expect(selectClause).toContain(redactedExpression)
+    expect(groupByClause).toContain(redactedExpression)
+
+    const personalised = 'https://shop.example/vip?email=alice@example.com'
+    const otherRecipient = 'https://shop.example/vip?email=bob@example.com'
+    const redacted = personalised.replace(EMAIL_PATTERN, REDACTED_EMAIL)
+    expect(redacted).toBe(`https://shop.example/vip?email=${REDACTED_EMAIL}`)
+    expect(redacted).not.toContain('alice@example.com')
+    // Two different recipients' personalised links reduce to the identical grouping key.
+    expect(otherRecipient.replace(EMAIL_PATTERN, REDACTED_EMAIL)).toBe(redacted)
   })
 })

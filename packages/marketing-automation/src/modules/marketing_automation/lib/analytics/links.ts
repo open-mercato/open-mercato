@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubjectScope } from '../subject-document.js'
+import { EMAIL_PATTERN, REDACTED_EMAIL } from '../redact.js'
 
 /**
  * Which links people actually clicked.
@@ -19,7 +20,10 @@ import type { SubjectScope } from '../subject-document.js'
  */
 
 export type LinkClicks = {
-  /** As authored, truncated at write time. Never re-resolved: it is a historical fact about a message. */
+  /**
+   * As authored, truncated at write time, with any email address redacted. Never re-resolved: it is
+   * a historical fact about a message, minus the one shape of fact this report never shows.
+   */
   url: string
   /** Distinct runs that clicked it — people, not clicks. */
   people: number
@@ -82,15 +86,31 @@ export function buildLinkReport(rows: LinkRow[], clickers: number, limit = LINK_
 }
 
 /**
+ * The grouping key, redacted before Postgres groups on it.
+ *
+ * `link_url` is stored as sent: the send step interpolates first and adds tracking second
+ * (`steps/send-email.ts`), and `{{customer.email}}` is an advertised placeholder
+ * (`lib/interpolate.ts`). A link that carries it — `https://shop.example/vip?email={{customer.email}}`
+ * — would otherwise put every clicker's address on this report, AND split into one row per
+ * recipient, which is the "ranking stops meaning anything" failure this module's rules warn about.
+ * Redacting before `GROUP BY` fixes both in the same place the split happens: the address never
+ * reaches this response, in a row or in a count, and every personalised variant of the same link
+ * collapses back into the one row it should have been. Reuses `lib/redact.ts`'s own `EMAIL_PATTERN`
+ * rather than copying its text, so the two cannot drift apart.
+ */
+const REDACTED_URL_SQL = `regexp_replace(e.link_url, '${EMAIL_PATTERN.source}', '${REDACTED_EMAIL}', 'g')`
+
+/**
  * One statement, asking for one row more than it will report.
  *
  * The extra row is how truncation is detected without a second count — the same trick the membership resolver
  * uses, and for the same reason: a `count(*)` over the grouping would double the work to answer a question the
  * ranking already contains.
  */
-const LINK_SQL = `
+/** Exported only so a unit test can assert the redaction applies to both the select and the group by. */
+export const LINK_SQL = `
   select
-      e.link_url as url,
+      ${REDACTED_URL_SQL} as url,
       count(distinct e.run_id)::int as people,
       count(*)::int as clicks,
       array_agg(distinct e.step_id) as step_ids
@@ -98,7 +118,7 @@ const LINK_SQL = `
    where e.campaign_id = ? and e.tenant_id = ? and e.organization_id = ?
      and e.type = 'clicked'
      and e.link_url is not null
-   group by e.link_url
+   group by ${REDACTED_URL_SQL}
    order by people desc, clicks desc, url asc
    limit ?
 `
