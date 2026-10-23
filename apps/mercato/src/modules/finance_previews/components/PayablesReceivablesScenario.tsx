@@ -105,8 +105,23 @@ const initialState: ScenarioState = {
 }
 
 function persistScenario(state: ScenarioState) {
+  const { entry } = state
+  const storedEntry: ScenarioState['entry'] = {
+    number: entry.number,
+    supplier: entry.supplier,
+    order: entry.order,
+    issueDate: entry.issueDate,
+    dueDate: entry.dueDate,
+    quantity: entry.quantity,
+    unitPrice: entry.unitPrice,
+    vatRate: entry.vatRate,
+    saved: entry.saved,
+  }
   try {
-    window.sessionStorage.setItem(storageKey, JSON.stringify(state))
+    window.sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({ ...state, entry: storedEntry }),
+    )
   } catch {
     return
   }
