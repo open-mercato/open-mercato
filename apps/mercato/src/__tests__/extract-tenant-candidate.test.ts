@@ -111,6 +111,72 @@ describe('extractTenantCandidate', () => {
   })
 })
 
+describe('dispatcher body-peek limit (security: issue #7811)', () => {
+  const OVERSIZED_PADDING = 'a'.repeat(200 * 1024)
+
+  it('skips cloning/parsing a JSON body whose declared Content-Length already exceeds the peek budget', async () => {
+    const tenantId = '55555555-5555-5555-5555-555555555555'
+    // The actual body is tiny and DOES contain a valid tenantId — the point is that
+    // the dispatcher must reject on the declared size alone, without ever looking at
+    // the real bytes.
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBeUndefined()
+    expect(cloneSpy).not.toHaveBeenCalled()
+  })
+
+  it('aborts an oversized JSON body stream instead of buffering it fully', async () => {
+    const tenantId = '66666666-6666-6666-6666-666666666666'
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenantId, padding: OVERSIZED_PADDING }),
+    })
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBeUndefined()
+  })
+
+  it('aborts an oversized multipart body stream instead of buffering it fully', async () => {
+    const tenantId = '77777777-7777-7777-7777-777777777777'
+    const form = new FormData()
+    form.append('tenantId', tenantId)
+    form.append('padding', OVERSIZED_PADDING)
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      body: form,
+    })
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBeUndefined()
+  })
+
+  it('still extracts tenantId from a JSON body within the peek budget', async () => {
+    const tenantId = '88888888-8888-8888-8888-888888888888'
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenantId, note: 'small payload' }),
+    })
+
+    const candidate = await extractTenantCandidate(request)
+
+    expect(candidate).toBe(tenantId)
+  })
+})
+
 describe('extractTenantCandidates (HTTP parameter pollution, issue #2665)', () => {
   it('returns every repeated ?tenantId= query param in order', async () => {
     const targetTenant = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
@@ -292,6 +358,62 @@ describe('checkAuthorization organization feature narrowing', () => {
 
       expect(response?.status).toBe(403)
       expect(loadAclMock).toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects a feature-protected write before ever cloning/inspecting its body (security: issue #7811)', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // A declared size far larger than the dispatcher's own tenant-extraction budget —
+    // if the dispatcher parsed the body before rejecting for the missing feature, this
+    // would represent exactly the unbounded-buffering exposure issue #7811 reports.
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(50 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(cloneSpy).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('rejects an oversized multipart write before ever cloning/inspecting its body (security: issue #7811)', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const form = new FormData()
+    form.append('tenantId', tenantId)
+    form.append('padding', 'a'.repeat(200 * 1024))
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      body: form,
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
+
+      expect(response?.status).toBe(403)
+      expect(cloneSpy).not.toHaveBeenCalled()
     } finally {
       warning.mockRestore()
     }
