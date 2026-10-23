@@ -68,5 +68,5 @@ Local mode, turbo concurrency 2, `NODE_OPTIONS=--max-old-space-size=6144`: `buil
 ### Phase 4: Finish
 
 - [x] 4.1 Full validation gate — f6f9593a4
-- [ ] 4.2 om-auto-review-pr autofix pass
-- [ ] 4.3 Evidence, labels and ready for review
+- [x] 4.2 om-auto-review-pr autofix pass — cd2e703da
+- [x] 4.3 Evidence, labels and ready for review — cd2e703da (PR left as draft for the author to mark ready)
