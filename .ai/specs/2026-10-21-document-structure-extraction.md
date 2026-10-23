@@ -122,7 +122,7 @@ flowchart TB
 
 ### Engines (`lib/documentStructure/engines/`)
 
-`DocumentStructureEngine` interface: `{ id, version, supports(mime, ext), extract(filePath, opts) → Promise<RawBlocks> }`. Engines are registered in DI under `attachmentDocumentStructureEngines` so a provider package can add one (for example a layout-model sidecar).
+`DocumentStructureEngine` interface: `{ id, version, supports(mime, ext), extract(filePath, opts) → Promise<RawBlocks> }`. Engines are registered in DI under `attachmentDocumentStructureEngines` so a provider package can add one (for example a layout-model sidecar). The default registry order is `pdf_layout, docx, ocr, text`; the first engine that supports the file wins. Engine blocks carry no character offsets: the structurer computes every offset against `normalized_text`.
 
 - **`pdf_layout`**: pdfjs `getTextContent()` items carry `str`, `transform` (x, y, font size = `hypot(a, b)`), `fontName` and `hasEOL`. The engine groups items into lines (y-tolerance) and lines into blocks (vertical gap, indent). It reads `getOutline()` and resolves destinations to pages, and it records per-page char counts for the OCR decision. Built from the same loader options as `extractPdfText` (`cMapUrl`, `standardFontDataUrl`).
 - **`docx`**: `mammoth.convertToHtml` gives `h1..h6`, `p`, `li` (with nesting) and `table`. A paragraph style named `Heading N` maps to its level. There are no pages, so `pageStart` stays null. That is honest: DOCX has no fixed pagination.
@@ -261,20 +261,22 @@ All routes live in `attachments/api/structure/…`, export `openApi`, validate w
   "nextCursor": 462
 }
 ```
+- When the attachment has not been extracted: `{ extractionId: null, items: [], nextCursor: null }`.
 
 ### `POST /api/attachments/structure/:attachmentId`
 - Features: `attachments.manage`. Wires the mutation-guard contract.
 - Body: `{ force?: boolean, ocr?: 'auto' | 'never' | 'force' }`.
-- 202 `{ extractionId, status: 'pending' }`. 200 with the existing extraction when it is already current and `force` is false. 413 when the file exceeds `OM_ATTACHMENT_STRUCTURE_MAX_BYTES`. 422 `unsupported_type`.
-- Implemented as command `attachments.document_structure.request` (undo = cancel a still-pending job and delete its pending extraction row; a completed extraction is not undoable, because it is derived data, so the command documents it as non-undoable).
+- 202 `{ attachmentId, extractionId: null, status: 'pending' }` (the extraction row is created by the worker). 200 with the existing extraction when it is already current and `force` is false. 413 when the file exceeds `OM_ATTACHMENT_STRUCTURE_MAX_BYTES`. 422 `unsupported_type`.
+- Implemented as command `attachments.document_structure.request`. The command is **not undoable**: the queue has no per-job cancel, and extractions are derived data. The enqueued job carries `onDemand: true`, so an explicit request runs even when the partition's `extract_document_structure` flag is off.
+- Every structure route requires an organization context (400 without one).
 
 ### Service (DI `attachmentDocumentStructureService`, type exported from `@open-mercato/core/modules/attachments`)
 
 ```ts
 export interface AttachmentDocumentStructureService {
   getStructure(input: { attachmentId: string; scope: AttachmentScope; maxDepth?: number }): Promise<DocumentStructure | null>
-  listSections(input: ListDocumentSectionsInput): Promise<{ extractionId: string; items: DocumentSection[]; nextCursor: number | null }>
-  requestExtraction(input: { attachmentId: string; scope: AttachmentScope; force?: boolean; ocr?: 'auto' | 'never' | 'force'; requestedByUserId?: string | null }): Promise<{ extractionId: string; status: ExtractionStatus }>
+  listSections(input: ListDocumentSectionsInput): Promise<{ extractionId: string; items: DocumentSection[]; nextCursor: number | null } | null>
+  requestExtraction(input: { attachmentId: string; scope: AttachmentScope; force?: boolean; ocr?: 'auto' | 'never' | 'force'; requestedByUserId?: string | null }): Promise<{ extractionId: string | null; status: ExtractionStatus; enqueued: boolean; jobId: string | null } | null>
   getNormalizedText(input: { attachmentId: string; scope: AttachmentScope; charStart: number; charEnd: number }): Promise<string | null>
 }
 ```
@@ -301,9 +303,10 @@ export interface AttachmentDocumentStructureService {
 
 ### CLI (`attachments/cli.ts`, additive)
 
-- `mercato attachments structure extract --attachment <id> [--force] [--ocr auto|never|force]`
-- `mercato attachments structure backfill --partition <code> [--below-engine-version <n>] [--limit <n>]` (enqueues; never runs inline)
-- `mercato attachments structure dump --attachment <id> [--json]` prints the outline for debugging (respects scope flags `--tenant/--org`).
+- `mercato attachments structure extract --attachment <id> --tenant <id> --org <id> [--force] [--ocr auto|never|force]` (enqueues an on-demand job through `requestExtraction`)
+- `mercato attachments structure backfill --tenant <id> [--org <id>] [--partition <code>] [--below-engine-version <n>] [--limit <n>] [--dry-run]` (enqueues, paged; never runs inline). Without `--below-engine-version` it selects attachments in partitions with `extract_document_structure` on that have no live `completed`/`partial`/`skipped`/`pending` extraction; with it, live extractions below that engine version are re-enqueued with `force`.
+- `mercato attachments structure dump --attachment <id> --tenant <id> --org <id> [--format outline|json] [--json] [--max-depth <n>] [--with-text]` prints the outline for debugging; section text only with `--with-text`; `normalized_text` is never printed.
+- Usage errors exit with code 2; an attachment outside the scope or a runtime failure exits with code 1.
 
 ## Relationship to SPEC-040 and AO
 
@@ -562,3 +565,16 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
 ### 2026-10-22
 - Q3 resolved: the per-partition opt-in exception for indexing section text (off by default, plaintext-egress warning) is approved. Phase 4 is unblocked.
 - Upstream verification on `main`: OCR already has a page cap (`OM_ATTACHMENT_OCR_MAX_PAGES`) and an in-process concurrency queue; the structure OCR engine reuses that cap (no `OM_ATTACHMENT_STRUCTURE_OCR_MAX_PAGES`). Attachments has no `data/validators.ts`; Phase 2 creates it for the partition schemas. `mammoth.convertToHtml` output is parsed without a new dependency. Purge inside `releaseScoped` respects its `flush:false` contract under an ambient transaction.
+
+### 2026-10-23
+- Implementation decisions from Phase 1–2 (Steps 7.x–8.x):
+  - Engine blocks carry no character offsets; the structurer computes all offsets against `normalized_text`.
+  - pdfjs runs out-of-process (a child process) in the `pdf_layout` unit tests.
+  - Default engine registry order is `pdf_layout, docx, ocr, text` (first supporting engine wins).
+  - OCR fallback is composed by `applyOcrFallback` over the `pdf_layout` result; `resolveEffectiveOcrMode` forces `never` when the partition `requires_ocr` is off and otherwise uses the requested mode (default `auto`).
+  - A failed or timed-out re-extraction keeps the previous live `completed`/`partial`/`skipped` extraction; the failure is recorded as a soft-deleted row.
+  - On-demand jobs (`onDemand: true`, from the POST route, the command and `structure extract`) bypass the partition `extract_document_structure` flag; upload and backfill jobs respect it.
+  - Command `attachments.document_structure.request` is not undoable (the queue has no per-job cancel).
+  - `GET /structure/:id/sections` returns `extractionId: null` with no items when the attachment has not been extracted.
+  - Organization context is required on every structure route.
+  - CLI `structure extract|backfill|dump` takes explicit `--tenant`/`--org` scope flags, backfill gains `--dry-run` and `--org`, and dump gains `--format outline|json` and opt-in `--with-text`. Settings are documented in `apps/mercato/.env.example`, the create-app template and the attachments API docs page.
