@@ -76,3 +76,8 @@
 - Steps 8.1..8.5 (+8.4-review-fix) verified: attachments jest 434/434, core tsc 0, build, i18n sync, UI probe + screenshot on the ephemeral app.
 - Decision (review fix): failed re-extractions keep the previous good extraction live.
 - Note: checkpoints must rebuild packages before starting the ephemeral app (stale dist broke the first start).
+
+## 2026-10-23T10:59:09Z — final gate
+- Validation gate green after Step 8.8-gate-fix (3 guard failures caused by this branch fixed); two Jest worker SIGSEGVs in untouched packages passed on rerun.
+- Full integration: 2700 passed / 10 failed / 4 flaky; all 10 failures reproduced on a clean upstream-main baseline (pre-existing).
+- DS pass: 0 lint findings; one intentional residual (notification renderer classes match existing renderers).

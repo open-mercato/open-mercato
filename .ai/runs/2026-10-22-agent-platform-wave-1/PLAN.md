@@ -59,10 +59,10 @@
 | 8 | 8.4 | Add the document structure queue and worker | dispatch:capable | done | d5fd005bb |
 | 8 | 8.4-review-fix | Keep the previous live extraction when a re-extraction fails | dispatch | done | ceb64a2ca |
 | 8 | 8.5 | Enqueue extraction on upload and purge structure on delete | dispatch | done | 5060a3549 |
-| 8 | 8.6 | Add the document structure service and DI registrations | dispatch | done | fe6806877 |
-| 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | done | 5e7ef5732 |
-| 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | done | cc62b581e |
-| 8 | 8.8-gate-fix | Fix final-gate guard failures: interceptor catch mapping, explicit sort comparators, notification registry docs | dispatch | done | aa1f354b7 |
+| 8 | 8.6 | Add the document structure service and DI registrations | dispatch | done | a0820651a |
+| 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | done | 5e39d8cba |
+| 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | done | 3293e9e12 |
+| 8 | 8.8-gate-fix | Fix final-gate guard failures: interceptor catch mapping, explicit sort comparators, notification registry docs | dispatch | done | a31c626c3 |
 
 ## Goal
 
