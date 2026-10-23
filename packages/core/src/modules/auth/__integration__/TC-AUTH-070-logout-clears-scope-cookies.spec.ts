@@ -5,7 +5,7 @@ import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helper
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
- * TC-AUTH-068: Logout clears the organization-scope cookies (#7465)
+ * TC-AUTH-070: Logout clears the organization-scope cookies (#7465)
  *
  * The top-bar switcher stores the selection in `om_selected_org` (and the
  * super-admin tenant pick in `om_selected_tenant`) for 30 days. Logout used to
@@ -27,10 +27,10 @@ async function readScopeCookieNames(page: Page): Promise<string[]> {
   return cookies.map((cookie) => cookie.name).filter((name) => SCOPE_COOKIE_NAMES.includes(name))
 }
 
-test.describe('TC-AUTH-068: logout clears the organization-scope cookies', () => {
+test.describe('TC-AUTH-070: logout clears the organization-scope cookies', () => {
   test('the next user on the same browser does not inherit "All organizations"', async ({ page, request }) => {
     const stamp = Date.now()
-    const nextUserEmail = `qa-auth-068-${stamp}@acme.com`
+    const nextUserEmail = `qa-auth-070-${stamp}@acme.com`
     const nextUserPassword = 'StrongSecret123!'
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenContext(adminToken)
@@ -42,7 +42,7 @@ test.describe('TC-AUTH-068: logout clears the organization-scope cookies', () =>
         password: nextUserPassword,
         organizationId,
         roles: ['admin'],
-        name: 'QA TC-AUTH-068 Next User',
+        name: 'QA TC-AUTH-070 Next User',
       })
 
       await login(page, 'admin')
