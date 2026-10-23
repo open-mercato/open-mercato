@@ -675,6 +675,12 @@ export class StepInstance {
   @Property({ name: 'exited_at', type: Date, nullable: true })
   exitedAt?: Date | null
 
+  /**
+   * @deprecated Written on the COMPLETED path only and `null` for any step that
+   * lasted 2^31 ms (~24.86 days) or longer, which a Postgres `integer` cannot
+   * hold. Derive the duration from `exitedAt - enteredAt` instead; the column
+   * is scheduled for removal in a later release (see UPGRADE_NOTES.md).
+   */
   @Property({ name: 'execution_time_ms', type: 'integer', nullable: true })
   executionTimeMs?: number | null
 
