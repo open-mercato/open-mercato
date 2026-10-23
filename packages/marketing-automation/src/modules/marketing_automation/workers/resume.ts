@@ -7,6 +7,7 @@ import { buildDispatchDeps, logger, readScope } from './shared.js'
 import type { HandlerContext } from './shared.js'
 import { reportError } from '@open-mercato/telemetry'
 import { recordJobRun } from '../lib/job-runs.js'
+import { announceBreaker, applyDeliverabilityGuardrails } from '../lib/deliverability.js'
 
 // See the note in dispatch.ts: this string must stay a literal.
 export const metadata: WorkerMeta = {
@@ -53,8 +54,43 @@ export default async function handle(job: QueuedJob<ResumeJob>, ctx: HandlerCont
     const released = await expireOccurrenceKeys(deps.em, scope, deps.now, OCCURRENCE_DEDUP_WINDOW_HOURS)
     if (released > 0) logger.info('marketing occurrence keys released', { released })
 
+    /**
+     * The deliverability breaker rides the same periodic scan: it is housekeeping over the whole
+     * scope, same as the occurrence-key release above, not a per-run concern. A failure here must
+     * not abort the due-run scan that follows — a guardrail bug is never allowed to cost delivery.
+     */
+    let tripped = 0
+    try {
+      const outcomes = await applyDeliverabilityGuardrails(deps.em, deps.container, scope, deps.now)
+      tripped = outcomes.length
+      for (const outcome of outcomes) {
+        logger.info('marketing deliverability breaker tripped', { campaignId: outcome.campaignId })
+        try {
+          await announceBreaker(deps.container, scope, outcome)
+        } catch (error) {
+          logger.error('[internal] marketing deliverability breaker notification failed', {
+            campaignId: outcome.campaignId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          reportError(error, {
+            module: 'marketing_automation',
+            code: 'marketing_automation.deliverability_announce_failed',
+            attributes: { campaignId: outcome.campaignId },
+          })
+        }
+      }
+    } catch (error) {
+      logger.error('[internal] marketing deliverability breaker scan failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      reportError(error, {
+        module: 'marketing_automation',
+        code: 'marketing_automation.deliverability_scan_failed',
+      })
+    }
+
     const dueIds = await findDueRunIds(deps.em, scope, deps.now, SCAN_BATCH)
-    if (!dueIds.length) return { counters: { found: 0, resumed: 0, released } }
+    if (!dueIds.length) return { counters: { found: 0, resumed: 0, released, tripped } }
 
     let resumed = 0
     for (const id of dueIds) {
@@ -75,6 +111,6 @@ export default async function handle(job: QueuedJob<ResumeJob>, ctx: HandlerCont
       }
     }
     logger.info('marketing due-run scan finished', { found: dueIds.length, resumed })
-    return { counters: { found: dueIds.length, resumed, released } }
+    return { counters: { found: dueIds.length, resumed, released, tripped } }
   })
 }
