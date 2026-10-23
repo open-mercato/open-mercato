@@ -52,7 +52,7 @@ for (const width of [1440, 390]) {
           buttons.flatMap((button) => {
             if (!button.getBoundingClientRect().width) return []
             const reference = document.createElement('span')
-            reference.style.color = 'var(--status-info-solid)'
+            reference.style.color = 'var(--primary)'
             button.append(reference)
             const expected = getComputedStyle(reference).color
             reference.remove()

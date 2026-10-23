@@ -17,7 +17,7 @@ export function FinanceCrudForm<Values extends Record<string, unknown>>(
     [props.fields],
   )
   return (
-    <div className="min-w-0 [&_button[type=submit]]:bg-status-info-solid [&_button[type=submit]]:text-status-info-solid-foreground [&_button[type=submit]:hover]:bg-status-info-solid/90">
+    <div className="min-w-0">
       <CrudForm
         {...props}
         fields={fields}

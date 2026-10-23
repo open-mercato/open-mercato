@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import styles from './finance-preview.module.css'
 import { z } from 'zod'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import {
@@ -93,7 +94,7 @@ function Panel({
   action?: React.ReactNode
 }) {
   return (
-    <Card className="min-w-0 p-6 [&>button]:self-start [&>span]:self-start">
+    <Card className={`min-w-0 p-6 ${styles.panel}`}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-lg font-semibold">{title}</h2>
         {action}
@@ -150,7 +151,7 @@ function GridTable<Row extends object>({
     <div
       tabIndex={0}
       aria-label={copy.scrollTable}
-      className="min-w-0 overflow-x-auto [&_thead_tr]:h-10 [&_tbody_tr]:h-16 [&_tbody_tr]:border-b [&_tbody_tr]:border-border [&_th]:px-4 [&_td]:px-4 [&_td]:py-3"
+      className={`min-w-0 overflow-x-auto ${styles.table}`}
     >
       <p className="mb-3 text-xs text-muted-foreground sm:hidden">
         {copy.scrollTable}
