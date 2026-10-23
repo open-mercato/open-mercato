@@ -66,7 +66,7 @@ export function resolveSnapshotPublishConfig({ eventName, refName }) {
     }
   }
 
-  if (eventName === 'push' && refName === 'develop') {
+  if (eventName === 'push' && refName === 'main') {
     return {
       channel: 'develop',
       publishTag: 'develop',
