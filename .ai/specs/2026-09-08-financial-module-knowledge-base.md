@@ -2826,3 +2826,81 @@ check at `markPaymentBatchSent` when the stored one is from an earlier
 calendar day in `Europe/Warsaw`; the new result replaces
 `whitelistCheck` in `contractorSnapshot`, and a failure blocks the send
 with `422 PAYMENT_BATCH_NOT_ELIGIBLE`.
+
+### 2026-10-23 (cont. — currency, rate and original amount on the ledger line: controller's answer, literature and systems checked)
+
+Trigger: the Money/Currency review on #7795 raised how the ledger stores
+foreign amounts. The question went to the controller (Mateusz Duda, incro)
+as an e-mail; his answer of 2026-10-23 07:03 UTC is the base for the
+decision. Written into GL core engine (Design decisions, 2026-10-23) and
+aligned in JELD, Posting Rules, Multi-Currency, Cash & Bank, Default Chart
+of Accounts and GL Account Balances in the same round; the ledger code
+(#6340) follows it.
+
+- **Controller's answer — domain-expert statement, no statute checked for
+  it.** Foreign-currency postings need the currency, the rate and the
+  original amount on the entry line, and one entry can mix currencies
+  (his example: an invoice in one currency paid from a bank account in
+  another). Each bank account is its own ledger account whatever its
+  currency (the balance in the account's currency must agree with the
+  bank statement); settlement accounts (rozrachunki) are kept per
+  contractor in the base currency. A realized exchange difference between
+  the invoice rate and the payment rate is, in his words, usually booked
+  as a separate entry at settlement; only the conversion difference
+  belongs in the payment's own entry.
+- **Decision (option 2, chosen by the spec author).** `JournalEntryLine`
+  gets `currencyId`, `exchangeRate` (base-currency units per one unit of
+  the line's currency) and `amountCurrency` (unsigned magnitude in the
+  line's currency); `debit`/`credit` stay in the base currency and the
+  entry balances only there. The header's currency and rate stay as the
+  source document's and are the default for a line that omits its own,
+  filled in **at write time** so a stored line is never null (a read-time
+  "null means the header" rule would misread a line left unset in a mixed
+  entry). `LedgerAccount.currencyId` is nullable, set on bank accounts,
+  immutable once the account has posted lines.
+- **Consistency rule.** `|amountCurrency × exchangeRate − base amount|`
+  within half the smallest unit of the base currency; lines with
+  `amountCurrency = 0` (exchange-difference lines) exempt. **⚠ NEEDS HUMAN
+  CONFIRMATION:** the tolerance is a working proposal.
+- **Still not confirmed by the controller:** that line currency and rate
+  are NOT NULL; the account-currency rule as written; whether the
+  realized difference may sit in the payment's own entry (Cash & Bank
+  still books it there, the controller's "usually separate entry"
+  suggests a change); whether header currency and rate become optional
+  later. Cash & Bank's formula was written in the bank's currency and is
+  restated in base-currency terms.
+- **Kieso — Confirmed absence of mechanics.** Intermediate Accounting
+  has no journal-line data structure for foreign amounts; a footnote puts
+  hedging outside its scope.
+  No claim is made for page numbers in this entry (not re-read this pass).
+- **Fowler, *Analysis Patterns* — Confirmed, partial.** §3.1 *Quantity*
+  and §3.2 *Conversion Ratio* give the pattern for an amount in one unit
+  with a ratio to another. Neither decides whether one posting may mix
+  currencies, so they support storing amount, unit and ratio together but
+  not the line-level choice itself. Hay: nothing relevant found.
+- **Ustawa o rachunkowości.** Art. 9 and art. 30 (foreign-currency
+  valuation) are Confirmed in this document's earlier passes. Art. 23
+  ust. 3 is cited in the GL spec and was not re-read against the
+  consolidated text in this pass — **Unverified here**.
+- **ERPNext — Comparable, partly silent.** The Journal Entry documentation
+  has the amount typed in each row's account currency, so a row carries
+  its own currency. The documentation does not say
+  how many different foreign currencies one entry may hold.
+- **GnuCash — Comparable.** A split holds an amount in the account's
+  commodity and a value in the transaction's currency; with trading
+  accounts enabled it books the difference between the two. This is the
+  same two-quantity shape as ours, with the currency attached to the
+  account instead of the line.
+- **Odoo — Secondary source only.** A currency per journal item (amount in
+  the item's currency next to the company-currency debit/credit) is
+  described in a third-party article; Odoo's own documentation could not
+  be fetched (blocked by robots.txt) and was not worked around. Not
+  citable as confirmed.
+- **Divergence worth keeping.** GnuCash and, in the partial reading
+  above, ERPNext tie the currency to the account; we keep it on the line
+  and add an account currency only where the account is single-currency
+  (banks), because settlement accounts are base-currency per contractor
+  and the invoice currency varies line by line.
+- **Open for the `financial_pl` pass.** JPK_KR_PD maps Z_6/Z_9 to the
+  header currency in the specs read so far; the mapping has to follow the
+  line currency. Recorded here so the pass does not rediscover it.
