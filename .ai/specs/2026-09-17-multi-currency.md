@@ -1922,3 +1922,24 @@ Not yet reviewed by a maintainer.
 - **Out of scope, named.** Revaluation of foreign-currency bank accounts by
   currency balance.
 - Not yet reviewed by a maintainer.
+
+### 2026-10-23 (cont. — cross-rate no longer an input; bank-account valuation question)
+
+- **Decision 14.** `cash-bank-management.md` now restates the settlement posting
+  in base-currency terms (bank rate, the invoice currency's rate on the payment
+  day and the invoice's stored rate), so `bookedExchangeRate` and the cross-rate
+  of this decision are no longer inputs there; the unit problem it describes
+  does not arise.
+- **Revaluation of foreign-currency bank accounts (Out of scope bullet).**
+  Sketch for a later phase: for each account with a `currencyId` other than the
+  base currency, the balance in the account's currency (signed `amountCurrency`
+  of its lines, debit positive) times the valuation rate (decision 9f) minus
+  the account's base balance gives the difference, posted as a line on the
+  account with `amountCurrency = 0` against the unrealized gain and loss
+  accounts, reversed on the first day of the next period like decision 12; needs
+  the balance in the account's currency from GL balances (named there as a later
+  phase). **⚠ NEEDS HUMAN CONFIRMATION:** how the outflow of currency from such
+  an account is valued (rate of the day with periodic revaluation, FIFO or an
+  average) and whether realized and unrealized differences must be separated.
+  Comarch ERP XL offers FIFO or LIFO per register, chosen once at creation, with
+  no default. Not yet reviewed by a maintainer.
