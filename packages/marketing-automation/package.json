@@ -1,0 +1,116 @@
+{
+  "name": "@open-mercato/marketing-automation",
+  "version": "0.8.0",
+  "license": "MIT",
+  "description": "Visual marketing automation campaigns: triggers, audience conditions and delayed action chains",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "check:boundaries": "cd ../.. && npx --yes dependency-cruiser@16 --config packages/marketing-automation/.dependency-cruiser.cjs \"packages/marketing-automation/src/**/*.ts\"",
+    "check:quality": "yarn check:boundaries && yarn check:unused",
+    "check:unused": "cd ../.. && npx --yes knip@5 --config packages/marketing-automation/knip.json --workspace packages/marketing-automation --no-progress",
+    "lint": "node --require ../../scripts/typescript-js-require-hook.cjs ../../node_modules/eslint/bin/eslint.js --no-error-on-unmatched-pattern \"src/**/*.ts\" \"src/**/*.tsx\"",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit",
+    "watch": "node watch.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts",
+        "./src/*.tsx"
+      ],
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*/*": {
+      "types": [
+        "./src/*/*.ts",
+        "./src/*/*.tsx"
+      ],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*/*": {
+      "types": [
+        "./src/*/*/*.ts",
+        "./src/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*.ts",
+        "./src/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@open-mercato/events": "workspace:*",
+    "@open-mercato/queue": "workspace:*",
+    "@open-mercato/telemetry": "workspace:*",
+    "@xyflow/react": "^12.11.5"
+  },
+  "peerDependencies": {
+    "@mikro-orm/core": "^7.1.14",
+    "@mikro-orm/postgresql": "^7.1.14",
+    "@open-mercato/ai-assistant": "workspace:*",
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "ai": "^7.0.83",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": ">=3.23.0"
+  },
+  "devDependencies": {
+    "@open-mercato/ai-assistant": "workspace:*",
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "ai": "^7.0.83",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/marketing-automation"
+  },
+  "peerDependenciesMeta": {
+    "@open-mercato/ai-assistant": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    }
+  }
+}
