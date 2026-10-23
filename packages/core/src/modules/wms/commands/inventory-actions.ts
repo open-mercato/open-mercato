@@ -1156,6 +1156,9 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       const reservation = await requireReservation(trx, ctx, input.reservationId, scope, true)
+      if (reservation.status !== 'active') {
+        throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
+      }
       const metadata = extractReservationMetadata(reservation)
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const allocationState = metadata.allocationState ?? 'reserved'
@@ -1250,9 +1253,6 @@ const allocateInventoryReservationCommand: CommandHandler<InventoryReservationAl
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       const reservation = await requireReservation(trx, ctx, input.reservationId, scope, true)
-      if (reservation.status !== 'active') {
-        throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
-      }
       const metadata = extractReservationMetadata(reservation)
       if (metadata.allocationState === 'allocated') {
         return {
