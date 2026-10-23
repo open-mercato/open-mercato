@@ -868,6 +868,43 @@ describe('CRUD Factory', () => {
     })
   })
 
+  it('GET still applies buildFilters scope on a full export when omitAutomaticTenantOrgScope is set', async () => {
+    // Regression test for #7806: a full export used to drop straight to `{}` as
+    // baseFilters, skipping buildFilters entirely. For a route that owns its own
+    // scope via omitAutomaticTenantOrgScope, neither the query engine nor the ORM
+    // fallback add a tenant/org predicate of their own, so that leaked every
+    // tenant's rows on `exportScope=full`.
+    const scopedBuildFilters = jest.fn((_query: any, ctx: any) => ({
+      tenant_id: { $eq: ctx.auth?.tenantId ?? null },
+    }))
+    const scopedRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        omitAutomaticTenantOrgScope: true,
+        buildFilters: scopedBuildFilters,
+        transformItem: (i: any) => ({ id: i.id, title: i.title }),
+      },
+    })
+
+    const res = await scopedRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+
+    // buildFilters runs with an empty query — the caller's own UI filters are
+    // dropped on a full export — but still receives the real ctx, so its scope
+    // predicate (derived from ctx.auth.tenantId here) is preserved.
+    expect(scopedBuildFilters).toHaveBeenCalledWith({}, expect.objectContaining({
+      auth: expect.objectContaining({ tenantId: '123e4567-e89b-12d3-a456-426614174000' }),
+    }))
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
+  })
+
   describe('afterList hook ordering on the export paths', () => {
     // Issue #5969: both export branches used to call serializeExport() before awaiting
     // hooks.afterList, so a hook that patches values the base query cannot compute reached
