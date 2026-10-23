@@ -831,11 +831,19 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     `bookedExchangeRate`. **⚠ NEEDS HUMAN CONFIRMATION:** (1) the formula above
     is written in the bank currency; in base-currency terms the gain or loss
     is the balancing figure of the entry, and the posting has to be restated
-    in those terms before implementation; (2) whether the gain or loss stays in
-    this entry. The controller says the difference between the invoice rate
-    and the payment rate is usually booked as its own entry at settlement, and
-    that only the difference from converting the two currencies to the base
-    currency goes into the same entry. `referenceType: 'cash_bank_management:bank_statement_line'`,
+    in those terms before implementation; (2) *decided by the team 2026-10-23 on the controller's e-mail (not yet
+    reviewed by a maintainer):* the difference between the invoice rate and the
+    payment rate is usually booked as its own entry at settlement, and only the
+    difference from converting the two currencies to the base currency goes
+    into the payment's entry as a balancing line. Worked reading: invoice EUR
+    1,000 at 4.30 (4,300 PLN) paid with USD 1,100 when USD/PLN is 4.00 and
+    EUR/PLN is 4.35. Payment entry: bank USD 1,100 at 4.00 = 4,400, receivable
+    EUR 1,000 at 4.35 = 4,350, exchange difference 50. Settlement entry:
+    receivable from 4.30 to 4.35, 50 PLN on a line with `amountCurrency = 0`
+    against `gainLossAccountId`. This needs the invoice currency's rate on the
+    payment day as a second input next to `bookedExchangeRate` (rule of
+    2026-10-12: the rate the bank applied, else the Table A default). The
+    posting above is not rewritten yet; that is the restatement in (1). `referenceType: 'cash_bank_management:bank_statement_line'`,
     `referenceId: bankStatementLineId` (no `type` override — defaults
     to GL's own `'NORMAL'`, the same pattern Accounts Payable's
     `postVendorInvoice` call already uses). Persists
@@ -1922,3 +1930,14 @@ schema. Not yet reviewed by a maintainer.
 - **Open, marked ⚠.** The gain or loss formula restated in base-currency terms,
   and whether it stays in the payment's entry or becomes its own entry at
   settlement. Not yet reviewed by a maintainer.
+
+### 2026-10-23 (cont. — where the realized difference is booked)
+
+- **Decided by the team on the controller's e-mail of 2026-10-23.** Two parts:
+  the difference from converting the bank currency and the invoice currency to
+  the base currency stays in the payment's entry as a balancing line; the
+  difference between the invoice rate and the payment rate becomes its own
+  entry at settlement (a line with `amountCurrency = 0`). Worked example in the
+  posting paragraph.
+- **Still open (⚠ (1) there):** the formula restated in base-currency terms,
+  and the second rate input. Not yet reviewed by a maintainer.
