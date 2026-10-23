@@ -672,7 +672,7 @@ async seedDefaults({ em, tenantId, organizationId }) {
   Phase 1 limit:** the cash line is in the batch's currency, so a
   `defaultCashAccountId` whose `currencyId` differs (for example a PLN account
   paying a EUR invoice) is rejected by the ledger's account-currency rule and
-  the send fails with `422 CASH_ACCOUNT_CURRENCY_MISMATCH`; paying a
+  the send fails with `422 CASH_ACCOUNT_CURRENCY_MISMATCH`; **until the lots of the Cash & Bank spec exist, a foreign-currency cash account in the batch's own currency is credited at `paymentRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; the controller's answer of 2026-10-23 makes FIFO lots the target (the cash line then becomes one line per consumed lot and the gap to the rate of the day a realized difference)**; paying a
   foreign-currency invoice from an account in another currency is the
   conversion case of the Cash & Bank spec and is not posted here. The
   valuation read contract above is unchanged: the difference entry's lines
@@ -1637,3 +1637,7 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
 - **⚠ Open:** a foreign-currency invoice paid from a cash account in another
   currency is rejected in Phase 1 and belongs with the conversion case of the
   Cash & Bank spec.
+
+### 2026-10-23 (cont. — controller's answer on the outflow of currency)
+
+- **Decided by the team** (not yet reviewed by a maintainer): the target is FIFO lot cost on the cash line of a foreign-currency account (Cash & Bank, Out of scope); Phase 1 credits it at `paymentRate` until then, with the consequence stated in Commands.
