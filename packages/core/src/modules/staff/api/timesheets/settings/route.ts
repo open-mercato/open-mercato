@@ -18,6 +18,7 @@ import {
   runTimesheetInterceptors,
 } from '../_shared/withTimesheetInterceptors'
 import {
+  preserveOmittedSupportSettings,
   readTimeTrackingSettings,
   writeTimeTrackingSettings,
   type TimeTrackingSettings,
@@ -137,7 +138,12 @@ async function PUT(req: Request) {
     const { session } = interceptors
 
     const settingsSchema = buildTimeTrackingSettingsSchema()
-    const parsed = settingsSchema.parse(session.body)
+    const requestBody = await preserveOmittedSupportSettings(
+      resolveConfigService(context),
+      { tenantId: context.tenantId },
+      session.body,
+    )
+    const parsed = settingsSchema.parse(requestBody)
 
     const guardResult = await runRouteMutationGuards({
       container: context.container,

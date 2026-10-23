@@ -50,7 +50,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { StaffTimeTaskComment } from '../../../../../data/entities'
 import {
   staffTimeTaskCommentCreateSchema,
-  staffTimeTaskCommentUpdateSchema,
+  staffTimeTaskCommentUpdateRequestSchema,
 } from '../../../../../data/validators'
 import { staffTimeTaskCommentCommandIds } from '../../../../../commands/timesheets-task-comments'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
@@ -86,6 +86,8 @@ const commentItemSchema = z.object({
   authorUserId: z.string().uuid().nullable(),
   authorName: z.string().nullable(),
   authorEmail: z.string().nullable(),
+  visibility: z.enum(['internal', 'customer']),
+  authorKind: z.enum(['staff', 'customer']),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 })
@@ -106,8 +108,16 @@ const createResponseSchema = z.object({
 
 const okResponseSchema = z.object({ ok: z.boolean() })
 
-const createBodySchema = z.object({ body: z.string().trim().min(1).max(5000) })
-const updateBodySchema = z.object({ id: z.string().uuid(), body: z.string().trim().min(1).max(5000) })
+const visibilitySchema = z.enum(['internal', 'customer'])
+const createBodySchema = z.object({
+  body: z.string().trim().min(1).max(5000),
+  visibility: visibilitySchema.optional(),
+})
+const updateBodySchema = z.object({
+  id: z.string().uuid(),
+  body: z.string().trim().min(1).max(5000).optional(),
+  visibility: visibilitySchema.optional(),
+})
 
 type RouteContext = {
   ctx: CommandRuntimeContext
@@ -233,13 +243,17 @@ async function resolveAuthorMeta(
 function serializeComment(comment: StaffTimeTaskComment, authors: Map<string, AuthorMeta>) {
   const authorUserId = comment.authorUserId ?? null
   const meta = authorUserId ? authors.get(authorUserId) ?? null : null
+  const authorKind = comment.authorKind === 'customer' ? 'customer' : 'staff'
+  const customerName = comment.authorDisplaySnapshot?.displayName ?? null
   return {
     id: comment.id,
     taskId: comment.taskId,
     body: comment.body,
     authorUserId,
-    authorName: meta?.name ?? null,
-    authorEmail: meta?.email ?? null,
+    authorName: authorKind === 'customer' ? customerName : meta?.name ?? null,
+    authorEmail: authorKind === 'customer' ? null : meta?.email ?? null,
+    visibility: comment.visibility === 'customer' ? 'customer' : 'internal',
+    authorKind,
     createdAt: comment.createdAt ? comment.createdAt.toISOString() : null,
     updatedAt: comment.updatedAt ? comment.updatedAt.toISOString() : null,
   }
@@ -373,7 +387,7 @@ export async function POST(req: Request) {
     // here and the command stamps the authenticated caller instead.
     const input = parseScopedCommandInput(
       staffTimeTaskCommentCreateSchema,
-      { taskId: route.taskId, body: parsedBody.body },
+      { taskId: route.taskId, body: parsedBody.body, visibility: parsedBody.visibility ?? 'internal' },
       route.ctx,
       route.translate,
     )
@@ -416,7 +430,11 @@ export async function PUT(req: Request) {
     const parsedBody = updateBodySchema.parse(raw ?? {})
     await requireCommentOnTask(route, parsedBody.id)
 
-    const input = staffTimeTaskCommentUpdateSchema.parse({ id: parsedBody.id, body: parsedBody.body })
+    const input = staffTimeTaskCommentUpdateRequestSchema.parse({
+      id: parsedBody.id,
+      body: parsedBody.body,
+      visibility: parsedBody.visibility,
+    })
 
     const guardResult = await runGuards(route, 'update', input.id, input as unknown as Record<string, unknown>)
     if (!guardResult.ok) return guardResult.response

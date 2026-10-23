@@ -401,7 +401,8 @@ Pinned by `lib/time-tracking-ui/__tests__/TimeEntryDialog.test.tsx` →
 | `staff.time_task.board:column-header` | `lib/time-tracking-ui/KanbanColumn.tsx` | `{ statusId, statusName, isDone, total, loggedMinutes }` |
 | `staff.time_task.board:{card-badges,card-footer}` | `lib/time-tracking-ui/KanbanCard.tsx` | `{ entityId, recordId, taskId, timeProjectId, taskStatusId, timerRunning }` |
 | `staff.my_work:{before-sections,after-sections}` | `backend/staff/time-tracking/page.tsx` | `{ staffMemberId, today, projectIds, retryLastMutation }` |
-| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage }` |
+| `staff.time_tracking.settings:sections` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage, keys, values, setValue }` |
+| `staff.time_tracking.settings:tabs` | `backend/staff/time-tracking/settings/page.tsx` | `{ moduleId, canManage, settings, onSettingsSaved }` — `placement: { kind: 'tab' }`; a tab owns its saves (writes built from `context.settings`, reported via `onSettingsSaved`) |
 | `staff.timesheets.timer-bar:actions` | `lib/timesheets-ui/TimerBar.tsx` | `{ staffMemberId, retryLastMutation }` |
 
 No context carries a rate, cost or amount; contributions that need money must ask for it
@@ -640,9 +641,10 @@ columns time tracking already carried:
 the query engine only ever looks a link up by `base`. **These are strings, never
 imports.** Staff is slated for extraction into a standalone package, so
 `data/extensions.ts` may not import a `customers` or `sales` symbol and
-`requires: ['planner', 'resources']` in [`index.ts`](./index.ts) must not grow;
-`__tests__/entityExtensions.test.ts` fails if either happens, and pins every table and
-column against the migration snapshots.
+`requires` in [`index.ts`](./index.ts) (`['planner', 'resources', 'dictionaries']`;
+`dictionaries` backs the support-ticket categories) must never gain `customers`, `sales` or
+`customer_accounts`; `__tests__/entityExtensions.test.ts` fails if either happens, and pins
+every table and column against the migration snapshots.
 
 **Declaration-only, exactly as in `apps/mercato/src/modules/example/data/extensions.ts`.**
 Nothing in the platform passes `includeExtensions` to a query, the basic engine's
@@ -814,6 +816,20 @@ The CLI enqueues onto the same queue with the same `ProgressJob` the settings
 screen uses; it does not do the work in process. An unknown `--hook` id refuses to
 start rather than silently doing nothing.
 
+## Customer support tickets
+
+Design of record: [`.ai/specs/2026-10-06-staff-helpdesk-support-tickets.md`](../../../../../.ai/specs/2026-10-06-staff-helpdesk-support-tickets.md).
+
+- **A ticket is a task.** `staff_time_tasks.source = 'portal'` plus `customer_id` (the ticket owner — never the project's customer), and a 1:1 `staff_support_tickets` row (same-module FK `task_id`) holding every helpdesk-only field. The customer's original request lives in the encrypted `customer_request_snapshot`; the portal reads it and NEVER the staff-editable task title/description.
+- **Routing** (`lib/support/routing.ts`): per-category `staff_support_routing_rules` override the organization fallback rule (`category_value IS NULL`, exactly one, cannot be deleted or paused). Paused, unusable (completed/deleted/no `isDefault` status) or orphaned overrides fall back. Categories are the per-org dictionary `staff.support_ticket_category` (exact org, no ancestors). `seedDefaults` seeds categories, the "Customer support" project and the fallback rule; existing tenants run `mercato staff seed-support-defaults`.
+- **Settings UI**: categories, routing and the reference prefix are the "Support" tab (`widgets/injection/time-tracking-settings-support`) of `/backend/staff/time-tracking/settings`, mounted on the `staff.time_tracking.settings:tabs` spot. A tab saves on its own; when it writes the settings record it must build the body from `context.settings` and call `context.onSettingsSaved(response)` so the page's draft is rebased, not overwritten.
+- **Backoffice reads for agents**: `GET /api/staff/timesheets/support-tickets/options` (`staff.timesheets.tasks.view`) serves the Support Inbox filters (categories, project-scoped assignees); tasks carry `_staffAssignment: { canClaim, canRelease }`, computed with the claim command's predicate. Never derive claimability client-side.
+- **Portal routes** `/api/staff/portal/support-tickets/*` (options, list, create, detail, messages, attachments) resolve identity via dynamic import (no static `customer_accounts` edge) and load every row WITH `portalOwnedTaskWhere` (`lib/support/portalTickets.ts`). Features `portal.support_tickets.view|manage` are customer features granted via `defaultCustomerRoleFeatures`, not `acl.ts`. Attachments load the attachments module dynamically; customer uploads carry `customer-visible` + `customer-upload:<customerUserId>` tags and only the uploader may delete.
+- **Conversation**: comment `visibility` defaults to `internal`; `customer` is refused (422) on non-portal tasks; `author_kind = 'customer'` comments are immutable for staff, `manage_all` included. Comment CRUD events carry `portalVisible`.
+- **Events**: `staff.support_ticket.created|customer_replied` are server-side only (they name the customer); `activity_recorded` is the id-only client broadcast (also emitted with `kind: attachment_added|attachment_removed` by the portal attachments route via `lib/support/supportActivity.ts`, so an open TaskDrawer refetches "Ticket files", whose list is a drawer query invalidated with task/comments); `portal_updated` is emitted only by `lib/support/portalBroadcast.ts` with pinned `recipientUserIds` and never with an empty list. `staff.timesheets.time_task.assignee_changed` (client broadcast, ids only, `changeKind`) is emitted by claim/release/manual edits and the portal default assignee.
+- **Assigners and default assignee**: `staff_time_project_members.is_assigner` (requires a linked user) grants claim (`POST /api/staff/timesheets/tasks/{id}/claim`, conditional update, 409 on a lost race) and release. `staff_time_projects.default_assignee_staff_member_id` applies to portal tickets ONLY — staff task creation keeps US-C1 (omitted or `null` → creator).
+- **Notification chain** (`lib/time-tracking/workRecipients.ts`): type audience → active assigners → owner → `createForFeature('staff.timesheets.projects.manage', restrictRecipientsToOrganization: true)`. The actor is excluded in steps 1–3 only. A support notification that reaches nobody sets `staff_support_tickets.unnotified_at` (cleared on assignment).
+
 ## Internal-Only Surfaces (NOT public contract)
 
 These are subject to change without deprecation; do not import them from non-staff code:
@@ -830,9 +846,9 @@ If you need data from staff in another core module, the correct path is:
 
 ## Dependencies
 
-Staff currently declares `requires: ['planner', 'resources']` in [`index.ts`](./index.ts). The dependency direction is intentional and asymmetric:
+Staff currently declares `requires: ['planner', 'resources', 'dictionaries']` in [`index.ts`](./index.ts). The dependency direction is intentional and asymmetric:
 
-- Staff depends on planner + resources (hard requirement at load time).
+- Staff depends on planner + resources (hard requirement at load time), and on dictionaries for the support-ticket categories.
 - Planner soft-resolves `availabilityAccessResolver` via DI with `allowUnregistered: true` (graceful degradation when staff is absent).
 
 This asymmetry will be reconciled in the Phase 2/3 follow-up when staff becomes its own npm package; for now, planner is the only consumer that must work without staff registered.

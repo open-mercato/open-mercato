@@ -16,7 +16,7 @@
 
 import { formatDuration } from '../time-tracking/duration'
 import { roundMinutes, type RoundingSettings, type RoundingUnitMinutes } from '../time-tracking/rounding'
-import { contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
+import { DEFAULT_SUPPORT_REFERENCE_PREFIX, contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
 import { readTimeTrackingSettingValue, type TimeTrackingSettings } from '../time-tracking/settings'
 
 export const ROUNDING_UNIT_OPTIONS: readonly RoundingUnitMinutes[] = [0, 5, 10, 15]
@@ -65,6 +65,8 @@ export type TimeTrackingSettingsDraft = {
   warningsOverlap: boolean
   warningsRunningTimer: boolean
   assignmentGraceDaysText: string
+  /** Edited on the Support settings tab; carried through so this page's Save never resets it. */
+  supportReferencePrefix: string
   /**
    * EP-42 — every contributed setting key, by its `<group>.<key>` id, carried through
    * the draft untouched so the page's own Save round-trips a contribution it knows
@@ -86,6 +88,7 @@ export function toSettingsDraft(settings: TimeTrackingSettings): TimeTrackingSet
     warningsOverlap: settings.warnings.overlap,
     warningsRunningTimer: settings.warnings.runningTimer,
     assignmentGraceDaysText: String(settings.access.assignmentGraceDays),
+    supportReferencePrefix: settings.support?.referencePrefix ?? DEFAULT_SUPPORT_REFERENCE_PREFIX,
     contributed: Object.fromEntries(
       contributedTimeTrackingSettingKeys().map((entry) => [
         entry.id,
@@ -139,6 +142,7 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     targets: { dailyHours },
     warnings: { overlap: draft.warningsOverlap, runningTimer: draft.warningsRunningTimer },
     access: { assignmentGraceDays },
+    support: { referencePrefix: draft.supportReferencePrefix },
   }
   for (const entry of contributedTimeTrackingSettingKeys()) {
     const group = (payload[entry.group] ?? {}) as Record<string, unknown>
@@ -146,6 +150,49 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     payload[entry.group] = group
   }
   return payload
+}
+
+/**
+ * A settings tab that saves the record itself moves the stored baseline under the
+ * page's draft. Rebase the draft onto the new record: a field the user has not touched
+ * takes the saved value, an edited field keeps the edit, so the page's Save neither
+ * reverts the tab's write nor drops pending changes.
+ */
+export function rebaseSettingsDraft(
+  draft: TimeTrackingSettingsDraft,
+  previousBaseline: TimeTrackingSettingsDraft,
+  nextBaseline: TimeTrackingSettingsDraft,
+): TimeTrackingSettingsDraft {
+  const pick = <TValue>(current: TValue, previous: TValue, next: TValue): TValue =>
+    Object.is(current, previous) ? next : current
+  const contributed: Record<string, unknown> = { ...nextBaseline.contributed }
+  for (const [id, value] of Object.entries(draft.contributed)) {
+    contributed[id] = pick(value, previousBaseline.contributed[id], nextBaseline.contributed[id])
+  }
+  return {
+    roundingUnitMinutes: pick(draft.roundingUnitMinutes, previousBaseline.roundingUnitMinutes, nextBaseline.roundingUnitMinutes),
+    roundingDirection: pick(draft.roundingDirection, previousBaseline.roundingDirection, nextBaseline.roundingDirection),
+    defaultsBillable: pick(draft.defaultsBillable, previousBaseline.defaultsBillable, nextBaseline.defaultsBillable),
+    defaultsChainStartFromPreviousEnd: pick(
+      draft.defaultsChainStartFromPreviousEnd,
+      previousBaseline.defaultsChainStartFromPreviousEnd,
+      nextBaseline.defaultsChainStartFromPreviousEnd,
+    ),
+    dailyHoursText: pick(draft.dailyHoursText, previousBaseline.dailyHoursText, nextBaseline.dailyHoursText),
+    warningsOverlap: pick(draft.warningsOverlap, previousBaseline.warningsOverlap, nextBaseline.warningsOverlap),
+    warningsRunningTimer: pick(draft.warningsRunningTimer, previousBaseline.warningsRunningTimer, nextBaseline.warningsRunningTimer),
+    assignmentGraceDaysText: pick(
+      draft.assignmentGraceDaysText,
+      previousBaseline.assignmentGraceDaysText,
+      nextBaseline.assignmentGraceDaysText,
+    ),
+    supportReferencePrefix: pick(
+      draft.supportReferencePrefix,
+      previousBaseline.supportReferencePrefix,
+      nextBaseline.supportReferencePrefix,
+    ),
+    contributed,
+  }
 }
 
 export function isSettingsDraftDirty(
