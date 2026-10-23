@@ -1053,10 +1053,7 @@ final:
   Whether the JPK_KR_PD XSD requires, permits or forbids the foreign-amount
   fields on a base-currency line was not re-read in this pass; the XSD
   checked on 2026-09-12 has to be opened again for `Z_5`–`Z_9` before the
-  builder is written. Until then the rule above is a working default. Supporting evidence read in
-  this pass: the Ministry of Finance's instruction for JPK_KR (version 1) marks
-  the foreign-currency amount and code fields as optional, and a vendor
-  mapping (Staria) leaves them empty on PLN lines; neither is the JPK_KR_PD XSD.
+  builder is written. Until then the rule above is a working default. The Ministry of Finance's brochure for JPK_KR_PD (May 2024, table 12) marks `Z_5`, `Z_6`, `Z_8` and `Z_9` optional ("dla operacji walutowych") and gives no rule for PLN lines, and a vendor mapping (Staria) leaves them empty on PLN lines. The raw XSD is still unread. Earlier note:
 - **Q7 — New 2026-10-23: VAT in złoty and art. 31a.** The amounts in this
   filing come from the ledger's base-currency `debit`/`credit`, booked at the
   booking-day rate (art. 30 ust. 2). The VAT register, JPK_V7 and KSeF in
@@ -1064,8 +1061,7 @@ final:
   last business day before the tax obligation arises; art. 106e ust. 11), which
   can differ from the booking rate when the obligation date and the invoice
   date differ. Reconciling the two belongs to `financial_pl`'s VAT side and is
-  not designed here. Whether KSeF FA(3) requires the złoty VAT amount on a
-  foreign-currency invoice is not checked.
+  not designed here. A secondary source (iFirma) says a foreign-currency KSeF invoice must show the VAT in złoty and the rate used (`KursWalutyZ`, at most six decimals), at the NBP average rate of the last business day before the tax obligation arises; the FA(3) schema fields were not read.
 - **Q3 — Placement:** this document assumes `official-modules` /
   `SPEC-010`, per the existing JPK_V7/KSeF precedent. Not yet physically
   placed there — `official-modules` is not checked out in the
