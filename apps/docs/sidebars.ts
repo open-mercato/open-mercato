@@ -67,7 +67,11 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway", "deployment/agent-orchestration-scaling"],
+      items: [
+        "deployment/production-readiness",
+        "deployment/railway",
+        "deployment/agent-orchestration-scaling",
+      ],
     },
     {
       type: "category",
@@ -405,6 +409,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
+            "framework/modules/integrations-oauth-grants",
             "framework/modules/sales-providers",
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
@@ -509,6 +514,7 @@ const sidebars: SidebarsConfig = {
           label: "Security",
           items: [
             "framework/security/rate-limiting",
+            "framework/security/cross-site-login",
           ],
         },
         {
