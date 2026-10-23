@@ -59,7 +59,7 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
       const segment = await em.findOne(MarketingSegment, { id: job.payload.segmentId, ...scope, deletedAt: null })
       if (!segment) {
         await progress?.failJob(job.payload.progressJobId, { errorMessage: 'The segment no longer exists' }, progressContext)
-        return { counters: { applied: 0, skipped: 0, checked: 0 } }
+        return { counters: { applied: 0, skipped: 0, checked: 0, truncated: 0 } }
       }
 
       await progress?.startJob(job.payload.progressJobId, progressContext)
@@ -92,7 +92,7 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
         )
         if (cancelled) {
           await progress?.markCancelled(job.payload.progressJobId, progressContext)
-          return { counters: { applied, skipped, checked: resolution.checked } }
+          return { counters: { applied, skipped, checked: resolution.checked, truncated: resolution.complete ? 0 : 1 } }
         }
 
         try {
@@ -177,6 +177,11 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
             subjectEntityId,
             error: error instanceof Error ? error.message : String(error),
           })
+          reportError(error, {
+            module: 'marketing_automation',
+            code: 'marketing_automation.segment_action_subject_failed',
+            attributes: { segmentId: segment.id, subjectEntityId },
+          })
         }
 
         if ((index + 1) % PROGRESS_EVERY === 0) {
@@ -184,12 +189,19 @@ export default async function handle(job: QueuedJob<SegmentActionJob>, ctx: Hand
         }
       }
 
+      /**
+       * `complete: false` means the ceiling (`JOB_MAX_CHECKED`) was reached before every candidate was
+       * examined, so `applied`/`skipped` describe only the people who were checked — never a total. Both the
+       * progress job's own summary and the durable job-run row carry that as `truncated`, because a silent
+       * cap here is indistinguishable from "it finished", and the two answers call for different follow-up.
+       */
+      const truncated = resolution.complete ? 0 : 1
       await progress?.completeJob(
         job.payload.progressJobId,
-        { resultSummary: { applied, skipped } },
+        { resultSummary: { applied, skipped, truncated } },
         progressContext,
       )
-      return { counters: { applied, skipped, checked: resolution.checked } }
+      return { counters: { applied, skipped, checked: resolution.checked, truncated } }
     })
   } catch (error) {
     logger.error('[internal] marketing segment action failed', {

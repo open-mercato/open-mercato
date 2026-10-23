@@ -443,6 +443,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing value boundaries refresh failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.value_boundaries_refresh_failed',
+    })
   }
 
   const projection: ProjectionOptions | null = scheduled.length
@@ -579,6 +583,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing lead digest failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.lead_digest_failed',
+    })
   }
 
   /**
@@ -598,6 +606,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
   } catch (error) {
     logger.warn('[internal] marketing score rules pass could not be queued', {
       error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.score_rules_pass_enqueue_failed',
     })
   }
 
@@ -629,6 +641,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing price watch scan failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.price_watch_scan_failed',
+    })
   }
 
   /**
@@ -659,6 +675,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing automatic winner selection failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.automatic_winner_selection_failed',
+    })
   }
 
   try {
@@ -669,6 +689,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing segment snapshots failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.segment_snapshots_failed',
+    })
   }
 
   // Pruned here rather than by a job of its own: a cleanup task nobody scheduled is a table that grows
@@ -678,6 +702,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
   } catch (error) {
     logger.warn('[internal] marketing job-run pruning failed', {
       error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.job_run_pruning_failed',
     })
   }
 
@@ -695,6 +723,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
     logger.warn('[internal] marketing send reservation expiry failed', {
       error: error instanceof Error ? error.message : String(error),
     })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.send_reservation_expiry_failed',
+    })
   }
 
   // The other side of the same log: what ran, and what could not be processed at all.
@@ -704,6 +736,10 @@ export default async function handle(job: QueuedJob<SweepJob>, ctx: HandlerConte
   } catch (error) {
     logger.warn('[internal] marketing dead-letter pruning failed', {
       error: error instanceof Error ? error.message : String(error),
+    })
+    reportError(error, {
+      module: 'marketing_automation',
+      code: 'marketing_automation.dead_letter_pruning_failed',
     })
   }
 }
