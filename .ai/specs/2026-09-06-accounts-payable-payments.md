@@ -668,13 +668,7 @@ async seedDefaults({ em, tenantId, organizationId }) {
   not at all. Worked check: invoice EUR 1,000 booked at 4.30 (4,300 PLN), sent
   with `paymentRate` 4.35: payment entry DR liability EUR 1,000 = 4,350, CR
   cash EUR 1,000 = 4,350; difference entry: credit liability 50
-  (`amountCurrency` 0), debit loss 50. **⚠ NEEDS HUMAN CONFIRMATION —
-  Phase 1 limit:** the cash line is in the batch's currency, so a
-  `defaultCashAccountId` whose `currencyId` differs (for example a PLN account
-  paying a EUR invoice) is rejected by the ledger's account-currency rule and
-  the send fails with `422 CASH_ACCOUNT_CURRENCY_MISMATCH`; **until the lots of the Cash & Bank spec exist, a foreign-currency cash account in the batch's own currency is credited at `paymentRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; the controller's answer of 2026-10-23 makes FIFO lots the target (the cash line then becomes one line per consumed lot and the gap to the rate of the day a realized difference)**; paying a
-  foreign-currency invoice from an account in another currency is the
-  conversion case of the Cash & Bank spec and is not posted here. The
+  (`amountCurrency` 0), debit loss 50. **Cash account in another currency (decided by the team 2026-10-23 on the controller's e-mail of the same day, which describes a payment from an account in another currency as one entry with lines in different currencies balancing in the base currency; not yet reviewed by a maintainer).** The cash account (`defaultCashAccountId`) may carry its own currency (`LedgerAccount.currencyId`); the cash line is then posted in that currency, never in the batch's: `amountCurrency` = `cashAmount`, rate `cashRate`, base = `cashAmount` x `cashRate` rounded half up. `cashRate` is the cash currency's rate to the base currency (optional override on send; else the NBP Table A rate of the last day published before `sentOn`; `1` for a base-currency account; equal to `paymentRate` when the cash currency is the batch's currency). `cashAmount` is the amount the bank debits in the cash account's currency (optional input, for when the clerk knows it from the bank's confirmation of the conversion; else the batch total x `paymentRate` / `cashRate`, rounded to the currency's decimals; equal to the batch total when the currencies are the same). The entry balances in the base currency only; when the base total of the liability debits and the base amount of the cash line differ (rounding, or an explicit `cashAmount`), one ordinary base-currency line (rate `1`) on `gainLossAccountId` takes the difference on the side that balances, the conversion difference of two currencies, as in the Cash & Bank spec. Worked check: EUR 1,000 invoice booked at 4.30, sent with `paymentRate` 4.35 from a PLN account (`cashRate` 1, `cashAmount` 4,350): DR liability EUR 1,000 = 4,350, CR cash PLN 4,350, no conversion line; difference entry as above. If the bank in fact debits another amount, the statement line shows `amountMismatch` when matched in Cash & Bank; posting the correction for a cross-currency payment is not done here (a named Phase 1 gap, no posting is invented for it). **Until the lots of the Cash & Bank spec exist, a foreign-currency cash account is credited at `cashRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; with the lots, matching the statement line posts a cost adjustment entry there and this module's entry stays as it is.** The valuation read contract above is unchanged: the difference entry's lines carry `amountCurrency = 0`, so they change no open currency amount. The
   valuation read contract above is unchanged: the difference entry's lines
   carry `amountCurrency = 0`, so they change no open currency amount.
 - `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
@@ -806,6 +800,7 @@ deliberately different mechanisms, not by oversight:
   `operationDate` of the payment entry, immutable afterward. `null`
   while `DRAFT`/`CONFIRMED`/`CANCELLED`.
 - `posted_journal_entry_id`: uuid, nullable
+- `cash_rate`: numeric(18,8), nullable, and `cash_amount`: numeric(19,4), nullable (added 2026-10-23). The rate and the amount in the cash account's currency the cash line was posted with; `null` until `SENT`.
 - `payment_rate`: numeric(18,8), nullable (added 2026-10-23). The rate to the
   base currency the payment entry was posted with; `1` for a base-currency
   batch; `null` until `SENT`.
@@ -924,12 +919,12 @@ Custom write route (mapped to `update`).
 
 Custom write route (mapped to `update`).
 
-- **Request body** (added 2026-10-15): `{ sentOn?: 'YYYY-MM-DD', paymentRate?: number }` —
-  `sentOn` optional, default today, not later than today; `paymentRate` (added 2026-10-23) optional, base-currency units per 1 unit of the batch's currency, default the NBP Table A rate, rejected when it is not `1` on a base-currency batch.
+- **Request body** (added 2026-10-15): `{ sentOn?: 'YYYY-MM-DD', paymentRate?: number, cashRate?: number, cashAmount?: number }` —
+  `sentOn` optional, default today, not later than today; `paymentRate` (added 2026-10-23) optional, base-currency units per 1 unit of the batch's currency, default the NBP Table A rate, rejected when it is not `1` on a base-currency batch; `cashRate` and `cashAmount` (added 2026-10-23) optional, see Commands.
 - **Response 200**: `{ id, status: 'SENT', sentOn, postedJournalEntryId, fxDifferenceJournalEntryId }` (`fxDifferenceJournalEntryId` added 2026-10-23, `null` when no difference entry was needed).
 - **Response 409**: `status !== 'CONFIRMED'`.
 - **Response 422**: `sentOn` is later than today.
-- **Response 422 `EXCHANGE_RATE_REQUIRED`**, **`INVOICE_EXCHANGE_RATE_MISSING`**, **`CASH_ACCOUNT_CURRENCY_MISMATCH`** (added 2026-10-23): no rate could be resolved, an invoice of the batch has no stored `exchangeRate`, or the cash account's currency differs from the batch's. Nothing is posted; the batch stays `CONFIRMED`.
+- **Response 422 `EXCHANGE_RATE_REQUIRED`**, **`INVOICE_EXCHANGE_RATE_MISSING`**, (added 2026-10-23): no rate could be resolved or an invoice of the batch has no stored `exchangeRate`. Nothing is posted; the batch stays `CONFIRMED`.
 - **Response 422 `PAYMENT_BATCH_NOT_ELIGIBLE`** (added 2026-10-20): the
   same-day re-check (see Design decisions, 2026-10-20) found a line not
   eligible; same body as on `.../confirm`. Nothing is posted; the batch
@@ -1074,8 +1069,8 @@ through the module configuration screen.
   net line on `gainLossAccountId`. Without `paymentRate` the rate is read with
   `source: 'NBP_A'` for the day before `sentOn`; with none available the send
   is `422 EXCHANGE_RATE_REQUIRED` and posts nothing; an invoice with a `null`
-  `exchangeRate` is `422 INVOICE_EXCHANGE_RATE_MISSING`; a cash account in
-  another currency is `422 CASH_ACCOUNT_CURRENCY_MISMATCH`; a repeated send is a
+  `exchangeRate` is `422 INVOICE_EXCHANGE_RATE_MISSING`; a PLN cash account
+  paying the EUR batch posts a cash line in PLN (`cashAmount` 4,350 at `cashRate` 1) and no conversion line, and an explicit `cashAmount` 4,360 adds a base-currency line of 10 on `gainLossAccountId`; a repeated send is a
   no-op and posts neither entry again.
 - Same-day re-check at send (added 2026-10-20), acceptance:
   - confirmed and sent on the same Warsaw calendar day → no second
@@ -1632,12 +1627,9 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
   on `gainLossAccountId`.
 - **New:** `PaymentBatch.paymentRate`, `fxDifferenceJournalEntryId`, module
   config `gainLossAccountId`, `paymentRate` on the send route, `422
-  EXCHANGE_RATE_REQUIRED` / `INVOICE_EXCHANGE_RATE_MISSING` /
-  `CASH_ACCOUNT_CURRENCY_MISMATCH`, Testing Strategy and Edge Cases.
-- **⚠ Open:** a foreign-currency invoice paid from a cash account in another
-  currency is rejected in Phase 1 and belongs with the conversion case of the
-  Cash & Bank spec.
+  EXCHANGE_RATE_REQUIRED` / `INVOICE_EXCHANGE_RATE_MISSING`, `cashRate` / `cashAmount`, Testing Strategy and Edge Cases.
+- **Cash account in another currency (decided, same day):** the cash line is posted in the cash account's currency (`cashRate`, `cashAmount`), with a base-currency conversion line on `gainLossAccountId` when the base amounts differ; replaces the earlier `422 CASH_ACCOUNT_CURRENCY_MISMATCH`. Correcting a difference against the amount the bank actually debits stays out of Phase 1.
 
 ### 2026-10-23 (cont. — controller's answer on the outflow of currency)
 
-- **Decided by the team** (not yet reviewed by a maintainer): the target is FIFO lot cost on the cash line of a foreign-currency account (Cash & Bank, Out of scope); Phase 1 credits it at `paymentRate` until then, with the consequence stated in Commands.
+- **Decided by the team** (not yet reviewed by a maintainer): the target is FIFO lot cost on the cash line of a foreign-currency account (Cash & Bank, Out of scope); Phase 1 credits it at `cashRate` until then, with the consequence stated in Commands; matching the statement line then posts the cost adjustment in Cash & Bank.
