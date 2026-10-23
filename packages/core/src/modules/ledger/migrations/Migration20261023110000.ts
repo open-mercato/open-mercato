@@ -52,6 +52,9 @@ export class Migration20261023110000 extends Migration {
     this.addSql(`alter table "journal_entry_lines" add constraint "journal_entry_lines_amount_currency_nonneg_chk" check ("amount_currency" >= 0);`);
   }
 
+  // The schema is reversed; the backfill is not. Lines whose `amount_currency` was
+  // the default 0 keep the recomputed value, because the migration does not record
+  // which lines had 0 before.
   override async down(): Promise<void> {
     this.addSql(`alter table "journal_entry_lines" drop constraint "journal_entry_lines_amount_currency_nonneg_chk";`);
     this.addSql(`alter table "journal_entry_lines" drop constraint "journal_entry_lines_rate_positive_chk";`);

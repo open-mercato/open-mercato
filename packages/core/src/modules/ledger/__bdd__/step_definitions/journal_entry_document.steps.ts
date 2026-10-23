@@ -30,7 +30,7 @@ Given('an open fiscal period and two accounts to post against', function () {
     isLocked: false,
     deletedAt: null,
   })
-  em.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', deletedAt: null })
+  em.seed(Currency, { id: CURRENCY_ID, organizationId: ORG_ID, tenantId: TENANT_ID, code: 'PLN', name: 'Polish Zloty', isBase: true, decimalPlaces: 2, deletedAt: null })
   em.seed(LedgerAccount, { id: DEBIT_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, number: '130-1', accountTypeId: newId(), deletedAt: null })
   em.seed(LedgerAccount, { id: CREDIT_ACCOUNT_ID, organizationId: ORG_ID, tenantId: TENANT_ID, number: '700-1', accountTypeId: newId(), deletedAt: null })
 })
