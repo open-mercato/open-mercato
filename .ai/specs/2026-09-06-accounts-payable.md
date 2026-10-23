@@ -538,8 +538,7 @@ not as a confirmed absence.
   this isn't a document we number ourselves), `invoiceDate`, `dueDate`,
   `currencyId` (FK-id, `uuid`, like `JournalEntry.currencyId` in GL),
   `exchangeRate` (nullable `numeric(18,8)` — **Update (2026-09-17):**
-  resolved via `currencies.ExchangeRateService.getRate()` at
-  `invoiceDate`, mirroring `fixed_assets.FixedAsset.exchangeRate`;
+  resolved via `currencies.ExchangeRateService.getRate()` for the booking day (the last published `NBP_A` day before `invoiceDate`, Multi-Currency Design decisions 9f/9g), mirroring `fixed_assets.FixedAsset.exchangeRate`;
   the creating command rejects rather than silently defaulting if no
   rate is resolvable when `currencyId` differs from the tenant's base
   currency — see the Multi-Currency spec,
@@ -741,13 +740,13 @@ async seedDefaults({ em, tenantId, organizationId }) {
   can open it instead of retrying. **Added 2026-10-15 (Multi-Currency
   Design decision 15):** while the invoice is `DRAFT`, a change to
   `currencyId` or `invoiceDate` re-resolves `exchangeRate` with the same
-  rule as creation (`ExchangeRateService` against `invoiceDate`, source
+  rule as creation (`ExchangeRateService` for the booking day before `invoiceDate`, source
   priority per that spec's Design decision 9); the invoice is not booked
   yet, so the rate cannot diverge from the dates.
 - `backfillVendorInvoiceExchangeRate` — **added 2026-10-15.** Sets
   `exchangeRate` on an existing invoice whose rate is `null` (a document
   that predates Multi-Currency). Input `{ id }`; resolves the rate with the
-  same rule as creation, against the invoice's own `invoiceDate`; returns
+  same rule as creation, for the booking day before the invoice's own `invoiceDate`; returns
   `{ exchangeRate, rateSource, rateDate }`. **409
   `EXCHANGE_RATE_ALREADY_SET`** when the rate is not `null` (the one
   allowed transition is `null` → value; nothing else changes a posted
@@ -835,14 +834,27 @@ async seedDefaults({ em, tenantId, organizationId }) {
   so an invoice whose `exchangeRate` is still `null` (it predates the
   feature, see `backfillVendorInvoiceExchangeRate`) cannot post in a foreign
   currency until the backfill has run.
-  **⚠ NEEDS HUMAN CONFIRMATION:** how the rounding remainder is placed so
-  the entry balances in the base currency. Converting the net, VAT and gross
-  amounts line by line need not add up, and a line that simply absorbs the
-  remainder would differ from `amountCurrency × exchangeRate` by more than
-  the half-unit tolerance GL proposes and be rejected. Two ways out: a
-  separate rounding line with `amountCurrency = 0` on a configured account
-  (exempt from that rule), or a wider tolerance. Until the controller
-  answers, this document does not pick one.
+  **Rounding remainder (decided by the team 2026-10-23; not yet reviewed
+  by a controller or maintainer).** Every line (net, VAT, gross) is converted
+  on its own: `debit`/`credit` = `amountCurrency` × `exchangeRate`, rounded
+  half up to the base currency's decimal places, so each line keeps GL's
+  half-unit rule. When the converted lines do not balance,
+  `postVendorInvoice` adds one ordinary base-currency line (rate `1`,
+  `amountCurrency` equal to its base amount) on the module-config account
+  `roundingAccountId` for the difference, on the side that balances the entry.
+  It refuses to post (422) when the difference exceeds half the smallest base
+  unit times the number of converted lines, so a wrong rate cannot disappear
+  into the rounding account, and also when a difference exists but
+  `roundingAccountId` is not set. The VAT line is not adjusted to absorb the
+  remainder. The VAT amount for the VAT register uses the rate of art. 31a
+  ustawy o VAT (last business day before the tax obligation arises) and
+  belongs to `financial_pl`; Phase 1 books one rate per invoice, so the two can
+  differ when the obligation date and the invoice date give different rates.
+  The `liabilityAccountId` account and the other settlement accounts carry no
+  `currencyId` (controller, e-mail of 2026-10-23: one settlement account per
+  contractor, kept in the base currency); setting a currency on one would
+  reject every line in another currency.
+  
 - `cancelVendorInvoice` — `DRAFT`/`REJECTED` → `CANCELLED` (soft
   delete via `deletedAt`). Blocked for `PENDING_APPROVAL`/`APPROVED`/
   `POSTED`.
@@ -1187,8 +1199,7 @@ Custom write route wired through the mutation guard registry (mapped to
 - **Response 200**: `{ exchangeRate, rateSource, rateDate }`.
 - **Response 404**: the invoice is not in the caller's scope.
 - **Response 409 `EXCHANGE_RATE_ALREADY_SET`**: `exchangeRate` is not `null`.
-- **Response 422 `EXCHANGE_RATE_UNAVAILABLE`**: no rate resolvable for
-  `currencyId` at `invoiceDate`.
+- **Response 422 `EXCHANGE_RATE_UNAVAILABLE`**: no rate resolvable for `currencyId` for the booking day before `invoiceDate`.
 - **Response 403**: caller lacks `accounts_payable.invoices.manage`.
 
 ## Migration & Deployment
@@ -1238,7 +1249,7 @@ report and resolve pre-existing duplicates.
    `FISCAL_PERIOD_LOCKED`).
 7. API routes + `api/openapi.ts` (including `DELETE`).
 8. Backend pages (invoices list/create/edit).
-9. Module config UI (setting `liabilityAccountId`/`vatInputAccountId`).
+9. Module config UI (setting `liabilityAccountId`/`vatInputAccountId`/`roundingAccountId`).
 10. Unit + integration test coverage (see Testing Strategy).
 
 ### Phase 2 (deferred)
@@ -1270,7 +1281,7 @@ report and resolve pre-existing duplicates.
 | `api/invoices/route.ts` | Create | `VendorInvoice` CRUD (`makeCrudRoute`), including the `beforeDelete`-guarded `DELETE` |
 | `api/invoices/[id]/submit/route.ts`, `.../post/route.ts`, `.../exchange-rate/backfill/route.ts` | Create | Custom guarded write routes (the backfill route added 2026-10-15) |
 | `backend/accounts_payable/invoices/page.tsx` (+ create/[id]) | Create | Vendor invoice list/create/edit UI |
-| `backend/config/accounts_payable/page.tsx` | Create | `liabilityAccountId`/`vatInputAccountId` config UI |
+| `backend/config/accounts_payable/page.tsx` | Create | `liabilityAccountId`/`vatInputAccountId`/`roundingAccountId` config UI |
 | `commands/__tests__/*` | Create | Regression coverage for all commands above |
 | `__integration__/*` | Create | Integration coverage: full submit→approve→post flow; `FISCAL_PERIOD_LOCKED` path; VAT posting balance |
 
@@ -1312,8 +1323,7 @@ report and resolve pre-existing duplicates.
   invoice is `CANCELLED`, the same number succeeds again; editing a
   draft so it collides returns the same 409.
 - Exchange-rate backfill (added 2026-10-15): on a posted foreign-currency
-  invoice with `exchangeRate = null`, the backfill command sets it from
-  `invoiceDate` and returns the source and date; a second call returns
+  invoice with `exchangeRate = null`, the backfill command sets it from the booking day before `invoiceDate` and returns the source and date; a second call returns
   409 `EXCHANGE_RATE_ALREADY_SET`; with no rate available it returns 422
   `EXCHANGE_RATE_UNAVAILABLE`. Editing the `invoiceDate` or `currencyId`
   of a draft re-resolves the rate.
@@ -1975,5 +1985,8 @@ changes what `postVendorInvoice` sends downstream.
   to the base-currency `debit`/`credit` (Commands, `postVendorInvoice`), and an
   invoice with a `null` rate cannot post in a foreign currency until the
   backfill has run.
-- **Open, ⚠ NEEDS HUMAN CONFIRMATION:** where the rounding remainder goes so
-  the entry balances in the base currency. Not decided here.
+- **Decided by the team 2026-10-23:** the rounding remainder goes to one ordinary
+  base-currency line on the new module-config account `roundingAccountId`
+  (see the foreign-currency paragraph under `postVendorInvoice`); the rate is
+  the booking-day rate (Multi-Currency Design decisions 9f/9g); settlement
+  accounts carry no `currencyId`. Not yet reviewed by a maintainer.
