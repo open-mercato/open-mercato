@@ -172,6 +172,11 @@ Splash server only (development, loopback). Additive.
   `OM_ENABLE_CODING_FLOW_FROM_SPLASH` semantics are unchanged.
 - No module export, event ID, DI key, ACL feature, API route or ORM schema
   changes. Production response headers are unchanged.
+- `apps/mercato/next.config.ts` and the create-app template's `next.config.ts`
+  now default-export a phase resolver (`(phase) => NextConfig`) instead of the
+  config object. Next.js accepts both shapes; code that imports the config
+  directly (the create-app config tests) calls it with a phase. Existing
+  scaffolded apps keep their own `next.config.ts` until they copy the template.
 - The enhanced Cezar handoff will add arguments only after Cezar publishes a
   supported interface; older Cezar versions keep the plain invocation.
 
@@ -207,3 +212,6 @@ Browser QA: load the splash during startup and after ready, click
   Preview panel can show it. The gate is the Next.js development-server
   phase, so `yarn dev` (which runs `next dev` with `NODE_ENV=production`) gets
   it and every `next build` keeps production headers.
+- Recorded a relaunch rejected inside the cooldown in the server snapshot
+  (`building.lastResult.code = 'already_started'`), so the splash status poll
+  no longer replaces the "just started" notice with the earlier success text.
