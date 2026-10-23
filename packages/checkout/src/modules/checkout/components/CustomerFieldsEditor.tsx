@@ -6,6 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import type { CustomerFieldDefinitionInput } from '../data/validators'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
@@ -193,7 +194,7 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-[1.2fr_180px_100px_110px] md:items-end">
+                  <div className="grid gap-3 md:grid-cols-[1.2fr_180px_max-content_110px] md:items-end">
                     <div className="space-y-1">
                       <Label>{t('checkout.customerFieldsEditor.columns.placeholder')}</Label>
                       <Input
@@ -226,11 +227,10 @@ export function CustomerFieldsEditor({ value, onChange, errors }: Props) {
                       {kindError ? <p className="text-xs text-destructive">{kindError}</p> : null}
                     </div>
 
-                    <label className="flex h-9 items-center gap-2 rounded-md border border-border/70 bg-muted/30 px-3 text-sm">
-                      <input
-                        type="checkbox"
+                    <label className="flex h-9 items-center gap-2 whitespace-nowrap rounded-md border border-border/70 bg-muted/30 px-3 text-sm">
+                      <Checkbox
                         checked={field.required}
-                        onChange={(event) => updateField(index, { required: event.target.checked })}
+                        onCheckedChange={(checked) => updateField(index, { required: checked === true })}
                       />
                       {t('checkout.customerFieldsEditor.columns.required')}
                     </label>
