@@ -715,12 +715,14 @@ export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
 export const pipelineCreateSchema = scopedSchema.extend({
   name: z.string().trim().min(1).max(200),
   isDefault: z.boolean().optional(),
+  stageProbabilitiesEnabled: z.boolean().optional(),
 })
 
 export const pipelineUpdateSchema = z.object({
   id: uuid(),
   name: z.string().trim().min(1).max(200).optional(),
   isDefault: z.boolean().optional(),
+  stageProbabilitiesEnabled: z.boolean().optional(),
 })
 
 export const pipelineDeleteSchema = z.object({
@@ -733,12 +735,15 @@ export type PipelineDeleteInput = z.infer<typeof pipelineDeleteSchema>
 
 // --- Pipeline Stage schemas ---
 
+const stageDefaultProbabilitySchema = z.number().int().min(0).max(100).nullable().optional()
+
 export const pipelineStageCreateSchema = scopedSchema.extend({
   pipelineId: uuid(),
   label: z.string().trim().min(1).max(200),
   order: z.number().int().min(0).optional(),
   color: z.string().trim().max(20).nullish(),
   icon: z.string().trim().max(100).nullish(),
+  defaultProbability: stageDefaultProbabilitySchema,
 })
 
 export const pipelineStageUpdateSchema = z.object({
@@ -747,6 +752,7 @@ export const pipelineStageUpdateSchema = z.object({
   order: z.number().int().min(0).optional(),
   color: z.string().trim().max(20).nullish(),
   icon: z.string().trim().max(100).nullish(),
+  defaultProbability: stageDefaultProbabilitySchema,
 })
 
 export const pipelineStageDeleteSchema = z.object({
