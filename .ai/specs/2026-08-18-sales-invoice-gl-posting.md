@@ -328,14 +328,25 @@ currency, next to `debit`/`credit` in the base currency (the amount ×
 foreign-currency line without `amountCurrency` and one without a rate, so an
 invoice with `exchangeRate = null` cannot post in a foreign currency until the
 backfill described next has set it.
-**⚠ NEEDS HUMAN CONFIRMATION:** how the rounding remainder is placed so the
-entry balances in the base currency. Converting the net, VAT and gross
-amounts line by line need not add up, and a line that simply absorbs the
-remainder would differ from `amountCurrency × exchangeRate` by more than the
-half-unit tolerance GL proposes and be rejected. Two ways out: a separate
-rounding line with `amountCurrency = 0` on a configured account (exempt from
-that rule), or a wider tolerance. Until the controller answers, this
-document does not pick one.
+**Rounding remainder (decided by the team 2026-10-23; not yet reviewed
+by a controller or maintainer).** Every line (revenue, output VAT,
+receivable) is converted on its own: `debit`/`credit` = `amountCurrency` ×
+`exchangeRate`, rounded half up to the base currency's decimal places, so each
+line keeps GL's half-unit rule. When the converted lines do not balance,
+`postSalesInvoiceToLedger` adds one ordinary base-currency line (rate `1`,
+`amountCurrency` equal to its base amount) on the module-config account
+`roundingAccountId` for the difference, on the side that balances the entry.
+It refuses to post (422) when the difference exceeds half the smallest base
+unit times the number of converted lines, and when a difference exists but
+`roundingAccountId` is not set. The VAT line is not adjusted to absorb the
+remainder. The rate is the booking-day rate (Multi-Currency Design decisions
+9f/9g). The VAT amount for the VAT register and the invoice uses the rate of
+art. 31a ustawy o VAT (last business day before the tax obligation arises)
+and belongs to `financial_pl`; Phase 1 books one rate per invoice, so the
+two can differ when the obligation date and the issue date give different
+rates. `receivableAccountId` carries no `currencyId` (controller, e-mail of
+2026-10-23: settlement accounts are kept in the base currency); setting a
+currency on it would reject every line in another currency.
 
 **Update (2026-09-17, revised 2026-10-15):** the Multi-Currency spec
 ([#6190](https://github.com/open-mercato/open-mercato/pull/6190)) proposes adding
@@ -919,7 +930,10 @@ mirroring Accounts Payable's own `vatInputAccountId`/
 `liabilityAccountId` pattern exactly: `receivableAccountId` (FK-id to
 `ledger.LedgerAccount`) and `vatOutputAccountId` (FK-id to
 `ledger.LedgerAccount`). Both required before the first posting (see
-Migration & Deployment).
+Migration & Deployment). A third value, `roundingAccountId` (FK-id to
+`ledger.LedgerAccount`), is required only before the first foreign-currency
+invoice that produces a rounding difference (see the foreign-currency
+paragraph under Design decisions).
 
 ## API Contracts
 
@@ -985,8 +999,7 @@ configuration is in place.
 1. `SalesInvoiceGlPosting`/`SalesInvoiceLineRevenueAccount` entities +
    migration.
 2. `data/validators.ts` for `postSalesInvoiceToLedger`'s input.
-3. `ModuleConfigService` registration for `receivableAccountId`/
-   `vatOutputAccountId` + a minimal settings page.
+3. `ModuleConfigService` registration for `receivableAccountId`/ `vatOutputAccountId`/`roundingAccountId` + a minimal settings page.
 4. `postSalesInvoiceToLedger` command (inside `em.transactional`,
    passing `ctx.transactionalEm`; unique-violation mapped to `409`) +
    `acl.ts` + `setup.ts`.
@@ -1013,13 +1026,13 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 | `data/entities.ts` | Create | `SalesInvoiceGlPosting`, `SalesInvoiceLineRevenueAccount` |
 | `data/validators.ts` | Create | Zod schema for `postSalesInvoiceToLedger` |
 | `commands/postSalesInvoiceToLedger.ts` | Create | The only mutating command |
-| `lib/moduleConfig.ts` | Create | Registers `receivableAccountId`/`vatOutputAccountId` |
+| `lib/moduleConfig.ts` | Create | Registers `receivableAccountId`/`vatOutputAccountId`/`roundingAccountId` |
 | `acl.ts` | Create | One feature |
 | `setup.ts` | Create | `defaultRoleFeatures`, no seed data |
 | `index.ts` | Create | `requires: ['ledger', 'sales', 'currencies']` |
 | `api/postings/[salesInvoiceId]/route.ts` | Create | `openApi`-documented read route, served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId` |
 | `api/postings/[salesInvoiceId]/post/route.ts` | Create | Custom write route (served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`), dispatches `postSalesInvoiceToLedger` via `commandBus`, mapped to `update` |
-| `backend/settings/page.tsx` | Create | Minimal `receivableAccountId`/`vatOutputAccountId` config UI |
+| `backend/settings/page.tsx` | Create | Minimal `receivableAccountId`/`vatOutputAccountId`/`roundingAccountId` config UI |
 
 ## Testing Strategy
 
@@ -1649,5 +1662,12 @@ journal entry line. The posting section now says that, for a foreign-currency
 invoice, `postSalesInvoiceToLedger` passes the invoice's rate and gives every
 line `amountCurrency` next to the base-currency `debit`/`credit`, and that an
 invoice with a `null` rate cannot post in a foreign currency until the
-backfill has run. Open, ⚠ NEEDS HUMAN CONFIRMATION: where the rounding
-remainder goes so the entry balances in the base currency. Not decided here.
+backfill has run.
+
+### 2026-10-23 (cont.) — Rounding line, booking-day rate, settlement accounts
+
+Decided by the team: the rounding remainder is one ordinary base-currency line
+on the new module-config account `roundingAccountId` (no wider tolerance, no
+exemption); the rate is the booking-day rate (Multi-Currency Design decisions
+9f/9g); the VAT rate of art. 31a belongs to `financial_pl`; `receivableAccountId`
+carries no `currencyId`. Not yet reviewed by a maintainer.
