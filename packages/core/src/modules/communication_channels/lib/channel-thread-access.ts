@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { assertCanAccessChannel, channelOrgScopeWhere } from './access-control'
 import { ChannelThreadMapping, CommunicationChannel } from '../data/entities'
@@ -131,3 +131,65 @@ export async function resolveChannelThreadAccessSafely(
 
 /** DI service type for cross-module callers (resolve `communicationChannelsResolveChannelThreadAccess`). */
 export type ResolveChannelThreadAccessService = typeof resolveChannelThreadAccessSafely
+
+/**
+ * Upper bound on channel threads a single list widening will consider. Above it the
+ * caller gets `null` (fail closed: no widening) instead of an unbounded `IN (...)`.
+ */
+export const CHANNEL_THREAD_LIST_LIMIT = 5000
+
+/**
+ * Message thread ids of every channel-linked thread the actor may act on, for the
+ * inbox list (#6106). The list-shaped counterpart of {@link resolveChannelThreadAccess}:
+ * one bounded query instead of one lookup per message.
+ *
+ * Returns `null` when the tenant has more channel threads than
+ * {@link CHANNEL_THREAD_LIST_LIMIT} — the caller then widens nothing.
+ */
+export async function listAccessibleChannelThreadIds(
+  container: AppContainer,
+  scope: ChannelThreadScope,
+  actor: ChannelThreadActor,
+): Promise<string[] | null> {
+  const em = (container.resolve('em') as EntityManager).fork()
+  const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
+  const baseFilter = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
+
+  const mappings = await findWithDecryption(
+    em,
+    ChannelThreadMapping,
+    baseFilter,
+    { limit: CHANNEL_THREAD_LIST_LIMIT + 1 },
+    dscope,
+  )
+  if (mappings.length === 0) return []
+  if (mappings.length > CHANNEL_THREAD_LIST_LIMIT) return null
+
+  const channelIds = [...new Set(mappings.map((mapping) => mapping.channelId))]
+  const channels = await findWithDecryption(
+    em,
+    CommunicationChannel,
+    {
+      id: { $in: channelIds },
+      tenantId: scope.tenantId,
+      ...channelOrgScopeWhere(scope.organizationId),
+      deletedAt: null,
+    },
+    undefined,
+    dscope,
+  )
+
+  const accessibleChannelIds = new Set<string>()
+  for (const channel of channels) {
+    try {
+      assertCanAccessChannel(channel, actor.userId, actor.features)
+      accessibleChannelIds.add(channel.id)
+    } catch {
+      // Not accessible to this actor: its threads stay out of the widening.
+    }
+  }
+
+  return mappings
+    .filter((mapping) => accessibleChannelIds.has(mapping.channelId))
+    .map((mapping) => mapping.messageThreadId)
+}
