@@ -16,7 +16,7 @@ type JsonMap = Record<string, unknown>
  * TC-SALES-042: undoing an order-level command must never destroy work recorded on the
  * order after that command ran.
  *
- * Order-level undo (header update, line/adjustment upsert/delete) rebuilds the order graph
+ * Order-level undo (header update, line/adjustment upsert/delete, bulk line batch) rebuilds the order graph
  * from the snapshot taken before the command. Shipments, payments, notes and returns are
  * separate undo resources, so the "latest action" check does not stop an older order undo
  * after them. The undo must refuse with 409 instead of silently rewinding the graph, and a
@@ -219,6 +219,98 @@ test.describe('TC-SALES-042: order undo keeps children recorded after the undone
       const payments = await listItems(request, token, `/api/sales/payments?orderId=${encodeURIComponent(orderId)}`)
       const payment = payments.find((item) => item.id === paymentId)
       expect(readNumber(payment?.amount), 'the edited payment amount must be kept').toBe(7)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('refuses to undo a bulk line batch once a payment was added after it', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
+    const stamp = Date.now()
+    let orderId: string | null = null
+    try {
+      orderId = await createSalesOrderFixture(request, token, 'USD')
+      const lineId = await createOrderLineFixture(request, token, orderId, {
+        quantity: 2,
+        name: `TC-SALES-042 batch ${stamp}`,
+      })
+
+      const batch = await apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+        token,
+        data: {
+          orderId,
+          lines: [
+            {
+              id: lineId,
+              currencyCode: 'USD',
+              name: `TC-SALES-042 batch edited ${stamp}`,
+              quantity: 5,
+              unitPriceNet: 10,
+              unitPriceGross: 10,
+              taxRate: 0,
+            },
+          ],
+        },
+      })
+      expect(batch.status(), 'POST /api/sales/order-lines/batch should be 200').toBe(200)
+      const operation = expectOperation(batch, 'bulk order line upsert')
+      expect(operation.commandId).toBe('sales.orders.lines.upsert_many')
+
+      const paymentId = await createPayment(request, token, orderId)
+
+      const undo = await undoByToken(request, token, operation.undoToken)
+      expect(undo.status(), 'a stale batch undo must be refused with 409').toBe(409)
+
+      const payments = await listItems(request, token, `/api/sales/payments?orderId=${encodeURIComponent(orderId)}`)
+      expect(payments.map((item) => item.id), 'the later payment must survive a refused batch undo').toContain(paymentId)
+      const line = await readLine(request, token, orderId, lineId)
+      expect(readNumber(line?.quantity), 'a refused undo must not revert the batch').toBe(5)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
+  test('still undoes a bulk line batch when nothing changed on the order afterwards', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
+    const stamp = Date.now()
+    let orderId: string | null = null
+    try {
+      orderId = await createSalesOrderFixture(request, token, 'USD')
+      const lineId = await createOrderLineFixture(request, token, orderId, {
+        quantity: 2,
+        name: `TC-SALES-042 batch ok ${stamp}`,
+      })
+      const paymentId = await createPayment(request, token, orderId)
+
+      const batch = await apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+        token,
+        data: {
+          orderId,
+          lines: [
+            {
+              id: lineId,
+              currencyCode: 'USD',
+              name: `TC-SALES-042 batch ok edited ${stamp}`,
+              quantity: 7,
+              unitPriceNet: 10,
+              unitPriceGross: 10,
+              taxRate: 0,
+            },
+          ],
+        },
+      })
+      expect(batch.status(), 'POST /api/sales/order-lines/batch should be 200').toBe(200)
+      const operation = expectOperation(batch, 'bulk order line upsert')
+
+      const undo = await undoByToken(request, token, operation.undoToken)
+      expect(undo.status(), 'a batch undo with no later changes must succeed').toBe(200)
+
+      const line = await readLine(request, token, orderId, lineId)
+      expect(readNumber(line?.quantity), 'undo restores the pre-batch quantity').toBe(2)
+      const payments = await listItems(request, token, `/api/sales/payments?orderId=${encodeURIComponent(orderId)}`)
+      expect(payments.map((item) => item.id), 'the payment recorded before the batch must survive').toEqual([paymentId])
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
