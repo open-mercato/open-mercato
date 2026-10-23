@@ -3,6 +3,7 @@ import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   MarketingCampaign,
   MarketingCampaignRun,
@@ -12,8 +13,7 @@ import {
 import { evaluateReadiness, isReadyToSend, remainingCount } from '../../lib/engine/readiness.js'
 import { resolveTrackingBaseUrl, resolveTrackingSecret } from '../../lib/tracking/secret.js'
 import { readCapabilities } from '../../lib/capabilities.js'
-import { getQueuePendingProbe } from '@open-mercato/queue'
-import { MARKETING_QUEUES } from '../../lib/queues.js'
+import { loadQueueBacklog } from '../../lib/queue-backlog.js'
 
 /**
  * Whether this installation can actually run a campaign.
@@ -140,21 +140,22 @@ export async function GET(req: Request) {
    * polls — and a false "your workers are down" is worse than silence, because the operator goes looking for a
    * problem that is not there. A depth an operator can watch is honest; a conclusion drawn from one sample is
    * not. `error: true` is reported as unknown for the same reason.
+   *
+   * `getQueuePendingProbe` counts the whole shared queue, not this tenant's slice of it — there is no
+   * per-tenant partition to count instead, because the jobs waiting in it are not tagged by tenant. Reporting
+   * it to every tenant with `marketing_automation.campaigns.view` would tell them about every OTHER tenant's
+   * dispatch backlog on a shared installation, including how much mail somebody else is sending. Gated on a
+   * platform-level feature instead, the same way the runs list withholds a customer's name from a role that
+   * lacks `customers.people.view`: omitted rather than a denial, because every other check on this screen
+   * still answers normally.
    */
-  const queues = await Promise.all(
-    MARKETING_QUEUES.map(async (queueName) => {
-      try {
-        const probe = await getQueuePendingProbe(queueName)
-        return probe.error
-          ? { queueName, known: false as const }
-          : { queueName, known: true as const, ready: probe.ready, active: probe.active, delayed: probe.delayedFuture }
-      } catch {
-        // A probe that throws must never fail the readiness answer: the question it helps with is secondary to
-        // every other check on this screen.
-        return { queueName, known: false as const }
-      }
-    }),
+  const rbac = container.resolve<RbacService>('rbacService')
+  const mayReadQueueDepth = await rbac.userHasAllFeatures(
+    auth.sub,
+    ['configs.system_status.view'],
+    { tenantId: auth.tenantId, organizationId },
   )
+  const queues = await loadQueueBacklog(mayReadQueueDepth)
 
   return NextResponse.json({
     checks,
