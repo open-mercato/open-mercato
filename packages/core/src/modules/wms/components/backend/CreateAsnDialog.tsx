@@ -406,7 +406,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
             </div>
           </div>
 
-          <DialogFooter className="border-t px-6 py-4 sm:justify-between">
+          <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
             <span className="hidden text-xs text-muted-foreground sm:inline">
               <KbdShortcut keys={['Ctrl/⌘', 'Enter']} />{' '}
               {t('wms.backend.asns.create.dialog.shortcutHint', 'to save')}

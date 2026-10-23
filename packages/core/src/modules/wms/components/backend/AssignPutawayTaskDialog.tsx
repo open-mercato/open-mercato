@@ -242,7 +242,7 @@ export function AssignPutawayTaskDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
       <DialogContent className="max-w-lg gap-0 overflow-hidden p-0" onKeyDown={handleKeyDown}>
-        <form onSubmit={(event) => void handleSubmit(event)}>
+        <div className="border-b px-6 py-4 pr-12">
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle>{t('wms.backend.putaway.assign.dialog.title', 'Assign putaway task')}</DialogTitle>
             <DialogDescription>
@@ -252,8 +252,10 @@ export function AssignPutawayTaskDialog({
               )}
             </DialogDescription>
           </DialogHeader>
+        </div>
 
-          <div className="space-y-4 px-6 py-4">
+        <form onSubmit={(event) => void handleSubmit(event)} className="flex min-h-0 flex-1 flex-col">
+          <div className="space-y-4 overflow-y-auto px-6 py-6">
             <FormField
               label={t('wms.backend.putaway.columns.assignee', 'Assignee')}
               required
@@ -305,8 +307,8 @@ export function AssignPutawayTaskDialog({
             ) : null}
           </div>
 
-          <DialogFooter className="border-t px-6 py-4 sm:justify-between">
-              <KbdShortcut keys={['Ctrl/⌘', 'Enter']} />
+          <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
+            <KbdShortcut keys={['Ctrl/⌘', 'Enter']} />
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={closeDialog} disabled={submitting}>
                 {t('ui.actions.cancel', 'Cancel')}
