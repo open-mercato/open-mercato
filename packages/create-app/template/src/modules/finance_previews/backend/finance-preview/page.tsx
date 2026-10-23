@@ -16,7 +16,13 @@ export default async function FinancePreviewPage() {
     <I18nProvider locale="pl" dict={dict}>
       <Page>
         <PageBody>
-          {switchLocale ? <FinancePreviewLocaleRedirect /> : <FinancePreview />}
+          {switchLocale ? (
+            <FinancePreviewLocaleRedirect>
+              <FinancePreview />
+            </FinancePreviewLocaleRedirect>
+          ) : (
+            <FinancePreview />
+          )}
         </PageBody>
       </Page>
     </I18nProvider>

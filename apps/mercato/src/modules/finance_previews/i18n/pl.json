@@ -36,6 +36,8 @@
   "finance_previews.nav.title": "Prototyp finansów",
   "finance_previews.page.description": "Klikalny przegląd planowanego modułu finansowego",
   "finance_previews.page.loading": "Wczytywanie prototypu finansów…",
+  "finance_previews.page.localeError": "Nie udało się ustawić języka prototypu. Spróbuj ponownie.",
+  "finance_previews.page.retry": "Spróbuj ponownie",
   "finance_previews.scenario.goal": "Cel zadania",
   "finance_previews.scenario.hint": "Wybierz zadanie, a następnie wykonuj działania na ekranach. Rozpoczęcie od nowa przywraca dane tego zadania.",
   "finance_previews.scenario.launcher": "Scenariusze",

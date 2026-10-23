@@ -36,6 +36,8 @@
   "finance_previews.nav.title": "Vista previa de finanzas",
   "finance_previews.page.description": "Vista previa interactiva del módulo financiero previsto",
   "finance_previews.page.loading": "Loading finance preview…",
+  "finance_previews.page.localeError": "No se pudo establecer el idioma del prototipo. Inténtalo de nuevo.",
+  "finance_previews.page.retry": "Reintentar",
   "finance_previews.scenario.goal": "Task goal",
   "finance_previews.scenario.hint": "Choose a task, then use the actions on each screen. Starting again restores that task’s sample data.",
   "finance_previews.scenario.launcher": "Scenarios",

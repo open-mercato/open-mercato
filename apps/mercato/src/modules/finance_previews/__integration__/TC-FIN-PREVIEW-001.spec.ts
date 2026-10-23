@@ -166,7 +166,7 @@ test('Polish accountant preview stays Polish after English entry, deep links, an
 }) => {
   await page
     .context()
-    .addCookies([{ name: 'locale', value: 'en', url: 'http://localhost:3000' }])
+    .addCookies([{ name: 'locale', value: 'en', url: new URL(page.url()).origin }])
   await page.goto('/backend/finance-preview?review=locale#s25')
   await expect(page).toHaveURL(/\?review=locale#s25$/)
   await expect(page.locator('html')).toHaveAttribute('lang', 'pl')
