@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { detectDockerRuntime, parseComposePsOutput } from './infra-preflight.mjs'
 import { resolveSpawnCommand } from './spawn.mjs'
 
 export const INFRA_COMPOSE_FILE = path.join('starters', 'docker', 'compose.infra.yml')
@@ -49,45 +50,16 @@ export function runCompose(repoRoot, extraArgs, { composeFile, stdio = 'inherit'
   return result
 }
 
-export function detectDocker() {
-  const cli = spawnSync('docker', ['--version'], { stdio: 'ignore' })
-  if (cli.error || cli.status !== 0) {
-    return { ok: false, reason: 'docker CLI not found' }
-  }
-  const composePlugin = spawnSync('docker', ['compose', 'version'], { stdio: 'ignore' })
-  if (composePlugin.error || composePlugin.status !== 0) {
-    return { ok: false, reason: 'docker compose v2 plugin not found' }
-  }
-  const engine = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { stdio: 'ignore' })
-  if (engine.error || engine.status !== 0) {
-    return { ok: false, reason: 'docker engine not running' }
-  }
-  return { ok: true }
+// Thin adapter over the shared preflight: `reason` stays the human-readable
+// string doctor prints; `code` distinguishes missing CLI / missing compose /
+// stopped or unreachable daemon for callers that explain the fix.
+export function detectDocker({ probe } = {}) {
+  const runtime = detectDockerRuntime(probe ? { probe } : {})
+  if (runtime.ok) return { ok: true, code: runtime.code }
+  return { ok: false, code: runtime.code, reason: runtime.detail }
 }
 
-// `compose ps --format json` prints NDJSON on compose >= 2.21 and a JSON array
-// on older releases — tolerate both.
-export function parseComposePsOutput(raw) {
-  const trimmed = String(raw ?? '').trim()
-  if (!trimmed) return []
-  if (trimmed.startsWith('[')) {
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return []
-    }
-  }
-  const entries = []
-  for (const line of trimmed.split('\n')) {
-    if (!line.trim()) continue
-    try {
-      entries.push(JSON.parse(line))
-    } catch {
-      // Ignore non-JSON noise lines.
-    }
-  }
-  return entries
-}
+export { parseComposePsOutput }
 
 export function summarizeServiceStates(entries) {
   const states = {}

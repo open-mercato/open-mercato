@@ -167,6 +167,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-runtime-log-policy.mjs',
   },
   {
+    // Shared Docker preflight: the monorepo starter and the generated app's
+    // `yarn setup` / `yarn infra:up` (scripts/infra.mjs) run the same logic.
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'infra-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-infra-preflight.mjs'),
+    rel: 'scripts/dev-infra-preflight.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
     rel: 'docker/redis/redis.conf',

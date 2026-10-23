@@ -4,8 +4,10 @@ import assert from 'node:assert/strict'
 import {
   formatBaseUrl,
   isStandardPort,
+  mergeDevUrlEnv,
   parseConfiguredBaseUrl,
   parsePortNumber,
+  resolveDevAppBaseUrl,
   resolveDevBaseUrl,
   resolveSplashUrl,
 } from '../dev-splash-url.mjs'
@@ -211,4 +213,50 @@ test('resolveSplashUrl falls back to localhost when APP_URL is missing', () => {
 test('resolveSplashUrl supports a custom defaultHostname', () => {
   const url = resolveSplashUrl({}, 4123, { defaultHostname: '127.0.0.1' })
   assert.equal(url, 'http://127.0.0.1:4123')
+})
+
+test('mergeDevUrlEnv fills URL keys from the app .env without overriding the shell', () => {
+  const merged = mergeDevUrlEnv(
+    { PORT: '4100', HOME: '/home/dev' },
+    { PORT: '3100', APP_URL: 'http://localhost:3000', DATABASE_URL: 'postgres://x' },
+  )
+  assert.equal(merged.PORT, '4100')
+  assert.equal(merged.APP_URL, 'http://localhost:3000')
+  assert.equal(merged.HOME, '/home/dev')
+  assert.equal('DATABASE_URL' in merged, false)
+})
+
+test('mergeDevUrlEnv keeps an empty shell value, like dotenv', () => {
+  assert.equal(mergeDevUrlEnv({ PORT: '' }, { PORT: '3100' }).PORT, '')
+})
+
+test('resolveDevAppBaseUrl uses PORT from .env when the shell has none (#7791 scaffold)', () => {
+  const result = resolveDevAppBaseUrl({}, { PORT: '3100' }, { bindsPort: true })
+  assert.equal(result.url, 'http://localhost:3100')
+})
+
+test('resolveDevAppBaseUrl prefers the bound PORT over a loopback APP_URL port in direct mode', () => {
+  const fileEnv = { PORT: '3100', APP_URL: 'http://localhost:3000' }
+  assert.equal(resolveDevAppBaseUrl({}, fileEnv, { bindsPort: true }).url, 'http://localhost:3100')
+  assert.equal(resolveDevAppBaseUrl({}, fileEnv).url, 'http://localhost:3000')
+})
+
+test('resolveDevAppBaseUrl falls back to 3000 when neither the shell nor .env set a port', () => {
+  assert.equal(resolveDevAppBaseUrl({}, {}, { bindsPort: true }).url, 'http://localhost:3000')
+  assert.equal(
+    resolveDevAppBaseUrl({}, { APP_URL: 'http://localhost:3000' }, { bindsPort: true }).url,
+    'http://localhost:3000',
+  )
+})
+
+test('resolveDevAppBaseUrl keeps a proxy-fronted APP_URL and hides a PORT that only lives in .env', () => {
+  const fileEnv = { PORT: '3100', APP_URL: 'https://devsandbox.openmercato.com' }
+  assert.equal(
+    resolveDevAppBaseUrl({}, fileEnv, { bindsPort: true }).url,
+    'https://devsandbox.openmercato.com',
+  )
+  assert.equal(
+    resolveDevAppBaseUrl({ PORT: '3100' }, fileEnv, { bindsPort: true }).url,
+    resolveDevBaseUrl({ PORT: '3100', APP_URL: 'https://devsandbox.openmercato.com' }).url,
+  )
 })

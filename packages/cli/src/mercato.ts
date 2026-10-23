@@ -10,6 +10,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -974,6 +975,7 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
+      const skipIfInitialized = initArgs.includes('--skip-if-initialized')
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1127,7 +1129,12 @@ export async function run(argv = process.argv) {
               'SELECT COUNT(*)::text AS count FROM users',
             )
             const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
-            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
+            const existingDatabase = decideExistingDatabase(existingUsersCount, skipIfInitialized)
+            if (existingDatabase === 'skip') {
+              for (const line of formatSkipIfInitializedMessage(existingUsersCount, dbUrl)) console.log(line)
+              return 0
+            }
+            if (existingDatabase === 'abort') {
               console.error(
                 `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
               )
@@ -1402,8 +1409,12 @@ export async function run(argv = process.argv) {
       console.log('╔══════════════════════════════════════════════════════════════╗')
       console.log('║  🚀 You\'re now ready to start development!                   ║')
       console.log('║                                                              ║')
-      console.log('║  Start the dev server:                                       ║')
-      console.log('║    yarn dev                                                  ║')
+      if (parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true) {
+        console.log('║  The dev server is starting now (next time run: yarn dev).   ║')
+      } else {
+        console.log('║  Start the dev server:                                       ║')
+        console.log('║    yarn dev                                                  ║')
+      }
       console.log('║                                                              ║')
       console.log('║  Users created:                                              ║')
       for (const entry of createdUsers) {
