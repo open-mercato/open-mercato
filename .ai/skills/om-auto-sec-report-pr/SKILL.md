@@ -24,10 +24,10 @@ target when you want a deep read on exactly one thing.
   - `spec:{path}` or any path ending in `.md` under `.ai/specs/` or
     `.ai/specs/enterprise/` — analyze one specification.
   - `branch:{name}` — analyze the diff of a branch against the base
-    (defaults to `origin/develop`). Works with local branches after a
+    (defaults to `origin/main`). Works with local branches after a
     `git fetch origin {name}`.
 - `--base <branch>` (optional) — base ref for the branch/PR diff.
-  Defaults to `origin/develop`.
+  Defaults to `origin/main`.
 - `--out-fragment <path>` (optional) — when invoked as a sub-unit by
   `om-auto-sec-report`, write the markdown section fragment to this path
   instead of creating a standalone artifact + PR. When set, do NOT open
@@ -97,8 +97,8 @@ else
       git fetch origin "${TARGET}"
       git worktree add "$WORKTREE_DIR" "origin/${TARGET}" ;;
     spec)
-      git fetch origin develop
-      git worktree add --detach "$WORKTREE_DIR" origin/develop ;;
+      git fetch origin main
+      git worktree add --detach "$WORKTREE_DIR" origin/main ;;
   esac
   CREATED_WORKTREE=1
 fi
@@ -331,7 +331,7 @@ the same HTML rules documented in `om-auto-sec-report`:
   `rel="noopener noreferrer"`.
 
 After the artifacts exist, follow `.agents/skills/om-auto-create-pr/SKILL.md`
-verbatim to open a docs-only PR against `develop`. PR title:
+verbatim to open a docs-only PR against `main`. PR title:
 `docs(analysis): add auto-sec-report-pr for {target caption}`. Labels:
 `review`, `documentation`, `security`, `skip-qa`, plus one priority label and
 one risk label.
@@ -365,7 +365,7 @@ the driver in the order it specifies.
 - `git diff --check` on the artifact files.
 - Secret-leak grep on the diff before commit:
   ```bash
-  git diff origin/${BASE:-develop}..HEAD | \
+  git diff origin/${BASE:-main}..HEAD | \
     grep -Ei "(aws_secret|password\\s*=|bearer\\s+[A-Za-z0-9._-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
   ```
   If matched: stop, redact, recommit.
