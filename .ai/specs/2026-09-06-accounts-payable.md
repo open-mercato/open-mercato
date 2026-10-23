@@ -822,6 +822,27 @@ async seedDefaults({ em, tenantId, organizationId }) {
   currently open period by the chief accountant. This closes a design
   decision that was still open in the skeleton ("handling not yet
   designed").
+
+  **Foreign-currency invoice (added 2026-10-23).** #5663 now stores a
+  currency, a rate and an original-currency amount on every
+  `JournalEntryLine` (GL core engine, Design decisions, "Multi-currency").
+  When `invoice.currencyId` is not the tenant's base currency, the call
+  therefore also passes `exchangeRate: invoice.exchangeRate`, and every line
+  carries `amountCurrency` (its amount in the invoice currency) next to
+  `debit`/`credit`, which are always in the base currency (the amount ×
+  `exchangeRate`, rounded to the base currency's decimal places). GL rejects
+  a foreign-currency line without `amountCurrency` and one without a rate,
+  so an invoice whose `exchangeRate` is still `null` (it predates the
+  feature, see `backfillVendorInvoiceExchangeRate`) cannot post in a foreign
+  currency until the backfill has run.
+  **⚠ NEEDS HUMAN CONFIRMATION:** how the rounding remainder is placed so
+  the entry balances in the base currency. Converting the net, VAT and gross
+  amounts line by line need not add up, and a line that simply absorbs the
+  remainder would differ from `amountCurrency × exchangeRate` by more than
+  the half-unit tolerance GL proposes and be rejected. Two ways out: a
+  separate rounding line with `amountCurrency = 0` on a configured account
+  (exempt from that rule), or a wider tolerance. Until the controller
+  answers, this document does not pick one.
 - `cancelVendorInvoice` — `DRAFT`/`REJECTED` → `CANCELLED` (soft
   delete via `deletedAt`). Blocked for `PENDING_APPROVAL`/`APPROVED`/
   `POSTED`.
@@ -1945,3 +1966,14 @@ changes what `postVendorInvoice` sends downstream.
   error (#5955, Design decisions 2026-10-20).
 - The payment-side snapshot is written by `markPaymentBatchSent` in
   `2026-09-06-accounts-payable-payments.md`.
+
+### 2026-10-23 — Foreign-currency invoice and the line currency in GL
+
+- **`postVendorInvoice` for a foreign-currency invoice.** #5663 stores a
+  currency, a rate and an original-currency amount on every journal entry
+  line. The call now passes `exchangeRate` and `amountCurrency` per line next
+  to the base-currency `debit`/`credit` (Commands, `postVendorInvoice`), and an
+  invoice with a `null` rate cannot post in a foreign currency until the
+  backfill has run.
+- **Open, ⚠ NEEDS HUMAN CONFIRMATION:** where the rounding remainder goes so
+  the entry balances in the base currency. Not decided here.
