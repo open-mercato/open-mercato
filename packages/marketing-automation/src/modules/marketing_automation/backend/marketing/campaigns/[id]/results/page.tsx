@@ -244,43 +244,57 @@ export default function CampaignResultsPage({ params }: { params?: { id?: string
           </a>
         </div>
 
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            title={t('marketing_automation.results.kpi.sent', 'Sent')}
-            value={results.sends.sent}
-            footer={
-              results.sends.suppressed > 0 ? (
+        {/*
+          Gated on the same "has anybody entered" question the funnel below asks. Four cards reading
+          Sent 0, Opened 0, Clicked 0 and Attributed revenue 0 reads like a broken campaign, not one
+          that has not run yet — the same reason the funnel draws nothing rather than empty bars.
+        */}
+        {hasEntered ? (
+          <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              title={t('marketing_automation.results.kpi.sent', 'Sent')}
+              value={results.sends.sent}
+              footer={
+                results.sends.suppressed > 0 ? (
+                  <span>
+                    {t('marketing_automation.results.suppressed', '{count} held back by send rules')
+                      .replace('{count}', String(results.sends.suppressed))}
+                  </span>
+                ) : undefined
+              }
+            />
+            <KpiCard
+              title={t('marketing_automation.results.kpi.opened', 'Opened')}
+              value={results.uniqueRecipients.opened}
+              footer={<span>{t('marketing_automation.results.uniqueNote', 'unique recipients')}</span>}
+            />
+            <KpiCard
+              title={t('marketing_automation.results.kpi.clicked', 'Clicked')}
+              value={results.uniqueRecipients.clicked}
+              footer={<span>{t('marketing_automation.results.uniqueNote', 'unique recipients')}</span>}
+            />
+            <KpiCard
+              title={t('marketing_automation.results.kpi.revenue', 'Attributed revenue')}
+              value={results.attribution.length > 0 ? results.attribution[0].revenue : 0}
+              footer={
                 <span>
-                  {t('marketing_automation.results.suppressed', '{count} held back by send rules')
-                    .replace('{count}', String(results.sends.suppressed))}
+                  {results.attribution.length > 0 && results.attribution[0].currencyCode
+                    ? `${results.attribution[0].currencyCode} · `
+                    : ''}
+                  {t('marketing_automation.results.attributionNote', 'linear split, {days}-day window')
+                    .replace('{days}', String(results.settings.windowDays))}
                 </span>
-              ) : undefined
-            }
-          />
-          <KpiCard
-            title={t('marketing_automation.results.kpi.opened', 'Opened')}
-            value={results.uniqueRecipients.opened}
-            footer={<span>{t('marketing_automation.results.uniqueNote', 'unique recipients')}</span>}
-          />
-          <KpiCard
-            title={t('marketing_automation.results.kpi.clicked', 'Clicked')}
-            value={results.uniqueRecipients.clicked}
-            footer={<span>{t('marketing_automation.results.uniqueNote', 'unique recipients')}</span>}
-          />
-          <KpiCard
-            title={t('marketing_automation.results.kpi.revenue', 'Attributed revenue')}
-            value={results.attribution.length > 0 ? results.attribution[0].revenue : 0}
-            footer={
-              <span>
-                {results.attribution.length > 0 && results.attribution[0].currencyCode
-                  ? `${results.attribution[0].currencyCode} · `
-                  : ''}
-                {t('marketing_automation.results.attributionNote', 'linear split, {days}-day window')
-                  .replace('{days}', String(results.settings.windowDays))}
-              </span>
-            }
-          />
-        </div>
+              }
+            />
+          </div>
+        ) : (
+          <div className="mb-6 text-sm text-muted-foreground">
+            {t(
+              'marketing_automation.results.notRunYet',
+              'Nobody has entered this campaign yet, so there is nothing to measure. Numbers appear here once its trigger fires or its next scheduled pass runs.',
+            )}
+          </div>
+        )}
 
         {/*
           The funnel, first, because it is the shape of the answer: how many people entered and where they

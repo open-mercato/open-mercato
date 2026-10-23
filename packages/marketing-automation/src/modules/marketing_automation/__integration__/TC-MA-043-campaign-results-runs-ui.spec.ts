@@ -67,11 +67,14 @@ test.describe('TC-MA-043 campaign results and runs screens', () => {
       await openResults(page, campaignId)
 
       await expect(page.getByText(name, { exact: true })).toBeVisible()
+      // Nobody has entered, so the KPI row says so instead of showing four zero cards that would
+      // read as a broken campaign rather than one that has not run yet.
+      await expect(
+        page.getByText('Nobody has entered this campaign yet, so there is nothing to measure.', { exact: false }),
+      ).toBeVisible()
       for (const kpi of ['Sent', 'Opened', 'Clicked', 'Attributed revenue']) {
-        await expect(page.getByText(kpi, { exact: true }).first()).toBeVisible()
+        await expect(page.getByText(kpi, { exact: true })).toHaveCount(0)
       }
-      await expect(page.getByText('unique recipients').first()).toBeVisible()
-      await expect(page.getByText(/linear split, \d+-day window/)).toBeVisible()
       await expect(page.getByText('A/B results')).toBeVisible()
       await expect(page.getByText('This campaign has no A/B split, or nobody has entered one yet.')).toBeVisible()
       // Nothing has happened, so the sections that only make sense with activity stay out of the way.
