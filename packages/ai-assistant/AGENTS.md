@@ -350,6 +350,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `OPENAI_API_KEY` | OpenAI | `gpt-5-mini` | `OPENAI_BASE_URL` |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash` | N/A (pass `baseUrlOverride` to `runAiAgentText` when using a Vertex AI proxy) |
 | `DEEPINFRA_API_KEY` | DeepInfra | `zai-org/GLM-5.1` | `DEEPINFRA_BASE_URL` |
+| `ATLASCLOUD_API_KEY` | Atlas Cloud | `qwen/qwen3.7-plus` | `ATLASCLOUD_BASE_URL` |
 | `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
 | `TOGETHER_API_KEY` | Together AI | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_BASE_URL` |
 | `FIREWORKS_API_KEY` | Fireworks AI | `accounts/fireworks/models/llama-v3p3-70b-instruct` | `FIREWORKS_BASE_URL` |
@@ -373,7 +374,7 @@ Process-wide defaults (Phase 0 of spec
 
 | Variable | Purpose |
 |----------|---------|
-| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Provider-only preferences can fall through when unconfigured; when paired with `OM_AI_MODEL`, the named provider must be configured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Provider-only preferences can fall through when unconfigured; when paired with `OM_AI_MODEL`, the named provider must be configured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `atlas-cloud`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
 | `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. The legacy `OPENCODE_MODEL` env is read as a backward-compatibility fallback. |
 
 `OM_AI_*` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored here as backward-compatibility fallbacks — see "Coexistence with OpenCode Code Mode" below.
