@@ -44,6 +44,8 @@ Existing six journeys remain regression gates. New browser tests cover starter c
 
 Source audit and the implemented prototype expansion are delivered in the [coverage report](analysis/2026-10-15-finance-prototype-gap-map.md) and module README. There are 57 views and 18 guided tasks. Before publication, 33 distinct Playwright cases and two production-build smoke cases passed in the original development checkout, together with scoped lint, app typecheck and build. These historical results do not validate the publication branch; fresh-develop verification is tracked in the publication plan.
 
+Fresh-develop verification subsequently passed the ordered repository gate (including all 48 unit-test tasks and the production app build), 54 focused prototype unit tests, template parity and the final 36-case isolated browser suite with no skipped or flaky cases. The verification fixes remain local: the author requires approval before any further push or PR update. The local template checker correction also requires explicit governance review before publication.
+
 The prototype remains partial against the full set of production specifications. The report explicitly tracks disconnected contractor/KSeF/AP families, controlled report fixtures, full mapping/CRUD extensions, later-phase work, WMS without a spec, and unresolved domain contracts. This document stays outside `implemented/`; no production module acceptance or deployment is claimed.
 
 ## Changelog
@@ -51,3 +53,5 @@ The prototype remains partial against the full set of production specifications.
 - 2026-10-15: Started source-driven prototype expansion and accountant workflow verification.
 
 - 2026-10-15: Added s44–s57, source and gap map, ledger/contractor/operations/tax/report workflows, AP posting and dated payment verification, shared batch-to-bank continuity, asset lifecycle, local form styling/locale adapter, and regression/layout evidence.
+- 2026-10-15: Verified on fresh develop; fixed same-origin locale recovery, ACL catalog coverage and template compatibility, added persistence/locale regression coverage, and recorded the publication approval hold.
+- 2026-10-23: Kept the prototype usable when the locale update fails, removed the bank account number from session storage, switched submit buttons to the DS primary variant, and re-ran the complete integration suite.

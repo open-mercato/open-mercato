@@ -36,11 +36,11 @@ All finance badges use the neutral DS stroke appearance, and feedback uses DS st
 
 The dashboard follows Figma frame `200524:1401`: balance and supporting figures, task queue, shortcuts, paired monthly cashflows, and recent operations. Original decorative SVG assets are stored under `assets/dashboard`. The shared chart uses the application chart palette. Range selection changes the months shown, and recent-operation details retain the selected reference and amount. Dashboard values are fictional and do not aggregate live records.
 
-Generic forms persist submitted drafts per screen in the tab session. Allocation s31 validates both shares and their 100% total before s32 calculates the split of the 84,000 PLN example pool. Direct access to s32 without a valid saved rule offers a return to editing. This is separate from the guided workflow families.
+Generic forms persist submitted drafts per screen in the tab session. The supplier bank account number is never written to session storage; after a reload it falls back to the fictional fixture value. Allocation s31 validates both shares and their 100% total before s32 calculates the split of the 84,000 PLN example pool. Direct access to s32 without a valid saved rule offers a return to editing. This is separate from the guided workflow families.
 
 ## Review language
 
-The accountant prototype is authored in Polish. Entry selects Polish through the existing `/api/auth/locale` preference endpoint so the application shell and shared controls use the same language as the fixtures. Budget and currency components read the React locale context. A deployment-level forced locale is respected without a redirect loop; a scoped Polish provider keeps the prototype content Polish in that case. No existing English translation catalog is overwritten.
+The accountant prototype is authored in Polish. Entry selects Polish through a guarded POST to the existing `/api/auth/locale` preference endpoint so the application shell and shared controls use the same language as the fixtures. The subsequent reload preserves the current origin and screen fragment. If the request fails, for example because the tenant does not serve Polish, the prototype still renders in Polish under a warning with a localized retry action. Budget and currency components read the React locale context. A deployment-level forced locale is respected without a redirect loop; a scoped Polish provider keeps the prototype content Polish in that case. No existing English translation catalog is overwritten.
 
 ### Status presentation reference
 
@@ -52,6 +52,6 @@ Finance status badges use the mapped `StatusBadge` with a local `FinanceStatusBa
 - **s48–s52:** acquisition/depreciation and asset lifecycle, proposed prepaid-cost UX, deferred revenue, period-end currency valuation/reversal, and statement matching including partial EUR receipt and PLN overpayment.
 - **s53–s57:** tax liabilities, KSeF receipt/duplicate link, informational VAT reconciliation, proposed JPK_KR_PD workflow, annual statements and result allocation.
 
-The local `FinanceCrudForm` adapter preserves shared form validation/submission while applying the existing purple DS primary tokens, Polish dates and stable initial focus. New tables scroll inside their cards on narrow screens. Context links provide navigation between related tasks; the compact scenario dialog holds task instructions.
+The local `FinanceCrudForm` adapter preserves shared form validation/submission and the default DS primary submit button while applying Polish dates and stable initial focus. New tables scroll inside their cards on narrow screens. Context links provide navigation between related tasks; the compact scenario dialog holds task instructions.
 
-New tests `TC-FIN-PREVIEW-010` through `014` cover calculated outcomes, refusal and recovery, repeat operations, reload persistence, immutable posted data, and desktop/mobile layout. The complete validation result is recorded in the linked gap map. No new dependencies, API routes, migrations or shared DS contracts are introduced.
+New tests `TC-FIN-PREVIEW-010` through `016` cover calculated outcomes, refusal and recovery, repeat operations, reload persistence, immutable posted data, desktop/mobile layout, malformed stored state and locale request recovery. The complete validation result is recorded in the linked gap map. No new dependencies, API routes, migrations or shared DS contracts are introduced.

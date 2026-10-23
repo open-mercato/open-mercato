@@ -67,16 +67,44 @@ W testach używa się fikcyjnych danych sesji oraz istniejącego konta testowego
 | TC-FIN-PREVIEW-012 | Podatki, duplikat KSeF, informacyjne uzgodnienie VAT, JPK odrzucenie/ponowienie, Bilans/RZiS i uchwała |
 | TC-FIN-PREVIEW-013 | Jeden dostawca, brak wyniku Białej Listy, wysłanie tylko raz, ta sama paczka na wyciągu bez ponownego dekretu; dołączenie paczki powstałej po pierwszym zatwierdzeniu wyciągu |
 | TC-FIN-PREVIEW-014 | Układ s10 i nowych ekranów przy 1440 i 390 px, poziome przepełnienie, granice kontrolek i kolor przycisków formularzy |
+| TC-FIN-PREVIEW-015 | Odzyskanie poprawnego stanu po nieprawidłowym JSON i niepoprawnych zagnieżdżonych danych sesji |
+| TC-FIN-PREVIEW-016 | Błąd aktualizacji języka i ponowienie bez utraty logowania, hosta ani wybranego ekranu |
 
-**Wynik kontroli:** 33 unikalne przypadki Playwright przeszły: pełny zestaw 31 (3,1 min) oraz dwa dodane testy zamkniętego okresu polisy i dołączenia późniejszej paczki (10,7 s). Po buildzie ponownie przeszły przepływ faktury do płatności i kontrola wszystkich nowych widoków przy 1440/390 px (2 testy, 11,2 s). Kontrola układu obejmuje również rzeczywisty kolor przycisków formularzy. Obejrzano zrzuty ekranu tabel, formularzy oraz wyników podatków i sprawozdań.
+**Bieżący wynik na gałęzi publikacyjnej:** komplet **36 przypadków Playwright przeszedł w 1,7 min**, bez błędów, pominięć i przypadków wymagających ponowienia. Użyto świeżo zbudowanej aplikacji oraz osobnej, tymczasowej bazy danych przygotowanych przez oficjalny runner. Kontrola układu obejmuje również rzeczywisty kolor przycisków formularzy. Obejrzano aktualne zrzuty wyniku rozliczenia podatku i mobilnego sprawozdania rocznego. Zrzuty całych stron po przewinięciu mogą umieszczać przyklejony nagłówek aplikacji w miejscu aktualnego viewportu; kontrole granic elementów wykonują się w rzeczywistym widoku.
 
-- App typecheck: **PASS** (`node scripts/typecheck.mjs` w `apps/mercato`).
-- Lint modułu: **PASS**, bez błędów (`eslint src/modules/finance_previews`).
-- Build aplikacji: **PASS** (`next build`), kompilacja 10,6 s; 9 istniejących ostrzeżeń Turbopack o dynamicznym loaderze i śledzeniu plików poza modułem prototypu.
-- Skan nowych komponentów: bez surowych kolorów statusów, rozmiarów tekstu poza skalą, surowych pól HTML, `fetch` i nowych SVG inline. Stan globalnego DS ma istniejące naruszenia w innych modułach; nie jest to deklaracja zgodności całego repozytorium.
-- Uruchomiony lokalny build: `http://localhost:3002`; wymaga zwykłego logowania i istniejącego uprawnienia `finance_previews.view`.
+| Kontrola | Wynik |
+|---|---|
+| Pełna bramka repozytorium, runner lokalny, Node 24 | **PASS**: `build:packages` → `generate` → `build:packages` → `i18n:check-sync` → `i18n:check-usage` → `typecheck` → `test` → `build:app` |
+| `yarn test` | **48 zadań zakończonych sukcesem**; istniejące pominięcia całego repozytorium pozostają widoczne w logu |
+| Testy jednostkowe prototypu | **54 PASS**, w tym obliczenia, walidacja i odzyskiwanie po błędzie języka |
+| Testy checkera DS szablonu | **10 PASS**, w tym odróżnienie semantycznej właściwości `Alert` od rzeczywistych stylów inline |
+| Lint modułu i lint DS | **PASS**, bez błędów |
+| Parzystość aplikacji i szablonu, kontrola białych znaków diffu | **PASS** |
+| Playwright | **36 PASS**, 0 pominiętych, 0 niestabilnych; 57 ekranów oraz rzeczywiste ścieżki działań |
 
-Powtórzenie zestawu przez konfigurację repozytorium: `BASE_URL=http://localhost:3002 yarn test:integration finance_previews` (aplikacja musi działać). Testy wykonane w tym zadaniu używały tymczasowej konfiguracji lokalnej z jednym workerem; po kontroli została usunięta. Nie zmieniono metadanych auto-discovery, więc nie było potrzeby ponownego generowania rejestrów.
+Pierwsze próby wykryły problemy, które zostały naprawione i objęte końcowym przebiegiem:
+
+| Nieudany test / etap | Dowód | Przyczyna | Odpowiedzialność | Wykonana poprawka |
+|---|---|---|---|---|
+| Cykl życia środka trwałego | Asercja i zapis stanu sesji | Test odczytywał stan przed zakończeniem efektu zapisującego | QA | Oczekiwanie na potwierdzony zapis przed kolejnym krokiem |
+| Wejście bezpośrednio w ekran podatków / język | Trace, zrzut i kontekst błędu | Aktualizacja języka przekierowywała na inny host i traciła ciasteczko sesji | UI | Chroniony POST istniejącego API i przeładowanie tego samego adresu; test błędu/ponowienia |
+| Ładowanie nowego TC-016 | Log odkrywania testów | Import JSON bez atrybutu wymagany przez runtime ESM | QA | Odczyt pliku jak w pozostałych testach; poprawna lista 36 testów i pełny przebieg |
+| Język nieobsługiwany przez tenanta | Przegląd kodu | Błąd aktualizacji języka blokował cały prototyp | UI | Prototyp renderuje się po polsku pod ostrzeżeniem z ponowieniem; rozszerzony TC-016 |
+| Alert CodeQL w PR | Code scanning | Numer rachunku zapisywany otwartym tekstem w pamięci sesji | Bezpieczeństwo | Pamięć sesji zapisuje jawną listę pól bez numeru rachunku |
+| Kolor przycisków formularzy | Przegląd DS | Nadpisanie CSS nadawało przyciskom zapisu token statusu | UI | Domyślny wariant DS `bg-primary`; TC-014 sprawdza token primary |
+
+Historyczne 33 przypadki i dwa smoke testy z pierwotnego checkoutu są wcześniejszym dowodem rozwoju, a nie wynikiem bieżącej gałęzi. Główna bramka została wykonana po poprawkach aplikacji; późniejszą zmianę wyłącznie importu danych testowych zweryfikowano przez odkrywanie testów i cały końcowy przebieg przeglądarkowy.
+
+Powtórzenie w wybranym trybie uruchomienia raz i ponownego użycia:
+
+```bash
+yarn test:integration:ephemeral:start
+OM_INTEGRATION_MODULES=finance_previews OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 yarn mercato test:integration finance_previews
+```
+
+Runner sam przekazuje konfigurację tymczasowej bazy. Nie należy uruchamiać zestawu z samym `BASE_URL` wskazującym na developerską aplikację. Po zmianach plików wejściowych trzeba odświeżyć środowisko zgodnie z procedurą repozytorium. Bez zmiany kodu można ponawiać testy na tym samym środowisku. Nie zmieniono globalnej konfiguracji Playwright.
+
+**Publikacja wstrzymana do zgody autora.** Nowe poprawki i niniejsze wyniki pozostają lokalne; istniejący draft PR #7483 nie został zaktualizowany. Zmiana checkera DS wymaga osobnego przeglądu przed publikacją. Testy automatyczne nie stanowią jeszcze ręcznej akceptacji przez księgowe ani akceptacji produkcyjnych specyfikacji.
 
 Nie należy na podstawie samej listy ekranów ogłaszać akceptacji całej funkcjonalności finansowej. Pozostałe luki są wyszczególnione w tabeli powyżej.
 
