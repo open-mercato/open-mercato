@@ -76,7 +76,7 @@ Merges a guest cart into the current (session) cart. Body (`cartMergeRequestSche
 
 Implements five login-time situations (adopt/keep-target/union/sum/conflict) plus a mandatory re-visibility pass over every incoming line — a line a restricted buyer's scope now rejects is dropped from the merge, disclosed in the response's `mergeSummary` and in the persisted merge log's `outcome`, never silently lost (it's still readable in the log's `source_snapshot`). The merge token rotates unconditionally on success; the response carries the new token.
 
-**Responses** include `400 cart_merge_scope_mismatch` when the source and target carts differ on store or currency — merging across either is rejected outright, not attempted.
+**Responses** include `400 cart_merge_scope_mismatch` when the source and target carts differ on store or currency — merging across either is rejected outright, not attempted. An `abandoned` cart on either side is reactivated to `active` first (same rule as the `cart_not_active` row below), so a returning buyer's idle session cart or idle guest cart still merges instead of 404ing.
 
 ## `POST /api/cart/current/undo-merge`
 

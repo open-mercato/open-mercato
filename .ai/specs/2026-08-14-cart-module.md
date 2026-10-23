@@ -592,7 +592,7 @@ active ──lock (checkout)──► locked ──submit──► converted
 | `locked → active` | `cartService.unlock` (command `cart.unlock`), explicit, or a lock timeout (default 30 min) clearing `locked_at`/`lock_expires_at` |
 | `locked → converted` | **(rev 9 — F7/C6)** `cartService.markConverted` (command `cart.markConverted`), called by `checkout` once a `SalesOrder` exists; terminal — no command mutates a `converted` cart; sets `resolved_at` (§4.1, D-R4-20) |
 | `active → abandoned` | Baskets: no activity for 24 h (configurable); emits an event for recovery flows. Proposals: only by `cart.proposal.reject` (§7a.5) |
-| `abandoned → active` | Baskets only: any mutation; extends `expires_at`. Never for a proposal (§7a.1) |
+| `abandoned → active` | Baskets only: any mutation; extends `expires_at`. Never for a proposal (§7a.1). "Any mutation" is intentionally the mutation *attempt*, not its outcome — `loadMutableCart` reactivates before input validation runs, so a rejected add (inactive product, quantity ≤ 0) still reactivates the basket and moves `last_activity_at` (nit raised in the 2026-10-23 re-review) |
 | `active → expired` | `expires_at` reached (default 30 days for identified buyers, 7 for guests); releases promotion code reservations |
 | `* → merged` | Login merge, or the source side of a proposal acceptance; `merged_into_cart_id` set |
 | `merged → active \| expired` | Proposals only: `undo-merge` of their acceptance within 15 min (§7a.7) |
@@ -988,6 +988,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 ---
 
 ## 18) Changelog
+
+### 2026-10-24 (re-review M1 — PR #7592)
+
+- **M1**: the #7880 fix below reactivated every `cart.lines.*`/`cart.promotions.*` write path but missed `cart.merge` — a merge against an `abandoned` session or guest basket still 404'd instead of reactivating it, so a buyer whose idle basket had been swept could not recover it by logging in and merging a guest cart. `commands/merge.ts` now calls `recordBasketMutationActivity` on both the session and guest carts, right after the lock check and before the (now `abandoned`-free) status gate, matching §9's "any basket mutation" rule. `cart.mdx` and the merge route's `openApi` 404 text corrected to match.
 
 ### 2026-10-23 (QA round 2 — #7880)
 

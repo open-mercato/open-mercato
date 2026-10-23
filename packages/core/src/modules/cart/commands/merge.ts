@@ -25,6 +25,7 @@ import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/visibility'
 import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
+import { recordBasketMutationActivity } from '../lib/cartActivity'
 import { emitCartEvent } from '../events'
 import { repriceCartCommand } from './cart'
 import type { CartRepriceInput, CartRepriceResult } from './cart'
@@ -458,10 +459,16 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // under an in-progress checkout, and the buyer has no real stake in being told which
     // specific non-active reason the source cart is unavailable for.
     assertCartNotLocked(sessionCart)
-    // A non-active cart on either side (already merged/expired/converted/locked/abandoned)
-    // is treated as unavailable for merge purposes, same no-oracle collapse as above —
-    // neither §7.1 nor §7.2 names a merge-of-an-inactive-cart case, and admitting one would
-    // let a stale or already-consumed cart re-enter the merge pass.
+    // §9: a merge is a basket mutation on BOTH sides, so an `abandoned` cart on either side
+    // is reactivated to `active` here — same as `lines.ts`/`promotions.ts` — before the
+    // status gate below runs, instead of being rejected as unavailable.
+    await recordBasketMutationActivity(em, sessionCart)
+    await recordBasketMutationActivity(em, guestCart)
+    // A non-active cart on either side (already merged/expired/converted/locked) is treated
+    // as unavailable for merge purposes, same no-oracle collapse as above — neither §7.1 nor
+    // §7.2 names a merge-of-an-inactive-cart case, and admitting one would let a stale or
+    // already-consumed cart re-enter the merge pass. `abandoned` no longer reaches this
+    // check: the reactivation above already turned it into `active`.
     if (sessionCart.status !== 'active' || guestCart.status !== 'active') {
       throw notFound('[internal] cart not found')
     }

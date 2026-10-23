@@ -236,6 +236,15 @@ function makeEm() {
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
+    // M1 fix — `cart.merge` now calls `recordBasketMutationActivity` on both carts
+    // (`lib/cartActivity.ts`), which reactivates an `abandoned` basket via a raw
+    // `em.nativeUpdate` rather than through `findWithDecryption`'s fixture lookup.
+    nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, data: FakeRow) => {
+      if (entity !== Cart) return 0
+      const rows = seededCarts.filter((row) => matchesWhere(row, where))
+      rows.forEach((row) => Object.assign(row, data))
+      return rows.length
+    }),
   }
   em.fork.mockReturnValue(em)
   return em
@@ -594,6 +603,82 @@ describe('cart.merge — §7.1 policy rows', () => {
     }
     expect(isCrudHttpError(captured)).toBe(true)
     expect((captured as { status: number }).status).toBe(404)
+  })
+
+  // M1 (re-review of 2f95ebf700) — §9's "any basket mutation reactivates an abandoned
+  // basket" applies to BOTH sides of a merge, same as `cart.lines.*`/`cart.promotions.*`
+  // (#7880). Before this fix, `merge.ts`'s status gate 404'd on an `abandoned` cart instead
+  // of reactivating it first.
+  it('reactivates an abandoned TARGET cart instead of 404ing, then merges normally (§9)', async () => {
+    seededCarts = [
+      makeCartFixture({
+        id: 'cart-target',
+        tokenHash: 'target-token-hash',
+        status: 'abandoned',
+        resolvedAt: new Date('2026-02-25T00:00:00.000Z'),
+        expiresAt: new Date('2026-02-26T00:00:00.000Z'),
+        customerId: 'customer-1',
+      }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute(
+      { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+      ctx,
+    )
+
+    expect(result.mergeSummary.strategy).toBe('keep_target')
+    expect(result.cart.id).toBe('cart-target')
+
+    const targetCart = seededCarts.find((row) => row.id === 'cart-target')!
+    expect(targetCart.status).toBe('active')
+    expect(targetCart.resolvedAt).toBeNull()
+    expect(targetCart.expiresAt.getTime()).toBeGreaterThan(new Date('2026-02-26T00:00:00.000Z').getTime())
+  })
+
+  it('reactivates an abandoned GUEST (source) cart instead of 404ing, then merges normally (§9)', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({
+        id: 'cart-guest',
+        tokenHash: hashCartToken('guest-plain-token'),
+        status: 'abandoned',
+        resolvedAt: new Date('2026-02-25T00:00:00.000Z'),
+        expiresAt: new Date('2026-02-26T00:00:00.000Z'),
+        customerId: null,
+      }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-guest-1', cartId: 'cart-guest', productId: 'product-1', quantity: '1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const ctx = makeCtx({ em })
+
+    const result = await handler.execute(
+      { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+      ctx,
+    )
+
+    // The TARGET cart is empty, so this lands on row 1 (adopt): the guest cart survives.
+    // Before this fix, the abandoned guest cart's own status gate 404'd before the merge
+    // policy ever got to pick a row.
+    expect(result.mergeSummary.strategy).toBe('replace')
+    expect(result.mergeSummary.adopted).toBe(true)
+    expect(result.cart.id).toBe('cart-guest')
+
+    const survivingCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    // `recordBasketMutationActivity` reactivated it to `active` before the adopt path ran.
+    expect(survivingCart.status).toBe('active')
+    expect(survivingCart.resolvedAt).toBeNull()
+
+    const absorbedCart = seededCarts.find((row) => row.id === 'cart-target')!
+    expect(absorbedCart.status).toBe('merged')
+    expect(absorbedCart.resolvedAt).not.toBeNull()
   })
 })
 
