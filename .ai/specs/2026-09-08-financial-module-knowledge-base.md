@@ -2957,3 +2957,23 @@ re-read in this pass.
 - **JPK_KR_PD currency fields.** The Ministry's JPK_KR (v1) instruction marks
   the foreign-amount and currency-code fields optional; a vendor mapping leaves
   them empty on PLN lines. Not checked against the JPK_KR_PD XSD.
+
+### 2026-10-23 (cont. — settlement posting restated, bank-account valuation, KSeF and JPK evidence)
+
+- **Settlement posting.** With a currency and rate on every line, the settlement
+  of a foreign-currency invoice needs no cross-rate: a payment entry (bank line
+  at the bank currency's rate, receivable at the invoice currency's rate on the
+  payment day, balancing line for the conversion difference) and, when the
+  invoice rate moved, a separate entry moving the receivable from the booked rate
+  to the payment-day rate with an `amountCurrency = 0` line. Recorded in
+  `cash-bank-management.md`; checked on two numeric cases.
+- **Outflow of currency from a foreign-currency account.** Comarch ERP XL values
+  outflows by FIFO or LIFO per register (chosen once, no default) and creates no
+  exchange difference by FIFO or LIFO itself; a fixed rate creates an
+  exchange-difference document. The method is accounting policy, not law. Open
+  question for the controller (Multi-Currency, Out of scope).
+- **KSeF and JPK.** A secondary source says a foreign-currency KSeF invoice
+  shows the VAT in złoty with the rate (at most six decimals); the FA(3) fields
+  were not read. The Ministry's JPK_KR_PD brochure (May 2024, table 12) marks
+  `Z_5`, `Z_6`, `Z_8`, `Z_9` optional and silent on PLN lines; the raw XSD is
+  unread.
