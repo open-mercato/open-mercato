@@ -49,6 +49,7 @@ export class AttachmentPartition {
 }
 
 @Entity({ tableName: 'attachments' })
+@Index({ name: 'attachments_storage_reference_idx', properties: ['partitionCode', 'storagePath'] })
 export class Attachment {
   [OptionalProps]?: 'createdAt'
 

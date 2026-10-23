@@ -92,7 +92,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
       const [{ default: devicesEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/devices/encryption'),
-        import('@open-mercato/core/modules/entities/cli'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
       ])
       const materializedScopes = await upsertEncryptionMapSpecs(
         em,
@@ -167,7 +167,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
       const [{ default: phoneCallsEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/phone_calls/encryption'),
-        import('@open-mercato/core/modules/entities/cli'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
       ])
       const materializedScopes = await upsertEncryptionMapSpecs(
         em,
