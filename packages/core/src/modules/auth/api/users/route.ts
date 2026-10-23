@@ -415,7 +415,7 @@ export async function GET(req: Request) {
         { user: { $in: userIds as any }, deletedAt: null } as any,
         { populate: ['role'] },
         {
-          tenantId: effectiveTenantId ?? auth.tenantId ?? null,
+          tenantId: effectiveTenantId,
           organizationId: scopeOrganizationId,
         },
       )
