@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { createAiApiOperationRunner, normalizePath, type AiToolExecutionContext } from '../ai-api-operation-runner'
 import type { ApiRouteManifestEntry } from '@open-mercato/shared/modules/registry'
+import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import {
+  runApiInterceptorsAfter,
+  runApiInterceptorsBefore,
+} from '@open-mercato/shared/lib/crud/interceptor-runner'
+import { resolveApiInterceptorRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
 import {
   TRUSTED_AUTH_CONTEXT_SYMBOL,
   resolveAuthFromRequestDetailed,
@@ -52,6 +58,7 @@ describe('createAiApiOperationRunner', () => {
   let fetchSpy: jest.SpyInstance | null = null
 
   beforeEach(() => {
+    registerApiInterceptors([])
     if (typeof globalThis.fetch === 'function') {
       fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(() => {
         throw new Error('fetch must not be called by the in-process runner')
@@ -66,6 +73,7 @@ describe('createAiApiOperationRunner', () => {
   })
 
   afterEach(() => {
+    registerApiInterceptors([])
     fetchSpy?.mockRestore?.()
     fetchSpy = null
   })
@@ -348,6 +356,152 @@ describe('createAiApiOperationRunner', () => {
     expect(result).toEqual({ success: true, statusCode: 200, data: { id: 'abc-123' } })
     expect(captured).not.toBeNull()
     expect(captured!.params.itemId).toBe('abc-123')
+  })
+
+  it.each([
+    ['mixed-case', '/CUSTOMERS/PEOPLE'],
+    ['percent-encoded', '/customers/%70eople'],
+  ])('binds the authored manifest identity for a %s synthetic request', async (_label, path) => {
+    registerApiInterceptors([{
+      moduleId: 'test',
+      interceptors: [
+        {
+          id: 'test.ai-exact-policy',
+          targetRoute: 'customers/people',
+          methods: ['GET', 'POST'],
+          priority: 10,
+          async before(request) {
+            if (request.method === 'POST') {
+              return { ok: false, statusCode: 451, message: 'Denied by canonical policy' }
+            }
+            return { ok: true }
+          },
+          async after() {
+            return { merge: { exactPolicyApplied: true } }
+          },
+        },
+        {
+          id: 'test.ai-prefix-policy',
+          targetRoute: 'customers/*',
+          methods: ['GET', 'POST'],
+          priority: 20,
+          async before() {
+            return { ok: true }
+          },
+          async after() {
+            return { merge: { prefixPolicyApplied: true } }
+          },
+        },
+      ],
+    }])
+    const handler = jest.fn(async (request: Request) => {
+      const routePath = resolveApiInterceptorRoutePath(request)
+      if (routePath === null) return new Response('{}', { status: 400 })
+      const method = request.method === 'POST' ? 'POST' : 'GET'
+      const requestPayload = {
+        method,
+        url: request.url,
+        body: {},
+        query: {},
+        headers: {},
+      }
+      const context = {
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        em: {} as never,
+        container: {} as never,
+        userFeatures: ['*'],
+      }
+      const before = await runApiInterceptorsBefore({
+        routePath,
+        method,
+        request: requestPayload,
+        context,
+      })
+      if (!before.ok) {
+        return new Response(JSON.stringify(before.body), {
+          status: before.statusCode,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      const after = await runApiInterceptorsAfter({
+        routePath,
+        method,
+        request: before.request,
+        response: { statusCode: 200, body: { routePath }, headers: {} },
+        context,
+        metadataByInterceptor: before.metadataByInterceptor,
+      })
+      return new Response(JSON.stringify(after.body), {
+        status: after.statusCode,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+    const apiRoutes: ApiRouteManifestEntry[] = [
+      makeManifestEntry({
+        path: '/customers/people',
+        methods: ['GET', 'POST'],
+        load: async () => ({
+          POST: handler,
+          GET: handler,
+          openApi: { tag: 'Customers', methods: { GET: {}, POST: {} } },
+          metadata: {
+            GET: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+            POST: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+          },
+        }),
+      }),
+    ]
+    const tool = makeTool({
+      name: 'customers.create_person',
+      requiredFeatures: ['customers.people.manage'],
+      isMutation: true,
+    })
+    const runner = createAiApiOperationRunner(makeCtx(tool), { apiRoutes })
+
+    const result = await runner.run({ method: 'POST', path, body: { name: 'Taylor' } })
+    const allowed = await runner.run({ method: 'GET', path })
+
+    expect(result).toMatchObject({
+      success: false,
+      statusCode: 451,
+      error: 'Denied by canonical policy',
+    })
+    expect(allowed).toEqual({
+      success: true,
+      statusCode: 200,
+      data: {
+        routePath: 'customers/people',
+        exactPolicyApplied: true,
+        prefixPolicyApplied: true,
+      },
+    })
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails malformed synthetic request encoding before dispatch', async () => {
+    const handler = jest.fn(async () => new Response('{}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }))
+    const apiRoutes: ApiRouteManifestEntry[] = [
+      makeManifestEntry({
+        path: '/customers/[id]',
+        methods: ['GET'],
+        load: async () => ({
+          GET: handler,
+          openApi: { tag: 'Customers', methods: { GET: {} } },
+        }),
+      }),
+    ]
+    const runner = createAiApiOperationRunner(makeCtx(makeTool({ name: 'customers.get' })), { apiRoutes })
+
+    const result = await runner.run({ method: 'GET', path: '/customers/%ZZ' })
+
+    expect(result.success).toBe(false)
+    expect(result.statusCode).toBe(400)
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it('falls back to default export for legacy route entries', async () => {

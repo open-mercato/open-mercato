@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 type AuthContext = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -35,7 +36,7 @@ export async function resolveCustomersRequestContext(request: Request): Promise<
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-  const selectedOrganizationId = scope?.selectedId ?? auth.orgId ?? null
+  const selectedOrganizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   const organizationIds = scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null)
 
   return {

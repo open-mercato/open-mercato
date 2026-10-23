@@ -636,8 +636,9 @@ export function buildTimeEntryLockedError(
  *
  * No permission lifts it — not `staff.timesheets.manage_all`. An entry frozen in
  * a closed report has already been billed at those minutes (D-7), so the only way
- * back is the Phase-6 unlock command, which clears `locked_report_id` itself and
- * therefore never reaches this gate.
+ * back is the Phase-6 unlock command, which clears `locked_report_id` itself — or
+ * hands it to another closed report still quoting the entry — and therefore never
+ * reaches this gate.
  */
 export function assertTimeEntryUnlocked(
   entry: { id: string; lockedReportId?: string | null },
@@ -904,6 +905,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.deletedAt = new Date()
       await em.flush()
 
@@ -1096,6 +1098,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.deletedAt = new Date()
       await em.flush()
 
@@ -1317,6 +1320,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) return
+    assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
     entry.date = before.date as unknown as Date
     entry.durationMinutes = before.durationMinutes
     entry.roundedMinutes = before.roundedMinutes ?? null
@@ -1466,6 +1470,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       })
       em.persist(entry)
     } else {
+      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
       entry.staffMemberId = before.staffMemberId
       entry.date = before.date as unknown as Date
       entry.durationMinutes = before.durationMinutes
