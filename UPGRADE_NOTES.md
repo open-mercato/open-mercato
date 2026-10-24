@@ -437,6 +437,21 @@ customer authentication as a portal API request (JWT check, session and user loo
 resolution). Each open portal tab also reconnects roughly every 4¼–5¾ minutes with the default max
 age, and the shipped portal notifications hook refetches after a reconnect. Tune both variables if
 database load requires it.
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
