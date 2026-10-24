@@ -98,12 +98,13 @@ async function readLayout(request: APIRequestContext, token: string): Promise<Da
 }
 
 test.describe('TC-DASH-014: user widget overrides follow the target user scope', () => {
-  test('TC-DASH-014-1: an admin override for a user in another organization reaches that user dashboard', async ({ request }) => {
+  test('TC-DASH-014-1: an assigner override for a user in another organization reaches that user dashboard', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
     let targetOrgId: string | null = null
     let target: Actor | null = null
+    let assigner: Actor | null = null
 
     try {
       targetOrgId = await createOrganizationFixture(request, superadminToken, {
@@ -118,6 +119,14 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
         prefix: 'tc-dash-014-target',
         features: BASE_DASHBOARD_FEATURES,
       })
+      assigner = await createActor(request, {
+        superadminToken,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        prefix: 'tc-dash-014-admin',
+        features: ASSIGN_WIDGETS_FEATURES,
+      })
+      const assignerToken = assigner.token
 
       const initial = await readLayout(request, target.token)
       expect(initial.context?.organizationId).toBe(targetOrgId)
@@ -126,7 +135,7 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
       const [chosenWidgetId] = initialWidgetIds
 
       const putResponse = await apiRequest(request, 'PUT', API.userWidgets, {
-        token: adminToken,
+        token: assignerToken,
         data: { userId: target.userId, mode: 'override', widgetIds: [chosenWidgetId] },
       })
       expect(putResponse.status()).toBe(200)
@@ -138,7 +147,7 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
         request,
         'GET',
         `${API.userWidgets}?userId=${encodeURIComponent(target.userId ?? '')}`,
-        { token: adminToken },
+        { token: assignerToken },
       )
       const assignment = await readJsonSafe<WidgetAssignmentResponse>(assignmentResponse)
       expect(assignmentResponse.status()).toBe(200)
@@ -147,7 +156,7 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
       expect(assignment?.scope).toEqual({ tenantId: scope.tenantId, organizationId: targetOrgId })
 
       const inheritResponse = await apiRequest(request, 'PUT', API.userWidgets, {
-        token: adminToken,
+        token: assignerToken,
         data: { userId: target.userId, mode: 'inherit', widgetIds: [] },
       })
       expect(inheritResponse.status()).toBe(200)
@@ -161,6 +170,7 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
           data: { userId: target.userId, mode: 'inherit', widgetIds: [] },
         }).catch(() => undefined)
       }
+      await cleanupActor(request, superadminToken, assigner)
       await cleanupActor(request, superadminToken, target)
       await deleteOrganizationIfExists(request, superadminToken, targetOrgId)
     }

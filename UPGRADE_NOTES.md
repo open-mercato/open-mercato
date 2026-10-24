@@ -439,10 +439,12 @@ saw the override. Overrides are now stored, cleared and read back under the targ
 target's tenant and organization.
 
 Because an assignment now takes effect wherever the target user is, non-superadmin callers also need
-organization visibility for that user. If the caller's organization scope does not include the
-target's organization, `GET` and `PUT` answer `403`; previously both answered `200`, and the saved
-override never reached the user. Superadmins and callers whose organization visibility is
-unrestricted behave as before.
+organization visibility for that user. If the caller's organization visibility does not include the
+target's organization, `GET` and `PUT` answer `403` where they used to answer `200`. This includes
+the caller's own organization when their visibility leaves it out, and a visibility list that is
+empty. Superadmins and callers whose organization visibility is unrestricted are not newly refused.
+A superadmin user's own dashboard reads the organization they have selected, so an override saved
+for a superadmin user applies while their home organization is selected.
 
 **Action for operators:** none is required. Rows saved under the wrong scope before this change are
 not migrated; they are ignored and can be deleted from `dashboard_user_widgets`. To apply such an

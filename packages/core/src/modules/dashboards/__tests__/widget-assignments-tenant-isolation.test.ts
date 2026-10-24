@@ -218,6 +218,16 @@ describe('resolveWidgetAssignmentTargetAccess — organization visibility', () =
     expect(access).toBe('allowed')
   })
 
+  test('non-superadmin with an empty organization visibility list is forbidden', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant, organizationId: visibleOrg },
+      allowedOrganizationIds: [],
+    })
+    expect(access).toBe('forbidden')
+  })
+
   test('unrestricted visibility keeps the tenant-only check', () => {
     const access = resolveWidgetAssignmentTargetAccess({
       isSuperAdmin: false,
