@@ -185,15 +185,18 @@ test.describe('TC-RESO-011: resource undo/redo after a snapshot tag was deleted'
       token = await getAuthToken(request, 'admin')
       const stamp = `${Date.now()}-live`
       const doomedTag = await createTag(request, token, `QA RESO-011 doomed ${stamp}`)
+      tagIds.push(doomedTag)
       const createRes = await apiRequest(request, 'POST', RESOURCES, { token, data: { name: `QA RESO-011 resource ${stamp}` } })
       expect(createRes.status(), 'resource create').toBe(201)
       const resourceId = ((await readJsonSafe(createRes)) as { id: string }).id
       resourceIds.push(resourceId)
       await deleteTag(request, token, doomedTag)
+      tagIds.splice(tagIds.indexOf(doomedTag), 1)
 
       const updateRes = await apiRequest(request, 'PUT', RESOURCES, { token, data: { id: resourceId, tags: [doomedTag] } })
       expect(updateRes.status(), 'live update with a deleted tag').toBe(400)
       const restored = await readResource(request, token, resourceId)
+      expect(restored, 'resource readable after the rejected update').not.toBeNull()
       expect(tagIdsOf(restored!), 'rejected update assigned nothing').toEqual([])
     } finally {
       await cleanup(request, token, resourceIds, tagIds)

@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ResourcesResourceTag, ResourcesResourceTagAssignment } from '../../data/entities'
 
@@ -71,7 +72,7 @@ function buildEnvelope(em: FakeEm) {
     organizationIds: [TEST_ORG_ID],
     request: {} as Request,
     organizationScope: null,
-  }
+  } as unknown as CommandRuntimeContext
   return { ctx }
 }
 
@@ -108,6 +109,10 @@ function buildLiveRecord() {
   }
 }
 
+function asLogEntry(payload: Record<string, unknown>): CommandUndoLogEntry {
+  return { payload } as unknown as CommandUndoLogEntry
+}
+
 function assignedTagIds(em: FakeEm): string[] {
   return em.create.mock.calls
     .filter(([entity]) => entity === ResourcesResourceTagAssignment)
@@ -137,9 +142,9 @@ describe('resources commands — replaying a snapshot whose tag was deleted', ()
     const { ctx } = buildEnvelope(em)
     const handler = commandRegistry.get('resources.resources.update')
     const before = buildSnapshot([DELETED_TAG_ID, SURVIVING_TAG_ID])
-    const logEntry = { payload: { undo: { before, after: { ...before, name: 'Resource after', tags: [] } } } }
+    const logEntry = asLogEntry({ undo: { before, after: { ...before, name: 'Resource after', tags: [] } } })
 
-    await expect(handler!.undo!({ logEntry, ctx } as any)).resolves.toBeUndefined()
+    await expect(handler!.undo!({ logEntry, ctx })).resolves.toBeUndefined()
 
     expect(record.name).toBe('Resource before')
     expect(em.commit).toHaveBeenCalledTimes(1)
@@ -154,9 +159,9 @@ describe('resources commands — replaying a snapshot whose tag was deleted', ()
     const em = buildFakeEm(record, [])
     const { ctx } = buildEnvelope(em)
     const handler = commandRegistry.get('resources.resources.delete')
-    const logEntry = { payload: { undo: { before: buildSnapshot([DELETED_TAG_ID]) } } }
+    const logEntry = asLogEntry({ undo: { before: buildSnapshot([DELETED_TAG_ID]) } })
 
-    await expect(handler!.undo!({ logEntry, ctx } as any)).resolves.toBeUndefined()
+    await expect(handler!.undo!({ logEntry, ctx })).resolves.toBeUndefined()
 
     expect(record.deletedAt).toBeNull()
     expect(record.name).toBe('Resource before')
@@ -173,9 +178,9 @@ describe('resources commands — replaying a snapshot whose tag was deleted', ()
     const { ctx } = buildEnvelope(em)
     const handler = commandRegistry.get('resources.resources.create')
     const after = buildSnapshot([SURVIVING_TAG_ID, DELETED_TAG_ID])
-    const logEntry = { payload: { undo: { after } } }
+    const logEntry = asLogEntry({ undo: { after } })
 
-    await expect(handler!.redo!({ logEntry, ctx } as any)).resolves.toEqual({ resourceId: TEST_RESOURCE_ID })
+    await expect(handler!.redo!({ logEntry, ctx })).resolves.toEqual({ resourceId: TEST_RESOURCE_ID })
 
     expect(record.deletedAt).toBeNull()
     expect(em.commit).toHaveBeenCalledTimes(1)
@@ -194,7 +199,7 @@ describe('resources commands — replaying a snapshot whose tag was deleted', ()
     await expect(
       handler!.execute(
         { id: TEST_RESOURCE_ID, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID, tags: [SURVIVING_TAG_ID, DELETED_TAG_ID] },
-        ctx as any,
+        ctx,
       ),
     ).rejects.toMatchObject({ status: 400, body: { error: 'One or more tags not found for this scope' } })
 
