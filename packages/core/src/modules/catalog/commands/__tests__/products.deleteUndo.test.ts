@@ -512,6 +512,7 @@ describe('catalog.products.delete undo', () => {
     ])
     expect(log.context.cacheAliases).toEqual([
       'catalog.product',
+      'catalog.offer',
       'catalog.variant',
       'catalog.price',
       'catalog.product.unit.conversion',
