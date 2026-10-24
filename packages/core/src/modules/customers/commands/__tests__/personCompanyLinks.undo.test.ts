@@ -127,7 +127,14 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
   mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
     const [, ctor, rawWhere] = args as [unknown, unknown, Record<string, unknown>]
     if (ctor === CustomerPersonCompanyLink) {
-      const found = links.find((link) => link.id === rawWhere.id) ?? null
+      const found = links.find((link) => {
+        if (rawWhere.id) return link.id === rawWhere.id
+        const companyId = typeof link.company === 'string' ? link.company : link.company.id
+        const company = rawWhere.company as CustomerEntity | string | undefined
+        if (company && companyId !== (typeof company === 'string' ? company : company.id)) return false
+        if (rawWhere.deletedAt && linkRows.get(link.id)?.deletedAt == null) return false
+        return true
+      }) ?? null
       if (found) rebaseline(found)
       return found
     }
@@ -157,6 +164,16 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
 
   const em: any = {
     fork: jest.fn(),
+    create: jest.fn((ctor: unknown, values: Record<string, unknown>) => {
+      if (ctor !== CustomerPersonCompanyLink) throw new Error('Unexpected fixture entity')
+      const id = typeof values.id === 'string' ? values.id : LINK_B_ID
+      const state = { isPrimary: Boolean(values.isPrimary), deletedAt: null }
+      const link = makeLink(id, person, values.company as CustomerEntity, state)
+      links.push(link)
+      linkRows.set(id, { ...state })
+      snapshotLink(link)
+      return link
+    }),
     persist: jest.fn(),
     isInTransaction: jest.fn(() => false),
     begin: jest.fn(async () => undefined),
@@ -168,6 +185,13 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
       for (const link of links) {
         const row = linkRows.get(link.id)!
         if (where.person && where.person !== link.person) continue
+        if (where.deletedAt === null && row.deletedAt !== null) continue
+        if (typeof where.id === 'string' && link.id !== where.id) continue
+        if (where.id && typeof where.id === 'object') {
+          const idFilter = where.id as { $ne?: string; $in?: string[] }
+          if (idFilter.$ne === link.id) continue
+          if (idFilter.$in && !idFilter.$in.includes(link.id)) continue
+        }
         if ('isPrimary' in where && row.isPrimary !== where.isPrimary) continue
         if ('isPrimary' in data) {
           row.isPrimary = Boolean(data.isPrimary)
@@ -230,6 +254,163 @@ function makeLinkSnapshot(linkId: string, companyId: string, isPrimary: boolean)
     deletedAt: null,
   }
 }
+
+describe('customers.personCompanyLinks.create — repeated request undo (#7857)', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  const inputFor = (companyEntityId: string, isPrimary = false) => ({
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    personEntityId: PERSON_ID,
+    companyEntityId,
+    isPrimary,
+  })
+
+  async function createAndLog(fixtures: Fixtures, companyId: string, isPrimary = false) {
+    const handler = commandRegistry.get('customers.personCompanyLinks.create') as CommandHandler
+    const input = inputFor(companyId, isPrimary)
+    const ctx = makeCtx(fixtures.em)
+    const before = await handler.prepare!(input, ctx)
+    const result = await handler.execute(input, ctx)
+    const after = await handler.captureAfter!(input, result, ctx)
+    const log = await handler.buildLog!({ input, ctx, result, snapshots: { ...before, after } })
+    return { handler, input, ctx, log }
+  }
+
+  it.each([true, false])('does not make an unchanged existing link undoable (primary=%s)', async (isPrimary) => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { log } = await createAndLog(fixtures, isPrimary ? COMPANY_A_ID : COMPANY_B_ID)
+
+    expect(log?.skipLog).toBe(true)
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('undoes a primary promotion without deleting the existing relationship', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { handler, input, ctx, log } = await createAndLog(fixtures, COMPANY_B_ID, true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+
+    await handler.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      fixtures.em,
+      CustomerPersonCompanyLink,
+      { id: LINK_B_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      undefined,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+  })
+
+  it('keeps a real creation undoable after an unchanged duplicate request', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const original = await createAndLog(fixtures, COMPANY_B_ID)
+    const duplicate = await createAndLog(fixtures, COMPANY_B_ID)
+    expect(duplicate.log?.skipLog).toBe(true)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeNull()
+
+    await original.handler.undo!({
+      input: original.input,
+      ctx: original.ctx,
+      logEntry: { commandPayload: original.log?.payload },
+    })
+
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeInstanceOf(Date)
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('restores the prior linked primary when undoing a genuinely new primary link', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { handler, input, ctx, log } = await createAndLog(fixtures, COMPANY_B_ID, true)
+    expect(fixtures.linkRows.get(LINK_A_ID)?.isPrimary).toBe(false)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+
+    await handler.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeInstanceOf(Date)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(false)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('restores a null profile assignment and no primary after undoing promotion', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: false, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+    ], null)
+    const { handler, input, ctx, log } = await createAndLog(fixtures, COMPANY_B_ID, true)
+
+    await handler.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBeNull()
+  })
+
+  it('undoes a newly created primary and restores a profile-only assignment', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const { handler, input, ctx, log } = await createAndLog(fixtures, COMPANY_B_ID)
+
+    await handler.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })
+
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeInstanceOf(Date)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(false)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('restores the original deletion timestamp when undoing an undelete', async () => {
+    const deletedAt = new Date('2026-09-01T12:34:56Z')
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt },
+    ], COMPANY_A_ID)
+    const { handler, input, ctx, log } = await createAndLog(fixtures, COMPANY_B_ID, true)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.deletedAt).toBeNull()
+
+    await handler.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('preserves the existing relationship through promotion undo, redo, and undo again', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { handler, input, ctx, log } = await createAndLog(fixtures, COMPANY_B_ID, true)
+    const sourceLog = { commandPayload: log?.payload, snapshotAfter: log?.snapshotAfter }
+    await handler.undo!({ input, ctx, logEntry: sourceLog })
+
+    const before = await handler.prepare!(input, ctx)
+    const result = await handler.redo!({ input, ctx, logEntry: sourceLog })
+    const after = await handler.captureAfter!(input, result, ctx)
+    const replayLog = await handler.buildLog!({ input, ctx, result, snapshots: { ...before, after } })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+
+    await handler.undo!({ input, ctx, logEntry: { commandPayload: replayLog?.payload } })
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+})
 
 describe('customers.personCompanyLinks undo — encryption re-baseline regression (#2507)', () => {
   afterEach(() => jest.clearAllMocks())
