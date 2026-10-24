@@ -413,6 +413,24 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### Retrying a data sync run refuses a disabled integration (#7766)
+
+`POST /api/data_sync/runs/:id/retry` now answers `409 { error: "Integration is disabled", code: "integrationDisabled" }`
+for a failed or cancelled run whose integration is disabled for the caller's organization. Before this
+release the retry answered `201` and queued a new run. `POST /api/data_sync/run` already refuses a
+disabled integration with the same `409` and `error` text, and the scheduled sync worker skips it; the
+retry additionally carries `code` so the UI can explain the refusal in the operator's language. It also
+applies to provider-owned integrations that an operator explicitly disabled (for example a disabled
+`sync_excel`) and to integration ids that are no longer registered and have no enabled state row.
+
+**Action:** enable the integration before retrying the run.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget; migration details in
+[`.ai/specs/2026-10-22-data-sync-retry-disabled-integration.md`](.ai/specs/2026-10-22-data-sync-retry-disabled-integration.md)): a narrowing of a route status that matches the sibling run endpoint; the `409` body
+carries a new `code` field, and its `error` text is localized like other translated route errors. The route URL, request schema, event IDs, ACL features, DI names and database
+schema are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
