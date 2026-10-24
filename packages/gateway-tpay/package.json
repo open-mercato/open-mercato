@@ -63,7 +63,7 @@
   },
   "dependencies": {
     "@open-mercato/core": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",

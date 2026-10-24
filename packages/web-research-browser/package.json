@@ -40,7 +40,7 @@
   "dependencies": {
     "@open-mercato/web-research-serp": "workspace:*",
     "playwright": "^1.40.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@open-mercato/web-research": "workspace:*",
