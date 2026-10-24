@@ -4,7 +4,7 @@ import { request as httpsRequest } from 'node:https'
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
-import { resolveAttachmentMultipartMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { resolveDefaultAttachmentMaxUploadBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -24,8 +24,9 @@ const OVERSIZED_FILE_BYTES = 40 * 1024 * 1024
 // The server answers 413 and stops reading once the streamed body passes the
 // limit, while the client is still writing, so depending on timing the socket
 // is reset before the response is read. A reset only counts as that rejection
-// when the client had already sent more than the limit: an earlier reset (an
-// auth or validation failure) or a full read would not.
+// when the client had already sent more than the file limit: an earlier reset
+// (an auth or validation failure) or a full read would not. A reset cannot show
+// the 413 itself, so the response branch keeps checking it.
 type UploadResult =
   | { kind: 'response'; status: number; body: string }
   | { kind: 'closed'; bytesSent: number }
@@ -123,7 +124,7 @@ test.describe('TC-WC-037: portal attachment upload stream limit', () => {
       for (const method of ['POST', 'PUT'] as const) {
         const result = await sendChunkedUpload(method, session.cookieHeader, randomUUID())
         if (result.kind === 'closed') {
-          expect(result.bytesSent, `${method} upload was reset before it passed the upload limit`).toBeGreaterThan(resolveAttachmentMultipartMaxBytes())
+          expect(result.bytesSent, `${method} upload was reset before it passed the upload limit`).toBeGreaterThan(resolveDefaultAttachmentMaxUploadBytes())
           expect(result.bytesSent, `${method} upload was reset only after the whole body was sent`).toBeLessThan(OVERSIZED_FILE_BYTES)
           continue
         }
