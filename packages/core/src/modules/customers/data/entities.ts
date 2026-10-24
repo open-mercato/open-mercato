@@ -783,6 +783,18 @@ export class CustomerAddress {
   @Property({ name: 'name', type: 'text', nullable: true })
   name?: string | null
 
+  /**
+   * Contact details that belong to the address book entry, additive per
+   * `.ai/specs/2026-08-10-address-contact-and-tax-fields.md` Phase 3: who to
+   * call about a delivery to this address. No tax-id column here — the
+   * customer entity stays master of that identifier.
+   */
+  @Property({ name: 'recipient_name', type: 'text', nullable: true })
+  recipientName?: string | null
+
+  @Property({ name: 'phone', type: 'text', nullable: true })
+  phone?: string | null
+
   @Property({ name: 'purpose', type: 'text', nullable: true })
   purpose?: string | null
 

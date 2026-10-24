@@ -266,6 +266,11 @@ export const commentUpdateSchema = z
 export const addressCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   name: z.string().max(150).optional(),
+  // Phase 3 of .ai/specs/2026-08-10-address-contact-and-tax-fields.md: who to call about a
+  // delivery to this address. No taxId/taxIdType here — the customer entity stays master of
+  // the tax identifier; only the sales document snapshot (schemaless) carries those.
+  recipientName: z.string().max(200).optional(),
+  phone: z.string().max(50).optional(),
   purpose: z.string().max(150).optional(),
   companyName: z.string().max(200).optional(),
   addressLine1: z.string().min(1).max(300),

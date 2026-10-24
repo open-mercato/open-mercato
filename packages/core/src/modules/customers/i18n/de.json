@@ -2014,6 +2014,7 @@
   "customers.people.detail.addresses.fields.phone": "Telefon",
   "customers.people.detail.addresses.fields.postalCode": "Postleitzahl",
   "customers.people.detail.addresses.fields.primary": "Als primär markieren",
+  "customers.people.detail.addresses.fields.recipientName": "Empfängername",
   "customers.people.detail.addresses.fields.region": "Bundesland / Region",
   "customers.people.detail.addresses.fields.street": "Straße",
   "customers.people.detail.addresses.fields.streetExtra": "Weitere Adressangaben",

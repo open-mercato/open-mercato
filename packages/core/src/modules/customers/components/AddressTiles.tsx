@@ -31,6 +31,8 @@ export type Translator = (
 
 export type CustomerAddressInput = {
   name?: string
+  recipientName?: string
+  phone?: string
   purpose?: string
   companyName?: string
   addressLine1: string
@@ -72,6 +74,8 @@ type CustomerAddressTilesProps = {
 
 type DraftAddressState = {
   name: string
+  recipientName: string
+  phone: string
   purpose: string
   companyName: string
   addressLine1: string
@@ -100,6 +104,8 @@ type AddressValidationDetail = {
 
 const defaultDraft: DraftAddressState = {
   name: '',
+  recipientName: '',
+  phone: '',
   purpose: '',
   companyName: '',
   addressLine1: '',
@@ -117,6 +123,8 @@ const defaultDraft: DraftAddressState = {
 
 const serverFieldMap: Record<string, DraftFieldKey> = {
   name: 'name',
+  recipientName: 'recipientName',
+  phone: 'phone',
   purpose: 'purpose',
   companyName: 'companyName',
   addressLine1: 'addressLine1',
@@ -203,6 +211,8 @@ export function CustomerAddressTiles({
   const fieldLabels = React.useMemo(
     () => ({
       name: t('customers.people.detail.addresses.fields.label'),
+      recipientName: t('customers.people.detail.addresses.fields.recipientName', 'Recipient name'),
+      phone: t('customers.people.detail.addresses.fields.phone', 'Phone'),
       purpose: t('customers.people.detail.addresses.fields.type'),
       companyName: t('customers.people.detail.addresses.fields.companyName', 'Company name'),
       addressLine1: t('customers.people.detail.addresses.fields.line1'),
@@ -286,6 +296,8 @@ export function CustomerAddressTiles({
     (address: CustomerAddressValue) => {
       setDraft({
         name: address.name ?? '',
+        recipientName: address.recipientName ?? '',
+        phone: address.phone ?? '',
         purpose: address.purpose ?? '',
         companyName: address.companyName ?? '',
         addressLine1: address.addressLine1,
@@ -358,6 +370,10 @@ export function CustomerAddressTiles({
     if (purpose !== undefined) payload.purpose = purpose
     const name = normalizeOptional(draft.name)
     if (name !== undefined) payload.name = name
+    const recipientName = normalizeOptional(draft.recipientName)
+    if (recipientName !== undefined) payload.recipientName = recipientName
+    const phone = normalizeOptional(draft.phone)
+    if (phone !== undefined) payload.phone = phone
     const companyName = normalizeOptional(draft.companyName)
     if (companyName !== undefined) payload.companyName = companyName
     const line2 = normalizeOptional(draft.addressLine2)
@@ -516,6 +532,8 @@ export function CustomerAddressTiles({
             errors={fieldErrors}
             showFormatHint={!formatLoading}
             showCoordinateFields={showCoordinateFields}
+            showPhoneField
+            showRecipientNameField
           />
           {generalError ? <p className="text-xs text-status-error-text">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
