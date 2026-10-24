@@ -23,6 +23,8 @@ const dict = {
   'ai_assistant.chat.mutation_cards.result.partialBody': 'Some records could not be updated.',
   'ai_assistant.chat.mutation_cards.result.failureTitle': 'Action failed',
   'ai_assistant.chat.mutation_cards.result.failureBody': 'The mutation could not be applied.',
+  'ai_assistant.chat.mutation_cards.result.cancelledTitle': 'Proposal cancelled',
+  'ai_assistant.chat.mutation_cards.result.cancelledBody': 'You cancelled this proposed change. No changes were made.',
 }
 
 function baseAction(
@@ -143,5 +145,51 @@ describe('MutationResultCard', () => {
     ).not.toBeNull()
     const code = document.querySelector('[data-ai-mutation-result-code]')
     expect(code?.textContent).toBe('tool_execution_failed')
+  })
+
+  it('renders a neutral cancelled variant without an error code or Fix with AI button', () => {
+    installPollingMock(
+      baseAction({
+        status: 'cancelled',
+        executionResult: {
+          error: { code: 'cancelled_by_user', message: '' },
+        },
+      }),
+    )
+    renderWithProviders(
+      <MutationResultCard componentId="mutation-result-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    expect(
+      document.querySelector('[data-ai-mutation-result="cancelled"]'),
+    ).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-result="failure"]')).toBeNull()
+    expect(screen.getByText('Proposal cancelled')).toBeInTheDocument()
+    expect(
+      screen.getByText('You cancelled this proposed change. No changes were made.'),
+    ).toBeInTheDocument()
+    expect(document.querySelector('[data-ai-mutation-result-code]')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-result-fix]')).toBeNull()
+    expect(screen.queryByText('cancelled_by_user')).toBeNull()
+  })
+
+  it('shows the operator-supplied cancellation reason on the cancelled variant', () => {
+    installPollingMock(
+      baseAction({
+        status: 'cancelled',
+        executionResult: {
+          error: { code: 'cancelled_by_user', message: 'Customer changed their mind' },
+        },
+      }),
+    )
+    renderWithProviders(
+      <MutationResultCard componentId="mutation-result-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    expect(screen.getByText('Customer changed their mind')).toBeInTheDocument()
+    expect(
+      screen.queryByText('You cancelled this proposed change. No changes were made.'),
+    ).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-result-fix]')).toBeNull()
   })
 })
