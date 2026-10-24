@@ -242,9 +242,13 @@ export type CreateFeatureNotificationServiceInput = CreateFeatureNotificationInp
   restrictRecipientsToOrganization?: boolean
 }
 
+export type CreateBatchNotificationOptions = {
+  skipExistingGroup?: boolean
+}
+
 export interface NotificationService {
   create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
-  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext, options?: CreateBatchNotificationOptions): Promise<Notification[]>
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
   createForFeature(input: CreateFeatureNotificationServiceInput, ctx: NotificationServiceContext): Promise<Notification[]>
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
@@ -377,8 +381,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       return notification
     },
 
-    async createBatch(input, ctx) {
+    async createBatch(input, ctx, options) {
+      if (options?.skipExistingGroup && !input.groupKey?.trim()) {
+        throw new Error('[internal] Notification group key is required for deduplicated batch delivery')
+      }
       const recipientUserIds = Array.from(new Set(input.recipientUserIds))
+      if (options?.skipExistingGroup) recipientUserIds.sort((left, right) => left.localeCompare(right))
       const { recipientUserIds: _recipientUserIds, ...content } = input
       const notifications: Notification[] = []
       const resolved = await resolveChannelsForRecipients(content, recipientUserIds, ctx)
@@ -387,12 +395,26 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       await writeEm.transactional(async (tx) => {
         await assertNotificationRecipientsInScope(tx, recipientUserIds, ctx)
         for (const { recipientUserId, channels } of resolved) {
+          if (options?.skipExistingGroup) {
+            const organizationId = normalizeOrgScope(ctx.organizationId)
+            const lockKey = `notifications:${ctx.tenantId}:${organizationId ?? 'global'}:${recipientUserId}:${content.type}:${content.groupKey}`
+            await sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`.execute(getDb(tx))
+            const existing = await tx.findOne(Notification, {
+              recipientUserId,
+              tenantId: ctx.tenantId,
+              organizationId,
+              type: content.type,
+              groupKey: content.groupKey,
+            })
+            if (existing) continue
+          }
           const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
       })
 
+      if (options?.skipExistingGroup && notifications.length === 0) return []
       await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
       await emitNotificationSseEvents(eventBus, notifications, ctx)

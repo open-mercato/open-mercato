@@ -4,6 +4,7 @@ import {
   PostgresQueryCompiler,
   PostgresIntrospector,
   DummyDriver,
+  type CompiledQuery,
 } from 'kysely'
 import { createNotificationService } from '../lib/notificationService'
 import { register as registerNotificationDi } from '../di'
@@ -92,6 +93,59 @@ const buildEm = () => {
     }),
   })
   return em
+}
+
+const buildDeduplicatedBatchHarness = () => {
+  const em = buildEm()
+  const transaction = buildEm()
+  const db = createCompileKysely()
+  const steps: string[] = []
+  const queries: CompiledQuery[] = []
+  let transactionActive = false
+  const executeQuery = jest.fn(async (query: CompiledQuery) => {
+    expect(transactionActive).toBe(true)
+    queries.push(query)
+    steps.push('lock')
+    return { rows: [] }
+  })
+  const executor = db.getExecutor() as unknown as {
+    executeQuery: (query: CompiledQuery) => Promise<{ rows: unknown[] }>
+  }
+  executor.executeQuery = executeQuery
+  transaction.getKysely.mockReturnValue(db)
+  transaction.findOne.mockImplementation(async () => {
+    expect(transactionActive).toBe(true)
+    steps.push('lookup')
+    return null
+  })
+  transaction.create.mockImplementation((_entity, data: Notification) => {
+    expect(transactionActive).toBe(true)
+    steps.push('create')
+    return {
+      id: `note-${data.recipientUserId}`,
+      createdAt: new Date('2026-10-18T10:00:00.000Z'),
+      ...data,
+    }
+  })
+  transaction.flush.mockImplementation(async () => {
+    expect(transactionActive).toBe(true)
+    steps.push('flush')
+  })
+  em.transactional.mockImplementation(async (callback: (tx: typeof transaction) => Promise<unknown>) => {
+    transactionActive = true
+    steps.push('begin')
+    try {
+      const result = await callback(transaction)
+      steps.push('commit')
+      return result
+    } finally {
+      transactionActive = false
+    }
+  })
+  const eventBus = { emit: jest.fn(async () => { steps.push('emit') }) }
+  const container = { resolve: jest.fn() }
+  const service = createNotificationService({ em, eventBus, container })
+  return { em, transaction, queries, steps, executeQuery, eventBus, service }
 }
 
 describe('notification service', () => {
@@ -300,6 +354,290 @@ describe('notification service', () => {
     expect(em.create).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
     expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('locks a deduplicated group before looking it up and creating it in the same transaction', async () => {
+    const { em, transaction, queries, steps, eventBus, service } = buildDeduplicatedBatchHarness()
+    const ctx = { ...baseCtx, organizationId: '05676ba5-0730-420a-b035-1855bd4484bc' }
+    const groupKey = 'system:daily:2026-10-18'
+
+    const result = await service.createBatch({
+      type: 'system',
+      title: 'Hello',
+      recipientUserIds: [baseCtx.userId],
+      groupKey,
+    }, ctx, { skipExistingGroup: true })
+
+    expect(result.map((notification) => notification.id)).toEqual([`note-${baseCtx.userId}`])
+    expect(queries[0].sql).toBe('select pg_advisory_xact_lock(hashtext($1))')
+    expect(queries[0].parameters).toEqual([
+      `notifications:${ctx.tenantId}:${ctx.organizationId}:${ctx.userId}:system:${groupKey}`,
+    ])
+    expect(steps.slice(0, 3)).toEqual(['begin', 'lock', 'lookup'])
+    expect(steps.indexOf('lookup')).toBeLessThan(steps.indexOf('create'))
+    expect(steps.indexOf('create')).toBeLessThan(steps.indexOf('flush'))
+    expect(steps.indexOf('flush')).toBeLessThan(steps.indexOf('commit'))
+    expect(steps.indexOf('commit')).toBeLessThan(steps.indexOf('emit'))
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(transaction.findOne).toHaveBeenNthCalledWith(1, expect.anything(), {
+      recipientUserId: baseCtx.userId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      type: 'system',
+      groupKey,
+    })
+    expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_EVENTS.CREATED, expect.objectContaining({
+      notificationId: result[0].id,
+    }))
+  })
+
+  it.each(['unread', 'read', 'actioned', 'dismissed'] as const)(
+    'preserves an existing %s grouped notification without returning it or emitting events',
+    async (status) => {
+      const { transaction, queries, eventBus, service } = buildDeduplicatedBatchHarness()
+      const existing = Object.freeze({
+        id: 'note-existing',
+        title: 'Original warning',
+        body: 'Original body',
+        status,
+        createdAt: new Date('2026-10-17T10:00:00.000Z'),
+        readAt: new Date('2026-10-17T11:00:00.000Z'),
+        dismissedAt: status === 'dismissed' ? new Date('2026-10-17T12:00:00.000Z') : null,
+      })
+      transaction.findOne.mockResolvedValue(existing)
+
+      const result = await service.createBatch({
+        type: 'system',
+        title: 'Replacement warning',
+        body: 'Replacement body',
+        recipientUserIds: [baseCtx.userId],
+        groupKey: 'system:daily:2026-10-18',
+      }, baseCtx, { skipExistingGroup: true })
+
+      expect(result).toEqual([])
+      expect(existing).toEqual({
+        id: 'note-existing',
+        title: 'Original warning',
+        body: 'Original body',
+        status,
+        createdAt: new Date('2026-10-17T10:00:00.000Z'),
+        readAt: new Date('2026-10-17T11:00:00.000Z'),
+        dismissedAt: status === 'dismissed' ? new Date('2026-10-17T12:00:00.000Z') : null,
+      })
+      expect(transaction.findOne).toHaveBeenCalledWith(expect.anything(), {
+        recipientUserId: baseCtx.userId,
+        tenantId: baseCtx.tenantId,
+        organizationId: null,
+        type: 'system',
+        groupKey: 'system:daily:2026-10-18',
+      })
+      expect(queries).toHaveLength(1)
+      expect(transaction.create).not.toHaveBeenCalled()
+      expect(invalidateCrudCache).not.toHaveBeenCalled()
+      expect(eventBus.emit).not.toHaveBeenCalled()
+    },
+  )
+
+  it('locks deduplicated recipients in stable order and emits events only for new rows', async () => {
+    const { transaction, queries, eventBus, service } = buildDeduplicatedBatchHarness()
+    const firstUserId = '10000000-0000-4000-8000-000000000001'
+    const secondUserId = '20000000-0000-4000-8000-000000000002'
+    const thirdUserId = '30000000-0000-4000-8000-000000000003'
+    transaction.findOne.mockImplementation(async (_entity, where: { recipientUserId: string }) => {
+      if (where.recipientUserId === firstUserId) return { id: 'note-read', status: 'read' }
+      if (where.recipientUserId === secondUserId) return { id: 'note-dismissed', status: 'dismissed' }
+      return null
+    })
+
+    const result = await service.createBatch({
+      type: 'system',
+      title: 'Hello',
+      recipientUserIds: [thirdUserId, firstUserId, secondUserId, firstUserId],
+      groupKey: 'system:daily:2026-10-18',
+    }, baseCtx, { skipExistingGroup: true })
+
+    expect(queries.map((query) => query.parameters[0])).toEqual([
+      `notifications:${baseCtx.tenantId}:global:${firstUserId}:system:system:daily:2026-10-18`,
+      `notifications:${baseCtx.tenantId}:global:${secondUserId}:system:system:daily:2026-10-18`,
+      `notifications:${baseCtx.tenantId}:global:${thirdUserId}:system:system:daily:2026-10-18`,
+      `notifications:${baseCtx.tenantId}:global:${thirdUserId}:system:system:daily:2026-10-18`,
+    ])
+    expect(result.map((notification) => notification.recipientUserId)).toEqual([thirdUserId])
+    expect(transaction.create).toHaveBeenCalledTimes(1)
+    expect(eventBus.emit).toHaveBeenCalledTimes(3)
+    expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, expect.objectContaining({
+      recipientUserIds: [thirdUserId],
+      count: 1,
+    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_SSE_EVENTS.CREATED, expect.objectContaining({
+      recipientUserId: thirdUserId,
+    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(NOTIFICATION_EVENTS.CREATED, expect.objectContaining({
+      recipientUserId: thirdUserId,
+    }))
+  })
+
+  it.each([undefined, '', ' \t\n '])('rejects invalid deduplicated group key %p before side effects', async (groupKey) => {
+    const { em, transaction, queries, eventBus, service } = buildDeduplicatedBatchHarness()
+
+    await expect(service.createBatch({
+      type: 'system',
+      title: 'Hello',
+      recipientUserIds: [baseCtx.userId],
+      groupKey,
+    }, baseCtx, { skipExistingGroup: true })).rejects.toThrow('Notification group key is required')
+
+    expect(em.fork).not.toHaveBeenCalled()
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(transaction.findOne).not.toHaveBeenCalled()
+    expect(transaction.create).not.toHaveBeenCalled()
+    expect(queries).toEqual([])
+    expect(invalidateCrudCache).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('propagates a deduplicated group lock failure and allows the delivery to be retried', async () => {
+    const { transaction, executeQuery, eventBus, service } = buildDeduplicatedBatchHarness()
+    const lockError = new Error('advisory lock unavailable')
+    executeQuery.mockRejectedValueOnce(lockError)
+    const input = {
+      type: 'system',
+      title: 'Hello',
+      recipientUserIds: [baseCtx.userId],
+      groupKey: 'system:daily:2026-10-18',
+    }
+
+    await expect(service.createBatch(input, baseCtx, { skipExistingGroup: true })).rejects.toBe(lockError)
+    expect(transaction.findOne).not.toHaveBeenCalled()
+    expect(transaction.create).not.toHaveBeenCalled()
+    expect(transaction.flush).not.toHaveBeenCalled()
+    expect(invalidateCrudCache).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+
+    const retried = await service.createBatch(input, baseCtx, { skipExistingGroup: true })
+    expect(retried).toHaveLength(1)
+    expect(transaction.create).toHaveBeenCalledTimes(1)
+    expect(eventBus.emit).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not suppress a deduplicated group after a rolled-back write fails', async () => {
+    const { em, transaction, eventBus, service } = buildDeduplicatedBatchHarness()
+    const writeError = new Error('notification flush failed')
+    transaction.flush.mockRejectedValueOnce(writeError)
+    const input = {
+      type: 'system',
+      title: 'Hello',
+      recipientUserIds: [baseCtx.userId],
+      groupKey: 'system:daily:2026-10-18',
+    }
+
+    await expect(service.createBatch(input, baseCtx, { skipExistingGroup: true })).rejects.toBe(writeError)
+    expect(invalidateCrudCache).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+
+    const retried = await service.createBatch(input, baseCtx, { skipExistingGroup: true })
+    expect(retried).toHaveLength(1)
+    expect(em.transactional).toHaveBeenCalledTimes(2)
+    expect(transaction.create).toHaveBeenCalledTimes(2)
+    expect(eventBus.emit).toHaveBeenCalledTimes(3)
+  })
+
+  it('serializes concurrent grouped batches and preserves a dismissed notification on retry', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const committed = new Map<string, Notification>()
+    const lockTails = new Map<string, Promise<void>>()
+    const transactions: ReturnType<typeof buildEm>[] = []
+    const lockKeyFor = (group: {
+      tenantId: string
+      organizationId?: string | null
+      recipientUserId: string
+      type: string
+      groupKey?: string | null
+    }) => `notifications:${group.tenantId}:${group.organizationId ?? 'global'}:${group.recipientUserId}:${group.type}:${group.groupKey}`
+
+    em.transactional.mockImplementation(async (callback: (transaction: ReturnType<typeof buildEm>) => Promise<unknown>) => {
+      const transaction = buildEm()
+      const db = createCompileKysely()
+      const heldKeys = new Set<string>()
+      const releases: Array<() => void> = []
+      const pending: Notification[] = []
+      const executor = db.getExecutor() as unknown as {
+        executeQuery: (query: CompiledQuery) => Promise<{ rows: unknown[] }>
+      }
+      executor.executeQuery = async (query) => {
+        expect(query.sql).toBe('select pg_advisory_xact_lock(hashtext($1))')
+        const lockKey = String(query.parameters[0])
+        if (!heldKeys.has(lockKey)) {
+          const previous = lockTails.get(lockKey) ?? Promise.resolve()
+          let releaseLock: () => void = () => undefined
+          const released = new Promise<void>((resolve) => { releaseLock = resolve })
+          lockTails.set(lockKey, previous.then(() => released))
+          await previous
+          heldKeys.add(lockKey)
+          releases.push(releaseLock)
+        }
+        return { rows: [] }
+      }
+      transaction.getKysely.mockReturnValue(db)
+      transaction.findOne.mockImplementation(async (_entity, where: Parameters<typeof lockKeyFor>[0]) => {
+        const lockKey = lockKeyFor(where)
+        expect(heldKeys.has(lockKey)).toBe(true)
+        return committed.get(lockKey) ?? null
+      })
+      transaction.create.mockImplementation((_entity, data: Notification) => {
+        expect(heldKeys.has(lockKeyFor(data))).toBe(true)
+        const notification = {
+          id: 'note-concurrent',
+          status: 'unread',
+          createdAt: new Date('2026-10-18T10:00:00.000Z'),
+          ...data,
+        } as Notification
+        pending.push(notification)
+        return notification
+      })
+      transactions.push(transaction)
+      try {
+        const result = await callback(transaction)
+        for (const notification of pending) committed.set(lockKeyFor(notification), notification)
+        return result
+      } finally {
+        for (const release of releases) release()
+      }
+    })
+    const service = createNotificationService({ em, eventBus })
+    const input = {
+      type: 'system',
+      title: 'Concurrent warning',
+      recipientUserIds: [baseCtx.userId],
+      groupKey: 'system:daily:2026-10-18',
+    }
+
+    const results = await Promise.all([
+      service.createBatch(input, baseCtx, { skipExistingGroup: true }),
+      service.createBatch(input, baseCtx, { skipExistingGroup: true }),
+    ])
+
+    expect(results.map((result) => result.length).sort()).toEqual([0, 1])
+    expect(committed.size).toBe(1)
+    expect(transactions).toHaveLength(2)
+    expect(transactions[0]).not.toBe(transactions[1])
+    expect(transactions.reduce((count, transaction) => count + transaction.create.mock.calls.length, 0)).toBe(1)
+    expect(eventBus.emit).toHaveBeenCalledTimes(3)
+    expect(eventBus.emit.mock.calls.filter(([event]) => event === NOTIFICATION_SSE_EVENTS.CREATED)).toHaveLength(1)
+
+    const notification = Array.from(committed.values())[0]
+    notification.status = 'dismissed'
+    notification.dismissedAt = new Date('2026-10-18T11:00:00.000Z')
+    const dismissed = { ...notification }
+    const retried = await service.createBatch(input, baseCtx, { skipExistingGroup: true })
+
+    expect(retried).toEqual([])
+    expect(committed.size).toBe(1)
+    expect(notification).toEqual(dismissed)
+    expect(transactions[2].create).not.toHaveBeenCalled()
+    expect(eventBus.emit).toHaveBeenCalledTimes(3)
   })
 
   it('returns empty list when no recipients match feature', async () => {

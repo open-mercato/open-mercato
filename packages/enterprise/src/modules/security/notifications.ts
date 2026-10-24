@@ -2,6 +2,18 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
+    type: 'security.mfa.emergency_bypass_detected',
+    module: 'security',
+    category: 'auth',
+    channels: ['in_app'],
+    titleKey: 'security.notifications.mfaEmergencyBypass.title',
+    bodyKey: 'security.notifications.mfaEmergencyBypass.body',
+    icon: 'shield-alert',
+    severity: 'warning',
+    actions: [],
+    expiresAfterHours: 168,
+  },
+  {
     type: 'security.password.changed',
     module: 'security',
     category: 'auth',

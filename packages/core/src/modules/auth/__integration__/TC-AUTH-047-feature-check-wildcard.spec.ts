@@ -12,12 +12,9 @@ import {
 /**
  * TC-AUTH-047 [P1]: feature-check honours wildcard ACL grants (#2464)
  *
- * The effective grant set is matchFeature() applied over filterGrantsByEnabledModules(). That
- * honours MODULE-level wildcards (`auth.*`) and the global `*`, but NOT sub-namespace wildcards
- * (`auth.users.*`): filterGrantsByEnabledModules() resolves the owning module of `auth.users.*`
- * to `auth.users`, which is not an enabled module, so the grant is dropped (verified in
- * packages/shared/src/security/enabledModulesRegistry.ts). This spec exercises the honoured
- * forms — a module wildcard scoped to its own module, and the cross-module global wildcard.
+ * This spec exercises module wildcards scoped to their own module and the cross-module global
+ * wildcard. Nested wildcard ownership is covered by the shared feature-policy regressions and
+ * TC-SEC-015's MFA notification audience.
  * Each fresh user receives exactly one grant (re-granting one user races the rbac cache).
  */
 type FeatureCheckResponse = { ok?: boolean; granted?: string[] };
