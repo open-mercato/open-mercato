@@ -49,6 +49,24 @@ if (!process.env.OM_TEST_APP_ROOT?.trim()) {
 const EVENTS_QUEUE = 'events'
 const OUTBOUND_QUEUE = 'communication-channels-outbound'
 
+async function drainAndReadOutboundTotal(
+  request: APIRequestContext,
+  token: string,
+  channelId: string,
+): Promise<number> {
+  await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+  await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+  const healthResponse = await apiRequest(
+    request,
+    'GET',
+    `/api/communication_channels/channels/${channelId}/health`,
+    { token },
+  )
+  expect(healthResponse.status(), 'channel health must be available after draining delivery jobs').toBe(200)
+  const health = await readJsonSafe<{ totalsLast24h?: number }>(healthResponse)
+  return health?.totalsLast24h ?? 0
+}
+
 function readTokenUserId(token: string): string {
   const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as { sub?: unknown }
   if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
@@ -71,19 +89,8 @@ async function drainUntilOutbound(
   const deadline = Date.now() + 30_000
   let lastTotal = 0
   while (Date.now() < deadline) {
-    await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
-    await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
-    const healthResponse = await apiRequest(
-      request,
-      'GET',
-      `/api/communication_channels/channels/${channelId}/health`,
-      { token },
-    )
-    if (healthResponse.ok()) {
-      const health = await readJsonSafe<{ totalsLast24h?: number }>(healthResponse)
-      lastTotal = health?.totalsLast24h ?? 0
-      if (lastTotal >= expectedTotal) return lastTotal
-    }
+    lastTotal = await drainAndReadOutboundTotal(request, token, channelId)
+    if (lastTotal >= expectedTotal) return lastTotal
     await new Promise((resolve) => setTimeout(resolve, 300))
   }
   return lastTotal
@@ -215,7 +222,7 @@ test.describe('TC-CHANNEL-REPLY-001: answering an inbound channel message', () =
         { token, data: { body: 'Internal: I think they are fishing for a refund.' } },
       )
       expect(replyToForwardResponse.status(), 'replying to a forward must succeed').toBe(201)
-      const totalAfterReplyToForward = await drainUntilOutbound(request, token, channelId, total + 1)
+      const totalAfterReplyToForward = await drainAndReadOutboundTotal(request, token, channelId)
       expect(
         totalAfterReplyToForward,
         'a reply under a forward must not be delivered to the external correspondent',
