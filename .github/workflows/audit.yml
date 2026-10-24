@@ -26,7 +26,7 @@ name: Scheduled Dependency Audit
 #
 # Deliberately kept out of ci.yml: that workflow uses
 # `concurrency: ci-${{ github.ref }}` with `cancel-in-progress: true`, so a
-# scheduled run on refs/heads/develop would share the group with push runs and
+# scheduled run on refs/heads/main would share the group with push runs and
 # cancel real CI (or be cancelled by it).
 
 permissions:
@@ -57,12 +57,11 @@ jobs:
       contents: read
       issues: write
     strategy:
-      # Both protected branches are reported independently — main going red
-      # must not hide the state of develop.
+      # Kept as a matrix so another long-lived branch can be reported
+      # independently of main without restructuring the job.
       fail-fast: false
       matrix:
         branch:
-          - develop
           - main
     steps:
       - name: Checkout ${{ matrix.branch }}
@@ -85,7 +84,7 @@ jobs:
         #
         # This workflow is triggered by `schedule`/`workflow_dispatch`, so it always
         # runs in the *default branch's* privileged context and writes to the default
-        # branch's cache scope — but the matrix above checks out `develop` and `main`.
+        # branch's cache scope — but the matrix above checks out its own refs.
         # A save step would therefore let content from a non-default ref land under a
         # `yarn-<os>-<lockfile hash>` key that any other workflow, on any branch,
         # happily restores.
@@ -151,7 +150,7 @@ jobs:
               report = `${report.slice(0, maxReportLength)}\n… truncated, see the workflow run for the full report …`
             }
 
-            const workflowUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/develop/.github/workflows/audit.yml`
+            const workflowUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/main/.github/workflows/audit.yml`
             const reportBlock = ['<!-- report:start -->', '```text', report, '```', '<!-- report:end -->'].join('\n')
             const body = [
               marker,

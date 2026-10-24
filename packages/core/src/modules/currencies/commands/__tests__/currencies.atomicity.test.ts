@@ -15,6 +15,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 const ORG = '22222222-2222-4222-8222-222222222222'
 const TENANT = '33333333-3333-4333-8333-333333333333'
 
+const organization = { id: ORG, tenant: { id: TENANT } }
+
 function loadCommand(id: string): { execute: (input: Record<string, unknown>, ctx: unknown) => Promise<unknown> } {
   let command: unknown
   jest.isolateModules(() => {
@@ -30,8 +32,9 @@ type FlushBehavior = 'ok' | 'reject'
 function buildEm(opts: { existingRecord?: Record<string, unknown> | null; flush?: FlushBehavior } = {}) {
   const calls: string[] = []
   const em: Record<string, unknown> = {
-    findOne: jest.fn().mockImplementation(async () => {
+    findOne: jest.fn().mockImplementation(async (entity: unknown) => {
       calls.push('findOne')
+      if ((entity as { name?: string })?.name === 'Organization') return organization
       return opts.existingRecord ?? null
     }),
     create: jest.fn().mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({
