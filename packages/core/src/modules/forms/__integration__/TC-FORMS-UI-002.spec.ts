@@ -28,7 +28,7 @@ import {
  * through `data-crud-field-id`, which `CrudForm` emits on every field wrapper
  * specifically as a stable hook, rather than through incidental class names.
  *
- * Every field goes through `fillControlledInput`, not a bare `fill`. These are
+ * Submitted values go through `fillControlledInput`. These are
  * React-controlled inputs: a fill that lands before hydration writes the DOM and
  * the hydration render then restores the initial state, so the field empties
  * again a few dozen milliseconds later. A plain `fill` plus an immediate
@@ -36,6 +36,8 @@ import {
  * value the app is about to discard — which is exactly how the first draft of
  * this spec submitted a blank form and timed out waiting for a redirect that
  * could never come.
+ * An edited required-field error first proves React's change and blur handlers
+ * are active; DOM values alone cannot prove the form received the first fill.
  */
 test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
   test('submits the create form and persists the reshaped payload', async ({ page, request }) => {
@@ -57,12 +59,18 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       const keyInput = page.getByPlaceholder('patient-intake')
       await expect(keyInput, 'the create form renders the key field').toBeVisible({ timeout: 30_000 })
 
-      const nameInput = page.locator('[data-crud-field-id="name"] input')
+      const nameField = page.locator('[data-crud-field-id="name"]')
+      const nameInput = nameField.locator('input')
       const localesInput = page.locator('[data-crud-field-id="supportedLocales"] input')
+      const nameRequiredError = nameField.getByText('This field is required', { exact: true })
 
-      // Fill the autofocus target last. The CI trace showed the mount-time
-      // autofocus/hydration pass resetting only that first field; filling the
-      // two ordinary controlled fields first guarantees that pass has settled.
+      await expect(async () => {
+        await nameInput.fill('QA readiness', { timeout: 1_000 })
+        await nameInput.fill('', { timeout: 1_000 })
+        await nameInput.press('Tab', { timeout: 1_000 })
+        await expect(nameRequiredError).toBeVisible({ timeout: 1_000 })
+      }).toPass({ timeout: 10_000 })
+
       await fillControlledInput(nameInput, name)
       // Overwrite the prefilled 'en' so the comma-splitting transform is exercised.
       await fillControlledInput(localesInput, 'en, pl')
@@ -74,6 +82,7 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       await expect(keyInput, 'the key survived hydration').toHaveValue(key)
       await expect(nameInput, 'the name survived hydration').toHaveValue(name)
       await expect(localesInput, 'the locale list survived hydration').toHaveValue('en, pl')
+      await expect(nameRequiredError, 'the filled name passed blur validation').toHaveCount(0)
 
       // `CrudForm` renders its submit control twice (an in-form button plus a
       // portalled footer one that targets the form by id), so the role locator is
