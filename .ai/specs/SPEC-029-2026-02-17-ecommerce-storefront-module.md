@@ -366,6 +366,7 @@ A `/om-pre-implement-spec` audit found the original draft resolved `taxMode` ind
 | Store `status = 'draft'` | `403` when `OM_ECOMMERCE_DEV_STORE_SLUG=true`, otherwise `404` — a draft store's existence is not public |
 | Store `status = 'archived'` | `410 Gone` |
 | No default channel binding | `503` plus an admin notification, throttled to once per (store, notification type) per hour — a misconfiguration, not a client error |
+| Default channel binding points at a deleted sales channel | Same as no default channel binding: `503` plus the admin notification, and a distinguishable "sales channel no longer exists" warning in logs. The binding is kept, so undoing the sales channel delete restores the store |
 | Portal token whose `tenantId` or `orgId` differs from the store's | `401` (D4). Covers a bearer token from another tenant and a same-host cookie from another organization's store (path-prefix stores, shared dev host). The storefront answers a `401` by offering logout/re-login, never by redirecting in a loop |
 | Requested locale unsupported | Fall back to `store.defaultLocale`; `requestedLocale` preserved in the response |
 
@@ -898,6 +899,10 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-10-24 — v4.10 (deleted default sales channel)
+
+- §4.1 / §8 — `sales.channels.delete` hard-deletes the channel row, but resolution kept serving a default channel binding that pointed at it. The resolution query now accepts a default binding only while its sales channel exists in the same tenant and organization, so such a store answers `503 store_misconfigured` like a store with no default binding. The cached candidates carry an `ecommerce-sales-channel:{id}` tag that `sales.channel.*` evicts, which also brings the store back when the delete is undone. The binding rows are left untouched, matching R3's keep-and-diagnose approach for dangling references.
 
 ### 2026-10-13 — v4.9 (review fixes, PR #7142)
 

@@ -18,6 +18,7 @@ import {
   ecommerceDomainMappingTag,
   ecommerceDomainTag,
   ecommerceResolutionCache,
+  ecommerceSalesChannelTag,
   ecommerceStoreTag,
   type CacheContainer,
 } from './cacheKeys'
@@ -187,6 +188,12 @@ type StoreResolutionDatabase = {
     require_authentication: boolean
     deleted_at: Date | null
   }
+  sales_channels: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    deleted_at: Date | null
+  }
 }
 
 type StoreResolutionRow = {
@@ -207,6 +214,7 @@ type StoreResolutionRow = {
   channel_assortment_scope: unknown
   channel_price_sort_fallback: string | null
   channel_require_authentication?: boolean | null
+  channel_live_sales_channel_id?: string | null
   binding_id?: string | null
   binding_path_prefix?: string | null
   binding_is_primary?: boolean | null
@@ -230,6 +238,7 @@ const STORE_COLUMNS = [
   'c.assortment_scope as channel_assortment_scope',
   'c.price_sort_fallback as channel_price_sort_fallback',
   'c.require_authentication as channel_require_authentication',
+  'sc.id as channel_live_sales_channel_id',
 ] as const
 
 const FORCE_HOST_HEADER = 'x-force-host'
@@ -401,8 +410,17 @@ function toCandidate(row: StoreResolutionRow): StoreCandidate {
     defaultCurrencyCode: row.store_default_currency_code,
     settings: parseSettings(row.store_settings, row.store_id),
   }
+  const salesChannelMissing =
+    !!row.channel_binding_id && !!row.channel_sales_channel_id && !row.channel_live_sales_channel_id
+  if (salesChannelMissing) {
+    logger.warn('Default channel binding references a sales channel that no longer exists', {
+      storeId: row.store_id,
+      channelBindingId: row.channel_binding_id,
+      salesChannelId: row.channel_sales_channel_id,
+    })
+  }
   const channel: ResolvedStoreChannel | null =
-    row.channel_binding_id && row.channel_sales_channel_id
+    row.channel_binding_id && row.channel_sales_channel_id && !salesChannelMissing
       ? {
           channelBindingId: row.channel_binding_id,
           salesChannelId: row.channel_sales_channel_id,
@@ -440,6 +458,13 @@ async function queryDomainCandidates(
         .on('c.is_default', '=', true)
         .on('c.deleted_at', 'is', null),
     )
+    .leftJoin('sales_channels as sc', (join) =>
+      join
+        .onRef('sc.id', '=', 'c.sales_channel_id')
+        .onRef('sc.tenant_id', '=', 'c.tenant_id')
+        .onRef('sc.organization_id', '=', 'c.organization_id')
+        .on('sc.deleted_at', 'is', null),
+    )
     .select([
       ...STORE_COLUMNS,
       'b.id as binding_id',
@@ -469,11 +494,22 @@ async function querySlugCandidates(
         .on('c.is_default', '=', true)
         .on('c.deleted_at', 'is', null),
     )
+    .leftJoin('sales_channels as sc', (join) =>
+      join
+        .onRef('sc.id', '=', 'c.sales_channel_id')
+        .onRef('sc.tenant_id', '=', 'c.tenant_id')
+        .onRef('sc.organization_id', '=', 'c.organization_id')
+        .on('sc.deleted_at', 'is', null),
+    )
     .select([...STORE_COLUMNS])
     .where('s.slug', '=', slug)
     .where('s.deleted_at', 'is', null)
   if (tenantId) query = query.where('s.tenant_id', '=', tenantId)
   return query.limit(2).execute()
+}
+
+function salesChannelTags(rows: StoreResolutionRow[]): string[] {
+  return rows.flatMap((row) => (row.channel_sales_channel_id ? [ecommerceSalesChannelTag(row.channel_sales_channel_id)] : []))
 }
 
 async function loadDomainCandidates(
@@ -490,6 +526,7 @@ async function loadDomainCandidates(
     ecommerceDomainMappingTag(mapping.domainMappingId),
     ecommerceDomainTag(mapping.hostname),
     ...candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)),
+    ...salesChannelTags(rows),
   ]
   await cache.set<CachedStoreCandidates>(
     key,
@@ -516,7 +553,7 @@ async function loadSlugCandidates(
       { candidates },
       {
         ttlMs: STORE_RESOLUTION_TTL_MS,
-        tags: candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)),
+        tags: [...candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)), ...salesChannelTags(rows)],
       },
     )
   }

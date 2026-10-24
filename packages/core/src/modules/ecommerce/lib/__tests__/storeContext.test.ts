@@ -53,6 +53,7 @@ function storeRow(overrides: Row = {}): Row {
     channel_assortment_scope: null,
     channel_price_sort_fallback: 'approximate',
     channel_require_authentication: false,
+    channel_live_sales_channel_id: `sales-channel-${storeId}`,
     binding_id: `domain-binding-${storeId}`,
     binding_path_prefix: null,
     binding_is_primary: true,
@@ -342,6 +343,26 @@ describe('resolveStoreFromRequest — host resolution', () => {
     expect(throttle?.ttl).toBe(3_600_000)
   })
 
+  it('answers 503 when the default channel binding references a sales channel that no longer exists', async () => {
+    const harness = createHarness({ domainRows: [storeRow({ channel_live_sales_channel_id: null })] })
+
+    await expectResolutionError(resolveStoreFromRequest(harness.container, request('/')), 503, 'store_misconfigured')
+
+    expect(mockedEmit).toHaveBeenCalledWith(
+      'ecommerce.store.misconfigured',
+      expect.objectContaining({ storeId: 'store-root', reason: 'channel_binding_missing' }),
+      expect.objectContaining({ persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID }),
+    )
+    const [query] = harness.queries
+    expect(query.sql).toContain('left join "sales_channels" as "sc"')
+    expect(query.sql).toContain('"sc"."id" = "c"."sales_channel_id"')
+    expect(query.sql).toContain('"sc"."tenant_id" = "c"."tenant_id"')
+    expect(query.sql).toContain('"sc"."organization_id" = "c"."organization_id"')
+    expect(query.sql).toContain('"sc"."deleted_at" is null')
+    const resolutionSet = harness.cacheSets.find((entry) => entry.key.includes('domain-mapping'))
+    expect(resolutionSet?.tags).toEqual(expect.arrayContaining(['ecommerce-sales-channel:sales-channel-store-root']))
+  })
+
   it('serves the second resolution from the resolution cache with store, domain and mapping tags', async () => {
     const harness = createHarness({ domainRows: [storeRow()] })
 
@@ -357,6 +378,7 @@ describe('resolveStoreFromRequest — host resolution', () => {
         'ecommerce-store:store-root',
         `ecommerce-domain:${HOST}`,
         `ecommerce-domain-mapping:${MAPPING_ID}`,
+        'ecommerce-sales-channel:sales-channel-store-root',
       ]),
     )
   })
@@ -402,6 +424,21 @@ describe('resolveStoreFromRequest — dev store slug', () => {
     expect(harness.resolveByHostname).not.toHaveBeenCalled()
     expect(harness.queries).toHaveLength(1)
     expect(harness.queries[0].parameters).toContain('store-root')
+  })
+
+  it('answers 503 for a slug whose default channel binding references a deleted sales channel', async () => {
+    process.env[DEV_STORE_SLUG_ENV] = 'true'
+    const harness = createHarness({
+      slugRows: [storeRow({ binding_id: undefined, channel_live_sales_channel_id: null })],
+    })
+
+    await expectResolutionError(resolveStoreBySlug(harness.container, 'store-root'), 503, 'store_misconfigured')
+
+    expect(harness.queries[0].sql).toContain('left join "sales_channels" as "sc"')
+    const slugSet = harness.cacheSets.find((entry) => entry.key.includes('slug'))
+    expect(slugSet?.tags).toEqual(
+      expect.arrayContaining(['ecommerce-store:store-root', 'ecommerce-sales-channel:sales-channel-store-root']),
+    )
   })
 
   it('scopes slug resolution by tenant when one is supplied and 404s an ambiguous cross-tenant slug', async () => {

@@ -413,6 +413,20 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### A store whose default sales channel was deleted answers `503 store_misconfigured` (#ISSUE)
+
+Deleting a sales channel removes its row, but the `ecommerce` store channel bindings that point at it
+stay. Storefront resolution used to keep serving such a store with a default channel that no longer
+existed. It now accepts a default channel binding only while its sales channel exists in the same
+tenant and organization, so the storefront answers the existing `503 store_misconfigured` and raises
+the existing misconfigured-store admin notification, as for a store with no default channel binding.
+`sales.channel.*` events now evict the cached store resolution, so the `503` applies right after the
+delete rather than once the 5-minute resolution cache expires. Bindings are not modified: undoing the sales
+channel delete brings the store back as it was.
+
+**Action:** if a store answers `503` after this upgrade, give it another default channel binding on the
+store's **Channels** tab.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
