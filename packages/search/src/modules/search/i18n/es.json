@@ -171,6 +171,8 @@
   "search.settings.model.label": "Modelo",
   "search.settings.model.namePlaceholder": "Nombre del modelo",
   "search.settings.noIndexMessage": "Aún no se ha creado ningún índice de búsqueda.",
+  "search.settings.ollama.baseUrl.hint": "Déjalo vacío para usar la variable de entorno OLLAMA_BASE_URL.",
+  "search.settings.ollama.baseUrl.label": "URL base",
   "search.settings.pageDescription": "Configure estrategias de búsqueda, administre índices y supervise la actividad.",
   "search.settings.pageTitle": "Configuración de búsqueda",
   "search.settings.processingLabel": "Procesando…",
