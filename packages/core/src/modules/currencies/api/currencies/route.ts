@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Currency } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
@@ -44,7 +46,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'currencies.currencies.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
+        return withScopedPayload(parsed, ctx, translate)
+      },
       response: ({ result }) => ({ id: String(result.currencyId) }),
       status: 201,
     },
