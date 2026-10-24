@@ -36,7 +36,12 @@ import { enforceTenantSelection } from '@open-mercato/core/modules/auth/lib/tena
 import { ALL_ORGANIZATIONS_COOKIE_VALUE } from '@open-mercato/core/modules/directory/constants'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { checkAuthorization, extractTenantCandidate, extractTenantCandidates } from '@/app/api/[...slug]/route'
+import {
+  checkAuthorization,
+  extractTenantCandidate,
+  extractTenantCandidates,
+  TENANT_CANDIDATE_UNREADABLE,
+} from '@/app/api/[...slug]/route'
 
 const enforceTenantSelectionMock = enforceTenantSelection as jest.MockedFunction<typeof enforceTenantSelection>
 const createRequestContainerMock = createRequestContainer as jest.MockedFunction<typeof createRequestContainer>
@@ -131,7 +136,10 @@ describe('dispatcher body-peek limit (security: issue #7811)', () => {
 
     const candidate = await extractTenantCandidate(request)
 
-    expect(candidate).toBeUndefined()
+    // Must surface the distinct "unreadable" sentinel, not `undefined` — otherwise
+    // the caller cannot tell "no tenantId" apart from "never checked" and would
+    // skip tenant enforcement entirely for an oversized body (issue #7877).
+    expect(candidate).toBe(TENANT_CANDIDATE_UNREADABLE)
     expect(cloneSpy).not.toHaveBeenCalled()
   })
 
@@ -145,7 +153,7 @@ describe('dispatcher body-peek limit (security: issue #7811)', () => {
 
     const candidate = await extractTenantCandidate(request)
 
-    expect(candidate).toBeUndefined()
+    expect(candidate).toBe(TENANT_CANDIDATE_UNREADABLE)
   })
 
   it('aborts an oversized multipart body stream instead of buffering it fully', async () => {
@@ -160,7 +168,7 @@ describe('dispatcher body-peek limit (security: issue #7811)', () => {
 
     const candidate = await extractTenantCandidate(request)
 
-    expect(candidate).toBeUndefined()
+    expect(candidate).toBe(TENANT_CANDIDATE_UNREADABLE)
   })
 
   it('still extracts tenantId from a JSON body within the peek budget', async () => {
@@ -288,6 +296,64 @@ describe('checkAuthorization tenant pollution enforcement (issue #2665)', () => 
     expect(response).toBeNull()
     expect(enforceTenantSelectionMock).toHaveBeenCalledTimes(1)
     expect(enforceTenantSelectionMock).toHaveBeenCalledWith(expect.anything(), foreignTenant)
+  })
+})
+
+describe('checkAuthorization fails closed on an unreadable body (security: issue #7877)', () => {
+  beforeEach(() => {
+    createRequestContainerMock.mockReset()
+  })
+
+  function mockRbacContainer(isSuperAdmin: boolean) {
+    createRequestContainerMock.mockResolvedValue({
+      resolve: jest.fn((name: string) => {
+        if (name === 'rbacService') {
+          return { loadAcl: jest.fn(async () => ({ isSuperAdmin, features: [], organizations: [] })) }
+        }
+        return {}
+      }),
+    } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+  }
+
+  it('rejects a non-superadmin whose oversized body could be hiding a foreign tenantId', async () => {
+    const ownTenant = '00000000-0000-0000-0000-0000000000ee'
+    const foreignTenant = '00000000-0000-0000-0000-0000000000ff'
+    mockRbacContainer(false)
+    // Far larger than the dispatcher's own tenant-extraction budget, carrying a
+    // foreign tenantId the dispatcher must never actually read before deciding.
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId: foreignTenant }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
+    const response = await checkAuthorization(null, buildAuth(ownTenant), request)
+
+    expect(response).not.toBeNull()
+    expect(response?.status).toBe(403)
+    expect(cloneSpy).not.toHaveBeenCalled()
+  })
+
+  it('allows a superadmin through even though the oversized body cannot be peeked', async () => {
+    const ownTenant = '00000000-0000-0000-0000-0000000000a1'
+    const foreignTenant = '00000000-0000-0000-0000-0000000000a2'
+    mockRbacContainer(true)
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId: foreignTenant }),
+    })
+
+    const response = await checkAuthorization(null, buildAuth(ownTenant), request)
+
+    expect(response).toBeNull()
   })
 })
 

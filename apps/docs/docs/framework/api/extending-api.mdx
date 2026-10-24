@@ -79,3 +79,24 @@ process-local continuity state, and rejects unknown or expired metadata rather t
 falling back to the raw URL.
 
 Mixing CRUD factories and bespoke endpoints gives you the flexibility to move fast while keeping the platform predictable.
+
+## Dispatcher tenant-extraction body-peek budget
+
+Before a route handler runs, the dispatcher peeks at the request body for a
+`tenantId` field so it can enforce tenant selection (#2665) against every
+candidate the request carries — query string and body alike — ahead of the
+handler's own, larger body parsing. That peek is capped by
+`OM_API_TENANT_EXTRACT_MAX_BYTES` (default 64 KB) so an authenticated caller
+can't force a full JSON/multipart body to be buffered just to extract one
+field (#7811).
+
+A non-superadmin request whose body exceeds this budget is now **rejected
+with 403**, not silently let through: the dispatcher cannot verify there is
+no foreign `tenantId` hiding past the peek limit, and fails closed rather
+than treating the unknown as "no candidate" (#7877). This affects any
+authenticated, non-superadmin write whose body — including attachments,
+bulk imports, or other large payloads — exceeds 64 KB and whose route still
+expects the dispatcher to read a body-level `tenantId`. Operators whose
+routes legitimately send larger authenticated bodies should raise
+`OM_API_TENANT_EXTRACT_MAX_BYTES` accordingly; superadmin callers are
+unaffected, since they may already select any tenant.

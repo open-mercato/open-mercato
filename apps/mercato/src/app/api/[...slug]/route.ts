@@ -9,7 +9,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { enforceTenantSelection, normalizeTenantId, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
@@ -244,6 +244,18 @@ export async function checkAuthorization(
     const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
     const enforcedCandidates = new Set<string | null>()
     for (const rawTenantCandidate of rawTenantCandidates) {
+      // The body exceeded the dispatcher's tenant-extraction budget, so we never
+      // learned whether it carries a `tenantId` at all — fail closed rather than
+      // silently treating the unknown as "no candidate" (issue #7877). A superadmin
+      // may select any tenant regardless, so this gate only applies below that.
+      if (rawTenantCandidate === TENANT_CANDIDATE_UNREADABLE) {
+        const guardContainer = await ensureContainer()
+        const isSuperAdmin = await resolveIsSuperAdmin({ auth, container: guardContainer })
+        if (!isSuperAdmin) {
+          return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+        }
+        continue
+      }
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
       if (tenantCandidate === undefined) continue
       const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
@@ -298,6 +310,14 @@ function resolveDispatcherBodyPeekMaxBytes(): number {
 
 class BodyPeekLimitExceededError extends Error {}
 
+// Distinguishes "the body was read and carries no tenantId" (`undefined`, safe to
+// skip) from "the body exceeds the peek budget, so we never learned whether it
+// carries one" — returning `undefined` for the latter made an oversized body skip
+// `enforceTenantSelection` entirely, letting a foreign `tenantId` past tenant scoping
+// unexamined (issue #7877). Callers must fail closed on this sentinel for anyone who
+// isn't a superadmin instead of treating it as "no candidate".
+export const TENANT_CANDIDATE_UNREADABLE = Symbol('om.api.dispatcher.tenantCandidateUnreadable')
+
 function boundBodyStream(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
   let consumedBytes = 0
   return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
@@ -329,8 +349,9 @@ async function extractBodyTenantCandidate(req: NextRequest): Promise<unknown> {
   if (contentLengthHeader) {
     const contentLength = Number(contentLengthHeader)
     // A declared size already over budget is rejected without cloning or
-    // touching the body at all — the cheapest possible bound.
-    if (Number.isFinite(contentLength) && contentLength > maxBytes) return undefined
+    // touching the body at all — the cheapest possible bound. The caller must
+    // still fail closed on this, not treat it as "no tenantId".
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) return TENANT_CANDIDATE_UNREADABLE
   }
 
   const cloned = req.clone()
@@ -353,7 +374,7 @@ async function extractBodyTenantCandidate(req: NextRequest): Promise<unknown> {
       }
     }
   } catch (error) {
-    if (error instanceof BodyPeekLimitExceededError) return undefined
+    if (error instanceof BodyPeekLimitExceededError) return TENANT_CANDIDATE_UNREADABLE
     // Ignore parsing failures; downstream handlers can deal with malformed payloads.
   }
 
