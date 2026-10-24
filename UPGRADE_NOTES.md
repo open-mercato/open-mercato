@@ -413,6 +413,22 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
 ### Outbound webhook delivery timeout now covers the response body (#7226)
 
 A webhook's `timeoutMs` used to stop at the response headers; it now also covers reading the receiver's response body. A receiver that sends its status and headers but does not finish the body in time is classified by its status, with the body received so far: a cut-off 2xx is recorded as `delivered` with no error message, so its `responseBody` may be incomplete. The stored `responseBody` is now at most 4096 UTF-8 bytes (previously 4096 UTF-16 code units), cut on a character boundary, and the connection is closed once 4096 bytes have been read or the timeout fires. `responseStatus` and `responseHeaders` are recorded as soon as the headers arrive, so a connection that fails mid-body keeps them. `responseStatus`, `responseHeaders` and `responseBody` are cleared when an attempt starts, so the previous attempt's response is no longer shown once a new attempt begins.
