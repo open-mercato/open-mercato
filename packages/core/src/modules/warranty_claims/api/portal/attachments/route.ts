@@ -17,7 +17,12 @@ import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/li
 import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/modules/attachments/lib/crud'
 import { readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { clearAttachmentThumbnailCache } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
-import { isMultipartRequestWithinUploadLimit } from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { removeAttachmentRecord } from '@open-mercato/core/modules/attachments/lib/storageReferences'
+import {
+  isMultipartUploadLimitError,
+  parseMultipartFormDataWithinUploadLimit,
+  resolveDefaultAttachmentMaxUploadBytes,
+} from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
@@ -198,11 +203,12 @@ async function loadOwnedVisibleAttachment(
 }
 
 async function deletePortalAttachment(context: PortalContext, attachment: Attachment): Promise<void> {
-  await context.em.remove(attachment).flush()
+  const removal = await removeAttachmentRecord(context.em, attachment)
+  if (!removal.removed) return
   await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((error) => {
     logger.error('Failed to clean portal attachment thumbnails', { err: error, attachmentId: attachment.id })
   })
-  if (attachment.storagePath) {
+  if (attachment.storagePath && removal.releaseStorage) {
     try {
       const driver = await (await resolveStorageDriverFactory(context)).resolveForPartition(attachment.partitionCode, {
         tenantId: attachment.tenantId ?? context.tenantId,
@@ -341,6 +347,14 @@ export async function GET(req: Request) {
   })
 }
 
+function uploadTooLargeResponse(t: Awaited<ReturnType<typeof resolveTranslations>>['t']): Response {
+  return NextResponse.json({
+    ok: false,
+    error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    code: 'max_upload_size',
+  }, { status: 413 })
+}
+
 async function handleUpload(req: Request, replacement: boolean): Promise<Response> {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
@@ -350,14 +364,13 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
-  if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({
-      ok: false,
-      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
-    }, { status: 413 })
+  let form: FormData
+  try {
+    form = await parseMultipartFormDataWithinUploadLimit(req)
+  } catch (error) {
+    if (isMultipartUploadLimitError(error)) return uploadTooLargeResponse(t)
+    throw error
   }
-
-  const form = await req.formData()
   const parsed = uploadBodySchema.safeParse({
     claimId: form.get('claimId') ?? undefined,
     file: form.get('file') instanceof File ? (form.get('file') as File).name : '',
@@ -376,6 +389,7 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   if (!(file instanceof File)) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.portal.detail.fileRequired', 'Choose a file before uploading.') }, { status: 400 })
   }
+  if (file.size > resolveDefaultAttachmentMaxUploadBytes()) return uploadTooLargeResponse(t)
   const buffer = Buffer.from(await file.arrayBuffer())
 
   const attachmentId = replacement && parsedAttachmentId?.success ? parsedAttachmentId.data : null

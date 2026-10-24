@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Warehouse",
   "search.entityType.wms.inventory_lot": "Inventory lot",
   "search.entityType.wms.product_inventory_profile": "Inventory profile",
   "search.entityType.wms.warehouse": "Warehouse",
@@ -984,6 +985,7 @@
   "wms.errors.forbidden.manageZones": "You don't have permission to manage warehouse zones.",
   "wms.errors.forbidden.receiveInventory": "You don't have permission to receive inbound inventory.",
   "wms.errors.internalServerError": "Internal server error",
+  "wms.errors.salesOrder.reRunReservationCancelled": "A cancelled order cannot hold a stock reservation.",
   "wms.errors.unauthorized": "Unauthorized",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Low stock alert — available: {availableQuantity}, reorder point: {reorderPoint}, safety stock: {safetyStock}",

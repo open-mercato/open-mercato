@@ -70,6 +70,10 @@ function readAllowedOrigins(env: EnvLike): Set<string> {
   return origins
 }
 
+export function readConfiguredAppOrigins(env: EnvLike = process.env): string[] {
+  return Array.from(readAllowedOrigins(env))
+}
+
 function readFirstHeaderValue(value: string | null): string | null {
   const first = value?.split(',')[0]?.trim()
   return first && first.length > 0 ? first : null
@@ -179,11 +183,18 @@ function normalizeOriginPort(url: URL): string {
   return ''
 }
 
-function isEquivalentLoopbackOrigin(origin: string, allowedOrigin: string): boolean {
+export function isEquivalentLoopbackOrigin(
+  origin: string,
+  allowedOrigin: string,
+  options: { requireSameProtocol?: boolean } = {},
+): boolean {
   try {
     const candidateUrl = new URL(origin)
     const allowedUrl = new URL(allowedOrigin)
     if (!isLoopbackHostname(candidateUrl.hostname) || !isLoopbackHostname(allowedUrl.hostname)) {
+      return false
+    }
+    if (options.requireSameProtocol && candidateUrl.protocol !== allowedUrl.protocol) {
       return false
     }
     return normalizeOriginPort(candidateUrl) === normalizeOriginPort(allowedUrl)
@@ -265,6 +276,36 @@ export function getSecurityEmailBaseUrl(input?: RequestInput, env: EnvLike = pro
 export function toSecurityEmailUrl(input: RequestInput, path: string, env: EnvLike = process.env): string {
   const base = getSecurityEmailBaseUrl(input, env)
   return `${base}/${path.replace(/^\/+/, '')}`
+}
+
+export function isCrossSiteBrowserRequest(req: Request, env: EnvLike = process.env): boolean {
+  const rawFetchSite = req.headers.get('sec-fetch-site')
+  const fetchSite = rawFetchSite?.trim().toLowerCase() ?? null
+  if (fetchSite === 'cross-site') return true
+  if (fetchSite === 'same-origin' || fetchSite === 'none') return false
+
+  const rawOrigin = req.headers.get('origin')
+  if (rawOrigin === null) return rawFetchSite !== null
+  const origin = normalizeOrigin(rawOrigin)
+  if (!origin) return true
+
+  const allowedOrigins = readAllowedOrigins(env)
+  if (allowedOrigins.has(origin)) return false
+  if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) return false
+
+  const forwardedProto = readFirstHeaderValue(req.headers.get('x-forwarded-proto'))
+  const protocol = forwardedProto
+    ? (forwardedProto.endsWith(':') ? forwardedProto : `${forwardedProto}:`)
+    : new URL(origin).protocol
+  const host = req.headers.get('host')
+  const forwardedHost = req.headers.get('x-forwarded-host')
+  if (originFromHost(protocol, forwardedHost) === origin) return false
+  if (originFromHost(protocol, host) === origin) return false
+
+  if (env.NODE_ENV !== 'test') {
+    logger.warn('Cross-site request rejected', { origin, host, forwardedHost })
+  }
+  return true
 }
 
 export function mapSecurityEmailUrlError(

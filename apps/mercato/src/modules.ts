@@ -94,6 +94,9 @@ export const enabledModules: ModuleEntry[] = [
   // case'). Run the om-refresh-standalone-harness skill to add that coverage,
   // then enable it in the template.
   { id: 'availability', from: '@open-mercato/core' },
+  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -158,6 +161,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   // Same-origin OTLP proxy for browser RUM spans; inert unless
@@ -182,6 +186,18 @@ export const enabledModules: ModuleEntry[] = [
       nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
         ? { groupOrder: ['example.nav.group'] }
         : undefined,
+      widgets: {
+        // Client-side override probe (#5844). Deliberately ungated: a `process.env.OM_*`
+        // guard would resolve on the server and evaluate to `false` in the browser, where
+        // Next inlines no server-only value — the widget would then reappear the moment
+        // `ClientBootstrap` re-registered the injection registry, and the probe would
+        // report a product bug that is really a probe bug.
+        //
+        // Keyed by the generated registry `key`, NOT by `example.injection.override-probe`:
+        // injection tables reference the `widgetId`, so this spelling only reaches the
+        // table filter through the alias resolution added for #5152.
+        injection: { 'example:override-probe:widget': null },
+      },
       routes: {
         api: {
           'GET /api/example/override-probe': {
