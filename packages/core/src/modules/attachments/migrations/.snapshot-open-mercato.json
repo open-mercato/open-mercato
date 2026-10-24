@@ -867,6 +867,17 @@
           "keyName": "attachments_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "partition_code",
+            "storage_path"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "attachments_storage_reference_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],

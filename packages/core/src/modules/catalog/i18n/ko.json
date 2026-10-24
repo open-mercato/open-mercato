@@ -96,7 +96,7 @@
   "catalog.merchandising_assistant.dock.subtitle": "카탈로그",
   "catalog.merchandising_assistant.popover.heading": "AI 어시스턴트",
   "catalog.merchandising_assistant.sheet.composerPlaceholder": "설명, 속성, 제목 또는 가격 아이디어를 요청하세요...",
-  "catalog.merchandising_assistant.sheet.description": "읽기 전용 데모입니다. 현재 선택 항목에 대한 설명, 속성, 제목, 가격 조정을 제안합니다. 이 단계에서는 실제 변경 사항이 적용되지 않습니다.",
+  "catalog.merchandising_assistant.sheet.description": "현재 선택 항목에 대한 설명, 속성, 제목, 가격 조정을 제안합니다. 확인된 변경 사항은 제품에 저장됩니다.",
   "catalog.merchandising_assistant.sheet.descriptionWithSelection": "{count} 선택된 제품으로 작업합니다. 설명, 속성 추출, 제목 제안 또는 가격 분석을 요청하세요.",
   "catalog.merchandising_assistant.sheet.dock": "옆으로 고정",
   "catalog.merchandising_assistant.sheet.selectionPill": "상품 {count}개에 대해 작업 중",

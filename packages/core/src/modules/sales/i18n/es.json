@@ -1290,6 +1290,8 @@
   "sales.orders.detail.title": "Detalles del pedido",
   "sales.orders.edit_addresses_blocked": "Las direcciones no se pueden cambiar para el estado actual.",
   "sales.orders.edit_customer_blocked": "El cliente no se puede cambiar para el estado actual.",
+  "sales.orders.errors.cancel_has_payments": "Este pedido tiene pagos no reembolsados. Reembólsalos antes de cancelar el pedido.",
+  "sales.orders.errors.cancel_has_shipments": "Este pedido tiene envíos. Cancélalos o devuélvelos antes de cancelar el pedido.",
   "sales.orders.form.general": "General",
   "sales.orders.form.invoices": "Facturas",
   "sales.orders.form.lines": "Líneas",
