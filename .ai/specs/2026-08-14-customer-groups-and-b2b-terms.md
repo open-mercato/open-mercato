@@ -47,7 +47,7 @@ The module is deliberately narrow. It owns *who belongs to which commercial grou
 
 | Consumer | File | Behaviour |
 |---|---|---|
-| Price specificity scoring | `catalog/lib/pricing.ts:66,84` | `if (row.customerGroupId && ctx.customerGroupId !== row.customerGroupId) return false`; matching row scores +3 |
+| Price specificity scoring | `catalog/lib/pricing.ts` (`matchesContext`, `scorePrice`) | A row with a `customerGroupId` matches only when it is in `ctx.customerGroupIds`; matching row scores +3 |
 | Price rows | `catalog/data/entities.ts` (`CatalogProductPrice.customerGroupId`) | Stored, never validated |
 | Price API | `catalog/api/prices/route.ts` | Accepted as a filter and a write field |
 | Price commands | `catalog/commands/prices.ts`, `catalog/commands/variants.ts` | Written through to price rows |
@@ -256,7 +256,7 @@ Declared as an **entity extension** of the customer, not as columns on `Customer
 
 ## 6) Service Contract
 
-Registered in `customer_groups/di.ts` as `customerGroupsService`.
+Registered in `customer_groups/di.ts` as `customerGroupsService`, which also registers the `CustomerGroup` and `CustomerGroupMembership` entity classes under their own DI keys. The block below is the shipped Phase 1–2 interface; the credit methods are Phase 3 and are marked separately because they do not exist yet.
 
 ```typescript
 type GroupResolution = {
@@ -264,27 +264,27 @@ type GroupResolution = {
   groups: Array<{ id: string; code: string; name: string; kind: string; priority: number }>
 }
 
+// Per-field provenance: which group each resolved value came from. Shipped as a `sources`
+// map keyed by field name rather than the illustrative single `sourceGroupId`, because a
+// customer can take `paymentTermsDays` from a grandparent while `priceKindId` comes from
+// its own group, and US-C2's explain-terms panel needs each field's own source.
+type ResolvedTermsSources = Record<
+  'priceKindId' | 'paymentTermsDays' | 'allowPurchaseOnAccount' | 'approvalRequiredAbove' | 'minOrderValue',
+  string | null
+>
+
 type ResolvedTerms = {
   priceKindId: string | null   // gross/net display is derived downstream from this price kind's own `displayMode` — see §6.1a; ResolvedTerms does not carry a separate tax-mode field
   paymentTermsDays: number | null
   allowPurchaseOnAccount: boolean
   approvalRequiredAbove: number | null
   minOrderValue: number | null
-  sourceGroupId: string | null    // which group each value came from, for admin explainability
+  sources: ResolvedTermsSources
   // NOTE: no `assortmentScope` field — withdrawn 2026-09-06, see §6.4. Assortment scope is a
   // visibility grant, not a scalar term, so it cannot follow §6.1's highest-priority-wins rule.
 }
 
-type CreditCheck = {
-  allowed: boolean
-  reason: 'ok' | 'on_hold' | 'limit_exceeded' | 'no_account' | 'not_permitted'
-  creditLimit: number
-  exposure: number
-  available: number
-  currencyCode: string
-}
-
-// Shipped (#6709) inputs carry `tenantId` — groups are tenant-scoped, `organization_id` is nullable.
+// Every input carries `tenantId`: the service has no ambient tenant context and MUST never query across tenants.
 // `customerIds` added 2026-10-05 (additive; see §6.0): the storefront buyer is a person AND their company.
 type BuyerIdentityInput =
   | { customerId: string | null; tenantId: string; at?: Date }          // shipped, kept
@@ -297,34 +297,48 @@ interface CustomerGroupsService {
 
   // Assortment scope resolves separately from the scalar terms above — §6.4.
   resolveAssortmentScope(input: BuyerIdentityInput): Promise<{
-    scope: EffectiveAssortmentScope   // groups unioned, the customer's own grant unioned in and its restriction intersected over the result (§6.4); nothing matching → null (unrestricted)
-    sourceGroupIds: string[]          // every group that contributed, for the explain-terms panel
+    scope: EffectiveAssortmentScope   // groups unioned; the customer's own grant unioned in and its restriction intersected over the result is Phase 5 (§6.4) — not shipped, so `sourceCustomerOverrideId` is always null today; nothing matching → null (unrestricted)
+    sourceGroupIds: string[]          // every matching group returned by resolveGroups(), for the explain-terms panel — not filtered to groups that contributed a non-null scope (`resolveAssortmentScope` in `customerGroupsService.ts`)
     sourceCustomerOverrideId: string | null   // the customer's own §5.7 row, or null — the common case
   }>
-
-  checkCredit(input: {
-    customerId: string
-    currencyCode: string
-    amount: number
-  }): Promise<CreditCheck>
-
-  // Serializable transaction: re-checks the limit and appends the reserve entry atomically.
-  reserveCredit(input: {
-    customerId: string
-    currencyCode: string
-    amount: number
-    sourceType: 'checkout' | 'order'
-    sourceId: string
-    idempotencyKey: string
-  }): Promise<{ reserved: boolean; entryId: string | null; check: CreditCheck }>
-
-  releaseCredit(input: { idempotencyKey: string; reason: string }): Promise<void>
-
-  settleCredit(input: {
-    customerId: string; currencyCode: string; amount: number
-    sourceType: 'invoice' | 'payment'; sourceId: string; idempotencyKey: string
-  }): Promise<void>
 }
+```
+
+**Phase 3 (not shipped):** credit reservation and settlement. These methods join `CustomerGroupsService` when Phase 3 lands; they are absent from the shipped service today.
+
+```typescript
+type CreditCheck = {
+  allowed: boolean
+  reason: 'ok' | 'on_hold' | 'limit_exceeded' | 'no_account' | 'not_permitted'
+  creditLimit: number
+  exposure: number
+  available: number
+  currencyCode: string
+}
+
+// Phase 3 additions to CustomerGroupsService:
+checkCredit(input: {
+  customerId: string
+  currencyCode: string
+  amount: number
+}): Promise<CreditCheck>
+
+// Serializable transaction: re-checks the limit and appends the reserve entry atomically.
+reserveCredit(input: {
+  customerId: string
+  currencyCode: string
+  amount: number
+  sourceType: 'checkout' | 'order'
+  sourceId: string
+  idempotencyKey: string
+}): Promise<{ reserved: boolean; entryId: string | null; check: CreditCheck }>
+
+releaseCredit(input: { idempotencyKey: string; reason: string }): Promise<void>
+
+settleCredit(input: {
+  customerId: string; currencyCode: string; amount: number
+  sourceType: 'invoice' | 'payment'; sourceId: string; idempotencyKey: string
+}): Promise<void>
 ```
 
 ### 6.0 Multiple buyer identities (added 2026-10-05)
@@ -336,11 +350,11 @@ A storefront buyer is resolved as their person entity **and** their company enti
 - **Default group**: applied only when none of the ids has an effective membership, the same rule as shipped for one id.
 - **Terms** (§6.1) and **assortment** (§6.4) run over that ordered union without any other change. Scalar terms follow it per field; assortment unions every contributing group regardless of order.
 
-**Shipped `ResolvedTerms` differs from the type above (code = current behavior).** #6709 replaced the single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`services/customerGroupsService.ts:25-43`), and `explain-terms` reads it per field. Treat the `sources` map as the contract; `sourceGroupId` above is the pre-implementation sketch.
+**`ResolvedTerms` above is the shipped shape (code = current behavior).** #6709 replaced the pre-implementation single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`ResolvedTerms` in `services/customerGroupsService.ts`), and `explain-terms` reads it per field.
 
 ### 6.1 Terms inheritance
 
-`resolveTerms` walks, per field independently: highest-priority group with a non-null value → its ancestors → tenant default. Each field records its `sourceGroupId` so the admin UI can explain *why* a buyer got a given term — the single most common B2B support question.
+`resolveTerms` walks, per field independently: highest-priority group with a non-null value → its ancestors → tenant default. Each field records its source group in `ResolvedTerms.sources` so the admin UI can explain *why* a buyer got a given term — the single most common B2B support question.
 
 ### 6.1a Tax display mode is derived, not stored (fixed 2026-08-17)
 
@@ -387,7 +401,7 @@ The grant widens (one more OR-branch, like an extra group) and the restriction n
 
 ### 7.1 `catalog` pricing
 
-`PricingContext.customerGroupId?: string | null` becomes `customerGroupIds?: string[]`, and the matcher at `catalog/lib/pricing.ts:66` changes from equality to set membership.
+`PricingContext.customerGroupId?: string | null` becomes `customerGroupIds?: string[]`, and `matchesContext` in `catalog/lib/pricing.ts` changes from equality to set membership. This half has shipped (Pricing Engine Phase 2, #6268).
 
 **Ownership split with [Pricing Engine](./2026-08-21-pricing-engine.md) (resolved 2026-09-06).** Both specs touch this type; each owns one half, and neither restates the other's:
 
@@ -398,7 +412,7 @@ The grant widens (one more OR-branch, like an extra group) and the restriction n
 
 Pricing Engine's Edge Cases table names its tie-break a *provisional* default *"pending that sibling spec"* — this is that sibling spec, so the rule below is the one to implement, and Pricing Engine's provisional wording is superseded rather than contradicted.
 
-**Tie-break, authoritative.** Resolution is unchanged at first order: `scorePrice`'s specificity score decides, and a matching group row still scores +3 at `catalog/lib/pricing.ts:84`. The second-order rule is what this spec adds — when two or more **equally-scored** rows match by way of *different* groups the buyer belongs to, the row whose group carries the highest `CustomerGroup.priority` wins (§3.2), ties broken by the most recently created membership. This is additive to `scorePrice`'s existing weights; it does **not** reorder them, and per `catalog/AGENTS.md` § Ask First, changing resolver priority semantics is explicitly out of scope for both specs.
+**Tie-break, authoritative — not shipped (see pricing engine spec).** Resolution is unchanged at first order: `scorePrice`'s specificity score decides, and a matching group row still scores +3 (`catalog/lib/pricing.ts`, `scorePrice`). The second-order rule is what this spec adds — when two or more **equally-scored** rows match by way of *different* groups the buyer belongs to, the row whose group carries the highest `CustomerGroup.priority` wins (§3.2), ties broken by the most recently created membership. This is additive to `scorePrice`'s existing weights; it does **not** reorder them, and per `catalog/AGENTS.md` § Ask First, changing resolver priority semantics is explicitly out of scope for both specs.
 
 **Backward compatibility.** `customerGroupId` is retained as a deprecated optional field for at least one minor version, normalized internally to `[customerGroupId]`. Marked `@deprecated` with a pointer to the replacement, per the deprecation protocol in `BACKWARD_COMPATIBILITY.md`. `PricingContext` is a public type consumed by third-party modules; this is an additive change plus a deprecation, not a break. The `UPGRADE_NOTES.md` entry is authored once, by whichever of the two specs' phases lands first.
 
@@ -408,9 +422,9 @@ Same substitution in tax-rate matching. `SalesTaxRate.customerGroupId` (the rule
 
 ### 7.3 Admin UI
 
-The free-text UUID input for `customerGroupId` in the catalog price editor is replaced with a group picker sourced from `/api/customer-groups`; the sales tax-rate form keeps its free-text input until that form gets an `entityId` (issue #6414), which §7.2 routes to the admin UI of the `sales-tax-rates` provider. A row referencing an id with no matching group renders as an explicit `Unknown group (<uuid>)` error state — it is not hidden, because hiding it is how the orphan problem became invisible in the first place.
+The free-text UUID input for `customerGroupId` in the catalog price editor is replaced with a group picker sourced from `/api/customer_groups/customer-groups`; the sales tax-rate form keeps its free-text input until that form gets an `entityId` (issue #6414), which §7.2 routes to the admin UI of the `sales-tax-rates` provider. A row referencing an id with no matching group renders as an explicit `Unknown group (<uuid>)` error state — it is not hidden, because hiding it is how the orphan problem became invisible in the first place.
 
-**Coupling direction (resolved).** The picker ships as a widget `customer_groups` injects into the `crud-form:catalog.catalog_product_price:fields` spot (`packages/core/AGENTS.md` → Widget Injection / CrudForm Field Injection), not as a `catalog`/`sales` import of `customer_groups`; the `crud-form:sales.sales_tax_rate:fields` entry is part of this design but is not shipped (§7.2). `catalog` and `sales` gain **no new `requires` entry** — `pricing.ts:66,84`'s matching logic already only compares against a `customerGroupId[s]` value the caller supplies, so neither module needs a runtime dependency on `customer_groups` to function; `catalog` in particular keeps its current zero-`requires` status. If `customer_groups` is ejected, both forms fall back to their present-day free-text UUID input — no error, no degraded matching behavior, just the loss of the picker convenience and the `Unknown group` explainer. The price API filter (`catalog/api/prices/route.ts`) is unaffected either way; it already accepts a raw UUID.
+**Coupling direction (resolved).** The picker ships as a widget `customer_groups` injects into the `crud-form:catalog.catalog_product_price:fields` spot (`packages/core/AGENTS.md` → Widget Injection / CrudForm Field Injection), not as a `catalog`/`sales` import of `customer_groups`; the `crud-form:sales.sales_tax_rate:fields` entry is part of this design but is not shipped (§7.2). `catalog` and `sales` gain **no new `requires` entry** — `matchesContext`/`scorePrice`'s matching logic already only compares against a `customerGroupId[s]` value the caller supplies, so neither module needs a runtime dependency on `customer_groups` to function; `catalog` in particular keeps its current zero-`requires` status. If `customer_groups` is ejected, both forms fall back to their present-day free-text UUID input — no error, no degraded matching behavior, just the loss of the picker convenience and the `Unknown group` explainer. The price API filter (`catalog/api/prices/route.ts`) is unaffected either way; it already accepts a raw UUID.
 
 ---
 
@@ -422,7 +436,7 @@ The free-text UUID input for `customerGroupId` in the catalog price editor is re
 
 ### 8.2 Orphan reconciliation
 
-A CLI command `yarn mercato customer-groups:reconcile [--tenant <id>] [--adopt]` reports every distinct `customer_group_id` referenced by price rows or tax rates with no matching group, including affected row counts and a sample. With `--adopt` it creates a placeholder inactive group per orphan id (`code: orphan-<short-uuid>`, `is_active: false`, priority at the bottom) so the operator can rename and activate rather than re-key every row.
+A CLI command `mercato customer_groups reconcile [--tenant <id>] [--adopt]` reports every distinct `customer_group_id` referenced by price rows or tax rates with no matching group, including affected row counts and a sample. With `--adopt` it creates a placeholder inactive group per orphan id (`code: orphan-<short-uuid>`, `is_active: false`, priority at the bottom) so the operator can rename and activate rather than re-key every row.
 
 The same report is surfaced in the admin UI as a banner on the groups list while orphans exist.
 
@@ -434,26 +448,30 @@ Adding the FK constraint is explicitly out of scope and requires its own spec on
 
 ## 9) API Contracts
 
-All admin routes use `makeCrudRoute`, export `openApi`, validate with Zod, and support optimistic locking via `updated_at` per root `AGENTS.md`.
+Every shipped route lives under `/api/customer_groups/customer-groups/`. The groups and memberships collections are `makeCrudRoute` instances that read the record id from the query string (`GET`, `DELETE`) or the body (`PUT`) — there is no `/:id` segment; the terms, reorder, reconcile, reconcile/adopt, explain-terms and price-kinds routes are hand-written. All routes export `openApi` and validate with Zod; every writable resource uses optimistic locking via `updated_at`, per root `AGENTS.md`: groups and memberships through the `makeCrudRoute` factory (default on), terms through an explicit `enforceCommandOptimisticLock` call.
 
-| Method | Path | Feature |
-|---|---|---|
-| GET/POST | `/api/customer-groups` | `customer_groups.groups.view` / `.manage` |
-| GET/PUT/DELETE | `/api/customer-groups/:id` | idem |
-| GET/POST | `/api/customer-groups/memberships` | `customer_groups.memberships.view` / `.manage` |
-| PUT/DELETE | `/api/customer-groups/memberships/:id` | idem |
-| GET/PUT | `/api/customer-groups/:id/terms` | `customer_groups.terms.view` / `.manage` |
-| GET/POST | `/api/customer-groups/credit-accounts` | `customer_groups.credit.view` / `.manage` |
-| PUT | `/api/customer-groups/credit-accounts/:id` | `customer_groups.credit.manage` |
-| GET | `/api/customer-groups/credit-accounts/:id/ledger` | `customer_groups.credit.view` |
-| POST | `/api/customer-groups/credit-accounts/:id/adjust` | `customer_groups.credit.adjust` |
-| GET | `/api/customer-groups/approvals` | `customer_groups.approvals.view` |
-| POST | `/api/customer-groups/approvals/:id/decide` | `customer_groups.approvals.decide` |
-| GET | `/api/customer-groups/reconcile` | `customer_groups.groups.manage` |
+| Status | Method | Path | Feature |
+|---|---|---|---|
+| shipped | GET, POST, PUT, DELETE | `/api/customer_groups/customer-groups` | `customer_groups.groups.view` (GET) / `.manage` (writes) |
+| shipped | GET, POST, PUT, DELETE | `/api/customer_groups/customer-groups/memberships` | `customer_groups.memberships.view` (GET) / `.manage` (writes) |
+| shipped | GET, PUT | `/api/customer_groups/customer-groups/:id/terms` | `customer_groups.terms.view` / `.manage` |
+| shipped | POST | `/api/customer_groups/customer-groups/reorder` | `customer_groups.groups.manage` |
+| shipped | GET | `/api/customer_groups/customer-groups/reconcile` | `customer_groups.groups.manage` |
+| shipped | POST | `/api/customer_groups/customer-groups/reconcile/adopt` | `customer_groups.groups.manage` |
+| shipped | GET | `/api/customer_groups/customer-groups/explain-terms` (`?customerId=`) | `customer_groups.terms.view` |
+| shipped (#7109) | GET | `/api/customer_groups/customer-groups/price-kinds` (`search`, `ids`, `pageSize`) | `customer_groups.terms.view` |
+| Phase 3, not shipped | GET/POST | `/api/customer-groups/credit-accounts` | `customer_groups.credit.view` / `.manage` |
+| Phase 3, not shipped | PUT | `/api/customer-groups/credit-accounts/:id` | `customer_groups.credit.manage` |
+| Phase 3, not shipped | GET | `/api/customer-groups/credit-accounts/:id/ledger` | `customer_groups.credit.view` |
+| Phase 3, not shipped | POST | `/api/customer-groups/credit-accounts/:id/adjust` | `customer_groups.credit.adjust` |
+| Phase 4, not shipped | GET | `/api/customer-groups/approvals` | `customer_groups.approvals.view` |
+| Phase 4, not shipped | POST | `/api/customer-groups/approvals/:id/decide` | `customer_groups.approvals.decide` |
 
-`POST /api/customer-groups` returns `{ id, isDefault }`. When `isDefault: true` was requested but the default promotion lost a concurrent race, the group is still created (201) and the response carries `isDefault: false`; the admin UI warns about it.
+The Phase 3 and Phase 4 routes above are not shipped; final shape will follow the shipped `/api/customer_groups/customer-groups` convention.
 
-The ledger has no update or delete route. Corrections go through `/adjust`, which appends a compensating entry.
+`POST /api/customer_groups/customer-groups` returns `{ id, isDefault }`. When `isDefault: true` was requested but the default promotion lost a concurrent race, the group is still created (201) and the response carries `isDefault: false`; the admin UI warns about it.
+
+The ledger has no update or delete route. Corrections go through `/adjust`, which appends a compensating entry (Phase 3, not shipped).
 
 ### 9.1 ACL features (`acl.ts`)
 
@@ -475,6 +493,8 @@ export const features = [
 
 `credit.manage` (change the limit) and `credit.adjust` (move the balance) are separate on purpose — they are different kinds of financial authority and tenants will want to grant them to different roles.
 
+The shipped `acl.ts` registers only the first six features (`groups.*`, `memberships.*`, `terms.*`); the `credit.*` and `approvals.*` entries are declared here for Phase 3 and Phase 4 and are not registered yet.
+
 ---
 
 ## 10) Events
@@ -491,7 +511,7 @@ export const features = [
 
 **Shipped on `develop` (2026-10-05):** `customer_groups.group.created|updated|deleted`, `customer_groups.membership.added|removed|expired`, `customer_groups.terms.updated` (`events.ts:4-10`). Everything else above is unshipped Phase 3–5 scope. `customer_groups.membership.expired` is **declared but never emitted**; no worker or subscriber produces it. Consumers MUST therefore bound their membership-derived caches by TTL rather than rely on that event, until an expiry job emits it (§11). `terms.updated` and `group.*` carry `groupId` and no `customerId` (`lib/groupEvents.ts:19-49`). Consumers that cache per buyer need a per-group tag (for example `customer-group:{groupId}`) to honor the "every member of the group" duty below.
 
-`customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2. `customer_groups.terms.updated` carries the same duty for every member of the group, since a terms change alters their resolved pricing.
+`customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2. The per-customer `customer:{id}` tag this relies on is not shipped and is unowned in §14; today only the membership-list CRUD cache is flushed on these writes. `customer_groups.terms.updated` carries the same duty for every member of the group, since a terms change alters their resolved pricing.
 
 `customer_groups.assortment_override.*` carries the same duty for catalog visibility: it MUST invalidate the cached buyer context, the cached "does this customer have an override" probe (visibility spec §3.7) and any storefront cache entry keyed on that buyer's `assortmentScopeHash`. It is also a buyer-identity-class change for `cart`, which re-runs its whole-cart re-visibility pass on it exactly as it does on a membership change (`2026-08-14-cart-module.md` §5.2 trigger 2) — otherwise an override's `valid_until` would be the one buyer-side change that reaches checkout unchecked.
 
@@ -507,6 +527,8 @@ export const features = [
 | `expire-approvals` | hourly | Transition `pending` approvals past `expires_at` to `expired` |
 | `credit-exposure-audit` | daily | Recompute `SUM(amount)` per account and compare against the last `balance_after`; report drift (drift means a bug, and it must be visible) |
 
+None of these jobs ships yet. `credit-exposure-audit` belongs to Phase 3 (§14); `expire-memberships` and `expire-approvals` are unowned in §14.
+
 ---
 
 ## 12) Risks & Impact Review
@@ -517,10 +539,12 @@ export const features = [
 | R2 | Stale group membership in cache | **High** | `catalog`, `ecommerce` | A customer is removed from "Wholesale" at 14:00; a price cached at 13:59 keyed only on product+channel keeps serving the wholesale price for the rest of its TTL. Revenue loss, and the reverse case discloses contract pricing. | Buyer-context digest (ADR-7) includes the sorted group id set; `membership.added`/`.removed` invalidate by tag `customer:{id}`; membership expiry runs hourly and also invalidates | Medium — a membership expiring between hourly runs serves a stale group for up to an hour; acceptable for `valid_until`, which is operator-scheduled, and documented |
 | R3 | Orphan ids silently change prices | **High** | `catalog`, `sales` | An operator creates a group and, coincidentally or by copying, its id collides with an invented one already in price rows. Rows that previously never matched suddenly apply. | Generated UUIDs make accidental collision negligible; the real vector is `--adopt`, which is explicit and reversible; reconciliation report runs before any group creation is recommended in the rollout note | Low |
 | R4 | Priority uniqueness blocks bulk import | Medium | `customer_groups` | Unique `(tenant_id, priority)` makes importing a group list fail on the first collision, mid-import. | Import assigns priorities in gaps of 10 and renumbers on conflict; the admin list supports drag-reorder which rewrites priorities in one transaction | Low |
-| R5 | Terms inheritance is opaque | Medium | `customer_groups` | A buyer gets an unexpected payment term; support cannot tell which of four overlapping groups supplied it. | `ResolvedTerms.sourceGroupId` per field; admin "explain terms" panel on the customer detail page renders the resolution trace | Low |
+| R5 | Terms inheritance is opaque | Medium | `customer_groups` | A buyer gets an unexpected payment term; support cannot tell which of four overlapping groups supplied it. | `ResolvedTerms.sources` per field; admin "explain terms" panel on the customer detail page renders the resolution trace | Low |
 | R6 | Deep group hierarchies degrade resolution | Low | `customer_groups` | Recursive ancestor walks on every price call. | Depth capped at 5; resolution result cached per `(customerId, date-bucket)` for 60s with tag `customer:{id}` | Low |
 | R7 | `PricingContext` change breaks third-party modules | Medium | `catalog` | A third-party module constructs `PricingContext` with `customerGroupId` and stops matching after the change. | Field retained and normalized for ≥1 minor version with `@deprecated`; documented in `UPGRADE_NOTES.md`; per `BACKWARD_COMPATIBILITY.md` this is ADDITIVE plus deprecation | Low |
 | R8 | Approval double-decision | Low | `customer_groups` | Two approvers open the same request and both decide. | `updated_at`-based optimistic locking on `CustomerPurchaseApproval` (§5.6) via `enforceCommandOptimisticLock` on the `/decide` action route; the second decision surfaces the conflict bar via `surfaceRecordConflict` | Low |
+
+R2's per-customer `customer:{id}` tag and its hourly membership-expiry invalidation, and R6's 60 s `(customerId, date-bucket)` resolution cache, are not shipped and are unowned in §14. Until they land, membership changes do not invalidate per-customer buyer-context or price caches, and resolution is uncached.
 
 ---
 
@@ -533,8 +557,8 @@ Per `.ai/qa/AGENTS.md`, shipping in the same change. Tests create their own fixt
 **Behavioural:**
 - Group resolution with overlapping memberships returns priority-ordered ids
 - Membership outside its validity window is excluded at the boundary instants
-- Terms inheritance resolves per field across a 3-level hierarchy with `sourceGroupId` correct for each
-- Price resolution picks the highest-priority group's row when two group rows match
+- Terms inheritance resolves per field across a 3-level hierarchy with `sources` correct for each
+- Price resolution picks the highest-priority group's row when two group rows match (not shipped; see pricing engine spec)
 - Tax resolution likewise
 - Deprecated `customerGroupId` on `PricingContext` yields the same result as `customerGroupIds: [id]`
 - `reserveCredit` under N=20 parallel calls against a limit admitting 3 reserves exactly 3
@@ -555,7 +579,7 @@ Entities `CustomerGroup`, `CustomerGroupMembership`; `resolveGroups`; admin CRUD
 **Gate:** a price row authored against a real group resolves for a member and not for a non-member; orphan report is accurate.
 
 ### Phase 2 — Commercial terms
-`CustomerGroupTerms`; `resolveTerms` with per-field inheritance and `sourceGroupId`; explain-terms admin panel; `catalog` and `sales` consume group id **sets**.
+`CustomerGroupTerms`; `resolveTerms` with per-field inheritance and the `sources` map; explain-terms admin panel; `catalog` and `sales` consume group id **sets**.
 
 **Gate:** terms resolve correctly across a 3-level hierarchy; the deprecated single-value path is behaviourally identical.
 
@@ -624,7 +648,7 @@ Operator authors the commercial-group catalog and its precedence.
   - AC: `is_active = false` groups remain visible in the list (filterable), never disappear, since history depends on them.
 
 - **US-A2** — As an operator, I want an orphan-reference banner on the groups list and a reconciliation report, so that price rows or tax rates pointing at unmodeled UUIDs are visible instead of silently inert (§8.2, R3).
-  - AC: banner shows only while `GET /api/customer-groups/reconcile` reports orphans > 0, with the count.
+  - AC: banner shows only while `GET /api/customer_groups/customer-groups/reconcile` reports orphans > 0, with the count.
   - AC: report screen lists each orphan UUID, its affected-row count, and a sample of referencing rows (catalog price / tax rate) with a link to each.
   - AC: report empty state ("No orphaned references") replaces the banner-triggering table when the count is zero.
   - AC: "Adopt" action requires a confirm naming how many placeholder groups will be created, since it is a real write (`is_active: false`, `code: orphan-<short-uuid>`); result list is highlighted so the operator can rename/activate them next.
@@ -650,10 +674,10 @@ Operator sets, and support explains, the per-group buying terms.
   - AC: `assortment_scope` uses the same category/tag/exclude picker pattern as the channel-binding scope elsewhere in the app — do not invent a new picker.
 
 - **US-C2** — As a support agent, I want an "explain terms" panel on the customer detail page, so that when a buyer asks "why do I have net-30 instead of net-60" I can answer without guessing across four overlapping groups (R5).
-  - AC: each resolved scalar field (`priceKindId`, `paymentTermsDays`, `allowPurchaseOnAccount`, `approvalRequiredAbove`, `minOrderValue`) shows its value and the group it came from (`sourceGroupId`).
-  - AC: assortment scope is shown in its own row, sourced from `resolveAssortmentScope()` rather than `resolveTerms()` (§6.4), and names **every** contributing group (`sourceGroupIds`, plural) — it is a union across groups, not a single highest-priority winner, so a single-source label would misrepresent it.
+  - AC: each resolved scalar field (`priceKindId`, `paymentTermsDays`, `allowPurchaseOnAccount`, `approvalRequiredAbove`, `minOrderValue`) shows its value and the group it came from (`sources.<field>`).
+  - AC: assortment scope is shown in its own row, sourced from `resolveAssortmentScope()` rather than `resolveTerms()` (§6.4), and names **every** matching group `resolveGroups()` returns (not filtered to groups that contributed a non-null scope) (`sourceGroupIds`, plural) — it is a union across groups, not a single highest-priority winner, so a single-source label would misrepresent it.
   - AC: when the customer carries an override (§5.7), that row also names it (`sourceCustomerOverrideId`) **alongside** the contributing groups, split into its widening and narrowing halves — naming only the group union would attribute a customer-specific rule to groups that did not make it, which is the wrong answer to the question this panel exists to answer.
-  - AC: a field with `sourceGroupId: null` is labeled "tenant default", not left blank.
+  - AC: a field whose `sources` entry is `null` is labeled "tenant default", not left blank.
   - AC: the trace is a visible ancestor path (child → parent → tenant), not a tooltip that must be discovered.
 
 - **US-C3** — As an operator, I want to widen *or* narrow one named customer's assortment independently of their groups, so that I can give a single account early access to a collection, or hold it to its contracted assortment, without creating a group of one (§5.7, added 2026-09-16).
@@ -707,6 +731,16 @@ Approver/account manager reviews over-threshold purchase requests.
 
 ### 2026-10-12 (sales tax resolution pointer)
 - **§7.2 names where the rest of tax-rate matching is specified.** Which `SalesTaxRate` row applies by address, date and the row's other columns (channel, priority, compound, validity) is specified by the `sales-tax-rates` provider of the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, in review as #6918; its Spec 2, still to be written) and applies once the organization selects that provider; this spec's set-membership substitution and group precedence (§3.2) stay its rules; `resolveGroups` is that provider's input; the group picker of §7.3 is not shipped for the tax-rate form (its injection spot cannot resolve while `TaxRatesSettings` renders its `CrudForm` without an `entityId`); wiring it is tracked as issue #6414 and coordinated with that provider's admin UI. The TLDR, §7.3, §14 Phase 1 and §17 say the same.
+
+### 2026-10-11 (post-merge review of #5384)
+Records each deviation between this spec's text and what shipped, and marks the parts that did not ship. No change to intended design — the design text stays; these entries make the document implementation-accurate.
+
+- **§6 Service Contract rebuilt from the shipped interface** (#6709). `resolveGroups`, `resolveTerms` and `resolveAssortmentScope` each take `tenantId` (`resolveTerms` also takes `at`); `ResolvedTerms` returns a per-field `sources` map instead of the illustrative single `sourceGroupId`; `resolveAssortmentScope` returns `{ scope, sourceGroupIds, sourceCustomerOverrideId }`. The credit methods (`checkCredit`, `reserveCredit`, `releaseCredit`, `settleCredit`) are Phase 3 and are now a separate, not-shipped block. `di.ts` also registers the `CustomerGroup` and `CustomerGroupMembership` entity classes under their own DI keys.
+- **§9 API contracts regenerated from `api/customer-groups/**`** (#6709). Shipped routes live under `/api/customer_groups/customer-groups/`; the groups and memberships collections are `makeCrudRoute` with the record id in the query string or body (no `/:id`); `terms`, `reorder`, `reconcile`, `reconcile/adopt`, `explain-terms` and `price-kinds` are hand-written and were previously unlisted. The credit and approval routes are marked Phase 3/4, not shipped.
+- **§8.2 CLI command corrected** (#6709): the module subcommand is `mercato customer_groups reconcile [--tenant <id>] [--adopt]`, not `customer-groups:reconcile`.
+- **§10/§11/R2/R6 — deferred membership lifecycle.** `customer_groups.membership.expired` is declared in `events.ts` but is not emitted; the hourly `expire-memberships` job, the per-customer `customer:{id}` cache-tag invalidation on membership changes and the 60 s `(customerId, date-bucket)` resolution cache do not exist; they are not shipped and are unowned in §14.
+- **§2.1/§7.1/§7.3 — stale code references fixed.** The `catalog/lib/pricing.ts` line numbers are replaced with symbol names (`matchesContext`, `scorePrice`); the set-membership matcher §7.1 describes has shipped (Pricing Engine Phase 2, #6268).
+- **§9.1 ACL note and the `sources` rename.** §9.1 now records that the shipped `acl.ts` registers only the six `groups.*`/`memberships.*`/`terms.*` features, with the `credit.*`/`approvals.*` entries declared for later phases; the single `ResolvedTerms.sourceGroupId` is replaced by the per-field `sources` map across §6, §13, R5 and US-C2.
 
 ### 2026-10-08 (terms price kind picker, #7077)
 - §10: new read-only `GET /api/customer_groups/customer-groups/price-kinds` (`customer_groups.terms.view`) lists the tenant's catalog price kinds as `{ id, code, title }` (`search`, `ids`, `pageSize` ≤ 100; empty when `catalog` is absent). The terms price kind picker and the explain-terms panel read it instead of `/api/catalog/price-kinds`, which requires `catalog.settings.manage` — without that feature the picker was empty and its 403 flash replaced the "terms saved" message.
