@@ -648,6 +648,7 @@
   "catalog.products.errors.notFound": "카탈로그 상품을 찾을 수 없습니다.",
   "catalog.products.errors.skuExists": "이미 사용 중인 SKU입니다.",
   "catalog.products.errors.taxClassNotFound": "세금 클래스를 찾을 수 없습니다.",
+  "catalog.products.errors.undoVariantSkuInUse": "SKU {sku}을(를) 다른 변형이 이미 사용 중이므로 이 상품을 복원할 수 없습니다. 해당 변형의 SKU를 변경하거나 제거한 후 다시 실행 취소하세요.",
   "catalog.products.filters.active": "활성",
   "catalog.products.filters.categories": "카테고리",
   "catalog.products.filters.categoriesLoadError": "카테고리를 불러오지 못했습니다",
