@@ -324,7 +324,7 @@ Adapters called directly (not through the hub): IMAP/SMTP now sends `attachment.
 URLs, and reports a server size rejection as `{ status: 'failed', error: '…message_too_large…' }`
 instead of throwing; Gmail refuses an attachment that only has a remote `url` instead of dropping it.
 
-`assembleRfc2822` is deprecated since 0.9.1 and kept unchanged; removal no earlier than 0.11.0.
+`assembleRfc2822` is deprecated since 0.10.0 and kept unchanged; removal no earlier than 0.11.0.
 
 **Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
 `attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from

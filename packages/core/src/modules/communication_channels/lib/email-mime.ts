@@ -238,7 +238,7 @@ function encodeBodyPart(content: string): { cte: string; body: string } {
  * `multipart/alternative` body when both html and text are present, otherwise a
  * single-part text or html body.
  *
- * @deprecated Since 0.9.1. Use the async `composeEmailMessage`, which carries
+ * @deprecated Since 0.10.0. Use the async `composeEmailMessage`, which carries
  * attachments and folds long encoded headers. Kept unchanged through the next
  * minor release; removal no earlier than 0.11.0 (`AssembleRfc2822Input` stays,
  * because `ComposeEmailMessageInput` extends it).

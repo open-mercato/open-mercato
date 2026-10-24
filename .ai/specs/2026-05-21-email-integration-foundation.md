@@ -916,7 +916,7 @@ Outbound attachments (§ Amendment — Outbound Attachments):
 | `MessageContent.attachments` | Retyped to `NormalizedAttachment[]` (same fields plus optional `content`) | Additive |
 | `POST /api/communication_channels/send-as-user` | Optional `attachments` field; error bodies may carry `code`; `openApi` declares the request body | Additive. A request that carried `attachments` used to be accepted and the field silently dropped; it is now validated and can be refused with 422 |
 | `channelMetadata.outboundAttachments` | Hub-owned; a caller-supplied value is dropped | Behavior change, documented |
-| `assembleRfc2822` | Deprecated in 0.9.1 in favor of the async `composeEmailMessage`; unchanged; removal no earlier than 0.11.0 | Deprecation protocol |
+| `assembleRfc2822` | Deprecated in 0.10.0 in favor of the async `composeEmailMessage`; unchanged; removal no earlier than 0.11.0 | Deprecation protocol |
 | IMAP/SMTP and Gmail `fileSharing` | `false` → `true`; only the hub's attachment path reads it | Capability; stored per-channel capability snapshots keep `false` until reconnect (display only) |
 | `baseEmailCapabilities.supportedMimeTypes` | Adds xlsx, docx, pptx, xls, doc | Additive; read only by the outbound attachment check |
 | Gmail outbound bytes | MailComposer output: display name quoted only when needed, folded headers | Wire format, documented |
