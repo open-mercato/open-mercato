@@ -309,6 +309,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/setup-ci-skill.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares the om-setup-ci skill\'s vendored templates/scripts/ci/{audit-ci,time-bomb-scanner}.mjs against the monorepo scripts/ originals.',
+  },
+  {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
