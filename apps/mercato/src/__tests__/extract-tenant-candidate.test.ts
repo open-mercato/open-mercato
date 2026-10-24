@@ -315,7 +315,7 @@ describe('checkAuthorization fails closed on an unreadable body (security: issue
     } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
   }
 
-  it('rejects a non-superadmin whose oversized body could be hiding a foreign tenantId', async () => {
+  it('rejects a non-superadmin whose oversized body could be hiding a foreign tenantId, on a route that honors body tenantId', async () => {
     const ownTenant = '00000000-0000-0000-0000-0000000000ee'
     const foreignTenant = '00000000-0000-0000-0000-0000000000ff'
     mockRbacContainer(false)
@@ -331,7 +331,7 @@ describe('checkAuthorization fails closed on an unreadable body (security: issue
     })
     const cloneSpy = jest.spyOn(request, 'clone')
 
-    const response = await checkAuthorization(null, buildAuth(ownTenant), request)
+    const response = await checkAuthorization({ honorsBodyTenantId: true }, buildAuth(ownTenant), request)
 
     expect(response).not.toBeNull()
     expect(response?.status).toBe(403)
@@ -351,9 +351,32 @@ describe('checkAuthorization fails closed on an unreadable body (security: issue
       body: JSON.stringify({ tenantId: foreignTenant }),
     })
 
+    const response = await checkAuthorization({ honorsBodyTenantId: true }, buildAuth(ownTenant), request)
+
+    expect(response).toBeNull()
+  })
+
+  it('does NOT fail closed on a route that never declared honorsBodyTenantId, even for a non-superadmin (regression: issue #7877 fix must not break large authenticated uploads)', async () => {
+    // Matches e.g. an attachment upload, a bulk import, or a telemetry trace batch — none of
+    // which read `tenantId` from the body — where the dispatcher's oversized-body peek must keep
+    // treating the body as "no candidate" so the route's own (larger) body handling still runs.
+    const ownTenant = '00000000-0000-0000-0000-0000000000a3'
+    const foreignTenant = '00000000-0000-0000-0000-0000000000a4'
+    mockRbacContainer(false)
+    const request = new NextRequest('http://localhost:3001/api/example/test', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(10 * 1024 * 1024),
+      },
+      body: JSON.stringify({ tenantId: foreignTenant }),
+    })
+    const cloneSpy = jest.spyOn(request, 'clone')
+
     const response = await checkAuthorization(null, buildAuth(ownTenant), request)
 
     expect(response).toBeNull()
+    expect(cloneSpy).not.toHaveBeenCalled()
   })
 })
 

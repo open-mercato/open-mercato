@@ -90,13 +90,21 @@ handler's own, larger body parsing. That peek is capped by
 can't force a full JSON/multipart body to be buffered just to extract one
 field (#7811).
 
-A non-superadmin request whose body exceeds this budget is now **rejected
-with 403**, not silently let through: the dispatcher cannot verify there is
-no foreign `tenantId` hiding past the peek limit, and fails closed rather
-than treating the unknown as "no candidate" (#7877). This affects any
-authenticated, non-superadmin write whose body — including attachments,
-bulk imports, or other large payloads — exceeds 64 KB and whose route still
-expects the dispatcher to read a body-level `tenantId`. Operators whose
-routes legitimately send larger authenticated bodies should raise
-`OM_API_TENANT_EXTRACT_MAX_BYTES` accordingly; superadmin callers are
-unaffected, since they may already select any tenant.
+For the rare route whose handler actually reads a body-supplied `tenantId`
+to select a tenant other than the caller's own — a cross-tenant management
+endpoint such as `auth/roles`, `auth/roles/acl`, or `auth/users/acl` — an
+oversized body is **rejected with 403** for a non-superadmin rather than
+silently treated as "no candidate" (#7877): the dispatcher cannot verify
+there is no foreign `tenantId` hiding past the peek limit, so it fails
+closed. Opt into this by setting `honorsBodyTenantId: true` on that method
+in the route's exported `metadata`.
+
+Every other route — the overwhelming majority, since `packages/core/AGENTS.md`
+requires deriving `tenantId` from the authenticated context rather than
+request input — keeps the pre-existing behavior for this oversized-body case: an
+upload, a bulk write, or a telemetry batch whose body exceeds 64 KB is
+treated as "no candidate" and proceeds to the route's own (larger) body
+handling unaffected, same as before #7877. Only set `honorsBodyTenantId`
+after confirming the route's handler genuinely reads and acts on a
+body-level `tenantId` — setting it on a route that doesn't would start
+rejecting that route's own legitimate oversized bodies for non-superadmins.

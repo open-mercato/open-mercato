@@ -45,6 +45,18 @@ type MethodMetadata = {
    * reads/clears that telemetry, so tracking it would perturb the data it just reported). Set
    * `skipModuleResourceUsageTracking: true` in the route's `metadata` export for the method. */
   skipModuleResourceUsageTracking?: boolean
+  /** Route-declared acknowledgement that its handler reads a body-supplied `tenantId` and uses it
+   * to select tenant scope (issue #7877) — the convention (`packages/core/AGENTS.md`: "Always
+   * derive `tenantId` from the authenticated context, never from request input") makes this rare;
+   * it is true only for a few superadmin/cross-tenant management endpoints (e.g.
+   * `auth/roles`, `auth/roles/acl`, `auth/users/acl`). When the dispatcher's body-peek cannot
+   * determine whether an oversized body carries a `tenantId` at all, it fails closed (403 for a
+   * non-superadmin) ONLY for a route that sets this — every other route (the overwhelming
+   * majority, including every CRUD-factory route and every upload/bulk endpoint, none of which
+   * read `tenantId` from body) keeps the pre-existing behavior of treating an unreadable body as
+   * "no candidate" for this oversized-body case specifically; within-budget bodies are always
+   * fully checked regardless of this flag. */
+  honorsBodyTenantId?: boolean
 }
 
 type HandlerContext = {
@@ -130,6 +142,9 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
   }
   if (typeof source.skipModuleResourceUsageTracking === 'boolean') {
     normalized.skipModuleResourceUsageTracking = source.skipModuleResourceUsageTracking
+  }
+  if (typeof source.honorsBodyTenantId === 'boolean') {
+    normalized.honorsBodyTenantId = source.honorsBodyTenantId
   }
   return Object.keys(normalized).length > 0 ? normalized : null
 }
@@ -244,11 +259,16 @@ export async function checkAuthorization(
     const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
     const enforcedCandidates = new Set<string | null>()
     for (const rawTenantCandidate of rawTenantCandidates) {
-      // The body exceeded the dispatcher's tenant-extraction budget, so we never
-      // learned whether it carries a `tenantId` at all — fail closed rather than
-      // silently treating the unknown as "no candidate" (issue #7877). A superadmin
-      // may select any tenant regardless, so this gate only applies below that.
+      // The body exceeded the dispatcher's tenant-extraction budget, so we never learned
+      // whether it carries a `tenantId` at all. Only a route that declared
+      // `honorsBodyTenantId` can actually act on a body-supplied `tenantId` (issue #7877) —
+      // for every other route (the default; see the `MethodMetadata` doc comment) this is
+      // "no candidate", same as before, so a legitimately large authenticated body (an
+      // upload, a bulk write, a telemetry batch — none of which read `tenantId` from body)
+      // keeps working. A superadmin may select any tenant regardless, so the fail-closed
+      // check only ever applies below that.
       if (rawTenantCandidate === TENANT_CANDIDATE_UNREADABLE) {
+        if (!methodMetadata?.honorsBodyTenantId) continue
         const guardContainer = await ensureContainer()
         const isSuperAdmin = await resolveIsSuperAdmin({ auth, container: guardContainer })
         if (!isSuperAdmin) {
