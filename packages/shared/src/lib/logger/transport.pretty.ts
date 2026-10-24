@@ -63,6 +63,12 @@ function formatTimestamp(date: Date): string {
   return `${hours}:${minutes}:${seconds}.${millis}`
 }
 
+const STACK_INDENT = '    '
+
+function indentStack(stack: string): string {
+  return stack.split('\n').map((stackLine) => `${STACK_INDENT}${stackLine}`).join('\n')
+}
+
 export function createPrettyLogger(namespace: string, bindings: LogBindings = {}): Logger {
   const emit = (level: LogLevel, msg: string, fields?: LogBindings): void => {
     if (!isLevelEnabled(level)) return
@@ -81,7 +87,9 @@ export function createPrettyLogger(namespace: string, bindings: LogBindings = {}
     const levelPart = colored ? `${LEVEL_COLORS[level]}${label}${ANSI_RESET}` : label
     let line = `${timestampPart} ${levelPart} [${scope}] ${msg}`
     if (tail) line += ` ${tail}`
-    if (err instanceof Error) line += `\n${err.stack ?? err.message}`
+    // Indented so log readers (e.g. the dev runtime filter) can tell the
+    // entry's own stack from unrelated `Error:` output that follows it.
+    if (err instanceof Error) line += `\n${indentStack(err.stack ?? err.message)}`
     stream.write(`${line}\n`)
   }
   return {

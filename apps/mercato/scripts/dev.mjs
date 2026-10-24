@@ -1575,7 +1575,8 @@ function createFilteredReporter(label, classifyLine) {
       lastRenderedStatus = null
     }
 
-    if (ignoreLine(plain, { startupReady: splashState.ready })) {
+    // Raw line: the noise filter reads indentation to tell an entry's own err stack from unrelated output.
+    if (ignoreLine(stripAnsi(line), { startupReady: splashState.ready })) {
       return
     }
 
