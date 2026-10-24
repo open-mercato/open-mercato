@@ -1420,7 +1420,7 @@ function assertClaimUpdateFields(claim: WarrantyClaim, input: ClaimUpdateInput):
 
 function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, customerName: string | null, orderNumber: string | null): void {
   if (hasOwn(input, 'customerId')) claim.customerId = input.customerId ?? null
-  if (hasOwn(input, 'customerName')) claim.customerName = customerName
+  if (hasOwn(input, 'customerId') || hasOwn(input, 'customerName')) claim.customerName = customerName
   if (hasOwn(input, 'orderId')) {
     claim.orderId = input.orderId ?? null
     claim.orderNumber = orderNumber
@@ -1668,7 +1668,7 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const customerChanged = hasOwn(input, 'customerId') && (input.customerId ?? null) !== (claim.customerId ?? null)
     const shouldRefreshCustomerName = hasOwn(input, 'customerId') || hasOwn(input, 'customerName')
     const customerName = shouldRefreshCustomerName
-      ? await resolveCustomerName(ctx, input.customerId ?? claim.customerId, scope, input.customerName ?? claim.customerName, { strict: customerChanged })
+      ? await resolveCustomerName(ctx, effectiveCustomerId, scope, customerChanged ? input.customerName : (input.customerName ?? claim.customerName), { strict: customerChanged })
       : claim.customerName ?? null
     const orderNumber = hasOwn(input, 'orderId')
       ? await resolveOrderNumber(ctx, input.orderId, scope, (input.orderId ?? null) === (claim.orderId ?? null) ? claim.orderNumber : null)

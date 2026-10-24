@@ -19,6 +19,7 @@ const PORTAL_USER_ID = '88888888-8888-4888-8888-888888888888'
 const ORDER_ID = '99999999-9999-4999-8999-999999999999'
 const ORDER_LINE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SALES_RETURN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const PREVIOUS_CUSTOMER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
 const defaultSettings: WarrantyClaimEffectiveSettings = {
   slaHours: 48,
@@ -1200,6 +1201,107 @@ describe('warranty claim commands', () => {
     } as ClaimUpdateInput, ctx)
     expect(claim.orderId).toBeNull()
     expect(claim.orderNumber).toBeNull()
+  })
+
+  test('update refreshes the customer name snapshot when only the customer id changes', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerId: PREVIOUS_CUSTOMER_ID, customerName: 'Previous Customer Ltd' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: CUSTOMER_ID,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+  })
+
+  test('update refreshes a stale customer name snapshot when the customer id is unchanged', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerName: 'Stale Name' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: CUSTOMER_ID,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+  })
+
+  test('update keeps the linked customer name on a name-only edit and stores a typed name for an unlinked claim', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerName: 'Stale Name' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerName: 'Typed Name',
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+
+    claim.customerId = null
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerName: 'Walk-in Buyer',
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBe('Walk-in Buyer')
+  })
+
+  test('update clears the customer name snapshot when the customer link is cleared', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: null,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBeNull()
+  })
+
+  test('update stores the typed customer name when the customer link is cleared', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: null,
+      customerName: 'Walk-in Buyer',
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBe('Walk-in Buyer')
+  })
+
+  test('update clears the customer link even when the previous customer no longer exists', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerId: PREVIOUS_CUSTOMER_ID, customerName: 'Previous Customer Ltd' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: null,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBeNull()
   })
 
   test('customer replies raise the awaiting-staff-reply flag and staff actions clear it', async () => {
