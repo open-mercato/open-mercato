@@ -23,6 +23,7 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { downloadInventoryCsv } from '../../lib/inventoryCsvExport'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import {
@@ -141,23 +142,6 @@ const NON_SELLABLE_LOCATION_TYPES = new Set(['staging', 'dock'])
 const PICKING_LOCATION_TYPES = new Set(['staging', 'bin', 'slot'])
 const NEAR_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000
 const MS_PER_DAY = 24 * 60 * 60 * 1000
-
-function escapeCsvCell(value: string | number): string {
-  const str = String(value ?? '')
-  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
-  return str
-}
-
-function downloadCsvFile(filename: string, rows: string[][]) {
-  const csv = rows.map((row) => row.map(escapeCsvCell).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 
 function toNumber(value: string | number | null | undefined): number {
   const parsed = Number(value ?? 0)
@@ -827,13 +811,13 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
         formatWarehouseLabel(row),
         formatLocationLabel(row.location_code, row.location_id),
         formatLastMoveLabel(lastMoveByLocation.get(balanceLocationKey(row)), locale, t),
-        String(toNumber(row.quantity_on_hand)),
-        String(toNumber(row.quantity_reserved)),
+        toNumber(row.quantity_on_hand),
+        toNumber(row.quantity_reserved),
         t(status.labelKey, status.labelFallback),
       ]
     })
     const safeLot = pageTitle.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'lot'
-    downloadCsvFile(`${safeLot}-locations.csv`, [headers, ...rows])
+    downloadInventoryCsv(`${safeLot}-locations.csv`, [headers, ...rows])
   }, [filteredBalances, lastMoveByLocation, locale, lotData, nowMs, pageTitle, reorderPoint, t])
 
   const selectedWarehouse = warehousesQuery.data?.find((warehouse) => warehouse.id === warehouseId)
