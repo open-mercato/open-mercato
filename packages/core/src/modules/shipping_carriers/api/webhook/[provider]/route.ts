@@ -70,7 +70,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const queue = getShippingCarrierQueue('shipping-carriers-webhook')
   const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
-  const carrierShipmentId = readCarrierShipmentId(payload)
+  const carrierShipmentId = (payload ? adapter.extractWebhookShipmentId?.(payload) : null) || readCarrierShipmentId(payload)
 
   try {
     // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a

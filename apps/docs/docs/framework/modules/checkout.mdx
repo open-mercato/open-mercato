@@ -265,6 +265,9 @@ Checkout relies on the additive provider-descriptor surface from `payment_gatewa
 - supported currencies
 - supported payment types
 - presentation capabilities (`embedded`, `redirect`, `either`)
+- required payer fields (`requiresPayerFields`), when the provider cannot create a session without payer data
+
+When the selected provider declares `requiresPayerFields`, the template and link create/update commands reject the save with a `422` field error on `gatewayProviderKey` (`checkout.validation.gatewayProviderKey.payerFieldsNotCollected`) unless customer details are collected and each mapped customer field is required: `email` → `email`, `name` → `firstName` and `lastName`. Updates validate the merged (stored + submitted) state, so an already-misconfigured link keeps working at payment time but must be fixed on its next save. The editor shows the same rule as an inline warning in the payment section.
 
 Checkout reads these descriptors through the descriptor service and the safe provider endpoints in `payment_gateways`. Credentials stay owned by the gateway package and its integration records.
 
