@@ -483,6 +483,32 @@ fresh proposals. Old cards cannot be distinguished from forgeries; do not backfi
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
 
+### AI-chat session tokens: hashed storage, deploy the app and the MCP server together (#2254, #7304)
+
+`api_keys.session_token` (the ephemeral AI-chat/MCP bearer credential) is replaced by a SHA-256
+`api_keys.session_token_hash`. The old column is kept as a deprecated, always-`null` bridge —
+nothing reads or writes it anymore — rather than dropped, so it is safe to leave in place across
+a rolling deploy.
+
+**Deploy the app and the standalone MCP process (`mcp:serve-http`/`mcp:dev`) together.** During
+the window where they run different code versions:
+- A session minted by the *old* code (plaintext-only) is still resolved by the *new* code — it
+  falls back to the plaintext column on a hash miss and self-heals the row onto the hash on
+  first use — so upgrading the app ahead of the MCP process is safe.
+- A session minted by the *new* code (hash-only) is **not** resolved by an *old* MCP process
+  still running against the same database — the old binary has no way to know about the hash
+  column. Upgrading the MCP process after the app, or running both from the same deploy, avoids
+  this. If hit anyway, the user sees "Your chat session has expired" and recovers by reopening
+  the chat window; no data is corrupted.
+
+**Rolling back after this migration is destructive to sessions minted since the upgrade.** The
+migration backfills the hash from, and then clears, the plaintext column for rows that already
+existed; it cannot retroactively plaintext-store sessions minted by the new code after that
+point. Rolling back (`down()`) drops the hash column, so any session minted between the forward
+migration and the rollback is unrecoverable — users must reopen their chat windows. This is the
+same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
+state.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
