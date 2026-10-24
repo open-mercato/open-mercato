@@ -429,12 +429,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### Outbound webhook delivery timeout now covers the response body (#7226)
-
-A webhook's `timeoutMs` used to stop at the response headers; it now also covers reading the receiver's response body. A receiver that sends its status and headers but does not finish the body in time is classified by its status, with the body received so far: a cut-off 2xx is recorded as `delivered` with no error message, so its `responseBody` may be incomplete. The stored `responseBody` is now at most 4096 UTF-8 bytes (previously 4096 UTF-16 code units), cut on a character boundary, and the connection is closed once 4096 bytes have been read or the timeout fires. `responseStatus` and `responseHeaders` are recorded as soon as the headers arrive, so a connection that fails mid-body keeps them. `responseStatus`, `responseHeaders` and `responseBody` are cleared when an attempt starts, so the previous attempt's response is no longer shown once a new attempt begins.
-
-**Action for module/app authors:** none, unless you read `responseBody` from delivery logs and expect more than 4096 bytes or a complete body from slow receivers.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
