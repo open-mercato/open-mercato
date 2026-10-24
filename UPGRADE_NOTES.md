@@ -429,24 +429,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### Custom-entity record PUT answers 404 instead of creating or restoring a record (#ISSUE)
-
-`PUT /api/entities/records` with a UUID `recordId` used to write whatever row it found, or none:
-a soft-deleted record was restored (its `deleted_at` cleared) and a UUID that matched no record in
-the caller's organization created a new record under that id. Both now answer
-`404 { error: "Record not found" }` (localized) and write nothing. Updating an existing,
-non-deleted record is unchanged, and a blank, sentinel (`create`, `new`, `null`, `undefined`) or
-non-UUID `recordId` still creates a record with a generated id. POST, GET and DELETE are unchanged.
-
-- A client that used PUT to create a record under an id it chose must send `POST /api/entities/records`
-  with `recordId` instead.
-- Restoring a deleted record through PUT is no longer possible.
-- `DataEngine.updateCustomEntityRecord` gains an optional `requireActive` flag (the route passes
-  `true`). With the flag the method touches only a non-deleted row and throws a 404 `CrudHttpError`
-  when there is none. Without it the method still inserts or restores as before, so other callers
-  and custom `DataEngine` implementations keep working unchanged. A custom implementation must honour
-  `requireActive` for the route to refuse unknown and deleted ids.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
