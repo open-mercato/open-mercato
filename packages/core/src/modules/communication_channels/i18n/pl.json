@@ -30,6 +30,7 @@
   "communication_channels.errors.reactionNotFound": "Nie znaleziono reakcji",
   "communication_channels.errors.threadNotFound": "Nie znaleziono wątku",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Inny kanał jest teraz głównym dla tego użytkownika. Ustaw go jako niegłówny, zanim przywrócisz rozłączony kanał jako główny.",
+  "communication_channels.errors.undoRestoreDuplicate": "Ten kanał został ponownie połączony po usunięciu. Usuń nowsze połączenie, zanim cofniesz to usunięcie.",
   "communication_channels.infoPanel.aria": "Informacje o kanale",
   "communication_channels.infoPanel.assignedTo": "Przypisane do",
   "communication_channels.infoPanel.contactPerson": "Kontakt CRM",

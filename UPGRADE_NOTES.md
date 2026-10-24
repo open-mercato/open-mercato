@@ -413,6 +413,37 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+<a id="communication-channels-undo-delete-duplicate"></a>
+
+### Undoing a channel delete is refused once the channel was reconnected (#7726)
+
+Undo of `communication_channels.channel.delete` and `communication_channels.channel.admin_delete`
+(through `POST /api/audit_logs/audit-logs/actions/undo`) now checks whether a live channel has
+taken the same connection since the delete: the same owner and provider with the same identifier
+(an identifier-less row matches a row of that provider in the same organization that connect
+created, or adopted from an older identifier-less row, after the delete), the same mailbox through
+another provider, or, for a tenant-wide push channel, the same provider. In that case the undo
+answers `409` with a translated `error` (`communication_channels.errors.undoRestoreDuplicate`) and
+restores nothing. Before this release it answered `200` and left two active channels for one
+connection, or a generic `400 Undo failed` when a unique index rejected the restore. The undo stays
+available: once the newer connection is deleted, the same undo restores the original channel, still
+as a non-primary channel.
+
+The check and the restore run in one transaction under a PostgreSQL advisory lock per tenant and
+owner, which `createConnectedChannelRow` (credential connect and the OAuth callback) now takes too,
+so connects of one owner run one at a time and a reconnect can no longer slip between the check and
+the restore. The delete's undo payload gains an optional `unidentifiedSiblingIds` list (the live
+identifier-less rows of the same provider at delete time); undo entries written before this release
+lack it, and their undo then treats any identified row of the provider as a reconnect.
+
+**Action for integrators:** none, unless a client treats every undo failure as `400`; handle `409`
+with the `error` message as a refusal the user can act on.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): behavioural narrowing of two undo handlers, an additive optional field in their undo
+payload, and serialized connects per owner. Route URLs, request and response schemas, event IDs,
+ACL features, DI names and database schema are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

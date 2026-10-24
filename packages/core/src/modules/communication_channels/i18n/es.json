@@ -30,6 +30,7 @@
   "communication_channels.errors.reactionNotFound": "Reacción no encontrada",
   "communication_channels.errors.threadNotFound": "Hilo no encontrado",
   "communication_channels.errors.undoBlockedPrimaryConflict": "Otro canal es ahora el principal para este usuario. Configúralo como no principal antes de restaurar el canal desconectado como principal.",
+  "communication_channels.errors.undoRestoreDuplicate": "Este canal se volvió a conectar después de eliminarlo. Elimina la conexión más reciente antes de deshacer esta eliminación.",
   "communication_channels.infoPanel.aria": "Información del canal",
   "communication_channels.infoPanel.assignedTo": "Asignado a",
   "communication_channels.infoPanel.contactPerson": "Contacto CRM",
