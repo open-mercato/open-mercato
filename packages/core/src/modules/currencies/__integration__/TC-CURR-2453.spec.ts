@@ -63,12 +63,6 @@ async function listBases(request: APIRequestContext, token: string): Promise<Cur
 
 async function cleanupCurrency(request: APIRequestContext, token: string | null, id: string | null): Promise<void> {
   if (!token || !id) return;
-  // A base currency cannot be deleted; demote it first, then delete.
-  try {
-    await apiRequest(request, 'PUT', '/api/currencies/currencies', { token, data: { id, isBase: false } });
-  } catch {
-    /* ignore */
-  }
   try {
     await apiRequest(request, 'DELETE', `/api/currencies/currencies?id=${encodeURIComponent(id)}`, { token });
   } catch {
@@ -148,8 +142,8 @@ test.describe('TC-CURR-2453: base-currency update persists scalar changes throug
       expect(basesAfter.length, 'exactly one base currency remains after the update').toBe(1);
       expect(basesAfter[0].id, 'the updated record is the single base').toBe(id);
     } finally {
-      await cleanupCurrency(request, token, id);
-      // Restore the original base so we leave shared tenant state as we found it.
+      // Restore the original base first: a base currency cannot be un-flagged or
+      // deleted, so the fixture is only removable once another base exists.
       if (token && priorBaseId) {
         try {
           await apiRequest(request, 'PUT', '/api/currencies/currencies', { token, data: { id: priorBaseId, isBase: true } });
@@ -157,6 +151,7 @@ test.describe('TC-CURR-2453: base-currency update persists scalar changes throug
           /* ignore */
         }
       }
+      await cleanupCurrency(request, token, id);
     }
   });
 });

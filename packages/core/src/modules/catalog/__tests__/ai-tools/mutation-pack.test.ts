@@ -756,6 +756,35 @@ describe('catalog.update_product_media_descriptions — contract', () => {
   })
 })
 
+describe('catalog.update_product_media_descriptions — loadBeforeRecords', () => {
+  const tool = findTool('catalog.update_product_media_descriptions')
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+  })
+
+  it('projects an explicit after so untouched fields do not surface as cleared (regression #7349)', async () => {
+    const mediaRow = {
+      id: MEDIA_ID_A,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      fileName: 'hero.jpg',
+      storageMetadata: { altText: 'Old alt', caption: 'Old caption' },
+      createdAt: new Date('2026-04-01T00:00:00Z'),
+    }
+    findOneWithDecryptionMock.mockResolvedValueOnce(mediaRow)
+    const ctx = makeMutationCtx()
+    const rows = await tool.loadBeforeRecords!(
+      {
+        mediaUpdates: [{ mediaId: MEDIA_ID_A, altText: 'New alt' }],
+      } as any,
+      ctx as any,
+    )
+    expect(rows[0].before).toEqual({ altText: 'Old alt', caption: 'Old caption' })
+    expect(rows[0].after).toEqual({ altText: 'New alt', caption: 'Old caption' })
+  })
+})
+
 describe('catalog.update_product_media_descriptions — handler', () => {
   const tool = findTool('catalog.update_product_media_descriptions')
 
