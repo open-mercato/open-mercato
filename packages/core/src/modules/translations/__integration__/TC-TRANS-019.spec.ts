@@ -73,6 +73,7 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
 
       const afterDelete = await readTranslations(request, token, RESOURCE_ENTITY_TYPE, resourceId)
       expect(afterDelete.status, 'translations kept while the resource is only soft-deleted').toBe(200)
+      expect(afterDelete.body.translations?.de?.name).toBe(`Ressource ${stamp}`)
 
       const undoResponse = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
         token,
@@ -97,6 +98,7 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
     const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
     let token: string | null = null
     let productId: string | null = null
+    let translatedProductId: string | null = null
 
     try {
       token = await getAuthToken(request, 'admin')
@@ -104,6 +106,7 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
         title: `QA TC-TRANS-019 Product ${stamp}`,
         sku: `QA-TRANS-019-${stamp}`,
       })
+      translatedProductId = productId
 
       const putResponse = await apiRequest(request, 'PUT', `/api/translations/${PRODUCT_ENTITY_TYPE}/${productId}`, {
         token,
@@ -123,6 +126,7 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
       expect(afterDelete.status, 'translations removed with the hard-deleted product').toBe(404)
       productId = null
     } finally {
+      await deleteTranslationIfExists(request, token, PRODUCT_ENTITY_TYPE, translatedProductId)
       await deleteCatalogProductIfExists(request, token, productId)
     }
   })

@@ -435,9 +435,12 @@ The translations module used to delete a record's `entity_translations` rows on 
 `query_index.delete_one` event, including soft deletes that set `deleted_at` and can be undone. Undoing
 such a delete (for example a resource in the `resources` module) restored the record without its
 translations. The cleanup subscriber now keeps the translations while the owning row still exists with
-`deleted_at` set, so undo brings them back. Hard deletes, entities without a soft-delete column, and
-entity types that are not registered ORM entities are cleaned up as before. Event names and payloads
-are unchanged.
+its soft-delete column set, so undo brings them back; `GET /api/translations/:entityType/:entityId`
+keeps returning them for the soft-deleted record, and nothing purges them unless the row is later
+hard-deleted. Hard deletes, entities without a soft-delete column, and entity types outside the
+generated entity id registry (including custom-entity records such as `user:*`) are cleaned up as
+before. If the soft-delete check itself fails, the translations are kept and the error is reported.
+Event names and payloads are unchanged.
 
 **Action for module authors:** if your code reads `entity_translations` directly, expect rows for
 soft-deleted records and filter by the owning record's `deleted_at` where that matters.
