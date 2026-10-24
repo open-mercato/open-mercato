@@ -537,7 +537,7 @@ export default function ProfileCommunicationChannelsPage() {
     (channel: ChannelRow) => {
       const items: RowActionItem[] = []
 
-      if (!channel.isPrimary) {
+      if (!channel.isPrimary && channel.status !== 'disconnected') {
         items.push({
           id: 'set-primary',
           label: t('communication_channels.profile.actions.setPrimary', 'Set as primary'),
