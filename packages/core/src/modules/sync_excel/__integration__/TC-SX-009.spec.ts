@@ -2,6 +2,7 @@ import path from 'node:path'
 import { config as loadEnv } from 'dotenv'
 import { Client } from 'pg'
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { apiRequestWithSelectedOrg } from '@open-mercato/core/helpers/integration/authFixtures'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -28,6 +29,15 @@ if (!TEST_APP_ROOT) {
   loadEnv({ path: path.resolve(APP_ROOT, '.env') })
   process.env.QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 }
+
+// The monorepo integration runner starts the app with AUTO_SPAWN_WORKERS on (the CLI default), so its own
+// data-sync-import and events workers already consume these queues. Draining them here as well hands the same
+// import job to two workers, which both create the row's person before one yields the run — a duplicate person
+// and counts from whichever worker committed. Drain only when the app runs no workers: standalone apps run with
+// AUTO_SPAWN_WORKERS=false, and a local run follows the app's .env. Reusing an environment started with a
+// different AUTO_SPAWN_WORKERS than this shell either brings the race back or leaves the queue unconsumed.
+const APP_RUNS_QUEUE_WORKERS = !TEST_APP_ROOT
+  && (parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) ?? parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS) ?? true)
 
 type Scope = { tenantId: string; orgId: string }
 
@@ -217,7 +227,7 @@ async function importCsv(
     const run = await readJson(runResponse)
     const status = String(run.status ?? '')
     if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-      await drainIntegrationQueue('events', { appRoot: APP_ROOT })
+      if (!APP_RUNS_QUEUE_WORKERS) await drainIntegrationQueue('events', { appRoot: APP_ROOT })
       return {
         status,
         createdCount: Number(run.createdCount ?? 0),
@@ -226,7 +236,7 @@ async function importCsv(
         failedCount: Number(run.failedCount ?? 0),
       }
     }
-    await drainIntegrationQueue('data-sync-import', { appRoot: APP_ROOT })
+    if (!APP_RUNS_QUEUE_WORKERS) await drainIntegrationQueue('data-sync-import', { appRoot: APP_ROOT })
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   throw new Error(`Timed out waiting for sync run ${runId}`)

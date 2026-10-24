@@ -4,6 +4,7 @@ import { request as httpsRequest } from 'node:https'
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { resolveDefaultAttachmentMaxUploadBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -20,7 +21,15 @@ const UPLOAD_PATH = '/api/warranty_claims/portal/attachments'
 const BOUNDARY = '----om-tc-wc-037'
 const OVERSIZED_FILE_BYTES = 40 * 1024 * 1024
 
-type UploadResult = { status: number; body: string }
+// The server answers 413 and stops reading once the streamed body passes the
+// limit, while the client is still writing, so depending on timing the socket
+// is reset before the response is read. A reset only counts as that rejection
+// when the client had already sent more than the file limit: an earlier reset
+// (an auth or validation failure) or a full read would not. A reset cannot show
+// the 413 itself, so the response branch keeps checking it.
+type UploadResult =
+  | { kind: 'response'; status: number; body: string }
+  | { kind: 'closed'; bytesSent: number }
 
 function parseUploadBody(raw: string): { ok?: boolean; error?: string } | null {
   try {
@@ -56,19 +65,19 @@ function sendChunkedUpload(method: 'POST' | 'PUT', cookieHeader: string, claimId
       res.on('aborted', () => reject(new Error('[internal] response aborted before it completed')))
       res.on('end', () => {
         settled = true
-        resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
+        resolve({ kind: 'response', status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
       })
     })
     req.on('error', (error: NodeJS.ErrnoException) => {
       if (settled || error.code === 'EPIPE' || error.code === 'ECONNRESET') return
       reject(error)
     })
+    let sent = 0
     req.on('close', () => {
-      if (!responded) reject(new Error('[internal] connection closed before a response arrived'))
+      if (!responded) resolve({ kind: 'closed', bytesSent: sent })
     })
     req.write(fields.join(''))
     const chunk = Buffer.alloc(256 * 1024, 0x41)
-    let sent = 0
     const writeMore = () => {
       while (sent < OVERSIZED_FILE_BYTES) {
         if (req.destroyed) return
@@ -114,6 +123,11 @@ test.describe('TC-WC-037: portal attachment upload stream limit', () => {
 
       for (const method of ['POST', 'PUT'] as const) {
         const result = await sendChunkedUpload(method, session.cookieHeader, randomUUID())
+        if (result.kind === 'closed') {
+          expect(result.bytesSent, `${method} upload was reset before it passed the upload limit`).toBeGreaterThan(resolveDefaultAttachmentMaxUploadBytes())
+          expect(result.bytesSent, `${method} upload was reset only after the whole body was sent`).toBeLessThan(OVERSIZED_FILE_BYTES)
+          continue
+        }
         expect(result.status, `${method} oversized chunked upload should be rejected while streaming`).toBe(413)
         const body = parseUploadBody(result.body)
         expect(body?.ok).toBe(false)
