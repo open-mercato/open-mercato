@@ -537,7 +537,7 @@ The `decorateItemsWithCustomFields()` function in `packages/shared/src/lib/crud/
 
 - `translations.updated` event emitted when PUT creates/updates a translation record
 - `translations.deleted` event emitted when DELETE removes a translation record
-- Generic entity delete events (e.g., `catalog.product.deleted`) trigger a cleanup subscriber that removes the corresponding translation row — same pattern as `entity_indexes` cleanup
+- Generic entity delete events (e.g., `catalog.product.deleted`) trigger a cleanup subscriber that removes the corresponding translation row — same pattern as `entity_indexes` cleanup. The row is kept while the owning record still exists with `deleted_at` set (soft delete), so undoing that delete restores the translations
 
 ### Audit Trail
 
@@ -682,6 +682,9 @@ One generic table, one row per entity, JSONB stores all locale translations. Thi
 ---
 
 ## Changelog
+
+### 2026-10-25
+- Cleanup subscriber keeps translations of soft-deleted records so undo restores them (#ISSUE)
 
 ### 2026-02-13 (v3)
 - Complete rewrite per pkarw direction (issue #527, Feb 12 comment)
