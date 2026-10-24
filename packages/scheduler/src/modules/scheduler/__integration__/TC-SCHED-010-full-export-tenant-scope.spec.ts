@@ -158,8 +158,10 @@ test.describe('TC-SCHED-010: full export stays scoped to the caller tenant/organ
         { token: ownOrgActor.token },
       )
       expect(exportResponse.status(), 'full export should return 200 for an authorized caller').toBe(200)
-      const exported = await readJsonSafe<Array<{ id: string }>>(exportResponse)
-      const exportedIds = new Set((exported ?? []).map((item) => item.id))
+      // The full-export JSON serializer keys each row by its human-readable column header
+      // (e.g. "Id"), not the raw field name — see `serializeJson` in `lib/crud/exporters.ts`.
+      const exported = await readJsonSafe<Array<{ Id: string }>>(exportResponse)
+      const exportedIds = new Set((exported ?? []).map((item) => item.Id))
 
       expect(exportedIds.has(ownOrgJobId), 'own-org job must survive the full export').toBe(true)
       expect(exportedIds.has(otherOrgJobId), 'another organization\'s job (same tenant) must not leak into the export').toBe(false)
