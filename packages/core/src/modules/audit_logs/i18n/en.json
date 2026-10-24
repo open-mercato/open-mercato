@@ -43,6 +43,7 @@
   "audit_logs.error.load": "Failed to load audit logs",
   "audit_logs.error.redo": "Unable to redo action",
   "audit_logs.error.undo": "Unable to undo action",
+  "audit_logs.error.undo_failed": "Undo failed",
   "audit_logs.filters.undoable_only": "Undoable only",
   "audit_logs.hint.view_self_only": "Showing only your own changes. Contact an administrator for broader access.",
   "audit_logs.nav.title": "Audit Logs",
