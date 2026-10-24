@@ -30,10 +30,12 @@ const dict = {
   'ai_assistant.chat.mutation_cards.preview.confirm': 'Confirm',
   'ai_assistant.chat.mutation_cards.preview.cancel': 'Cancel',
   'ai_assistant.chat.mutation_cards.preview.reviewDetails': 'Review details',
+  'ai_assistant.chat.mutation_cards.preview.unavailable': 'This proposal is not available to you.',
   'ai_assistant.chat.mutation_cards.diff.fieldHeader': 'Field',
   'ai_assistant.chat.mutation_cards.diff.beforeHeader': 'Before',
   'ai_assistant.chat.mutation_cards.diff.afterHeader': 'After',
   'ai_assistant.chat.mutation_cards.diff.empty': 'No field changes for this record.',
+  'ai_assistant.chat.mutation_cards.confirmation.toolFeaturesDeniedTitle': 'Permission required',
 }
 
 function makeAction(
@@ -84,6 +86,52 @@ describe('MutationPreviewCard', () => {
       ok: true,
       data: { ok: true, pendingAction: makeAction({ status: 'cancelled' }) },
     })
+  })
+
+  it('hides the diff, Confirm and Cancel when the action is unavailable to the viewer', () => {
+    ;(useAiPendingActionPolling as jest.Mock).mockReturnValue({
+      action: null,
+      status: null,
+      isPolling: false,
+      error: null,
+      unavailable: true,
+      refresh: jest.fn().mockResolvedValue(null),
+    })
+    renderWithProviders(
+      <MutationPreviewCard
+        componentId="mutation-preview-card"
+        pendingActionId="pa-foreign"
+        payload={{ pendingAction: makeAction() }}
+      />,
+      { dict },
+    )
+    expect(screen.queryByText('Alicia')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-body]')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-unavailable]')).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-confirm]')).toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-cancel]')).toBeNull()
+  })
+
+  it('shows the tool_features_denied alert after a refused confirm and keeps the preview actions', async () => {
+    installPollingMock(makeAction())
+    ;(confirmPendingAction as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: { status: 403, code: 'tool_features_denied', message: 'Forbidden' },
+    })
+    renderWithProviders(
+      <MutationPreviewCard
+        componentId="mutation-preview-card"
+        pendingActionId="pa-1"
+      />,
+      { dict },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => {
+      expect(document.querySelector('[data-ai-confirmation-error="tool_features_denied"]')).not.toBeNull()
+    })
+    expect(screen.getByText('Permission required')).toBeInTheDocument()
+    expect(document.querySelector('[data-ai-mutation-preview]')).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-preview-cancel]')).not.toBeNull()
   })
 
   it('renders fieldDiff mode with before/after cells', () => {

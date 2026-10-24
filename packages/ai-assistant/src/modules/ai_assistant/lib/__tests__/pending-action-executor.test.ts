@@ -8,6 +8,7 @@ import type { AiActionConfirmedPayload } from '../../events'
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
 import type { AiPendingAction } from '../../data/entities'
+import { AiPendingActionRepository } from '../../data/repositories/AiPendingActionRepository'
 
 function makeAction(overrides: Partial<AiPendingAction> = {}): AiPendingAction {
   return {
@@ -223,6 +224,54 @@ describe('executePendingActionConfirm', () => {
     expect(handlerSpy).not.toHaveBeenCalled()
     expect(repo.setStatus).not.toHaveBeenCalled()
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  it('refuses a caller without the tool features before any state transition', async () => {
+    const repo = makeRepoStub(makeAction())
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const handlerSpy = jest.fn(async () => ({ recordId: 'p-1' }))
+    const result = await executePendingActionConfirm({
+      action: makeAction(),
+      agent: makeAgent(),
+      tool: makeTool({ handler: handlerSpy, requiredFeatures: ['catalog.products.manage'] }),
+      ctx: { ...makeCtx(), userFeatures: ['ai_assistant.view', 'catalog.products.view'] },
+      repo: repo as unknown as never,
+      emitEvent,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.executionResult.error?.code).toBe('tool_features_denied')
+    expect(result.action.status).toBe('pending')
+    expect(handlerSpy).not.toHaveBeenCalled()
+    expect(repo.setStatus).not.toHaveBeenCalled()
+    expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  it('stops before the handler when the real repository refuses a non-owner transition', async () => {
+    const ownerId = '00000000-0000-4000-8000-000000000001'
+    const otherId = '00000000-0000-4000-8000-000000000002'
+    const stored = makeAction({ createdByUserId: ownerId } as never)
+    const em = {
+      findOne: jest.fn(async (_entity: unknown, where: Record<string, unknown>) =>
+        where.id === stored.id && where.createdByUserId === stored.createdByUserId ? stored : null,
+      ),
+      persist: jest.fn(() => em),
+      flush: jest.fn(async () => undefined),
+      transactional: async (run: (tx: unknown) => Promise<unknown>) => run(em),
+    }
+    const handlerSpy = jest.fn(async () => ({ recordId: 'p-1' }))
+    await expect(
+      executePendingActionConfirm({
+        action: stored,
+        agent: makeAgent(),
+        tool: makeTool({ handler: handlerSpy }),
+        ctx: { ...makeCtx(), userId: otherId },
+        repo: new AiPendingActionRepository(em as never),
+        emitEvent: jest.fn(),
+      }),
+    ).rejects.toThrow(/not found/)
+    expect(handlerSpy).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(stored.status).toBe('pending')
   })
 
   it('carries partial-stale failedRecords[] onto the confirmed row', async () => {

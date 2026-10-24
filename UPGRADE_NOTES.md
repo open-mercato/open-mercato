@@ -413,6 +413,16 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### AI pending actions are owner-scoped, and confirm re-checks the tool's features (#3806)
+
+`GET /api/ai_assistant/ai/actions/:id`, `POST .../confirm` and `POST .../cancel` now answer `404 pending_action_not_found` to every user except the one who created the pending action, including participants of a shared conversation. `AiPendingActionRepository.getById`, `setStatus` and `listPendingForAgent` match `createdByUserId` against the context's `userId`; a missing or non-UUID `userId` matches nothing, and only an explicit `userId: null` (system work such as the expiry sweeper) skips the owner filter.
+
+Confirm also re-checks the tool's `requiredFeatures` against the confirming user. `runPendingActionRechecks` returns `403 tool_features_denied` (a new `PendingActionRecheckCode` member, also exported as the `checkToolFeatures` guard), and `executePendingActionConfirm` refuses the same caller without changing the row's status. `computeMutationIdempotencyKey` accepts an optional `userId`; `prepareMutation` passes it, so identical proposals by two users no longer share one row.
+
+**Action for module/app authors:** code that resolved another user's pending action must let the creator do it. An exhaustive `switch` over `PendingActionRecheckCode` needs a `tool_features_denied` case. Custom `useAiPendingActionPolling` consumers can read the new `unavailable` flag, which is set when the action returns 404 and polling stops.
+
+**Compatibility classification:** the three API routes and the repository/executor functions keep their URLs, response shapes and signatures; the owner scope and the tool-feature re-check are an intentional security narrowing. `tool_features_denied`, `checkToolFeatures`, the optional `userId` on `computeMutationIdempotencyKey` and the `unavailable` polling field are ADDITIVE. Database schema, event IDs, ACL features, DI names and CLI commands do not change. Regression coverage: `TC-AI-ACTIONS-OWNER-008` (API) and `TC-AI-ACTIONS-OWNER-009` (approval cards).
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

@@ -36,6 +36,7 @@ export type PendingActionRecheckCode =
   | 'agent_unknown'
   | 'agent_features_denied'
   | 'tool_not_whitelisted'
+  | 'tool_features_denied'
   | 'read_only_agent'
   | 'attachment_cross_tenant'
   | 'stale_version'
@@ -189,6 +190,27 @@ export function checkToolWhitelist(
       status: 403,
       code: 'read_only_agent',
       message: `Agent "${agent.id}" effective mutationPolicy=read-only; mutation tool "${tool.name}" cannot be executed.`,
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Guard 6b: the caller still carries every `requiredFeatures` entry of the
+ * tool. The agent features alone are not enough: a mutation tool usually
+ * needs a stronger feature than the agent that proposes it. Missing → 403.
+ */
+export function checkToolFeatures(
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): PendingActionRecheckResult {
+  const required = tool.requiredFeatures ?? []
+  if (!hasRequiredFeatures(required, ctx.userFeatures, ctx.isSuperAdmin)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'tool_features_denied',
+      message: `Caller lacks one of the tool's required features: ${required.join(', ')}`,
     }
   }
   return { ok: true }
@@ -376,6 +398,9 @@ export async function runPendingActionRechecks(
   })
   if (!whitelistCheck.ok) return whitelistCheck
 
+  const toolFeaturesCheck = checkToolFeatures(tool!, ctx)
+  if (!toolFeaturesCheck.ok) return toolFeaturesCheck
+
   const attachmentCheck = await checkAttachmentScope(action, ctx)
   if (!attachmentCheck.ok) return attachmentCheck
 
@@ -393,6 +418,7 @@ export const PENDING_ACTION_RECHECK_CODES: ReadonlyArray<PendingActionRecheckCod
   'agent_unknown',
   'agent_features_denied',
   'tool_not_whitelisted',
+  'tool_features_denied',
   'read_only_agent',
   'attachment_cross_tenant',
   'stale_version',

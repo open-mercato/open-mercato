@@ -42,6 +42,7 @@ function rowMatchesWhere(row: Row, where: any): boolean {
     const expected = where.organizationId ?? null
     if ((row.organizationId ?? null) !== expected) return false
   }
+  if ('createdByUserId' in where && row.createdByUserId !== where.createdByUserId) return false
   if (where.agentId && row.agentId !== where.agentId) return false
   if (where.idempotencyKey && row.idempotencyKey !== where.idempotencyKey) {
     return false
@@ -153,6 +154,8 @@ function mockEm() {
   return em
 }
 
+const userOne = '00000000-0000-4000-8000-000000000001'
+const userTwo = '00000000-0000-4000-8000-000000000002'
 const tenantAlpha = 't-alpha'
 const tenantBeta = 't-beta'
 
@@ -161,7 +164,7 @@ function baseInput(overrides: Partial<any> = {}) {
     agentId: 'catalog.merchandising_assistant',
     toolName: 'catalog.products.update',
     idempotencyKey: overrides.idempotencyKey ?? 'idem-1',
-    createdByUserId: 'u-1',
+    createdByUserId: userOne,
     normalizedInput: { productId: 'p-1', patch: { name: 'new' } },
     fieldDiff: [{ field: 'name', before: 'old', after: 'new' }],
     targetEntityType: 'catalog.product',
@@ -176,7 +179,7 @@ describe('AiPendingActionRepository', () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
     const now = new Date('2026-04-18T12:00:00.000Z')
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const row = await repo.create(
       baseInput({ now, ttlSeconds: 900 }),
@@ -196,7 +199,7 @@ describe('AiPendingActionRepository', () => {
   it('is idempotent: second create with same (tenant, org, idempotencyKey) returns the same row while pending', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const first = await repo.create(baseInput({ idempotencyKey: 'idem-42' }), ctx)
     const second = await repo.create(
@@ -216,10 +219,10 @@ describe('AiPendingActionRepository', () => {
   it('after a terminal status, same idempotencyKey mints a NEW row (new id)', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const first = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
-    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: 'u-1' })
+    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: userOne })
 
     const second = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
     expect(second.id).not.toBe(first.id)
@@ -235,10 +238,10 @@ describe('AiPendingActionRepository', () => {
   it('setStatus rejects illegal transitions (e.g. confirmed → pending) with AiPendingActionStateError', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const row = await repo.create(baseInput({ idempotencyKey: 'idem-illegal' }), ctx)
-    await repo.setStatus(row.id, 'confirmed', ctx, { resolvedByUserId: 'u-1' })
+    await repo.setStatus(row.id, 'confirmed', ctx, { resolvedByUserId: userOne })
 
     await expect(
       repo.setStatus(row.id, 'pending', ctx),
@@ -251,7 +254,7 @@ describe('AiPendingActionRepository', () => {
   it('setStatus to expired sets resolvedAt and resolvedByUserId: null', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const row = await repo.create(baseInput({ idempotencyKey: 'idem-expire' }), ctx)
     const expiredAt = new Date('2026-04-18T13:00:00.000Z')
@@ -265,8 +268,8 @@ describe('AiPendingActionRepository', () => {
   it('listExpired returns rows with status=pending and expiresAt < now, capped by limit, tenant-isolated', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
-    const ctxBeta = { tenantId: tenantBeta, organizationId: null, userId: 'u-2' }
+    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const ctxBeta = { tenantId: tenantBeta, organizationId: null, userId: userTwo }
 
     const baseNow = new Date('2026-04-18T12:00:00.000Z')
     for (let i = 0; i < 4; i += 1) {
@@ -315,7 +318,7 @@ describe('AiPendingActionRepository', () => {
   it('getById is tenant-scoped: another tenant returns null', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const row = await repo.create(baseInput({ idempotencyKey: 'idem-iso' }), ctxAlpha)
     const sameTenant = await repo.getById(row.id, ctxAlpha)
@@ -331,10 +334,89 @@ describe('AiPendingActionRepository', () => {
     void AiPendingAction
   })
 
+  it('getById is owner-scoped: another user in the same tenant and org gets null', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const otherUser = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userTwo }
+
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-owner' }), owner)
+
+    expect((await repo.getById(row.id, owner))?.id).toBe(row.id)
+    expect(await repo.getById(row.id, otherUser)).toBeNull()
+    expect((await repo.getById(row.id, { ...owner, userId: null }))?.id).toBe(row.id)
+  })
+
+  it('setStatus refuses to resolve another user\'s action and leaves it pending', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const otherUser = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userTwo }
+
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-owner-status' }), owner)
+
+    await expect(
+      repo.setStatus(row.id, 'cancelled', otherUser, { resolvedByUserId: userTwo }),
+    ).rejects.toThrow(/not found/)
+    expect((await repo.getById(row.id, owner))?.status).toBe('pending')
+
+    const cancelled = await repo.setStatus(row.id, 'cancelled', owner, { resolvedByUserId: userOne })
+    expect(cancelled.status).toBe('cancelled')
+    expect(cancelled.resolvedByUserId).toBe(userOne)
+  })
+
+  it('setStatus without a userId (system sweeper) still resolves within the tenant', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-owner-system' }), owner)
+
+    const expired = await repo.setStatus(
+      row.id,
+      'expired',
+      { tenantId: tenantAlpha, organizationId: 'org-1', userId: null },
+      { resolvedByUserId: null },
+    )
+    expect(expired.status).toBe('expired')
+  })
+
+  it('fails closed without querying for a missing, empty or non-UUID userId', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const row = await repo.create(baseInput({ idempotencyKey: 'idem-owner-invalid' }), owner)
+    const findOne = jest.spyOn(em, 'findOne')
+    const find = jest.spyOn(em, 'find')
+
+    for (const userId of [undefined, '', 'api_key:key-1']) {
+      const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId }
+      expect(await repo.getById(row.id, ctx)).toBeNull()
+      expect(await repo.listPendingForAgent('catalog.merchandising_assistant', ctx)).toEqual([])
+      await expect(repo.setStatus(row.id, 'cancelled', ctx)).rejects.toThrow(/not found/)
+    }
+    expect(findOne).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
+    expect((await repo.getById(row.id, owner))?.status).toBe('pending')
+  })
+
+  it('listPendingForAgent only returns the caller\'s own rows', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const other = { tenantId: tenantAlpha, organizationId: null, userId: userTwo }
+    await repo.create(baseInput({ idempotencyKey: 'own-1' }), owner)
+    await repo.create(baseInput({ idempotencyKey: 'other-1', createdByUserId: userTwo }), other)
+
+    expect((await repo.listPendingForAgent('catalog.merchandising_assistant', owner)).map((row) => row.idempotencyKey)).toEqual(['own-1'])
+    expect((await repo.listPendingForAgent('catalog.merchandising_assistant', other)).map((row) => row.idempotencyKey)).toEqual(['other-1'])
+    expect(await repo.listPendingForAgent('catalog.merchandising_assistant', { ...owner, userId: null })).toHaveLength(2)
+  })
+
   it('listPendingForAgent returns only pending rows for the requested agent and tenant', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
     const first = await repo.create(
       baseInput({ idempotencyKey: 'p-1', agentId: 'catalog.assistant' }),
@@ -348,7 +430,7 @@ describe('AiPendingActionRepository', () => {
       baseInput({ idempotencyKey: 'p-3', agentId: 'customers.assistant' }),
       ctx,
     )
-    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: 'u-1' })
+    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: userOne })
 
     const pending = await repo.listPendingForAgent('catalog.assistant', ctx)
     expect(pending).toHaveLength(1)
