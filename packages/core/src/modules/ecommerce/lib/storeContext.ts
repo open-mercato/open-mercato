@@ -146,6 +146,7 @@ type StoreCandidate = {
   store: CandidateStore
   channel: ResolvedStoreChannel | null
   binding: CandidateBinding | null
+  missingSalesChannelId?: string | null
 }
 
 type CachedStoreCandidates = { candidates: StoreCandidate[] }
@@ -412,13 +413,6 @@ function toCandidate(row: StoreResolutionRow): StoreCandidate {
   }
   const salesChannelMissing =
     !!row.channel_binding_id && !!row.channel_sales_channel_id && !row.channel_live_sales_channel_id
-  if (salesChannelMissing) {
-    logger.warn('Default channel binding references a sales channel that no longer exists', {
-      storeId: row.store_id,
-      channelBindingId: row.channel_binding_id,
-      salesChannelId: row.channel_sales_channel_id,
-    })
-  }
   const channel: ResolvedStoreChannel | null =
     row.channel_binding_id && row.channel_sales_channel_id && !salesChannelMissing
       ? {
@@ -433,7 +427,7 @@ function toCandidate(row: StoreResolutionRow): StoreCandidate {
   const binding: CandidateBinding | null = row.binding_id
     ? { id: row.binding_id, pathPrefix: row.binding_path_prefix ?? null, isPrimary: row.binding_is_primary === true }
     : null
-  return { store, channel, binding }
+  return { store, channel, binding, missingSalesChannelId: salesChannelMissing ? row.channel_sales_channel_id : null }
 }
 
 async function queryDomainCandidates(
@@ -553,24 +547,39 @@ async function loadSlugCandidates(
       { candidates },
       {
         ttlMs: STORE_RESOLUTION_TTL_MS,
-        tags: [...candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)), ...salesChannelTags(rows)],
+        tags: Array.from(
+          new Set([...candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)), ...salesChannelTags(rows)]),
+        ),
       },
     )
   }
   return candidates
 }
 
-async function reportMisconfiguredStore(container: StoreContextContainer, store: CandidateStore): Promise<void> {
+async function reportMisconfiguredStore(
+  container: StoreContextContainer,
+  store: CandidateStore,
+  missingSalesChannelId: string | null,
+): Promise<void> {
   const cache = ecommerceResolutionCache(container)
   const key = ['misconfigured', 'channel-binding-missing', store.id]
   const alreadyReported = await cache.get<{ reportedAt: string }>(key)
   if (alreadyReported) return
   await cache.set(key, { reportedAt: new Date().toISOString() }, { ttlMs: STORE_MISCONFIGURED_THROTTLE_MS })
-  logger.warn('Store has no default channel binding; answering 503', {
-    storeId: store.id,
-    tenantId: store.tenantId,
-    organizationId: store.organizationId,
-  })
+  if (missingSalesChannelId) {
+    logger.warn('Store default channel binding references a sales channel that no longer exists; answering 503', {
+      storeId: store.id,
+      tenantId: store.tenantId,
+      organizationId: store.organizationId,
+      salesChannelId: missingSalesChannelId,
+    })
+  } else {
+    logger.warn('Store has no default channel binding; answering 503', {
+      storeId: store.id,
+      tenantId: store.tenantId,
+      organizationId: store.organizationId,
+    })
+  }
   try {
     await emitEcommerceEvent(
       'ecommerce.store.misconfigured',
@@ -607,7 +616,7 @@ async function finalizeCandidate(
   }
   if (store.status === 'archived') throw new StorefrontResolutionError(410, 'store_archived')
   if (!candidate.channel) {
-    await reportMisconfiguredStore(container, store)
+    await reportMisconfiguredStore(container, store, candidate.missingSalesChannelId ?? null)
     throw new StorefrontResolutionError(503, 'store_misconfigured')
   }
   const locale = resolveStoreLocale(store, localeCandidates)

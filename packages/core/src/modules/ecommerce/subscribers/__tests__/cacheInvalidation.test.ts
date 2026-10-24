@@ -185,22 +185,19 @@ describe('ecommerce cache invalidation subscribers', () => {
     expect(calls[0].tags).toEqual(['ecommerce-store:store-1'])
   })
 
-  it('evicts the stores resolved through a sales channel when it is deleted or restored', async () => {
+  it('evicts the stores resolved through a sales channel when it is deleted, restored or updated', async () => {
     const { cache, calls } = createRecordingCache()
-    await salesChannelHandler(
-      { id: 'channel-1', tenantId: TENANT_ID, organizationId: ORG_ID },
-      createCtx({ cache }, { eventName: 'sales.channel.deleted' }),
-    )
-    await salesChannelHandler(
-      { id: 'channel-1', tenantId: TENANT_ID, organizationId: ORG_ID },
-      createCtx({ cache }, { eventName: 'sales.channel.created' }),
-    )
-    expect(calls).toEqual([
+    for (const eventName of ['sales.channel.deleted', 'sales.channel.created', 'sales.channel.updated']) {
+      await salesChannelHandler(
+        { id: 'channel-1', tenantId: TENANT_ID, organizationId: ORG_ID },
+        createCtx({ cache }, { eventName }),
+      )
+    }
+    const eviction = [
       { tenant: null, tags: ['ecommerce-sales-channel:channel-1'] },
       { tenant: TENANT_ID, tags: ['ecommerce-sales-channel:channel-1'] },
-      { tenant: null, tags: ['ecommerce-sales-channel:channel-1'] },
-      { tenant: TENANT_ID, tags: ['ecommerce-sales-channel:channel-1'] },
-    ])
+    ]
+    expect(calls).toEqual([...eviction, ...eviction, ...eviction])
   })
 
   it('evicts the mapping and hostname for every domain mapping event, including the superseded one', async () => {
