@@ -3,7 +3,19 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import type {
+  Queue,
+  QueuedJob,
+  JobHandler,
+  LocalQueueOptions,
+  ProcessOptions,
+  ProcessResult,
+  EnqueueOptions,
+  QueueJobScope,
+  QueueProcessingStats,
+  InFlightJobSummary,
+  RecentJob,
+} from '../types'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 
 const packageLogger = createLogger('queue')
@@ -771,8 +783,110 @@ export function createLocalQueue<T = unknown>(
         active: 0, // Local strategy doesn't track active jobs
         completed: state.completedCount ?? 0,
         failed: state.failedCount ?? 0,
+        // `delayed` omitted: this strategy keeps no delayed-job state distinct from waiting.
       }
     })
+  }
+
+  const MAX_IN_FLIGHT_LIMIT = 50
+  const DEFAULT_IN_FLIGHT_LIMIT = 20
+  const MAX_RECENT_JOBS_LIMIT = 100
+  const DEFAULT_RECENT_JOBS_LIMIT = 20
+
+  function clamp(value: number | undefined, fallback: number, max: number): number {
+    const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
+    return Math.max(0, Math.min(n, max))
+  }
+
+  function jobEnqueuedAtMs(job: StoredJob<T>): number | undefined {
+    const parsed = Date.parse(job.createdAt)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  /**
+   * No completed-job records are retained (`state.json` holds only a count), so
+   * there is no sample to derive durations from. Reporting an honestly-empty
+   * `partial` result — rather than a fabricated number — is this strategy's
+   * documented fallback (see the class doc comment on retention).
+   */
+  async function getProcessingStats(): Promise<QueueProcessingStats> {
+    return { sampleSize: 0, fidelity: 'partial' }
+  }
+
+  /**
+   * Best-effort from the pending-job file. `active` has no cross-process
+   * meaning here — a worker's `inFlightJobIds` is private, in-memory state in
+   * whichever process is actually polling, invisible to this call from an
+   * admin-surface process — so it always reports empty for that state.
+   * waiting/delayed both read from the same pending-job list (this strategy
+   * does not distinguish "delayed" from "available later").
+   */
+  async function getInFlightJobsSummary(opts: {
+    state?: 'active' | 'waiting' | 'delayed'
+    type?: string
+    limit: number
+  }): Promise<InFlightJobSummary[]> {
+    const state = opts.state ?? 'active'
+    if (state === 'active') return []
+
+    const jobs = await withFileLock(() => readQueue())
+    const cappedLimit = clamp(opts.limit, DEFAULT_IN_FLIGHT_LIMIT, MAX_IN_FLIGHT_LIMIT)
+    const now = Date.now()
+    // Oldest-first (the head of the queue) — the jobs that look stuck.
+    const sorted = [...jobs].sort((a, b) => (jobEnqueuedAtMs(a) ?? 0) - (jobEnqueuedAtMs(b) ?? 0))
+    const bounded = sorted.slice(0, cappedLimit)
+
+    return bounded.map((job) => {
+      const enqueuedAt = jobEnqueuedAtMs(job)
+      return {
+        id: job.id,
+        queue: name,
+        state,
+        enqueuedAt,
+        ageMs: enqueuedAt !== undefined ? now - enqueuedAt : undefined,
+        attemptsMade: job.attemptCount,
+      }
+    })
+  }
+
+  /**
+   * Tier 2 (privileged) ONLY. Bounded read of the pending-job file — this
+   * strategy keeps no retained completed/failed store, so only currently
+   * pending jobs can ever be returned.
+   */
+  async function getRecentJobs(opts: {
+    state?: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed'
+    type?: string
+    id?: string
+    limit: number
+    offset?: number
+  }): Promise<RecentJob[]> {
+    const jobs = await withFileLock(() => readQueue())
+
+    if (opts.id) {
+      const job = jobs.find((candidate) => candidate.id === opts.id)
+      if (!job) return []
+      return [{
+        id: job.id,
+        queue: name,
+        timestamp: jobEnqueuedAtMs(job),
+        attemptsMade: job.attemptCount,
+        data: job.payload,
+      }]
+    }
+
+    const cappedLimit = clamp(opts.limit, DEFAULT_RECENT_JOBS_LIMIT, MAX_RECENT_JOBS_LIMIT)
+    const boundedOffset = Math.max(0, Math.floor(opts.offset ?? 0))
+    // Newest-first, mirroring the async strategy's ordering contract.
+    const sorted = [...jobs].sort((a, b) => (jobEnqueuedAtMs(b) ?? 0) - (jobEnqueuedAtMs(a) ?? 0))
+    const windowed = sorted.slice(boundedOffset, boundedOffset + cappedLimit)
+    return windowed.map((job) => ({
+      id: job.id,
+      queue: name,
+      timestamp: jobEnqueuedAtMs(job),
+      attemptsMade: job.attemptCount,
+      data: job.payload,
+    }))
   }
 
   return {
@@ -784,5 +898,8 @@ export function createLocalQueue<T = unknown>(
     removeQueuedJobsByScope,
     close,
     getJobCounts,
+    getProcessingStats,
+    getInFlightJobsSummary,
+    getRecentJobs,
   }
 }

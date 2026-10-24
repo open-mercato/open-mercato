@@ -1,4 +1,16 @@
-import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import type {
+  Queue,
+  QueuedJob,
+  JobHandler,
+  AsyncQueueOptions,
+  ProcessResult,
+  EnqueueOptions,
+  QueueJobScope,
+  FailedJobSummary,
+  QueueProcessingStats,
+  InFlightJobSummary,
+  RecentJob,
+} from '../types'
 import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -20,6 +32,23 @@ type ConnectionOptions = {
   protocol?: RedisProtocolVersion
 }
 
+/** The subset of a BullMQ `Job`'s own fields this package reads for introspection. */
+interface BullJobIntrospectionFields<T> {
+  id?: string
+  name?: string
+  data?: T
+  failedReason?: string
+  attemptsMade?: number
+  /** Epoch ms the job was added to the queue. */
+  timestamp?: number
+  /** Epoch ms processing started. */
+  processedOn?: number
+  /** Epoch ms processing finished (completed or failed). */
+  finishedOn?: number
+  remove: () => Promise<void>
+  updateData?: (data: T) => Promise<void>
+}
+
 interface BullQueueInterface<T> {
   add: (
     name: string,
@@ -35,13 +64,9 @@ interface BullQueueInterface<T> {
   obliterate: (opts?: { force?: boolean }) => Promise<void>
   close: () => Promise<void>
   getJobCounts: (...states: string[]) => Promise<Record<string, number>>
-  getJobs: (types: string[], start?: number, end?: number) => Promise<Array<{
-    id?: string
-    data?: T
-    failedReason?: string
-    remove: () => Promise<void>
-    updateData?: (data: T) => Promise<void>
-  }>>
+  getJobs: (types: string[], start?: number, end?: number) => Promise<Array<BullJobIntrospectionFields<T>>>
+  /** Resolves a single job by id, or `undefined` when it does not exist. */
+  getJob?: (id: string) => Promise<BullJobIntrospectionFields<T> | undefined>
 }
 
 interface BullWorkerInterface {
@@ -584,15 +609,189 @@ export function createAsyncQueue<T = unknown>(
     active: number
     completed: number
     failed: number
+    delayed?: number
   }> {
     const queue = await getQueue()
-    const counts = await queue.getJobCounts('waiting', 'active', 'completed', 'failed')
+    const counts = await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed')
     return {
       waiting: counts.waiting ?? 0,
       active: counts.active ?? 0,
       completed: counts.completed ?? 0,
       failed: counts.failed ?? 0,
+      delayed: counts.delayed ?? 0,
     }
+  }
+
+  const MAX_FAILED_SUMMARY_LIMIT = 50
+  const DEFAULT_FAILED_SUMMARY_LIMIT = 20
+  const MAX_PROCESSING_SAMPLE_SIZE = 200
+  const DEFAULT_PROCESSING_SAMPLE_SIZE = 50
+  const MAX_IN_FLIGHT_LIMIT = 50
+  const DEFAULT_IN_FLIGHT_LIMIT = 20
+  /** Server-side truncation so a huge stack/context blob in failedReason cannot leave the server. */
+  const MAX_FAILED_REASON_LENGTH = 500
+
+  function clamp(value: number | undefined, fallback: number, max: number): number {
+    const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
+    return Math.max(0, Math.min(n, max))
+  }
+
+  /**
+   * Best-effort worker id for a job: `WorkerMeta.id` is not carried on the BullMQ
+   * job itself, so this reports the job's declared `name` (set to the queue name
+   * for jobs enqueued through this package's `enqueue()`) as the closest
+   * available signal. Left `undefined` rather than guessed when absent.
+   */
+  function deriveWorkerId(job: BullJobIntrospectionFields<QueuedJob<T>>): string | undefined {
+    return typeof job.name === 'string' && job.name.length > 0 ? job.name : undefined
+  }
+
+  async function getFailedJobsSummary(limit: number, offset = 0): Promise<FailedJobSummary[]> {
+    const queue = await getQueue()
+    const cappedLimit = clamp(limit, DEFAULT_FAILED_SUMMARY_LIMIT, MAX_FAILED_SUMMARY_LIMIT)
+    const boundedOffset = Math.max(0, Math.floor(offset))
+    const jobs = await queue.getJobs(['failed'], boundedOffset, boundedOffset + cappedLimit - 1)
+    // Allow-list map — `job.data` (the raw payload) is never read into the response.
+    return jobs.map((job) => ({
+      id: job.id ?? '',
+      queue: name,
+      workerId: deriveWorkerId(job),
+      failedReason: job.failedReason?.slice(0, MAX_FAILED_REASON_LENGTH),
+      attemptsMade: job.attemptsMade,
+      failedAt: job.finishedOn,
+    }))
+  }
+
+  async function getProcessingStats(opts?: { type?: string; sampleSize?: number }): Promise<QueueProcessingStats> {
+    const queue = await getQueue()
+    const sampleSize = clamp(opts?.sampleSize, DEFAULT_PROCESSING_SAMPLE_SIZE, MAX_PROCESSING_SAMPLE_SIZE)
+    // Newest-first bounded window — never a full scan, regardless of queue size.
+    const jobs = await queue.getJobs(['completed'], 0, sampleSize - 1)
+    const sample = opts?.type ? jobs.filter((job) => job.name === opts.type) : jobs
+
+    const processingDurations: number[] = []
+    const waitDurations: number[] = []
+    let lastProcessingMs: number | undefined
+    let lastCompletedAt: number | undefined
+
+    for (const job of sample) {
+      if (typeof job.processedOn === 'number' && typeof job.finishedOn === 'number') {
+        const duration = job.finishedOn - job.processedOn
+        processingDurations.push(duration)
+        // `getJobs(['completed'], ...)` is newest-first, so the first sampled job
+        // with both timestamps is the most recently completed one.
+        if (lastProcessingMs === undefined) {
+          lastProcessingMs = duration
+          lastCompletedAt = job.finishedOn
+        }
+      }
+      if (typeof job.processedOn === 'number' && typeof job.timestamp === 'number') {
+        waitDurations.push(job.processedOn - job.timestamp)
+      }
+    }
+
+    const avg = (values: number[]): number | undefined =>
+      values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : undefined
+    const p95 = (values: number[]): number | undefined => {
+      if (!values.length) return undefined
+      const sorted = [...values].sort((a, b) => a - b)
+      const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)
+      return sorted[Math.max(0, index)]
+    }
+
+    return {
+      sampleSize: sample.length,
+      lastProcessingMs,
+      avgProcessingMs: avg(processingDurations),
+      p95ProcessingMs: p95(processingDurations),
+      avgWaitMs: avg(waitDurations),
+      lastCompletedAt,
+      fidelity: 'exact',
+    }
+  }
+
+  async function getInFlightJobsSummary(opts: {
+    state?: 'active' | 'waiting' | 'delayed'
+    type?: string
+    limit: number
+  }): Promise<InFlightJobSummary[]> {
+    const queue = await getQueue()
+    const state = opts.state ?? 'active'
+    const cappedLimit = clamp(opts.limit, DEFAULT_IN_FLIGHT_LIMIT, MAX_IN_FLIGHT_LIMIT)
+    // For waiting/delayed this bounded window is the HEAD of the queue (oldest /
+    // next-to-run) — exactly the jobs that look stuck. For active it's the
+    // in-progress set. Never a full scan.
+    const jobs = await queue.getJobs([state], 0, cappedLimit - 1)
+    const filtered = opts.type ? jobs.filter((job) => job.name === opts.type) : jobs
+    const now = Date.now()
+
+    return filtered.map((job) => {
+      const enqueuedAt = job.timestamp
+      const startedAt = state === 'active' ? job.processedOn : undefined
+      return {
+        id: job.id ?? '',
+        queue: name,
+        type: job.name,
+        workerId: deriveWorkerId(job),
+        state,
+        enqueuedAt,
+        startedAt,
+        runningMs: startedAt !== undefined ? now - startedAt : undefined,
+        ageMs: state !== 'active' && enqueuedAt !== undefined ? now - enqueuedAt : undefined,
+        attemptsMade: job.attemptsMade,
+      }
+    })
+  }
+
+  const MAX_RECENT_JOBS_LIMIT = 100
+  const DEFAULT_RECENT_JOBS_LIMIT = 20
+  const ALL_JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const
+
+  /**
+   * Tier 2 (privileged) ONLY. Unwraps this package's own `QueuedJob<T>` envelope
+   * so `data` carries the caller's actual payload (what an operator means by
+   * "the job's payload"), not the `{id, payload, createdAt, metadata}` wrapper.
+   */
+  function toRecentJob(job: BullJobIntrospectionFields<QueuedJob<T>>, state?: string): RecentJob {
+    return {
+      id: job.id ?? job.data?.id ?? '',
+      queue: name,
+      state,
+      type: job.name,
+      attemptsMade: job.attemptsMade,
+      timestamp: job.timestamp,
+      processedOn: job.processedOn,
+      finishedOn: job.finishedOn,
+      failedReason: job.failedReason?.slice(0, MAX_FAILED_REASON_LENGTH),
+      data: job.data?.payload,
+    }
+  }
+
+  async function getRecentJobs(opts: {
+    state?: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed'
+    type?: string
+    id?: string
+    limit: number
+    offset?: number
+  }): Promise<RecentJob[]> {
+    const queue = await getQueue()
+
+    if (opts.id) {
+      // Single-job path: bounded to exactly one job, regardless of `limit`.
+      if (typeof queue.getJob !== 'function') return []
+      const job = await queue.getJob(opts.id)
+      if (!job) return []
+      return [toRecentJob(job as BullJobIntrospectionFields<QueuedJob<T>>, opts.state)]
+    }
+
+    const cappedLimit = clamp(opts.limit, DEFAULT_RECENT_JOBS_LIMIT, MAX_RECENT_JOBS_LIMIT)
+    const boundedOffset = Math.max(0, Math.floor(opts.offset ?? 0))
+    const states = opts.state ? [opts.state] : [...ALL_JOB_STATES]
+    const jobs = await queue.getJobs(states, boundedOffset, boundedOffset + cappedLimit - 1)
+    const filtered = opts.type ? jobs.filter((job) => job.name === opts.type) : jobs
+    return filtered
+      .slice(0, cappedLimit)
+      .map((job) => toRecentJob(job as BullJobIntrospectionFields<QueuedJob<T>>, opts.state))
   }
 
   return {
@@ -604,5 +803,9 @@ export function createAsyncQueue<T = unknown>(
     removeQueuedJobsByScope,
     close,
     getJobCounts,
+    getFailedJobsSummary,
+    getProcessingStats,
+    getInFlightJobsSummary,
+    getRecentJobs,
   }
 }

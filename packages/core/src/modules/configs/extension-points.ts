@@ -9,6 +9,12 @@ export const extensionPoints = defineModuleExtensionPoints({
       supported: ['render-widget'],
       source: 'backend/config/system-status/page.tsx',
     }),
+    queuesStatusDetails: injectionExtensionHost({
+      family: 'detail',
+      spotId: 'configs.queues_status:details',
+      supported: ['render-widget'],
+      source: 'backend/config/queues-status/page.tsx',
+    }),
   },
 })
 
