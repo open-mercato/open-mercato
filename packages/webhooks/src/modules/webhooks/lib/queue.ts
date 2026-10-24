@@ -79,7 +79,7 @@ export function getInboundDispatchQueue(
   return created
 }
 
-async function ensureLocalInboundQueueWorkerStarted(): Promise<void> {
+export async function ensureLocalInboundQueueWorkerStarted(): Promise<void> {
   if (process.env.QUEUE_STRATEGY === 'async') return
 
   const globalStore = globalThis as typeof globalThis & {
@@ -115,9 +115,12 @@ async function ensureLocalInboundQueueWorkerStarted(): Promise<void> {
   await globalStore[LOCAL_INBOUND_WORKER_PROMISE_KEY]
 }
 
-export async function enqueueInboundDispatch(job: InboundDispatchJob): Promise<string> {
+export async function enqueueInboundDispatch(
+  job: InboundDispatchJob,
+  options?: { startLocalWorker?: boolean },
+): Promise<string> {
   const queue = getInboundDispatchQueue()
   const jobId = await queue.enqueue(job)
-  await ensureLocalInboundQueueWorkerStarted()
+  if (options?.startLocalWorker !== false) await ensureLocalInboundQueueWorkerStarted()
   return jobId
 }

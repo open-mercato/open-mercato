@@ -1,20 +1,52 @@
 /** @jest-environment node */
 
+import { buildWebhookHeaders, verifyWebhookSignature } from '@open-mercato/shared/lib/webhooks'
+
 const mockCreateRequestContainer = jest.fn()
 const mockResolveTranslations = jest.fn()
 const mockEmitWebhooksEvent = jest.fn()
 const mockGetWebhookEndpointAdapter = jest.fn()
 const mockIsWebhookIntegrationEnabled = jest.fn()
 
-const mockPersistedEntities: unknown[] = []
+type MockRecord = Record<string, unknown>
+type MockEntityManager = {
+  fork: () => MockEntityManager
+  create: (entity: unknown, data: MockRecord) => MockRecord
+  persist: (entity: MockRecord) => MockEntityManager
+  flush: () => Promise<void>
+  findOne: (entity: unknown, where: MockRecord) => Promise<MockRecord | null>
+  transactional: <Result>(operation: (transaction: MockEntityManager) => Promise<Result>) => Promise<Result>
+}
 
-const mockRouteEm = {
+const mockPersistedEntities: MockRecord[] = []
+
+const mockRouteEm: MockEntityManager = {
+  fork: () => mockRouteEm,
   create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
-  persist: jest.fn((entity: unknown) => {
+  persist: jest.fn((entity: MockRecord) => {
+    if (entity.endpointId && mockPersistedEntities.some((record) => (
+      record.endpointId === entity.endpointId && record.messageId === entity.messageId
+    ))) {
+      throw { code: '23505' }
+    }
     mockPersistedEntities.push(entity)
     return mockRouteEm
   }),
   flush: jest.fn(async () => undefined),
+  findOne: jest.fn(async (_entity: unknown, where: MockRecord) => (
+    mockPersistedEntities.find((record) => Object.entries(where).every(([key, value]) => record[key] === value)) ?? null
+  )),
+  transactional: async (operation) => {
+    const snapshot = structuredClone(mockPersistedEntities)
+    try {
+      const result = await operation(mockRouteEm)
+      await mockRouteEm.flush()
+      return result
+    } catch (error) {
+      mockPersistedEntities.splice(0, mockPersistedEntities.length, ...snapshot)
+      throw error
+    }
+  },
 }
 
 const mockRootEm = {
@@ -36,8 +68,17 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: () => mockResolveTranslations(),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (manager: MockEntityManager, entity: unknown, where: MockRecord) => manager.findOne(entity, where),
+}))
+
 jest.mock('../../../../events', () => ({
   emitWebhooksEvent: (...args: unknown[]) => mockEmitWebhooksEvent(...args),
+}))
+
+jest.mock('../../../../lib/queue', () => ({
+  enqueueInboundDispatch: jest.fn(async () => 'job-1'),
+  ensureLocalInboundQueueWorkerStarted: jest.fn(async () => undefined),
 }))
 
 jest.mock('../../../../lib/adapter-registry', () => ({
@@ -87,9 +128,41 @@ function createAdapter(
   }
 }
 
+function signedLegacyWebhook() {
+  const body = '{"ok":true}'
+  const secret = `whsec_${Buffer.from('inbound-receipt-test-secret').toString('base64')}`
+  const headers = buildWebhookHeaders('msg-signed-retry', Math.floor(Date.now() / 1000), body, secret)
+  const adapter = createAdapter({
+    eventType: 'mock.inbound.received',
+    payload: { ok: true },
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+  })
+  adapter.verifyWebhook = jest.fn(async (request) => {
+    const verification = verifyWebhookSignature(
+      request.headers['webhook-id'],
+      request.headers['webhook-timestamp'],
+      request.body,
+      request.headers['webhook-signature'],
+      [secret],
+    )
+    if (!verification.valid) throw new Error('[internal] Invalid test signature')
+    return {
+      eventType: 'mock.inbound.received',
+      payload: { ok: true },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }
+  })
+  mockGetWebhookEndpointAdapter.mockReturnValue(adapter)
+  return { adapter, request: () => createRequest(body, headers) }
+}
+
 describe('POST', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockEmitWebhooksEvent.mockReset()
+    mockEmitWebhooksEvent.mockResolvedValue(undefined)
     mockPersistedEntities.length = 0
     mockCreateRequestContainer.mockResolvedValue(mockContainer)
     mockResolveTranslations.mockResolvedValue({
@@ -171,7 +244,7 @@ describe('POST', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(mockRouteEm.persist).toHaveBeenCalledTimes(1)
-    expect(mockRouteEm.flush).toHaveBeenCalledTimes(1)
+    expect(mockPersistedEntities[0]).toEqual(expect.objectContaining({ receivedEventPublished: true }))
     expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(1)
   })
 
@@ -335,6 +408,73 @@ describe('POST', () => {
       }),
       { persistent: true },
     )
+  })
+
+  it('retries persistent publication for the same signed legacy message after failure', async () => {
+    const signed = signedLegacyWebhook()
+    mockEmitWebhooksEvent.mockRejectedValueOnce(new Error('[internal] Event queue unavailable'))
+
+    await expect(POST(signed.request(), routeContext)).rejects.toThrow('Event queue unavailable')
+
+    expect(mockPersistedEntities).toHaveLength(1)
+    const pendingReceipt = structuredClone(mockPersistedEntities[0])
+    const retried = await POST(signed.request(), routeContext)
+
+    await expect(retried.json()).resolves.toEqual({ ok: true })
+    expect(pendingReceipt).toEqual(expect.objectContaining({ receivedEventPublished: false }))
+    expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(2)
+    expect(mockEmitWebhooksEvent.mock.calls[1]).toEqual(mockEmitWebhooksEvent.mock.calls[0])
+    expect(signed.adapter.verifyWebhook).toHaveBeenCalledTimes(2)
+    expect(mockPersistedEntities).toHaveLength(1)
+    expect(mockPersistedEntities[0]).toEqual(expect.objectContaining({ receivedEventPublished: true }))
+
+    const duplicate = await POST(signed.request(), routeContext)
+    await expect(duplicate.json()).resolves.toEqual({ ok: true, duplicate: true })
+    expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a historical completed legacy receipt as a successful duplicate', async () => {
+    mockPersistedEntities.push({
+      endpointId: 'mock_inbound',
+      messageId: 'msg-1',
+      providerKey: 'mock_inbound',
+      eventType: 'mock.inbound.received',
+      tenantId: null,
+      organizationId: null,
+      ingestionId: null,
+      dispatchQueued: true,
+      receivedEventPublished: true,
+    })
+
+    const response = await POST(createRequest(), routeContext)
+
+    await expect(response.json()).resolves.toEqual({ ok: true, duplicate: true })
+    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
+    expect(mockRouteEm.persist).not.toHaveBeenCalled()
+  })
+
+  it('rejects a receipt key collision from another verified scope without publishing', async () => {
+    const signed = signedLegacyWebhook()
+    mockPersistedEntities.push({
+      endpointId: 'mock_inbound',
+      messageId: 'msg-signed-retry',
+      providerKey: 'mock_inbound',
+      eventType: 'mock.inbound.received',
+      tenantId: 'another-tenant',
+      organizationId: 'another-org',
+      ingestionId: null,
+      dispatchQueued: true,
+      receivedEventPublished: false,
+    })
+
+    await expect(POST(signed.request(), routeContext)).rejects.toThrow('Inbound receipt not found in verified scope')
+
+    expect(mockEmitWebhooksEvent).not.toHaveBeenCalled()
+    expect(mockPersistedEntities).toHaveLength(1)
+    expect(mockPersistedEntities[0]).toEqual(expect.objectContaining({
+      tenantId: 'another-tenant',
+      receivedEventPublished: false,
+    }))
   })
 })
 
