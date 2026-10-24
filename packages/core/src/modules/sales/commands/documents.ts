@@ -145,6 +145,7 @@ import {
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import { assertOrderCanBeCancelled, isCancelledOrderStatus } from "../lib/orderCancellationGuard";
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
@@ -947,10 +948,6 @@ function normalizeStatusValue(raw: unknown): string | null {
 
 function isConfirmedOrderStatus(status: string | null): boolean {
   return status === "confirmed";
-}
-
-function isCancelledOrderStatus(status: string | null): boolean {
-  return status === "canceled" || status === "cancelled";
 }
 
 async function emitOrderLifecycleEvent(input: {
@@ -5852,6 +5849,16 @@ const updateOrderCommand: CommandHandler<
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
+    if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
+      const requestedStatus = normalizeStatusValue(
+        await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+          tenantId: order.tenantId,
+        }),
+      );
+      if (isCancelledOrderStatus(requestedStatus)) {
+        await assertOrderCanBeCancelled(em, order);
+      }
+    }
     let statusChangeNote: SalesNote | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
