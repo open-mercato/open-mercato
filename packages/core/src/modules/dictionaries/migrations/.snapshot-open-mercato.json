@@ -242,16 +242,13 @@
           "unique": true
         },
         {
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "key"
-          ],
-          "composite": true,
-          "constraint": true,
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "keyName": "dictionaries_scope_key_unique",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"dictionaries_scope_key_unique\" on \"dictionaries\" (\"organization_id\", \"tenant_id\", \"key\") where \"deleted_at\" is null"
         }
       ],
       "checks": [],

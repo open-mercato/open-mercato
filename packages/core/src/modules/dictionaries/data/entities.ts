@@ -5,7 +5,10 @@ import type { DictionaryEntrySortMode } from '../lib/entrySort'
 export type DictionaryManagerVisibility = 'default' | 'hidden'
 
 @Entity({ tableName: 'dictionaries' })
-@Unique({ name: 'dictionaries_scope_key_unique', properties: ['organizationId', 'tenantId', 'key'] })
+@Index({
+  name: 'dictionaries_scope_key_unique',
+  expression: 'create unique index "dictionaries_scope_key_unique" on "dictionaries" ("organization_id", "tenant_id", "key") where "deleted_at" is null',
+})
 export class Dictionary {
   [OptionalProps]?: 'entrySortMode'
 
