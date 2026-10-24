@@ -413,6 +413,49 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### Webhook credential header values are hidden without `webhooks.secrets` (#7237)
+
+`GET /api/webhooks/:id` and the `PUT /api/webhooks/:id` response (and their `/api/webhooks/webhooks/:id`
+alias) now return `••••••••` as the value of credential-like custom headers unless the caller has
+`webhooks.secrets`. A header counts as credential-like when its name contains (as a substring) `auth`,
+`token`, `secret`, `key`, `pass`, `pwd`, `sig`, `hmac`, `session`, `cookie`, `jwt`, `bearer`,
+`credential` or `private`, or when its value starts with an auth scheme (`Bearer `, `Basic `) or a
+common token prefix. Header names, other values and the response shape are unchanged. The default
+`employee` role (`webhooks.view` only) is affected; `admin` and `superadmin` (`webhooks.*`) still see
+the stored values.
+
+On `PUT /api/webhooks/:id`, a header whose value is exactly `••••••••` keeps its stored value, so a
+client can send back what it read. The route answers `400 { error }` and writes nothing when:
+
+- `••••••••` is sent for a header that has no stored value, or
+- a caller without `webhooks.secrets` changes the webhook URL while keeping a stored credential header
+  (by sending `••••••••` or by omitting `customHeaders`). Re-enter or remove those headers in the same
+  request.
+
+The `makeCrudRoute` update handler behind `PUT /api/webhooks/webhooks` applies the same rules; that route
+currently answers `400 { error: "Invalid id" }` to every request for an unrelated reason.
+
+**Action for API clients:** to change a hidden header, send a new value. To keep it, send
+`••••••••` back unchanged. To delete it, omit the key (`customHeaders` is still a full replacement).
+Grant `webhooks.secrets` to roles that must read the stored values. Code that deep-imports the
+module helper `serializeWebhookDetail()` (`webhooks/api/helpers`) now gets redacted values unless it
+passes `{ revealCredentialHeaders: true }`.
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
 <a id="workflow-user-task-closed-run"></a>
 
 ### Workflow user tasks cannot be completed on a closed run; cancelling a run closes its open tasks
@@ -450,21 +493,6 @@ route URLs, bus event IDs, ACL features, DI names and CLI commands are unchanged
 
 **Action for API clients:** none required. A client that completes tasks should treat `409` with
 `code: 'WORKFLOW_NOT_ACTIVE'` as final: the run has ended and the task cannot be completed.
-### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
-
-A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
-scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
-path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
-`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
-redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
-without an `http(s)` scheme fail the activity before the one-time API key is created.
-`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
-the same check, for at most three hops. Any other redirect fails with
-`CALL_API refused to follow redirect …`.
-
-**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
-different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
-relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
