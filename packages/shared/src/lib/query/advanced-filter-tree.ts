@@ -1,6 +1,6 @@
 // packages/shared/src/lib/query/advanced-filter-tree.ts
 import type { FilterOperator } from './advanced-filter'
-import { isValuelessOperator } from './advanced-filter'
+import { buildTagsOperatorFilter, isValuelessOperator } from './advanced-filter'
 import { buildIlikeTerm } from '../db/buildIlikeTerm'
 
 export type FilterCombinator = 'and' | 'or'
@@ -140,22 +140,22 @@ function compileRule(rule: FilterRule): Record<string, unknown> | null {
     }
     case 'is_before': { const v = normalizeSingleValue(rule.value); if (v === null) return null; filter[rule.field] = { $lt: v }; break }
     case 'is_after': { const v = normalizeSingleValue(rule.value); if (v === null) return null; filter[rule.field] = { $gt: v }; break }
-    case 'is_any_of':
-    case 'has_any_of': {
+    case 'is_any_of': {
       const list = normalizeListValue(rule.value)
       if (list.length === 0) return null
       filter[rule.field] = { $in: list }; break
     }
-    case 'is_none_of':
-    case 'has_none_of': {
+    case 'is_none_of': {
       const list = normalizeListValue(rule.value)
       if (list.length === 0) return null
       filter[rule.field] = { $nin: list }; break
     }
-    case 'has_all_of': {
+    case 'has_any_of':
+    case 'has_all_of':
+    case 'has_none_of': {
       const list = normalizeListValue(rule.value)
       if (list.length === 0) return null
-      filter[rule.field] = { $contains: list }; break
+      return buildTagsOperatorFilter(rule.field, rule.operator, list)
     }
     case 'is_true': filter[rule.field] = { $eq: true }; break
     case 'is_false': filter[rule.field] = { $eq: false }; break

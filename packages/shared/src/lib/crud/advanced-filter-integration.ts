@@ -3,6 +3,7 @@ import {
   deserializeTree,
   flatToTree,
   convertAdvancedFilterToWhere,
+  mergeWhereWithAnd,
 } from '../query/advanced-filter'
 import { compileTreeToWhere, type AdvancedFilterTree } from '../query/advanced-filter-tree'
 import { createLogger } from '../logger'
@@ -63,10 +64,7 @@ export function mergeAdvancedFilters(
     const combinedClauses: Record<string, unknown>[] = []
     for (const leftClause of existingOrClauses) {
       for (const rightClause of advancedClauses) {
-        combinedClauses.push({
-          ...leftClause,
-          ...rightClause,
-        })
+        combinedClauses.push(mergeWhereWithAnd(leftClause, rightClause))
       }
     }
 
@@ -79,7 +77,7 @@ export function mergeAdvancedFilters(
   }
 
   // AND logic: merge directly
-  return { ...existingFilters, ...advancedWhere }
+  return mergeWhereWithAnd(existingFilters, advancedWhere)
 }
 
 /**
