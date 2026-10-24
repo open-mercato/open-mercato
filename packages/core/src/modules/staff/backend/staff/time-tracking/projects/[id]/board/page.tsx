@@ -25,10 +25,21 @@ export default function ProjectBoardPage({ params }: { params?: { id?: string | 
   const rawId = params?.id
   const projectId = Array.isArray(rawId) ? rawId[0] ?? null : rawId ?? null
 
+  const projectKey = projectId ?? 'none'
   const projectQuery = useQuery<{ id: string; name: string } | null>({
-    queryKey: ['staff', 'time-tracking', 'board', 'project', `scope:${scopeVersion}`, projectId ?? 'none'],
+    queryKey: ['staff', 'time-tracking', 'board', 'project', `scope:${scopeVersion}`, projectKey],
     enabled: !!projectId,
     staleTime: 60_000,
+    // The organization switcher settles the scope just after mount, bumping the
+    // scope version from 0 and re-keying this query. Keep the screen resolved
+    // before that until the new answer arrives: the loading branch below would
+    // unmount it and drop its local state, such as an access request just sent.
+    // A switch between two known scopes still goes through the loader.
+    placeholderData: (previous, previousQuery) => (
+      previousQuery?.queryKey.at(-2) === 'scope:0' && previousQuery.queryKey.at(-1) === projectKey
+        ? previous
+        : undefined
+    ),
     queryFn: async () => {
       if (!projectId) return null
       const call = await apiCall<Record<string, unknown>>(
