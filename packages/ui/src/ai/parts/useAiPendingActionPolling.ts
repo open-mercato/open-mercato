@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { apiCallOrThrow } from '../../backend/utils/apiCall'
+import { apiCall } from '../../backend/utils/apiCall'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from './types'
 
 const logger = createLogger('ui').child({ component: 'useAiPendingActionPolling' })
@@ -19,11 +19,19 @@ const logger = createLogger('ui').child({ component: 'useAiPendingActionPolling'
  * - Poll every 3 seconds while the status is non-terminal
  *   (`pending` / `executing`). Terminal states (`confirmed`, `cancelled`,
  *   `failed`, `expired`) stop polling.
- * - Stop polling and report `unavailable` when the route answers 404: the
- *   action is gone or belongs to another user (pending actions are owner-
- *   scoped), so retrying can never succeed.
+ * - A 404/401/403 from the endpoint is also terminal — the row is gone or
+ *   unreachable and retrying cannot help (issue #7550: without this, every
+ *   card whose row disappeared polled every 3s forever, in every tab).
+ *   A 404 additionally reports `unavailable`: the action is gone or belongs
+ *   to another user (pending actions are owner-scoped).
+ * - Any other failure (5xx, network error) backs off exponentially (capped
+ *   at 60s) and gives up after 5 consecutive failures.
+ * - Polling pauses while the tab is hidden (`document.visibilityState`) and
+ *   resumes on `visibilitychange`.
  * - Expose a `refresh()` force-fetch helper the confirmation card uses after
- *   a confirm POST races with the polling loop.
+ *   a confirm POST races with the polling loop. `refresh()` also restarts a
+ *   stopped loop (backoff-exhausted or resumed-from-hidden) without
+ *   creating a second timer chain.
  *
  * The hook owns a single `setInterval`/`setTimeout` — unmounting clears
  * every outstanding timer. This is required for the Jest fake-timers
@@ -37,9 +45,25 @@ const TERMINAL_STATUSES: ReadonlyArray<AiPendingActionCardStatus> = [
   'expired',
 ]
 
+const TERMINAL_HTTP_ERROR_CODES: ReadonlyArray<string> = ['not_found', 'unauthorized', 'forbidden']
+
+const MAX_BACKOFF_MS = 60_000
+const MAX_CONSECUTIVE_FAILURES = 5
+
 function isTerminal(status: AiPendingActionCardStatus | null): boolean {
   if (!status) return false
   return TERMINAL_STATUSES.includes(status)
+}
+
+function httpStatusToErrorCode(status: number): string | null {
+  if (status === 404) return 'not_found'
+  if (status === 401) return 'unauthorized'
+  if (status === 403) return 'forbidden'
+  return null
+}
+
+function isHiddenDocument(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'hidden'
 }
 
 export interface UseAiPendingActionPollingOptions {
@@ -61,6 +85,7 @@ export interface UseAiPendingActionPollingOptions {
 }
 
 export interface AiPendingActionFetchResult {
+  ok: boolean
   pendingAction: AiPendingActionCardAction | null
   error?: { code?: string; message: string } | null
 }
@@ -74,16 +99,12 @@ export interface UseAiPendingActionPollingResult {
   refresh: () => Promise<AiPendingActionCardAction | null>
 }
 
-function isNotFoundError(err: unknown): boolean {
-  return Boolean(err) && typeof err === 'object' && (err as { status?: unknown }).status === 404
-}
-
 async function fetchPendingAction(
   pendingActionId: string,
   endpoint: string,
 ): Promise<AiPendingActionFetchResult> {
   const url = `${endpoint}/${encodeURIComponent(pendingActionId)}`
-  const call = await apiCallOrThrow<unknown>(url, { method: 'GET' })
+  const call = await apiCall<unknown>(url, { method: 'GET' })
   const body = call.result as
     | (Partial<AiPendingActionCardAction> & {
         pendingAction?: AiPendingActionCardAction
@@ -93,6 +114,12 @@ async function fetchPendingAction(
     | null
     | undefined
 
+  if (!call.ok) {
+    const code = httpStatusToErrorCode(call.status) ?? body?.code ?? 'request_failed'
+    const message = body?.error ?? `Request failed with status ${call.status}.`
+    return { ok: false, pendingAction: null, error: { code, message } }
+  }
+
   // The GET route returns the bare action object (`serializePendingActionForClient(row)`),
   // but earlier client code expected it under a `pendingAction` envelope.
   // Accept BOTH shapes so the cards work whether the dispatcher wraps or
@@ -101,22 +128,23 @@ async function fetchPendingAction(
   // MutationPreviewCard / ConfirmationCard / MutationResultCard.
   if (body && typeof body === 'object') {
     if (body.pendingAction) {
-      return { pendingAction: body.pendingAction, error: null }
+      return { ok: true, pendingAction: body.pendingAction, error: null }
     }
     if (
       typeof (body as Partial<AiPendingActionCardAction>).id === 'string' &&
       typeof (body as Partial<AiPendingActionCardAction>).status === 'string'
     ) {
-      return { pendingAction: body as AiPendingActionCardAction, error: null }
+      return { ok: true, pendingAction: body as AiPendingActionCardAction, error: null }
     }
     if (body.error) {
       return {
+        ok: true,
         pendingAction: null,
         error: { message: body.error, code: body.code },
       }
     }
   }
-  return { pendingAction: null, error: null }
+  return { ok: true, pendingAction: null, error: null }
 }
 
 export function useAiPendingActionPolling(
@@ -137,7 +165,11 @@ export function useAiPendingActionPolling(
   const mountedRef = React.useRef(true)
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusRef = React.useRef<AiPendingActionCardStatus | null>(null)
-  const unavailableRef = React.useRef(false)
+  const terminalErrorCodeRef = React.useRef<string | null>(null)
+  const consecutiveFailuresRef = React.useRef(0)
+  const stoppedRef = React.useRef(false)
+  const hiddenRef = React.useRef(isHiddenDocument())
+  const scheduleNextRef = React.useRef<() => void>(() => {})
 
   const clearTimer = React.useCallback(() => {
     if (timerRef.current) {
@@ -148,32 +180,49 @@ export function useAiPendingActionPolling(
 
   const refresh = React.useCallback(async (): Promise<AiPendingActionCardAction | null> => {
     if (!pendingActionId) return null
+    let pendingAction: AiPendingActionCardAction | null = null
     try {
       const result = await fetchPendingAction(pendingActionId, endpoint)
       if (!mountedRef.current) return result.pendingAction ?? null
-      if (result.error) {
-        setError(result.error)
+      pendingAction = result.pendingAction ?? null
+      if (result.ok) {
+        consecutiveFailuresRef.current = 0
+        stoppedRef.current = false
+        terminalErrorCodeRef.current = null
+        setUnavailable(false)
+        setError(result.error ?? null)
+        if (result.pendingAction) {
+          setAction(result.pendingAction)
+          statusRef.current = result.pendingAction.status
+        }
       } else {
-        setError(null)
+        setError(result.error ?? null)
+        const code = result.error?.code
+        if (code && TERMINAL_HTTP_ERROR_CODES.includes(code)) {
+          terminalErrorCodeRef.current = code
+          if (code === 'not_found') setUnavailable(true)
+        } else {
+          consecutiveFailuresRef.current += 1
+          if (consecutiveFailuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
+            stoppedRef.current = true
+          }
+        }
       }
-      if (result.pendingAction) {
-        setAction(result.pendingAction)
-        statusRef.current = result.pendingAction.status
-      }
-      return result.pendingAction
     } catch (err) {
-      if (isNotFoundError(err)) {
-        unavailableRef.current = true
-        if (mountedRef.current) setUnavailable(true)
-        return null
-      }
       logger.error('Failed to load the pending AI action', { err, pendingActionId })
       getTelemetryRuntime()?.reportError(err, { module: 'ai_assistant', code: 'ai_assistant.pending_action_poll_failed' })
       if (!mountedRef.current) return null
       const message = err instanceof Error ? err.message : 'Failed to load pending action.'
       setError({ message })
-      return null
+      consecutiveFailuresRef.current += 1
+      if (consecutiveFailuresRef.current >= MAX_CONSECUTIVE_FAILURES) {
+        stoppedRef.current = true
+      }
     }
+    if (mountedRef.current) {
+      scheduleNextRef.current()
+    }
+    return pendingAction
   }, [endpoint, pendingActionId])
 
   const scheduleNext = React.useCallback(() => {
@@ -183,25 +232,64 @@ export function useAiPendingActionPolling(
       setIsPolling(false)
       return
     }
-    if (isTerminal(statusRef.current) || unavailableRef.current) {
+    if (isTerminal(statusRef.current)) {
       setIsPolling(false)
       return
     }
+    if (terminalErrorCodeRef.current) {
+      setIsPolling(false)
+      return
+    }
+    if (stoppedRef.current) {
+      setIsPolling(false)
+      return
+    }
+    if (hiddenRef.current) {
+      // Paused while the tab is hidden. `visibilitychange` resumes via refresh().
+      return
+    }
     setIsPolling(true)
-    timerRef.current = setTimeout(async () => {
-      try {
-        await refresh()
-      } catch (err) {
-        logger.error('Polling the pending AI action failed unexpectedly', { err })
-      }
-      scheduleNext()
-    }, intervalMs)
+    const delay =
+      consecutiveFailuresRef.current > 0
+        ? Math.min(intervalMs * 2 ** consecutiveFailuresRef.current, MAX_BACKOFF_MS)
+        : intervalMs
+    timerRef.current = setTimeout(() => {
+      void refresh()
+    }, delay)
   }, [clearTimer, disabled, intervalMs, refresh])
+
+  React.useEffect(() => {
+    scheduleNextRef.current = scheduleNext
+  }, [scheduleNext])
+
+  React.useEffect(() => {
+    if (disabled) return
+    const handleVisibilityChange = () => {
+      const wasHidden = hiddenRef.current
+      hiddenRef.current = isHiddenDocument()
+      if (!wasHidden && hiddenRef.current) {
+        // Cancel any already-scheduled poll immediately — do not wait for
+        // it to fire before honoring the pause.
+        clearTimer()
+        return
+      }
+      if (wasHidden && !hiddenRef.current && mountedRef.current) {
+        // Resume immediately rather than waiting out a stale backoff delay.
+        void refresh()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [clearTimer, disabled, refresh])
 
   React.useEffect(() => {
     mountedRef.current = true
     statusRef.current = null
-    unavailableRef.current = false
+    terminalErrorCodeRef.current = null
+    consecutiveFailuresRef.current = 0
+    stoppedRef.current = false
     setUnavailable(false)
     if (disabled) {
       setIsPolling(false)
@@ -211,18 +299,9 @@ export function useAiPendingActionPolling(
       }
     }
     setIsPolling(true)
-    // Always fetch on mount — the "reconnect behavior" guarantee. The catch
-    // runs before the scheduling step so a rejected first fetch degrades to a
-    // logged error instead of silently killing the polling loop.
+    // Always fetch on mount — the "reconnect behavior" guarantee. `refresh`
+    // schedules the next poll itself once it settles.
     void refresh()
-      .catch((err) => {
-        logger.error('Loading the pending AI action failed unexpectedly', { err })
-        return null
-      })
-      .then(() => {
-        if (!mountedRef.current) return
-        scheduleNext()
-      })
     return () => {
       mountedRef.current = false
       clearTimer()
