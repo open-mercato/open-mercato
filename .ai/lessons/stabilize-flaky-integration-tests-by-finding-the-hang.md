@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","communication_channels","workflows"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -10,6 +10,10 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
+
+`TC-CHANNEL-REPLY-001` exhausted its 60-second budget by polling for an extra outbound delivery that the final assertion expected never to happen. After the reply command completes, draining the events queue and then the outbound queue provides the completion barrier: the event worker awaits enqueueing delivery, and the drain helper awaits handlers until no runnable jobs remain. Read the delivery total after that barrier and assert it stayed unchanged; retain positive-delivery polling to prove the real outbound path works.
+
+`TC-WF-006` found two Delete actions after scrolling and hovering opened multiple portaled row menus. A page-wide action locator does not identify the intended record. Scope the menu using the Edit link for the newly created definition's exact ID, then select Delete inside that menu; choosing the first matching Delete can remove another record.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 
