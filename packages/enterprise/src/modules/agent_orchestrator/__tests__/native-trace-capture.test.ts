@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   buildNativeTracePayload,
+  readCachedInputTokens,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
@@ -181,6 +182,49 @@ describe('buildNativeTracePayload', () => {
       durationMs: 950,
       attributes: { inputTokens: 42, outputTokens: 7 },
     })
+  })
+})
+
+describe('buildNativeTracePayload — cached input share (#6240)', () => {
+  it('sums the reported cached share across steps', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [
+        { ...TWO_STEPS[0], usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 80 } },
+        { ...TWO_STEPS[1], usage: { inputTokens: 60, outputTokens: 30, cachedInputTokens: 50 } },
+      ],
+    })
+    expect(payload.inputTokens).toBe(160)
+    expect(payload.cachedInputTokens).toBe(130)
+  })
+
+  it('omits the cached share when no step reported one (unknown, not 0)', () => {
+    expect(buildNativeTracePayload(baseInput())).not.toHaveProperty('cachedInputTokens')
+  })
+
+  it('carries the fallback cached share for a toolless run', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [],
+      fallbackUsage: { inputTokens: 42, outputTokens: 7, cachedInputTokens: 40 },
+    })
+    expect(payload.cachedInputTokens).toBe(40)
+  })
+})
+
+describe('readCachedInputTokens', () => {
+  it('reads ai@7 inputTokenDetails.cacheReadTokens, then the legacy flat field', () => {
+    expect(readCachedInputTokens({ inputTokenDetails: { cacheReadTokens: 12 } })).toBe(12)
+    expect(readCachedInputTokens({ cachedInputTokens: 7 })).toBe(7)
+    expect(readCachedInputTokens({ inputTokenDetails: { cacheReadTokens: 0 }, cachedInputTokens: 9 })).toBe(0)
+  })
+
+  it('is undefined when the provider did not report a usable value', () => {
+    expect(readCachedInputTokens(undefined)).toBeUndefined()
+    expect(readCachedInputTokens({ inputTokens: 10 })).toBeUndefined()
+    expect(readCachedInputTokens({ inputTokenDetails: { cacheReadTokens: undefined } })).toBeUndefined()
+    expect(readCachedInputTokens({ cachedInputTokens: -3 })).toBeUndefined()
+    expect(readCachedInputTokens({ cachedInputTokens: Number.NaN })).toBeUndefined()
   })
 })
 
