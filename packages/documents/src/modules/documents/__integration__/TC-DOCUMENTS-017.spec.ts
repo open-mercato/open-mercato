@@ -194,6 +194,15 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
 
       await expect(page.getByText('Realtime unavailable', { exact: true })).toBeVisible()
       await expect(page.getByText('Realtime is unavailable — changes are saved in single-user mode.')).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Realtime setup guide', exact: true })).toHaveAttribute(
+        'href',
+        'https://github.com/open-mercato/open-mercato/blob/develop/packages/documents/README.md#realtime-collaboration-sidecar-m2',
+      )
+      const backlinks = await apiRequest(request, 'GET', `/api/documents?entityType=document&entityId=${document.id}`, { token })
+      expect(backlinks.status()).toBe(200)
+      expect(await readJsonSafe<{ items: unknown[] }>(backlinks)).toMatchObject({ items: [] })
+      await expect(page.getByText('No documents reference this one yet.', { exact: true })).toBeVisible()
+      await expect(page.getByText('Failed to load related records.', { exact: true })).toHaveCount(0)
       const editor = page.locator('.ProseMirror:visible').first()
       await expect(editor).toBeVisible()
 

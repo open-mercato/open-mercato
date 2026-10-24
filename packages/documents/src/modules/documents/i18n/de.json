@@ -151,6 +151,8 @@
   "documents.editor.realtime.presenceLabel": "Bearbeiten gerade",
   "documents.editor.realtime.readOnlyFallback": "Echtzeit ist nicht verfügbar — die zuletzt gespeicherte Version wird schreibgeschützt angezeigt.",
   "documents.editor.realtime.reconnecting": "Verbindung wird wiederhergestellt…",
+  "documents.editor.realtime.setupGuide": "Einrichtung der Echtzeit-Zusammenarbeit",
+  "documents.editor.realtime.setupHint": "Die Echtzeit-Zusammenarbeit benötigt einen laufenden Zusammenarbeitsdienst und eine funktionierende Verbindung. Bitten Sie Ihren Administrator, die Einrichtung zu prüfen.",
   "documents.editor.realtime.singleUserFallback": "Echtzeit ist nicht verfügbar — Änderungen werden im Einzelbenutzermodus gespeichert.",
   "documents.editor.status.error": "Speichern fehlgeschlagen",
   "documents.editor.status.saved": "Gespeichert",
