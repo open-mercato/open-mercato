@@ -159,6 +159,16 @@ describe('the grid keeps its look (W3)', () => {
     })
     expect(firstCell().value).toBe('1.25')
   })
+
+  // The sticky Project column is `z-10`, the same as the app top bar
+  // (`z-sticky`); without an isolated stacking context around the grid it
+  // painted over the top bar while the page scrolled (#7414).
+  it('confines the sticky Project column to the grid stacking context', () => {
+    renderGrid()
+    const scrollWrapper = screen.getByRole('table').parentElement
+    expect(scrollWrapper?.classList.contains('isolate')).toBe(true)
+    expect(scrollWrapper?.classList.contains('overflow-x-auto')).toBe(true)
+  })
 })
 
 describe('the cells now use the shared parser', () => {

@@ -645,7 +645,7 @@ function DefaultGridView({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="isolate overflow-x-auto rounded-lg border">
         <table className="w-full text-sm table-fixed" aria-busy={isLoading || undefined}>
           <caption className="sr-only">
             {t(
