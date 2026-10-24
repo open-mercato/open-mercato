@@ -233,6 +233,15 @@ and `--disable-quic`. The `filterSubresources` field of `SidecarState` and optio
 **Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
 from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
 private addresses) no longer load; public pages render as before.
+
+### Cross-process event listeners receive portal-only and truncated envelopes (#2973)
+
+`registerCrossProcessEventListener` (`@open-mercato/events/bus`) now also receives events declared only with `portalBroadcast: true`, so a portal event emitted in the queue worker reaches the web process that serves the customer portal stream. An oversize browser-facing envelope (`clientBroadcast` or `portalBroadcast`) is no longer dropped by the Postgres bridge: its payload arrives as `{ truncated: true, id, entityId, entityType }` plus the audience fields, and clients are expected to re-fetch. Private `crossProcessBroadcast` envelopes are unchanged.
+
+*Action for downstream:* a custom listener that handles every envelope should filter by the event flag it serves (`isBroadcastEvent`, `isPortalBroadcastEvent`, ...) and tolerate `payload.truncated === true`. Detect your own echo with `envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID` rather than `originPid`: containers commonly all run as pid 1, so a pid check silently drops envelopes from a worker container.
+
+The portal stream also now treats trusted emit scope as authoritative, as the backoffice stream does: a portal event whose payload names a tenant, or an organization, outside the trusted emit options is not delivered, and one without payload organizations reaches only the trusted organizations.
+
 ### Catalog write commands treat records outside the caller's scope as not found (#3825)
 
 `catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
@@ -352,6 +361,57 @@ quota. Now:
 `OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
+
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
+### Deleting an attachment keeps a stored file that other attachment rows still reference
+
+Catalog copies variant media onto the product, and forwarding a message copies the source message's
+attachments, by creating new `attachments` rows that reuse the source row's stored file
+(`partition_code` + `storage_path`). Every path that deletes an attachment together with its stored
+file used to remove that file with the row it was deleting, which broke all the other rows. Deleting a
+row now removes the stored file only when no other row references it: `DELETE /api/attachments`,
+`DELETE /api/attachments/library/:id`, `attachmentService.releaseScoped()`, `mercato attachments
+delete` and the warranty-claims portal delete go through `removeAttachmentRecord`
+(`@open-mercato/core/modules/attachments/lib/storageReferences`), and Akeneo media reconciliation
+releases through `releaseScoped()`; the deferred `releaseScoped(…, { flush: false })` takes the same
+storage-reference lock inside the caller's transaction. When two requests delete the same row at the
+same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer `404` to
+the one that loses instead of a second `200`, `attachmentService.releaseScoped()` throws a `404`
+`CrudHttpError` (not guaranteed in the deprecated mode below), and Akeneo media reconciliation skips
+the row instead of failing the product.
+
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
+
+**Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
+your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
+returned cleanup after commit — the documented contract. Expect the cleanup to be `undefined` when
+the stored file is still referenced by another row. If you delete `Attachment` rows and their stored
+files yourself, use `removeAttachmentRecord(em, attachment)` outside a transaction and delete the
+file only when it reports `releaseStorage: true`.
+
+The migration adds the index `attachments_storage_reference_idx` on
+`attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
