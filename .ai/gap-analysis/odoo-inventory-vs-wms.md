@@ -17,7 +17,7 @@ Porównanie **55 funkcji** ze strony [Odoo Inventory Features](https://www.odoo.
 
 ### Co potrzebuje Marcin S
 
-- Brak transferów międzymagazynowych (tego potrzebuje Marcin S).
+- Transfery międzymagazynowe.
 - Transfery ze stanem pośrednim *in transit* — tego nie mamy, a warto by to było wprowadzić.
 - Aplikacja mobilna na skanery — jest API, brak parsera różnego formatu kodów i samej aplikacji.
 - Metadane przy produktach typu wielowymiarowe jednostki.
