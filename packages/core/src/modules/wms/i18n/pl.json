@@ -985,6 +985,7 @@
   "wms.errors.forbidden.manageZones": "Nie masz uprawnień do zarządzania strefami magazynowymi.",
   "wms.errors.forbidden.receiveInventory": "Nie masz uprawnień do przyjmowania towaru przychodzącego.",
   "wms.errors.internalServerError": "Błąd wewnętrzny serwera",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Anulowane zamówienie nie może mieć rezerwacji zapasu.",
   "wms.errors.unauthorized": "Brak autoryzacji",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Alert niskiego zapasu — dostępne: {availableQuantity}, punkt zamówienia: {reorderPoint}, zapas bezpieczeństwa: {safetyStock}",
