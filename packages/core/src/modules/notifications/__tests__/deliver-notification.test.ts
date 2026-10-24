@@ -275,6 +275,56 @@ describe('deliver notification subscriber', () => {
     )
   })
 
+  it('falls back to panelLink when a stored action href resolves to another origin', async () => {
+    const notificationWithUnsafeHref: Notification = {
+      ...notification,
+      actionData: {
+        actions: [
+          { id: 'view', label: 'View Details', href: '/\\evil.example/phish' },
+        ],
+        primaryActionId: 'view',
+      },
+    } as Notification
+
+    resolveNotificationDeliveryConfig.mockResolvedValue(baseConfig)
+    resolveNotificationPanelUrl.mockReturnValue('https://app.example.com/backend/notifications')
+    getNotificationDeliveryStrategies.mockReturnValue([emailDeliveryStrategy])
+    findOneWithDecryption
+      .mockResolvedValueOnce(notificationWithUnsafeHref)
+      .mockResolvedValueOnce({ email: 'user@example.com', name: 'User' })
+
+    const em = {}
+
+    const { default: handle } = await import('../subscribers/deliver-notification')
+
+    await handle(
+      {
+        notificationId: notificationWithUnsafeHref.id,
+        recipientUserId: notificationWithUnsafeHref.recipientUserId,
+        tenantId: notificationWithUnsafeHref.tenantId,
+        organizationId: null,
+      },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          throw new Error(`Missing dependency: ${name}`)
+        },
+      }
+    )
+
+    expect(NotificationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions: [
+          {
+            id: 'view',
+            label: 'View Details',
+            href: `https://app.example.com/backend/notifications?notificationId=${notificationWithUnsafeHref.id}`,
+          },
+        ],
+      })
+    )
+  })
+
   it('returns null when appUrl is missing', async () => {
     const configWithoutAppUrl: NotificationDeliveryConfig = {
       panelPath: '/backend/notifications',

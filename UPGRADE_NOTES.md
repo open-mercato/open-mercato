@@ -24,6 +24,62 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
+
+The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
+
+No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Done in …ms` and `💥 Failed: …` lines are byte-identical, so anything parsing CLI output is unaffected, and `BACKWARD_COMPATIBILITY.md` §13 (CLI Commands) is not touched. What changes is the process **exit status** on paths that were previously reported as success.
+
+**The first-party commands whose observable exit status changes** are the ones that already set `process.exitCode` on their failure paths, each of which writes an error to stderr immediately before doing so:
+
+| command family | now exits non-zero when |
+|---|---|
+| `mercato auth setup` | `2` for an invalid `--orgSlug`, missing required arguments, a rejected password policy, or a required derived-user password; `1` for an existing org slug or an existing user |
+| `mercato gateway_stripe …` | `1` for a missing Stripe env preset, or any error while applying it |
+| `mercato sync_akeneo …` | `1` for a missing Akeneo env preset, or any error while applying it |
+| `mercato ai_assistant mcp:ensure-api-key` | `1` when required arguments are missing |
+| `mercato ai_assistant test-tools` | `1` when the tool test report contains at least one failure |
+| `mercato tillio configure-from-env` | `1` for missing `--tenantId`/`--organizationId`, a blocked provisioning result, or any error while applying the env preset |
+| `mercato seeds encrypt` / `decrypt` / `load` | `1` for missing `--in`/`--out`, or a scope that cannot be resolved for `load` |
+| `mercato agent_orchestrator eval` | `2` for missing required arguments or an invalid `--repeat`; `1` or `2` when `--gate` is set and the gate cannot run or fails |
+| `mercato agent_orchestrator token-usage` | `2` for missing `--dir`/`--agent`, an unknown agent id, a directory with no `AGENT.md`, or a manifest with no baked token usage |
+| `mercato scheduler run` | `1` when the schedule id is missing or no schedule with that id exists |
+| `mercato catalog omnibus:backfill` | `2` when the command options fail validation |
+| `mercato gateway_tpay configure-from-env` | `1` for a missing Tpay env preset, or any error while applying it |
+
+Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
+
+**Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
+### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
+
+`customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
+and currency dictionaries via `Dictionary`/`DictionaryEntry` from `dictionaries`; `portal`'s
+`setup.ts` imports `FeatureToggle` from `feature_toggles`; `workflows`'s `setup.ts` resolves the
+business-rule discovery cache and `lib/seeds.ts` imports `BusinessRule`, both from
+`business_rules`. None of these modules declared the dependency in `requires`, so an app enabling
+one of them without its undeclared dependencies previously passed `yarn generate` and the
+migrations cleanly and only failed during tenant setup (`mercato init` / `yarn reinstall`) with an
+opaque MikroORM error such as `Metadata for entity Dictionary not found` — the same silent-failure
+class as `catalog` (#6517) and `auth` → `api_keys` (#7444).
+
+`customers` now declares `requires: ['progress', 'dictionaries', 'feature_toggles']`, `portal` now
+declares `requires: ['customer_accounts', 'feature_toggles']`, and `workflows` now declares
+`requires: ['business_rules']`. The existing generator-enforced dependency check now covers all
+three. If your `src/modules.ts` enables one of them without its new dependencies, `yarn generate`
+now fails fast instead of shipping the silent setup failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: dictionaries, feature_toggles
+```
+
+**Action for module authors:** add the missing module ids to `src/modules.ts` (e.g.
+`{ id: 'dictionaries', from: '@open-mercato/core' }`, `{ id: 'feature_toggles', from:
+'@open-mercato/core' }`, `{ id: 'business_rules', from: '@open-mercato/core' }` as applicable),
+then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` template already
+enable the full default module set, so this repo's own apps and freshly scaffolded apps are
+unaffected.
+
 ### Portal form submissions are limited to the caller's own `customer` subject (#7224)
 
 `POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
@@ -57,6 +113,321 @@ where s.started_by in (select id from customer_users)
 
 Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
 subject type (for example `patient`) also match, so review the rows before revoking anything.
+
+<a id="staff-user-create-org-scope"></a>
+
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
+### `AI_RUNTIME_BASEURL_ALLOWLIST` matches scheme and port, and saved base URLs are re-checked (#7228)
+
+An allowlist entry used to match only the hostname, so `api.openai.com` also admitted
+`http://api.openai.com` and any port. A base URL must now match an entry's scheme, hostname and
+effective port. This applies to the chat `?baseUrl=` parameter and to `PUT /api/ai_assistant/settings`;
+both keep answering `400 { code: "baseurl_not_allowlisted" }`. Saved tenant and per-agent base URLs
+are re-checked on every agent turn: a saved value that the current allowlist does not permit,
+including every saved value once the allowlist is empty, is ignored, and the turn uses the provider's
+default endpoint. Each ignored turn logs the warning
+`Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it` until the
+override is re-saved or cleared. Routes, request and response shapes are unchanged.
+
+**Action for operators:** a bare host entry now means HTTPS on port 443. List any other origin
+explicitly as `scheme://host[:port]`:
+
+```env
+# before: admitted https and http on any port
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
+# after: https://openrouter.ai plus a local Ollama server over plain HTTP
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
+```
+
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
+### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
+
+`GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
+record when `page` or `pageSize` was omitted. That unpaginated form now returns only the newest `100`
+attachments (ordered by `createdAt` descending), the same ceiling as `pageSize`. The response shape is
+unchanged: the unpaginated form still returns only `items`, and passing both `page` and `pageSize`
+pages as before. Both forms now break `createdAt` ties by `id` descending, so page boundaries are
+stable.
+
+**Action for module authors:** a caller that needs every attachment of a record with more than 100
+attachments must pass `page` and `pageSize` (at most `100`) and request pages until `totalPages` is
+reached. This matters most for code that sends the loaded ids back to a save that removes the
+attachments missing from the list: page through the whole list first, as the message composer now
+does for draft attachments. Built-in display-only lists (the attachment form field, product and
+variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
+line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
+attachments of a record and any count derived from them stops at 100.
+
+### Login and portal session routes reject cross-site browser requests with `403` (#7239)
+
+`POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
+`POST /api/customer_accounts/magic-link/verify` and `POST /api/customer_accounts/invitations/accept`
+used to issue session cookies to any request, so a form on another site could sign a visitor's
+browser into the attacker's account. They now answer `403 { ok: false, error }` before reading the
+body when the browser marks the request as cross-site:
+
+- `Sec-Fetch-Site: cross-site` is always rejected. `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header decides. A request without `Origin` and without `Sec-Fetch-Site`
+  (CLI, scripts, server-to-server and mobile clients) is accepted unchanged. `Origin: null` and an
+  unparsable `Origin` are rejected. Any other `Origin` must equal `APP_URL`,
+  `NEXT_PUBLIC_APP_URL`, an entry of `APP_ALLOWED_ORIGINS`, or the request's own
+  `X-Forwarded-Host` / `Host` (scheme from `X-Forwarded-Proto` when present). Outside production a
+  loopback `Origin` is accepted when a configured origin is loopback too.
+
+URLs, request bodies and success responses are unchanged. The policy is described in
+[`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
+
+**Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
+
+**Action for integrators:** an HTML form or browser app on a different site can no longer sign in
+through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
+request `Sec-Fetch-Site: cross-site`, and that is always rejected. Sign in on the application's own
+origin, or call the API from a server. A sign-in form on a sibling subdomain of the same site keeps
+working once its origin is listed in `APP_ALLOWED_ORIGINS`.
+### Browser web research: all egress is now restricted to public addresses (#7218)
+
+The `@open-mercato/web-research-browser` sidecar used to vet only the top-level navigation. A
+rendered page's images, scripts, fetches, WebSockets, redirect hops and WebRTC traffic could still
+reach loopback, private-network and cloud-metadata addresses. Some of those responses were returned
+to the model. Chromium now sends every connection through a loopback egress proxy that vets each
+connection and pins it to the vetted public address. Subresources are always filtered, service
+workers are blocked, and non-proxied WebRTC UDP and QUIC are disabled. A render that ends on a non-public URL
+now returns a `navigation` error instead of the page.
+
+`OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES` is ignored; when it is set, the sidecar logs a
+warning each time it launches Chromium. `LAUNCH_ARGS` now also carries the WebRTC proxy-only policy
+and `--disable-quic`. The `filterSubresources` field of `SidecarState` and option of
+`installNavigationGuard` are `@deprecated` and have no effect. `installNavigationGuard` now throws a
+`SidecarError` of kind `init` instead of warning when `context.route()` is unavailable.
+
+**Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
+from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
+private addresses) no longer load; public pages render as before.
+
+### Cross-process event listeners receive portal-only and truncated envelopes (#2973)
+
+`registerCrossProcessEventListener` (`@open-mercato/events/bus`) now also receives events declared only with `portalBroadcast: true`, so a portal event emitted in the queue worker reaches the web process that serves the customer portal stream. An oversize browser-facing envelope (`clientBroadcast` or `portalBroadcast`) is no longer dropped by the Postgres bridge: its payload arrives as `{ truncated: true, id, entityId, entityType }` plus the audience fields, and clients are expected to re-fetch. Private `crossProcessBroadcast` envelopes are unchanged.
+
+*Action for downstream:* a custom listener that handles every envelope should filter by the event flag it serves (`isBroadcastEvent`, `isPortalBroadcastEvent`, ...) and tolerate `payload.truncated === true`. Detect your own echo with `envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID` rather than `originPid`: containers commonly all run as pid 1, so a pid check silently drops envelopes from a worker container.
+
+The portal stream also now treats trusted emit scope as authoritative, as the backoffice stream does: a portal event whose payload names a tenant, or an organization, outside the trusted emit options is not delivered, and one without payload organizations reaches only the trusted organizations.
+
+### Catalog write commands treat records outside the caller's scope as not found (#3825)
+
+`catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
+and `catalog.offers.update|delete` now load their target only inside the caller's tenant and allowed
+organizations. `PUT` / `DELETE` on `/api/catalog/products`, `/api/catalog/variants`,
+`/api/catalog/prices` and `/api/catalog/offers` with the id of another tenant's or another
+organization's record now answer `404` instead of `403`, exactly like an unknown id. The same
+applies to `POST /api/catalog/variants` with another tenant's `productId`. Commands run
+with `auth: null` and an `organizationScope` (the Akeneo importer, for example) now also match the
+record against `organizationScope.tenantId`. Catalog product bulk-delete jobs (#3826, 0.9.0) now
+report a product from another tenant or organization as not found (`404`) instead of `403`. Request and response shapes
+are unchanged.
+
+**Action for module authors:** none, unless you branch on `403` for these routes or commands; treat
+`404` as the answer for records the caller cannot reach.
+### Catalog price kind PUTs keep `displayMode` when it is omitted (#7555)
+
+`PUT /api/catalog/price-kinds` (the `catalog.priceKinds.update` command) used to reset an omitted
+`displayMode` to `excluding-tax`. The update schema (`priceKindUpdateSchema`) inherited the
+create-time default, so renaming an `including-tax` price kind or toggling its `isActive` switched it
+back to `excluding-tax`. An omitted `displayMode` is now left untouched, and the generated OpenAPI document no
+longer shows a default for it on the PUT body. `priceKindCreateSchema` keeps its `excluding-tax`
+default.
+
+- A caller that relied on omission to reset the display mode must send `displayMode: 'excluding-tax'`
+  explicitly.
+- Price kinds already changed by a partial update are not repaired. Check the display mode in the
+  catalog price kind settings and set it again where needed.
+### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
+
+`POST /api/communication_channels/messages/:messageId/reactions` now answers
+`404 { error: "Message not found" }` (localized) both for a message linked to another user's
+personal mailbox (was `403`) and for a message that does not exist in the caller's scope (was
+`409`). `DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId` answers
+`404 { error: "Reaction not found" }` (now localized) for a reaction on another user's personal
+mailbox (was `403`) and for a message removed while the request runs (was `409`); its other 404
+refusals now carry the same fixed text instead of the command's reason. A message linked to another
+user's deleted personal mailbox (was `409`) is refused the same way on both routes. `409` stays for
+an existing message in the caller's organization that is not channel-linked (or whose channel cannot
+be resolved), and for a duplicate reaction. URLs and success responses are unchanged.
+
+**Action for module authors:** the exported `ToggleOutboundReactionResult` of the
+`communication_channels.reaction.toggle_outbound` command gains a `not_found` member, returned when
+the message does not resolve in scope (previously `no_channel_link` with reason
+`message not found`). Code that switches exhaustively over the result, or treated
+`no_channel_link` as "message missing", should handle `not_found` alongside it.
+
+### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
+
+`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
+role slice as the JSON read of the submission, and every response carries
+`cache-control: private, no-store`. A participant whose role can read every field still gets the
+canonical stored snapshot; any other participant gets an uncached, role-filtered copy
+(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
+`GET /api/forms/submissions/:id/pdf` is unchanged.
+
+**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
+principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
+instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
+### Notification hrefs must resolve to the application origin (#7240)
+
+Notification `linkHref` and action `href` values were checked only for a leading `/`, so values such as `/\evil.example` or `/<TAB>/evil.example` passed and browsers resolved them to another host. They are now parsed as URLs and must stay on the application origin.
+
+- The create APIs (`POST /api/notifications`, `/api/notifications/batch`, `/api/notifications/role`, `/api/notifications/feature`) answer `400`, and `notificationService.create*` throws, for an href that contains a backslash or a control character, resolves to another origin, or has a path starting with `//`.
+- Notifications stored before the upgrade with such hrefs are served with `linkHref: null` and the action `href` omitted: in the list, the portal list, live events, the action endpoint and push data. Email action links fall back to the panel link.
+- A stored delivery-config `panelPath` with such characters is ignored and the default panel path is used; the rest of the stored delivery config is kept. Saving the settings with such a `panelPath` answers `400`.
+- `NotificationHandlerContext.navigate(href)` in client notification handlers ignores hrefs that do not pass the same check.
+- The predicate is available to other packages as `isSafeNotificationHref` from `@open-mercato/shared/modules/notifications/safeHref` (still re-exported from the notifications module's `lib/safeHref`). Custom delivery strategies receive the stored notification entity; pass `linkHref` and action hrefs through `toSafeNotificationHref` from `@open-mercato/core/modules/notifications/lib/safeHref` before sending them out.
+- Valid `/backend/...` paths need no action.
+### EUDR statement undos refuse to remove or reopen read-only statements (#7506)
+
+Undoing an `eudr.statements.create` through `POST /api/audit_logs/audit-logs/actions/undo` used to
+soft-delete the statement whatever had happened to it since. It now refuses in the same cases
+`eudr.statements.delete` refuses, answering `409 { "error": "<localized message>", "code": "<key>" }`
+and changing nothing:
+
+- the statement is archived (`code: "eudr.errors.archivedReadOnly"`);
+- the statement is available and its amendment window has elapsed (`code: "eudr.errors.amendWindowElapsed"`);
+- the statement is available and another statement references it (`code: "eudr.errors.referencedDownstream"`).
+
+Undoing an `eudr.statements.update` that would change the statement's status refuses the same way
+when the statement is currently in one of those states, so an undo can no longer move an archived
+or protected available statement back to an earlier status (and then make it removable). This
+includes undoing the update that archived the statement; archived statements stay read-only.
+Undos that leave the status unchanged, or start from a deletable state, behave as before.
+
+This is a bug fix that narrows undo behaviour. There is no schema or API-shape change, and explicit
+`eudr.statements.delete` responses are unchanged.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+### Akeneo imports bound media and response sizes and store media through the attachment upload path
+
+The Akeneo client used to read every response body in full with no deadline once headers arrived.
+The importer then wrote media straight to disk, outside the attachment size limit and the tenant
+quota. Now:
+
+- Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
+  (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
+  rejected. All three are skipped: the product imports without the file and a `warn` integration log
+  entry with code `sync_akeneo.media_rejected` is written (linked to the product, not to a sync run).
+- Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
+  the quota is full, the product's import fails and is listed in the sync run.
+- Media are stored with the partition's configured storage driver (no longer always `local`), with a
+  sanitized file name, a sniffed MIME type and the byte size actually received. Downloads of one
+  product's media run one at a time.
+- `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms) now covers the whole response,
+  including reading the body. That includes media downloads.
+- JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
+  32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
+  messages are truncated to 64 KiB.
+- Removing media that Akeneo no longer lists now goes through `attachmentService.releaseScoped()`: the
+  row is deleted before the stored bytes, and media another record still uses are kept.
+- `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
+  `Content-Length` header.
+
+**Action for operators:** large catalogs may hit the tenant quota on import, so raise
+`OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
+media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
+after the first sync.
+
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
+### Deleting an attachment keeps a stored file that other attachment rows still reference
+
+Catalog copies variant media onto the product, and forwarding a message copies the source message's
+attachments, by creating new `attachments` rows that reuse the source row's stored file
+(`partition_code` + `storage_path`). Every path that deletes an attachment together with its stored
+file used to remove that file with the row it was deleting, which broke all the other rows. Deleting a
+row now removes the stored file only when no other row references it: `DELETE /api/attachments`,
+`DELETE /api/attachments/library/:id`, `attachmentService.releaseScoped()`, `mercato attachments
+delete` and the warranty-claims portal delete go through `removeAttachmentRecord`
+(`@open-mercato/core/modules/attachments/lib/storageReferences`), and Akeneo media reconciliation
+releases through `releaseScoped()`; the deferred `releaseScoped(…, { flush: false })` takes the same
+storage-reference lock inside the caller's transaction. When two requests delete the same row at the
+same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer `404` to
+the one that loses instead of a second `200`, `attachmentService.releaseScoped()` throws a `404`
+`CrudHttpError` (not guaranteed in the deprecated mode below), and Akeneo media reconciliation skips
+the row instead of failing the product.
+
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
+
+**Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
+your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
+returned cleanup after commit — the documented contract. Expect the cleanup to be `undefined` when
+the stored file is still referenced by another row. If you delete `Attachment` rows and their stored
+files yourself, use `removeAttachmentRecord(em, attachment)` outside a transaction and delete the
+file only when it reports `releaseStorage: true`.
+
+The migration adds the index `attachments_storage_reference_idx` on
+`attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
+
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
