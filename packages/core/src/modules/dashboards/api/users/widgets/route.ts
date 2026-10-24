@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardUserWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
@@ -9,8 +9,10 @@ import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widget
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import {
   resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentRecordScope,
   resolveWidgetAssignmentTargetAccess,
 } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -26,6 +28,22 @@ import {
 
 const FEATURE = 'dashboards.admin.assign-widgets'
 const RESOURCE_KIND = 'dashboards.userWidgets'
+
+async function resolveAllowedOrganizationIds(
+  container: AppContainer,
+  auth: NonNullable<AuthContext>,
+  req: Request,
+  isSuperAdmin: boolean,
+): Promise<string[] | null> {
+  if (isSuperAdmin) return null
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: auth.tenantId ?? null,
+  })
+  return organizationScope.allowedIds
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: [FEATURE] },
@@ -51,7 +69,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { tenantId, organizationId } = resolveWidgetAssignmentReadScope({
+  const readScope = resolveWidgetAssignmentReadScope({
     auth: { tenantId: auth.tenantId ?? null, orgId: auth.orgId ?? null },
     isSuperAdmin: !!acl.isSuperAdmin,
     queryTenantId: url.searchParams.get('tenantId'),
@@ -61,8 +79,9 @@ export async function GET(req: Request) {
   const targetUserForRead = await em.findOne(User, { id: userId, deletedAt: null })
   const readAccess = resolveWidgetAssignmentTargetAccess({
     isSuperAdmin: !!acl.isSuperAdmin,
-    scopeTenantId: tenantId,
+    scopeTenantId: readScope.tenantId,
     target: targetUserForRead,
+    allowedOrganizationIds: await resolveAllowedOrganizationIds(container, auth, req, !!acl.isSuperAdmin),
   })
   if (readAccess === 'forbidden') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -70,6 +89,8 @@ export async function GET(req: Request) {
   if (readAccess === 'not-found') {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
+
+  const { tenantId, organizationId } = resolveWidgetAssignmentRecordScope(targetUserForRead)
 
   const widgets = await loadAllWidgets()
   const targetAcl = await rbac.loadAcl(userId, { tenantId, organizationId })
@@ -142,6 +163,7 @@ export async function PUT(req: Request) {
     isSuperAdmin: !!acl.isSuperAdmin,
     scopeTenantId: tenantId,
     target: targetUser,
+    allowedOrganizationIds: await resolveAllowedOrganizationIds(container, auth, req, !!acl.isSuperAdmin),
   })
   if (writeAccess === 'forbidden') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -149,6 +171,7 @@ export async function PUT(req: Request) {
   if (writeAccess === 'not-found') {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
+  const recordScope = resolveWidgetAssignmentRecordScope(targetUser)
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: tenantId ?? '',
@@ -167,8 +190,8 @@ export async function PUT(req: Request) {
 
   let record = await em.findOne(DashboardUserWidgets, {
     userId: parsed.data.userId,
-    tenantId,
-    organizationId,
+    tenantId: recordScope.tenantId,
+    organizationId: recordScope.organizationId,
     deletedAt: null,
   })
 
@@ -195,8 +218,8 @@ export async function PUT(req: Request) {
   if (!record) {
     record = em.create(DashboardUserWidgets, {
       userId: parsed.data.userId,
-      tenantId,
-      organizationId,
+      tenantId: recordScope.tenantId,
+      organizationId: recordScope.organizationId,
       mode: 'override',
       widgetIdsJson: widgetIds,
     })
@@ -232,7 +255,7 @@ const userWidgetsQuerySchema = z.object({
 
 const userWidgetsGetDoc: OpenApiMethodDoc = {
   summary: 'Read widget overrides for a user',
-  description: 'Returns the widgets inherited and explicitly configured for the requested user within the current scope.',
+  description: 'Returns the widgets inherited and explicitly configured for the requested user within that user\'s own tenant and organization.',
   tags: [dashboardsTag],
   query: userWidgetsQuerySchema,
   responses: [
@@ -252,7 +275,7 @@ const userWidgetsPutDoc: OpenApiMethodDoc = {
   requestBody: {
     contentType: 'application/json',
     schema: userWidgetSettingsSchema,
-    description: 'User identifier, override mode, and widget ids. Scope is derived from the authenticated session.',
+    description: 'User identifier, override mode, and widget ids. The override is stored under the target user\'s own tenant and organization.',
   },
   responses: [
     { status: 200, description: 'Overrides saved.', schema: dashboardUserWidgetsUpdateResponseSchema },

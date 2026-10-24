@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/core/modules/dashboards/data/validators'
 import {
   resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentRecordScope,
   resolveWidgetAssignmentTargetAccess,
 } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
 
@@ -179,5 +180,77 @@ describe('resolveWidgetAssignmentTargetAccess — null-tenant fail-open hardenin
       target: { tenantId: foreignTenant },
     })
     expect(access).toBe('not-found')
+  })
+})
+
+describe('resolveWidgetAssignmentTargetAccess — organization visibility', () => {
+  const callerTenant = '55555555-5555-4555-8555-555555555555'
+  const visibleOrg = '66666666-6666-4666-8666-666666666666'
+  const hiddenOrg = '88888888-8888-4888-8888-888888888888'
+
+  test('non-superadmin is forbidden from a target outside the allowed organizations', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant, organizationId: hiddenOrg },
+      allowedOrganizationIds: [visibleOrg],
+    })
+    expect(access).toBe('forbidden')
+  })
+
+  test('non-superadmin is forbidden from an organization-less target when visibility is restricted', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant, organizationId: null },
+      allowedOrganizationIds: [visibleOrg],
+    })
+    expect(access).toBe('forbidden')
+  })
+
+  test('non-superadmin reaches a target inside the allowed organizations', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant, organizationId: visibleOrg },
+      allowedOrganizationIds: [visibleOrg],
+    })
+    expect(access).toBe('allowed')
+  })
+
+  test('unrestricted visibility keeps the tenant-only check', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: false,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant, organizationId: hiddenOrg },
+      allowedOrganizationIds: null,
+    })
+    expect(access).toBe('allowed')
+  })
+
+  test('superadmin ignores organization visibility', () => {
+    const access = resolveWidgetAssignmentTargetAccess({
+      isSuperAdmin: true,
+      scopeTenantId: callerTenant,
+      target: { tenantId: callerTenant, organizationId: hiddenOrg },
+      allowedOrganizationIds: [visibleOrg],
+    })
+    expect(access).toBe('allowed')
+  })
+})
+
+describe('resolveWidgetAssignmentRecordScope', () => {
+  test('keys the record by the target user tenant and organization', () => {
+    expect(resolveWidgetAssignmentRecordScope({
+      tenantId: '55555555-5555-4555-8555-555555555555',
+      organizationId: '66666666-6666-4666-8666-666666666666',
+    })).toEqual({
+      tenantId: '55555555-5555-4555-8555-555555555555',
+      organizationId: '66666666-6666-4666-8666-666666666666',
+    })
+  })
+
+  test('normalizes a missing tenant and organization to null', () => {
+    expect(resolveWidgetAssignmentRecordScope({})).toEqual({ tenantId: null, organizationId: null })
   })
 })
