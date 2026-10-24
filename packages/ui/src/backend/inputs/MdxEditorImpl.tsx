@@ -72,7 +72,7 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
           typingRef.current = true
           latestRef.current = markdown
         }}
-        className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
+        className={cn('om-mdx-editor [&.mdxeditor-popup-container]:z-popover!', resolvedTheme === 'dark' && 'dark-theme')}
         contentEditableClassName="om-mdx-prose"
         plugins={[
           headingsPlugin(),
