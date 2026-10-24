@@ -413,6 +413,27 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+<a id="webhook-update-omitted-settings"></a>
+
+### Webhook updates keep omitted delivery settings
+
+`PUT /api/webhooks/:id` (and the equivalent `PUT /api/webhooks/webhooks/:id`) used to reset an omitted
+`httpMethod` to `POST`, `maxRetries` to `10`, `timeoutMs` to `15000`, `rateLimitPerMinute` to `0` and
+`autoDisableThreshold` to `100`. The update schema (`webhookUpdateSchema`) inherited the create-time
+defaults, so the Activate / Deactivate action on the webhook list and detail pages, which sends only
+`isActive`, also reset those delivery settings. Omitted fields are now left untouched; the create
+schema keeps its defaults.
+
+- A caller that relied on omission to reset these fields must send the values explicitly.
+- Webhooks already changed by a partial update are not repaired. Re-check the delivery settings of
+  webhooks that were activated or deactivated from the list or detail page, and set them again where
+  needed.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): behaviour change on a previously-corrupting path of the webhook update API routes.
+URLs, field names, types, bounds and response shapes are unchanged. Regression-tested in
+`validators.test.ts`, `partial-update.test.ts` and `TC-WEBHOOK-011`.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
