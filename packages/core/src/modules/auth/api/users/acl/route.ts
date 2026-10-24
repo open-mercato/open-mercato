@@ -330,7 +330,11 @@ export async function PUT(req: Request) {
 
   if (!actorIsSuperAdmin) {
     if (requestedIsSuperAdmin && !existingIsSuperAdmin) {
-      throw forbidden('Only super administrators can grant super admin access.')
+      const { translate } = await resolveTranslations()
+      throw forbidden(translate(
+        'auth.acl.errors.superAdminGrantDenied',
+        'Only super administrators can grant super admin access.',
+      ))
     }
     if (existingIsSuperAdmin && requestedIsSuperAdmin === false) {
       effectiveIsSuperAdmin = false

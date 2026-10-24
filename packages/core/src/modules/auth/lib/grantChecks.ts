@@ -3,6 +3,7 @@ import { badRequest, CrudHttpError, forbidden } from '@open-mercato/shared/lib/c
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -177,13 +178,19 @@ export async function assertActorCanGrantRoles(input: RoleGrantCheckInput): Prom
   if (actorAcl.isSuperAdmin) return
 
   if (!tenantId) {
-    throw forbidden('Tenant context is required to grant roles.')
+    throw forbidden(await translateAuthError(
+      'auth.acl.errors.roleGrantTenantRequired',
+      'Tenant context is required to grant roles.',
+    ))
   }
 
   for (const role of input.roles) {
     const roleTenantId = normalizeNullableString(role.tenantId)
     if (roleTenantId !== tenantId) {
-      throw forbidden('Cannot grant a role outside the target tenant.')
+      throw forbidden(await translateAuthError(
+        'auth.acl.errors.roleOutsideTargetTenant',
+        'Cannot grant a role outside the target tenant.',
+      ))
     }
 
     const acl = await findOneWithDecryption(
@@ -195,7 +202,7 @@ export async function assertActorCanGrantRoles(input: RoleGrantCheckInput): Prom
     )
     if (!acl) continue
 
-    assertActorCanGrantAclSnapshot(actorAcl, {
+    await assertActorCanGrantAclSnapshot(actorAcl, {
       isSuperAdmin: !!acl.isSuperAdmin,
       features: normalizeStringList(acl.featuresJson),
       organizations: normalizeOrganizationList(acl.organizationsJson),
@@ -209,10 +216,13 @@ export async function assertActorCanGrantAcl(input: FeatureGrantCheckInput): Pro
 
   const tenantId = normalizeNullableString(input.tenantId)
   if (!tenantId) {
-    throw forbidden('Tenant context is required to grant ACL features.')
+    throw forbidden(await translateAuthError(
+      'auth.acl.errors.aclGrantTenantRequired',
+      'Tenant context is required to grant ACL features.',
+    ))
   }
 
-  assertActorCanGrantAclSnapshot(actorAcl, {
+  await assertActorCanGrantAclSnapshot(actorAcl, {
     isSuperAdmin: !!input.isSuperAdmin,
     features: normalizeStringList(input.features),
     organizations: input.organizations === undefined ? undefined : normalizeOrganizationList(input.organizations),
@@ -228,7 +238,10 @@ export async function assertActorCanModifySuperAdminUserTarget(input: SuperAdmin
   if (actorIsSuperAdmin) return
   const targetIsSuperAdmin = await isUserEffectivelySuperAdmin(input.em, input.targetUserId)
   if (targetIsSuperAdmin) {
-    throw forbidden('Only super administrators can modify super administrator accounts.')
+    throw forbidden(await translateAuthError(
+      'auth.users.errors.superAdminTargetProtected',
+      'Only super administrators can modify super administrator accounts.',
+    ))
   }
 }
 
@@ -237,7 +250,10 @@ export async function assertActorCanModifySuperAdminRoleTarget(input: SuperAdmin
   if (actorIsSuperAdmin) return
   const targetIsSuperAdmin = await isRoleEffectivelySuperAdmin(input.em, input.targetRoleId)
   if (targetIsSuperAdmin) {
-    throw forbidden('Only super administrators can modify super administrator roles.')
+    throw forbidden(await translateAuthError(
+      'auth.roles.errors.superAdminTargetProtected',
+      'Only super administrators can modify super administrator roles.',
+    ))
   }
 }
 
@@ -268,13 +284,16 @@ export async function assertActorCanAccessUserTarget(input: UserTargetAccessInpu
   const actorTenantId = normalizeNullableString(input.tenantId)
   const targetTenantId = normalizeNullableString((target as { tenantId?: string | null }).tenantId)
   if (!targetTenantId || targetTenantId !== actorTenantId) {
-    throw new CrudHttpError(404, { error: 'User not found' })
+    throw new CrudHttpError(404, { error: await translateAuthError('auth.users.errors.notFound', 'User not found') })
   }
 
   if (input.organizationScope.allowedIds !== null) {
     const targetOrganizationId = normalizeNullableString((target as { organizationId?: string | null }).organizationId)
     if (!targetOrganizationId || !input.organizationScope.allowedIds.includes(targetOrganizationId)) {
-      throw forbidden('Not authorized to access this user.')
+      throw forbidden(await translateAuthError(
+        'auth.users.errors.targetAccessDenied',
+        'Not authorized to access this user.',
+      ))
     }
   }
 }
@@ -296,7 +315,7 @@ export async function assertActorCanAccessRoleTarget(input: SuperAdminRoleTarget
   const actorTenantId = normalizeNullableString(input.tenantId)
   const targetTenantId = normalizeNullableString((target as { tenantId?: string | null }).tenantId)
   if (!targetTenantId || targetTenantId !== actorTenantId) {
-    throw new CrudHttpError(404, { error: 'Role not found' })
+    throw new CrudHttpError(404, { error: await translateAuthError('auth.roles.errors.notFound', 'Role not found') })
   }
 }
 
@@ -388,7 +407,12 @@ export async function listSuperAdminUserIds(em: EntityManager, tenantId: string 
 
 async function loadActorAcl(input: GrantCheckContext): Promise<ActorAcl> {
   const actorUserId = normalizeNullableString(input.actorUserId)
-  if (!actorUserId) throw forbidden('Not authorized to grant ACL privileges.')
+  if (!actorUserId) {
+    throw forbidden(await translateAuthError(
+      'auth.acl.errors.actorRequired',
+      'Not authorized to grant ACL privileges.',
+    ))
+  }
 
   const scope = {
     tenantId: normalizeNullableString(input.tenantId),
@@ -428,7 +452,9 @@ async function resolveRolesForGrant(
 
   if (missingRoles.length) {
     const labels = missingRoles.map((role) => `"${role}"`).join(', ')
-    throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
+    throw new CrudHttpError(400, {
+      error: await translateAuthError('auth.roles.errors.rolesNotFound', 'Role(s) not found: {roles}', { roles: labels }),
+    })
   }
 
   return roles
@@ -452,52 +478,72 @@ async function resolveRoleForGrant(
   )
 }
 
-function assertActorCanGrantAclSnapshot(
+async function assertActorCanGrantAclSnapshot(
   actorAcl: ActorAcl,
   requested: {
     isSuperAdmin: boolean
     features: string[]
     organizations?: string[] | null
   },
-): void {
+): Promise<void> {
   if (requested.isSuperAdmin) {
-    throw forbidden('Only super administrators can grant super admin access.')
+    throw forbidden(await translateAuthError(
+      'auth.acl.errors.superAdminGrantDenied',
+      'Only super administrators can grant super admin access.',
+    ))
   }
 
   const actorGrantableFeatures = actorAcl.features.filter((grant) => grant !== '*')
   for (const feature of requested.features) {
     if (feature === '*') {
-      throw forbidden('Only super administrators can grant global wildcard access.')
+      throw forbidden(await translateAuthError(
+        'auth.acl.errors.globalWildcardGrantDenied',
+        'Only super administrators can grant global wildcard access.',
+      ))
     }
     if (isWildcardFeature(feature)) {
       if (!hasFeature(actorGrantableFeatures, feature)) {
-        throw forbidden(`Cannot grant feature wildcard ${feature}.`)
+        throw forbidden(await translateAuthError(
+          'auth.acl.errors.featureWildcardGrantDenied',
+          'Cannot grant feature wildcard {feature}.',
+          { feature },
+        ))
       }
       continue
     }
     if (!hasFeature(actorGrantableFeatures, feature)) {
-      throw forbidden(`Cannot grant feature ${feature}.`)
+      throw forbidden(await translateAuthError(
+        'auth.acl.errors.featureGrantDenied',
+        'Cannot grant feature {feature}.',
+        { feature },
+      ))
     }
   }
 
   if (requested.organizations !== undefined) {
-    assertActorCanGrantOrganizations(actorAcl.organizations, requested.organizations)
+    await assertActorCanGrantOrganizations(actorAcl.organizations, requested.organizations)
   }
 }
 
-function assertActorCanGrantOrganizations(
+async function assertActorCanGrantOrganizations(
   actorOrganizations: string[] | null,
   requestedOrganizations: string[] | null,
-): void {
+): Promise<void> {
   if (actorOrganizations === null || actorOrganizations.includes('__all__')) return
 
   if (requestedOrganizations === null || requestedOrganizations.includes('__all__')) {
-    throw forbidden('Cannot grant unrestricted organization access.')
+    throw forbidden(await translateAuthError(
+      'auth.acl.errors.unrestrictedOrganizationsGrantDenied',
+      'Cannot grant unrestricted organization access.',
+    ))
   }
 
   for (const organizationId of requestedOrganizations) {
     if (!actorOrganizations.includes(organizationId)) {
-      throw forbidden('Cannot grant organization access outside actor scope.')
+      throw forbidden(await translateAuthError(
+        'auth.acl.errors.organizationOutsideScope',
+        'Cannot grant organization access outside actor scope.',
+      ))
     }
   }
 }
@@ -527,7 +573,7 @@ function isWildcardFeature(feature: string): boolean {
   return feature.endsWith('.*')
 }
 
-async function translateAuthError(key: string, fallback: string): Promise<string> {
+async function translateAuthError(key: string, fallback: string, params?: TranslateParams): Promise<string> {
   const { translate } = await resolveTranslations()
-  return translate(key, fallback)
+  return translate(key, fallback, params)
 }
