@@ -429,24 +429,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### A deleted dictionary releases its key (#ISSUE)
-
-Deleting a dictionary (`DELETE /api/dictionaries/:id`, or `PATCH` with `isActive: false`) soft-deletes
-it, but the database kept the key reserved, so creating a dictionary with that key, or renaming one
-onto it, failed with `500`. The `dictionaries_scope_key_unique` table constraint is replaced by a
-unique index of the same name that covers live rows only (`where "deleted_at" is null`). Creating
-now makes a new, empty dictionary and renaming now succeeds; the deleted dictionary keeps its entries.
-When requests race to create or rename onto the same key, one succeeds and the others now get the
-existing `409` duplicate-key response instead of `500`.
-
-- Module helpers that look a dictionary up by key and create it when it is missing (sales statuses
-  and adjustment kinds, the planner and resources pages, the module seeders) now re-create a deleted
-  dictionary as an empty one instead of failing.
-- Raw SQL that targets the old constraint with `ON CONFLICT ON CONSTRAINT dictionaries_scope_key_unique`
-  no longer works; use `ON CONFLICT ("organization_id", "tenant_id", "key") WHERE "deleted_at" IS NULL`.
-- Rolling back the migration fails while two dictionaries in the same organization and tenant share a
-  key, deleted or not; remove or rename the extra rows first.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
