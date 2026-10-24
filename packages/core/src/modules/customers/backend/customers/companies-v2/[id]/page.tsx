@@ -36,6 +36,7 @@ import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../..
 import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
+import { resolveActivityStartOnDay } from '../../../../components/detail/schedule/useScheduleFormState'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
 import {
@@ -274,13 +275,13 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setScheduleDialogOpen(true)
   }, [])
 
-  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email') => {
+  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email', selectedDate?: Date) => {
     setScheduleEditData({
       id: '',
       interactionType: kind,
       title: null,
       body: null,
-      scheduledAt: null,
+      scheduledAt: selectedDate ? resolveActivityStartOnDay(kind, selectedDate).toISOString() : null,
       durationMinutes: null,
       location: null,
       allDay: null,

@@ -15,8 +15,8 @@ type ActivityLogTabProps = {
   plannedActivities: InteractionSummary[]
   /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
   onActivityCreated?: () => void
-  onScheduleRequested: () => void
-  onAddActivity?: (kind: ActivityKind) => void
+  onScheduleRequested: (selectedDate?: Date) => void
+  onAddActivity?: (kind: ActivityKind, selectedDate?: Date) => void
   /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
   onMarkDone?: (id: string) => void
   onEditActivity: (activity: InteractionSummary) => void
@@ -45,9 +45,9 @@ export function ActivityLogTab({
   useCanonicalInteractions = false,
   entityCompanyName,
 }: ActivityLogTabProps) {
-  const handleAddNew = (kind: ActivityKind) => {
-    if (onAddActivity) onAddActivity(kind)
-    else onScheduleRequested()
+  const handleAddNew = (kind: ActivityKind, selectedDate?: Date) => {
+    if (onAddActivity) onAddActivity(kind, selectedDate)
+    else onScheduleRequested(selectedDate)
   }
 
   return (

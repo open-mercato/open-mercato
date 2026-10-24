@@ -505,7 +505,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               <PlannedActivitiesSection
                 activities={plannedActivities}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
-                onSchedule={selectedActivityEntity ? openSchedule : undefined}
+                onSchedule={selectedActivityEntity ? () => openSchedule() : undefined}
                 onEdit={handleEditActivity}
                 onCancel={(interactionId) => { void handleCancelActivity(interactionId) }}
               />

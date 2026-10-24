@@ -30,6 +30,7 @@ const plannedActivitiesSectionMock = jest.fn(
   ({ onSchedule }: { onSchedule?: () => void }) => (
     <div data-testid="planned-activities-section">
       {onSchedule ? 'schedule-enabled' : 'schedule-disabled'}
+      {onSchedule ? <button type="button" onClick={onSchedule}>Schedule planned</button> : null}
     </div>
   ),
 )
@@ -284,10 +285,18 @@ jest.mock('../../../../../components/detail/ScheduleActivityDialog', () => ({
   ScheduleActivityDialog: ({
     entityType,
     entityId,
+    open,
+    editData,
   }: {
     entityType: string
     entityId: string
-  }) => <div data-testid="schedule-activity-dialog">{entityType}:{entityId}</div>,
+    open: boolean
+    editData: { id: string } | null
+  }) => (
+    <div data-testid="schedule-activity-dialog" data-open={open} data-preset={editData ? 'preset' : 'default'}>
+      {entityType}:{entityId}
+    </div>
+  ),
 }))
 
 jest.mock('../../../../../components/detail/ChangelogTab', () => ({
@@ -474,6 +483,20 @@ describe('DealDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('active-tab')).toHaveTextContent('companies')
     })
+  })
+
+  it('opens the default schedule dialog from a planned-activity button click (#7478)', async () => {
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    const scheduleButton = await screen.findByRole('button', { name: 'Schedule planned' })
+    expect(screen.getByTestId('schedule-activity-dialog')).toHaveAttribute('data-open', 'false')
+
+    fireEvent.click(scheduleButton)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('schedule-activity-dialog')).toHaveAttribute('data-open', 'true')
+    })
+    expect(screen.getByTestId('schedule-activity-dialog')).toHaveAttribute('data-preset', 'default')
   })
 
   it('keeps an injected tab active when it is selected from another built-in tab (#4379)', async () => {
