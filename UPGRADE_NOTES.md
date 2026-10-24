@@ -413,6 +413,27 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### Organization undo/redo refuses to create a parent cycle; hierarchy rebuild repairs existing cycles
+
+Undoing `directory.organizations.update`, `.delete` or `.create`, and redoing
+`directory.organizations.create`, wrote the stored parent ids back without checking the tree as it is
+now. When the hierarchy had changed since the action (for example, the organization's former parent
+was later moved under it), the replay persisted a parent cycle and a corrupt tree. These replays now
+refuse with `409 { "error": "<localized message>", "code": "directory.organizations.errors.replayCycle" }`
+and change nothing.
+
+`computeHierarchyForOrganizations` and `rebuildHierarchyForTenant`
+(`@open-mercato/core/modules/directory/lib/hierarchy`) now break any cycle found in the raw
+`parent_id` data by making the member with the smallest id a root. A tenant that already carries a
+cycle gets it repaired on its next hierarchy rebuild (any organization create, update, delete or
+replay). That changes the persisted `parent_id`, `ancestor_ids` and `descendant_ids` of the
+organizations in the cycle, and can shrink organization-scope visibility derived from them.
+Acyclic hierarchies are unaffected.
+
+**Action for integrators:** none, unless an integration relied on the corrupt cycle. Match undo
+refusals on `code`, not on `error`. The route URLs, request and response schemas, event IDs, ACL
+features, DI names and database schema are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
