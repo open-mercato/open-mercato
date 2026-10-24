@@ -456,33 +456,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### Business-rule `CALL_OPEN_MERCATO` actions are limited to API key roles the rule author can grant (#7236)
-
-A `CALL_OPEN_MERCATO` action mints a one-time key with every role of its selected API key profile.
-The rule's author must now be able to grant all of those roles, using the same
-`assertActorCanGrantRoles` ceiling that `POST /api/api_keys/keys` enforces:
-
-- `POST` / `PUT /api/business_rules/rules` answer `400` when the saving user cannot grant every role
-  of a selected profile. On `PUT` the grant check also covers stored `CALL_OPEN_MERCATO` actions that
-  the payload does not replace (their endpoint and key availability are not re-validated); a request
-  that sets `enabled: false` and leaves every other submitted field unchanged is not checked.
-- `PUT` now stores the saving user in `updatedBy` (it was always left empty before), so the last
-  saver becomes the rule's author.
-- `GET /api/business_rules/openmercato-call-options` lists only profiles whose roles the caller can
-  grant, and never AI-chat session keys or one-time keys (`__onetime__`, `__business_rule_…`,
-  `__workflow_…`, `__session_…`). Such keys are also rejected as profiles on save and at execution.
-- At execution the author (`updatedBy`, else `createdBy`) must still be a live user of the rule's
-  tenant, a super administrator, or a live API key of that tenant, and must still be able to grant
-  every role of the profile. A profile role that no longer exists also fails the check. Otherwise
-  the action fails before any key is minted, and the failure is recorded in the rule execution log.
-
-**Action for operators:** existing rules keep their stored configuration, but some will now fail at
-execution: rules whose author lacks the grants, rules whose author was deleted, rules with no
-recorded author, rules saved through an AI-chat session key that has since expired, and rules whose
-profile is a session or one-time key. Look for failed `CALL_OPEN_MERCATO` actions in the rule
-execution logs. Re-save each affected rule as a user who can grant the profile's roles, or select a
-profile with narrower roles.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
