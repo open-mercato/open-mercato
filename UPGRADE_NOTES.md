@@ -413,6 +413,34 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+### Webhook credential header values are hidden without `webhooks.secrets` (#7237)
+
+`GET /api/webhooks/:id` and the `PUT /api/webhooks/:id` response (and their `/api/webhooks/webhooks/:id`
+alias) now return `••••••••` as the value of credential-like custom headers unless the caller has
+`webhooks.secrets`. A header counts as credential-like when its name contains (as a substring) `auth`,
+`token`, `secret`, `key`, `pass`, `pwd`, `sig`, `hmac`, `session`, `cookie`, `jwt`, `bearer`,
+`credential` or `private`, or when its value starts with an auth scheme (`Bearer `, `Basic `) or a
+common token prefix. Header names, other values and the response shape are unchanged. The default
+`employee` role (`webhooks.view` only) is affected; `admin` and `superadmin` (`webhooks.*`) still see
+the stored values.
+
+On `PUT /api/webhooks/:id`, a header whose value is exactly `••••••••` keeps its stored value, so a
+client can send back what it read. The route answers `400 { error }` and writes nothing when:
+
+- `••••••••` is sent for a header that has no stored value, or
+- a caller without `webhooks.secrets` changes the webhook URL while keeping a stored credential header
+  (by sending `••••••••` or by omitting `customHeaders`). Re-enter or remove those headers in the same
+  request.
+
+The `makeCrudRoute` update handler behind `PUT /api/webhooks/webhooks` applies the same rules; that route
+currently answers `400 { error: "Invalid id" }` to every request for an unrelated reason.
+
+**Action for API clients:** to change a hidden header, send a new value. To keep it, send
+`••••••••` back unchanged. To delete it, omit the key (`customHeaders` is still a full replacement).
+Grant `webhooks.secrets` to roles that must read the stored values. Code that deep-imports the
+module helper `serializeWebhookDetail()` (`webhooks/api/helpers`) now gets redacted values unless it
+passes `{ revealCredentialHeaders: true }`.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
