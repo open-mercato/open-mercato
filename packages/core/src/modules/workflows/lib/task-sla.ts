@@ -32,6 +32,7 @@ import {
   type AgentReviewStepLike,
 } from './agent-review'
 import { findDefinitionForInstance } from './find-definition'
+import { isRunClosedToUserTasks } from './instance-status'
 import { emitWorkflowsEvent } from '../events'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
@@ -300,7 +301,9 @@ type BreachOutcome =
   | 'reassigned'
   | 'routed'
   | 'route_skipped_branch'
+  | 'route_skipped_closed_run'
   | 'attention'
+  | 'attention_skipped_closed_run'
 
 interface AppliedBreachHandling {
   outcome: BreachOutcome
@@ -393,6 +396,9 @@ async function applyBreachHandling(
 
   if (resolution.kind === 'attention') {
     if (!instance) return { outcome: 'none' }
+    if (isRunClosedToUserTasks(instance.status)) {
+      return { outcome: 'attention_skipped_closed_run', detail: { stepId, status: instance.status } }
+    }
     await markInstanceForAttention(em, instance, stepId, task, now)
     return { outcome: 'attention', detail: { stepId } }
   }
@@ -428,6 +434,13 @@ async function applyBreachHandling(
     // a task-surface one.
     if (options.branchInstanceId) {
       return { outcome: 'route_skipped_branch', detail: { transitionId: resolution.transition.transitionId } }
+    }
+
+    if (isRunClosedToUserTasks(instance?.status)) {
+      return {
+        outcome: 'route_skipped_closed_run',
+        detail: { transitionId: resolution.transition.transitionId, status: instance?.status },
+      }
     }
 
     // The task is superseded by the route, not abandoned: `ESCALATED` is an
