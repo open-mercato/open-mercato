@@ -413,6 +413,58 @@ file only when it reports `releaseStorage: true`.
 The migration adds the index `attachments_storage_reference_idx` on
 `attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
 
+<a id="notification-action-commands"></a>
+
+### Notification actions run only commands their notification type declares (#7215)
+
+The notification create routes (`POST /api/notifications`, `/api/notifications/batch`,
+`/api/notifications/role` and `/api/notifications/feature`) now answer
+`400 { error, code: "notification_action_command_not_allowed" }` when any `actions[]` entry carries a
+`commandId`, and nothing is created. Actions that only link (`href`) are accepted as before.
+
+`POST /api/notifications/:id/action` now answers `403 { error, code: "notification_action_forbidden" }`,
+before the notification is claimed, when the stored action carries a `commandId` and the notification's
+registered type does not declare an action with the same `id` and the same `commandId` in `actions` or
+the new optional `optionalActions`, or when the clicking user lacks the declared action's new optional
+`requiredFeatures`. Actions without a `commandId` behave as before. The command input `id` is now always
+the notification's `sourceEntityId`; an `id` in the request `payload` no longer overrides it. Both codes
+are exported from `@open-mercato/shared/modules/notifications/types` as
+`NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE` and `NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE`.
+
+Built-in types: the approve and reject actions of `staff.leave_request.pending` now require
+`staff.leave_requests.manage`, the same feature as the leave request accept and reject routes.
+`workflows.task.assigned` declares the one-click `complete` action (`workflows.tasks.complete`,
+requiring `workflows.tasks.complete`) in `optionalActions`, so task quick actions keep working.
+
+**Emergency security waiver:** the surfaces are the create-route request shape (`actions[].commandId`)
+and the action route's dispatch of stored commands; the classification is a STABLE API narrowing.
+Route URLs, success response shapes, schemas, event IDs, ACL features and the database are unchanged.
+Accepting a caller-supplied command, or dispatching an undeclared stored one, is itself the exploit: a
+planted row cannot be told apart from a server-built one, so a bridge, flag or warn-first mode would
+keep it executable, and none exists. The PR must carry `security` and a named human maintainer
+approval acknowledging this waiver before merge. The spec
+[`2026-10-20-notification-action-command-authorization.md`](.ai/specs/2026-10-20-notification-action-command-authorization.md)
+contains the "Migration & Backward Compatibility" section.
+
+**Action for integrators:** declare every command-backed action on the notification type definition
+(`actions`, or `optionalActions` for an action a producer attaches to a single notification), with
+`requiredFeatures` matching the route that normally runs the command, and create those notifications
+from server code through `notificationService`. API callers can no longer attach a command to an
+action.
+
+**Operators:** upgrade all app and worker processes together; no configuration or database migration
+is needed. Pending notifications created before the upgrade with a command whose type does
+not declare it are refused automatically. A row created through the API that copies a declared action
+exactly cannot be told apart from a server-created one; review pending command actions with:
+
+```sql
+select id, type, recipient_user_id, created_at
+from notifications
+where action_data::text like '%commandId%'
+  and actioned_at is null
+  and status <> 'dismissed';
+```
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

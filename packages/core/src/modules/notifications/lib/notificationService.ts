@@ -6,8 +6,13 @@ import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import {
   NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
+  NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE,
+  type NotificationAction,
   type NotificationPollData,
+  type NotificationTypeAction,
 } from '@open-mercato/shared/modules/notifications/types'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -95,6 +100,27 @@ function actionAlreadyExecuted(): CrudHttpError {
     error: 'Notification action already executed',
     code: NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
   })
+}
+
+async function actionForbidden(): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
+  return new CrudHttpError(403, {
+    error: translate('notifications.error.actionForbidden', 'You are not allowed to run this notification action'),
+    code: NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE,
+  })
+}
+
+/**
+ * The command action the notification's registered type declares for a stored action: same action
+ * id (across `actions` and `optionalActions`) and same `commandId`. Anything else is not dispatched.
+ */
+function findDeclaredCommandAction(type: string, action: NotificationAction): NotificationTypeAction | null {
+  const definition = getNotificationType(type)
+  if (!definition) return null
+  const declared = [...definition.actions, ...(definition.optionalActions ?? [])]
+    .find((candidate) => candidate.id === action.id)
+  if (!declared?.commandId || declared.commandId !== action.commandId) return null
+  return declared
 }
 
 function applyNotificationContent(
@@ -284,6 +310,39 @@ export interface NotificationServiceDeps {
 
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { em: rootEm, eventBus, commandBus, container } = deps
+
+  /**
+   * Whether the clicking user holds every feature a declared notification action requires.
+   * Fails closed: no user, no container, or a failing RBAC check denies the action.
+   */
+  const userHoldsActionFeatures = async (
+    requiredFeatures: string[] | undefined,
+    scopeCtx: NotificationServiceContext,
+  ): Promise<boolean> => {
+    if (!requiredFeatures || requiredFeatures.length === 0) return true
+    if (!scopeCtx.userId || !container) return false
+    try {
+      const rbacService = container.resolve('rbacService') as {
+        userHasAllFeatures: (
+          userId: string,
+          features: string[],
+          scope: { tenantId: string | null; organizationId: string | null },
+        ) => Promise<boolean>
+      }
+      const allowed = await rbacService.userHasAllFeatures(
+        scopeCtx.userId,
+        requiredFeatures,
+        { tenantId: scopeCtx.tenantId, organizationId: scopeCtx.organizationId ?? null },
+      )
+      return allowed === true
+    } catch (err) {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'notifications',
+        code: 'notifications.action_feature_check_failed',
+      })
+      return false
+    }
+  }
 
   /**
    * Resolves the authoritative delivery-channel set for one recipient at create time — the single
@@ -696,6 +755,13 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         throw actionAlreadyExecuted()
       }
 
+      if (action.commandId) {
+        const declared = findDeclaredCommandAction(notification.type, action)
+        if (!declared || !(await userHoldsActionFeatures(declared.requiredFeatures, ctx))) {
+          throw await actionForbidden()
+        }
+      }
+
       const actionedAt = new Date()
       const previousStatus = notification.status
       const previousActionedAt = notification.actionedAt ?? null
@@ -749,8 +815,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       if (action.commandId && commandBus && container) {
         const commandInput = {
-          id: notification.sourceEntityId,
           ...input.payload,
+          id: notification.sourceEntityId,
         }
 
         // Build a CommandRuntimeContext from the notification service context
