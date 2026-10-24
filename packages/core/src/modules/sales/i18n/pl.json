@@ -1326,6 +1326,7 @@
   "sales.quotes.create": "Utwórz ofertę",
   "sales.quotes.delete": "Usuń ofertę",
   "sales.quotes.detail.title": "Szczegóły oferty",
+  "sales.quotes.due_at_unsupported": "Termin płatności nie jest dostępny dla ofert.",
   "sales.quotes.email.cta": "Zobacz ofertę",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "Oferta {quoteNumber}",

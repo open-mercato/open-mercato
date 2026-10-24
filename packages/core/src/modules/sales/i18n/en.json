@@ -1326,6 +1326,7 @@
   "sales.quotes.create": "Create sales quote",
   "sales.quotes.delete": "Delete sales quote",
   "sales.quotes.detail.title": "Quote details",
+  "sales.quotes.due_at_unsupported": "Due date is not available on quotes.",
   "sales.quotes.email.cta": "View quote",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "Quote {quoteNumber}",

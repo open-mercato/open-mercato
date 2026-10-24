@@ -1326,6 +1326,7 @@
   "sales.quotes.create": "Angebot erstellen",
   "sales.quotes.delete": "Angebot löschen",
   "sales.quotes.detail.title": "Angebotsdetails",
+  "sales.quotes.due_at_unsupported": "Das Fälligkeitsdatum ist für Angebote nicht verfügbar.",
   "sales.quotes.email.cta": "Angebot ansehen",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "Angebot {quoteNumber}",
