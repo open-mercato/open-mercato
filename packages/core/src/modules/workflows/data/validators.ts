@@ -4,6 +4,7 @@ import { validateConditionExpressionForApi } from '@open-mercato/core/modules/bu
 import { parseDuration } from '../lib/duration'
 import { excludeNonNormalTransitions } from '../lib/route-kinds'
 import { WORKFLOW_RUN_OUTCOMES } from '../lib/run-outcome'
+import { WORKFLOW_BUSINESS_KEY_MAX_LENGTH, WORKFLOW_BUSINESS_KEY_REUSE_POLICIES } from '../lib/business-key'
 import {
   WORKFLOW_START_FIXTURES_MAX_CHARS,
   WORKFLOW_START_FIXTURES_MAX_COUNT,
@@ -1601,6 +1602,13 @@ export const startWorkflowInputSchema = z.object({
    * `dryRun`, and independent of it: a real run can be stepped through too.
    */
   stepThrough: z.boolean().optional(),
+  /**
+   * Idempotency key (#7182): a start carrying a key another instance of the
+   * same workflow already holds returns that instance instead of a new one.
+   * Rejected together with `dryRun`.
+   */
+  businessKey: z.string().trim().min(1).max(WORKFLOW_BUSINESS_KEY_MAX_LENGTH).optional(),
+  reusePolicy: z.enum(WORKFLOW_BUSINESS_KEY_REUSE_POLICIES).optional(),
 })
 
 export type StartWorkflowApiInput = z.infer<typeof startWorkflowInputSchema>

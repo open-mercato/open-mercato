@@ -153,6 +153,35 @@ describe('GET /api/workflows/tasks', () => {
     expect(where.status).toBe('PENDING')
   })
 
+  test('narrows to tasks bound to one record with an entity-bindings containment predicate', async () => {
+    const where = await runList('?entityType=sales:sales_order&entityId=order-1')
+
+    const subjectGroup = (where.$and as Array<{ $or?: unknown[] }>).find((condition) => Array.isArray(condition.$or))
+    expect(subjectGroup?.$or).toEqual(
+      expect.arrayContaining([
+        { entityBindings: { $contains: [{ entityType: 'sales:sales_order', entityId: 'order-1' }] } },
+      ]),
+    )
+    for (const branch of subjectGroup?.$or ?? []) {
+      expect(branch).toEqual({ entityBindings: { $contains: [expect.objectContaining({ entityId: 'order-1' })] } })
+    }
+  })
+
+  test('narrows by bound record id alone', async () => {
+    const where = await runList('?entityId=order-1')
+
+    expect(where.$and).toEqual(
+      expect.arrayContaining([{ $or: [{ entityBindings: { $contains: [{ entityId: 'order-1' }] } }] }]),
+    )
+  })
+
+  test('adds no subject predicate when neither entityType nor entityId is given', async () => {
+    const where = await runList('?status=PENDING')
+
+    const hasBindingPredicate = JSON.stringify(where.$and ?? []).includes('entityBindings')
+    expect(hasBindingPredicate).toBe(false)
+  })
+
   test('clamps an oversized limit to the documented maximum', async () => {
     await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=5000'))
 
