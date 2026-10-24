@@ -156,7 +156,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
         { status: 403, description: 'Insufficient permissions', schema: workflowErrorSchema },
         { status: 404, description: 'Instance or definition not found', schema: workflowErrorSchema },
-        { status: 409, description: 'Workflow not paused or not waiting for signal', schema: workflowErrorSchema },
+        { status: 409, description: 'Workflow not paused (including a delivery that lost the claim to a concurrent one) or not waiting for signal', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error or transition failed', schema: workflowErrorSchema },
       ],
     },

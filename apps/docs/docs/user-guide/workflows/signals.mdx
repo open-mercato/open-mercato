@@ -198,6 +198,34 @@ POST /api/workflows/instances/{instanceId}/signal
 - Handle webhook callbacks without storing instance IDs
 - Coordinate workflows with third-party systems
 
+**Signalling every instance with a key:**
+
+`POST /api/workflows/signals` sends the signal to every paused instance that shares the correlation key. The response reports how many instances advanced and, per instance, every delivery that failed:
+
+```json
+{
+  "success": true,
+  "message": "Signal sent to 2 workflow(s)",
+  "count": 2,
+  "failures": [
+    { "instanceId": "…", "code": "WORKFLOW_NOT_PAUSED", "message": "Workflow is not paused" }
+  ]
+}
+```
+
+## Duplicate and Concurrent Delivery
+
+A paused instance is advanced by exactly one delivery of a signal. When the same signal arrives more than once at the same time — a webhook retried by its sender, at-least-once event delivery, a double-clicked action — the first delivery claims the instance and the others are refused:
+
+- `POST /api/workflows/instances/{instanceId}/signal` answers **409** (`WORKFLOW_NOT_PAUSED`) for the refused deliveries.
+- `POST /api/workflows/signals` lists them under `failures` with the code `WORKFLOW_NOT_PAUSED`.
+
+A correlation-key delivery is addressed to the wait each instance was parked on when it was listed. If a concurrent delivery has already moved the instance on to a later wait — even one waiting for the same signal name — the late delivery is refused the same way instead of consuming that later wait.
+
+The same holds when a workflow loops back to the wait it was parked on. Each time an instance parks, that occurrence of the wait is distinct from the previous one: a delivery that found the instance parked on the earlier occurrence is refused even if it only gets to claim it after the loop has parked the instance on the same step again. A signal sent once the instance is parked on the new occurrence is a new delivery and advances it.
+
+A refused delivery changes nothing, so a sender retrying a signal it already sent can treat the 409 as "already delivered". A delivery that fails before anything of it is recorded hands the wait back, so retrying it delivers the signal rather than being refused.
+
 ## Example: Order Fulfillment with Payment Webhook
 
 Here's a complete workflow that waits for payment confirmation:
@@ -304,7 +332,7 @@ Configure timeout behavior with transitions:
 
 - Use correlation keys to identify workflow instances
 - Include all necessary data in the signal payload
-- Handle webhook retries and idempotency
+- Handle webhook retries and idempotency — a 409 on a retried signal means an earlier delivery already advanced the instance
 - Log signal sends for debugging
 
 ### For Administrators
