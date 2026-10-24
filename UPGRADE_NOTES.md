@@ -429,18 +429,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### Sales documents keep the contact and addresses when the same customer is resent (#ISSUE)
-
-`PUT /api/sales/orders` and `PUT /api/sales/quotes` (the `sales.orders.update` and
-`sales.quotes.update` commands) used to clear `customerContactId`, both address ids and both address
-snapshots whenever the payload carried `customerEntityId`, even when it matched the customer already
-on the document. They are now cleared only when the customer actually changes (including detaching it
-with `null`). When the customer changes and no `customerContactId` is sent, the refreshed
-`customerSnapshot` no longer embeds the previous customer's contact.
-
-- A caller that relied on resending the current customer to unassign the addresses must send
-  `billingAddressId: null` / `shippingAddressId: null` (and `customerContactId: null`) explicitly.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
