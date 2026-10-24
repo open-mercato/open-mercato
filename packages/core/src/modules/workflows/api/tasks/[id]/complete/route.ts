@@ -164,8 +164,6 @@ export async function POST(
           { status: 409 }
         )
       }
-      // The run the task belongs to is closed. `code` lets a client tell this
-      // conflict apart from the other 409s this route answers.
       if ((error as { code?: unknown }).code === 'WORKFLOW_NOT_ACTIVE') {
         return NextResponse.json(
           { error: error.message, code: 'WORKFLOW_NOT_ACTIVE' },
