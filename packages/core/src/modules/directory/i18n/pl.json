@@ -36,6 +36,7 @@
   "directory.nav.tenants.create": "Utwórz najemcę",
   "directory.organizations.common.none": "—",
   "directory.organizations.errors.deleteFailed": "Nie udało się usunąć organizacji",
+  "directory.organizations.errors.invalidQuery": "Nieprawidłowe zapytanie",
   "directory.organizations.errors.orgIdRequired": "Identyfikator organizacji jest wymagany",
   "directory.organizations.errors.tenantRequired": "Wybór najemcy jest wymagany dla superadministratorów",
   "directory.organizations.flash.created": "Organizacja utworzona",
