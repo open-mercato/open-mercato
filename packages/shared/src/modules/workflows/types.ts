@@ -4,6 +4,12 @@
  * These types are used by the builder API, generator extension, and in-memory registry.
  * They mirror the JSONB shape stored in workflow_definitions.definition but add
  * generic type safety for step ID references in transitions.
+ *
+ * The engine's zod schemas (`@open-mercato/core/modules/workflows/data/validators`)
+ * are the source of truth. This package cannot import them, so the step-type union
+ * and `userTaskConfig` are mirrored by hand and guarded against drift by
+ * `code-definition-types.typecheck.tsx` and `code-definition-types-parity.test.ts`
+ * in the core workflows module.
  */
 
 // ============================================================================
@@ -20,6 +26,9 @@ export type WorkflowStepType =
   | 'SUB_WORKFLOW'
   | 'WAIT_FOR_SIGNAL'
   | 'WAIT_FOR_TIMER'
+  | 'WAIT_FOR_CONDITION'
+  | 'IF_ELSE'
+  | 'SWITCH'
 
 export type TransitionTrigger = 'auto' | 'manual' | 'signal' | 'timer'
 
@@ -76,6 +85,35 @@ export interface CodeStepDefinition<TStepId extends string = string> {
       escalateTo?: string
       notifyUsers?: string[]
     }>
+    assignedToRoles?: string[]
+    assigneeKind?: 'user' | 'customer'
+    formKey?: string
+    allowedActions?: string[]
+    instructions?: string | Record<string, string>
+    entityBindings?: Array<{
+      entityType: string
+      idPath: string
+      label?: string | Record<string, string>
+    }>
+    priority?: 'low' | 'medium' | 'high' | 'extreme'
+    deadline?: {
+      duration: string
+    }
+    reminders?: Array<{
+      offset: string
+    }>
+    onBreach?: {
+      action: 'notify' | 'reassign' | 'route'
+      reassignTo?: string
+      transitionId?: string
+    }
+    decisions?: Array<{
+      id: string
+      label: string | Record<string, string>
+      transitionId: string
+      style?: 'primary' | 'secondary' | 'destructive'
+    }>
+    editablePrefilled?: string[]
   }
   subWorkflowConfig?: {
     subWorkflowId: string
