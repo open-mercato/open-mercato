@@ -7,10 +7,11 @@ import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema }
 import { FeatureToggleOverride } from '../data/entities'
 import { buildChanges } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type OverrideSnapshot = {
@@ -173,6 +174,34 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
       const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
       await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, before.tenantId)
     }
+  },
+  redo: async ({ input: rawInput, logEntry, ctx }) => {
+    const input = processedChangeOverrideStateSchema.parse(rawInput)
+    const before = extractUndoPayload<OverrideUndoPayload>(logEntry)?.before
+    if (!input.isOverride || before?.id !== null) return changeOverrideStateCommand.execute(input, ctx)
+
+    const after = resolveRedoSnapshot<OverrideSnapshot>(logEntry)
+    if (!after?.id || after.toggleId !== input.toggleId || after.tenantId !== input.tenantId) {
+      throw badRequest('[internal] invalid redo snapshot for override creation')
+    }
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const toggle = await findOneWithDecryption(em, FeatureToggle, { id: after.toggleId, deletedAt: null })
+    if (!toggle) {
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('api.errors.notFound', 'Not Found'))
+    }
+
+    const override = em.create(FeatureToggleOverride, {
+      id: after.id,
+      toggle,
+      tenantId: after.tenantId,
+      value: after.value,
+    })
+    await em.flush()
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, after.tenantId)
+    return { overrideToggleId: override.id }
   },
 }
 
