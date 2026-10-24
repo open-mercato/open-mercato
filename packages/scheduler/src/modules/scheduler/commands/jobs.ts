@@ -1,13 +1,15 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
-import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
-import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
+import { calculateNextRunForWrite, recalculateNextRun } from '../lib/nextRunCalculator.js'
+import { withTenantActiveScheduleSlot } from '../lib/activeScheduleLimits.js'
 import type {
   ScheduleCreateInput,
   ScheduleUpdateInput,
@@ -259,10 +261,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     ensureCanManageSystemScopedJob(ctx, { scopeType: input.scopeType, tenantId: input.tenantId })
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
-
-    if (input.isEnabled ?? true) {
-      await enforceTenantActiveScheduleLimit(em, input.tenantId)
-    }
+    const isEnabled = input.isEnabled ?? true
 
     // Calculate next run time
     const nextRunAt = calculateNextRunForWrite(
@@ -280,32 +279,32 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       await assertQueueTargetPayloadAllowed(input.targetQueue, input.targetPayload)
     }
 
-    // Create schedule
-    const schedule = em.create(ScheduledJob, {
-      name: input.name,
-      description: input.description ?? null,
-      scopeType: input.scopeType,
-      organizationId: input.organizationId ?? null,
-      tenantId: input.tenantId ?? null,
-      scheduleType: input.scheduleType,
-      scheduleValue: input.scheduleValue,
-      timezone: input.timezone ?? 'UTC',
-      targetType: input.targetType,
-      targetQueue: input.targetQueue ?? null,
-      targetCommand: input.targetCommand ?? null,
-      targetPayload: input.targetPayload ?? null,
-      requireFeature: input.requireFeature ?? null,
-      isEnabled: input.isEnabled ?? true,
-      sourceType: 'user',
-      sourceModule: null,
-      nextRunAt,
-      createdByUserId: resolveCommandActorUserId(ctx),
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const schedule = await withTenantActiveScheduleSlot(em, input.tenantId, isEnabled, () => {
+      const created = em.create(ScheduledJob, {
+        name: input.name,
+        description: input.description ?? null,
+        scopeType: input.scopeType,
+        organizationId: input.organizationId ?? null,
+        tenantId: input.tenantId ?? null,
+        scheduleType: input.scheduleType,
+        scheduleValue: input.scheduleValue,
+        timezone: input.timezone ?? 'UTC',
+        targetType: input.targetType,
+        targetQueue: input.targetQueue ?? null,
+        targetCommand: input.targetCommand ?? null,
+        targetPayload: input.targetPayload ?? null,
+        requireFeature: input.requireFeature ?? null,
+        isEnabled,
+        sourceType: 'user',
+        sourceModule: null,
+        nextRunAt,
+        createdByUserId: resolveCommandActorUserId(ctx),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(created)
+      return created
     })
-
-    em.persist(schedule)
-    await em.flush()
 
     return { id: schedule.id }
   },
@@ -343,15 +342,42 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
     }
   },
 
-  redo: makeCreateRedo<ScheduledJob, ScheduleSnapshot, ScheduleCreateInput, { id: string }>({
-    entityClass: ScheduledJob,
-    getSnapshotId: (snapshot) => snapshot.id,
-    seedFromSnapshot: scheduleSeedFromSnapshot,
-    buildResult: (entity) => ({ id: entity.id }),
-    afterRestore: async ({ ctx, entity }) => {
-      await syncBullMQAfterUndo(ctx, entity)
-    },
-  }),
+  async redo({ logEntry, ctx }) {
+    const after = resolveRedoSnapshot<ScheduleSnapshot>(logEntry)
+    if (!after?.id) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for create command' })
+    }
+
+    const em = ctx.container.resolve<EntityManager>('em').fork()
+    const existing = await em.findOne(ScheduledJob, { id: after.id })
+    const alreadyActive = Boolean(existing && existing.isEnabled && !existing.deletedAt)
+    let schedule: ScheduledJob
+    try {
+      schedule = await withTenantActiveScheduleSlot(em, after.tenantId, after.isEnabled && !alreadyActive, () => {
+        if (!existing) return materializeScheduleFromSnapshot(em, after)
+        existing.deletedAt = null
+        return existing
+      })
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw conflict('[internal] Cannot redo: a record with the same unique key already exists.')
+      }
+      throw err
+    }
+
+    await syncBullMQAfterUndo(ctx, schedule)
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve<DataEngine>('dataEngine'),
+      action: 'created',
+      entity: schedule,
+      identifiers: {
+        id: schedule.id,
+        organizationId: schedule.organizationId ?? null,
+        tenantId: schedule.tenantId ?? null,
+      },
+    })
+    return { id: schedule.id }
+  },
 }
 
 /**
@@ -400,9 +426,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       })
     }
 
-    if (input.isEnabled === true && schedule.isEnabled !== true) {
-      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
-    }
+    const activatesSchedule = input.isEnabled === true && schedule.isEnabled !== true
 
     const effectiveTargetType = input.targetType ?? schedule.targetType
     const effectiveQueue = input.targetQueue ?? schedule.targetQueue
@@ -464,43 +488,43 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       })
     }
 
-    // Update fields
-    if (input.name !== undefined) schedule.name = input.name
-    if (input.description !== undefined) schedule.description = input.description ?? null
-    if (input.scheduleType !== undefined) schedule.scheduleType = input.scheduleType
-    if (input.scheduleValue !== undefined) schedule.scheduleValue = input.scheduleValue
-    if (input.timezone !== undefined) schedule.timezone = input.timezone
-    if (input.targetPayload !== undefined) schedule.targetPayload = input.targetPayload ?? null
-    if (input.requireFeature !== undefined) schedule.requireFeature = input.requireFeature || null
-    if (input.isEnabled !== undefined) schedule.isEnabled = input.isEnabled
-    
-    // Handle target type changes - clear stale values when switching between queue and command
-    if (input.targetType !== undefined) {
-      schedule.targetType = input.targetType
-      
-      if (input.targetType === 'queue') {
-        // Switching to queue: set new queue and clear command
+    await withTenantActiveScheduleSlot(em, schedule.tenantId, activatesSchedule, () => {
+      // Update fields
+      if (input.name !== undefined) schedule.name = input.name
+      if (input.description !== undefined) schedule.description = input.description ?? null
+      if (input.scheduleType !== undefined) schedule.scheduleType = input.scheduleType
+      if (input.scheduleValue !== undefined) schedule.scheduleValue = input.scheduleValue
+      if (input.timezone !== undefined) schedule.timezone = input.timezone
+      if (input.targetPayload !== undefined) schedule.targetPayload = input.targetPayload ?? null
+      if (input.requireFeature !== undefined) schedule.requireFeature = input.requireFeature || null
+      if (input.isEnabled !== undefined) schedule.isEnabled = input.isEnabled
+
+      // Handle target type changes - clear stale values when switching between queue and command
+      if (input.targetType !== undefined) {
+        schedule.targetType = input.targetType
+
+        if (input.targetType === 'queue') {
+          // Switching to queue: set new queue and clear command
+          if (input.targetQueue !== undefined) schedule.targetQueue = input.targetQueue
+          schedule.targetCommand = null
+        } else if (input.targetType === 'command') {
+          // Switching to command: set new command and clear queue
+          if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
+          schedule.targetQueue = null
+        }
+      } else {
+        // targetType not changing, but allow updating individual target fields
         if (input.targetQueue !== undefined) schedule.targetQueue = input.targetQueue
-        schedule.targetCommand = null
-      } else if (input.targetType === 'command') {
-        // Switching to command: set new command and clear queue
         if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
-        schedule.targetQueue = null
       }
-    } else {
-      // targetType not changing, but allow updating individual target fields
-      if (input.targetQueue !== undefined) schedule.targetQueue = input.targetQueue
-      if (input.targetCommand !== undefined) schedule.targetCommand = input.targetCommand
-    }
 
-    if (nextRunAt) {
-      schedule.nextRunAt = nextRunAt
-    }
+      if (nextRunAt) {
+        schedule.nextRunAt = nextRunAt
+      }
 
-    schedule.updatedAt = new Date()
-    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
-
-    await em.flush()
+      schedule.updatedAt = new Date()
+      schedule.updatedByUserId = resolveCommandActorUserId(ctx)
+    })
 
     return { ok: true }
   },
@@ -535,28 +559,36 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     const schedule = await em.findOne(ScheduledJob, { id: before.id })
 
     if (schedule) {
-      // Restore all fields
-      schedule.name = before.name
-      schedule.description = before.description
-      schedule.scopeType = before.scopeType
-      schedule.organizationId = before.organizationId
-      schedule.tenantId = before.tenantId
-      schedule.scheduleType = before.scheduleType
-      schedule.scheduleValue = before.scheduleValue
-      schedule.timezone = before.timezone
-      schedule.targetType = before.targetType
-      schedule.targetQueue = before.targetQueue
-      schedule.targetCommand = before.targetCommand
-      schedule.targetPayload = before.targetPayload
-      schedule.requireFeature = before.requireFeature
-      schedule.isEnabled = before.isEnabled
-      schedule.sourceType = before.sourceType
-      schedule.sourceModule = before.sourceModule
-      schedule.nextRunAt = toDate(before.nextRunAt)
-      schedule.lastRunAt = toDate(before.lastRunAt)
-      schedule.updatedAt = new Date()
+      const activatesSchedule = before.isEnabled && !schedule.isEnabled && !schedule.deletedAt
+      const scheduleDefinitionChanged =
+        schedule.scheduleType !== before.scheduleType
+        || schedule.scheduleValue !== before.scheduleValue
+        || schedule.timezone !== before.timezone
+      const restoredNextRunAt = scheduleDefinitionChanged
+        ? recalculateNextRun(before.scheduleType, before.scheduleValue, before.timezone)
+        : null
 
-      await em.flush()
+      await withTenantActiveScheduleSlot(em, before.tenantId, activatesSchedule, () => {
+        // Restore all fields
+        schedule.name = before.name
+        schedule.description = before.description
+        schedule.scopeType = before.scopeType
+        schedule.organizationId = before.organizationId
+        schedule.tenantId = before.tenantId
+        schedule.scheduleType = before.scheduleType
+        schedule.scheduleValue = before.scheduleValue
+        schedule.timezone = before.timezone
+        schedule.targetType = before.targetType
+        schedule.targetQueue = before.targetQueue
+        schedule.targetCommand = before.targetCommand
+        schedule.targetPayload = before.targetPayload
+        schedule.requireFeature = before.requireFeature
+        schedule.isEnabled = before.isEnabled
+        schedule.sourceType = before.sourceType
+        schedule.sourceModule = before.sourceModule
+        if (restoredNextRunAt) schedule.nextRunAt = restoredNextRunAt
+        schedule.updatedAt = new Date()
+      })
       await syncBullMQAfterUndo(ctx, schedule)
     }
   },
@@ -617,16 +649,20 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
 
     const em = ctx.container.resolve<EntityManager>('em').fork()
     const existing = await em.findOne(ScheduledJob, { id: before.id })
+    const restoresActiveSchedule = existing
+      ? existing.isEnabled && Boolean(existing.deletedAt)
+      : before.isEnabled
+    const tenantId = existing ? existing.tenantId : before.tenantId
 
     // Soft-deleted rows are restored by clearing `deletedAt`. A hard-removed row
     // (no surviving record) is re-materialized from the snapshot so undo is
     // robust to either deletion strategy — mirroring the sales reference undo.
-    const schedule = existing ?? materializeScheduleFromSnapshot(em, before)
-    if (existing) {
-      schedule.deletedAt = null
-      schedule.updatedAt = new Date()
-    }
-    await em.flush()
+    const schedule = await withTenantActiveScheduleSlot(em, tenantId, restoresActiveSchedule, () => {
+      if (!existing) return materializeScheduleFromSnapshot(em, before)
+      existing.deletedAt = null
+      existing.updatedAt = new Date()
+      return existing
+    })
     await syncBullMQAfterUndo(ctx, schedule)
   },
 }

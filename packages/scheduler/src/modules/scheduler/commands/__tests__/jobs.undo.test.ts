@@ -40,6 +40,13 @@ function makeEm(schedule: Record<string, unknown> | null) {
     persist: jest.fn(),
     remove: jest.fn().mockReturnValue({ flush: removeFlush }),
     flush: jest.fn().mockResolvedValue(undefined),
+    isInTransaction: jest.fn().mockReturnValue(false),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    getTransactionContext: jest.fn().mockReturnValue(undefined),
+    getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
+    count: jest.fn().mockResolvedValue(0),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => {
       created.push(data)
       return data
@@ -114,20 +121,50 @@ describe('scheduler.jobs undo restores state (issue #2504)', () => {
     expect(liveRow.name).toBe('Nightly report')
   })
 
-  it('update undo coerces JSON-serialized Date fields back to Date instances', async () => {
+  it('update undo keeps the live run state when the schedule definition is unchanged', async () => {
     const { update } = loadCommands()
-    // Snapshots persisted in the action log are JSON, so Date fields arrive as
-    // ISO strings. They MUST be coerced to Date before assignment, otherwise
-    // MikroORM throws on the typed Date column (the real failure behind #2504).
-    const before = baseSnapshot({ nextRunAt: '2026-06-05T00:00:00.000Z', lastRunAt: '2026-06-04T00:00:00.000Z' })
-    const liveRow: Record<string, unknown> = { ...baseSnapshot() }
+    const before = baseSnapshot({ nextRunAt: '2020-01-02T00:00:00.000Z', lastRunAt: '2020-01-01T00:00:00.000Z' })
+    const liveLastRunAt = new Date('2026-06-04T00:00:00.000Z')
+    const liveNextRunAt = new Date('2026-06-05T00:00:00.000Z')
+    const liveRow: Record<string, unknown> = {
+      ...baseSnapshot({ name: 'Nightly report RENAMED' }),
+      lastRunAt: liveLastRunAt,
+      nextRunAt: liveNextRunAt,
+    }
     const em = makeEm(liveRow)
 
     await update.undo({ logEntry: persistedLogEntry({ before }), ctx: makeCtx(em) })
 
+    expect(liveRow.name).toBe('Nightly report')
+    expect(liveRow.lastRunAt).toBe(liveLastRunAt)
+    expect(liveRow.nextRunAt).toBe(liveNextRunAt)
+  })
+
+  it('update undo recomputes nextRunAt from the restored schedule definition', async () => {
+    const { update } = loadCommands()
+    const before = baseSnapshot({
+      scheduleValue: '0 0 * * *',
+      nextRunAt: '2020-01-02T00:00:00.000Z',
+      lastRunAt: '2020-01-01T00:00:00.000Z',
+    })
+    const liveLastRunAt = new Date('2026-06-04T12:00:00.000Z')
+    const liveRow: Record<string, unknown> = {
+      ...baseSnapshot({ scheduleValue: '0 12 * * *' }),
+      lastRunAt: liveLastRunAt,
+      nextRunAt: new Date('2026-06-05T12:00:00.000Z'),
+    }
+    const em = makeEm(liveRow)
+    const undoStartedAt = Date.now()
+
+    await update.undo({ logEntry: persistedLogEntry({ before }), ctx: makeCtx(em) })
+
+    expect(liveRow.scheduleValue).toBe('0 0 * * *')
+    expect(liveRow.lastRunAt).toBe(liveLastRunAt)
     expect(liveRow.nextRunAt).toBeInstanceOf(Date)
-    expect(liveRow.lastRunAt).toBeInstanceOf(Date)
-    expect((liveRow.nextRunAt as Date).toISOString()).toBe('2026-06-05T00:00:00.000Z')
+    const nextRunAt = liveRow.nextRunAt as Date
+    expect(nextRunAt.getTime()).toBeGreaterThan(undoStartedAt)
+    expect(nextRunAt.getUTCHours()).toBe(0)
+    expect(nextRunAt.getUTCMinutes()).toBe(0)
   })
 
   it('update undo is a no-op when no snapshot is recoverable', async () => {

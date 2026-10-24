@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../data/entities.js'
 import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
-import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
+import { withTenantActiveScheduleSlot } from '../lib/activeScheduleLimits.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
@@ -66,58 +66,56 @@ export class SchedulerService {
     const nextTenantId = registration.tenantId || null
     const nextIsEnabled = registration.isEnabled !== undefined ? registration.isEnabled : (schedule?.isEnabled ?? true)
     const tenantChanged = schedule ? (schedule.tenantId || null) !== nextTenantId : false
-    if (nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)) {
-      await enforceTenantActiveScheduleLimit(em, nextTenantId)
-    }
-    
-    if (schedule) {
-      // Update existing
-      schedule.name = registration.name
-      schedule.description = registration.description || null
-      schedule.scopeType = registration.scopeType
-      schedule.organizationId = registration.organizationId || null
-      schedule.tenantId = registration.tenantId || null
-      schedule.scheduleType = registration.scheduleType
-      schedule.scheduleValue = registration.scheduleValue
-      schedule.timezone = registration.timezone || 'UTC'
-      schedule.targetType = registration.targetType
-      schedule.targetQueue = registration.targetQueue || null
-      schedule.targetCommand = registration.targetCommand || null
-      schedule.targetPayload = registration.targetPayload as Record<string, unknown> || null
-      schedule.requireFeature = registration.requireFeature || null
-      schedule.sourceType = registration.sourceType || 'user'
-      schedule.sourceModule = registration.sourceModule || null
-      schedule.isEnabled = registration.isEnabled !== undefined ? registration.isEnabled : schedule.isEnabled
-      schedule.nextRunAt = nextRunAt
-      schedule.updatedAt = new Date()
-    } else {
-      // Create new
-      schedule = em.create(ScheduledJob, {
-        id: registration.id,
-        name: registration.name,
-        description: registration.description || null,
-        scopeType: registration.scopeType,
-        organizationId: registration.organizationId || null,
-        tenantId: registration.tenantId || null,
-        scheduleType: registration.scheduleType,
-        scheduleValue: registration.scheduleValue,
-        timezone: registration.timezone || 'UTC',
-        targetType: registration.targetType,
-        targetQueue: registration.targetQueue || null,
-        targetCommand: registration.targetCommand || null,
-        targetPayload: registration.targetPayload as Record<string, unknown> || null,
-        requireFeature: registration.requireFeature || null,
-        sourceType: registration.sourceType || 'module',
-        sourceModule: registration.sourceModule || null,
-        isEnabled: registration.isEnabled !== undefined ? registration.isEnabled : true,
-        nextRunAt,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(schedule)
-    }
-    
-    await em.flush()
+    const activatesSchedule = nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)
+
+    await withTenantActiveScheduleSlot(em, nextTenantId, activatesSchedule, () => {
+      if (schedule) {
+        // Update existing
+        schedule.name = registration.name
+        schedule.description = registration.description || null
+        schedule.scopeType = registration.scopeType
+        schedule.organizationId = registration.organizationId || null
+        schedule.tenantId = registration.tenantId || null
+        schedule.scheduleType = registration.scheduleType
+        schedule.scheduleValue = registration.scheduleValue
+        schedule.timezone = registration.timezone || 'UTC'
+        schedule.targetType = registration.targetType
+        schedule.targetQueue = registration.targetQueue || null
+        schedule.targetCommand = registration.targetCommand || null
+        schedule.targetPayload = registration.targetPayload as Record<string, unknown> || null
+        schedule.requireFeature = registration.requireFeature || null
+        schedule.sourceType = registration.sourceType || 'user'
+        schedule.sourceModule = registration.sourceModule || null
+        schedule.isEnabled = registration.isEnabled !== undefined ? registration.isEnabled : schedule.isEnabled
+        schedule.nextRunAt = nextRunAt
+        schedule.updatedAt = new Date()
+      } else {
+        // Create new
+        schedule = em.create(ScheduledJob, {
+          id: registration.id,
+          name: registration.name,
+          description: registration.description || null,
+          scopeType: registration.scopeType,
+          organizationId: registration.organizationId || null,
+          tenantId: registration.tenantId || null,
+          scheduleType: registration.scheduleType,
+          scheduleValue: registration.scheduleValue,
+          timezone: registration.timezone || 'UTC',
+          targetType: registration.targetType,
+          targetQueue: registration.targetQueue || null,
+          targetCommand: registration.targetCommand || null,
+          targetPayload: registration.targetPayload as Record<string, unknown> || null,
+          requireFeature: registration.requireFeature || null,
+          sourceType: registration.sourceType || 'module',
+          sourceModule: registration.sourceModule || null,
+          isEnabled: registration.isEnabled !== undefined ? registration.isEnabled : true,
+          nextRunAt,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        em.persist(schedule)
+      }
+    })
 
     // Sync with BullMQ if available
     if (this.bullmqService && schedule) {
@@ -178,9 +176,7 @@ export class SchedulerService {
       throw new Error(`Schedule not found: ${scheduleId}`)
     }
 
-    if (changes.isEnabled === true && schedule.isEnabled !== true) {
-      await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
-    }
+    const activatesSchedule = changes.isEnabled === true && schedule.isEnabled !== true
 
     const scheduleChanged = changes.scheduleType !== undefined || changes.scheduleValue !== undefined || changes.timezone !== undefined
     const nextRunAt = scheduleChanged
@@ -198,43 +194,44 @@ export class SchedulerService {
       )
     }
     
-    // Apply changes
-    if (changes.name !== undefined) schedule.name = changes.name
-    if (changes.description !== undefined) schedule.description = changes.description || null
-    if (changes.scheduleType !== undefined) schedule.scheduleType = changes.scheduleType
-    if (changes.scheduleValue !== undefined) schedule.scheduleValue = changes.scheduleValue
-    if (changes.timezone !== undefined) schedule.timezone = changes.timezone
-    if (changes.targetPayload !== undefined) {
-      schedule.targetPayload = changes.targetPayload as Record<string, unknown> || null
-    }
-    if (changes.requireFeature !== undefined) schedule.requireFeature = changes.requireFeature || null
-    if (changes.isEnabled !== undefined) schedule.isEnabled = changes.isEnabled
-    
-    // Handle target type changes - clear stale values when switching between queue and command
-    if (changes.targetType !== undefined) {
-      schedule.targetType = changes.targetType
-      
-      if (changes.targetType === 'queue') {
-        // Switching to queue: set new queue and clear command
-        if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
-        schedule.targetCommand = null
-      } else if (changes.targetType === 'command') {
-        // Switching to command: set new command and clear queue
-        if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
-        schedule.targetQueue = null
+    await withTenantActiveScheduleSlot(em, schedule.tenantId, activatesSchedule, () => {
+      // Apply changes
+      if (changes.name !== undefined) schedule.name = changes.name
+      if (changes.description !== undefined) schedule.description = changes.description || null
+      if (changes.scheduleType !== undefined) schedule.scheduleType = changes.scheduleType
+      if (changes.scheduleValue !== undefined) schedule.scheduleValue = changes.scheduleValue
+      if (changes.timezone !== undefined) schedule.timezone = changes.timezone
+      if (changes.targetPayload !== undefined) {
+        schedule.targetPayload = changes.targetPayload as Record<string, unknown> || null
       }
-    } else {
-      // targetType not changing, but allow updating individual target fields
-      if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
-      if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
-    }
-    
-    if (nextRunAt) {
-      schedule.nextRunAt = nextRunAt
-    }
-    
-    schedule.updatedAt = new Date()
-    await em.flush()
+      if (changes.requireFeature !== undefined) schedule.requireFeature = changes.requireFeature || null
+      if (changes.isEnabled !== undefined) schedule.isEnabled = changes.isEnabled
+
+      // Handle target type changes - clear stale values when switching between queue and command
+      if (changes.targetType !== undefined) {
+        schedule.targetType = changes.targetType
+
+        if (changes.targetType === 'queue') {
+          // Switching to queue: set new queue and clear command
+          if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
+          schedule.targetCommand = null
+        } else if (changes.targetType === 'command') {
+          // Switching to command: set new command and clear queue
+          if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
+          schedule.targetQueue = null
+        }
+      } else {
+        // targetType not changing, but allow updating individual target fields
+        if (changes.targetQueue !== undefined) schedule.targetQueue = changes.targetQueue || null
+        if (changes.targetCommand !== undefined) schedule.targetCommand = changes.targetCommand || null
+      }
+
+      if (nextRunAt) {
+        schedule.nextRunAt = nextRunAt
+      }
+
+      schedule.updatedAt = new Date()
+    })
 
     // Sync with BullMQ if available
     if (this.bullmqService) {
