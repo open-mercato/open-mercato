@@ -4,7 +4,7 @@ Load this reference when the user describes a business outcome rather than files
 
 ## Route Key
 
-- `M` — `om-module-scaffold` plus architecture/contracts; add `om-data-model-design` when persisting records.
+- `M` — `om-module-scaffold` plus contracts; architecture only for unresolved ownership; add `om-data-model-design` for new app-owned business data/schema or persisted fields, not already-owned workflow-engine state.
 - `U` — `om-system-extension` plus the extensions guide for additive installed-module behavior.
 - `P` — `om-integration-builder` plus the integrations guide for a reusable external provider.
 - `B` — `om-backend-ui-design` for admin, public, or portal UI.
@@ -32,26 +32,30 @@ Treat this mapping as a completion checklist, not optional examples. Verify each
 
 ### Complete Library Contract
 
-When the selected row is the complete library app, do a final source-level check against this bounded contract before generation; do not generalize these library IDs into other domains:
+At library contract selection/reference planning, directly read `node_modules/@open-mercato/shared/AGENTS.md` for authoritative helpers and `.ai/skills/om-system-extension/references/verification.md` for cross-module proof. Read both before writing or implementation.
 
-The required procedures plus this bounded contract resolve the library slice's framework choices. Do not route `framework-context` or load its resolver for this slice; spend that context on the three mandatory complete-module references instead.
+For library post-commit cache/index and undo consistency, first read `.ai/guides/modules/query_index/index.md` and `references/runtime-cache-and-queues.md` Cache rules; do not infer queued work.
 
-- Export and default-export `features` with exact IDs `library.books.view` and `library.books.manage`. Export `setup: ModuleSetupConfig = { defaultRoleFeatures }`; a detached `defaultRoleFeatures` export is not discovered setup.
+Check this bounded library contract in source before generation; never generalize its IDs to other domains:
+
+This contract and required procedures resolve library framework choices. Do not route `framework-context` or load its resolver; use the three mandatory complete-module references.
+
+- Export and default-export `features` with exact IDs `library.books.view` and `library.books.manage`. Export `setup: ModuleSetupConfig = { defaultRoleFeatures }`; detached `defaultRoleFeatures` is not discovered setup.
 - Use entity ID `library:book`. The `makeCrudRoute` ORM keys are `tenantField` and `orgField`; its list keys are `schema`, `buildFilters`, and `transformItem`. Keep response transforms in supported `response` callbacks, register `library.books.create`, `library.books.update`, and `library.books.delete` with concrete `registerCommand(...)` calls, and use the installed `createCrudOpenApiFactory` signature exactly.
-- Keep custom fields in the framework data engine rather than an entity JSON column. Submission calls `collectCustomFieldValues`; snapshots call `loadCustomFieldSnapshot`; update and delete undo each call `buildCustomFieldResetMap` and restore through `setCustomFields` in the same `withAtomicFlush` boundary.
-- Each command object owns its calls: create/update/delete undo call `extractUndoPayload` from `@open-mercato/shared/lib/commands/undo` and `emitCrudUndoSideEffects`; update/delete execute call the object-form `enforceCommandOptimisticLock`. Direct book reads call a scoped helper from `@open-mercato/shared/lib/encryption/find`.
-- Export `searchConfig` using `fieldPolicy`, `buildSource` with `checksumSource`, `formatResult`, and `resolveUrl`. The list UI connects `searchValue`/`onSearchChange` to the API `search` filter and exposes add, linked edit, and guarded delete actions.
-- Put Jest command/undo proof in `commands/__tests__/` with imports from `@jest/globals`, and put every visible `library.*` key in `i18n/en.json`. Run generation, the focused test, and typecheck; fix every diagnostic instead of leaving a plausible sketch.
-- Keep the first implementation bounded to the required Books vertical slice. Use one `commands/books.ts` with typed `CommandHandler<Input, Result>` objects and keep every transaction, lock, undo, reset-map, and side-effect call inside its owning exported command object—do not hide oracle-significant behavior in shared helpers. Avoid optional locales, standalone widget/event/enricher files, or extra entities until the required slice generates, tests, and typechecks.
-- Do not guess imports or add unsupported convenience options. In particular, `features` needs no invented ACL type, a CRUD list has no `find`, `response` is a callback rather than a schema, `useConfirmDialog` comes from `@open-mercato/ui/backend/confirm-dialog`, and search checksum data is the inline `checksumSource` object rather than a helper import. Re-open the exact reference for any remaining signature before writing it.
-- A current `CommandHandler<Input, Result>` implements `execute(input, ctx)` and returns `Result` directly. It captures undo state with `prepare(input, ctx)`, `captureAfter(input, result, ctx)`, and `buildLog({ result, snapshots })`; never destructure `{ input, ctx }` in `execute` or return `{ result, undo }`. Lock with `enforceCommandOptimisticLock({ resourceKind, resourceId, current, expected, request: ctx.request })`.
-- Treat every lifecycle signature as a compile-time contract, not pseudocode. Use method syntax exactly as shown below: `async prepare(input, ctx)`, `async execute(input, ctx)`, and `async captureAfter(input, result, ctx)`. The only lifecycle callback that receives an object containing `input` is `buildLog({ input, result, ctx, snapshots })`; `undo` receives `{ input, ctx, logEntry }`. Never write `execute: async ({ input, ctx })`, `prepare: async ({ input, ctx })`, or `captureAfter: async ({ result })`.
+- Keep custom fields in the framework data engine, never an entity JSON column. Submission calls `collectCustomFieldValues`; snapshots call `loadCustomFieldSnapshot`; update and delete undo each call `buildCustomFieldResetMap` and restore through `setCustomFields` in the same `withAtomicFlush` boundary.
+- Inside each command object: create/update/delete undo call `extractUndoPayload` from `@open-mercato/shared/lib/commands/undo` and `emitCrudUndoSideEffects`; update/delete execute call the object-form `enforceCommandOptimisticLock`. Direct book reads call a scoped helper from `@open-mercato/shared/lib/encryption/find`.
+- Export `searchConfig` with `fieldPolicy`, `buildSource` with `checksumSource`, `formatResult`, and `resolveUrl`. List UI connects `searchValue`/`onSearchChange` to the API `search` filter and exposes add, linked edit, and guarded delete actions.
+- Put Jest command/undo proof in `commands/__tests__/` with imports from `@jest/globals`, and every visible `library.*` key in `i18n/en.json`. Run generation, focused test, and typecheck; fix every diagnostic.
+- Limit the first implementation to the required Books vertical slice. Use one `commands/books.ts` with typed `CommandHandler<Input, Result>` objects; keep every transaction, lock, undo, reset-map, and side-effect call inside its owning exported command object—do not hide oracle-significant behavior in shared helpers. Defer optional locales, standalone widget/event/enricher files, and extra entities until the required slice generates, tests, and typechecks.
+- Never guess imports or add unsupported convenience options: `features` needs no invented ACL type, a CRUD list has no `find`, `response` is a callback rather than a schema, `useConfirmDialog` comes from `@open-mercato/ui/backend/confirm-dialog`, and search checksum data is the inline `checksumSource` object rather than a helper import. Re-open the exact reference before writing any remaining signature.
+- A current `CommandHandler<Input, Result>` implements `execute(input, ctx)` returning `Result` directly. Capture undo state with `prepare(input, ctx)`, `captureAfter(input, result, ctx)`, and `buildLog({ result, snapshots })`; never destructure `{ input, ctx }` in `execute` or return `{ result, undo }`. Lock with `enforceCommandOptimisticLock({ resourceKind, resourceId, current, expected, request: ctx.request })`.
+- Lifecycle signatures are compile-time contracts. Use this exact method syntax: `async prepare(input, ctx)`, `async execute(input, ctx)`, and `async captureAfter(input, result, ctx)`. Only this lifecycle callback receives an object containing `input`: `buildLog({ input, result, ctx, snapshots })`; `undo` receives `{ input, ctx, logEntry }`. Never write `execute: async ({ input, ctx })`, `prepare: async ({ input, ctx })`, or `captureAfter: async ({ result })`.
 - Import only `loadCustomFieldSnapshot` and `buildCustomFieldResetMap` from `@open-mercato/shared/lib/commands/customFieldSnapshots`; call the former with `(em, { entityId, recordId, tenantId, organizationId })`. Persist through `dataEngine.setCustomFields({ entityId, recordId, tenantId, organizationId, values, notify: false })`; there is no shared `lib/data/custom-fields` helper and UI-only `collectCustomFieldValues` never belongs in a command.
-- Normalize command-side `Record<string, unknown>` custom-field payloads with `normalizeCustomFieldValues` from `@open-mercato/shared/lib/commands/helpers` before passing them to `dataEngine.setCustomFields`; do not cast an unknown-valued record to satisfy its primitive-value contract.
-- The concrete direct-book finder calls `findOneWithDecryption(em, Book, { id, tenant_id, organization_id }, undefined, { tenantId, organizationId })` and rejects null. Do not attach a decryption finder to `makeCrudRoute`; its QueryEngine already decrypts the list.
-- Import `Input` from `@open-mercato/ui/primitives/input` and use shared `Input`, `Button`, and `Alert` primitives for any filter/retry controls—never raw `<input>` or `<button>`. Do not create any test outside `commands/__tests__/` until typecheck is green; avoid speculative API tests, and express database uniqueness in the reviewed migration rather than an unsupported `unique` option on `@Index`.
+- Normalize command-side `Record<string, unknown>` custom-field payloads with `normalizeCustomFieldValues` from `@open-mercato/shared/lib/commands/helpers` before `dataEngine.setCustomFields`; never cast unknown-valued records to its primitive-value contract.
+- Direct-book reads call `findOneWithDecryption(em, Book, { id, tenant_id, organization_id }, undefined, { tenantId, organizationId })` and reject null. Do not attach a decryption finder to `makeCrudRoute`; its QueryEngine already decrypts the list.
+- Import `Input` from `@open-mercato/ui/primitives/input` and use shared `Input`, `Button`, and `Alert` primitives for filter/retry controls—never raw `<input>` or `<button>`. Create no test outside `commands/__tests__/` until typecheck is green; avoid speculative API tests, and express database uniqueness in the reviewed migration rather than an unsupported `unique` option on `@Index`.
 
-Use this shape literally for the command lifecycle and direct read, filling in the mutations and snapshots without changing the signatures:
+Use this exact command lifecycle/direct-read shape; fill mutations and snapshots without changing signatures:
 
 ```ts
 const findBook = async (em: EntityManager, id: string, scope: Scope) => {
@@ -76,9 +80,9 @@ export const updateBook: CommandHandler<UpdateInput, Result> = {
 }
 ```
 
-Create and delete use these exact same lifecycle signatures; do not convert any of them to single-argument arrow callbacks. Delete undo must call `buildCustomFieldResetMap` inside the delete command before restoring custom fields; create/update/delete undo each call `extractUndoPayload` and `emitCrudUndoSideEffects` inside their own object.
+Create/delete use these exact lifecycle signatures; never convert them to single-argument arrow callbacks. Delete undo calls `buildCustomFieldResetMap` inside the delete command before restoring custom fields; create/update/delete undo each call `extractUndoPayload` and `emitCrudUndoSideEffects` inside their own object.
 
-Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic mentioning a lifecycle property on the input type (for example, “Property 'input' does not exist on type …”) proves a callback was incorrectly destructured: repair all create/update/delete callbacks to the method signatures above and rerun until the typecheck is silent. Then run the command test; a written-but-unchecked module is not complete.
+Before stopping, run `yarn generate`, then `yarn typecheck`. A diagnostic naming a lifecycle property on the input type (e.g. “Property 'input' does not exist on type …”) proves incorrect callback destructuring: repair every create/update/delete callback to the signatures above and rerun until typecheck is silent. Then run the command test; an unchecked module is incomplete.
 
 ## Customers and CRM
 
@@ -94,7 +98,7 @@ Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic m
 |---|---|---|---|---|
 | “Modify the deals pipeline with our stages, probabilities, and required fields.” | UMES over the installed `customers` deal/pipeline surfaces; app module only for extra persisted policy | `U+B` | inspect exact `customers` hosts/contracts, then add stage-aware fields/validation, board/table rendering, translations, and transition tests | preserve shipped IDs; validate transitions server-side; wildcard ACL; unsupported replacement requires approval |
 | “Add qualification scoring and next-best-action to every deal.” | App module extension entity + UMES enricher/widgets; optional AI tool only if requested | `M+U+B` (`+A`) | score inputs, deterministic calculator, deal list/detail field, recompute event, explainable action panel | score is reproducible and scoped; no hidden AI mutation; optional deals module safe; stale writes conflict |
-| “Build a sales forecast and pipeline coaching dashboard.” | App analytics module + UMES reads/enrichers | `M+U+B` | scoped forecast query, stage-weighted totals, owner/time filters, drill-down, snapshot/export | currency/time-zone correctness; access-filtered aggregates; deterministic totals; no cross-tenant cache keys |
+| “Build a sales forecast and pipeline coaching dashboard.” | App analytics module + UMES reads/enrichers | `M+U+B` | scoped forecast query, stage-weighted totals, owner/time filters, drill-down, snapshot/export; stable table-host, column, and action IDs | currency/time-zone correctness; access-filtered aggregates; deterministic totals; no cross-tenant cache keys |
 
 ## CRM-Integrated Lead Capture
 
@@ -116,7 +120,7 @@ Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic m
 | “Track expiring lots through fulfillment and recall.” | App lot ledger + UMES catalog/sales links | `M+U` | lot/receipt/movement records, allocation guard, shipment links, scoped recall query | earliest-safe-expiry allocation; immutable movement lineage; audited adjustments; no cross-scope recall leakage |
 | “Bulk-update product prices with progress and undo.” | App operation module + UMES catalog actions/UI | `M+U+B` | chunked command, progress page, failure ledger, cancellation boundary, compensating undo | exact money; scoped ACL; completed chunks are retry-safe; undo is authorized/audited |
 | “Add quote approval and convert approved quotes into orders.” | App module policy/workflow + UMES sales actions | `M+U+B+W` | approval rules, submit/approve/reject commands, task UI, guarded conversion, audit/events | aggregate optimistic lock; command-only state changes; approval ACL/separation; conversion exactly once |
-| “Create a returns and RMA management module.” | App module + UMES order/customer links | `M+U+B+W` | return request, item eligibility, approve/receive/disposition/refund states, order widgets, portal status | quantities never exceed fulfillment; scalar snapshots; idempotent state transitions; refund requires explicit guarded action |
+| “Create a returns and RMA management module.” | When shipped, first read `.ai/guides/modules/warranty_claims/index.md`; reuse its claim aggregate, lifecycle, and portal; app-owned distinct data + UMES order/customer links | `M+U+B+W` | return request, item eligibility, approve/receive/disposition/refund states, order widgets, portal status | quantities never exceed fulfillment; scalar snapshots; idempotent state transitions; refund requires explicit guarded action |
 
 ## Payments and Shipping
 
@@ -142,7 +146,7 @@ Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic m
 | One-shot business brief | Mechanism | Routes | Smallest complete vertical slice | Key invariants |
 |---|---|---|---|---|
 | “Require manager approval for discounts above a threshold.” | Workflow/policy app module + UMES sales mutation guard/UI | `M+U+W+B` | threshold policy, approval task, submit/approve/reject, guarded discount mutation, audit | server-side money comparison; separation of duties; stale document conflict; decision replay cannot double-apply |
-| “Automate customer onboarding across sales, tasks, and email.” | App module + durable workflow + optional providers/UMES | `M+W+U+P+B` | trigger, checklist/tasks, email steps, waits/escalations, progress UI, retry/recovery tests | idempotent steps; explicit compensation; no credentials in workflow state; missing optional provider yields actionable pause |
+| “Automate customer onboarding across sales, tasks, and email.” | Reuse installed workflow-owned checklist/task state; app persistence only for distinct business records | `M+W+U+B`; add `P` only for actual new provider/transport/mailbox work; built-in welcome/invite helpers do not require integration | trigger, checklist/tasks, email steps, waits/escalations, progress UI, retry/recovery tests | idempotent steps; explicit compensation; no credentials in workflow state; missing optional provider yields actionable pause |
 | “Synchronize customers and products with our ERP.” | Data-sync provider + thin app mapping/UMES layer | `P+M+U+B` | credentials/health, cursors, inbound/outbound mappings, conflict policy, run UI/progress, retry/CLI | stable external mapping; scope every cursor; deterministic conflict ownership; resumable exactly-once effects |
 | “Add scheduled CSV/SFTP imports and exports with custom mappings.” | Provider for reusable SFTP/storage; app module owns format/mapping | `P+M+B` | format schema, preview/validate, batch job, row errors, export, schedule/progress | path/CSV hardening; encrypted credentials; resumable batches; no scope in untrusted file; formula-injection-safe export |
 

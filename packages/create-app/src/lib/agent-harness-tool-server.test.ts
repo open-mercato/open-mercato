@@ -7,6 +7,8 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const server = fileURLToPath(new URL('../../agentic/shared/scripts/agent-harness-tool-server.mjs', import.meta.url))
+const sharedInstructions = 'node_modules/@open-mercato/shared/AGENTS.md'
+const sharedInstructionSource = fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url))
 
 function call(
   root: string,
@@ -120,6 +122,126 @@ test('the MCP allows exact fact-linked installed source reads but not dependency
     fs.rmSync(dependencies, { recursive: true, force: true })
   }
 })
+
+for (const linked of [false, true]) {
+  test(`the MCP delivers only the exact declared shared instruction and never writes it, linked dependencies=${linked}`, () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-instruction-')))
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-instruction-deps-')))
+    const dependencyRoot = linked ? dependencies : path.join(root, 'node_modules')
+    const instruction = path.join(dependencyRoot, '@open-mercato', 'shared', 'AGENTS.md')
+    fs.mkdirSync(path.dirname(instruction), { recursive: true })
+    fs.copyFileSync(sharedInstructionSource, instruction)
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), '# App\n')
+    if (linked) fs.symlinkSync(dependencies, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    const original = fs.readFileSync(instruction, 'utf8')
+    try {
+      const replies = call(root, 'writable', [sharedInstructions], ['src/**'], [
+        { name: 'read', arguments: { path: sharedInstructions } },
+        { name: 'write', arguments: { path: sharedInstructions, content: 'tampered' } },
+        ...['node_modules/@open-mercato/shared/README.md', 'node_modules/@open-mercato/core/AGENTS.md', 'node_modules/@open-mercato/shared/.env', 'node_modules/@open-mercato/shared/../shared/AGENTS.md', 'node_modules/@open-mercato/shared/*'].map((target) => ({ name: 'read', arguments: { path: target } })),
+      ])
+      assert.equal(replies[2].result.content[0].text, original)
+      for (const reply of replies.slice(3)) assert.equal(reply.result.isError, true)
+      assert.equal(fs.readFileSync(instruction, 'utf8'), original)
+      const undeclared = call(root, 'read-only', ['AGENTS.md'], [], [{ name: 'read', arguments: { path: sharedInstructions } }])
+      assert.equal(undeclared[2].result.isError, true)
+      for (const [reads, writes] of [
+        [[sharedInstructions], [sharedInstructions]],
+        [['node_modules/@open-mercato/shared/*'], []],
+        [['node_modules/@open-mercato/core/AGENTS.md'], []],
+        [['node_modules/@open-mercato/shared/README.md'], []],
+      ]) {
+        const result = spawnSync(process.execPath, [server, root, 'writable', JSON.stringify(reads), JSON.stringify(writes)], { encoding: 'utf8', env: {} })
+        assert.equal(result.status, 2, result.stderr)
+      }
+      for (const shape of ['directory', 'symlink', 'escaping-symlink']) {
+        fs.rmSync(instruction)
+        if (shape === 'directory') fs.mkdirSync(instruction)
+        else {
+          const target = path.join(shape === 'escaping-symlink' ? root : dependencyRoot, 'other-instructions.md')
+          fs.writeFileSync(target, 'must-not-be-returned')
+          fs.symlinkSync(target, instruction)
+        }
+        const denied = call(root, 'read-only', [sharedInstructions], [], [{ name: 'read', arguments: { path: sharedInstructions } }])
+        assert.equal(denied[2].result.isError, true, shape)
+        assert.doesNotMatch(JSON.stringify(denied), /must-not-be-returned/)
+        fs.rmSync(instruction, { recursive: true })
+        fs.writeFileSync(instruction, original)
+      }
+      const packageRoot = path.dirname(instruction)
+      const otherPackage = path.join(path.dirname(packageRoot), 'other')
+      fs.renameSync(packageRoot, otherPackage)
+      fs.symlinkSync(otherPackage, packageRoot, process.platform === 'win32' ? 'junction' : 'dir')
+      const aliased = call(root, 'read-only', [sharedInstructions], [], [{ name: 'read', arguments: { path: sharedInstructions } }])
+      assert.equal(aliased[2].result.isError, true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const linked of [false, true]) {
+  test(`the MCP initializes and reads only the exact declared Code Connect source, linked dependencies=${linked}`, () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-auxiliary-')))
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-auxiliary-deps-')))
+    const dependencyRoot = linked ? dependencies : path.join(root, 'node_modules')
+    const relative = 'node_modules/@open-mercato/ui/figma/button.figma.tsx'
+    const source = path.join(dependencyRoot, '@open-mercato/ui/figma/button.figma.tsx')
+    const original = 'export const codeConnect = "exact-button-source"\n'
+    fs.mkdirSync(path.dirname(source), { recursive: true })
+    fs.writeFileSync(source, original)
+    fs.writeFileSync(path.join(root, 'AGENTS.md'), '# App\n')
+    if (linked) fs.symlinkSync(dependencies, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      const deniedPaths = [
+        'node_modules/@open-mercato/ui/figma/other.figma.tsx',
+        'node_modules/@open-mercato/ui/figma/*.figma.tsx',
+        'node_modules/@open-mercato/other/figma/button.figma.tsx',
+        'node_modules/@open-mercato/ui/figma/../figma/button.figma.tsx',
+        'node_modules/@open-mercato/ui/figma/.env',
+      ]
+      const replies = call(root, 'writable', [relative], ['src/**'], [
+        { name: 'read', arguments: { path: relative } },
+        { name: 'write', arguments: { path: relative, content: 'tampered' } },
+        ...deniedPaths.map((target) => ({ name: 'read', arguments: { path: target } })),
+      ])
+      assert.equal(replies[0].id, 1)
+      assert.equal(replies[2].result.content[0].text, original)
+      for (const reply of replies.slice(3)) assert.equal(reply.result.isError, true)
+      assert.equal(fs.readFileSync(source, 'utf8'), original)
+      const undeclared = call(root, 'read-only', ['AGENTS.md'], [], [{ name: 'read', arguments: { path: relative } }])
+      assert.equal(undeclared[2].result.isError, true)
+      for (const [reads, writes] of [[[relative], [relative]], ...deniedPaths.map((target) => [[target], []])]) {
+        const result = spawnSync(process.execPath, [server, root, 'writable', JSON.stringify(reads), JSON.stringify(writes)], { encoding: 'utf8', env: {} })
+        assert.equal(result.status, 2, result.stderr)
+      }
+      for (const shape of ['directory', 'inside-symlink', 'escaping-symlink']) {
+        fs.rmSync(source)
+        if (shape === 'directory') fs.mkdirSync(source)
+        else {
+          const target = path.join(shape === 'escaping-symlink' ? root : dependencyRoot, 'other-source.tsx')
+          fs.writeFileSync(target, 'must-not-be-returned')
+          fs.symlinkSync(target, source)
+        }
+        const denied = call(root, 'read-only', [relative], [], [{ name: 'read', arguments: { path: relative } }])
+        assert.equal(denied[2].result.isError, true, shape)
+        assert.doesNotMatch(JSON.stringify(denied), /must-not-be-returned/)
+        fs.rmSync(source, { recursive: true })
+        fs.writeFileSync(source, original)
+      }
+      const packageRoot = path.join(dependencyRoot, '@open-mercato/ui')
+      const alias = path.join(dependencyRoot, '@open-mercato/other')
+      fs.renameSync(packageRoot, alias)
+      fs.symlinkSync(alias, packageRoot, process.platform === 'win32' ? 'junction' : 'dir')
+      const aliased = call(root, 'read-only', [relative], [], [{ name: 'read', arguments: { path: relative } }])
+      assert.equal(aliased[2].result.isError, true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
 
 test('the writable MCP tool atomically changes only declared contained regular files', () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-mcp-write-')))

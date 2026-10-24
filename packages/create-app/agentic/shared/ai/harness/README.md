@@ -4,11 +4,15 @@
 
 `OMH-238` routes Customers calendar add/remove/patch requests to `.ai/guides/customers-calendar.md`, exact installed Customers definitions, and the bounded canonical `umes.customers.calendar-event-types` example. It preserves historical records, generic shared components, and warnings when optional staff/resources integrations are unavailable.
 
-`OMH-239` routes custom-module initialization, packaging, preview, publication, authentication, and continued-development questions to `.ai/guides/module-tool.md`.
+`OMH-239` routes custom-module initialization, packaging, preview, publication, authentication, continued development, and receiving-app installation/replacement to `.ai/guides/module-tool.md`. It reads exact installed CLI contracts before distinguishing dependency aliases from runtime IDs, separating npm/GitHub origins, preserving one enabled provider, and planning safe replacement or ejection.
 
 `OMH-240` routes production-readiness reviews to `.ai/guides/production-deployment.md`, with TLS-first ordering and no live environment reads or deployment claims.
 
 UMES routing is fact-first. The additive and unified-override audit evaluations, plus their targeted cases, resolve exact/pattern hosts, outgoing contributions, correlation provenance, round-trip groups, framework-owned targets, and override domain/key/mode from the generated module sheets and `.ai/guides/framework-extension-points.md` before bounded installed source. The repository UMES umbrella spec may appear as optional source-checkout provenance; it is never required in a standalone scaffold.
+
+Declared canonical-example entrypoints and inventory-selected capability files are progressive context. Exact source files resolved by declared `sourceReferenceIds` are progressive too; mapping an instruction owner or skill does not remove it from initial context. Every successful source read must remain in `selectedContext` and the observed total file/byte ledger, and canonical-example reads also consume their independent example budgets. Permissions cover only the exact resolved files; declaring a root never grants its other files.
+
+The existing installed Shared guide can be delivered as `node_modules/@open-mercato/shared/AGENTS.md` only when `context.required` names that exact file. It must be a regular, non-symlink file at its exact protected dependency path. This read-only instruction is charged to initial and total context, never example or progressive-source budgets; optional context, source fallback, sibling Markdown and write grants cannot authorize it.
 
 ```text
 yarn harness:validate --runner codex --all

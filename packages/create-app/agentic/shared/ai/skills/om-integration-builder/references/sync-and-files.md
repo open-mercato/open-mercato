@@ -2,6 +2,8 @@
 
 Load for `DataSyncAdapter`, imports, or exports.
 
+For spreadsheet imports, first read `.ai/guides/modules/sync_excel/index.md`; reuse its installed upload/import ownership before designing a parser or endpoint.
+
 1. Stream pages/rows with bounded memory. Validate mappings, formats, encoding, locale, decimals, dates, and maximum sizes.
 2. Isolate item errors and report them without stopping safe siblings; define batch-atomic versus item-atomic semantics.
 3. Save external ID mappings and cursor only after the durable batch commits. A transient page failure leaves the previous cursor intact.

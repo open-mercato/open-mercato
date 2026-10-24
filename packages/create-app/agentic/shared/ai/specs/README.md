@@ -2,6 +2,12 @@
 
 Specs document business feature design decisions. Source of truth for what was built and why.
 
+## Existing specifications
+
+- [Reference-module activation](./2026-08-06-reference-module-activation.md): enabling the source-present Todo example and component gallery, feature grants, and migration consequences.
+
+Keep this index linked to the covering specifications as the application evolves. Read a matching linked file before proposing another specification.
+
 ## What belongs here
 
 - New domain features (inventory management, order flow, customer portal, etc.)

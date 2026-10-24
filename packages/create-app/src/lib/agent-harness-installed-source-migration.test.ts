@@ -70,15 +70,16 @@ test('no shipped case grants a glob-shaped installed-source read', () => {
   )
 })
 
-test('any remaining installed-source context entry is an exact package source file', () => {
+test('installed context names exact package source files or explicitly required shared instructions', () => {
   const offenders = loadCases().flatMap((entry) => {
     const bad = contextPatterns(entry)
       .filter((pattern) => pattern.startsWith(INSTALLED_PREFIX))
+      .filter((pattern) => pattern !== 'node_modules/@open-mercato/shared/AGENTS.md' || !entry.context.required?.includes(pattern))
       .filter((pattern) => !/^node_modules\/@open-mercato\/[^/*?]+\/src\/[^*?]+\.[a-z]+$/.test(pattern))
     return bad.length ? [`${entry.id}: ${bad.join(', ')}`] : []
   })
 
-  assert.deepEqual(offenders, [], 'declared installed reads must name an exact @open-mercato/<pkg>/src file')
+  assert.deepEqual(offenders, [], 'declared installed reads must name an exact @open-mercato/<pkg>/src file or the explicitly required shared/AGENTS.md instruction')
 })
 
 test('every case still declares a forbidden context contract', () => {

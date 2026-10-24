@@ -1,6 +1,8 @@
 # Runtime Cache and Queues
 
-Load only when the brief adds or changes server cache behavior or durable queued work.
+Load for server cache behavior, durable queued work, or their source-selection-only references.
+
+Source-selection-only requests for existing app-module bulk/progress references stay `module-data`. An unchanged widget filename alone does not require UI or UMES implementation procedures. Actual rendered UI changes or installed-host integration still add their matching routes and guards.
 
 ## Cache
 

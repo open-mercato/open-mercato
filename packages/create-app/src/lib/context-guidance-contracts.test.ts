@@ -369,19 +369,19 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
   for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
     const root = read()
     assert.equal(
-      (root.match(/Spec gate before code:/g) ?? []).length,
+      (root.match(/Spec before code:/g) ?? []).length,
       1,
       `${label} must state the spec gate exactly once; one rule, one owner`,
     )
     // The six ordered branches from the decision contract, in order.
     assert.match(
       root,
-      /Spec gate before code: new capability\/architecture\/schema\/API contract\/cross-module\/multi-phase -> spec first \(`spec-first`\)/,
+      /Spec before code: new capability\/architecture\/schema\/API contract\/cross-module\/multi-phase -> spec \(`spec-first`\)/,
       `${label} must require a spec before a new capability, architecture, contract, cross-module, or multi-phase change`,
     )
     assert.match(
       root,
-      /covering `\.ai\/specs` match -> reuse and update it \(`reuse-spec`\)/,
+      /covering `\.ai\/specs` -> reuse\/update \(`reuse-spec`\)/,
       `${label} must reuse a covering spec instead of duplicating it`,
     )
     assert.match(
@@ -391,7 +391,7 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
     )
     assert.match(
       root,
-      /only the request's explicit words waive a feature spec/,
+      /only explicit request words waive a feature spec/,
       `${label} must accept only a current explicit instruction as the skip override`,
     )
     assert.match(
@@ -402,8 +402,8 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
     // One-way handoff: the root routes, the module skill owns the procedure.
     assert.match(
       root,
-      /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
-      `${label} must hand approved module work to om-module-scaffold at the canonical example README`,
+      /Complete business modules\/CRUD slices: `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
+      `${label} must hand complete business modules or CRUD slices to om-module-scaffold at the canonical example README`,
     )
     assert.doesNotMatch(
       root,
@@ -453,18 +453,19 @@ test('module scaffold owns the one-way canonical-example handoff', () => {
   )
   assert.match(
     skill,
-    /adapt only the \[`references\/surface-inventory\.json`\]\(\.\.\/\.\.\/\.\.\/src\/modules\/example\/references\/surface-inventory\.json\) rows it names/,
+    /surface-inventory\.json.*upfront for design\/provenance metadata or if default.*surface-map\.md.*outside exact read permissions; otherwise human map/,
   )
+  assert.match(skill, /Adapt only named capability rows/)
   assert.match(
     skill,
-    /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
+    /No empty placeholders, `example` tree copies, `ratelimit_probe` reuse, or direct cross-module ORM relationships/,
   )
 })
 
 test('spec-delivery guide owns the expanded branches and the relocated delivery procedure', () => {
   const guide = readAgentic('guides/spec-delivery.md')
   assert.match(guide, /`AGENTS\.md` owns the ordered rule/)
-  assert.match(guide, /a plan-only request stops there/)
+  assert.match(guide, /A read-only planning decision stops after classification; do not author or amend a file/)
   assert.match(guide, /Silence, urgency, an "it's small" estimate, and an earlier generic preference are not overrides/)
   assert.match(guide, /Do not ask when repository evidence/)
   assert.match(guide, /one-way handoff/)
@@ -481,12 +482,12 @@ test('spec-delivery guide owns the expanded branches and the relocated delivery 
 
 test('complete one-shot modules cannot skip core module procedures for specialist skills', () => {
   const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
-  assert.match(skill, /complete one-shot module or CRUD vertical slice/)
-  assert.match(skill, /steps 3, 4, and 7 are mandatory/)
+  assert.match(skill, /Complete one-shot modules\/CRUD slices/)
+  assert.match(skill, /MUST directly read step 3\/4\/7 paths before writing module code/)
   for (const reference of ['api-and-domain.md', 'module-surfaces.md', 'verification.md']) {
     assert.ok(skill.includes(`.ai/skills/om-module-scaffold/references/${reference}`), `missing mandatory one-shot reference ${reference}`)
   }
-  assert.match(skill, /Specialist data\/UI\/UMES procedures add to these three; they never replace them/)
+  assert.match(skill, /Data\/UI\/UMES refs add to, never replace, all three/)
 })
 
 test('data-model skill pins validators beside entities for generated discovery', () => {
@@ -564,9 +565,9 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
 
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
-  assert.match(root, /Multi-stage waits\/cancel\/restart are durable/)
+  assert.match(root, /Multi-stage waits\/cancel\/restart = durable/)
   assert.match(root, /reminders and renewal\/batch schedules are `module-data`/)
-  assert.match(root, /spreadsheet\/CSV\/file I\/O, sync\/webhook\/storage/)
+  assert.match(root, /spreadsheet\/CSV\/file I\/O\/sync\/webhook\/storage/)
   assert.match(root, /imports = `integration`/)
 })
 
@@ -574,21 +575,21 @@ test('installed behavior discovery and field-versus-history design bind their ex
   const root = readAgentic('shared/AGENTS.md.template')
   const extensionSkill = readAgentic('shared/ai/skills/om-system-extension/SKILL.md')
   const uiSkill = readAgentic('shared/ai/skills/om-backend-ui-design/SKILL.md')
-  assert.match(root, /`architecture` \| Capability\/ownership\/field-vs-history choice/)
+  assert.match(root, /`architecture` \| Unresolved capability\/ownership\/field-vs-history; boundary\/upgrade\/override\/registry failure/)
   assert.match(root, /current behavior, authorization, dependents/)
   assert.match(root, /safest customization seam/)
-  assert.match(uiSkill, /field, filter, row action, or bulk action added to an existing installed form\/table/)
-  assert.match(uiSkill, /also requires `om-system-extension`/)
+  assert.match(uiSkill, /Installed form\/table fields, filters and row\/bulk actions are injected UI/)
+  assert.match(uiSkill, /Injected UI also invokes `om-system-extension`; never edit installed pages directly/)
   assert.match(uiSkill, /read `references\/crud-surfaces\.md` and `references\/quality-states\.md`/)
   assert.match(uiSkill, /stable host ID \(`stable-table-host`\)/)
-  assert.match(uiSkill, /Do not load contracts or `om-module-scaffold` unless it adds app-owned persistence\/API\/commands/)
+  assert.match(uiSkill, /No contracts or `om-module-scaffold` without app-owned persistence\/API\/commands/)
   assert.match(uiSkill, /stable host ID \(`stable-host-id`\)/)
   assert.match(uiSkill, /App-owned persisted fields\/entities also require `module-data`, contracts, and `om-data-model-design`/)
-  assert.match(uiSkill, /new server API\/command path instead requires `module-data`, contracts, and `om-module-scaffold`/)
-  assert.match(root, /Existing installed form\/table fields, filters, row\/bulk actions without app persistence = `umes` \+ `backend-ui` only/)
-  assert.match(root, /read `crud-surfaces` \+ `quality-states`; do not load contracts, module-scaffold, or page\/navigation/)
-  assert.match(root, /installed guard without app persistence = `umes` only, so do not load contracts/)
-  assert.match(root, /read-only behavior\/auth\/dependents\/customization = `framework-context`/)
+  assert.match(uiSkill, /new server API\/command paths instead require `module-data`, contracts, and `om-module-scaffold`/)
+  assert.match(root, /Installed form\/table fields\/filters\/row\/bulk actions without app persistence\/API = `umes` \+ `backend-ui` only/)
+  assert.match(root, /read `crud-surfaces` \+ `quality-states`; skip contracts\/module-scaffold\/page\/navigation/)
+  assert.match(root, /installed guards without either = `umes` only: skip contracts/)
+  assert.match(root, /[Rr]ead-only behavior\/auth\/dependents\/customization = `framework-context`/)
   assert.match(root, /`framework-context` \(alone: no extensions guide; report `installed-version`\)/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
   const frameworkContext = readAgentic('shared/ai/skills/om-framework-context/SKILL.md')
@@ -688,9 +689,10 @@ test('integration routing binds installed-record imports and optional carriers a
 test('debugging stays additive to cross-module domain and extension work', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   const debugging = readAgentic('guides/testing-debugging.md')
-  assert.match(root, /`debugging` is additive/)
+  assert.match(root, /Axes add: ownership=WHO, others=WHAT\. Match all work, not labels\./)
+  assert.match(root, /`debugging` \| Bug\/security\/drift\/runtime inconsistency \| `\.ai\/guides\/testing-debugging\.md` \+ affected areas/)
   assert.match(root, /API\/command\/record\/status\/event\/UI changes\/guards = `umes`/)
-  assert.match(root, /A scalar-ID\/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` \+ `umes`/)
+  assert.match(root, /Scalar-ID\/snapshot fixes to persisted records\/commands linked to installed records MUST use `module-data` \+ `umes`/)
   assert.match(root, /load `om-data-model-design` \+ `om-system-extension`/)
   assert.match(debugging, /`unit-regression-oracle` when that decision vocabulary is requested/)
   assert.match(debugging, /Provider cursor\/retry\/idempotency fixes therefore load `om-integration-builder`/)
@@ -736,9 +738,9 @@ test('API and command fixes load trusted-scope domain contracts', () => {
   const apiDomain = readAgentic('shared/ai/skills/om-module-scaffold/references/api-and-domain.md')
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /multi-seam domain\/API\/command fix/)
-  assert.match(moduleSkill, /A fix spanning multiple domain, API, or command seams is a business slice/)
-  assert.match(moduleSkill, /also loads that blueprint, `references\/api-and-domain\.md`, and `references\/verification\.md`/)
-  assert.match(moduleSkill, /Every API\/schema\/command implementation or fix MUST read/)
+  assert.match(moduleSkill, /Multi-seam domain\/API\/command fixes are business slices/)
+  assert.match(moduleSkill, /Outside spec-only reference planning, business one-shots.*MUST read exact `\.ai\/skills\/om-module-scaffold\/references\/business-one-shot-blueprints\.md`[\s\S]*Multi-seam domain\/API\/command fixes are business slices; read `references\/api-and-domain\.md` and `references\/verification\.md`/)
+  assert.match(moduleSkill, /API\/schema\/command work MUST read/)
   assert.match(moduleSkill, /also read `\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
   assert.match(dataModelSkill, /A persisted concurrency, atomicity, or idempotency implementation or fix cannot stop at this file/)
   assert.match(apiDomain, /Public request schemas never accept `tenantId` or `organizationId`/)
@@ -943,4 +945,105 @@ test('each migrated owner family renders a visible exact-file link into the cano
       `${owner} must render a visible exact-file link to ${requiredTarget}; it links ${JSON.stringify(resolved)}`,
     )
   }
+})
+
+test('installed-surface ownership does not route an app-owned CLI primitive to UMES', () => {
+  for (const root of [readAgentic('shared/AGENTS.md.template'), readPackage('create-app/template/AGENTS.md')]) {
+    const ownershipRule = root.match(/^Installed API\/command\/record\/status\/event\/UI changes\/guards = .+$/m)?.[0]
+    assert.ok(ownershipRule, 'installed API/command changes need an installed-surface qualifier')
+    assert.match(ownershipRule, /changes\/guards = `umes`/)
+    assert.match(ownershipRule, /installed guards without either = `umes` only/)
+    assert.match(root, /Complete business modules\/CRUD slices: `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+    assert.doesNotMatch(root, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+    assert.match(root, /\| `module-data` \| Owned search\/analytics\/event\/notification\/message\/worker\/progress\/cache\/CLI \| scaffold \+ contracts \|/)
+  }
+})
+
+test('CLI-only primitive context remains bounded without dropping compiled-path or validation gates', () => {
+  const skill = readAgentic('shared/ai/skills/om-module-scaffold/SKILL.md')
+  const primitiveGate = skill.match(/^CLI-only \(no .+$/m)?.[0]
+  assert.ok(primitiveGate, 'a narrow CLI primitive must not load complete-module references unconditionally')
+  assert.match(primitiveGate, /no domain mutation\/API\/persistence\/UI/)
+  assert.match(primitiveGate, /read step 3 contracts\/compatibility/)
+  const domainStep = skill.match(/^3\. .+$/m)?.[0]
+  assert.ok(domainStep)
+  assert.match(domainStep, /`\.ai\/guides\/contracts\.md`/)
+  assert.match(domainStep, /`\.ai\/guides\/upstream\/BACKWARD_COMPATIBILITY\.md`/)
+  assert.match(primitiveGate, /skip README\/inventory and refs 3\/4\/7/)
+  assert.match(primitiveGate, /trusted scope, `cli\.ts` discovery, source\+compiled command behavior tests/)
+  for (const command of ['yarn generate', 'yarn typecheck', 'yarn lint']) assert.ok(primitiveGate.includes(`\`${command}\``))
+  assert.match(primitiveGate, /applicable build/)
+  assert.match(primitiveGate, /Changed package paths: pack\/install\+test disposable consumer/)
+  assert.match(skill, /Complete business modules\/CRUD slices START at/)
+  assert.match(skill, /Complete one-shot modules\/CRUD slices MUST directly read step 3\/4\/7 paths before writing module code/)
+  assert.match(skill, /^3\. \*\*APIs\/commands\.\*\* API\/schema\/command work MUST read/m)
+  assert.match(skill, /^4\. \*\*Surfaces\.\*\* Module-surface implementation\/ordinary inspection MUST first read `references\/module-surfaces\.md`/m)
+  assert.match(skill, /^7\. \*\*Verify\.\*\* Follow `references\/verification\.md`/m)
+})
+
+test('feature-toggle extensions resolve installed facts before choosing a contract', () => {
+  const extensions = readAgentic('guides/extensions.md')
+  const featureToggles = extensions.split('## Feature Toggles\n')[1]?.split('\n## ')[0]
+  assert.ok(featureToggles, 'the extensions guide owns feature-toggle selection')
+  assert.match(featureToggles, /first open `\.ai\/guides\/modules\/feature_toggles\/index\.md`/)
+  assert.match(featureToggles, /select and read that installed module fact sheet before choosing the toggle contract/)
+  assert.match(featureToggles, /one server-resolved toggle/)
+  assert.match(featureToggles, /Never leave UI-only gating around a live mutation/)
+  assert.doesNotMatch(featureToggles, /\]\([^)]*guides\/modules\/feature_toggles/)
+  for (const root of [readAgentic('shared/AGENTS.md.template'), readPackage('create-app/template/AGENTS.md')]) {
+    assert.match(root, /feature toggle\/flag→feature_toggles/)
+  }
+})
+
+test('email providers inspect installed transactional facts before app-local implementation', () => {
+  const emailRouting = readAgentic('guides/integrations.md').split('## Email Routing\n')[1]?.split('\n## ')[0]
+  assert.ok(emailRouting)
+  const firstBullet = emailRouting.split('\n').find((line) => line.startsWith('- '))
+  assert.ok(firstBullet)
+  assert.match(firstBullet, /First read `\.ai\/guides\/modules\/channel_resend\/index\.md` and `\.ai\/guides\/modules\/channel_ses\/index\.md`/)
+  assert.match(firstBullet, /reuse a matching installed provider before app-local code/)
+  assert.match(firstBullet, /App-only SMTP is transactional/)
+  assert.match(firstBullet, /`IntegrationDefinition`, encrypted credentials, DI sender\/health services and app activation/)
+  assert.match(firstBullet, /never invent a mailbox contract/)
+  assert.match(emailRouting, /`ChannelAdapter` from `@open-mercato\/core\/modules\/communication_channels\/lib\/adapter`/)
+  assert.match(emailRouting, /`integration\.hub: 'communication_channels'`/)
+  assert.match(emailRouting, /exact `healthCheck\.service` in `di\.ts`/)
+  assert.match(emailRouting, /idempotent adapter registration\/default grants in `setup\.ts`/)
+  assert.match(emailRouting, /Thread `userId` on every mailbox credential read\/write/)
+})
+
+test('shipping providers resolve installed shipping facts before choosing the adapter', () => {
+  const integrations = readAgentic('guides/integrations.md')
+  const shipping = integrations.split('\n').find((line) => line.startsWith('| Shipping/carrier |'))
+  assert.ok(shipping)
+  assert.match(shipping, /Read `\.ai\/guides\/modules\/shipping_carriers\/index\.md` first/)
+  assert.match(shipping, /installed `ShippingAdapter`/)
+  assert.match(shipping, /service\/quote\/label\/tracking/)
+  assert.match(shipping, /webhook mapping, idempotent fulfillment updates/)
+  assert.doesNotMatch(shipping, /\]\([^)]*guides\/modules\/shipping_carriers/)
+  const providerFamilies = readAgentic('shared/ai/skills/om-integration-builder/references/provider-families.md')
+  assert.match(providerFamilies, /installed `ShippingAdapter` plus `registerShippingAdapter`/)
+  assert.match(providerFamilies, /address\/package validation; idempotent fulfillment transitions; signed status callbacks/)
+  assert.match(providerFamilies, /`provider-neutral-domain`/)
+  assert.match(providerFamilies, /`optional-provider`/)
+})
+
+test('payment transitions distinguish optimistic stale-write protection from idempotency', () => {
+  const families = readAgentic('shared/ai/skills/om-integration-builder/references/provider-families.md')
+  const payment = families.split('\n').find((line) => line.startsWith('- **Payment:**'))
+  assert.ok(payment)
+  assert.match(payment, /durable idempotency/)
+  assert.match(payment, /Atomically compare expected state\/version before transitions \(`optimistic-lock`\)/)
+  assert.match(payment, /stale attempts conflict\/reconcile, never overwrite/)
+  assert.match(payment, /Idempotency alone does not prevent stale writes/)
+  assert.match(readAgentic('guides/integrations.md'), /Keep webhook, poll, manual retry, and scheduled sync paths convergent and safe when they race/)
+})
+
+test('integration source handoff requires a named unresolved exact-version symbol', () => {
+  const skill = readAgentic('shared/ai/skills/om-integration-builder/SKILL.md')
+  const handoff = skill.split('\n').find((line) => line.startsWith('- The only local reference is'))
+  assert.ok(handoff)
+  assert.match(handoff, /Use `om-framework-context` only for a named unresolved exact-version symbol/)
+  assert.doesNotMatch(handoff, /Resolve everything else against installed provider source/)
+  assert.match(skill, /Generated facts and the integration references are sufficient unless one named exact-version symbol remains unresolved/)
 })

@@ -6,6 +6,11 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createResolver } from '../../../cli/src/lib/resolver.js'
+import { discoverLocalReferenceModuleSource, discoverPackageModuleSources } from '../../../cli/src/lib/generators/module-facts-discovery.js'
+import { extractAllModuleFacts, extractLocalReferenceModuleFacts } from '../../../cli/src/lib/generators/module-facts.js'
+import { generateCodex } from '../setup/tools/codex.js'
+import { generateShared } from '../setup/tools/shared.js'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
@@ -299,8 +304,8 @@ function declaredCase(overrides: {
   }
 }
 
-function entrypointReads(): PolicyRead[] {
-  return ENTRYPOINTS.map((entrypoint) => ({ path: `${EXAMPLE_ROOT}/${entrypoint}` }))
+function entrypointReads(entrypoints = ENTRYPOINTS): PolicyRead[] {
+  return entrypoints.map((entrypoint) => ({ path: `${EXAMPLE_ROOT}/${entrypoint}` }))
 }
 
 function callToolServer(
@@ -368,14 +373,24 @@ test('family 1: a relevant case reads the example entrypoints and several exact 
 
     // The root's own inventory is readable and charged, but it does not satisfy the start rule.
     const inventoryPath = `${EXAMPLE_ROOT}/references/surface-inventory.json`
+    const inventoryReads = [{ path: `${EXAMPLE_ROOT}/README.md` }, { path: inventoryPath }]
+    const inventoryBytes = inventoryReads.reduce((total, entry) => total + fs.statSync(path.join(root, entry.path)).size, 0)
+    assert.ok(inventoryBytes <= 262_144)
     const withInventory = evaluator.evaluateExampleReadPolicy({
-      caseRecord,
+      caseRecord: declaredCase({ maxBytes: inventoryBytes }),
       appRoot: root,
-      reads: [{ path: `${EXAMPLE_ROOT}/README.md` }, { path: inventoryPath }],
+      reads: inventoryReads,
     })
     assert.equal(withInventory.firstViolation, null)
     assert.equal(withInventory.roots[0].files, 2)
+    assert.equal(withInventory.roots[0].bytes, inventoryBytes)
     assert.deepEqual(withInventory.roots[0].entrypoints, ['README.md'])
+    const inventoryOverflow = evaluator.evaluateExampleReadPolicy({
+      caseRecord: declaredCase({ maxBytes: inventoryBytes - 1 }),
+      appRoot: root,
+      reads: inventoryReads,
+    })
+    assert.equal(inventoryOverflow.firstViolation, `example root byte budget exceeded: ${inventoryBytes}/${inventoryBytes - 1}`)
     const inventoryFirst = evaluator.evaluateExampleReadPolicy({
       caseRecord,
       appRoot: root,
@@ -1069,7 +1084,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238']
+const DECLARING_CASE_IDS = ['OMH-181', 'OMH-185', 'OMH-193', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1083,6 +1098,18 @@ const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221
  */
 const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   'OMH-181': ['runtime.bulk-operation-progress', 'umes.injection.datatable-bulk-action'],
+  'OMH-185': [
+    'api.crud-query-engine-custom-fields', 'api.openapi', 'commands.undo-redo', 'commands.write',
+    'data.custom-fields', 'data.encryption-map', 'data.entities', 'data.migrations', 'data.validators',
+    'events.crud-indexer-bridge', 'module.acl-features', 'module.metadata', 'module.setup-role-features',
+    'search.module-config', 'ui.datatable', 'ui.form-create', 'ui.form-edit', 'ui.page-shell', 'umes.extension-points',
+  ],
+  'OMH-193': [
+    'api.crud-query-engine-custom-fields', 'api.openapi', 'commands.undo-redo', 'commands.write',
+    'data.custom-fields', 'data.encryption-map', 'data.entities', 'data.migrations', 'data.validators',
+    'events.crud-indexer-bridge', 'module.acl-features', 'module.metadata', 'module.setup-role-features',
+    'search.module-config', 'ui.datatable', 'ui.form-create', 'ui.form-edit', 'ui.page-shell', 'umes.extension-points',
+  ],
   'OMH-203': ['umes.injection-table'],
   'OMH-219': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
   'OMH-220': [
@@ -1093,12 +1120,13 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   ],
   'OMH-221': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
   'OMH-222': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
-  // The one writable declaring case reads only the core data/command sources it adapts directly;
-  // generated reference facts and declared source links carry its specialist, progress, and design
-  // identities without widening the example root. Root immutability still rejects every write here.
+  // The writable planning case reads its data/command sources and the explicit bulk-action seam;
+  // generated facts and exact source links carry the remaining specialist/progress/design identities.
+  // Root immutability still rejects every write here.
   'OMH-223': [
     'commands.write',
     'data.entities',
+    'umes.injection.datatable-bulk-action',
   ],
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
@@ -1115,6 +1143,7 @@ type HarnessBudgets = {
     required: string[]
     allowedExtra?: string[]
     exampleRoots: Array<{ maxFiles: number; maxBytes: number }>
+    sourceReferenceIds?: string[]
   }
 }
 
@@ -1126,6 +1155,10 @@ function undeclaringShippedCases() {
   return shippedCases().filter((entry) => entry.context.exampleRoots === undefined
     && entry.context.sourceReferenceIds === undefined
     && entry.context.installedVersionFallback === undefined)
+}
+
+function declaredEntrypoints(entry: { id: string }): string[] {
+  return ['OMH-185', 'OMH-193'].includes(entry.id) ? ['README.md'] : ENTRYPOINTS
 }
 
 function declaredCapabilityIds(entry: { context: Record<string, unknown> }): string[] {
@@ -1151,7 +1184,7 @@ test('reachability: exactly the pinned shipped cases declare an example root, an
       // Entrypoints, the inventory, and every mapped capability source — and nothing else.
       const expected = [
         `${EXAMPLE_ROOT}/references/surface-inventory.json`,
-        ...ENTRYPOINTS.map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
+        ...declaredEntrypoints(entry).map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
         ...declaredCapabilityIds(entry).flatMap((id) => capability(id).sourcePaths),
         ...((entry.context.sourceReferenceIds as string[] | undefined) ?? [])
           .map((referenceId) => recordIn(projectedInventory().records, referenceId).resolvedPath),
@@ -1218,16 +1251,16 @@ test('reachability: the specialist routing case can use the documented reason-ga
 
 test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
   const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
-  const stated = /(\w+) cases,\s+`(OMH-\d{3})`, `(OMH-\d{3})`…`(OMH-\d{3})` and `(OMH-\d{3})`, declare it today/.exec(doc)
+  const stated = /(\w+) cases,\s+`(OMH-\d{3})`, `(OMH-\d{3})`, `(OMH-\d{3})`, `(OMH-\d{3})`…`(OMH-\d{3})` and `(OMH-\d{3})`, declare it today/.exec(doc)
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Ten')
-  assert.equal(DECLARING_CASE_IDS.length, 10)
-  assert.deepEqual([stated[2], stated[3], stated[4], stated[5]], ['OMH-181', 'OMH-203', 'OMH-226', 'OMH-238'])
+  assert.equal(stated[1], 'Twelve')
+  assert.equal(DECLARING_CASE_IDS.length, 12)
+  assert.deepEqual(stated.slice(2), ['OMH-181', 'OMH-185', 'OMH-193', 'OMH-203', 'OMH-226', 'OMH-238'])
   // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
   // exactly what immutability precedence has to defend against, so the doc names it by ID.
   const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))
-  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-181', 'OMH-223'])
-  assert.match(doc, /`OMH-181` and `OMH-223` are the two writable declarers/)
+  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-181', 'OMH-185', 'OMH-193', 'OMH-223'])
+  assert.match(doc, /`OMH-181`, `OMH-185`, `OMH-193` and `OMH-223` are the four writable declarers/)
 })
 
 /**
@@ -1255,7 +1288,7 @@ test('reachability: every shipped declaring case reads its own capability set en
     for (const entry of declaringShippedCases()) {
       const allowed = declaredCapabilityIds(entry)
       const reads: PolicyRead[] = [
-        ...entrypointReads(),
+        ...entrypointReads(declaredEntrypoints(entry)),
         // A case that declares source references must read the owners rendering those links
         // before it may follow them, so the reachability sequence includes them — exactly the
         // order a real run produces. Owners are routed context and are not charged to the root.
@@ -1265,7 +1298,7 @@ test('reachability: every shipped declaring case reads its own capability set en
       const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: entry, appRoot: root, reads })
       assert.equal(trace.firstViolation, null, `${entry.id} must be able to read its own declared capabilities`)
       assert.equal(trace.roots.length, 1, `${entry.id} must account exactly one root`)
-      assert.deepEqual(trace.roots[0].entrypoints, ENTRYPOINTS, `${entry.id} must record both entrypoints`)
+      assert.deepEqual(trace.roots[0].entrypoints, declaredEntrypoints(entry), `${entry.id} must record its exact declared entrypoints`)
       // Only in-root reads are charged to the root budget; a routed owner is ordinary context
       // and is governed by the case's own context budgets instead.
       const inRoot = new Set(reads.map((read) => read.path).filter((read) => read.startsWith(`${EXAMPLE_ROOT}/`)))
@@ -1287,7 +1320,7 @@ test('reachability: every shipped declaring case reads its own capability set en
       const refused = evaluator.evaluateExampleReadPolicy({
         caseRecord: entry,
         appRoot: root,
-        reads: [...entrypointReads(), { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
+        reads: [...entrypointReads(declaredEntrypoints(entry)), { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
       })
       assert.match(refused.firstViolation ?? '', /maps to a capability the case did not declare/, `${entry.id} must refuse ${outside.capabilityId}`)
     }
@@ -1296,37 +1329,98 @@ test('reachability: every shipped declaring case reads its own capability set en
   }
 })
 
-/**
- * A declaring case is only passable if its own ceilings clear the surface it declares: the
- * entrypoints, the inventory, and every mapped capability source, charged against the root budgets
- * AND against the routing budgets that the same reads feed. Example sources carry no `/references/`
- * segment, so they count as INITIAL context — a growing example silently squeezes them otherwise.
- */
-test('reachability: every shipped declaring case can afford the entire surface it declares', async () => {
+test('reachability: every shipped declaring case can afford every capability through one canonical index', async (context) => {
   const evaluator = await loadEvaluator()
   const root = stageExampleApp()
   try {
-    for (const entry of declaringShippedCases() as unknown as HarnessBudgets[]) {
-      const declaration = entry.context.exampleRoots[0]
-      const files = evaluator.exampleReadAllowlist(entry, root)
-      const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
-      assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
-      assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
-
-      const initial = files.filter((relative) => !relative.includes('/references/'))
-      const instruction = [...entry.context.required, ...(entry.context.allowedExtra ?? [])]
-      const initialFiles = initial.length + instruction.filter((relative) => !relative.includes('/references/')).length
-      assert.ok(
-        initialFiles <= entry.maxContextFiles,
-        `${entry.id} needs ${initialFiles} initial context files against maxContextFiles ${entry.maxContextFiles}`,
-      )
-      const initialBytes = initial.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
-      assert.ok(
-        initialBytes < entry.maxInitialContextBytes,
-        `${entry.id} spends ${initialBytes} example bytes of its ${entry.maxInitialContextBytes} initial budget before any instruction`,
-      )
-      assert.ok(bytes < entry.maxTotalContextBytes, `${entry.id} spends ${bytes} example bytes of its ${entry.maxTotalContextBytes} total budget`)
+    const config = { targetDir: root, projectName: 'example-policy-budget' }
+    generateShared(config)
+    generateCodex(config)
+    const declaring = declaringShippedCases() as unknown as HarnessBudgets[]
+    const instructions = [...new Set(declaring.flatMap(entry => [...entry.context.required, ...(entry.context.allowedExtra ?? [])]))]
+    const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+    const sources = discoverPackageModuleSources(createResolver(repositoryRoot))
+    const coreVersion = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'packages/core/package.json'), 'utf8')).version as string
+    const { directoryByModule } = extractAllModuleFacts({ sources, registryPath: null, coreVersion })
+    const referenceSource = discoverLocalReferenceModuleSource({ appRoot: fileURLToPath(new URL('../../template/', import.meta.url)), moduleId: 'example' })
+    assert.ok(referenceSource)
+    const reference = extractLocalReferenceModuleFacts({ packageSources: sources, reference: referenceSource, registryPath: null, coreVersion }).directory
+    for (const relative of instructions) {
+      const match = /^\.ai\/guides\/(?:modules|reference-modules)\/([^/]+)\/index\.md$/.exec(relative)
+      if (!match) continue
+      const facts = match[1] === 'example' ? reference : directoryByModule[match[1]]
+      assert.ok(facts, `missing real facts for ${relative}`)
+      const destination = path.join(root, relative)
+      fs.mkdirSync(path.dirname(destination), { recursive: true })
+      fs.writeFileSync(destination, facts.index)
     }
+    for (const [relative, source] of [
+      ['.ai/guides/upstream/BACKWARD_COMPATIBILITY.md', path.join(repositoryRoot, 'BACKWARD_COMPATIBILITY.md')],
+      ['node_modules/@open-mercato/shared/AGENTS.md', path.join(repositoryRoot, 'packages/shared/AGENTS.md')],
+    ]) {
+      const destination = path.join(root, relative)
+      fs.mkdirSync(path.dirname(destination), { recursive: true })
+      fs.copyFileSync(source, destination)
+    }
+    const physicalSources = new Set([
+      ...declaring.flatMap(entry => evaluator.exampleReadAllowlist(entry, root)),
+      ...instructions.filter(relative => relative.startsWith('node_modules/@open-mercato/')),
+    ])
+    for (const relative of physicalSources) {
+      const segments = relative.split('/')
+      const source = relative === 'src/app/globals.css'
+        ? fileURLToPath(new URL('../../template/src/app/globals.css', import.meta.url))
+        : relative.startsWith('node_modules/@open-mercato/')
+          ? path.join(repositoryRoot, 'packages', segments[2], ...segments.slice(3))
+          : path.join(repositoryRoot, 'apps/mercato', relative)
+      const sourceStat = fs.lstatSync(source)
+      assert.ok(sourceStat.isFile() && !sourceStat.isSymbolicLink(), `${relative} must have an actual regular source file`)
+      const destination = path.join(root, relative)
+      fs.mkdirSync(path.dirname(destination), { recursive: true })
+      fs.copyFileSync(source, destination)
+      assert.deepEqual(fs.readFileSync(destination), fs.readFileSync(source), `${relative} must use actual source bytes`)
+    }
+    const violations: string[] = []
+    for (const entry of declaring) {
+      const declaration = entry.context.exampleRoots[0]
+      const entrypoints = declaredEntrypoints(entry)
+      const selectedEntrypoint = entrypoints.includes('references/surface-map.md') ? 'references/surface-map.md' : 'README.md'
+      const navigation = [`${EXAMPLE_ROOT}/${selectedEntrypoint}`,
+        ...(selectedEntrypoint === 'README.md' ? [`${EXAMPLE_ROOT}/references/surface-inventory.json`] : [])]
+      const references = (entry.context.sourceReferenceIds ?? []).map(referenceId => recordIn(projectedInventory().records, referenceId).resolvedPath)
+      const sources = declaredCapabilityIds(entry).flatMap(id => capability(id).sourcePaths).filter(relative => relative.startsWith(`${EXAMPLE_ROOT}/`))
+      const files = [...new Set([...navigation, ...sources, ...references])]
+      const inRoot = files.filter(relative => relative.startsWith(`${EXAMPLE_ROOT}/`))
+      const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      const trace = evaluator.evaluateExampleReadPolicy({
+        caseRecord: entry,
+        appRoot: root,
+        reads: [...navigation, ...declaredReferenceOwners(entry), ...sources, ...references].map(relative => ({ path: relative })),
+      })
+      assert.equal(trace.firstViolation, null, `${entry.id} must reach every declared capability through its selected index`)
+      assert.deepEqual(trace.roots[0].entrypoints, [selectedEntrypoint])
+      assert.equal(trace.roots[0].files, files.length)
+      assert.equal(trace.roots[0].bytes, bytes)
+      assert.equal(files.filter(relative => /references\/surface-(?:map\.md|inventory\.json)$/.test(relative)).length, 1)
+      if (files.length > declaration.maxFiles) violations.push(`${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
+      if (bytes > declaration.maxBytes) violations.push(`${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
+      const instruction = [...new Set([...entry.context.required, ...(entry.context.allowedExtra ?? [])])]
+      const initial = instruction.filter(relative => !relative.startsWith(`${EXAMPLE_ROOT}/`) && !relative.includes('/references/')
+        && !['.ai/framework-context/', '.ai/guides/modules/', '.ai/guides/reference-modules/', '.ai/guides/upstream/', '.agents/skills/'].some(prefix => relative.startsWith(prefix)))
+      if (initial.length > entry.maxContextFiles) violations.push(`${entry.id} needs ${initial.length} initial context files against maxContextFiles ${entry.maxContextFiles}`)
+      const initialBytes = initial.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      if (initialBytes > entry.maxInitialContextBytes) violations.push(`${entry.id} needs ${initialBytes}/${entry.maxInitialContextBytes} initial bytes`)
+      const total = [...new Set([...instruction, ...files])].reduce((sum, relative) => sum + fs.statSync(path.join(root, relative)).size, 0)
+      if (total > entry.maxTotalContextBytes) violations.push(`${entry.id} needs ${total}/${entry.maxTotalContextBytes} total bytes`)
+      context.diagnostic(`${entry.id}: ${files.length} reference files/${bytes} bytes, initial ${initial.length} files/${initialBytes} bytes, total ${total} bytes`)
+      if (['OMH-185', 'OMH-193'].includes(entry.id)) {
+        assert.equal(inRoot.length, 30)
+        assert.equal(bytes, 254_470)
+        assert.ok(initial.includes('node_modules/@open-mercato/shared/AGENTS.md'))
+        assert.ok(total >= bytes + fs.statSync(path.join(root, 'node_modules/@open-mercato/shared/AGENTS.md')).size)
+      }
+    }
+    assert.deepEqual(violations, [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

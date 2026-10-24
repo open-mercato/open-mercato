@@ -89,15 +89,16 @@ for (const presetId of PRESET_IDS) {
       // very scaffold emitted — a routed entrypoint that does not exist is a dead link.
       const rootInstructions = readFileSync(join(targetDir, 'AGENTS.md'), 'utf8')
       assert.equal(
-        (rootInstructions.match(/Spec gate before code:/g) ?? []).length,
+        (rootInstructions.match(/Spec before code:/g) ?? []).length,
         1,
         `preset ${presetId} must emit the spec-first gate exactly once`,
       )
-      assert.match(rootInstructions, /-> spec first \(`spec-first`\)/)
+      assert.match(rootInstructions, /-> spec \(`spec-first`\)/)
       assert.match(rootInstructions, /-> proceed \(`direct`\)/)
       assert.match(rootInstructions, /\(`reuse-spec`\)/)
       assert.match(rootInstructions, /ask once \(`ask`\)/)
-      assert.match(rootInstructions, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+      assert.match(rootInstructions, /Complete business modules\/CRUD slices: `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+      assert.doesNotMatch(rootInstructions, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
       assert.ok(
         existsSync(join(exampleDir, 'README.md')),
         `preset ${presetId} routes the spec gate at src/modules/example/README.md, which must exist`,

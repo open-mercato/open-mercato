@@ -715,7 +715,7 @@ if (command === 'build') {
     const results = release.runTargetValidationSteps({ steps, target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
     assert.deepEqual(results.map((entry) => entry.status), ['pass', 'pass', 'pass', 'pass'])
     assert.deepEqual(results.map((entry) => entry.resultPaths), [
-      ['.mercato/cache', '.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
+      ['.mercato/cache/cache.db', '.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
     ])
     assert.equal(fs.existsSync(path.join(target, '.mercato')), false)
     assert.equal(fs.existsSync(path.join(target, 'tsconfig.tsbuildinfo')), false)

@@ -2120,7 +2120,8 @@
         "AGENTS.md",
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -2387,7 +2388,8 @@
       ]
     },
     "requiredSkills": [
-      "om-system-extension"
+      "om-system-extension",
+      "om-backend-ui-design"
     ],
     "optionalSkills": [
       {
@@ -2401,7 +2403,12 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/references/verification.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
@@ -2431,7 +2438,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 126976,
+    "maxTotalContextBytes": 139264,
     "relatedCases": [
       "OMH-031"
     ]
@@ -4253,10 +4260,12 @@
         "AGENTS.md",
         ".ai/guides/ai-workflows.md",
         ".ai/skills/om-build-workflow/SKILL.md",
-        ".ai/guides/modules/workflows/index.md"
+        ".ai/guides/modules/workflows/index.md",
+        ".ai/skills/om-build-workflow/references/activity-contracts.md"
       ],
       "allowedExtra": [
-        ".ai/guides/contracts.md"
+        ".ai/guides/contracts.md",
+        ".ai/guides/framework-contracts.md"
       ],
       "forbidden": [
         ".env*",
@@ -4286,7 +4295,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 540672,
     "relatedCases": [
       "OMH-055"
     ],
@@ -4522,7 +4531,9 @@
         ".ai/guides/contracts.md",
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+        ".ai/skills/om-troubleshooter/references/regression-oracles.md"
       ],
       "forbidden": [
         ".env*",
@@ -4553,7 +4564,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 122880,
     "relatedCases": [
       "OMH-058"
     ],
@@ -5116,7 +5127,12 @@
         ".ai/guides/contracts.md",
         ".ai/guides/architecture.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-framework-context/SKILL.md",
+        ".ai/guides/framework-contracts.md",
+        ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+        ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+        ".ai/skills/om-framework-context/references/resolver-procedure.md"
       ],
       "forbidden": [
         ".env*",
@@ -5144,7 +5160,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 122880,
+    "maxTotalContextBytes": 139264,
     "relatedCases": [
       "OMH-065"
     ]
@@ -6684,10 +6700,12 @@
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/guides/extensions.md",
+        ".ai/guides/framework-extension-points.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/portal/index.md",
         ".ai/guides/modules/customer_accounts/index.md",
         ".ai/guides/modules/sales/index.md",
         ".ai/guides/modules/notifications/index.md"
@@ -11686,6 +11704,7 @@
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/modules/portal/index.md",
         ".ai/guides/modules/customer_accounts/index.md",
         ".ai/guides/modules/sales/index.md"
       ],
@@ -16460,13 +16479,27 @@
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
         ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
         ".ai/skills/om-module-scaffold/references/verification.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/lessons.md",
+        ".ai/guides/modules/events/index.md",
+        ".ai/guides/modules/query_index/index.md",
+        ".ai/guides/modules/search/index.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/references/verification.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+        "node_modules/@open-mercato/shared/AGENTS.md",
+        "src/modules/example/README.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
-        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/skills/om-system-extension/references/mechanism-selector.md",
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
@@ -16474,6 +16507,37 @@
         ".env*",
         ".git/**",
         ".mercato/generated/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "module.metadata",
+            "module.acl-features",
+            "module.setup-role-features",
+            "data.entities",
+            "data.validators",
+            "data.migrations",
+            "data.encryption-map",
+            "data.custom-fields",
+            "search.module-config",
+            "api.crud-query-engine-custom-fields",
+            "api.openapi",
+            "commands.write",
+            "commands.undo-redo",
+            "events.crud-indexer-bridge",
+            "ui.page-shell",
+            "ui.datatable",
+            "ui.form-create",
+            "ui.form-edit",
+            "umes.extension-points"
+          ],
+          "maxFiles": 32,
+          "maxBytes": 262144
+        }
       ]
     },
     "requiredDecisions": [
@@ -16515,8 +16579,8 @@
       "oracle.module.complete"
     ],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 245760,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 561152,
     "timeoutMs": 600000,
     "relatedCases": [
       "OMH-004",
@@ -17394,13 +17458,27 @@
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
         ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
         ".ai/skills/om-module-scaffold/references/verification.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/lessons.md",
+        ".ai/guides/modules/events/index.md",
+        ".ai/guides/modules/query_index/index.md",
+        ".ai/guides/modules/search/index.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md",
+        ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/references/verification.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-module-scaffold/references/runtime-cache-and-queues.md",
+        "node_modules/@open-mercato/shared/AGENTS.md",
+        "src/modules/example/README.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-module-scaffold/references/discovery-surface-catalog.md",
-        ".ai/skills/om-backend-ui-design/references/quality-states.md",
         ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
-        ".ai/skills/om-system-extension/references/mechanism-selector.md",
         ".ai/skills/om-system-extension/references/read-write-roundtrip.md",
         ".ai/skills/om-framework-context/SKILL.md"
       ],
@@ -17408,6 +17486,37 @@
         ".env*",
         ".git/**",
         ".mercato/generated/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "module.metadata",
+            "module.acl-features",
+            "module.setup-role-features",
+            "data.entities",
+            "data.validators",
+            "data.migrations",
+            "data.encryption-map",
+            "data.custom-fields",
+            "search.module-config",
+            "api.crud-query-engine-custom-fields",
+            "api.openapi",
+            "commands.write",
+            "commands.undo-redo",
+            "events.crud-indexer-bridge",
+            "ui.page-shell",
+            "ui.datatable",
+            "ui.form-create",
+            "ui.form-edit",
+            "umes.extension-points"
+          ],
+          "maxFiles": 32,
+          "maxBytes": 262144
+        }
       ]
     },
     "requiredDecisions": [
@@ -17483,8 +17592,8 @@
     ],
     "timeoutMs": 600000,
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 81920,
-    "maxTotalContextBytes": 245760,
+    "maxInitialContextBytes": 98304,
+    "maxTotalContextBytes": 561152,
     "relatedCases": [
       "OMH-004",
       "OMH-009",
@@ -18234,7 +18343,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "How can I add a tab to the customer page? Start with the source-present canonical example's injection table and its visible inventory entry to identify the declared customer-detail target. If the exact installed customers contract differs from that local example after inspection, follow only the one exact installed source file the routed facts name and label that read with the declared installed-version contract-mismatch reason. Never enumerate or traverse installed packages.",
+    "prompt": "How can I add tabs to both person and company customer detail pages? Start with the source-present canonical example's injection table and its visible inventory entry to identify its declared person-detail target only. Resolve the separate company host from the required installed customers facts. If the exact installed person contract differs from that local example after inspection, follow only the one exact installed person source file the routed facts name and label that read with the declared installed-version contract-mismatch reason. Never enumerate or traverse installed packages.",
     "tags": [
       "umes",
       "backend-ui",
@@ -18304,7 +18413,6 @@
     "requiredDecisions": [
       "extension-mechanism",
       "additive-before-replacement",
-      "extension-entity",
       "eject-last",
       "widget-injection-files",
       "person-detail-tab-spot",
@@ -18324,12 +18432,6 @@
       "context.budget",
       "context.forbidden",
       "patterns.forbidden"
-    ],
-    "frameworkContext": [
-      {
-        "module": "customers",
-        "query": "detail:customers."
-      }
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
@@ -19678,7 +19780,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -19799,7 +19901,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "widgets/components\\.ts"
     ],
     "validators": [
@@ -19924,7 +20026,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "text-\\[[0-9]+px\\]"
     ],
     "validators": [
@@ -20043,7 +20145,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -20115,11 +20217,11 @@
         ".ai/skills/om-module-scaffold/references/api-and-domain.md",
         ".ai/skills/om-backend-ui-design/SKILL.md",
         ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
-        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+        ".ai/guides/reference-modules/example/index.md"
       ],
       "allowedExtra": [
-        ".ai/specs/SPEC-000-template.md",
-        ".ai/guides/reference-modules/example/index.md"
+        ".ai/specs/SPEC-000-template.md"
       ],
       "forbidden": [
         ".env*",
@@ -20135,7 +20237,8 @@
           ],
           "allowedCapabilityIds": [
             "commands.write",
-            "data.entities"
+            "data.entities",
+            "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
           "maxBytes": 245760
@@ -20222,7 +20325,7 @@
     "timeoutMs": 600000,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 262144,
+    "maxTotalContextBytes": 339968,
     "relatedCases": [
       "OMH-214",
       "OMH-224"
@@ -20438,7 +20541,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -20551,7 +20654,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -20652,7 +20755,7 @@
     ],
     "forbiddenPatterns": [
       "node_modules.{0,40}(?:write|edit|patch)",
-      "src/modules/example.{0,40}(?:write|edit|patch)",
+      "(?:src/modules/example[^\"\\r\\n]{0,40}(?:write|edit|patch)(?:es|s|ed|ing)?(?![\\w./-])|(?:write|edit|patch)\\s+src/modules/example(?:/|\\b))",
       "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
     ],
     "validators": [
@@ -21695,13 +21798,15 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "I am already inside a create-mercato-app Cloud sandbox. Explain the supported npx tool commands to start a new visits module, or package an existing visits module, then publish it to npm and a dedicated GitHub repository. Include a local preview before remote publication and explain how to keep developing in this same app after publication, including the optional repository link and its portability. Distinguish npm login, environment token and trusted publishing requirements. Prepare the workflow only; do not publish or create remote resources.",
+    "prompt": "I am already inside a create-mercato-app Cloud sandbox. Explain the supported npx tool commands to start a new visits module, or package an existing visits module, then publish it to npm and a dedicated GitHub repository. Include a local preview before remote publication and explain how to keep developing in this same app after publication, including the optional repository link and its portability. Distinguish npm login, environment token and trusted publishing requirements. Prepare the workflow only; do not publish or create remote resources. For the receiving app, also explain installing under a dependency alias, rejecting two providers with the same runtime module ID, keeping npm and GitHub source identities distinct, explicitly disabling all consumers before replacing a binding, and preserving local source/provenance when ejecting. Explain resolving old-origin dependants and manual imports and successfully regenerating/building while the old provider remains installed, then replacing the binding and verifying generation/build again. Identify what disabling does not remove.",
     "tags": [
       "architecture",
       "module-package",
       "publication",
       "source-link",
-      "auth"
+      "auth",
+      "module-installation",
+      "source-identity"
     ],
     "owner": {
       "kind": "guide",
@@ -21721,15 +21826,22 @@
     "context": {
       "required": [
         "AGENTS.md",
-        ".ai/guides/module-tool.md"
+        ".ai/guides/module-tool.md",
+        "node_modules/@open-mercato/cli/src/lib/module-install.ts",
+        "node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+        "node_modules/@open-mercato/cli/src/lib/eject.ts"
       ],
       "allowedExtra": [
         ".ai/guides/architecture.md"
       ],
       "forbidden": [
         ".env*",
-        ".git/**",
-        "node_modules/**"
+        ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+        "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+        "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts"
       ]
     },
     "requiredDecisions": [
@@ -21738,7 +21850,12 @@
       "fresh-consumer-third-party",
       "app-source-preserved",
       "optional-repository-source-link",
-      "npm-auth-mode-boundaries"
+      "npm-auth-mode-boundaries",
+      "module-binding-is-not-runtime-id",
+      "npm-github-origins-distinct",
+      "one-enabled-provider-per-runtime-id",
+      "explicit-provider-replacement",
+      "eject-retains-source-provenance"
     ],
     "forbiddenPatterns": [
       "(?:print|display|commit).{0,30}(?:NPM_TOKEN|NODE_AUTH_TOKEN|raw token)",
@@ -21753,9 +21870,9 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 3,
-    "maxInitialContextBytes": 32768,
-    "maxTotalContextBytes": 32768,
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 81920,
     "relatedCases": [
       "OMH-002",
       "OMH-046",

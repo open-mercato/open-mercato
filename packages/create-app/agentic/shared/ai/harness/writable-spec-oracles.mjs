@@ -47,6 +47,11 @@ const TEST_IDENTIFIER_PATTERN = /\bTEST-\d{3}\b|[\w./-]+\.(?:test|spec)\.tsx?\b|
 // oracle reads to check that grounding; the plan under grading never supplies them.
 const EXAMPLE_ROOT = 'src/modules/example'
 const EXAMPLE_INVENTORY = `${EXAMPLE_ROOT}/references/surface-inventory.json`
+const EXAMPLE_NAVIGATION_FILES = new Set([
+  `${EXAMPLE_ROOT}/README.md`,
+  `${EXAMPLE_ROOT}/references/surface-map.md`,
+  EXAMPLE_INVENTORY,
+])
 const REFERENCE_FACTS = '.ai/guides/reference-module-facts.json'
 const SOURCE_LINK_INVENTORY = '.ai/harness/source-link-inventory.json'
 const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
@@ -222,6 +227,26 @@ function readContainedFile(root, relative, maxBytes = MAX_SPEC_BYTES) {
   try { stat = fs.lstatSync(lexical) } catch { return null }
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > maxBytes) return null
   try { return fs.readFileSync(lexical, 'utf8') } catch { return null }
+}
+
+function isExampleNavigationFile(root, relative) {
+  if (!EXAMPLE_NAVIGATION_FILES.has(relative)) return false
+  try {
+    const resolvedRoot = fs.realpathSync(root)
+    const components = relative.split('/')
+    let current = resolvedRoot
+    for (const [index, component] of components.entries()) {
+      current = path.join(current, component)
+      const stat = fs.lstatSync(current)
+      if (stat.isSymbolicLink()) return false
+      if (index === components.length - 1 ? !stat.isFile() : !stat.isDirectory()) return false
+    }
+    const resolvedRelative = path.relative(resolvedRoot, fs.realpathSync(current))
+    if (resolvedRelative.startsWith('..') || path.isAbsolute(resolvedRelative)) return false
+    return readContainedFile(resolvedRoot, relative) !== null
+  } catch {
+    return false
+  }
 }
 
 function listSpecFiles(root) {
@@ -500,24 +525,101 @@ function exactIdentityChecks(prose, values, prefix, requirement) {
   )
 }
 
-// Splits every Markdown table in a section into its data rows. Header detection follows the
-// grammar rather than the wording: a header is the line immediately above a delimiter row, so a
-// data row whose first cell reads `REQ-001` is never mistaken for one.
-function tableRows(body) {
-  const lines = body.split(/\r?\n/).map((line) => line.trim())
+function markdownTables(body) {
+  const lines = strippedOfCodeBlocks(body).split(/\r?\n/).map((line) => line.trim())
   const isRow = (line) => line.startsWith('|') && line.endsWith('|') && line.length > 2
   const cellsOf = (line) => line.slice(1, -1).split('|').map((cell) => cell.trim())
   const isDelimiter = (line) => isRow(line) && cellsOf(line).every((cell) => /^:?-{2,}:?$/.test(cell))
-  const rows = []
+  const tables = []
+  let heading = ''
   for (let index = 0; index < lines.length; index += 1) {
-    if (!isRow(lines[index]) || isDelimiter(lines[index])) continue
-    // The header sits directly above the delimiter; skip both and read the body that follows.
-    if (index + 1 < lines.length && isDelimiter(lines[index + 1])) { index += 1; continue }
-    const cells = cellsOf(lines[index])
-    if (cells.length < 3) continue
-    rows.push({ cells, text: lines[index] })
+    if (/^#{3,6}\s+/.test(lines[index])) heading = lines[index].replace(/^#+\s+/, '')
+    if (!isRow(lines[index]) || !isDelimiter(lines[index + 1] ?? '')) continue
+    const headers = cellsOf(lines[index])
+    let valid = cellsOf(lines[index + 1]).length === headers.length
+    const rows = []
+    index += 2
+    while (index < lines.length && lines[index].startsWith('|')) {
+      const cells = isRow(lines[index]) ? cellsOf(lines[index]) : []
+      valid &&= cells.length === headers.length
+      rows.push({ cells, text: lines[index] })
+      index += 1
+    }
+    tables.push({ headers, rows, valid, heading })
+    index -= 1
   }
-  return rows
+  return tables
+}
+
+function extensionMatrices(body) {
+  const columnPatterns = {
+    requirement: /\b(?:requirement|req)(?:\s+ids?)?\b/,
+    surface: /\b(?:surface|contribution)\b/,
+    reference: /\b(?:adapted|reference|capability|capabilities|source)\b/,
+    phase: /\bphases?\b/,
+    test: /\b(?:tests?|integration)\b/,
+    mechanism: /\b(?:mechanism|classification)\b/,
+  }
+  return markdownTables(body).flatMap((table) => {
+    const headers = table.headers.map((header) => header.replace(/[`*_]/g, '').toLowerCase())
+    const columns = Object.fromEntries(Object.entries(columnPatterns)
+      .map(([name, pattern]) => [name, headers.findIndex((header) => pattern.test(header))]))
+    const adaptation = headers.some((header) => /\badapted\s+from\b|\bcapabilit(?:y|ies)\b|\bsource[-\s]+(?:files?|ids?|references?)\b/.test(header))
+    const candidate = (columns.surface >= 0 && adaptation)
+      || (columns.mechanism >= 0 && (columns.surface >= 0 || columns.reference >= 0))
+      || /\b(?:extension|runtime|discovery)\b.*\b(?:surface|traceability)\b/i.test(table.heading)
+    if (!candidate) return []
+    const positions = Object.values(columns)
+    const valid = table.valid && positions.every((position) => position >= 0)
+      && new Set(positions).size === positions.length
+    return [{ ...table, columns, valid }]
+  })
+}
+
+function declaredRequirements(markdown) {
+  const sections = level2Sections(markdown).filter((section) => /^(?:goals|(?:(?:functional|business)\s+)?requirements)(?:\s+and\s+(?:goals|requirements))?$/i.test(section.heading))
+  const definitions = []
+  for (const section of sections) {
+    for (const line of strippedOfCodeBlocks(section.body).split(/\r?\n/)) {
+      const declaration = /^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:\*\*|`)?(REQ-\d{3})(?:\*\*|`)?\s*(?:—|–|:|-)\s*(.*)$/.exec(line)
+      if (declaration) definitions.push({ id: declaration[1], content: declaration[2] })
+    }
+    for (const table of markdownTables(section.body)) {
+      for (const row of table.rows) {
+        const id = row.cells[0]?.replace(/[`*]/g, '').trim()
+        if (/^REQ-\d{3}$/.test(id ?? '')) definitions.push({ id, content: row.cells.slice(1).join(' ') })
+      }
+    }
+  }
+  const ids = new Set(definitions.map((definition) => definition.id))
+  const valid = definitions.length > 0 && ids.size === definitions.length
+    && definitions.every((definition) => /[A-Za-z0-9]/.test(definition.content) && placeholderReason(definition.content) === null)
+  return { ids, valid }
+}
+
+function explicitlyNegatesShadowMatch(prose, match) {
+  const preceding = prose.slice(0, match.index)
+  const boundary = [...preceding.matchAll(/(?:\r?\n|[.!?]\s+)/g)].at(-1)
+  const start = boundary ? boundary.index + boundary[0].length : 0
+  const following = prose.slice(match.index)
+  const end = /(?:\r?\n|[.!?](?:\s+|$))/.exec(following)
+  const clause = prose.slice(start, end ? match.index + end.index : prose.length).trim().replaceAll('`', '')
+  if (end && match[0].length > end.index) return false
+  const negativeList = /^(?:[-*]\s+)?No\s+(.+)$/i.exec(clause)
+  if (negativeList) {
+    if (/\b(?:but|however|instead|yet|then|otherwise|we|it|its|they|their|he|she|you|will|shall|should|must|can|may|is|are|was|were|do|does|did|has|have)\b/i.test(negativeList[1])) return false
+    if (/(?:^|,|\band\b|\bor\b)\s*(?:use|reuse|copy|create|build|add|adopt|model|base|import|publish|push|choose|select)\s+\S/i.test(negativeList[1])) return false
+    if (/\b(?:uses|reuses|copies|creates|builds|adds|adopts|models|bases|imports|publishes|pushes|chooses|selects)\b/i.test(negativeList[1])) return false
+    const itemIndex = (prose.slice(start, match.index).match(/,/g) ?? []).length
+    const items = negativeList[1].split(',').slice(0, itemIndex + 1).map((item) => item.trim())
+    return items.every((item) => /^(?:(?:copying|modifying)(?:\s+or\s+(?:copying|modifying))?\s+(?:the\s+)?(?:(?:whole|entire|complete|full)\s+)?(?:example|reference)\s+(?:module|tree|directory)|(?:new|second|another|own)\s+(?:teaching|example|demo|reference|sample)\s+module|ratelimit_probe\s+reuse)$/i.test(item))
+  }
+  return /^(?:[-*]\s+)?(?:Never|Do not|Must not)\s+(?:(?:create|build|add)\s+(?:a\s+)?(?:new|second|another|own)\s+(?:teaching|example|demo|reference|sample)\s+module|copy\s+(?:the\s+)?(?:whole|entire|complete|full)\s+(?:example|reference)\s+(?:module|tree|directory)|(?:use|reuse)\s+ratelimit_probe(?:\s+as\s+(?:(?:a|the)\s+)?(?:blueprint|reference|template))?)$/i.test(clause)
+}
+
+function proposesShadowPattern(prose, pattern) {
+  const matches = new RegExp(pattern.source, `${pattern.flags.replaceAll('g', '')}g`)
+  return [...prose.matchAll(matches)].some((match) => !explicitlyNegatesShadowMatch(prose, match))
 }
 
 function moduleShapedChecks(root, markdown, contract) {
@@ -550,13 +652,16 @@ function moduleShapedChecks(root, markdown, contract) {
   ))
 
   const cited = [...new Set(prose.match(EXAMPLE_FILE_PATTERN) ?? [])]
-  const grounded = cited.filter((relative) => grounding.sourcePaths.has(relative) && readContainedFile(root, relative) !== null)
+  const grounded = cited.filter((relative) => !EXAMPLE_NAVIGATION_FILES.has(relative)
+    && grounding.sourcePaths.has(relative) && readContainedFile(root, relative) !== null)
   checks.push(check(
     'plan.example-exact-source-paths',
     grounded.length >= contract.minExactSourcePaths,
     `the plan must name at least ${contract.minExactSourcePaths} exact reference source files that exist and are mapped by the inventory (found ${grounded.length ? grounded.join(', ') : 'none'})`,
   ))
-  const ungrounded = cited.filter((relative) => !grounding.sourcePaths.has(relative))
+  const ungrounded = cited.filter((relative) => EXAMPLE_NAVIGATION_FILES.has(relative)
+    ? !isExampleNavigationFile(root, relative)
+    : !grounding.sourcePaths.has(relative))
   checks.push(check(
     'plan.example-paths-resolve',
     ungrounded.length === 0,
@@ -576,7 +681,7 @@ function moduleShapedChecks(root, markdown, contract) {
   ))
 
   for (const { id, pattern } of SHADOW_MODULE_PATTERNS) {
-    checks.push(check(`plan.rejects.${id}`, !pattern.test(prose), `the plan must not propose ${id.replaceAll('-', ' ')}`))
+    checks.push(check(`plan.rejects.${id}`, !proposesShadowPattern(prose, pattern), `the plan must not propose ${id.replaceAll('-', ' ')}`))
   }
 
   const generated = generatedReferenceGrounding(root)
@@ -663,7 +768,7 @@ function moduleShapedChecks(root, markdown, contract) {
     'the UI plan must route through om-backend-ui-design and describe the gallery route as source-only until explicit activation',
   ))
   checks.push(exactIdentityChecks(
-    prose,
+    prose.replace(/\bpublication\s+is\s+not-evidenced\b/gi, 'publication not-evidenced'),
     [GALLERY_PACKAGE_SHA, FOUNDATION_AUDITED_SHA, FOUNDATION_PACKAGE_SHA, 'publication not-evidenced'],
     'plan.design-provenance',
     'the plan must preserve the gallery and foundation provenance plus the non-publication posture',
@@ -678,25 +783,28 @@ function moduleShapedChecks(root, markdown, contract) {
     checks.push(check('plan.traceability.section', false, 'the plan needs a requirement traceability section'))
     return checks
   }
-  const rows = tableRows(traceability.body)
+  const matrices = extensionMatrices(traceability.body)
+  const rows = matrices.flatMap((matrix) => matrix.rows.map((row) => ({ ...row, columns: matrix.columns })))
   checks.push(check(
     'plan.traceability.rows',
     rows.length >= contract.minTraceabilityRows,
     `the traceability table needs at least ${contract.minTraceabilityRows} rows, one per added extension surface (found ${rows.length})`,
   ))
   const incomplete = rows.filter((row) => !(
-    REQUIREMENT_ID_PATTERN.test(row.text)
-    && PHASE_REFERENCE_PATTERN.test(row.text)
-    && TEST_IDENTIFIER_PATTERN.test(row.text)
+    REQUIREMENT_ID_PATTERN.test(row.cells[row.columns.requirement] ?? '')
+    && /[A-Za-z0-9]/.test(row.cells[row.columns.surface] ?? '')
+    && /[A-Za-z0-9]/.test(row.cells[row.columns.reference] ?? '')
+    && PHASE_REFERENCE_PATTERN.test(row.cells[row.columns.phase] ?? '')
+    && TEST_IDENTIFIER_PATTERN.test(row.cells[row.columns.test] ?? '')
   ))
   checks.push(check(
     'plan.traceability.complete',
-    rows.length > 0 && incomplete.length === 0,
+    matrices.length > 0 && matrices.every((matrix) => matrix.valid && matrix.rows.length > 0) && incomplete.length === 0,
     `every traceability row must carry a requirement ID, an implementation phase, and a self-contained integration test (incomplete: ${incomplete.length})`,
   ))
   const classified = rows.map((row) => ({
     row,
-    values: MECHANISM_CLASSIFICATIONS.filter((value) => row.text.includes(value)),
+    values: MECHANISM_CLASSIFICATIONS.filter((value) => (row.cells[row.columns.mechanism] ?? '').includes(value)),
   }))
   checks.push(check(
     'plan.traceability.classification',
@@ -708,14 +816,21 @@ function moduleShapedChecks(root, markdown, contract) {
     classified.every((entry) => !entry.values.includes(FORBIDDEN_CLASSIFICATION)),
     `no proposed surface may be classified ${FORBIDDEN_CLASSIFICATION}: only a deliberately broken fixture produces it`,
   ))
-  const requirementNumbers = rows.map((row) => Number(/\bREQ-(\d{3})\b/.exec(row.text)?.[1]))
-  const phaseNumbers = rows.map((row) => Number(/\bPhase\s+(\d+)\b/i.exec(row.text)?.[1]))
+  const declared = declaredRequirements(markdown)
+  checks.push(check(
+    'plan.traceability.requirements',
+    declared.valid && rows.length > 0 && rows.every((row) => {
+      const ids = (row.cells[row.columns.requirement] ?? '').match(/\bREQ-\d{3}\b/g) ?? []
+      return ids.length > 0 && ids.every((id) => declared.ids.has(id))
+    }),
+    'every extension row must bind a nonempty requirement declared once in Goals or Requirements; several surfaces may satisfy it',
+  ))
+  const phaseNumbers = rows.map((row) => Number(/\bPhase\s+(\d+)\b/i.exec(row.cells[row.columns.phase] ?? '')?.[1]))
   checks.push(check(
     'plan.traceability.ordering',
     rows.length > 0
-      && requirementNumbers.every((value, index) => value === index + 1)
       && phaseNumbers.every((value, index) => Number.isInteger(value) && (index === 0 || value >= phaseNumbers[index - 1])),
-    'traceability rows must use contiguous requirement IDs and nondecreasing dependency-phase order',
+    'extension traceability rows must use nondecreasing dependency-phase order',
   ))
   if (generated !== null && sourceReferences !== null) {
     const expectedRows = [

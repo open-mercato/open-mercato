@@ -14,11 +14,12 @@ const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
 const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
 const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
-  ['yarn generate', ['.mercato/cache', '.mercato/generated']],
+  ['yarn generate', ['.mercato/generated']],
   ['yarn typecheck', ['tsconfig.tsbuildinfo']],
   ['yarn lint', []],
-  ['yarn build', ['.mercato/cache', '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
+  ['yarn build', ['.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
 ])
+const RELEASE_SQLITE_CACHE_OUTPUTS = ['.mercato/cache/cache.db', '.mercato/cache/cache.db-wal', '.mercato/cache/cache.db-shm']
 const RUNNERS = new Set(RELEASE_SUPPORTED_RUNNERS)
 const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
 const GENERATED_TEST_RUNNERS = new Set(['jest', 'playwright-api', 'playwright-browser'])
@@ -41,6 +42,8 @@ const SENSITIVE_AUTH_DATA_FILE = /^(?:auth|credentials?|secrets?|tokens?)(?:\.(?
 const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|password|passwd|private_?key|secret|token)(?:_|$)/i
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
+const GENERATED_YARN_POLICY_PREFIX_LENGTH = 737
+const GENERATED_YARN_POLICY_PREFIX_SHA256 = '2149188dd2bda8579047f4cf69731e91c02b467d144ef40b76dd5c885592cfb7'
 // The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
 // Linux x86_64, the complete catalog finished in 768-998 ms, and narrowing the selection
 // down to a single case measured 842-890 ms, inside the same spread, so the run is dominated by
@@ -201,7 +204,13 @@ function parseGeneratedQuotedValue(line, prefix) {
 
 function validGeneratedYarnConfig(contents) {
   if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0')) return false
-  const lines = contents.replaceAll('\r\n', '\n').split('\n').filter((line) => line !== '')
+  const normalizedContents = contents.replaceAll('\r\n', '\n')
+  const policyPrefix = normalizedContents.slice(0, GENERATED_YARN_POLICY_PREFIX_LENGTH)
+  const hasGeneratedPolicy = createHash('sha256').update(policyPrefix).digest('hex') === GENERATED_YARN_POLICY_PREFIX_SHA256
+  const validatedContents = hasGeneratedPolicy
+    ? `nodeLinker: node-modules\n${normalizedContents.slice(GENERATED_YARN_POLICY_PREFIX_LENGTH)}`
+    : normalizedContents
+  const lines = validatedContents.split('\n').filter((line) => line !== '')
   const migrated = lines[0] === 'approvedGitRepositories:'
   if (migrated) {
     if (
@@ -1188,6 +1197,14 @@ export function createMinimalValidationEnvironment(tempRoot, pathValue = process
 }
 
 function validationOutputRoot(relative, command, after) {
+  if (command === 'yarn generate' || command === 'yarn build') {
+    const fingerprint = after.get(relative)
+    if (RELEASE_SQLITE_CACHE_OUTPUTS.includes(relative) && (fingerprint === undefined || fingerprint.startsWith('<file:'))) return relative
+    if ((relative === '.mercato' || relative === '.mercato/cache') && fingerprint?.startsWith('<directory:')) {
+      const cacheOutput = RELEASE_SQLITE_CACHE_OUTPUTS.find((file) => after.get(file)?.startsWith('<file:'))
+      if (cacheOutput) return cacheOutput
+    }
+  }
   if (
     relative === '.env'
     && (command === 'yarn generate' || command === 'yarn build')

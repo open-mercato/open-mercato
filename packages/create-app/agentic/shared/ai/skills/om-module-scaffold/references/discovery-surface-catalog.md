@@ -2,6 +2,8 @@
 
 Load this reference when deciding which convention files a complete module needs. It is a routing catalog, not a checklist: create only surfaces required by the brief, then run `yarn generate` after adding, removing, or renaming any discovered surface.
 
+Complete app-module capability/ownership maps retain `module-data` + `.ai/guides/contracts.md` and read `.ai/guides/architecture.md`; name specialist ownership without implementation procedures. Explicit AI contract selection still loads its AI guide/skill; a single known surface stays in its owning area.
+
 ## Ownership and Domain
 
 | Surface | Canonical path | Contract |
@@ -29,6 +31,8 @@ Load this reference when deciding which convention files a complete module needs
 | UI locale messages | `i18n/<locale>.json` | Generator-discovered module messages using stable namespaced keys; distinct from translatable entity fields. |
 
 Do not use legacy HTTP-method directories or new flat page files. The installed generator's `page.tsx`/`route.ts` scanner and generated facts are authoritative if an older upstream guide shows a retired convention.
+
+Before mapping public discovery/support contracts, read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`.
 
 Compatibility scanners may still read `data/entities.override.*`, `data/entities.*`, `data/schema.*`, legacy `db/*`, or `data/fields.ts`. Treat those as installed read-only/retired inputs, not new app authoring patterns; new entities stay in `data/entities.ts`, and new custom fields/entities use `ce.ts`.
 

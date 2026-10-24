@@ -723,3 +723,5 @@ None in the local implementation. The baseline tree drift is reconciled as of `c
 - **Commands:** Passed; existing scoped command, undo/redo, and optimistic-lock behavior is preserved and regression-tested.
 - **Risks:** Passed; baseline drift, accidental activation, dead links, classic behavior change, context breadth, and source-link drift are explicit.
 - **Verdict:** Approved for design review under the explicit Q7 milestone boundaries.
+
+- 2026-10-22: Expose the design foundation's existing `prUrl`, `landedPrUrl`, `auditedHeadSha` and `baselineSha` in the canonical surface-inventory projection through the supported design generator. These retain the source-owned audited/unmerged versus landed/package distinction, alongside unchanged publication and packed-auxiliary statuses. Bounded standalone planning can cite that provenance without reading controller-private inventories or gaining Figma/network/publication authority.

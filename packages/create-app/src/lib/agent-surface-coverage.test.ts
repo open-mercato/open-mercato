@@ -172,7 +172,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   ]) assert.ok(blueprint.includes(expected), `missing business-to-framework inference ${expected}`)
   assert.match(blueprint, /do not substitute plausible alternatives/)
   assert.match(blueprint, /### Complete Library Contract/)
-  assert.match(blueprint, /Do not route `framework-context`/)
+  assert.match(blueprint, /Do not route `framework-context`/i)
   for (const expected of [
     '`library.books.view`',
     '`library.books.manage`',
@@ -197,12 +197,12 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
     'shared `Input`, `Button`, and `Alert`',
     '`@open-mercato\/ui\/primitives\/input`',
     'async execute(input, ctx)',
-    'Delete undo must call `buildCustomFieldResetMap`',
-    '`yarn generate` and then `yarn typecheck`',
+    'Delete undo calls `buildCustomFieldResetMap`',
+    '`yarn generate`, then `yarn typecheck`',
   ]) assert.ok(blueprint.includes(expected), `missing complete-library contract ${expected}`)
-  assert.match(blueprint, /Do not create any test outside `commands\/__tests__\/`/)
+  assert.match(blueprint, /Create no test outside `commands\/__tests__\/` until typecheck is green/)
   assert.match(blueprint, /do not hide oracle-significant behavior in shared helpers/)
-  assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
+  assert.match(blueprint, /Defer optional locales, standalone widget\/event\/enricher files, and extra entities until the required slice generates, tests, and typechecks/)
 })
 
 test('the 240-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
@@ -210,7 +210,7 @@ test('the 240-case catalog routes audited installed-module, runtime, and AI/prov
     id: string
     prompt: string
     evaluationKind: string
-    context: { required: string[]; allowedExtra?: string[] }
+    context: { required: string[]; allowedExtra?: string[]; installedVersionFallback?: unknown }
     requiredDecisions: string[]
     requiredSkills: string[]
     expectedRouter: { required: string[] }
@@ -357,7 +357,6 @@ test('the 240-case catalog routes audited installed-module, runtime, and AI/prov
       decisions: [
         'extension-mechanism',
         'additive-before-replacement',
-        'extension-entity',
         'eject-last',
         'widget-injection-files',
         'person-detail-tab-spot',
@@ -439,9 +438,15 @@ test('the 240-case catalog routes audited installed-module, runtime, and AI/prov
   }
   assert.deepEqual(byId.get('OMH-203')?.expectedRouter.required, ['umes', 'backend-ui', 'framework-context'])
   assert.equal(byId.get('OMH-203')?.evaluationKind, 'routing')
-  assert.deepEqual(byId.get('OMH-203')?.frameworkContext, [
-    { module: 'customers', query: 'detail:customers.' },
-  ])
+  assert.equal(byId.get('OMH-203')?.frameworkContext, undefined)
+  assert.equal(byId.get('OMH-203')?.requiredDecisions.includes('extension-entity'), false)
+  assert.deepEqual(byId.get('OMH-203')?.context.installedVersionFallback, {
+    allowed: true,
+    reasonCodes: ['INSTALLED_VERSION_CONTRACT_MISMATCH'],
+    maxFiles: 4,
+    maxBytes: 65536,
+  })
+  assert.ok(byId.get('OMH-203')?.context.allowedExtra?.includes('node_modules/@open-mercato/core/src/modules/customers/backend/customers/people-v2/[id]/page.tsx'))
   const systemExtensionSkill = read('shared/ai/skills/om-system-extension/SKILL.md')
   assert.match(systemExtensionSkill, /widgets\/injection\/\*\*/)
   assert.match(systemExtensionSkill, /widgets\/injection-table\.ts/)
@@ -482,8 +487,11 @@ test('the business-language cohort includes the OMH-185 parity case without leak
   assert.match(businessCase.prompt, /Use every standard platform procedure/)
   assert.match(businessCase.prompt, /checking the generated app/)
   assert.doesNotMatch(businessCase.prompt, /CrudForm|DataTable|makeCrudRoute|src\/modules|\/backend\/|\.tsx?\b|optimistic locking|UMES|i18n|Jest/)
-  for (const field of ['owner', 'expectedRouter', 'requiredSkills', 'context', 'requiredDecisions', 'forbiddenPatterns', 'validators', 'fixture', 'oracle', 'allowedWrites', 'timeoutMs'] as const) {
+  for (const field of ['owner', 'expectedRouter', 'requiredSkills', 'requiredDecisions', 'forbiddenPatterns', 'validators', 'fixture', 'oracle', 'allowedWrites', 'timeoutMs'] as const) {
     assert.deepEqual(businessCase[field], technicalCase[field], `OMH-193 must preserve OMH-185 ${field}`)
+  }
+  for (const field of ['context', 'maxContextFiles', 'maxInitialContextBytes', 'maxTotalContextBytes'] as const) {
+    assert.deepEqual(businessCase[field], technicalCase[field], `OMH-193 must support OMH-185 mandatory writing ${field}`)
   }
 })
 

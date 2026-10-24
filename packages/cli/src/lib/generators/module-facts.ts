@@ -2424,6 +2424,7 @@ const MAX_ANCHORED_SECTION_BYTES = 32 * 1024
 interface ModuleFactsRenderContext {
   sourceRoot: string
   sourceLinkPrefix: string
+  compactSourceLabels?: boolean
 }
 
 interface ModuleFactsAnchor {
@@ -2546,7 +2547,8 @@ export function isExactSourceFilePath(sourcePath: string): boolean {
   return MODULE_CODE_EXTENSIONS.some((extension) => sourcePath.endsWith(extension))
 }
 
-function renderSourceLabel(sourcePath: string, sourceRoot: string, line?: number): string {
+function renderSourceLabel(sourcePath: string, sourceRoot: string, line?: number, compact = false): string {
+  if (compact) return 'src'
   const relativeSourcePath = sourcePath.startsWith(`${sourceRoot}/`)
     ? sourcePath.slice(sourceRoot.length + 1)
     : sourcePath
@@ -2555,7 +2557,7 @@ function renderSourceLabel(sourcePath: string, sourceRoot: string, line?: number
 
 function renderSourceLink(sourcePath: string, context?: ModuleFactsRenderContext): string {
   if (!isExactSourceFilePath(sourcePath)) return sourcePath
-  const label = context ? renderSourceLabel(sourcePath, context.sourceRoot) : sourcePath
+  const label = context ? renderSourceLabel(sourcePath, context.sourceRoot, undefined, context.compactSourceLabels) : sourcePath
   return `[${label}](${context?.sourceLinkPrefix ?? '../../../'}${sourcePath})`
 }
 
@@ -2564,7 +2566,7 @@ function renderSourceRefLink(source: ModuleFactSourceRef, context: ModuleFactsRe
   if (!isExactSourceFilePath(source.sourcePath)) {
     return source.line ? `${source.sourcePath}:${source.line}` : source.sourcePath
   }
-  const label = renderSourceLabel(source.sourcePath, context.sourceRoot, source.line)
+  const label = renderSourceLabel(source.sourcePath, context.sourceRoot, source.line, context.compactSourceLabels)
   return `[${label}](${context.sourceLinkPrefix}${source.sourcePath}${anchor})`
 }
 
@@ -2840,13 +2842,13 @@ function renderOverrideTargetsSection(
   context: ModuleFactsRenderContext,
 ): string {
   if (!targets || targets.length === 0) return `## Exact override targets\n\n${EMPTY_SECTION_MARKER}`
-  const header = '| Domain | Path / key | Supported modes | Referenced fact | Source |'
-  const divider = '|---|---|---|---|---|'
+  const header = '| ID | Domain | Path / key | Supported modes | Referenced fact | Source |'
+  const divider = '|---|---|---|---|---|---|'
   const renderRows = (group: readonly ModuleOverrideTarget[]) => group.map((target) => {
     const path = `\`${renderOverrideTargetPath(target)}\``
     const modes = target.modes.join(', ') || '—'
     const fact = `${target.factRef.factSection}:${target.factRef.factKey}`
-    return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
+    return `| \`${target.id}\` | ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
   })
   const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
   if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
@@ -3059,14 +3061,15 @@ export function renderModuleFactsDirectory(
   facts: ModuleFacts,
   referenceProjection?: ReferenceProjectionFingerprints,
 ): ModuleFactsMarkdownDirectory {
-  const header = facts.sourceKind === 'local-reference' && referenceProjection
+  const localReference = facts.sourceKind === 'local-reference'
+  const header = localReference && referenceProjection
     ? renderReferenceProjectionHeader(facts, referenceProjection)
     : [
         `# ${facts.module} — module facts (generated, do not edit)`,
         renderVersionStamp(facts.coreVersion, facts.sourcePackage, facts.sourceVersion),
         `Source root: ${facts.sourceRoot}`,
       ]
-  const context = { sourceRoot: facts.sourceRoot, sourceLinkPrefix: '../../../../' }
+  const context = { sourceRoot: facts.sourceRoot, sourceLinkPrefix: '../../../../', compactSourceLabels: localReference }
   const renderedSections = buildModuleFactsSections(facts, context)
     .filter((section) => !section.endsWith(`\n\n${EMPTY_SECTION_MARKER}`))
   const sectionEntries = renderedSections.map((section) => {
@@ -3097,7 +3100,7 @@ export function renderModuleFactsDirectory(
   })
   const sections = sectionEntries.map((entry) => entry.section)
   const sectionLinks = sectionEntries.flatMap(({ section, subsections }) => [
-    `- [${section.title}](${section.slug}.md) — ${approximateSize(section.markdown)} — ${section.description}`,
+    `- [${section.title}](${section.slug}.md) — ${approximateSize(section.markdown)}${localReference ? '' : ` — ${section.description}`}`,
     ...subsections.map((anchor) =>
       `  - ${anchor.title} — ${section.slug}.md:L${anchor.line}, ${anchor.size}`,
     ),
@@ -3109,6 +3112,28 @@ export function renderModuleFactsDirectory(
     '',
     ...sectionLinks,
     '',
+    ...(localReference ? [
+      '## Source-reference identities',
+      '',
+      'ID = `<owner-prefix>:<target>`. Use the first matching owner pattern:',
+      '',
+      '| Owner | Owner prefix |',
+      '|---|---|',
+      '| `AGENTS.md` | `root` |',
+      '| `.ai/specs/README.md` | `specs/README` |',
+      '| `.ai/guides/<name>.md` | `guides/<name>` |',
+      '| `.ai/skills/<skill>/SKILL.md` | `<skill>` |',
+      '| `.ai/skills/<skill>/references/SKILL.md` | `<skill>` |',
+      '| `.ai/skills/<skill>/references/<name>.md` | `<skill>/<name>` |',
+      '| `.ai/skills/<skill>/<name>.md` | `<skill>/<name>` |',
+      '',
+      "Drop the link's anchor, decode its path and resolve it against the owner. Targets inside `src/modules/example/` are relative to that root; others are app-relative. These IDs are metadata, not read grants.",
+      '',
+      'Machine-readable counterpart: `.ai/guides/reference-module-facts.json`; naming it grants no read access.',
+      '',
+      "For reference identities/provenance, use matching facts first; reuse identities already read. Source links are locations, not read requests. Inspect authorized exact sources when owner guidance requires, the user requests inspection, or one named contract remains unresolved; never guess paths. If required inspection is unavailable or unauthorized, name the unresolved Draft blocker; never claim Ready.",
+      '',
+    ] : []),
     'Read only the section files needed for the task; every section ends with a completion marker.',
     `A section absent from this list has no facts for ${facts.module}; this index is complete only when the read reaches the marker below.`,
     '',

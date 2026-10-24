@@ -9,6 +9,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../resolver'
+import { getEnabledModuleIdentities } from '../module-identity'
 import { isModuleRouteFile } from './scanner'
 import {
   calculateChecksum,
@@ -336,7 +337,7 @@ async function generateOpenApiViaBundle(
     return { doc: null, inputPaths: [] }
   }
 
-  const cacheDir = path.join(rootDir, 'node_modules', '.cache')
+  const cacheDir = resolver.getOutputDir()
   if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
 
   const bundlePath = path.join(cacheDir, '_openapi-bundle.mjs')
@@ -605,10 +606,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
     // Shut down esbuild's persistent Go service so it does not deadlock at
     // process exit when a plugin request is still in flight.
     try { await esbuild.stop() } catch {}
-    // Clean up old files from previous tsx-based approach
-    for (const file of ['_openapi-register.mjs', '_openapi-loader.mjs', '_next-stub.cjs']) {
-      try { fs.unlinkSync(path.join(cacheDir, file)) } catch {}
-    }
+    try { fs.unlinkSync(bundlePath) } catch {}
   }
 }
 
@@ -670,6 +668,8 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   const outFile = path.join(outputDir, 'openapi.generated.json')
   const checksumFile = path.join(outputDir, 'openapi.generated.checksum')
   const inputManifestFile = path.join(outputDir, 'openapi.generated.inputs.json')
+
+  getEnabledModuleIdentities(resolver, resolver.loadEnabledModules())
 
   // Ensure output directory exists
   if (!fs.existsSync(outputDir)) {

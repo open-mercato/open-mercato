@@ -1,0 +1,274 @@
+{
+  "format": "sanitized-knowledge-change-evidence-v1",
+  "status": "pass",
+  "controllerOutputSha256": "049399190de4656755b14d45403a75447a7c4e02aec549e0b7684815be6cfcac",
+  "baseSha": "224cbccb85722ebb33576f884b0e0d3d3ae0df22",
+  "headSha": "26f29428a5135947f2bc2fd23fa0fc7994639268",
+  "workingTreeOverlay": true,
+  "changeClass": "knowledge-contract",
+  "changedContracts": [
+    "skill-link",
+    "source-link",
+    "discovery",
+    "context-read",
+    "evaluator",
+    "routing"
+  ],
+  "affectedCaseIds": [
+    "OMH-004",
+    "OMH-006",
+    "OMH-008",
+    "OMH-011",
+    "OMH-022",
+    "OMH-023",
+    "OMH-027",
+    "OMH-030",
+    "OMH-038",
+    "OMH-039",
+    "OMH-040",
+    "OMH-041",
+    "OMH-082",
+    "OMH-168",
+    "OMH-230",
+    "OMH-239"
+  ],
+  "affectedRanges": [
+    "OMH-001..OMH-239"
+  ],
+  "requiredReleaseLanes": [
+    "deterministic",
+    "routing",
+    "writable"
+  ],
+  "authoritativeFiles": [
+    {
+      "path": "packages/create-app/agentic/guides/module-tool.md",
+      "sha256": "4943772acfd4e5802427c9f153056d5690718260157f9f8dfa116ab1ae2c251e"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+      "sha256": "173a739f52fca16cebaa17ca32ab3ffe07939eccb8e2c8c4b5aa7ac231ce4f0b"
+    },
+    {
+      "path": "packages/create-app/scripts/source-links/source-link-topics.json",
+      "sha256": "9c73889ac3430bb76b1b67518cb582e01c5ba627d295b824a6a58437575c4e8f"
+    },
+    {
+      "path": "packages/create-app/src/lib/module-tool-guidance.test.ts",
+      "sha256": "5981965745396baa023a7dc1750791d5c940cb0541e0260f6a4928764ea1264c"
+    },
+    {
+      "path": ".ai/lessons.md",
+      "sha256": "b2b6dc9f3d475a137cb6d6f4a91943f1a01fb06e81c2bbb2c13e68ca94b12452"
+    },
+    {
+      "path": ".ai/lessons/provider-replacement-needs-intermediate-verification.md",
+      "sha256": "63c74bab96d59bad3311128147e5dc94740a9291984bf15804dd2db8d58f6193"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/run-agent-harness-release.mjs",
+      "sha256": "2b259be5425eb1f4efddbfab2fd8a0b340af974060552d20ad49370bd952ca8e"
+    },
+    {
+      "path": "packages/create-app/src/lib/agent-harness-yarn-config.test.ts",
+      "sha256": "d44bd64f887f91d56fd3de7c7c0a73b972a133c425e8a5b822325ef94dd22c4e"
+    },
+    {
+      "path": "packages/create-app/src/lib/agent-harness-cache-outputs.test.ts",
+      "sha256": "1ad85b9f76942bf78afcc66056005040da1e71e740816b21235cdc9a59d4abda"
+    },
+    {
+      "path": ".ai/lessons/local-packed-artifacts-need-generated-package-exports.md",
+      "sha256": "1b5df27cd8de5c64ef6f60a4cfd28a9d573c83bbce6921bf1575ce549e3de3a3"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-implement-spec/SKILL.md",
+      "sha256": "dc29e30d32d417886fe5a31f4e008d96181007c142a62d0d912c112589741c24"
+    },
+    {
+      "path": "packages/create-app/src/lib/agentic-skills-standalone-overlays.test.ts",
+      "sha256": "1e3c758c416850ab55f3b683f6c1e63aedd651be1c6ceac45bece65e28f93fbc"
+    },
+    {
+      "path": "packages/create-app/agentic/guides/extensions.md",
+      "sha256": "261be06be9442b184b322bdef280ca49a7bf1cf75325b2673e7de6cbcc12121a"
+    },
+    {
+      "path": "packages/create-app/agentic/guides/integrations.md",
+      "sha256": "d77bfc8da39fe39b3a039e424477cb52e4334bf6bdff5e10f8413c70b82e20da"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "sha256": "9a817bb6d38c79113757ff5d00d541158162aa4b5d7890dfde659fd8125790a0"
+    },
+    {
+      "path": "packages/create-app/template/AGENTS.md",
+      "sha256": "9702c4c1d68d6fdf949ee2b0699484bdf7484fbe5d45f05da166777fb1b2d783"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-module-scaffold/SKILL.md",
+      "sha256": "53540b80a244c5b04baecab78313ec81317fc4bfdb93188fea68129dc597490c"
+    },
+    {
+      "path": "packages/create-app/src/lib/context-guidance-contracts.test.ts",
+      "sha256": "7bc9d00efcfcf711fe0db80c148312d3c75d37b740ebe11978496e5809068594"
+    },
+    {
+      "path": "packages/create-app/src/lib/agent-harness-required-context.test.ts",
+      "sha256": "a5a723539126ee1edf0d556e904696b765255dc655bb667a727d266fb2c9951f"
+    },
+    {
+      "path": "packages/create-app/src/lib/source-link-inventory.test.ts",
+      "sha256": "5be9abf3cdc758e0614bd13090f099e974c0fdb05b6baacd0d3aaabdbcf872d5"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/SKILL.md",
+      "sha256": "66543cfe4a04b7c72071c2cb2a37fff2c4e786cc00c0eddc2132619b64847cde"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-integration-builder/references/provider-families.md",
+      "sha256": "9479003494181135cb5b27cdc50a6a116e897eaee4d41ec0d450871d853ed96b"
+    }
+  ],
+  "generatedFiles": [
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/source-link-inventory.json",
+      "sourcePath": "packages/create-app/scripts/source-links/source-link-inventory.json",
+      "sha256": "f8ba1da56162aae44c5bd956dae86b7e35ec8b2c5e1283965c51c1fd8d40a818"
+    }
+  ],
+  "sourceLinkInventory": {
+    "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+    "baselineRef": "f7c941570003f3abe920b1765995cbef98dcad0b",
+    "expectedOwnerCount": 34,
+    "expectedTopicCount": 157,
+    "baselineAssetCount": 8,
+    "baselineDispositionCount": 136,
+    "baselinePath": "packages/create-app/scripts/source-links/source-link-baseline.json",
+    "baselineSchemaPath": "packages/create-app/scripts/source-links/source-link-baseline.schema.json",
+    "resolvedLinkCount": 130
+  },
+  "focusedExecutions": [
+    {
+      "testFile": "packages/create-app/src/lib/module-tool-guidance.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/module-tool-guidance.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "3efa4cfe238ee891fbcd6f865348b105b11fe86bc5d60db48a83dd054a1272fa",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "84bca0c1c7b9e01ec3748882d2bcead656b100bb531a93c8253a564b0039d7b9",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/agent-harness-yarn-config.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/agent-harness-yarn-config.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "ce745bd14c67f57f0d3e75240cc750d53725b37bea4b103fb14556d4cad1eb69",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "f7aeba7c26a0a8222754e22c0da684c08d202113adbcfb8e3916a622d0bd471e",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/agent-harness-cache-outputs.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/agent-harness-cache-outputs.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "9dcab5a87d1233de977208e27ee31e9fe51133cb92e77c14f6cb943fcf9c9c99",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "c726b8d7294791eaa6ff5f205b3c6c1ef69ed1358ef00bfb0a279d407232d4c1",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/agentic-skills-standalone-overlays.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/agentic-skills-standalone-overlays.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "19c560ed62867b9b065dd558372ad928b28f9c312985fce5016f78dd911bd29b",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "4f2a82b2f43ea72265721bfdead1b61758198544e126e314ff867d56540481ef",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/context-guidance-contracts.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/context-guidance-contracts.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "27fb70a33f0092f9d2296654eb4836937a29d6ce764dee42d6b5958dbbfab4ac",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "b525dc890d2f42f3333bc7cd47cbf00d55de6335ec6ff9d385cdd0592aba23d4",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/agent-harness-required-context.test.ts",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/agent-harness-required-context.test.ts"
+      ],
+      "baseWithTestPatch": {
+        "exitCode": 1,
+        "stdoutSha256": "4b4b8634e5f3ade99a9031e6435eb384a98ccc052e793591ad505cb676ff7c84",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "6d4e343a3a240c95a396339a37c6f9cb1861f77411cc06e85c435c64292b357b",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "errors": []
+}

@@ -9,9 +9,9 @@ Compose the installed workflow engine; do not bypass its executor, state machine
 
 ## Workflow
 
-Route before reading: workflow definitions, activities, durable engine state, idempotency, tasks, and outputs stay on `ai-workflow`. Workflow-only work loads `.ai/guides/modules/workflows/index.md`, not `.ai/guides/contracts.md`; coordinating installed-host order, status, or quantity state also selects `module-data` + `umes` and loads `.ai/guides/contracts.md`, `.ai/guides/extensions.md`, and `om-system-extension`.
+Route before reading: engine definitions/activities/state/idempotency/tasks/outputs stay `ai-workflow`; new app business persistence adds `module-data` + `om-data-model-design`. Workflow-only: `.ai/guides/modules/workflows/index.md`, not contracts; coordinating installed-host order, status, or quantity state also selects `module-data` + `umes` and loads `.ai/guides/contracts.md`, `.ai/guides/extensions.md`, and `om-system-extension`.
 
-1. Read `.ai/guides/ai-workflows.md`; inspect the installed workflows module facts and use `om-framework-context` for exact service/activity contracts.
+1. Read `.ai/guides/ai-workflows.md` and supplied workflow facts/contracts first; `om-framework-context` only for a named unresolved exact-version symbol.
 2. Always load `references/workflow-design.md` before defining steps, transitions, triggers, variables, tasks, compensation, or terminal states.
 3. Load `references/activity-contracts.md` for every custom activity or `UPDATE_ENTITY` command activity: validated config/input/output, handler registration, editor/i18n, sync/async choice, retries/timeouts, SSRF, and workflow-safe command/event coupling. Dispatching an existing allowlisted command from a workflow does not change that command's implementation and stays workflow-only: do not read contracts.
 4. Load `references/durability-and-progress.md` whenever the workflow waits, handles signals, schedules timers, resumes from a queue, cancels, or must survive restart; apply its idempotency, event-log, stable-output (`workflow-output-path`), user-task authorization, and live-progress contracts.

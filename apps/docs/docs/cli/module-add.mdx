@@ -1,12 +1,12 @@
 ---
 title: mercato module add
 sidebar_label: module add
-description: Installs and registers an official Open Mercato module package into your app.
+description: Installs and registers an npm or GitHub module package into your app.
 ---
 
-`yarn mercato module add` fetches a module package from npm, auto-discovers the module it contains, registers it in your app's `src/modules.ts`, and runs the code generators. It is the primary command for adding pre-built modules published under the `@open-mercato/*` scope. Third-party packages that follow the same module conventions can be installed too by passing `--allow-third-party`. If the package is already installed, [`mercato module enable`](./module-enable) supports the same optional `--eject` flow without reinstalling dependencies.
+`yarn mercato module add` fetches a module package from npm or GitHub, auto-discovers the module it contains, registers it in your app's `src/modules.ts`, and runs the code generators. It is the primary command for adding pre-built modules published under the `@open-mercato/*` scope. Third-party packages that follow the same module conventions can be installed too by passing `--allow-third-party`. If the package is already installed, [`mercato module enable`](./module-enable) supports the same optional `--eject` flow without reinstalling dependencies.
 
-To create and publish a reusable package from your own standalone app, see [Publishing Custom Modules](/framework/modules/publishing-custom-modules). That guide also covers installing a module directly from GitHub with Yarn followed by `module enable`.
+To create and publish a reusable package from your own standalone app, see [Publishing Custom Modules](/framework/modules/publishing-custom-modules). GitHub packages can be installed directly with `module add`, or with Yarn followed by `module enable`.
 
 ## Usage
 
@@ -24,13 +24,15 @@ yarn mercato module add <packageSpec> --module <moduleId> --eject
 yarn mercato module add <packageSpec> --allow-third-party
 ```
 
-`<packageSpec>` follows the standard npm package specifier format: `<name>`, `<name>@<version>`, or `<name>@<tag>` (e.g., `@open-mercato/test-package@preview`, `@fast-white-cat/integration-ksef-direct@0.1.0`). Packages outside the `@open-mercato/*` scope require `--allow-third-party`.
+`<packageSpec>` accepts npm package specifiers: `<name>`, `<name>@<version>`, or `<name>@<tag>` (e.g., `@open-mercato/test-package@preview`, `@fast-white-cat/integration-ksef-direct@0.1.0`). The `npm:` prefix is also supported, including unscoped packages (`npm:marketing-consents@preview`). GitHub locators accept `github:owner/repository`, `owner/repository`, HTTPS URLs, SSH URLs, and `git@github.com:owner/repository.git`, with an optional `#ref`. Use `github:repository` for an authenticated-account repository shorthand and `npm:repository` to select npm explicitly. Legacy bare unscoped `module add` arguments remain npm package names. Packages outside the `@open-mercato/*` scope and GitHub sources require `--allow-third-party`.
+
+GitHub installation uses the GitHub CLI (`gh`) to resolve repository metadata and pin the selected ref to a commit. Run `gh auth login` first for private repositories and authenticated-account shorthand.
 
 ## Options
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `<packageSpec>` | npm package specifier for the module to install. Scoped under `@open-mercato/*` by default; other scopes require `--allow-third-party`. | — |
+| `<packageSpec>` | npm package specifier or GitHub locator. Third-party npm packages and GitHub sources require `--allow-third-party`. | — |
 | `--module <moduleId>` | Select a specific module from a package that contains multiple modules. Required when the package exposes more than one module; omit for single-module packages. | auto |
 | `--eject` | Copy the module source into `src/modules/<moduleId>/` and load it as a local (`@app`) module. Cross-module imports inside the copied source are automatically rewritten to reference the originating package. Omit this flag to keep the module installed in `node_modules`. | `false` |
 | `--allow-third-party` | Allow installing a package outside the `@open-mercato/*` scope. The package must still pass the module-structure validation below. Required as an explicit opt-in for supply-chain safety. | `false` |
@@ -46,15 +48,17 @@ Module identity and ejectability are read directly from each module's `src/modul
 
 ## What the Command Does
 
-1. Parses `<packageSpec>` to extract the package name and optional version or tag.
-2. Installs the package into the workspace using Yarn (`yarn add` for standalone apps; `yarn workspace <app> add` inside a monorepo).
-3. Scans the installed package's `src/modules/` directory (falling back to `dist/modules/`) to discover available modules.
-4. If `--module` is provided, selects that module; if the package has exactly one module, selects it automatically; otherwise errors with the list of available module IDs.
-5. If `--eject` is used, verifies that the selected module is marked `ejectable` in its `index.ts`.
-6. Registers the module in `src/modules.ts`:
-   - **Default flow**: adds an entry with `from: '<packageName>'`.
-   - **With `--eject`**: copies the entire module directory from the package into `src/modules/<moduleId>/`, rewrites cross-module import paths, then adds an entry with `from: '@app'`.
-7. Runs `mercato generate` to regenerate the module registry, entity IDs, DI bindings, and API client.
+1. Parses `<packageSpec>` and inspects the selected source before changing the app's dependency binding. For npm, it uses `npm pack --ignore-scripts` to inspect the published artifact and retains the requested npm selector and verifies the installed version matches the inspected artifact. Local `file:` sources are inspected directly. For GitHub, it resolves and inspects a pinned commit.
+2. Discovers the shipped module IDs and selects `--module`, or the sole module when there is exactly one. Missing or ambiguous selections stop before Yarn runs.
+3. Checks the selected runtime module ID against existing registrations and local source. It also checks every enabled module using the package binding: an update must preserve their canonical source and module directories. A conflicting provider or binding replacement stops before Yarn changes the dependency.
+4. Installs the inspected target using Yarn (`yarn add` for standalone apps; `yarn workspace <app> add` inside a monorepo). The inspection suppresses npm pack lifecycle scripts; installation still uses the app's normal package-manager behavior.
+5. Revalidates the installed package, selected module, existing consumers, and source identity. Then it checks `metadata.requires` against enabled modules. Missing dependencies include a `npx create-mercato-module install` command for package or GitHub locators, or enablement guidance for legacy module IDs. A same-name module from another origin does not satisfy an origin-qualified requirement.
+6. Registers the selected module in `src/modules.ts`:
+   - **Default flow**: uses the installed package binding in `from`; GitHub installations retain a canonical `locator`.
+   - **With `--eject`**: verifies `ejectable: true`, validates the source and destination, copies into `src/modules/<moduleId>/`, rewrites supported cross-module imports, and registers `from: '@app'` with retained provenance. An existing destination is preserved and must be reviewed before retrying.
+7. Runs the generators for the module registry, entity IDs, DI bindings, and API client. Duplicate enabled runtime IDs are rejected before generator output is written.
+
+If validation fails after Yarn finishes, the dependency can remain installed without completed enablement. Inspect the reported state, `src/modules.ts`, and the package binding and lockfile; restore the intended binding through the package manager before retrying. If registration succeeded but generation failed, the module remains enabled and generated artifacts are stale: fix the error and rerun `yarn mercato generate`.
 
 ## Examples
 
@@ -88,6 +92,56 @@ Install a third-party module package published under a different scope:
 yarn mercato module add @fast-white-cat/integration-ksef-direct@0.1.0 --allow-third-party
 ```
 
+## Dependency identities and provenance
+
+`metadata.requires` accepts legacy module IDs (`customers`), scoped npm packages with optional versions or tags (`@pkarw/marketing_consents@preview`), explicit npm locators (`npm:marketing_consents@1.0.0`), and GitHub locators in the forms supported above. Bare snake-case names remain legacy runtime module IDs. Other bare repository shorthand is accepted only when it resolves unambiguously among enabled module origins; use `npm:<name>` to disambiguate an unscoped npm dependency. The suggested `npx create-mercato-module install` command also supports authenticated-account repository shorthand.
+
+Canonical identities are `npm:<package-name>` and `github:<owner>/<repository>`. Versions, tags, and Git refs select what to install; dependency validation compares source identity and does **not** enforce version constraints. For example, `npm:@pkarw/marketing_consents` and `npm:@open-mercato/marketing_consents` are different origins even when both export `marketing_consents`.
+
+Origin comes from the declared dependency source and optional retained provenance. An npm-installed package has an npm identity; its `package.json` `repository` field does not also make it a GitHub-installed module. A GitHub-installed package retains its GitHub identity even when its manifest has an npm package name. `packageName` records that manifest name, rather than adding a second source identity. Local `file:` directories and tarballs do not establish either origin: their canonical manifest name can populate `packageName`, while an unknown `locator` is omitted. Replacing an active binding must preserve proven source continuity for every enabled consumer before Yarn runs.
+
+Module metadata and `src/modules.ts` can retain optional `locator` provenance for ejected or linked modules. Existing entries without these fields remain valid; a directory name alone never establishes npm or GitHub provenance. When retained provenance disagrees with an observable dependency source or installed manifest, generation stops with recovery guidance.
+
+```ts
+{
+  id: 'marketing_consents',
+  from: '@app',
+  locator: 'github:pkarw/marketing-consents',
+  packageName: '@pkarw/marketing_consents',
+}
+```
+
+This entry satisfies a requirement for `github:pkarw/marketing-consents` or the legacy ID `marketing_consents`; it does not establish `npm:@pkarw/marketing_consents` as its installation source.
+
+```bash
+yarn mercato module add npm:@pkarw/marketing_consents@preview --allow-third-party
+yarn mercato module add github:pkarw/marketing-consents --allow-third-party
+yarn mercato module add 'https://github.com/pkarw/marketing-consents.git#main' --allow-third-party
+```
+
+## Aliases, updates, and provider replacement
+
+A package alias changes the dependency binding, while the runtime module ID remains the module directory name. Install an alias with Yarn, then enable that binding:
+
+```bash
+yarn add visits_source@npm:@agency/visits@1.2.3
+yarn mercato module enable visits_source --module visits --allow-third-party
+```
+
+The registration uses `from: 'visits_source'`, retains the canonical manifest name `@agency/visits`, and resolves the npm origin `npm:@agency/visits`. Aliases cannot enable two providers exporting `visits` at the same time. `module add` accepts canonical npm and GitHub sources; use `module enable` for a binding already installed under an alias.
+
+An update from the same npm package or canonical GitHub repository can keep existing enabled modules when the inspected target preserves all modules using that binding. Switching the binding to another origin, or dropping a module still used by an enabled entry, requires an explicit replacement:
+
+1. Remove the affected entries from `src/modules.ts`, including conditional registrations. This disables their generated discovery; an empty enabled-module list stays empty.
+2. Preserve and review local source and data. Resolve any occupied `src/modules/<moduleId>/` destination before adding another provider. While the old package remains installed, resolve or reconfigure modules whose origin-qualified `metadata.requires` refers to the old provider, and review manually authored imports.
+3. Run `yarn mercato generate` and `yarn build` successfully before changing the dependency binding. Stop and fix failures while the old package remains available.
+4. Replace the dependency through the package manager and enable the intended provider.
+5. Run `yarn mercato generate` and `yarn build` again, then run tests covering the replacement.
+
+Disabling discovery does not uninstall a dependency, delete source or data, or remove manually authored imports. Review those imports before removing a package or changing its binding. The CLI does not rename runtime IDs, rewrite arbitrary application imports, or migrate provider data.
+
+A single package-backed registration with an app-local overlay remains supported. Two enabled entries with the same ID are invalid even when their `from` values match. To recover, keep the intended single registration, retain any local overlay files, and regenerate; do not repair generated registries by hand.
+
 ## Post-Install Steps
 
 ```bash
@@ -106,6 +160,8 @@ If you ran the command with **`--eject`**, the module source is now in `src/modu
 - **No modules found** — the package has no `src/modules/` or `dist/modules/` directory. Only packages that expose at least one module directory are supported.
 - **Package is outside the @open-mercato/\* scope** — the package belongs to a different npm scope. Rerun with `--allow-third-party` to opt in to installing third-party module packages.
 - **Multiple modules, --module required** — the package contains more than one module. Rerun with `--module <moduleId>`. The error message lists the available IDs.
-- **Module already registered** — the module is already present in `src/modules.ts`. Remove the existing entry before re-installing, or use [`mercato module eject`](./eject) if you want to take local ownership instead.
-- **Destination directory already exists** (`--eject`) — remove `src/modules/<moduleId>/` before running the command again with `--eject`.
+- **Module already registered** — `module enable` reports an existing registration. `module add` can update the same source while preserving all enabled consumers. Use [`mercato module eject`](./eject) to take local ownership, or follow the explicit provider-replacement steps above.
+- **Required modules are not enabled** — enable the listed module IDs or run the suggested install commands. Verify the npm scope or GitHub owner when a same-name module is already enabled.
+- **Module ID or package binding collision** — keep one enabled provider per runtime ID, and disable every affected consumer before replacing its dependency binding. Pre-install collisions leave the dependency, registration, and local source unchanged. Changing a package alias or scope does not change its runtime ID.
+- **Destination directory already exists** (`--eject`) — preserve and review `src/modules/<moduleId>/` before choosing how to resolve the destination conflict. Ejection does not overwrite it.
 - **Build errors after install** — run `yarn mercato generate` to regenerate all artifacts, then verify with `yarn build`.

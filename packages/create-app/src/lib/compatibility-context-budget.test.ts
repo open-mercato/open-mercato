@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { generateShared } from '../setup/tools/shared.js'
+import { generateShared, STANDALONE_ROOT_TARGET_BYTES } from '../setup/tools/shared.js'
 import { generateCodex } from '../setup/tools/codex.js'
 
 type HarnessCase = { id: string; context: { required: string[]; allowedExtra?: string[]; forbidden: string[] }; maxInitialContextBytes: number; maxTotalContextBytes: number }
@@ -12,7 +12,7 @@ const read = (file: string): string => fs.readFileSync(new URL(file, packageRoot
 const cases = JSON.parse(read('agentic/shared/ai/harness/cases.json')) as HarnessCase[]
 const initialCaps: Record<string, number> = { 'OMH-007': 65536, 'OMH-022': 65536, 'OMH-030': 49152, 'OMH-057': 40960, 'OMH-064': 65536 }
 
-test('compatibility cases fit their exact required files without broad read or initial-budget increases', () => {
+test('compatibility cases fit their exact writing closure without broad read or initial-budget increases', (context) => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'om-compat-context-'))
   try {
     const config = { targetDir: fixture, projectName: 'compatibility-context-budget' }
@@ -23,11 +23,18 @@ test('compatibility cases fit their exact required files without broad read or i
     for (const [id, initialCap] of Object.entries(initialCaps)) {
       const record = cases.find(record => record.id === id)
       assert.ok(record)
-      const paths = [...new Set([...record.context.required, ...(record.context.allowedExtra ?? []).filter(file => !/[?*]/.test(file))])]
+      const paths = [...new Set([
+        ...record.context.required,
+        ...(record.context.allowedExtra ?? []).filter(file => !/[?*]/.test(file)),
+        ...(id === 'OMH-057' ? ['.ai/skills/om-module-scaffold/references/verification.md'] : []),
+      ])]
       const bytes = paths.reduce((total, file) => total + fs.statSync(path.join(fixture, file)).size, 0)
       assert.ok(bytes > 98304, `${id} demonstrates the stale original total cap`)
       assert.ok(bytes <= record.maxTotalContextBytes, `${id}: ${bytes} required bytes exceed ${record.maxTotalContextBytes}`)
-      assert.ok(record.maxTotalContextBytes - bytes <= 4096, `${id} has excessive unused total budget`)
+      const rootBoundBytes = bytes - fs.statSync(path.join(fixture, 'AGENTS.md')).size + STANDALONE_ROOT_TARGET_BYTES
+      assert.ok(rootBoundBytes <= record.maxTotalContextBytes, `${id}: ${rootBoundBytes} root-bound bytes exceed ${record.maxTotalContextBytes}`)
+      assert.ok(record.maxTotalContextBytes - rootBoundBytes <= 4096, `${id} has excessive unused total budget`)
+      context.diagnostic(`${id}: ${bytes} writing bytes; ${rootBoundBytes} bytes with a 12KiB root; ${record.maxTotalContextBytes - rootBoundBytes} bytes headroom`)
       assert.equal(record.maxInitialContextBytes, initialCap)
       assert.ok(record.context.forbidden.includes('.env*'))
       assert.ok(record.context.forbidden.includes('.git/**'))

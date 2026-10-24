@@ -264,7 +264,7 @@ function installedTargetErrors(repoRootPath, href, resolved) {
 
 /** Every emitted Markdown knowledge owner, as its app-relative path. */
 export function emittedMarkdownOwners(packageRoot) {
-  const owners = ['AGENTS.md']
+  const owners = ['AGENTS.md', '.ai/specs/README.md']
   const walk = (absoluteDir, emittedPrefix) => {
     for (const entry of fs.readdirSync(absoluteDir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
       const absolute = path.join(absoluteDir, entry.name)
@@ -292,6 +292,7 @@ export function relativeMarkdownLinkHrefs(source) {
 /** The owner slug half of a derived topic ID. */
 export function ownerSlug(owner) {
   if (owner === 'AGENTS.md') return 'root'
+  if (owner === '.ai/specs/README.md') return 'specs/README'
   if (owner.startsWith('.ai/guides/')) return `guides/${owner.slice('.ai/guides/'.length, -'.md'.length)}`
   const match = /^\.ai\/skills\/([^/]+)\/(?:references\/)?(.+)\.md$/.exec(owner)
   if (!match) return null

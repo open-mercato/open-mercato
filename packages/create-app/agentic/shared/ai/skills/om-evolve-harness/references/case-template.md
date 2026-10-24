@@ -33,6 +33,13 @@ footprint in a scaffolded controller: sum the on-disk size of `context.required`
 slack — a budget equal to the declared set fails a correct run on one incidental read — then confirm
 against a clean passing live trace rather than a neighbouring case's envelope.
 
+Declared canonical-example entrypoints and inventory-selected capability files, plus exact source files
+resolved by `context.sourceReferenceIds`, are progressive inputs: exclude them from initial routing
+budgets while charging every successful read to total files/bytes and the independent example budgets
+where applicable. Instruction owners and skills remain initial context even when mapped by a source
+reference. Record every successful context read in `selectedContext`; neither a declared root nor a
+source reference grants sibling files or undeclared capabilities.
+
 `yarn harness:validate --all` measures this for you and rejects a case whose required or declared context
 cannot fit its own file/byte budgets, naming the exact numbers. A case that trips it is unpassable or
 self-contradictory, not merely tight.

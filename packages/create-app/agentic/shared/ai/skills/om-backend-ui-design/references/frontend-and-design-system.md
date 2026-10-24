@@ -1,6 +1,6 @@
 # Frontend Routes, App Design, and UX
 
-Load this reference for public frontend, portal, or visually substantial application work. It complements the CRUD-specific reference; it does not authorize edits outside `src/modules/`.
+Load for public frontend, portal, or visually substantial work; complement the CRUD reference. No edits outside `src/modules/`.
 
 ## Route and Shell Contract
 
@@ -30,9 +30,9 @@ Load this reference for public frontend, portal, or visually substantial applica
 
 ## Exact Gallery and Foundation Sources
 
-Start with the generated `.ai/harness/design-system-inventory.json` and follow only the item that matches the requested component or token family. For the representative Button route, the exact packed sources are the [`buttons` gallery entry](../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx), the exported [`Button` implementation](../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx), and the auxiliary [`Button` Code Connect mapping](../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx). The Code Connect file is packed read-only evidence, not a package export or runtime dependency; that exact link grants no access to the rest of `figma/`.
+Use design metadata in the already-authorized canonical [`surface-inventory.json`](../../../../src/modules/example/references/surface-inventory.json); follow only the requested family. Do not expand read permissions to controller-private `.ai/harness/` data. For Button, exact packed sources are the [`buttons` gallery entry](../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx), the exported [`Button` implementation](../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx), and the auxiliary [`Button` Code Connect mapping](../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx). The Code Connect file is packed read-only evidence, not a package export or runtime dependency; that exact link grants no access to the rest of `figma/`.
 
-For token and design-foundation decisions, inspect the app-owned [`src/app/globals.css`](../../../../src/app/globals.css) together with the exact prompt-applicable gallery item. The inventory records that no portable design skill or token snapshot is emitted today; do not substitute a monorepo-only skill/snapshot, infer Figma publication from parse success, or follow network/credential paths.
+For tokens/foundations, inspect app-owned [`src/app/globals.css`](../../../../src/app/globals.css) and the exact requested gallery item. The inventory records that no portable design skill or token snapshot is emitted today; do not substitute a monorepo-only skill/snapshot, infer Figma publication from parse success, or follow network/credential paths.
 
 ## Portal Extension Contract
 

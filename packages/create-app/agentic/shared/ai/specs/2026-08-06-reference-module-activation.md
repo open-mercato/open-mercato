@@ -3,7 +3,7 @@
 **Date**: 2026-08-06
 **Status**: Draft
 
-> Shipped with the scaffold. This is the covering specification for turning on the two reference modules this app already contains in source: the canonical `example` module and the installed `design_system` gallery. Requests to enable the Todo demo, expose the design-system gallery, or build the first app capability on top of either one are covered here — amend this file instead of writing a second specification.
+> Shipped with the scaffold. This is the covering specification for turning on the two reference modules this app already contains in source: the canonical `example` module and the installed `design_system` gallery. Requests to enable the Todo demo or expose the design-system gallery are covered here — amend this file instead of writing a second specification for their activation. An unrelated new business feature needs its own covering specification even when it reuses either reference module.
 
 ## TLDR
 
@@ -15,7 +15,7 @@ A new team reads `src/modules/example`, decides the Todo slice is close enough t
 
 ## Overview and Success Measures
 
-- **Primary outcome:** a team can enable either reference module, or build on it, without discovering an unintended route, grant, or seeded record afterwards.
+- **Primary outcome:** a team can enable either reference module without discovering an unintended route, grant, or seeded record afterwards.
 - **Leading indicators:** the activation checklist below is completed in the pull request that changes `src/modules.ts`.
 - **Baseline:** both modules are source-present and runtime-absent in every preset shipped by `create-mercato-app`.
 - **Market / product reference:** the Open Mercato monorepo runs the same two modules enabled, which is why their source is trustworthy as a reference and misleading as a default.
@@ -29,6 +29,7 @@ A new team reads `src/modules/example`, decides the Todo slice is close enough t
 
 ## Non-goals
 
+- New app-owned business features are outside this activation scope. Follow the spec-first gate for their own covering specification; shared reference source does not make their business contracts activation work.
 - Copying either reference module into a new module ID. That is new-capability work: route it through `om-module-scaffold`, which reads this app's `src/modules/example` as read-only reference source.
 - Editing anything inside `src/modules/example`. The tree is immutable reference context; app behavior belongs in an app-owned module.
 - Shipping either module enabled by default in a preset. Presets stay source-present and runtime-absent.
@@ -70,7 +71,7 @@ Trusted `tenantId` and `organizationId` come from the authenticated session as t
 |---|---|---|---|---|
 | Todo CRUD reference | reuse read-only | `example` | read the source, do not register it in production | it is a teaching surface, not a product capability |
 | Component gallery | reuse as-is | `design_system` | activate behind `design_system.view` | it is genuinely useful internally and inappropriate publicly |
-| First app capability | app-own | a new module | `om-module-scaffold` starting at `src/modules/example/README.md` | app behavior belongs to the app |
+| App-owned feature using a reference | separate covering specification | an app-owned module | `om-module-scaffold` starting at `src/modules/example/README.md` | reference reuse does not extend this activation scope |
 
 ## Architecture and Data Flow
 
@@ -246,3 +247,4 @@ Verdict: `Blocked — activation is an app decision this scaffold cannot make on
 | Date | Change |
 |---|---|
 | 2026-08-06 | Shipped with the scaffold as the covering specification for reference-module activation |
+| 2026-10-22 | Clarified activation-only coverage; unrelated app-owned business features keep their own covering specification even when they reuse the reference source |

@@ -160,6 +160,70 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(openApiDoc.paths['/api/demo/details']?.get?.summary).toBe('package details')
   })
 
+  it('bundles installed route schemas with a read-only dependency tree without changing installed files', async () => {
+    const appDir = path.join(tmpDir, 'app')
+    const nodeModulesDir = path.join(appDir, 'node_modules')
+    const outputDir = path.join(appDir, '.mercato', 'generated')
+    const coreRoot = path.join(nodeModulesDir, '@open-mercato', 'core')
+    const sharedRoot = path.join(nodeModulesDir, '@open-mercato', 'shared')
+    const schemaRoot = path.join(nodeModulesDir, 'fixture-schema')
+    touchFile(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/core': '1.0.0', 'fixture-schema': '1.0.0' } }))
+    touchFile(path.join(coreRoot, 'package.json'), JSON.stringify({ name: '@open-mercato/core', version: '1.0.0' }))
+    touchFile(path.join(sharedRoot, 'package.json'), JSON.stringify({ name: '@open-mercato/shared', version: '1.0.0' }))
+    touchFile(path.join(sharedRoot, 'src', 'lib', 'openapi', 'generator.ts'), sharedGeneratorSource)
+    touchFile(path.join(schemaRoot, 'package.json'), JSON.stringify({ name: 'fixture-schema', version: '1.0.0', type: 'module', exports: './index.js' }))
+    touchFile(path.join(schemaRoot, 'index.js'), "export const responseSchema = { type: 'object', properties: { readonlyDependency: { type: 'boolean' } } }\nexport const schemaSummary = 'Read-only dependency schema'\n")
+    touchFile(path.join(coreRoot, 'src', 'modules', 'demo', 'api', 'health', 'route.ts'), [
+      "import { responseSchema, schemaSummary } from 'fixture-schema'",
+      'export async function GET() { return new Response("ok") }',
+      "export const openApi = { GET: { summary: schemaSummary, responses: { '200': { content: { 'application/json': { schema: responseSchema } } } } } }",
+      '',
+    ].join('\n'))
+    const enabled = [{ id: 'demo', from: '@open-mercato/core' }]
+    const resolver: PackageResolver = {
+      ...createMockResolver(enabled),
+      isMonorepo: () => false,
+      getRootDir: () => appDir,
+      getAppDir: () => appDir,
+      getOutputDir: () => outputDir,
+      getPackageOutputDir: () => outputDir,
+      getModulePaths: (entry) => ({ appBase: path.join(appDir, 'src', 'modules', entry.id), pkgBase: path.join(coreRoot, 'src', 'modules', entry.id) }),
+      getPackageRoot: (packageName = '@open-mercato/core') => path.join(nodeModulesDir, packageName),
+    }
+    const setDependencyModes = (directory: string, readOnly: boolean): void => {
+      fs.chmodSync(directory, readOnly ? 0o555 : 0o755)
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const entryPath = path.join(directory, entry.name)
+        if (entry.isDirectory()) setDependencyModes(entryPath, readOnly)
+        else fs.chmodSync(entryPath, readOnly ? 0o444 : 0o644)
+      }
+    }
+    const dependencySnapshot = (directory: string): string[] => fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const entryPath = path.join(directory, entry.name)
+      const state = `${path.relative(nodeModulesDir, entryPath)}:${fs.statSync(entryPath).mode & 0o777}`
+      return entry.isDirectory() ? [state, ...dependencySnapshot(entryPath)] : [`${state}:${fs.readFileSync(entryPath).toString('base64')}`]
+    })
+    setDependencyModes(nodeModulesDir, true)
+    const dependenciesBefore = dependencySnapshot(nodeModulesDir)
+
+    try {
+      const result = await generateOpenApi({ resolver, quiet: true })
+      const document: unknown = JSON.parse(fs.readFileSync(path.join(outputDir, 'openapi.generated.json'), 'utf8'))
+
+      expect(result.errors).toEqual([])
+      expect(document).toMatchObject({ paths: { '/api/demo/health': { get: {
+        summary: 'Read-only dependency schema',
+        responses: { '200': { content: { 'application/json': { schema: { type: 'object', properties: { readonlyDependency: { type: 'boolean' } } } } } } },
+      } } } })
+      expect(fs.existsSync(path.join(outputDir, 'openapi.generated.inputs.json'))).toBe(true)
+      expect(fs.existsSync(path.join(outputDir, '_openapi-bundle.mjs'))).toBe(false)
+      expect(fs.existsSync(path.join(nodeModulesDir, '.cache'))).toBe(false)
+      expect(dependencySnapshot(nodeModulesDir)).toEqual(dependenciesBefore)
+    } finally {
+      setDependencyModes(nodeModulesDir, false)
+    }
+  })
+
   it('skips route discovery and bundling when all tracked inputs are unchanged', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),

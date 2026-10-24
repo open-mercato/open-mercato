@@ -16,7 +16,7 @@ The legacy `Host extension points` token summary remains useful for compatibilit
 
 ## Route Selection
 
-Your file lives in `src/modules/<id>/` either way, so what you change decides the route, not where it lives. Creating your own entity/route/command/page is `module-data`/`backend-ui` alone, even when it calls installed APIs and reads installed facts. Changing an installed module — its records or data derived from them, commands, events, pages, agents, tools, or the invariants applied to them — selects `umes` as well. Reading its facts is not `umes`; changing its behavior is.
+Route by the behavior you change. App-owned entities/routes/commands/pages use `module-data`/`backend-ui` alone, including installed API calls and fact reads. Changing installed records/derived data, commands, events, pages, agents, tools, or invariants also selects `umes`; reading facts alone does not.
 
 Add every other match too: `backend-ui` + `om-backend-ui-design` when authoring, restyling, or ACL-gating a surface this app owns or injected; `module-data` + contracts for app-owned entities/links/routes/commands/ACL; `ai-workflow` for a durable process, activity, or user task; plus the facts of each module involved. Stay `umes`-only when nothing of yours is rendered — hiding, toggling, disabling, rewiring, or auditing a surface an installed module owns.
 
@@ -73,6 +73,7 @@ For Customers calendar event types, follow the [Customers calendar guide](custom
 
 ## Widget Injection
 
+- For Customers detail tabs, distinguish person and company hosts in installed facts. The example's person spot does not apply to companies; select only the requested exact host.
 - Map stable widget IDs to exact host spots with `InjectionPosition` for deterministic order.
 - Use headless payloads for fields, columns, row/bulk actions, filters, toolbar items, and menus; do not mount React solely to return declarations.
 - Preserve host `entityId`/`extensionTableId`; injected actions use guarded/scoped API calls and shared states.
@@ -108,6 +109,8 @@ Menu hosts are framework-owned unless the named module facts prove otherwise. Us
 - Reactive notification handlers use `notifications.handlers.ts`/`useNotificationEffect`; message/inbox definitions remain stable typed surfaces.
 
 ## Feature Toggles
+
+For feature-toggle work, first open `.ai/guides/modules/feature_toggles/index.md`; select and read that installed module fact sheet before choosing the toggle contract. Follow only the needed sections.
 
 - Define one server-resolved toggle and use it consistently in backend behavior, page/menu/widget visibility, workers/subscribers, and APIs.
 - When disabled, choose and test an explicit outcome: hidden, 404/403, no-op, or degraded read. Never leave UI-only gating around a live mutation.

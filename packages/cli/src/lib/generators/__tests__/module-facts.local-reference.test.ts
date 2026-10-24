@@ -11,6 +11,8 @@ import {
   extractLocalReferenceModuleFacts,
   extractModuleFacts,
   renderModuleFactsJson,
+  renderModuleFactsDirectory,
+  renderModuleFactsMarkdown,
   renderReferenceModuleFactsJson,
   toModuleFactsJsonEntry,
   type ModuleFactSource,
@@ -106,6 +108,37 @@ describe('local-reference module fact emission', () => {
 
   afterAll(() => {
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('compacts only local source labels while preserving exact links, rows, and facts', () => {
+    const { entry } = extractLocalReferenceModuleFacts({ packageSources, reference })
+    const before = JSON.stringify(toModuleFactsJsonEntry(entry.facts))
+    const compact = renderModuleFactsDirectory(entry.facts)
+    const expanded = renderModuleFactsDirectory({ ...entry.facts, sourceKind: 'package' })
+    const sourceLink = /\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]+src\/modules\/[^)]+)\)/g
+    const sources = (markdown: string) => [...markdown.matchAll(sourceLink)]
+    const withoutLabels = (markdown: string) => markdown.replace(sourceLink, '[src]($2)')
+    const nestedLabel = '[backend/[id]/page.tsx:7](../../../../src/modules/demo_local/backend/[id]/page.tsx#L7)'
+    expect(sources(nestedLabel).map(match => match[2])).toEqual(['../../../../src/modules/demo_local/backend/[id]/page.tsx#L7'])
+    expect(withoutLabels(nestedLabel)).toBe('[src](../../../../src/modules/demo_local/backend/[id]/page.tsx#L7)')
+    let links = 0
+    for (const section of compact.sections) {
+      const original = expanded.sections.find(candidate => candidate.slug === section.slug)
+      expect(original).toBeDefined()
+      expect(sources(section.markdown).map(match => match[2])).toEqual(sources(original!.markdown).map(match => match[2]))
+      expect(withoutLabels(section.markdown)).toBe(withoutLabels(original!.markdown))
+      for (const match of sources(section.markdown)) {
+        expect(match[1]).toBe('src')
+        links++
+      }
+    }
+    expect(links).toBeGreaterThan(0)
+    expect(renderModuleFactsMarkdown(entry.facts)).toContain('[subscribers/on-alpha-thing.ts')
+    expect(JSON.stringify(toModuleFactsJsonEntry(entry.facts))).toBe(before)
+    expect(compact.index).toContain('use matching facts first; reuse identities already read')
+    expect(compact.index).toContain('when owner guidance requires, the user requests inspection, or one named contract remains unresolved')
+    expect(compact.index).toContain('name the unresolved Draft blocker; never claim Ready')
+    expect(expanded.index).not.toContain('For reference identities/provenance')
   })
 
   it('discovers the app-local module with portable local-reference provenance', () => {
@@ -224,6 +257,26 @@ describe('local-reference module fact emission', () => {
     expect(packageMarkdown.split('\n')[0]).toBe('# alpha — module facts (generated, do not edit)')
     expect(packageMarkdown).toContain('generated from @acme/alpha-pkg 1.2.3')
     expect(packageMarkdown).not.toContain('after opt-in')
+  })
+
+  it('publishes source identity metadata only in the local index without changing section descriptions or package indexes', () => {
+    const local = extractLocalReferenceModuleFacts({ packageSources, reference }).directory
+    const packaged = extractAllModuleFacts({ sources: packageSources }).directoryByModule.alpha
+    expect(local.index).toContain('ID = `<owner-prefix>:<target>`')
+    expect(local.index).toContain('Machine-readable counterpart: `.ai/guides/reference-module-facts.json`')
+    expect(local.index).toContain('These IDs are metadata, not read grants.')
+    expect(local.index).not.toContain('.ai/harness/source-link-inventory.json')
+    expect(local.index).not.toContain('Generated acl features facts for demo_local.')
+    expect(packaged.index).not.toContain('Source-reference identities')
+    expect(packaged.index).not.toContain('reference-module-facts.json')
+    for (const section of local.sections) {
+      expect(section.description).toBe(`Generated ${section.title.toLowerCase()} facts for demo_local.`)
+      expect(local.index).toContain(`[${section.title}](${section.slug}.md)`)
+    }
+    for (const section of packaged.sections) {
+      expect(section.description).toBe(`Generated ${section.title.toLowerCase()} facts for alpha.`)
+      expect(packaged.index).toContain(` — ${section.description}`)
+    }
   })
 
   it('rejects a duplicate module id before the local reference is assigned', () => {

@@ -79,7 +79,7 @@ test('the root test script caps turbo concurrency and the V8 heap', () => {
   const heapCapMb = Number(script.match(/--max-old-space-size=(\d+)/)[1])
   assert.equal(
     heapCapMb,
-    1024,
-    'root test heap must stay at 1024 MB: Docusaurus exceeds 768 MB, while concurrency=2 keeps aggregate memory bounded',
+    2048,
+    'root test heap must stay at 2048 MB: the Docusaurus production build exceeds 1 GB, while concurrency=2 keeps aggregate memory bounded',
   )
 })

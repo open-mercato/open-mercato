@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 152 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 155 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -35,10 +35,12 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
 - [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,events,generated-files,package-runtime,session-export,testing
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
+- [Verify generated exports and complete context in packed artifacts](lessons/local-packed-artifacts-need-generated-package-exports.md) — area:architecture,testing; module:create_app,cli; topic:generated-files,build-output,package-runtime,template-sync,preset-applicability,instruction-context-closure
 - [Module-registered schedules can only target workers owned by the same module](lessons/module-schedules-can-only-target-workers-owned-by-the-same-module.md) — area:architecture,integration; module:scheduler,queue,payment_gateways; topic:workers,module-boundaries,provider-lifecycle
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
 - [Prefer relative intra-package imports inside package CLI/runtime entrypoints](lessons/prefer-relative-intra-package-imports-inside-package.md) — area:architecture; module:cli; topic:package-runtime,runtime-startup,testing
+- [Provider replacement needs intermediate verification while the old package remains installed](lessons/provider-replacement-needs-intermediate-verification.md) — area:architecture,framework-context,testing; module:cli,create_app; topic:module-identity,package-runtime,generated-files,provider-replacement
 - [Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`](lessons/standalone-module-discovery-must-treat-published-src.md) — area:architecture,framework-context,umes; module:create_app,events,cli; topic:build-output,events,generated-files
 - [Standalone scaffolding and generators must not assume monorepo-only paths](lessons/standalone-scaffolding-and-generators-must-not-assume.md) — area:architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
 - [Standalone scaffolds must pin the same Yarn version as the monorepo](lessons/standalone-scaffolds-must-pin-the-same-yarn-version-as.md) — area:architecture; module:create_app; topic:package-runtime,template-sync,testing
@@ -202,3 +204,5 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
+
+- [Check existing test identities before adding coverage](lessons/check-existing-test-identities-before-adding-coverage.md) — area:testing,spec-pr; module:cli; topic:testing,code-review

@@ -6,10 +6,12 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createResolver } from '../../../cli/src/lib/resolver.js'
+import { discoverLocalReferenceModuleSource, discoverPackageModuleSources } from '../../../cli/src/lib/generators/module-facts-discovery.js'
+import { extractLocalReferenceModuleFacts, renderReferenceModuleFactsJson } from '../../../cli/src/lib/generators/module-facts.js'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const guidesRoot = fileURLToPath(new URL('../../agentic/guides/', import.meta.url))
-const generatedGuidesRoot = fileURLToPath(new URL('../../dist/agentic/guides/', import.meta.url))
 const sourceHarness = path.join(sharedRoot, 'ai', 'harness')
 const sourceEvaluator = path.join(sharedRoot, 'scripts', 'evaluate-agent-harness.mjs')
 const sourceDesignSourceContract = path.join(sharedRoot, 'scripts', 'design-source-contract.mjs')
@@ -136,8 +138,10 @@ function stageApp(): string {
       'src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'src/modules/customers/lib/calendar/eventTypeResolver.ts',
     ],
+    cli: ['src/lib/module-install.ts', 'src/lib/module-identity.ts', 'src/lib/eject.ts'],
     ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
     shared: [
+      'AGENTS.md',
       'src/lib/commands/types.ts',
       'src/lib/commands/registry.ts',
       'src/lib/commands/runCrudCommandWrite.ts',
@@ -264,7 +268,8 @@ if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 if (!prompt.includes('implement the complete request with repeated use of the allowlisted harness write tool')
   || !prompt.includes('A manifest of intended files, metadata-only stub, TODO, placeholder')
-  || !prompt.includes('selectedContext records only instruction/fact paths')
+  || !prompt.includes('Exclude only implementation source paths writable under allowedWrites from selectedContext.')
+  || !prompt.includes('Successful reads of immutable declared source references remain charged context and MUST appear in selectedContext.')
   || !prompt.includes('Call harness.read or harness.write; never call read_mcp_resource or any resource API')) process.exit(10)
 JSON.parse(fs.readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'))
 ${sandboxProbe ? `
@@ -395,7 +400,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
     'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
-    'OMH-182',
+    'OMH-182', 'OMH-185', 'OMH-193',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
@@ -450,7 +455,7 @@ test('backend page cases pin module-owned auto-discovered placement, never the a
 
   const guide = fs.readFileSync(path.join(guidesRoot, 'backend-ui.md'), 'utf8')
   assert.match(guide, /src\/modules\/<id>\/backend\/\*\*\/page\.tsx/, 'backend-ui guide must show module-relative backend page paths')
-  assert.match(guide, /Never place a `page\.tsx`/, 'backend-ui guide must forbid app-route-group page placement')
+  assert.match(guide, /Never (?:place|put) [^\n]*`page\.tsx`[^\n]*`src\/app\/\(backend\)\/\*\*`[^\n]*`src\/app\/\(frontend\)\/\*\*`/, 'backend-ui guide must forbid app-route-group page placement')
 })
 
 test('runner selection distinguishes explicit primary all-cases from the default portability sample', async () => {
@@ -930,6 +935,7 @@ export async function callApiActivity(input: CallApiInput, effects: CallApiEffec
 \`)
 const selectedContext = [
   'AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md',
+  '.ai/skills/om-build-workflow/references/activity-contracts.md',
   '.ai/guides/modules/workflows/index.md', ...requiredContext,
 ]
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
@@ -958,7 +964,7 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
   }
 })
 
-test('read-only CRM tab routing reads UMES guidance before exact materialized framework spots', { skip: !targetSandboxAvailable }, () => {
+test('an optional CRM tab framework branch reads UMES guidance before exact materialized spots', { skip: !targetSandboxAvailable }, () => {
   const guidance = [
     'AGENTS.md',
     '.ai/guides/extensions.md',
@@ -978,7 +984,6 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
   const decisions = [
     'extension-mechanism',
     'additive-before-replacement',
-    'extension-entity',
     'eject-last',
     'widget-injection-files',
     'person-detail-tab-spot',
@@ -991,6 +996,16 @@ test('read-only CRM tab routing reads UMES guidance before exact materialized fr
     const controller = stageApp()
     const corePackageRoot = path.join(controller, 'node_modules', '@open-mercato', 'core')
     try {
+      const casesPath = path.join(controller, '.ai/harness/cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & { context: { installedVersionFallback: unknown } }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-203')
+      assert.ok(caseRecord)
+      assert.equal(caseRecord.frameworkContext, undefined)
+      assert.deepEqual(caseRecord.context.installedVersionFallback, {
+        allowed: true, reasonCodes: ['INSTALLED_VERSION_CONTRACT_MISMATCH'], maxFiles: 4, maxBytes: 65536,
+      })
+      caseRecord.frameworkContext = [{ module: 'customers', query: 'detail:customers.' }]
+      fs.writeFileSync(casesPath, JSON.stringify(cases))
       fs.mkdirSync(path.join(controller, '.ai', 'guides', 'modules', 'customers'), { recursive: true })
       fs.writeFileSync(
         path.join(controller, '.ai', 'guides', 'modules', 'customers', 'index.md'),
@@ -1925,6 +1940,389 @@ console.log(JSON.stringify({ type: 'item.completed', item: {
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+for (const scenario of ['valid', 'omitted-read', 'unrelated-capability', 'example-files', 'example-bytes', 'total-bytes'] as const) {
+  test(`canonical example routing preserves exact permissions and budget accounting: ${scenario}`, { skip: !targetSandboxAvailable }, async () => {
+    const root = stageApp()
+    try {
+      const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & {
+        expectedRouter: { required: string[] }
+        requiredSkills: string[]
+        requiredDecisions: string[]
+        maxTotalContextBytes: number
+        context: { required: string[]; exampleRoots: Array<{ root: string; entrypoints: string[]; allowedCapabilityIds: string[]; maxFiles: number; maxBytes: number }> }
+      }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-181')
+      assert.ok(caseRecord)
+      const example = caseRecord.context.exampleRoots[0]
+      const inventory = JSON.parse(fs.readFileSync(path.join(root, example.root, 'references', 'surface-inventory.json'), 'utf8')) as { capabilities: Array<{ capabilityId: string; sourcePaths: string[] }> }
+      const sources = example.allowedCapabilityIds.map((id) => {
+        const capability = inventory.capabilities.find((entry) => entry.capabilityId === id)
+        assert.ok(capability)
+        return capability.sourcePaths[0]
+      })
+      const examplePaths = [...example.entrypoints.map((entry) => `${example.root}/${entry}`), ...sources]
+      const reads = [...caseRecord.context.required, ...examplePaths]
+      const selectedContext = scenario === 'omitted-read' ? reads.filter((entry) => entry !== sources[0]) : [...reads]
+      if (scenario === 'unrelated-capability') {
+        const capability = inventory.capabilities.find((entry) => entry.capabilityId === 'notifications.type')
+        assert.ok(capability)
+        reads.push(capability.sourcePaths[0])
+        selectedContext.push(capability.sourcePaths[0])
+      }
+      for (const file of caseRecord.context.required.filter((entry) => entry.startsWith('.ai/guides/modules/'))) {
+        fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), '# Installed module facts\n' + 'Bound module contracts.\n'.repeat(2500))
+      }
+      const totalBytes = reads.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const exampleBytes = examplePaths.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      if (scenario === 'example-files') example.maxFiles = examplePaths.length - 1
+      if (scenario === 'example-bytes') example.maxBytes = exampleBytes - 1
+      if (scenario === 'total-bytes') caseRecord.maxTotalContextBytes = totalBytes - 1
+      fs.writeFileSync(casesPath, JSON.stringify(cases, null, 2))
+      const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext, decisions: caseRecord.requiredDecisions, violations: [] }
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+for (const file of ${JSON.stringify(examplePaths)}) if (!allowedReads.includes(file)) process.exit(9)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
+for (const file of ${JSON.stringify(reads)}) console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+}}))
+`)
+      const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-181'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      const [stored] = storedResults(root)
+      assert.ok(stored, `${result.stdout}\n${result.stderr}`)
+      if (scenario === 'valid') {
+        assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+        assert.deepEqual(stored.violations, [])
+        for (const file of examplePaths) {
+          assert.ok(stored.actualContext.paths.includes(file))
+          assert.ok(stored.selectedContext.includes(file))
+          assert.ok(!stored.actualContext.initialPaths.includes(file))
+          assert.ok(!stored.declaredContext.initialPaths.includes(file))
+        }
+        assert.equal(stored.actualContext.bytes, totalBytes)
+        assert.equal(stored.declaredContext.bytes, totalBytes)
+        assert.ok(stored.actualContext.initialBytes < caseRecord.maxInitialContextBytes)
+        assert.ok(stored.actualContext.initialPaths.includes('.ai/skills/om-system-extension/SKILL.md'))
+        const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+          observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+        }
+        const implementation = 'src/modules/order_risk/local.ts'
+        fs.mkdirSync(path.dirname(path.join(root, implementation)), { recursive: true })
+        fs.writeFileSync(path.join(root, implementation), 'export const local = true\n')
+        const trace = evaluator.observedContext([...reads, implementation].map((file) => JSON.stringify({ type: 'item.completed', item: {
+          type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed',
+        } })).join('\n'), root, caseRecord, true)
+        assert.deepEqual(trace.violations, [])
+        assert.deepEqual([...trace.paths].sort(), [...reads].sort())
+      } else {
+        assert.equal(result.status, 1)
+        const expected = {
+          'omitted-read': `observed context not declared ${sources[0]}`,
+          'unrelated-capability': 'maps to a capability the case did not declare',
+          'example-files': 'example root file budget exceeded',
+          'example-bytes': 'example root byte budget exceeded',
+          'total-bytes': 'context byte budget exceeded',
+        }[scenario]
+        assert.ok(stored.violations.some((entry) => entry.includes(expected)), JSON.stringify(stored.violations))
+      }
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+for (const linked of [false, true]) {
+ test(`exact declared installed sources retain full routing accounting with linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, async () => {
+  const root = stageApp()
+  const dependencyParent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-declared-source-deps-')))
+  try {
+    if (linked) {
+      const dependencies = path.join(dependencyParent, 'node_modules')
+      fs.renameSync(path.join(root, 'node_modules'), dependencies)
+      fs.symlinkSync(dependencies, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+    }
+    const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')) as Array<HarnessCase & {
+      expectedRouter: { required: string[] }; requiredSkills: string[]; requiredDecisions: string[]
+    }>
+    const caseRecord = cases.find((entry) => entry.id === 'OMH-239')
+    assert.ok(caseRecord)
+    const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+      exampleReadAllowlist: (caseRecord: unknown, root: string) => string[]
+      observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+    }
+    const sources = evaluator.exampleReadAllowlist(caseRecord, root).filter((entry) => entry.startsWith('node_modules/'))
+    assert.equal(sources.length, 3)
+    const context = [...new Set([...caseRecord.context.required, ...sources])]
+    const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext: context, decisions: caseRecord.requiredDecisions, violations: [] }
+    const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find(arg => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+const messages = ${JSON.stringify(context)}.map((file, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'read', arguments: { path: file } } }))
+const reads = spawnSync(process.execPath, ['scripts/agent-harness-tool-server.mjs', process.cwd(), 'read-only', JSON.stringify(allowedReads), '[]'], { input: messages.map(message => JSON.stringify(message)).join('\\n') + '\\n', encoding: 'utf8', env: {} })
+if (reads.status !== 0 || reads.stdout.trim().split('\\n').map(line => JSON.parse(line)).some(reply => reply.result.isError)) throw new Error('Actual declared source read failed')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
+for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: {
+  type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed'
+}}))
+`)
+    const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-239'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+    const [stored] = storedResults(root)
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+    for (const source of sources) {
+      assert.ok(stored.actualContext.paths.includes(source))
+      assert.ok(!stored.actualContext.initialPaths.includes(source))
+    }
+    assert.ok(stored.actualContext.initialPaths.includes('.ai/guides/module-tool.md'))
+    assert.ok(stored.actualContext.initialPaths.includes('AGENTS.md'))
+    const expectedBytes = context.reduce((sum, file) => sum + fs.statSync(path.join(root, file)).size, 0)
+    assert.equal(stored.actualContext.bytes, expectedBytes)
+    assert.equal(stored.declaredContext.bytes, expectedBytes)
+    const source = sources[0]
+    const readTrace = (file: string, declaration: unknown = caseRecord) => evaluator.observedContext(
+      [...context.filter(entry => !entry.startsWith('node_modules/')), file].map(entry => JSON.stringify({ type: 'item.completed', item: {
+        type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: entry }, status: 'completed',
+      } })).join('\n'), root, declaration, true,
+    )
+    const valid = readTrace(source)
+    assert.deepEqual(valid.violations, [])
+    assert.ok(valid.paths.includes(source))
+    const undeclared = readTrace(source, { ...caseRecord, context: { ...caseRecord.context, required: caseRecord.context.required.filter(file => file !== source), sourceReferenceIds: [] } })
+    assert.ok(undeclared.violations.length > 0)
+    const sibling = path.posix.join(path.posix.dirname(source), 'unrelated.ts')
+    fs.writeFileSync(path.join(root, sibling), 'export const unrelated = true\n')
+    assert.ok(readTrace(sibling).violations.length > 0)
+    const sourceFile = path.join(root, source)
+    const original = fs.readFileSync(sourceFile)
+    for (const shape of ['inside-symlink', 'escaping-symlink', 'directory']) {
+      fs.rmSync(sourceFile)
+      if (shape === 'directory') fs.mkdirSync(sourceFile)
+      else {
+        const target = path.join(shape === 'inside-symlink' ? fs.realpathSync(path.join(root, 'node_modules')) : root, 'other-source.ts')
+        fs.writeFileSync(target, 'forbidden-source')
+        fs.symlinkSync(target, sourceFile)
+      }
+      const invalid = readTrace(source)
+      assert.ok(invalid.violations.length > 0, shape)
+      assert.ok(!invalid.paths.includes(source), shape)
+      fs.rmSync(sourceFile, { recursive: true })
+      fs.writeFileSync(sourceFile, original)
+    }
+
+  } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(dependencyParent, { recursive: true, force: true }) }
+ })
+}
+
+for (const linked of [false, true]) {
+  test(`exact Code Connect references pass real tool startup and full routing accounting, linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, async () => {
+    const root = stageApp()
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-code-connect-deps-')))
+    try {
+      if (linked) {
+        const target = path.join(dependencies, 'node_modules')
+        fs.renameSync(path.join(root, 'node_modules'), target)
+        fs.symlinkSync(target, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai/harness/cases.json'), 'utf8')) as Array<HarnessCase & { expectedRouter: { required: string[] }; requiredDecisions: string[] }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-228')
+      assert.ok(caseRecord)
+      const source = 'node_modules/@open-mercato/ui/figma/button.figma.tsx'
+      const context = [...caseRecord.context.required, source]
+      const initialBytes = caseRecord.context.required.filter(isInitialContextPath).reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const totalBytes = context.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const response = { selectedRouter: caseRecord.expectedRouter.required, selectedSkills: caseRecord.requiredSkills, selectedContext: context, decisions: caseRecord.requiredDecisions, violations: [] }
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+if (!allowedReads.includes(${JSON.stringify(source)})) process.exit(9)
+const messages = [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, ...${JSON.stringify(context)}.map((file, index) => ({ jsonrpc: '2.0', id: index + 2, method: 'tools/call', params: { name: 'read', arguments: { path: file } } }))]
+const server = spawnSync(process.execPath, ['scripts/agent-harness-tool-server.mjs', process.cwd(), 'read-only', JSON.stringify(allowedReads), '[]'], { input: messages.map((message) => JSON.stringify(message)).join('\\n') + '\\n', encoding: 'utf8', env: {} })
+if (server.status !== 0) throw new Error('actual MCP startup failed: ' + server.stderr)
+const replies = server.stdout.trim().split('\\n').map((line) => JSON.parse(line))
+if (replies.length !== messages.length || replies.some((reply) => reply.result.isError)) throw new Error('actual MCP read failed')
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(response)}))
+for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+`)
+      const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-228'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      const [stored] = storedResults(root)
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+      assert.deepEqual(stored.violations, [])
+      assert.ok(stored.selectedContext.includes(source))
+      assert.ok(stored.actualContext.paths.includes(source))
+      assert.ok(!stored.actualContext.initialPaths.includes(source))
+      assert.equal(stored.actualContext.bytes, totalBytes)
+      assert.equal(stored.declaredContext.bytes, totalBytes)
+      assert.equal(stored.actualContext.initialBytes, initialBytes)
+      assert.equal(stored.declaredContext.initialBytes, initialBytes)
+      const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+        observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+      }
+      const trace = (target: string) => evaluator.observedContext(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: target }, status: 'completed' } }), root, caseRecord, false)
+      const unauthorized = evaluator.observedContext(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: source }, status: 'completed' } }), root, { ...caseRecord, context: { ...caseRecord.context, sourceReferenceIds: [] } }, false)
+      assert.ok(unauthorized.violations.length > 0)
+      assert.ok(!unauthorized.paths.includes(source))
+      const sourceFile = path.join(root, source)
+      const original = fs.readFileSync(sourceFile)
+      for (const shape of ['inside-symlink', 'escaping-symlink', 'directory']) {
+        fs.rmSync(sourceFile)
+        if (shape === 'directory') fs.mkdirSync(sourceFile)
+        else {
+          const target = path.join(shape === 'inside-symlink' ? fs.realpathSync(path.join(root, 'node_modules')) : root, 'other-source.tsx')
+          fs.writeFileSync(target, 'forbidden-source')
+          fs.symlinkSync(target, sourceFile)
+        }
+        const observed = trace(source)
+        assert.ok(observed.violations.length > 0, shape)
+        assert.ok(!observed.paths.includes(source), shape)
+        fs.rmSync(sourceFile, { recursive: true })
+        fs.writeFileSync(sourceFile, original)
+      }
+      const packageRoot = path.join(root, 'node_modules/@open-mercato/ui')
+      const alias = path.join(root, 'node_modules/@open-mercato/other')
+      fs.renameSync(packageRoot, alias)
+      fs.symlinkSync(alias, packageRoot, process.platform === 'win32' ? 'junction' : 'dir')
+      const aliased = trace(source)
+      assert.ok(aliased.violations.length > 0)
+      assert.ok(!aliased.paths.includes(source))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const linked of [false, true]) {
+  test(`an explicitly required shared instruction is delivered and fully charged, linked dependencies=${linked}`, { skip: !targetSandboxAvailable }, () => {
+    const root = stageApp()
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-required-instruction-deps-')))
+    try {
+      const instruction = 'node_modules/@open-mercato/shared/AGENTS.md'
+      fs.copyFileSync(fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url)), path.join(root, instruction))
+      if (linked) {
+        const target = path.join(dependencies, 'node_modules')
+        fs.renameSync(path.join(root, 'node_modules'), target)
+        fs.symlinkSync(target, path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
+      const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as Array<HarnessCase & { maxTotalContextBytes: number }>
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-001')
+      assert.ok(caseRecord)
+      caseRecord.context.required.push(instruction)
+      caseRecord.maxInitialContextBytes = 65536
+      caseRecord.maxTotalContextBytes = 131072
+      fs.writeFileSync(casesPath, JSON.stringify(cases))
+      const context = caseRecord.context.required
+      const totalBytes = context.reduce((total, file) => total + fs.statSync(path.join(root, file)).size, 0)
+      const bin = installFakeRunner(root, 'codex', `
+const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+const mcpArgs = JSON.parse(args.find((arg) => arg.startsWith('mcp_servers.harness.args=')).slice('mcp_servers.harness.args='.length))
+const allowedReads = JSON.parse(mcpArgs.at(-2))
+if (!allowedReads.includes(${JSON.stringify(instruction)})) process.exit(9)
+const messages = ${JSON.stringify(context)}.map((file, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'read', arguments: { path: file } } }))
+const server = spawnSync(process.execPath, ['scripts/agent-harness-tool-server.mjs', process.cwd(), 'read-only', JSON.stringify(allowedReads), '[]'], { input: messages.map((message) => JSON.stringify(message)).join('\\n') + '\\n', encoding: 'utf8', env: {} })
+if (server.status !== 0) process.exit(10)
+const replies = server.stdout.trim().split('\\n').map((line) => JSON.parse(line))
+if (replies.length !== messages.length || replies.some((reply) => reply.result.isError)) process.exit(11)
+fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({ selectedRouter: ['architecture'], selectedSkills: [], selectedContext: ${JSON.stringify(context)}, decisions: ['standalone-boundary', 'facts-first'], violations: [] }))
+for (const file of ${JSON.stringify(context)}) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: file }, status: 'completed' } }))
+`)
+      const result = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-001'], { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` })
+      const [stored] = storedResults(root)
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}\n${JSON.stringify(stored)}`)
+      assert.ok(stored.selectedContext.includes(instruction))
+      assert.ok(stored.actualContext.paths.includes(instruction))
+      assert.ok(stored.actualContext.initialPaths.includes(instruction))
+      assert.ok(stored.declaredContext.initialPaths.includes(instruction))
+      assert.equal(stored.actualContext.bytes, totalBytes)
+      assert.equal(stored.actualContext.initialBytes, totalBytes)
+      assert.equal(stored.declaredContext.bytes, totalBytes)
+      assert.equal('exampleReadPolicy' in stored, false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
+
+test('shared instructions cannot be authorized through optional context or a write grant', async () => {
+  const root = stageApp()
+  try {
+    const instruction = 'node_modules/@open-mercato/shared/AGENTS.md'
+    fs.copyFileSync(fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url)), path.join(root, instruction))
+    const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+      caseReadAllowlist: (caseRecord: unknown, writable: boolean, root: string) => string[]
+      observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[] }
+    }
+    for (const section of ['allowedExtra', 'warn', 'allowedWrites']) {
+      const caseRecord = { context: { required: ['AGENTS.md'], forbidden: [], ...(section === 'allowedWrites' ? {} : { [section]: [instruction] }) }, ...(section === 'allowedWrites' ? { allowedWrites: [instruction] } : {}) }
+      assert.ok(!evaluator.caseReadAllowlist(caseRecord, true, root).includes(instruction), section)
+      const trace = evaluator.observedContext(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: instruction }, status: 'completed' } }), root, caseRecord, false)
+      assert.ok(trace.violations.some((entry) => entry.includes('unsafe arbitrary app-root read')), section)
+      assert.ok(!trace.paths.includes(instruction), section)
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+for (const linked of [false, true]) {
+  test(`shared instruction observation rejects redirected files and never consumes example budgets, linked dependencies=${linked}`, async () => {
+    const root = stageApp()
+    const dependencies = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-instruction-observed-deps-')))
+    try {
+      const relative = 'node_modules/@open-mercato/shared/AGENTS.md'
+      const instruction = path.join(root, relative)
+      fs.copyFileSync(fileURLToPath(new URL('../../../shared/AGENTS.md', import.meta.url)), instruction)
+      if (linked) {
+        fs.renameSync(path.join(root, 'node_modules'), path.join(dependencies, 'node_modules'))
+        fs.symlinkSync(path.join(dependencies, 'node_modules'), path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+      }
+      const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+        observedContext: (stdout: string, root: string, caseRecord: unknown, writable: boolean) => { paths: string[]; violations: string[]; exampleReadPolicy: { roots: Array<{ files: number; bytes: number }> } }
+      }
+      const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai', 'harness', 'cases.json'), 'utf8')) as HarnessCase[]
+      const caseRecord = cases.find((entry) => entry.id === 'OMH-181')
+      assert.ok(caseRecord)
+      caseRecord.context.required.push(relative)
+      const event = JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: relative }, status: 'completed' } })
+      const trace = evaluator.observedContext(event, root, caseRecord, false)
+      assert.deepEqual(trace.paths, [relative])
+      assert.deepEqual(trace.violations, [])
+      assert.ok(trace.exampleReadPolicy.roots.every((entry) => entry.files === 0 && entry.bytes === 0))
+      for (const shape of ['directory', 'inside-symlink', 'escaping-symlink']) {
+        fs.rmSync(instruction)
+        if (shape === 'directory') fs.mkdirSync(instruction)
+        else {
+          const target = path.join(shape === 'inside-symlink' ? fs.realpathSync(path.join(root, 'node_modules')) : root, 'other-instructions.md')
+          fs.writeFileSync(target, 'must-not-be-disclosed')
+          fs.symlinkSync(target, instruction)
+        }
+        const invalid = evaluator.observedContext(event, root, caseRecord, false)
+        assert.ok(!invalid.paths.includes(relative), shape)
+        assert.ok(invalid.violations.length > 0, shape)
+        assert.doesNotMatch(JSON.stringify(invalid), /must-not-be-disclosed/)
+        fs.rmSync(instruction, { recursive: true })
+        fs.writeFileSync(instruction, '# Shared instructions\n')
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(dependencies, { recursive: true, force: true })
+    }
+  })
+}
 
 test('a lifecycle stream without a recognized tool event fails closed', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
@@ -4290,6 +4688,20 @@ function seededFixtureFiles(fixtureId: string): Record<string, string> {
   return files
 }
 
+let referenceModuleProjection: ReturnType<typeof extractLocalReferenceModuleFacts> | undefined
+
+function referenceModuleFixture() {
+  if (!referenceModuleProjection) {
+    const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
+    const packageSources = discoverPackageModuleSources(createResolver(repositoryRoot))
+    const reference = discoverLocalReferenceModuleSource({ appRoot: fileURLToPath(new URL('../../template/', import.meta.url)), moduleId: 'example' })
+    assert.ok(reference)
+    const coreVersion = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'packages/core/package.json'), 'utf8')).version as string
+    referenceModuleProjection = extractLocalReferenceModuleFacts({ packageSources, reference, registryPath: null, coreVersion })
+  }
+  return referenceModuleProjection
+}
+
 // A disposable stand-in for the prepared writable target: the emitted `.ai/specs` scaffolding,
 // a fresh module tree, and exactly the files the case fixture seeds.
 function stageSpecTarget(fixtureId: string): string {
@@ -4307,15 +4719,14 @@ function stageSpecTarget(fixtureId: string): string {
   fs.cpSync(templateExampleModule, path.join(root, 'src', 'modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = ['example']\n")
   fs.mkdirSync(path.join(root, '.ai', 'guides'), { recursive: true })
-  fs.copyFileSync(
-    path.join(generatedGuidesRoot, 'reference-module-facts.json'),
-    path.join(root, '.ai', 'guides', 'reference-module-facts.json'),
-  )
-  fs.cpSync(
-    path.join(generatedGuidesRoot, 'reference-modules', 'example'),
-    path.join(root, '.ai', 'guides', 'reference-modules', 'example'),
-    { recursive: true },
-  )
+  const reference = referenceModuleFixture()
+  fs.writeFileSync(path.join(root, '.ai', 'guides', 'reference-module-facts.json'), renderReferenceModuleFactsJson({ example: reference.entry }))
+  const referenceDirectory = path.join(root, '.ai', 'guides', 'reference-modules', 'example')
+  fs.mkdirSync(referenceDirectory, { recursive: true })
+  fs.writeFileSync(path.join(referenceDirectory, 'index.md'), reference.directory.index)
+  for (const section of reference.directory.sections) {
+    fs.writeFileSync(path.join(referenceDirectory, `${section.slug}.md`), section.markdown)
+  }
   const sourceLinks = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'source-link-inventory.json'), 'utf8')) as {
     records: Array<Record<string, unknown>>
   }
@@ -4409,6 +4820,14 @@ Branch managers move stock between warehouses on paper today. This slice records
 ## Problem Statement
 
 Stock moves between the two regional warehouses several times a week, and nothing in the app knows about it. A manager telephones the sending warehouse, someone writes the items on a delivery note, and the receiving warehouse corrects its own counts by hand days later. Because the app is told nothing, the sending warehouse still shows stock it no longer holds and the receiving warehouse cannot sell stock it already has on the shelf. When a case is short or refused nobody records why, so the same dispute repeats every quarter and the finance team cannot reconcile the two sets of counts. Managers have asked for the request, the dispatch, and the confirmed receipt to live in the app, with stock moving only on that confirmed receipt so a number is never adjusted twice.
+
+## Goals
+
+- **REQ-001** — Persist scoped transfer requests and guarded commands.
+- **REQ-002** — Coordinate the transfer lifecycle through its workflow.
+- **REQ-003** — Start bounded bulk actions through the declared contribution.
+- **REQ-004** — Observe durable progress, cancellation, retry, and completion.
+- **REQ-005** — Reuse the public Button and its design evidence.
 
 ## Users, Permissions, and Scope
 
@@ -4582,6 +5001,192 @@ test('the new-feature planning proof fails on its seeded scaffold and passes on 
   }
 })
 
+const planningLexicalVectors: ReadonlyArray<readonly [string, string, string, boolean]> = [
+  ['explicit non-goal list', 'No copying or modifying the example tree, second teaching module, ratelimit_probe reuse, stock reservation, shipment carrier integration, public anonymous inventory access, dependencies, Figma credentials, network access, push, publication or live deployment.', 'plan.rejects.ratelimit-probe-blueprint', true],
+  ['never copy imperative', 'Never copy the whole example module.', 'plan.rejects.whole-example-copy', true],
+  ['do not create imperative', 'Do not create another example module.', 'plan.rejects.shadow-teaching-module', true],
+  ['positive probe blueprint', 'Use ratelimit_probe as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['positive teaching module', 'Create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['positive whole copy', 'Copy the whole example module.', 'plan.rejects.whole-example-copy', false],
+  ['contrast with repeated forbidden identity', 'No ratelimit_probe reuse, but use ratelimit_probe as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['coordinated positive with repeated identity', 'No ratelimit_probe reuse, and use ratelimit_probe as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['affirmative copula with repeated identity', 'No ratelimit_probe reuse, ratelimit_probe is our blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['positive after a negative sentence', 'Never copy the whole example module. Create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['positive after a negative paragraph', 'No ratelimit_probe reuse.\nUse ratelimit_probe as blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['a different positive proposal after negation', 'No ratelimit_probe reuse; create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['No harm permission', 'No harm in building another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['No objection permission', 'No objection to ratelimit_probe reuse.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['No restriction permission', 'No restriction on copying the entire example module.', 'plan.rejects.whole-example-copy', false],
+  ['No rule double negation', 'No rule prohibits ratelimit_probe reuse.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['No reason double negation', 'No reason to avoid another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['Never forget double negation', 'Never forget to create another example module.', 'plan.rejects.shadow-teaching-module', false],
+  ['Do not hesitate double negation', 'Do not hesitate to use ratelimit_probe.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['contrast with a positive pronoun tail', 'No ratelimit_probe reuse, but we shall use it as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['coordinated positive pronoun tail', 'No second teaching module, and we will create it anyway.', 'plan.rejects.shadow-teaching-module', false],
+  ['bare imperative tail', 'No ratelimit_probe reuse, use the probe as blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+  ['finite affirmative tail', 'No second teaching module, the implementation creates one.', 'plan.rejects.shadow-teaching-module', false],
+  ['semicolon positive pronoun tail', 'No ratelimit_probe reuse; we shall use it as the blueprint.', 'plan.rejects.ratelimit-probe-blueprint', false],
+]
+
+for (const [label, prose, expectedCheck, expectedPass] of planningLexicalVectors) {
+  test(`writable planning lexical contract: ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), `${deliveredTransferSpec}\n${prose}\n`)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.status, expectedPass ? 0 : 1)
+      if (expectedPass) assert.ok(report.checks.filter((entry) => entry.id.startsWith('plan.rejects.')).every((entry) => entry.passed))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+const planningNavigationPaths = [
+  'src/modules/example/README.md',
+  'src/modules/example/references/surface-map.md',
+  'src/modules/example/references/surface-inventory.json',
+] as const
+const planningNavigationVectors = ['existing', 'missing', 'directory', 'leaf-symlink', 'ancestor-symlink-inside', 'ancestor-symlink-outside', 'unmapped-markdown', 'unmapped-json', 'navigation-only'] as const
+
+for (const navigationPath of planningNavigationPaths) {
+  for (const variant of planningNavigationVectors) {
+    test(`writable planning navigation contract: ${variant} ${navigationPath}`, () => {
+      const root = stageSpecTarget('planning-new-feature')
+      const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-nav-outside-')))
+      try {
+        const navigation = path.join(root, navigationPath)
+        let spec = `${deliveredTransferSpec}\nReference navigation: ${navigationPath}.\n`
+        if (variant === 'missing') fs.rmSync(navigation)
+        if (variant === 'directory') {
+          fs.rmSync(navigation)
+          fs.mkdirSync(navigation)
+        }
+        if (variant === 'leaf-symlink') {
+          const target = path.join(outside, path.basename(navigation))
+          fs.copyFileSync(navigation, target)
+          fs.rmSync(navigation)
+          fs.symlinkSync(target, navigation)
+        }
+        if (variant.startsWith('ancestor-symlink')) {
+          const parent = path.dirname(navigation)
+          const target = variant === 'ancestor-symlink-inside' ? path.join(root, 'relocated-navigation') : path.join(outside, 'relocated-navigation')
+          fs.renameSync(parent, target)
+          fs.symlinkSync(target, parent, 'dir')
+        }
+        if (variant === 'unmapped-markdown' || variant === 'unmapped-json') {
+          const relative = `src/modules/example/references/NAVIGATION.${variant === 'unmapped-markdown' ? 'md' : 'json'}`
+          fs.writeFileSync(path.join(root, relative), 'An arbitrary existing file is not canonical navigation.\n')
+          spec += `\nUse ${relative}.\n`
+        }
+        if (variant === 'navigation-only') {
+          spec = `${deliveredTransferSpec.replace(/\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g, 'reference-source')}\nReference navigation: ${navigationPath}.\n`
+        }
+        fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+        const report = runSpecOracle(root, 'OMH-223', 'after')
+        const expectedPass = variant === 'existing'
+        if (variant === 'navigation-only') {
+          assert.equal(report.checks.find((entry) => entry.id === 'plan.example-exact-source-paths')?.passed, false, JSON.stringify(report.failures))
+        } else if (report.checks.some((entry) => entry.id === 'plan.example-paths-resolve')) {
+          assert.equal(report.checks.find((entry) => entry.id === 'plan.example-paths-resolve')?.passed, expectedPass, JSON.stringify(report.failures))
+        } else {
+          assert.equal(report.checks.find((entry) => entry.id === 'plan.example-inventory-readable')?.passed, false, JSON.stringify(report.failures))
+        }
+        assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+        assert.equal(report.status, expectedPass ? 0 : 1)
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  }
+}
+
+test('canonical navigation never earns mapped implementation source credit even if an inventory lists it', () => {
+  const root = stageSpecTarget('planning-new-feature')
+  try {
+    const inventoryPath = path.join(root, 'src/modules/example/references/surface-inventory.json')
+    const inventory = JSON.parse(fs.readFileSync(inventoryPath, 'utf8')) as { capabilities: Array<{ sourcePaths: string[] }> }
+    assert.ok(inventory.capabilities.length > 0)
+    inventory.capabilities[0].sourcePaths.push(...planningNavigationPaths)
+    fs.writeFileSync(inventoryPath, JSON.stringify(inventory))
+    const spec = `${deliveredTransferSpec.replace(/\bsrc\/modules\/example\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+\b/g, 'reference-source')}\nNavigation: ${planningNavigationPaths.join(', ')}.\n`
+    fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+    const report = runSpecOracle(root, 'OMH-223', 'after')
+    assert.equal(report.checks.find((entry) => entry.id === 'plan.example-exact-source-paths')?.passed, false, JSON.stringify(report.failures))
+    assert.equal(report.passed, false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+const planningTraceabilityVectors: ReadonlyArray<readonly [string, (spec: string) => string, string, boolean]> = [
+  ['separate business summary', (spec) => spec.replace('One row per extension surface this specification adds.', `| Requirement | Journey | Contract | Phase | Test | Acceptance |\n|---|---|---|---|---|---|\n| REQ-001 | request | transfer | Phase 1 | TEST-003 | persisted request |\n\nOne row per extension surface this specification adds.`), 'plan.traceability.classification', true],
+  ['business summary with a closest reference', (spec) => spec.replace('One row per extension surface this specification adds.', `| Requirement | Journey / surface | Closest reference | Phase | Tests | Acceptance criterion |\n|---|---|---|---|---|---|\n| REQ-001 | request UI | Todo page | Phase 1 | TEST-003 | persisted request |\n\nOne row per extension surface this specification adds.`), 'plan.traceability.classification', true],
+  ['repeated declared requirement', (spec) => spec.replace('| REQ-004 | durable connected progress', '| REQ-003 | durable connected progress'), 'plan.traceability.ordering', true],
+  ['meaningful header synonyms', (spec) => spec.replace('| Requirement | Extension surface | Adapted from | Phase | Test | Mechanism |', '| Requirement ID | Runtime contribution | Reference capability and exact source | Landing phase | Integration coverage | Classification |'), 'plan.traceability.rows', true],
+  ['requirements defined in a table', (spec) => spec.replace(/## Goals\n[\s\S]*?(?=## Users, Permissions, and Scope)/, '## Functional Requirements\n\n| Requirement | Outcome |\n|---|---|\n| REQ-001 | Scoped transfer requests and commands |\n| REQ-002 | Workflow lifecycle |\n| REQ-003 | Bound bulk actions |\n| REQ-004 | Durable progress |\n| REQ-005 | Public Button and design evidence |\n\n'), 'plan.traceability.requirements', true],
+  ['undeclared requirement', (spec) => spec.replace('| REQ-004 | durable connected progress', '| REQ-999 | durable connected progress'), 'plan.traceability.requirements', false],
+  ['empty declared requirement', (spec) => spec.replace('Persist scoped transfer requests and guarded commands.', ''), 'plan.traceability.requirements', false],
+  ['duplicate requirement definition', (spec) => spec.replace('## Users, Permissions, and Scope', '- **REQ-001** — A conflicting second definition.\n\n## Users, Permissions, and Scope'), 'plan.traceability.requirements', false],
+  ['missing requirement definitions', (spec) => spec.replace(/## Goals\n[\s\S]*?(?=## Users, Permissions, and Scope)/, ''), 'plan.traceability.requirements', false],
+  ['missing requirement column', (spec) => spec.replace('| Requirement | Extension surface |', '| Goal | Extension surface |'), 'plan.traceability.complete', false],
+  ['missing surface column', (spec) => spec.replace('| Requirement | Extension surface |', '| Requirement | Output |'), 'plan.traceability.complete', false],
+  ['missing adaptation column', (spec) => spec.replace('| Extension surface | Adapted from |', '| Extension surface | Details |'), 'plan.traceability.complete', false],
+  ['missing phase column', (spec) => spec.replace('| Adapted from | Phase | Test |', '| Adapted from | Delivery | Test |'), 'plan.traceability.complete', false],
+  ['missing test column', (spec) => spec.replace('| Phase | Test | Mechanism |', '| Phase | Evidence | Mechanism |'), 'plan.traceability.complete', false],
+  ['missing mechanism column', (spec) => spec.replace('| Phase | Test | Mechanism |', '| Phase | Test | Notes |'), 'plan.traceability.complete', false],
+  ['malformed extension row', (spec) => spec.replace('| Phase 1 | TEST-003 in __integration__ | emitted-example |', '| Phase 1 | TEST-003 in __integration__ | emitted-example | extra cell |'), 'plan.traceability.complete', false],
+  ['second incomplete extension matrix', (spec) => spec.replace('## Risks and Tradeoffs', '| Requirement | Extension surface | Adapted from | Phase | Test |\n|---|---|---|---|---|\n| REQ-001 | another surface | data.entities | Phase 3 | TEST-003 |\n\n## Risks and Tradeoffs'), 'plan.traceability.complete', false],
+  ['business summary cannot replace extension matrix', (spec) => spec.replace(/\| Requirement \| Extension surface \| Adapted from \| Phase \| Test \| Mechanism \|[\s\S]*?(?=## Risks and Tradeoffs)/, '| Requirement | Journey | Contract | Phase | Test | Acceptance |\n|---|---|---|---|---|---|\n| REQ-001 | request | transfer | Phase 1 | TEST-003 | persisted request |\n\n'), 'plan.traceability.rows', false],
+  ['bare numeric landing phase', (spec) => spec.replace('| Phase 1 | TEST-003 in __integration__ |', '| 1 | TEST-003 in __integration__ |'), 'plan.traceability.complete', false],
+  ['nonstandard test label', (spec) => spec.replace('| TEST-003 in __integration__ | emitted-example |', '| IT-03 | emitted-example |'), 'plan.traceability.complete', false],
+]
+
+for (const [label, edit, expectedCheck, expectedPass] of planningTraceabilityVectors) {
+  test(`writable planning traceability contract: ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      const spec = edit(deliveredTransferSpec)
+      assert.notEqual(spec, deliveredTransferSpec)
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.status, expectedPass ? 0 : 1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
+const planningProvenanceVectors: ReadonlyArray<readonly [string, (spec: string) => string, string, boolean]> = [
+  ['equivalent copular publication posture', (spec) => spec.replaceAll('publication not-evidenced', 'publication is not-evidenced'), 'plan.design-provenance', true],
+  ['publication evidence overclaim', (spec) => spec.replaceAll('publication not-evidenced', 'publication is evidenced'), 'plan.design-provenance', false],
+  ['publication double negation', (spec) => spec.replaceAll('publication not-evidenced', 'publication is not not-evidenced'), 'plan.design-provenance', false],
+  ['missing merged foundation provenance', (spec) => spec.replaceAll('b2d26489c683edc44265212ac8a79be1b981774f', 'missing-package-evidence'), 'plan.design-provenance', false],
+  ['negative posture followed by publication proposal', (spec) => `${spec.replaceAll('publication not-evidenced', 'publication is not-evidenced')}\nPush Code Connect to Figma.\n`, 'plan.rejects.figma-external-authority', false],
+]
+
+for (const [label, edit, expectedCheck, expectedPass] of planningProvenanceVectors) {
+  test(`writable planning lexical contract: ${label}`, () => {
+    const root = stageSpecTarget('planning-new-feature')
+    try {
+      const spec = edit(deliveredTransferSpec)
+      assert.notEqual(spec, deliveredTransferSpec)
+      fs.writeFileSync(path.join(root, newFeatureSpecPath), spec)
+      const report = runSpecOracle(root, 'OMH-223', 'after')
+      assert.equal(report.checks.find((entry) => entry.id === expectedCheck)?.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.passed, expectedPass, JSON.stringify(report.failures))
+      assert.equal(report.status, expectedPass ? 0 : 1)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
+
 function rewriteNewFeatureSpec(root: string, edit: (spec: string) => string): void {
   const file = path.join(root, newFeatureSpecPath)
   const before = fs.readFileSync(file, 'utf8')
@@ -4594,6 +5199,21 @@ function rewriteNewFeatureSpec(root: string, edit: (spec: string) => string): vo
 // Each row breaks exactly one graded property of the passing answer and names the check that
 // must go red. Without these, a grader that silently stopped asserting would still look green.
 const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => void, string]> = [
+  ['a problem statement below the existing 80-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## Problem Statement\n)[\s\S]*?(?=\n## )/, `$1\n${Array(79).fill('problem').join(' ')}\n`))
+  }, 'spec.section.problem'],
+  ['a contract section below the existing 80-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## API, Command, and Error Contracts\n)[\s\S]*?(?=\n## )/, `$1\n${Array(79).fill('contract').join(' ')}\n`))
+  }, 'spec.section.contracts'],
+  ['a test section below the existing 40-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## Integration Coverage\n)[\s\S]*?(?=\n## )/, `$1\nTEST-001 ${Array(38).fill('coverage').join(' ')}\n`))
+  }, 'spec.section.tests'],
+  ['a phased section below the existing 80-word floor', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(/(## Implementation Phases\n)[\s\S]*?(?=\n## )/, `$1\nom-module-scaffold\n\n### Phase 1\n\n### Phase 2\n\n${Array(74).fill('phase').join(' ')}\n`))
+  }, 'spec.section.phases'],
+  ['a scaffold handoff outside the implementation phases', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => `${spec.replaceAll('om-module-scaffold', 'the scaffold workflow')}\nModule work invokes om-module-scaffold.\n`)
+  }, 'plan.module-scaffold-route'],
   ['a second authored spec', (root) => {
     fs.writeFileSync(path.join(root, '.ai/specs/2026-08-04-warehouse-notes.md'), deliveredTransferSpec)
   }, 'spec.single'],
@@ -4745,7 +5365,7 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
       return spec.replace(row, row.replace('framework-only', 'emitted-example'))
     })
   }, 'plan.traceability.binding.ui-foundation'],
-  ['traceability rows whose requirement and phase order is reversed', (root) => {
+  ['traceability rows whose landing phase order decreases', (root) => {
     rewriteNewFeatureSpec(root, (spec) => {
       const second = spec.match(/\| REQ-002 \|[^\n]*\n/)?.[0]
       const third = spec.match(/\| REQ-003 \|[^\n]*\n/)?.[0]
@@ -4967,4 +5587,102 @@ test('catalog validation binds each semantic oracle to its own fixed runner', ()
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+function specPlanningUnitCase() {
+  return {
+    id: 'spec-reference-unit', mode: 'spec', evaluationKind: 'implementation',
+    prompt: 'Author only a specification using the explicitly required planning references.',
+    expectedRouter: { required: ['spec-pr'], allowedExtra: [] },
+    requiredSkills: ['om-spec-writing', 'om-module-scaffold', 'om-backend-ui-design'],
+    context: {
+      required: ['AGENTS.md', '.ai/guides/backend-ui.md', '.agents/skills/om-spec-writing/SKILL.md', '.ai/skills/om-module-scaffold/SKILL.md', '.ai/skills/om-backend-ui-design/SKILL.md'],
+      allowedExtra: [] as string[], forbidden: ['.env*', '.git/**'],
+    },
+    allowedWrites: ['.ai/specs/**'], requiredDecisions: [], forbiddenPatterns: [],
+    maxContextFiles: 16, maxInitialContextBytes: 98_304, maxTotalContextBytes: 262_144,
+  }
+}
+
+async function withPlanningRoutingUnit(run: (unit: {
+  evaluateRouting: (record: Record<string, unknown>, response: Record<string, unknown>, stats: Record<string, unknown>, readOrder: string[], writes: string[], root: string) => string[]
+  buildPrompt: (record: Record<string, unknown>, root: string, writable: boolean) => string
+}, root: string) => void) {
+  const root = stageApp()
+  try {
+    const file = path.join(root, 'scripts/evaluate-agent-harness.mjs')
+    fs.appendFileSync(file, '\nexport { evaluateRouting, buildPrompt };\n')
+    await run(await import(pathToFileURL(file).href), root)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+}
+
+function planningUnitResponse(record: ReturnType<typeof specPlanningUnitCase>) {
+  return { selectedRouter: ['spec-pr'], selectedSkills: [...record.requiredSkills], selectedContext: [...record.context.required], decisions: [], violations: [] }
+}
+
+function planningUnitStats(response: ReturnType<typeof planningUnitResponse>) {
+  return { paths: response.selectedContext, initialFiles: response.selectedContext.length, initialBytes: 100, bytes: 100 }
+}
+
+test('spec-only authoring uses exact required domain references without implementation routes or write authority', async () => {
+  await withPlanningRoutingUnit((unit, root) => {
+    const record = specPlanningUnitCase()
+    const response = planningUnitResponse(record)
+    assert.deepEqual(unit.evaluateRouting(record, response, planningUnitStats(response), response.selectedContext, [], root), [])
+    const prompt = unit.buildPrompt(record, root, true)
+    assert.ok(prompt.includes('Explicitly required planning references do not select implementation routes: .ai/guides/backend-ui.md, .ai/skills/om-backend-ui-design/SKILL.md, .ai/skills/om-module-scaffold/SKILL.md.'))
+    assert.ok(prompt.includes('All other opened routed guides and skills still require their owning routes.'))
+    assert.deepEqual(record.allowedWrites, ['.ai/specs/**'])
+  })
+})
+
+for (const scenario of ['ordinary', 'implementation-route', 'source-grant', 'no-grants', 'not-spec-writer', 'wrong-prefix', 'traversal', 'backslash', 'absolute', 'optional-guide', 'undeclared-skill'] as const) {
+  test(`planning-reference ownership exemption rejects ${scenario}`, async () => {
+    await withPlanningRoutingUnit((unit, root) => {
+      const record = specPlanningUnitCase()
+      if (scenario === 'ordinary') record.mode = 'one-shot'
+      else if (scenario === 'implementation-route') record.expectedRouter.required.push('module-data')
+      else if (scenario === 'source-grant') record.allowedWrites.push('src/modules/example_app/**')
+      else if (scenario === 'no-grants') record.allowedWrites = []
+      else if (scenario === 'not-spec-writer') record.requiredSkills = record.requiredSkills.filter(skill => skill !== 'om-spec-writing')
+      else if (scenario === 'wrong-prefix') record.allowedWrites = ['.ai/specifications/**']
+      else if (scenario === 'traversal') record.allowedWrites = ['.ai/specs/../../src/**']
+      else if (scenario === 'backslash') record.allowedWrites = ['.ai/specs/..\\..\\src/**']
+      else if (scenario === 'absolute') record.allowedWrites = ['/.ai/specs/**']
+      else if (scenario === 'optional-guide') {
+        record.context.required = record.context.required.filter(file => file !== '.ai/guides/backend-ui.md')
+        record.context.allowedExtra.push('.ai/guides/backend-ui.md')
+      } else record.requiredSkills = record.requiredSkills.filter(skill => skill !== 'om-backend-ui-design')
+      const response = planningUnitResponse(record)
+      if (!response.selectedContext.includes('.ai/guides/backend-ui.md')) response.selectedContext.push('.ai/guides/backend-ui.md')
+      const violations = unit.evaluateRouting(record, response, planningUnitStats(response), response.selectedContext, [], root)
+      assert.ok(violations.includes('standard context .ai/guides/backend-ui.md requires route backend-ui'), JSON.stringify(violations))
+    })
+  })
+}
+
+test('planning references still require successful reads and selected skills and reject extra routes', async () => {
+  await withPlanningRoutingUnit((unit, root) => {
+    const record = specPlanningUnitCase()
+    const response = planningUnitResponse(record)
+    const missingGuide = structuredClone(response)
+    missingGuide.selectedContext = missingGuide.selectedContext.filter(file => file !== '.ai/guides/backend-ui.md')
+    assert.ok(unit.evaluateRouting(record, missingGuide, planningUnitStats(missingGuide), missingGuide.selectedContext, [], root).includes('required context not observed .ai/guides/backend-ui.md'))
+    const missingSkill = structuredClone(response)
+    missingSkill.selectedSkills = missingSkill.selectedSkills.filter(skill => skill !== 'om-backend-ui-design')
+    assert.ok(unit.evaluateRouting(record, missingSkill, planningUnitStats(missingSkill), missingSkill.selectedContext, [], root).includes('missing skill om-backend-ui-design'))
+    const extraRoute = structuredClone(response)
+    extraRoute.selectedRouter.push('backend-ui')
+    assert.ok(unit.evaluateRouting(record, extraRoute, planningUnitStats(extraRoute), extraRoute.selectedContext, [], root).includes('unexpected route backend-ui'))
+  })
+})
+
+
+test('writable prompts keep immutable declared source references in charged selected context', async () => {
+  await withPlanningRoutingUnit((unit, root) => {
+    const prompt = unit.buildPrompt(specPlanningUnitCase(), root, true)
+    assert.ok(prompt.includes('Exclude only implementation source paths writable under allowedWrites from selectedContext.'))
+    assert.ok(prompt.includes('Successful reads of immutable declared source references remain charged context and MUST appear in selectedContext.'))
+    assert.ok(!prompt.includes('selectedContext records only instruction/fact paths and must never include those target source paths'))
+  })
 })
