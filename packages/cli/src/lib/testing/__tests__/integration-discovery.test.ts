@@ -1,7 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { discoverIntegrationSpecFiles } from '../integration-discovery'
+import { discoverIntegrationSpecFiles, isAppOwnedIntegrationSpecPath } from '../integration-discovery'
 
 async function writeTestFile(projectRoot: string, relativePath: string, content = 'export {}\n'): Promise<void> {
   const absolutePath = path.join(projectRoot, relativePath)
@@ -17,6 +17,7 @@ describe('integration discovery', () => {
     'OM_TEST_DISCOVERY_FALLBACK_AI_KEY',
     'OM_TEST_DISCOVERY_REQUIRED_KEY',
     'OM_TEST_APP_ROOT',
+    'OM_INTEGRATION_APP_ONLY',
   ] as const
   const previousTestEnvValues = new Map<string, string | undefined>()
 
@@ -241,5 +242,28 @@ describe('integration discovery', () => {
       'packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-001.spec.ts',
       'packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002.spec.ts',
     ])
+  })
+
+  it('keeps installed package specs by default and drops them when app-only discovery is enabled', async () => {
+    await writeTestFile(tempRoot, 'src/modules/orders/__integration__/TC-APP-001.spec.ts')
+    await writeTestFile(tempRoot, 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts')
+
+    const legacyRoot = path.join(tempRoot, '.ai', 'qa', 'tests')
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot).map((entry) => entry.path)).toEqual([
+      'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts',
+      'src/modules/orders/__integration__/TC-APP-001.spec.ts',
+    ])
+
+    process.env.OM_INTEGRATION_APP_ONLY = '1'
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot).map((entry) => entry.path)).toEqual([
+      'src/modules/orders/__integration__/TC-APP-001.spec.ts',
+    ])
+  })
+
+  it('classifies spec paths under node_modules as not app-owned', () => {
+    expect(isAppOwnedIntegrationSpecPath('src/modules/orders/__integration__/TC-APP-001.spec.ts')).toBe(true)
+    expect(isAppOwnedIntegrationSpecPath('.ai/qa/tests/TC-APP-002.spec.ts')).toBe(true)
+    expect(isAppOwnedIntegrationSpecPath('node_modules/@open-mercato/search/src/modules/search/__integration__/TC-S-001.spec.ts')).toBe(false)
+    expect(isAppOwnedIntegrationSpecPath('packages/app/node_modules/x/__integration__/TC-X-001.spec.ts')).toBe(false)
   })
 })

@@ -4,6 +4,7 @@ import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
+const isCiGateBuild = process.env.OM_SKIP_NEXT_BUILD_TYPECHECK === '1'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 // Defensive hardening (refs #6132): `transpilePackages` below makes
@@ -38,6 +39,11 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',
+  // `yarn ci` (scripts/ci.mjs) runs `tsc` in its typecheck step and sets this
+  // flag for its build step only: Next's in-build type check would re-run it
+  // while the compiled graph is still in memory, which OOMs a 7 GB CI runner.
+  // A plain `yarn build` still type-checks.
+  typescript: { ignoreBuildErrors: isCiGateBuild },
   // Mirror apps/mercato: scaffolded apps ship their own AGENTS.md/CLAUDE.md
   // from the template, so let Next 16.3+ leave them alone rather than
   // appending its managed agent-rules block on every `next dev`.
@@ -52,6 +58,10 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
     //   - recharts: pairs with the next/dynamic chart split in @open-mercato/ui.
     //   - date-fns: already deep-imported; listed here as defense-in-depth.
     optimizePackageImports: ['lucide-react', 'recharts', 'date-fns'],
+    // The `yarn ci` build starts cold and its cache is thrown away, but writing
+    // Turbopack's build cache keeps the compiler's memory alive through static
+    // generation, which OOM-kills a 7 GB CI runner.
+    ...(isCiGateBuild ? { turbopackFileSystemCacheForBuild: false } : {}),
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,
