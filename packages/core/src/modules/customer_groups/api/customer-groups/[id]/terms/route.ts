@@ -9,12 +9,14 @@ import { CrudHttpError, badRequest, conflict, isCrudHttpError, isUniqueViolation
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../data/entities'
 import { isPriceKindInTenant } from '../../../../lib/priceKindScope'
 import { announceCustomerGroupTermsUpdated } from '../../../../lib/groupEvents'
 import {
+  assortmentScopeSchema,
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
   type CustomerGroupTermsCreateInput,
@@ -113,6 +115,7 @@ function serializeTerms(terms: CustomerGroupTerms) {
     creditCurrencyCode: terms.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumberOrNull(terms.approvalRequiredAbove),
     minOrderValue: toNumberOrNull(terms.minOrderValue),
+    assortmentScope: terms.assortmentScope ?? null,
     metadata: terms.metadata ?? null,
     createdAt: terms.createdAt.toISOString(),
     updatedAt: terms.updatedAt.toISOString(),
@@ -159,6 +162,7 @@ type CustomerGroupTermsEntityData = {
   creditCurrencyCode: string | null
   approvalRequiredAbove: string | null
   minOrderValue: string | null
+  assortmentScope: AssortmentScope | null
   metadata: Record<string, unknown> | null
 }
 
@@ -174,6 +178,7 @@ function toEntityData(input: CustomerGroupTermsCreateInput): CustomerGroupTermsE
     creditCurrencyCode: input.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumericString(input.approvalRequiredAbove),
     minOrderValue: toNumericString(input.minOrderValue),
+    assortmentScope: input.assortmentScope ?? null,
     metadata: input.metadata ?? null,
   }
 }
@@ -193,6 +198,7 @@ function applyTermsUpdate(entity: CustomerGroupTerms, input: CustomerGroupTermsU
   if (hasOwn(input, 'creditCurrencyCode')) entity.creditCurrencyCode = input.creditCurrencyCode ?? null
   if (hasOwn(input, 'approvalRequiredAbove')) entity.approvalRequiredAbove = toNumericString(input.approvalRequiredAbove)
   if (hasOwn(input, 'minOrderValue')) entity.minOrderValue = toNumericString(input.minOrderValue)
+  if (hasOwn(input, 'assortmentScope')) entity.assortmentScope = input.assortmentScope ?? null
   if (hasOwn(input, 'metadata')) entity.metadata = input.metadata ?? null
 }
 
@@ -314,6 +320,7 @@ const termsItemSchema = z.object({
   creditCurrencyCode: z.string().nullable(),
   approvalRequiredAbove: z.number().nullable(),
   minOrderValue: z.number().nullable(),
+  assortmentScope: assortmentScopeSchema,
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
