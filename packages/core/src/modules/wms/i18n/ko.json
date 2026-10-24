@@ -985,6 +985,7 @@
   "wms.errors.forbidden.manageZones": "창고 구역을 관리할 권한이 없습니다.",
   "wms.errors.forbidden.receiveInventory": "인바운드 재고를 받을 권한이 없습니다.",
   "wms.errors.internalServerError": "내부 서버 오류",
+  "wms.errors.salesOrder.reRunReservationCancelled": "취소된 주문에는 재고 예약을 둘 수 없습니다.",
   "wms.errors.unauthorized": "승인되지 않은",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "재고 부족 경고 — 사용 가능: {availableQuantity}, 재주문 지점: {reorderPoint}, 안전 재고: {safetyStock}",
