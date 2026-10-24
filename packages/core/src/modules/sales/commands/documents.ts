@@ -3033,7 +3033,7 @@ function mapQuoteAdjustmentToDraft(
   };
 }
 
-async function emitTotalsCalculated(
+export async function emitTotalsCalculated(
   eventBus: EventBus | null | undefined,
   payload: {
     documentKind: SalesDocumentKind;
@@ -3046,7 +3046,13 @@ async function emitTotalsCalculated(
   },
 ): Promise<void> {
   if (!eventBus) return;
-  await eventBus.emitEvent("sales.document.totals.calculated", payload);
+  // Trusted scope (#7174): pass the document's own tenantId/organizationId as EmitOptions, not
+  // just in the payload. Subscribers (e.g. outbound webhook dispatch) read ctx.tenantId, which
+  // the bus populates from options — never from payload — for a non-broadcast event like this.
+  await eventBus.emitEvent("sales.document.totals.calculated", payload, {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  });
 }
 
 function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
