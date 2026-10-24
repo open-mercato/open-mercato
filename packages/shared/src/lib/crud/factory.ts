@@ -1697,11 +1697,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       // query engine/ORM fallback add no tenant/org predicate of their own for them — so
       // dropping to `{}` here would leak every tenant's rows (#7806). Re-run `buildFilters`
       // with an empty query so only its scope branches apply, not the caller's UI filters.
-      const resolveFullExportBaseFilters = async (): Promise<Where<any>> => {
+      const resolveFullExportBaseFilters = async () => {
         if (opts.list?.omitAutomaticTenantOrgScope && opts.list.buildFilters) {
-          return (await opts.list.buildFilters({} as any, ctx)) as Where<any>
+          return opts.list.buildFilters({} as TList, ctx)
         }
-        return {} as Where<any>
+        return {} as Where<Record<string, unknown>>
       }
 
       const cacheEnabled =
