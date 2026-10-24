@@ -11,6 +11,7 @@ import {
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -20,6 +21,7 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { ResourcesResourceActivity } from '../data/entities'
 import {
@@ -189,10 +191,30 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
     const activityId = logEntry?.resourceId ?? null
     if (!activityId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(ResourcesResourceActivity, { id: activityId })
+    const existing = await findOneWithDecryption(em, ResourcesResourceActivity, {
+      id: activityId,
+      ...(ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId } : {}),
+      ...(ctx.selectedOrganizationId ? { organizationId: ctx.selectedOrganizationId } : {}),
+    }, undefined, { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null })
     if (existing) {
-      em.remove(existing)
+      ensureTenantScope(ctx, existing.tenantId)
+      ensureOrganizationScope(ctx, existing.organizationId)
+      existing.deletedAt = new Date()
       await em.flush()
+
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: existing,
+        identifiers: {
+          id: existing.id,
+          organizationId: existing.organizationId,
+          tenantId: existing.tenantId,
+        },
+        events: resourcesResourceActivityCrudEvents,
+        indexer: activityCrudIndexer,
+      })
     }
   },
   redo: async ({ logEntry, ctx }) => {
@@ -200,36 +222,50 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
     if (!after) {
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for activity create' })
     }
+    const activitySnapshot = reviveSnapshotDates(after.activity, ['occurredAt'])
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const resource = await requireResource(em, after.activity.resourceId, 'Resource not found')
-    let activity = await em.findOne(ResourcesResourceActivity, { id: after.activity.id })
+    ensureTenantScope(ctx, activitySnapshot.tenantId)
+    ensureOrganizationScope(ctx, activitySnapshot.organizationId)
+    const resource = await requireResource(em, activitySnapshot.resourceId, 'Resource not found')
+    ensureTenantScope(ctx, resource.tenantId)
+    ensureOrganizationScope(ctx, resource.organizationId)
+    let activity = await findOneWithDecryption(em, ResourcesResourceActivity, {
+      id: activitySnapshot.id,
+      tenantId: activitySnapshot.tenantId,
+      organizationId: activitySnapshot.organizationId,
+    }, undefined, { tenantId: activitySnapshot.tenantId, organizationId: activitySnapshot.organizationId })
+    if (activity) {
+      ensureTenantScope(ctx, activity.tenantId)
+      ensureOrganizationScope(ctx, activity.organizationId)
+    }
     if (!activity) {
       activity = em.create(ResourcesResourceActivity, {
-        id: after.activity.id,
-        organizationId: after.activity.organizationId,
-        tenantId: after.activity.tenantId,
+        id: activitySnapshot.id,
+        organizationId: activitySnapshot.organizationId,
+        tenantId: activitySnapshot.tenantId,
         resource,
-        activityType: after.activity.activityType,
-        subject: after.activity.subject,
-        body: after.activity.body,
-        occurredAt: after.activity.occurredAt,
-        authorUserId: after.activity.authorUserId,
-        appearanceIcon: after.activity.appearanceIcon,
-        appearanceColor: after.activity.appearanceColor,
+        activityType: activitySnapshot.activityType,
+        subject: activitySnapshot.subject,
+        body: activitySnapshot.body,
+        occurredAt: activitySnapshot.occurredAt,
+        authorUserId: activitySnapshot.authorUserId,
+        appearanceIcon: activitySnapshot.appearanceIcon,
+        appearanceColor: activitySnapshot.appearanceColor,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
       em.persist(activity)
     } else {
       activity.resource = resource
-      activity.activityType = after.activity.activityType
-      activity.subject = after.activity.subject
-      activity.body = after.activity.body
-      activity.occurredAt = after.activity.occurredAt
-      activity.authorUserId = after.activity.authorUserId
-      activity.appearanceIcon = after.activity.appearanceIcon
-      activity.appearanceColor = after.activity.appearanceColor
+      activity.activityType = activitySnapshot.activityType
+      activity.subject = activitySnapshot.subject
+      activity.body = activitySnapshot.body
+      activity.occurredAt = activitySnapshot.occurredAt
+      activity.authorUserId = activitySnapshot.authorUserId
+      activity.appearanceIcon = activitySnapshot.appearanceIcon
+      activity.appearanceColor = activitySnapshot.appearanceColor
     }
+    activity.deletedAt = null
     await em.flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
