@@ -1155,19 +1155,30 @@ async function applyDocumentUpdate({
   }
 
   if (input.customerEntityId !== undefined) {
-    entity.customerEntityId = input.customerEntityId ?? null;
+    const nextCustomerEntityId = input.customerEntityId ?? null;
+    const customerChanged =
+      nextCustomerEntityId !== (entity.customerEntityId ?? null);
+    const snapshotContactId =
+      input.customerContactId !== undefined
+        ? input.customerContactId
+        : customerChanged
+          ? null
+          : entity.customerContactId ?? null;
+    entity.customerEntityId = nextCustomerEntityId;
     entity.customerSnapshot = await resolveCustomerSnapshot(
       em,
       organizationId,
       tenantId,
-      input.customerEntityId,
-      input.customerContactId ?? entity.customerContactId ?? null,
+      nextCustomerEntityId,
+      snapshotContactId,
     );
-    entity.customerContactId = input.customerContactId ?? null;
-    entity.billingAddressId = null;
-    entity.shippingAddressId = null;
-    entity.billingAddressSnapshot = null;
-    entity.shippingAddressSnapshot = null;
+    if (customerChanged) {
+      entity.customerContactId = input.customerContactId ?? null;
+      entity.billingAddressId = null;
+      entity.shippingAddressId = null;
+      entity.billingAddressSnapshot = null;
+      entity.shippingAddressSnapshot = null;
+    }
   }
   if (input.customerContactId !== undefined) {
     entity.customerContactId = input.customerContactId ?? null;
