@@ -955,18 +955,25 @@ async function emitOrderLifecycleEvent(input: {
   order: SalesOrder;
   previousStatus: string | null;
 }): Promise<void> {
-  await emitSalesEvent(input.eventId, {
-    id: input.order.id,
-    orderId: input.order.id,
-    orderNumber: input.order.orderNumber,
-    previousStatus: input.previousStatus,
-    status: normalizeStatusValue(input.order.status),
-    tenantId: input.order.tenantId,
-    organizationId: input.order.organizationId,
-  });
+  await emitSalesEvent(
+    input.eventId,
+    {
+      id: input.order.id,
+      orderId: input.order.id,
+      orderNumber: input.order.orderNumber,
+      previousStatus: input.previousStatus,
+      status: normalizeStatusValue(input.order.status),
+      tenantId: input.order.tenantId,
+      organizationId: input.order.organizationId,
+    },
+    {
+      tenantId: input.order.tenantId,
+      organizationId: input.order.organizationId,
+    },
+  );
 }
 
-function emitOrderLifecycleEventsForTransition(input: {
+export function emitOrderLifecycleEventsForTransition(input: {
   order: SalesOrder;
   previousStatus: string | null;
 }): void {
