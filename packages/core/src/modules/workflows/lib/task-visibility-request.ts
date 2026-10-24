@@ -62,6 +62,7 @@ import {
   WORKFLOWS_TASKS_VIEW_ALL_FEATURE,
   type BackofficeTaskPrincipal,
   type TaskAffordances,
+  type TaskCompletionGuardSummary,
   type TaskEntityAccessMap,
   type TaskEntityBindingFact,
   type TaskFacts,
@@ -383,8 +384,14 @@ export function resolveTaskAffordancesForRequest(
   task: UserTask,
   decision: TaskVisibilityDecision,
   options: TaskFactsOptions = {},
+  completionBlock: TaskCompletionGuardSummary | null = null,
 ): TaskAffordances {
-  return resolveTaskAffordances(context.principal, toTaskFacts(task, options), decision)
+  return resolveTaskAffordances(
+    context.principal,
+    toTaskFacts(task, options),
+    decision,
+    completionBlock,
+  )
 }
 
 /**

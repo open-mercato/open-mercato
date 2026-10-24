@@ -23,6 +23,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { UserTask } from '../../../../../data/entities'
 import { serializeUserTask } from '../../../../tasks/serialize'
 import type { TaskHandlerService } from '../../../../../lib/task-handler'
+import { isTaskCompletionBlockedError } from '../../../../../lib/task-completion-guards'
 import {
   decidePortalTaskAccess,
   PORTAL_TASK_REFUSAL,
@@ -118,6 +119,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       task: updated ? serializeUserTask(updated) : null,
     })
   } catch (error) {
+    // The caller is the assignee (the predicate admitted them as `actable`), so
+    // naming the host precondition discloses nothing the read did not.
+    if (isTaskCompletionBlockedError(error)) {
+      return NextResponse.json({ ok: false, ...error.body }, { status: error.status })
+    }
     const code = (error as { code?: unknown }).code
     if (code === 'UNKNOWN_DECISION' || code === 'FORM_VALIDATION_FAILED') {
       return NextResponse.json(
@@ -153,6 +159,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Authentication required', schema: portalTaskErrorSchema },
         { status: 403, description: 'Insufficient permissions or no company association', schema: portalTaskErrorSchema },
         { status: 404, description: 'Task not found or not actionable by this principal', schema: portalTaskErrorSchema },
+        { status: 409, description: 'A registered completion guard vetoed the completion; the body carries the guard code, guardId and messageKey', schema: portalTaskErrorSchema },
         { status: 500, description: 'Internal server error', schema: portalTaskErrorSchema },
       ],
     },

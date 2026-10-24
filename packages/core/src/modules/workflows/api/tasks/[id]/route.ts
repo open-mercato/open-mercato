@@ -15,6 +15,7 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { UserTask } from '../../../data/entities'
 import { serializeUserTask } from '../serialize'
 import { loadTaskDecisionContext } from '../../../lib/task-decision-context'
+import { evaluateTaskCompletionGuards } from '../../../lib/task-completion-guards'
 import {
   workflowsTag,
   userTaskDetailResponseSchema,
@@ -106,7 +107,24 @@ export async function GET(
     // The predicate already answered "may this caller act on this row" above.
     // Sending it is what stops the page offering a Complete button that 409s for
     // an administrator, and what lets it name the remedy (reassignment) instead.
-    const affordances = resolveTaskAffordancesForRequest(visibility, task, decision)
+    //
+    // Host completion guards are consulted only when visibility would let this
+    // caller complete, in `preview` mode on a never-flushed fork — reading the
+    // page must not change the task.
+    const completionBlock =
+      decision.visible && decision.actable
+        ? await evaluateTaskCompletionGuards(em, container, task, {
+            mode: 'preview',
+            userId: auth.sub,
+          })
+        : null
+    const affordances = resolveTaskAffordancesForRequest(
+      visibility,
+      task,
+      decision,
+      {},
+      completionBlock,
+    )
 
     return NextResponse.json({
       data: {

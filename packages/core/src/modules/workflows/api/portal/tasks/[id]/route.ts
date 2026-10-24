@@ -22,6 +22,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { UserTask } from '../../../../data/entities'
 import { serializeUserTask } from '../../../tasks/serialize'
 import { loadTaskDecisionContext } from '../../../../lib/task-decision-context'
+import { evaluateTaskCompletionGuards } from '../../../../lib/task-completion-guards'
 import {
   decidePortalTaskAccess,
   PORTAL_TASK_REFUSAL,
@@ -84,6 +85,15 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     // author wrote, or a portal completion silently takes the default route.
     const { decisions, formKey } = await loadTaskDecisionContext(em, task)
 
+    // Host completion guards close the form for the assignee too, evaluated in
+    // `preview` mode so reading the page never changes the task.
+    const completionBlock = decision.actable
+      ? await evaluateTaskCompletionGuards(em, container, task, {
+          mode: 'preview',
+          userId: auth.sub,
+        })
+      : null
+
     const body: z.infer<typeof portalTaskDetailResponseSchema> = {
       ok: true,
       task: serializeUserTask(task),
@@ -92,7 +102,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       // What the UI needs to decide whether to render the completion form at
       // all. A portal admin reading a member's task gets `false` — they see the
       // work, they never finish it.
-      canComplete: decision.actable,
+      canComplete: decision.actable && !completionBlock,
+      completionGuard: completionBlock
+        ? {
+            guardId: completionBlock.guardId,
+            code: completionBlock.code,
+            messageKey: completionBlock.messageKey,
+          }
+        : null,
     }
 
     return NextResponse.json(body)

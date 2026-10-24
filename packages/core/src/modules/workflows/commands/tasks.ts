@@ -27,7 +27,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { UserTask } from '../data/entities'
 import { loadTaskDecisionContext } from '../lib/task-decision-context'
+import { isTaskCompletionBlockedError } from '../lib/task-completion-guards'
 import type { TaskHandlerService } from '../lib/task-handler'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const WORKFLOWS_TASK_COMPLETE_COMMAND_ID = 'workflows.tasks.complete'
 
@@ -120,14 +122,23 @@ const completeUserTaskCommand: CommandHandler<
     const decisionId = decisions[0]?.id ?? null
 
     const taskHandler = container.resolve('taskHandler') as TaskHandlerService
-    await taskHandler.completeUserTask(em, container, {
-      taskId: task.id,
-      formData: {},
-      userId,
-      comments: parsed.comments,
-      ...(decisionId ? { decisionId } : {}),
-      scope,
-    })
+    try {
+      await taskHandler.completeUserTask(em, container, {
+        taskId: task.id,
+        formData: {},
+        userId,
+        comments: parsed.comments,
+        ...(decisionId ? { decisionId } : {}),
+        scope,
+      })
+    } catch (error) {
+      // A completion-guard veto reaches the notification action route as the
+      // same 409 body the HTTP complete route answers.
+      if (isTaskCompletionBlockedError(error)) {
+        throw new CrudHttpError(error.status, error.body, { cause: error })
+      }
+      throw error
+    }
 
     return { taskId: task.id, decisionId }
   },

@@ -18,6 +18,8 @@ import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import completeUserTaskCommand, {
   WORKFLOWS_TASK_COMPLETE_COMMAND_ID,
 } from '../tasks'
+import { TaskCompletionBlockedError } from '../../lib/task-handler'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
@@ -148,6 +150,38 @@ describe('workflows.tasks.complete', () => {
       /already completed/
     )
     expect(mockCompleteUserTask).not.toHaveBeenCalled()
+  })
+
+  test('a completion-guard veto surfaces as the same 409 body the HTTP route answers', async () => {
+    mockCompleteUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: null,
+      }) as never
+    )
+
+    const failure = await completeUserTaskCommand
+      .execute({ id: taskId }, ctx as never)
+      .catch((error: unknown) => error)
+
+    expect(isCrudHttpError(failure)).toBe(true)
+    expect(failure).toMatchObject({
+      status: 409,
+      body: {
+        code: 'CONTRACT_NOT_SIGNED',
+        guardId: 'host.signed-contract',
+        messageKey: 'host.tasks.contractNotSigned',
+      },
+    })
+  })
+
+  test('other handler failures propagate unchanged', async () => {
+    const boom = new Error('boom')
+    mockCompleteUserTask.mockRejectedValue(boom as never)
+
+    await expect(completeUserTaskCommand.execute({ id: taskId }, ctx as never)).rejects.toBe(boom)
   })
 
   test('ignores unrelated keys the notification service spreads into the input', async () => {
