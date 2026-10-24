@@ -259,7 +259,6 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
     const textPart = encodeBodyPart(input.text)
     const htmlPart = encodeBodyPart(input.html)
     const body = [
-      '',
       `--${boundary}`,
       'Content-Type: text/plain; charset=utf-8',
       `Content-Transfer-Encoding: ${textPart.cte}`,
@@ -273,7 +272,7 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
       `--${boundary}--`,
       '',
     ].join('\r\n')
-    return Buffer.from(headers.join('\r\n') + body, 'utf-8')
+    return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + body, 'utf-8')
   }
 
   if (input.html) {
