@@ -150,7 +150,7 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
         const an = nodes.get(a)!.org.name.toLowerCase()
         const bn = nodes.get(b)!.org.name.toLowerCase()
         if (an === bn) return a.localeCompare(b)
-        return an.localeCompare(b)
+        return an.localeCompare(bn)
       })
 
     const descendantIds: string[] = []

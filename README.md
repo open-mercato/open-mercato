@@ -197,7 +197,7 @@ yarn test:integration:ephemeral     # integration tests, needs Docker
 
 - [ ] **Roast batches** is in the admin menu with a list and a detail page
 - [ ] its REST API appears under `/backend/docs` (served from `/api/docs/openapi`) and is guarded by the new permissions
-- [ ] the full check above exits 0 (about 45 minutes in the Kaldi run, from approved spec to green module tests, including the restart above). In a fresh 0.8.0 app `yarn typecheck` reports errors in `src/modules/agent_examples`, which are not yours (fixed on `develop`, waiting for the next `create-mercato-app` release, see [#6321](https://github.com/open-mercato/open-mercato/issues/6321)); the module tests and build still pass
+- [ ] the full check above exits 0 (about 45 minutes in the Kaldi run, from approved spec to green module tests, including the restart above). In a fresh 0.8.0 app `yarn typecheck` reports errors in `src/modules/agent_examples`, which are not yours (fixed on `main`, waiting for the next `create-mercato-app` release, see [#6321](https://github.com/open-mercato/open-mercato/issues/6321)); the module tests and build still pass
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="./.github/readme/kaldi-batches-dark.png" /><img src="./.github/readme/kaldi-batches-light.png" alt="Roast batches admin page in Open Mercato, the module the agent built for Kaldi & Co." width="100%" /></picture>
 
@@ -246,7 +246,7 @@ Only core contributors clone this repository. To build a product, use `npx creat
 **Run** (plan for about 20 GB of disk and 16 GB of RAM):
 
 ```bash
-git clone https://github.com/open-mercato/open-mercato.git && cd open-mercato && git checkout develop
+git clone https://github.com/open-mercato/open-mercato.git && cd open-mercato
 npx @open-mercato/starter    # or `yarn om` inside the clone; manual steps are in CONTRIBUTING.md
 yarn install-skills          # optional: this repo's local skills plus the shared collection
 ```
@@ -254,7 +254,7 @@ yarn install-skills          # optional: this repo's local skills plus the share
 **Done when**
 
 - [ ] `http://localhost:3000/backend` answers from the clone
-- [ ] your branch starts from `develop` and your pull request targets `develop`
+- [ ] your branch starts from `main` and your pull request targets `main`
 
 Manual setup, multiple local instances, watch scope, release channels, package previews and the spec process live in [CONTRIBUTING.md](CONTRIBUTING.md). Cezar works in the clone too: `npx cezar-run`.
 
@@ -299,7 +299,7 @@ Manual setup, multiple local instances, watch scope, release channels, package p
 ## Community and support
 
 - **Discord:** talk to the team and other builders on the [Open Mercato Discord](https://discord.gg/f4qwPtJ3qA).
-- **Contributing:** contributions of all sizes are welcome, from fixes and docs to new modules. Read [CONTRIBUTING.md](CONTRIBUTING.md), open pull requests against the `develop` branch, and use [Issues](https://github.com/open-mercato/open-mercato/issues) or [Discussions](https://github.com/open-mercato/open-mercato/discussions). Refer to [AGENTS.md](AGENTS.md) for deeper guidance on architecture and conventions when extending modules.
+- **Contributing:** contributions of all sizes are welcome, from fixes and docs to new modules. Read [CONTRIBUTING.md](CONTRIBUTING.md), open pull requests against the `main` branch, and use [Issues](https://github.com/open-mercato/open-mercato/issues) or [Discussions](https://github.com/open-mercato/open-mercato/discussions). Refer to [AGENTS.md](AGENTS.md) for deeper guidance on architecture and conventions when extending modules.
 - **Hall of Fame:** meet the [Open Mercato Agentic Hackathon champions](COMMUNITY.md#hall-of-fame).
 - **Planning a project?** Do not go it alone: write to [info@openmercato.com](mailto:info@openmercato.com) and we will connect you with one of our **Certified Partner Agencies**. Our Partnership Program certifies software consultancies that actively use and contribute to Open Mercato.
 
