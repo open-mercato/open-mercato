@@ -15,7 +15,7 @@
 
 import { flattenTaskText } from './task-resolution'
 import type {
-  TaskDeadline,
+  TaskDeadlineSpec,
   TaskDecision,
   TaskEntityBinding,
   TaskLocalizedString,
@@ -315,7 +315,7 @@ export function newEntityBindingDraft(): TaskEntityBindingDraft {
 }
 
 export interface TaskDeadlinePersistence {
-  deadline?: TaskDeadline
+  deadline?: TaskDeadlineSpec
   slaDuration?: string
 }
 
@@ -328,21 +328,31 @@ export interface TaskDeadlinePersistence {
  * one to the other: a definition authored before this section keeps saving the
  * shape an older engine can read, and a definition that already declares a
  * `deadline` keeps it.
+ *
+ * The control edits a DURATION only, so an absolute `deadline.at` (authored in
+ * the Code view) opens as an empty control and survives a save untouched —
+ * typing a duration over it is the author deliberately switching forms.
  */
 export function resolveTaskDeadlinePersistence(
   config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>,
   edited: string,
 ): TaskDeadlinePersistence {
   const duration = edited.trim()
-  if (!duration) return {}
+  if (!duration) {
+    return config.deadline?.at ? { deadline: config.deadline } : {}
+  }
   if (config.deadline) {
     return { deadline: config.deadline.duration === duration ? config.deadline : { duration } }
   }
   return { slaDuration: duration }
 }
 
-/** The duration the deadline control opens with, whichever key carries it. */
+/**
+ * The duration the deadline control opens with, whichever key carries it —
+ * empty for an absolute `deadline.at`, which supersedes any `slaDuration`.
+ */
 export function readTaskDeadlineDraft(config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>): string {
+  if (config.deadline?.at) return ''
   const duration = config.deadline?.duration ?? config.slaDuration
   return typeof duration === 'string' ? duration : ''
 }

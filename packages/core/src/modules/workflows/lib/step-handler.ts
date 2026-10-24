@@ -42,10 +42,11 @@ import {
   collectResolvedEntityTypes,
   flattenTaskText,
   resolveTaskAssignment,
-  resolveTaskDeadlineDuration,
+  resolveTaskDeadline,
   resolveTaskDecisions,
   resolveTaskEntityBindings,
   resolveTaskText,
+  type ResolvedTaskDeadline,
   type TaskInterpolate,
 } from './task-resolution'
 import { scheduleUserTaskSla } from './task-sla'
@@ -815,19 +816,30 @@ async function handleAutomatedStep(
 }
 
 /**
- * Resolve a user task's deadline from its authored duration.
+ * Resolve a user task's deadline — an authored duration anchored to now, or an
+ * absolute `deadline.at` already resolved against the run context.
  *
- * An unparseable duration fails the step with an actionable message instead of
- * quietly resolving to some default the author never asked for.
+ * Either one that does not parse fails the step with an actionable message
+ * instead of quietly resolving to some default the author never asked for.
  */
-function resolveUserTaskDeadline(stepId: string, slaDuration: string): Date {
+function resolveUserTaskDeadline(stepId: string, deadline: ResolvedTaskDeadline): Date {
+  if (deadline.kind === 'at') {
+    if (deadline.dueDate) return deadline.dueDate
+    const rendered = deadline.resolved instanceof Date ? deadline.resolved.toISOString() : String(deadline.resolved)
+    const resolved = rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
+    throw new StepExecutionError(
+      `Invalid user task deadline "at": "${deadline.authored}" resolved to "${resolved}", which is not an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z`,
+      'INVALID_USER_TASK_DEADLINE',
+      { stepId, deadlineAt: deadline.authored, resolved }
+    )
+  }
   try {
-    return calculateDueDate(slaDuration)
+    return calculateDueDate(deadline.duration)
   } catch (error) {
     throw new StepExecutionError(
-      `Invalid user task deadline "${slaDuration}": ${error instanceof Error ? error.message : String(error)}`,
+      `Invalid user task deadline "${deadline.duration}": ${error instanceof Error ? error.message : String(error)}`,
       'INVALID_USER_TASK_DEADLINE',
-      { stepId, slaDuration }
+      { stepId, slaDuration: deadline.duration }
     )
   }
 }
@@ -969,7 +981,8 @@ async function handleUserTaskStep(
   const taskName = String(interpolate(stepDef.stepName) ?? stepDef.stepName)
   const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
   const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
-  const deadlineDuration = resolveTaskDeadlineDuration(userTaskConfig)
+  const deadline = resolveTaskDeadline(userTaskConfig, interpolate)
+  const dueDate = deadline ? resolveUserTaskDeadline(stepDef.stepId, deadline) : null
 
   // Create user task
   const now = new Date()
@@ -995,7 +1008,8 @@ async function handleUserTaskStep(
         assigneeKind: assignment.assigneeKind,
         ...(bindings.length ? { entityBindings: bindings } : {}),
         ...(decisions.length ? { decisions } : {}),
-        ...(deadlineDuration ? { deadlineDuration } : {}),
+        ...(deadline?.kind === 'duration' ? { deadlineDuration: deadline.duration } : {}),
+        ...(deadline?.kind === 'at' && dueDate ? { deadlineAt: dueDate.toISOString() } : {}),
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
@@ -1038,9 +1052,7 @@ async function handleUserTaskStep(
     // Null for a task about nothing, which is what the vacuous-pass rule reads.
     entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
     priority: userTaskConfig.priority ?? null,
-    dueDate: deadlineDuration
-      ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
-      : null,
+    dueDate,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
     createdAt: now,
