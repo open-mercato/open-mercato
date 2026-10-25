@@ -43,7 +43,7 @@ yarn workspace @open-mercato/core build
 ```
 packages/core/src/modules/integrations/
 ├── index.ts                     # Module metadata
-├── di.ts                        # DI registrations (4 services)
+├── di.ts                        # DI registrations (5 services)
 ├── acl.ts                       # Features: view, manage, credentials.manage
 ├── setup.ts                     # Default role features
 ├── events.ts                    # 4 typed events
@@ -92,9 +92,10 @@ packages/core/src/modules/integrations/
 
 | Service Name | Factory | Purpose |
 |---|---|---|
-| `integrationCredentialsService` | `createCredentialsService(em)` | Encrypted credential CRUD with bundle fallthrough |
+| `integrationCredentialsService` | `createCredentialsService(em, tenantEncryptionService)` | Encrypted credential CRUD with bundle fallthrough |
 | `integrationStateService` | `createIntegrationStateService(em)` | Upsert integration state (enabled, version, health, reauth) |
 | `integrationLogService` | `createIntegrationLogService(em)` | Structured logging: write, query, prune, scoped logger |
+| `integrationOAuthGrantService` | `createIntegrationOAuthGrantService` (`@internal`; always resolve from DI) | Tenant-level OAuth2 grants: connect, token refresh under a cross-process lock, inspection, disconnect |
 | `integrationHealthService` | `createHealthService(container, stateService, logService)` | Resolves named health check service from DI, runs check with **10s timeout**, returns `unconfigured` when no checker/credentials, persists latency, updates state |
 
 Scheduled **integration-health-probe** jobs (15m interval) are registered from `setup.seedDefaults` when `schedulerService` is available; target payload is `{ scope: { organizationId, tenantId } }`.
@@ -130,8 +131,12 @@ For platform connectors with multiple integrations (e.g., MedusaJS):
 ## Credential Resolution Order
 
 1. Direct credentials for the integration ID
-2. If `bundleId` is set, fallback to bundle's credentials
+2. If `bundleId` is set, fallback to bundle's credentials — except a `bundleId` ending in `__oauth_grant`, which is never followed
 3. Return `null` if neither exists
+
+## OAuth2 Grants
+
+Providers needing delegated OAuth2 access build on the public `lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}` helpers, `lib/oauth/testing/fakeAuthorizationServer` and the DI `integrationOAuthGrantService` (the other `lib/oauth` files are `@internal`); contract, route rules and tests: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`. The `__oauth_grant` id suffix is reserved for grant rows: no integration or bundle id may end in it, the credentials route answers 404 for it, and only the grant service writes those rows.
 
 ## Per-User Credential Scoping
 

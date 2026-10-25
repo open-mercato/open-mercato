@@ -51,6 +51,6 @@ Finalization must preserve subscriber result items and unrelated metadata, and m
 - Red: four development fallback cases failed on the absent `ciphertextSearchWarnings` before the fix.
 - Green: complete Hybrid suite, 87 tests; shared Basic engine, warning helper, and extension runner suites, 100 tests.
 - Lessons catalog check and five focused validator tests passed; `git diff --check` passed.
-- Fresh `main` at `774c64847` merged cleanly in `git merge-tree --write-tree`; no base merge was needed.
+- Fresh `main` at `774c64847` initially merged cleanly. Adding the focused lesson then conflicted with its updated catalog count, so main was merged and all 154 lesson records were retained with the correct declaration.
 - Existing-head CI had 24 successful and five explicitly skipped checks. New-head CI is reported separately and is not inferred from those results.
 - Follow-up review found no additional contract, query-semantics, data-scope, production-payload, or privacy change. Independent human review and QA remain pending.
