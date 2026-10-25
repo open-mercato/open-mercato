@@ -67,8 +67,9 @@ ${pc.bold('Options:')}
                      Install experimental gate-evidence/typecheck validator hooks
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
   --modules <list>   Plan modules from the Open Mercato Modules catalog (comma-separated
-                     module ids or npm names verified on this version); writes
-                     .mercato/catalog-selection.json and prints their install commands
+                     module ids, npm names or <npm name>:<module id>, verified on this
+                     version); writes .mercato/catalog-selection.json and prints their
+                     install commands
   --module-picker    Pick catalog modules interactively (off by default; needs a terminal)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)

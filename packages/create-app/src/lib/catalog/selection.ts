@@ -10,11 +10,12 @@ export type CatalogSelection = {
   selected: SelectedModule[]
   unknown: string[]
   /**
-   * Requests and requirements several catalog modules match. `pass` says what tells them apart: the module id for
-   * modules of one package, the npm name for packages that share a module id. `requiredBy` names the module whose
+   * Requests and requirements several catalog modules match, none of them planned. `candidates` names each match
+   * (`<id> from <npm name>` when packages share the module id), and `picks` holds, in the same order, a `--modules`
+   * item that matches that module alone, so following the advice always ends. `requiredBy` names the module whose
    * `requires` entry is ambiguous.
    */
-  ambiguous: { request: string; candidates: string[]; pass: 'module id' | 'npm name'; requiredBy?: string }[]
+  ambiguous: { request: string; candidates: string[]; picks: string[]; requiredBy?: string }[]
   unmetRequires: { id: string; requires: string }[]
 }
 
@@ -30,9 +31,16 @@ const sameName = (left: string, right: string) => left.trim().toLowerCase() === 
 
 const moduleKey = (entry: CatalogModule) => `${entry.from}#${entry.id}`
 
-/** Modules matching a `--modules` item by ID, npm name or locator (`npm:<name>`). */
+/**
+ * Modules matching a `--modules` item by ID, npm name, locator (`npm:<name>`) or `<npm name>:<module id>`, the form
+ * that picks one module of a package with several when another package publishes the same module id.
+ */
 export function findCatalogModules(request: string, modules: readonly CatalogModule[]): CatalogModule[] {
   const name = request.replace(/^npm:/i, '')
+  const qualified = /^(.+):([a-z][a-z0-9_]*)$/i.exec(name.trim())
+  if (qualified && modules.some((entry) => sameName(entry.from, qualified[1] as string))) {
+    return modules.filter((entry) => sameName(entry.from, qualified[1] as string) && sameName(entry.id, qualified[2] as string))
+  }
   const byId = modules.filter((entry) => sameName(entry.id, name))
   if (byId.length > 0) return byId
   return modules.filter((entry) => sameName(entry.from, name) || sameName(entry.locator, request))
@@ -57,11 +65,19 @@ export function resolveCatalogSelection(
   const addTarget = (entry: CatalogModule) => {
     if (!targets.some((target) => moduleKey(target) === moduleKey(entry))) targets.push(entry)
   }
+  const matchesOnly = (pick: string, entry: CatalogModule) => {
+    const found = findCatalogModules(pick, selectable)
+    return found.length > 0 && found.every((other) => moduleKey(other) === moduleKey(entry))
+  }
+  // The shortest item that names this module alone: its id, its npm name, or `<npm name>:<id>`, which always does.
+  const pickFor = (entry: CatalogModule) =>
+    [entry.id, entry.from].find((pick) => matchesOnly(pick, entry)) ?? `${entry.from}:${entry.id}`
   const candidatesOf = (matches: readonly CatalogModule[]) => {
     const packages = new Set(matches.map((match) => match.from))
-    return packages.size > 1
-      ? { candidates: matches.map((match) => `${match.id} from ${match.from}`), pass: 'npm name' as const }
-      : { candidates: matches.map((match) => match.id), pass: 'module id' as const }
+    return {
+      candidates: matches.map((match) => (packages.size > 1 ? `${match.id} from ${match.from}` : match.id)),
+      picks: matches.map(pickFor),
+    }
   }
 
   for (const request of requests) {

@@ -184,12 +184,13 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
     }
   }
   for (const item of selection.ambiguous) {
+    const picks = item.picks.join(', ')
     if (item.requiredBy) {
       options.warn(
-        `${item.requiredBy} requires ${item.request}, which several catalog modules provide (${item.candidates.join(', ')}), so none is planned. Add the one you want to --modules by its npm name.`,
+        `${item.requiredBy} requires ${item.request}, which several catalog modules provide (${item.candidates.join(', ')}), so none is planned. Add the one you want to --modules as one of: ${picks}.`,
       )
     } else {
-      options.warn(`"${item.request}" matches several modules (${item.candidates.join(', ')}). Pass ${item.pass === 'npm name' ? 'the npm name' : 'a module id'} instead.`)
+      options.warn(`"${item.request}" matches several modules (${item.candidates.join(', ')}), so none is planned. Pass one of these to --modules instead: ${picks}.`)
     }
   }
   for (const item of selection.unmetRequires) {

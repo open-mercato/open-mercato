@@ -434,13 +434,96 @@ test('runCatalogStep reports a module id two packages share and resolves their n
   const byId = stepOptions({ requested: ['durable_work'], fetchImpl: shared })
   assert.deepEqual(await runCatalogStep(byId.options), { commands: [], selectionFile: null })
   assert.deepEqual(byId.warnings, [
-    '"durable_work" matches several modules (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work). Pass the npm name instead.',
+    '"durable_work" matches several modules (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work), so none is planned. Pass one of these to --modules instead: @fullstackhouse/open-mercato-durable-work, @publisher-b/work.',
   ])
   const byName = stepOptions({ requested: ['@publisher-b/work'], fetchImpl: shared })
   assert.deepEqual((await runCatalogStep(byName.options)).commands, [WORK_B])
   assert.deepEqual((await runCatalogStep(stepOptions({ requested: ['npm:@fullstackhouse/open-mercato-durable-work'], fetchImpl: shared }).options)).commands, [WORK_A])
   const enterprise = resolveCatalogSelection(['@open-mercato/enterprise'], index.modules.filter((entry) => entry.from === '@open-mercato/enterprise'), null)
-  assert.equal(enterprise.ambiguous[0]?.pass, 'module id', 'modules of one package are told apart by module id')
+  assert.deepEqual(enterprise.ambiguous[0]?.picks, ['agent_orchestrator', 'record_locks', 'security', 'sso', 'system_status_overlays'], 'modules of one package are told apart by module id')
+})
+
+/**
+ * Two community packages that publish durable_work, one of them with a second module: @publisher-a/work has
+ * durable_work and other_mod, @publisher-b/work has durable_work only.
+ */
+function fixtureWithSharedIdInMultiModulePackage(): Record<string, unknown> {
+  const body = fixture() as { modules: Record<string, unknown>[] }
+  const work = body.modules.find((entry) => entry.id === 'durable_work') as Record<string, unknown>
+  const publisher = (from: string, id: string, title: string) => {
+    const install = `yarn mercato module add ${from}@1.0.0 --module ${id} --allow-third-party`
+    return { ...work, id, from, locator: `npm:${from}`, title, install, installByLine: { '0.9': install } }
+  }
+  body.modules = body.modules.filter((entry) => entry !== work)
+  body.modules.push(
+    publisher('@publisher-a/work', 'durable_work', 'Durable Work A'),
+    publisher('@publisher-a/work', 'other_mod', 'Other Module A'),
+    publisher('@publisher-b/work', 'durable_work', 'Durable Work B'),
+  )
+  return body
+}
+
+test('runCatalogStep gives advice that ends when a shared module id lives in a package with several modules', async () => {
+  const shared = fakeFetch(['ok'], fixtureWithSharedIdInMultiModulePackage).fetchImpl
+  const A_WORK = 'yarn mercato module add @publisher-a/work@1.0.0 --module durable_work --allow-third-party'
+  const A_OTHER = 'yarn mercato module add @publisher-a/work@1.0.0 --module other_mod --allow-third-party'
+  const B_WORK = 'yarn mercato module add @publisher-b/work@1.0.0 --module durable_work --allow-third-party'
+  const run = async (requested: string[]) => {
+    const step = stepOptions({ requested, fetchImpl: shared })
+    return { ...(await runCatalogStep(step.options)), warnings: step.warnings }
+  }
+
+  const byId = await run(['durable_work'])
+  assert.deepEqual(byId.commands, [])
+  assert.deepEqual(byId.warnings, [
+    '"durable_work" matches several modules (durable_work from @publisher-a/work, durable_work from @publisher-b/work), so none is planned. Pass one of these to --modules instead: @publisher-a/work:durable_work, @publisher-b/work.',
+  ])
+  const byPackage = await run(['@publisher-a/work'])
+  assert.deepEqual(byPackage.commands, [])
+  assert.deepEqual(byPackage.warnings, [
+    '"@publisher-a/work" matches several modules (durable_work, other_mod), so none is planned. Pass one of these to --modules instead: @publisher-a/work:durable_work, other_mod.',
+  ])
+
+  // Following the advice from any ambiguous item plans exactly one module, so it never sends the user back.
+  const selectable = selectableModules(parsePickerIndex(fixtureWithSharedIdInMultiModulePackage()) as PickerIndex, '0.9')
+  const followed = new Set<string>()
+  const queue = ['durable_work', '@publisher-a/work', '@publisher-b/work']
+  const planned: Record<string, string[]> = {}
+  while (queue.length > 0) {
+    const request = queue.shift() as string
+    if (followed.has(request)) continue
+    followed.add(request)
+    assert.ok(followed.size <= 10, 'the advice keeps pointing at new items')
+    const selection = resolveCatalogSelection([request], selectable, null)
+    for (const item of selection.ambiguous) queue.push(...item.picks)
+    if (selection.ambiguous.length === 0) planned[request] = (await run([request])).commands
+  }
+  assert.deepEqual(planned, {
+    '@publisher-b/work': [B_WORK],
+    '@publisher-a/work:durable_work': [A_WORK],
+    other_mod: [A_OTHER],
+  })
+  assert.deepEqual((await run(['npm:@publisher-a/work:durable_work'])).commands, [A_WORK])
+  assert.deepEqual((await run(['@Publisher-A/work:DURABLE_WORK'])).commands, [A_WORK])
+  const missing = await run(['@publisher-a/work:nope'])
+  assert.deepEqual(missing.commands, [])
+  assert.equal(missing.warnings.length, 1)
+  assert.match(missing.warnings[0] as string, /^Not in the module catalog: @publisher-a\/work:nope\./)
+})
+
+test('runCatalogStep plans the package picked in the picker when a shared module id lives in a package with several modules', async () => {
+  const { options, logs, warnings } = stepOptions({
+    picker: true,
+    ask: async () => {
+      const row = logs.find((line) => line.includes('Durable Work A')) ?? ''
+      return /^\s*(\d+)\./.exec(row)?.[1] ?? ''
+    },
+    fetchImpl: fakeFetch(['ok'], fixtureWithSharedIdInMultiModulePackage).fetchImpl,
+  })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, ['yarn mercato module add @publisher-a/work@1.0.0 --module durable_work --allow-third-party'])
+  assert.ok(logs.some((line) => /durable_work +Durable Work A {2}\(@publisher-a\/work · third-party/.test(line)))
+  assert.deepEqual(warnings, [])
 })
 
 test('runCatalogStep plans a requirement two packages provide only from the package asked for', async () => {
@@ -449,7 +532,7 @@ test('runCatalogStep plans a requirement two packages provide only from the pack
   const alone = stepOptions({ requested: ['@fullstackhouse/open-mercato-data-sync-durable'], fetchImpl: shared })
   assert.deepEqual((await runCatalogStep(alone.options)).commands, [SYNC], 'neither provider is guessed')
   assert.deepEqual(alone.warnings, [
-    'data_sync requires durable_work, which several catalog modules provide (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work), so none is planned. Add the one you want to --modules by its npm name.',
+    'data_sync requires durable_work, which several catalog modules provide (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work), so none is planned. Add the one you want to --modules as one of: @fullstackhouse/open-mercato-durable-work, @publisher-b/work.',
   ])
   const chosen = stepOptions({ requested: ['@fullstackhouse/open-mercato-data-sync-durable', '@publisher-b/work'], fetchImpl: shared })
   assert.deepEqual((await runCatalogStep(chosen.options)).commands, [WORK_B, SYNC])

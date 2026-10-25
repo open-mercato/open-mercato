@@ -243,11 +243,16 @@ of `picker.json`; offline, Phase 2 keeps the preset unchanged.
 
 Phase 1 (`resolveCatalogSelection` in `src/lib/catalog/selection.ts`):
 
-- Matches a request by module ID first, then by npm name (`from`) or locator (`npm:` prefix optional).
-  A name that matches several module IDs (a multi-module package) is reported as ambiguous.
-  Two packages may publish the same module ID, so an ID that matches modules of several packages is also
-  reported as ambiguous, listing `<id> from <npm name>`; the npm name selects one. Picker choices are passed
-  as catalog entries and keep their package; the picker shows the npm name of rows that share a module ID.
+- Matches a request as `<npm name>:<module id>` (one module of one package), then by module ID, then by npm
+  name (`from`) or locator (`npm:` prefix optional). A name that matches several module IDs (a multi-module
+  package) is reported as ambiguous. Two packages may publish the same module ID, so an ID that matches modules
+  of several packages is also reported as ambiguous, listing `<id> from <npm name>`. An ambiguous request plans
+  nothing and its notice lists, per candidate, the shortest item that matches that module alone (its ID, its npm
+  name, or `<npm name>:<module id>`), so following the advice never leads back to another ambiguous item: with
+  `@publisher-a/work` publishing `durable_work` and `other_mod` and `@publisher-b/work` publishing
+  `durable_work`, `durable_work` points to `@publisher-a/work:durable_work` and `@publisher-b/work`, and
+  `@publisher-a/work` points to `@publisher-a/work:durable_work` and `other_mod`. Picker choices are passed as
+  catalog entries and keep their package; the picker shows the npm name of rows that share a module ID.
 - Walks `requires` of each picked module: a requirement that is a selectable catalog module is added first
   (`reason: 'required'`), so commands run deepest first; cycles are cut by a visited set. A requirement that
   modules of several packages satisfy is taken from the package the user asked for, and is otherwise reported
@@ -295,7 +300,7 @@ create-mercato-app my-app --preset crm --modules gateway_stripe,@fastwhitecat/in
 create-mercato-app my-app --module-picker
 ```
 
-- `--modules <list>`: comma-separated module IDs, npm names or locators; no prompt.
+- `--modules <list>`: comma-separated module IDs, npm names, locators or `<npm name>:<module id>`; no prompt.
 - `--module-picker`: interactive list on a TTY; without a TTY it is skipped with a notice (`--modules` still
   applies).
 - Both are rejected with `--app` / `--app-url` (imported ready apps keep their own module set).
@@ -397,7 +402,8 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 - `resolveCatalogSelection`: ID, npm name and locator matches; unknown and unverified requests; required
   catalog modules first; unmet core requirements against the preset; `classic` preset; a module ID two
   packages share (picking the second package plans its command, the bare ID is ambiguous, each npm name
-  resolves, a shared requirement comes only from the package asked for).
+  resolves, a shared requirement comes only from the package asked for; when one of the packages has several
+  modules, every suggested item plans exactly one module, and `<npm name>:<module id>` selects it).
 - `buildSelectionFile`: full file content.
 - `runCatalogStep`: `--modules` writes the plan and returns commands; offline and untested line return nothing
   with a notice and write no file; core IDs answered with `module enable`; interactive picker with license and
@@ -463,3 +469,6 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   `--module-picker` (default off). Core customization moved to Phase 2. Refs #3304.
 - 2026-10-25: Picks and requirements keep their package: a module ID that several packages publish is
   ambiguous until the npm name selects one, instead of resolving to the first package.
+- 2026-10-25: `<npm name>:<module id>` picks one module of a multi-module package whose module ID another
+  package also publishes; the ambiguity notice suggests, per candidate, an item that matches it alone, so the
+  advice can no longer send the user between the module ID and the npm name.
