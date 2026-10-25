@@ -23,6 +23,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { ResourcesResourceActivity } from '../data/entities'
 import {
   resourcesResourceActivityCreateSchema,
@@ -52,6 +53,7 @@ type ActivitySnapshot = {
     authorUserId: string | null
     appearanceIcon: string | null
     appearanceColor: string | null
+    createdAt?: Date
   }
   custom?: Record<string, unknown>
 }
@@ -87,6 +89,7 @@ async function loadActivitySnapshot(em: EntityManager, id: string): Promise<Acti
       authorUserId: activity.authorUserId ?? null,
       appearanceIcon: activity.appearanceIcon ?? null,
       appearanceColor: activity.appearanceColor ?? null,
+      createdAt: activity.createdAt,
     },
     custom,
   }
@@ -218,11 +221,12 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
     }
   },
   redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<ActivitySnapshot>(logEntry)
-    if (!after) {
+    const snapshot = resolveRedoSnapshot<ActivitySnapshot>(logEntry)
+    if (!snapshot) {
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for activity create' })
     }
-    const activitySnapshot = reviveSnapshotDates(after.activity, ['occurredAt'])
+    const after = { ...snapshot, activity: reviveSnapshotDates(snapshot.activity, ['createdAt', 'occurredAt']) }
+    const activitySnapshot = after.activity
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureTenantScope(ctx, activitySnapshot.tenantId)
     ensureOrganizationScope(ctx, activitySnapshot.organizationId)
@@ -251,7 +255,7 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
         authorUserId: activitySnapshot.authorUserId,
         appearanceIcon: activitySnapshot.appearanceIcon,
         appearanceColor: activitySnapshot.appearanceColor,
-        createdAt: new Date(),
+        createdAt: activitySnapshot.createdAt ?? new Date(),
         updatedAt: new Date(),
       })
       em.persist(activity)
@@ -384,7 +388,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt'] })
+    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt', 'before.activity.createdAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -404,7 +408,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
         authorUserId: before.activity.authorUserId,
         appearanceIcon: before.activity.appearanceIcon,
         appearanceColor: before.activity.appearanceColor,
-        createdAt: new Date(),
+        createdAt: before.activity.createdAt ?? new Date(),
         updatedAt: new Date(),
       })
       em.persist(activity)
@@ -504,7 +508,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt'] })
+    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry, { datePaths: ['before.activity.occurredAt', 'before.activity.createdAt'] })
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -523,7 +527,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         authorUserId: before.activity.authorUserId,
         appearanceIcon: before.activity.appearanceIcon,
         appearanceColor: before.activity.appearanceColor,
-        createdAt: new Date(),
+        createdAt: before.activity.createdAt ?? new Date(),
         updatedAt: new Date(),
       })
       em.persist(activity)

@@ -310,6 +310,7 @@ const crud = makeCrudRoute({
   hooks: {
     afterList: (payload, ctx) => enrichShipmentListResponse(payload, ctx),
   },
+  enrichers: { entityId: 'sales.shipment' },
 })
 
 const { GET, POST, PUT, DELETE } = crud

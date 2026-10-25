@@ -59,6 +59,7 @@ import {
 } from '../credential-secret-fields'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 import { useIntegrationCredentialsFeatureAccess } from '../useIntegrationCredentialsFeatureAccess'
+import { OAuthGrantReauthBanner, resolveOAuthGrantReconnectHref } from '../../../components/OAuthGrantReauthBanner'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -105,6 +106,7 @@ type IntegrationDetail = {
     detailPage?: {
       widgetSpotId?: string
       hiddenTabs?: IntegrationDetailBuiltInTab[]
+      connectTabId?: string
     }
     credentials?: { fields: CredentialField[] }
   }
@@ -123,6 +125,7 @@ type IntegrationDetail = {
   credentialsUpdatedAt?: string | null
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationLogAnalytics
+  oauthGrant?: { status: 'active' | 'invalidated' | 'unavailable' } | null
 }
 
 type LogEntry = {
@@ -1015,6 +1018,15 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
+  const oauthGrantReconnectHref = resolvedIntegration
+    ? resolveOAuthGrantReconnectHref({
+      integrationId: resolvedIntegration.id,
+      connectTabId: resolvedIntegration.detailPage?.connectTabId,
+      visibleTabIds,
+      canManageCredentials,
+    })
+    : null
+
   const showCredentialActions = showCredentialsTab
     && activeTab === 'credentials'
     && credentialFormFields.length > 0
@@ -1103,6 +1115,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               }
               : undefined,
           }}
+        />
+
+        <OAuthGrantReauthBanner
+          status={detail.oauthGrant?.status}
+          integrationTitle={resolvedIntegration.title}
+          reconnectHref={oauthGrantReconnectHref}
+          canManageCredentials={canManageCredentials}
+          isAccessLoading={isLoadingCredentialsAccess}
         />
 
         <div className="space-y-2">
