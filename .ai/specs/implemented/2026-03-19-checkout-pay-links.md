@@ -815,10 +815,11 @@ Accessed from the transactions list row action ("View Detail"). Shows full trans
 The `LinkTemplateForm` component is shared between link and template creation/editing. It renders as a `CrudForm` with a **scrollable 2-column layout** — column 1 (left, ~60% width) for main content and column 2 (right, ~40% width) for secondary/settings content.
 
 The form uses `CrudForm` with `entityId` prop to auto-handle entity custom fields:
-- Links: `entityId="checkout:link"` — custom fields from `ce.ts` auto-rendered
-- Templates: `entityId="checkout:template"` — custom fields auto-rendered
+- Links: `entityId="checkout:checkout_link"` — custom fields from `ce.ts` auto-rendered
+- Templates: `entityId="checkout:checkout_link_template"` — custom fields auto-rendered
 - Custom field values are collected via `collectCustomFieldValues()` on submit
 - Template-to-link creation copies custom field values via `loadCustomFieldValues` + `setCustomFieldsIfAny`
+- The link/template form opts into `CrudForm.resolveCustomFieldText(text, { entityId, path })` for seeded service-package labels, descriptions, fieldset and group text. Checkout owns the `checkout.customFields.*` keys and translates only recognized metadata whose stored text equals its English seeded default. Unknown or customized text stays literal; missing locale entries fall back to stored text. Existing installations need no migration or reseed.
 
 Groups are defined with `CrudFormGroup[]` using `column: 1` and `column: 2` for responsive 2-column layout. The last group uses `kind: 'customFields'` to auto-render entity custom fields without manual wiring.
 
@@ -2053,3 +2054,6 @@ None identified.
 
 ### 2026-08-02
 - Defined the 24-hour payment-session replay window and added tenant-scoped cleanup for expired completed initialization claims (#4861)
+
+### 2026-10-25
+- Scoped service-package custom-field localization to an explicit checkout form resolver with namespaced keys, seeded-default matching, locale-change coverage and collision/fallback regressions (#7754).

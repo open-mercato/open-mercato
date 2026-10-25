@@ -34,7 +34,17 @@ Translation is opt-in at the owning form; checkout may translate only recognized
 
 ### Phase 2: Review remediation
 
-- [ ] 2.1 Scope lookup through explicit checkout-owned opt-in and namespaced keys
-- [ ] 2.2 Replace cross-package fixture and cover literal collisions, opt-in and fallback
-- [ ] 2.3 Run focused validation and review the final diff
+- [x] 2.1 Scope lookup through explicit checkout-owned opt-in and namespaced keys
+- [x] 2.2 Replace cross-package fixture and cover literal collisions, opt-in and fallback
+- [x] 2.3 Run focused validation and review the final diff
 - [ ] 2.4 Publish corrections and request re-review while retaining QA and review gates
+
+## Validation evidence
+
+- Runner: local, isolated checkout with read-only shared dependency overlays.
+- Four focused CrudForm suites: 29 tests passed, covering explicit opt-in, unchanged tenant literals even when they are dictionary keys, fieldset/group metadata, missing-key fallback, locale changes and unchanged edited values.
+- Three checkout suites: 19 tests passed, including resolver entity/path/default matching and existing LinkTemplateForm pricing regressions.
+- Strict TypeScript 6.0.3 compiler check of six changed source/test files: zero diagnostics.
+- Scoped ESLint: zero errors, four existing hook warnings.
+- Full locale synchronization: all 66 modules synchronized across en/pl/de/es/ko.
+- Read-only review found no remaining actionable findings. The optional public resolver was explicitly approved by the user before publication. Existing review and manual QA gates remain; current-head CI is reported separately on the PR.

@@ -49,8 +49,37 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 import type { CustomFieldDefDto } from '../utils/customFieldDefs'
-import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
-import polishCheckout from '../../../../checkout/src/modules/checkout/i18n/pl.json'
+import { I18nProvider, useT } from '@open-mercato/shared/lib/i18n/context'
+
+const polishCustomFields = {
+  'example.customFields.fields.delivery_timeline.label': 'Termin realizacji',
+  'example.customFields.fields.delivery_timeline.description': 'Kiedy klient może oczekiwać kolejnego kroku, rozmowy lub efektów usługi.',
+  'example.customFields.fields.delivery_timeline.group.title': 'Przed płatnością',
+  'example.customFields.fields.delivery_timeline.group.hint': 'Wskazówka sekcji',
+  'example.customFields.fields.custom_note.group.title': 'Przed płatnością',
+  'example.customFields.fields.custom_note.group.hint': 'Wskazówka sekcji',
+  'example.customFields.fieldsets.service_package.label': 'Pakiet usług',
+  'example.customFields.fieldsets.service_package.description': 'Informacje dla klientów dotyczące konsultacji, usług i płatności za wizyty.',
+  'example.customFields.fieldsets.service_package.groups.details.title': 'Przed płatnością',
+  'example.customFields.fieldsets.service_package.groups.details.hint': 'Wskazówka sekcji',
+}
+
+function LocalizedCustomFieldForm({ onSubmit }: { onSubmit: jest.Mock }) {
+  const translate = useT()
+  const resolveCustomFieldText = React.useCallback((text: string, { path }: { path: string }) =>
+    translate(`example.customFields.${path}`, text), [translate])
+  return (
+    <CrudForm
+      embedded
+      entityId="example:example_record"
+      fields={[]}
+      groups={[{ id: 'custom', kind: 'customFields' }]}
+      initialValues={{ cf_delivery_timeline: 'Tomorrow', cf_custom_note: 'Unchanged' }}
+      resolveCustomFieldText={resolveCustomFieldText}
+      onSubmit={onSubmit}
+    />
+  )
+}
 
 describe('CrudForm custom field loading', () => {
   const fields: CrudField[] = [{ id: 'name', label: 'Name', type: 'text' }]
@@ -84,7 +113,7 @@ describe('CrudForm custom field loading', () => {
   })
 
   it.each(['pl', 'en'] as const)('localizes persisted custom-field metadata in %s and preserves custom text and values', async (locale) => {
-    const entityId = 'checkout:checkout_link'
+    const entityId = 'example:example_record'
     const definition: CustomFieldDefDto = {
       entityId,
       key: 'delivery_timeline',
@@ -114,17 +143,10 @@ describe('CrudForm custom field loading', () => {
       },
     })
     const onSubmit = jest.fn()
-    const polishDictionary = { ...polishCheckout, 'Group hint': 'Wskazówka sekcji' }
+    const polishDictionary = polishCustomFields
     const dict = locale === 'pl' ? polishDictionary : {}
     const form = (
-      <CrudForm
-        embedded
-        entityId={entityId}
-        fields={[]}
-        groups={[{ id: 'custom', kind: 'customFields' }]}
-        initialValues={{ cf_delivery_timeline: 'Tomorrow', cf_custom_note: 'Unchanged' }}
-        onSubmit={onSubmit}
-      />
+      <LocalizedCustomFieldForm onSubmit={onSubmit} />
     )
     const { rerender } = renderWithProviders(
       <I18nProvider locale={locale} dict={dict}>{form}</I18nProvider>,
@@ -162,6 +184,65 @@ describe('CrudForm custom field loading', () => {
     expect(screen.getByDisplayValue('Next week')).toBeInTheDocument()
     expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
     expect(definition.label).toBe('Delivery timeline')
+  })
+
+  it.each(['Support contact', 'common.save'])('keeps tenant metadata literal without an explicit resolver, including %s', async (label) => {
+    const entityId = 'customers:customer_company_profile'
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: CustomFieldDefDto) => ({
+      id: `cf_${definition.key}`,
+      label: definition.label,
+      description: definition.description,
+      type: 'text',
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      definitions: [{
+        entityId, key: 'tenant_note', kind: 'text', label, description: 'Delivery timeline',
+        fieldset: 'tenant_fields', group: { code: 'details', title: 'Before you pay', hint: 'Group hint' },
+      }],
+      metadata: { fieldsetsByEntity: { [entityId]: [{
+        code: 'tenant_fields', label: 'Session format', description: 'Service package',
+      }] } },
+    })
+    renderWithProviders(
+      <CrudForm embedded entityId={entityId} fields={[]} groups={[{ id: 'custom', kind: 'customFields' }]} onSubmit={jest.fn()} />,
+      { dict: {
+        'Support contact': 'Unrelated translated label',
+        'common.save': 'Unrelated translated label',
+        'Delivery timeline': 'Unrelated translated description',
+        'Session format': 'Unrelated translated fieldset',
+        'Service package': 'Unrelated translated fieldset description',
+        'Before you pay': 'Unrelated translated group',
+        'Group hint': 'Unrelated translated hint',
+      } },
+    )
+    expect(await screen.findByText(label)).toBeInTheDocument()
+    expect(screen.getByText('Delivery timeline')).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toHaveTextContent('Session format')
+    expect(screen.getByText('Service package')).toBeInTheDocument()
+    expect(screen.getByText('Before you pay')).toBeInTheDocument()
+    expect(screen.getByText('Group hint')).toBeInTheDocument()
+    expect(screen.queryByText(/Unrelated translated/)).not.toBeInTheDocument()
+  })
+
+  it('resolves fieldset group metadata when a field supplies only a group code', async () => {
+    const entityId = 'example:example_record'
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: CustomFieldDefDto) => ({
+      id: `cf_${definition.key}`, label: definition.label, type: 'text',
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      definitions: [{
+        entityId, key: 'delivery_timeline', kind: 'text', label: 'Delivery timeline',
+        fieldset: 'service_package', group: { code: 'details' },
+      }],
+      metadata: { fieldsetsByEntity: { [entityId]: [{
+        code: 'service_package', label: 'Service package',
+        groups: [{ code: 'details', title: 'Before you pay', hint: 'Group hint' }],
+      }] } },
+    })
+    renderWithProviders(<LocalizedCustomFieldForm onSubmit={jest.fn()} />, { dict: polishCustomFields })
+    expect(await screen.findByText('Termin realizacji')).toBeInTheDocument()
+    expect(screen.getByText('Przed płatnością')).toBeInTheDocument()
+    expect(screen.getByText('Wskazówka sekcji')).toBeInTheDocument()
   })
 
   it('does not reload custom field definitions when entityIds contents stay the same across rerenders', async () => {

@@ -39,6 +39,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
+import { createCheckoutCustomFieldTextResolver } from '../lib/customFieldTranslations'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
@@ -1360,6 +1361,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const locale = useLocale()
   const searchParams = useSearchParams()
   const entityId = mode === 'link' ? CHECKOUT_ENTITY_IDS.link : CHECKOUT_ENTITY_IDS.template
+  const resolveCustomFieldText = React.useMemo(() => createCheckoutCustomFieldTextResolver(t), [t])
   const templateId = React.useMemo(() => {
     const raw = searchParams.get('templateId')
     return raw && raw.trim().length > 0 ? raw : null
@@ -1694,6 +1696,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
               </>
             ) : null}
             entityId={entityId}
+            resolveCustomFieldText={resolveCustomFieldText}
             customFieldsetBindings={{ [entityId]: { valueKey: 'customFieldsetCode' } }}
             initialValues={initialValues}
             contentHeader={lockedNotice}

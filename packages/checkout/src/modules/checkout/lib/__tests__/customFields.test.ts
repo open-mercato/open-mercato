@@ -6,6 +6,7 @@ import {
 import { loadEntityFieldsetConfigs } from '@open-mercato/core/modules/entities/lib/fieldsets'
 import { CHECKOUT_LINK_CUSTOM_FIELDS, CHECKOUT_LINK_FIELDSETS, resolveCheckoutPublicCustomFields } from '../customFields'
 import polishCheckout from '../../i18n/pl.json'
+import englishCheckout from '../../i18n/en.json'
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   decorateRecordWithCustomFields: jest.fn(),
@@ -100,26 +101,40 @@ describe('resolveCheckoutPublicCustomFields', () => {
   })
 })
 
-
 describe('service-package translations', () => {
   it('translates all existing seeded service-package labels, sections and help text into Polish', () => {
-    const fieldset = CHECKOUT_LINK_FIELDSETS.find((entry) => entry.code === 'service_package')!
+    const fieldset = CHECKOUT_LINK_FIELDSETS.find((entry) => entry.code === 'service_package')
+    expect(fieldset).toBeDefined()
+    if (!fieldset) throw new Error('[internal] Missing service-package fieldset')
     const fields = CHECKOUT_LINK_CUSTOM_FIELDS.filter((field) =>
       field.fieldset === 'service_package' || field.fieldsets?.includes('service_package'),
     )
-    const texts = [
-      fieldset.label,
-      fieldset.description,
-      ...(fieldset.groups ?? []).flatMap((group) => [group.title, group.hint]),
-      ...fields.flatMap((field) => [field.label, field.description, field.group?.title, field.group?.hint]),
-    ].filter((value): value is string => typeof value === 'string')
+    const entries = [
+      ['fieldsets.service_package.label', fieldset.label],
+      ['fieldsets.service_package.description', fieldset.description],
+      ...(fieldset.groups ?? []).flatMap((group) => [
+        [`fieldsets.service_package.groups.${group.code}.title`, group.title],
+        [`fieldsets.service_package.groups.${group.code}.hint`, group.hint],
+      ]),
+      ...fields.flatMap((field) => [
+        [`fields.${field.key}.label`, field.label],
+        [`fields.${field.key}.description`, field.description],
+        [`fields.${field.key}.group.title`, field.group?.title],
+        [`fields.${field.key}.group.hint`, field.group?.hint],
+      ]),
+    ]
     const dictionary: Record<string, string> = polishCheckout
+    const defaults: Record<string, string> = englishCheckout
     expect(fields.map((field) => field.key)).toEqual([
       'service_deliverables', 'delivery_timeline', 'session_format', 'support_contact',
     ])
-    for (const text of texts) {
-      expect(dictionary[text]).toEqual(expect.any(String))
-      expect(dictionary[text]).not.toBe(text)
+    for (const [path, text] of entries) {
+      if (typeof text !== 'string') continue
+      const key = `checkout.customFields.${path}`
+      expect(defaults[key]).toBe(text)
+      expect(dictionary[key]).toEqual(expect.any(String))
+      expect(dictionary[key]).not.toBe(text)
+      expect(dictionary).not.toHaveProperty(text)
     }
   })
 })
