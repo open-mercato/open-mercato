@@ -85,7 +85,7 @@ function escapeXmlValue(value: string): string {
 }
 
 function serializeCsv(prepared: PreparedExport): SerializedExport {
-  const headers = prepared.columns.map((col) => col.header)
+  const headers = prepared.columns.map((col) => escapeCsv(neutralizeSpreadsheetFormula(col.header)))
   const lines = [headers.join(',')]
   for (const row of prepared.rows) {
     const values = prepared.columns.map((col) => formatCsvCell(row[col.field]))
