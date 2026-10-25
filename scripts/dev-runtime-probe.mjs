@@ -21,6 +21,25 @@ async function defaultProbeRequest(url, timeoutMs) {
   }
 }
 
+function parseHttpOrigin(value) {
+  if (typeof value !== 'string' || !value.trim()) return null
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : null
+  } catch {
+    return null
+  }
+}
+
+// The probe must reach the managed runtime itself. In gateway mode that is the
+// internal upstream port. In direct mode Next.js silently moves to a free port
+// when the configured one is taken, so the URL the runtime reported it bound
+// ("- Local: …") wins over APP_URL/PORT, which may point at an unrelated server.
+export function selectRuntimeProbeBaseUrl({ upstreamPort, runtimeUrl, configuredUrl } = {}) {
+  if (Number.isInteger(upstreamPort)) return `http://127.0.0.1:${upstreamPort}`
+  return parseHttpOrigin(runtimeUrl) ?? configuredUrl ?? null
+}
+
 // Lightweight post-READY liveness check. It never re-runs the login warmup, it
 // never logs a success, and it never exposes dependency details — the app's
 // /api/healthz contract stays a plain 200/503.
