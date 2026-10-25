@@ -32,7 +32,7 @@ describe('useScheduleDialog selected-day form seeding (#7478)', () => {
     expect(result.current.dialog.scheduleEditData?.id).toBe('')
     expect(result.current.form.activityType).toBe('meeting')
     expect(result.current.form.date).toBe('2026-10-01')
-    expect(result.current.form.startTime).toBe('14:30')
+    expect(result.current.form.startTime).toBe('09:00')
 
     act(() => {
       result.current.dialog.closeSchedule()

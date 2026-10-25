@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 152 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 153 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -103,6 +103,8 @@ This catalog indexes 152 focused lessons. Route the task first, then read only r
 - [Sanitize generated component override entries before runtime use](lessons/sanitize-generated-component-override-entries-before.md) — area:umes,architecture; module:shared,cli; topic:component-overrides,generated-files,filters
 
 ### backend-ui
+
+- [Selected calendar days need day-aware time defaults](lessons/selected-calendar-days-use-day-aware-time-defaults.md) — area:backend-ui,testing; module:customers; topic:calendar,date-time,testing
 
 - [Design-system coverage needs a source inventory and visual checks](lessons/design-system-coverage-needs-a-source-inventory.md) — area:backend-ui,testing; module:ui,design_system; topic:design-system,ui-components,visual-testing,native-navigation,realtime,dev-runtime
 - [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
