@@ -280,6 +280,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL 인증서 문제",
   "customer_accounts.domainMapping.tls.retryButton": "SSL 재시도",
   "customer_accounts.domainMapping.verifyNow": "지금 확인",
+  "customer_accounts.errors.crossSiteRequest": "이 로그인 요청은 이 애플리케이션에서 보낸 것이 아닙니다. 로그인 페이지를 열고 다시 시도하세요.",
   "customer_accounts.errors.emailAlreadyExists": "이 이메일 주소로 등록된 계정이 이미 있습니다",
   "customer_accounts.invitation.email.body": "이 보안 초대 링크를 사용하여 비밀번호를 생성하고 고객 포털에 액세스하세요.",
   "customer_accounts.invitation.email.cta": "초대 수락",
