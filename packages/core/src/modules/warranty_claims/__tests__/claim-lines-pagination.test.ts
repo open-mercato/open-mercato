@@ -1,4 +1,4 @@
-import { loadClaimLines } from '../backend/components/claimLines'
+import { loadClaimLines } from '../lib/claimLines'
 
 const readPageMock = jest.fn()
 

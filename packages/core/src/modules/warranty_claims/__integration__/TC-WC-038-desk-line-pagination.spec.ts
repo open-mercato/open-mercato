@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { readJsonSafe as parseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   createClaimFixture,
   readClaim,
@@ -128,7 +129,7 @@ test.describe('TC-WC-038: every accepted line is available in the claims desk', 
           response.url().endsWith('/api/warranty_claims/vendor-recovery') && response.request().method() === 'POST')
         await recoveryDialog.getByRole('button', { name: 'Create vendor recovery', exact: true }).click()
         const recoveryResponse = await recovered
-        const recoveryBody = await readJsonSafe<{ claimId?: string }>(recoveryResponse)
+        const recoveryBody = await parseJsonSafe<{ claimId?: string }>(await recoveryResponse.text())
         recoveryClaimId = recoveryBody?.claimId ?? null
         expect(recoveryResponse.status()).toBe(200)
         expect(recoveryResponse.request().postDataJSON()).toMatchObject({ lineIds: [lastLine.id] })
