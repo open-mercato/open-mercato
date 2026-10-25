@@ -30,7 +30,7 @@ test.describe('TC-WC-038: claim order reference integrity', () => {
           data: {
             customerEntityId: customerId,
             currencyCode: 'USD',
-            lines: [{ name: `WC-038 order ${suffix} ${stamp}`, quantity: 1, unitPriceNet: 10, unitPriceGross: 10 }],
+            lines: [{ currencyCode: 'USD', name: `WC-038 order ${suffix} ${stamp}`, quantity: 1, unitPriceNet: 10, unitPriceGross: 10 }],
           },
         })
         const body = await readJsonSafe<{ id?: string; orderId?: string }>(response)

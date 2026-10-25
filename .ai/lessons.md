@@ -18,7 +18,7 @@ This catalog indexes 155 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
-- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities; topic:testing,fixture-cleanup,api-contracts
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,sales,warranty_claims; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation
 
 ### architecture
 
