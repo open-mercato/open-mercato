@@ -19,6 +19,7 @@ import {
   MODULE_INDEX_CACHE_FILE,
   MODULE_INDEX_UNAVAILABLE_EXIT_CODE,
   MODULE_INDEX_UNAVAILABLE_MESSAGE,
+  BUILT_IN_UNAVAILABLE_MESSAGE,
   parseBuiltInIndex,
   parseCatalogIndex,
   runModuleInfo,
@@ -91,7 +92,7 @@ function jsonResponse(status: number, body: unknown, etag: string | null = null)
 
 type FetchCall = { url: string; headers: Record<string, string> }
 
-function fixtureFetch(options: { fail?: boolean; failFirst?: number; notModified?: boolean } = {}) {
+function fixtureFetch(options: { fail?: boolean; failFirst?: number; notModified?: boolean; noBuiltIn?: boolean } = {}) {
   const calls: FetchCall[] = []
   let failuresLeft = options.failFirst ?? 0
   const fetchImpl: FetchLike = async (url, init) => {
@@ -103,7 +104,7 @@ function fixtureFetch(options: { fail?: boolean; failFirst?: number; notModified
     }
     if (options.notModified && init?.headers?.['if-none-match']) return jsonResponse(304, null)
     if (url.endsWith('/modules.json')) return jsonResponse(200, readFixture('modules-index.json'), '"idx-1"')
-    if (url.endsWith('/built-in.json')) return jsonResponse(200, readFixture('built-in.json'), '"bi-1"')
+    if (url.endsWith('/built-in.json') && !options.noBuiltIn) return jsonResponse(200, readFixture('built-in.json'), '"bi-1"')
     return jsonResponse(404, null)
   }
   return { fetchImpl, calls }
@@ -386,6 +387,37 @@ describe('module index download and offline cache', () => {
     const code = await runModuleSearch(['ksef'], options)
     expect(code).toBe(MODULE_INDEX_UNAVAILABLE_EXIT_CODE)
     expect(io.stderr).toEqual([MODULE_INDEX_UNAVAILABLE_MESSAGE, 'Reason: https://mirror.example.com/nope.json answered 404'])
+  })
+
+  it('says so when built-in.json is missing and asks for it again on the next run', async () => {
+    const app = tempApp({ coreVersion: '0.9.0' })
+    const io = capture()
+    const code = await runModuleSearch(['exchange rates', '--json'], deps(app, fixtureFetch({ noBuiltIn: true }).fetchImpl, io))
+    expect(code).toBe(0)
+    expect(io.stderr).toEqual([BUILT_IN_UNAVAILABLE_MESSAGE, 'Reason: https://modules.openmercato.com/built-in.json answered 404'])
+    const json = JSON.parse(io.stdout.join('\n'))
+    expect(json.builtInUnavailable).toBe(true)
+    expect(json.builtIn).toEqual([])
+
+    const next = fixtureFetch()
+    const again = capture()
+    await runModuleSearch(['exchange', 'rates'], deps(app, next.fetchImpl, again, NOW + 60 * 1000))
+    expect(next.calls.map((call) => call.url)).toContain('https://modules.openmercato.com/built-in.json')
+    expect(again.stderr).toEqual([])
+    expect(again.stdout[0]).toBe('Already in Open Mercato core:')
+  })
+
+  it('keeps the cached built-in list when only built-in.json fails', async () => {
+    const app = tempApp()
+    await loadIndex({ appRoot: app, fetchImpl: fixtureFetch().fetchImpl, now: () => NOW })
+    const loaded = await loadIndex({
+      appRoot: app,
+      fetchImpl: fixtureFetch({ noBuiltIn: true }).fetchImpl,
+      now: () => NOW + 11 * 60 * 1000,
+    })
+    expect(loaded.source).toBe('network')
+    expect(loaded.builtIn).not.toBeNull()
+    expect(loaded.builtInUnavailable).toBeNull()
   })
 
   it('reads OM_MODULES_INDEX_URL', async () => {

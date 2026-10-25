@@ -54,6 +54,8 @@ export type FetchLike = (
 export type LoadedModuleIndex = {
   index: CatalogIndex
   builtIn: BuiltInIndex | null
+  /** Why the built-in module list is missing (`builtIn` is null), or null when it loaded. */
+  builtInUnavailable: string | null
   source: 'network' | 'cache' | 'stale-cache'
   fetchedAt: string
 }
@@ -268,8 +270,9 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
   const cached = readCache(cacheFile)
   const usable = cached && cached.url === url && cached.builtInUrl === builtInUrl ? cached : null
 
-  if (usable && now() - Date.parse(usable.fetchedAt) < ttlMs) {
-    return { index: usable.index, builtIn: usable.builtIn, source: 'cache', fetchedAt: usable.fetchedAt }
+  // a copy without the built-in list is not fresh: the next run asks for built-in.json again
+  if (usable && usable.builtIn && now() - Date.parse(usable.fetchedAt) < ttlMs) {
+    return { index: usable.index, builtIn: usable.builtIn, builtInUnavailable: null, source: 'cache', fetchedAt: usable.fetchedAt }
   }
 
   try {
@@ -286,6 +289,7 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
     }
     let builtIn = usable?.builtIn ?? null
     let builtInEtag = usable?.builtInEtag ?? null
+    let builtInUnavailable: string | null = null
     try {
       const builtInResult = await fetchJson(
         fetchImpl,
@@ -298,8 +302,9 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
         builtIn = builtInResult.value
         builtInEtag = builtInResult.etag
       }
-    } catch {
+    } catch (error: unknown) {
       builtIn = usable?.builtIn ?? null
+      if (!builtIn) builtInUnavailable = error instanceof Error ? error.message : String(error)
     }
     const fetchedAt = new Date(now()).toISOString()
     writeCache(cacheFile, {
@@ -312,10 +317,16 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
       index,
       builtIn,
     })
-    return { index, builtIn, source: 'network', fetchedAt }
+    return { index, builtIn, builtInUnavailable, source: 'network', fetchedAt }
   } catch (error: unknown) {
     if (usable) {
-      return { index: usable.index, builtIn: usable.builtIn, source: 'stale-cache', fetchedAt: usable.fetchedAt }
+      return {
+        index: usable.index,
+        builtIn: usable.builtIn,
+        builtInUnavailable: usable.builtIn ? null : 'the cached copy has no built-in module list',
+        source: 'stale-cache',
+        fetchedAt: usable.fetchedAt,
+      }
     }
     const detail = error instanceof Error ? error.message : String(error)
     throw new ModuleIndexUnavailableError(detail)
@@ -373,6 +384,8 @@ export type ModuleSearchJson = {
   omVersion: string | null
   results: ModuleCard[]
   builtIn: BuiltInCard[]
+  /** Present (true) when the built-in module list could not be loaded, so `builtIn` may miss modules core has. */
+  builtInUnavailable?: true
   total: number
   hidden: number
   dataVersion: string
@@ -681,7 +694,12 @@ const SEARCH_USAGE =
   'Usage: yarn mercato module search <query> [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]'
 const INFO_USAGE = 'Usage: yarn mercato module info <package-or-module-id> [--json]'
 
-async function loadForCommand(deps: ModuleSearchDeps): Promise<{ searcher: CatalogSearcher; app: AppContext }> {
+export const BUILT_IN_UNAVAILABLE_MESSAGE =
+  'Built-in module list unavailable; results may miss modules already in Open Mercato core.'
+
+type LoadedForCommand = { searcher: CatalogSearcher; app: AppContext; builtInUnavailable: boolean }
+
+async function loadForCommand(deps: ModuleSearchDeps): Promise<LoadedForCommand> {
   const env = deps.env ?? process.env
   const appRoot = deps.appRoot ?? process.cwd()
   const stderr = deps.stderr ?? ((line: string) => console.error(line))
@@ -695,8 +713,16 @@ async function loadForCommand(deps: ModuleSearchDeps): Promise<{ searcher: Catal
     ...(deps.now ? { now: deps.now } : {}),
   })
   if (loaded.source === 'stale-cache') stderr(`Using cached module index from ${loaded.fetchedAt}.`)
+  if (loaded.builtInUnavailable !== null) {
+    stderr(BUILT_IN_UNAVAILABLE_MESSAGE)
+    stderr(`Reason: ${loaded.builtInUnavailable}`)
+  }
   const app = detectAppContext(appRoot, deps.readEnabledModules ?? null)
-  return { searcher: createCatalogSearcher(loaded.index, loaded.builtIn), app }
+  return {
+    searcher: createCatalogSearcher(loaded.index, loaded.builtIn),
+    app,
+    builtInUnavailable: loaded.builtInUnavailable !== null,
+  }
 }
 
 function handleLoadError(error: unknown, stderr: (line: string) => void): number {
@@ -716,7 +742,7 @@ export async function runModuleSearch(args: string[], deps: ModuleSearchDeps = {
     stderr(SEARCH_USAGE)
     return 1
   }
-  let loaded: { searcher: CatalogSearcher; app: AppContext }
+  let loaded: LoadedForCommand
   try {
     loaded = await loadForCommand(deps)
   } catch (error: unknown) {
@@ -727,6 +753,7 @@ export async function runModuleSearch(args: string[], deps: ModuleSearchDeps = {
     { query: parsed.query, category: parsed.category, kinds: parsed.kinds, allLines: parsed.allLines, limit: parsed.limit },
     loaded.app,
   )
+  if (loaded.builtInUnavailable) view.json.builtInUnavailable = true
   const today = new Date(deps.now ? deps.now() : Date.now()).toISOString().slice(0, 10)
   if (parsed.json) stdout(JSON.stringify(view.json, null, 2))
   else for (const line of renderSearchHuman(view, today)) stdout(line)
@@ -741,7 +768,7 @@ export async function runModuleInfo(args: string[], deps: ModuleSearchDeps = {})
     stderr(INFO_USAGE)
     return 1
   }
-  let loaded: { searcher: CatalogSearcher; app: AppContext }
+  let loaded: LoadedForCommand
   try {
     loaded = await loadForCommand(deps)
   } catch (error: unknown) {

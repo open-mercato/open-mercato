@@ -71,6 +71,9 @@ type ModuleIndexCache = {
 
 Fresh for 10 minutes (used without a request and without a message); afterwards revalidated with `If-None-Match`.
 When revalidation fails the older copy is used with `Using cached module index from <date>.` on stderr.
+A copy without the built-in list (`builtIn: null`) is never fresh: the next run asks for `built-in.json` again. When
+that list is missing, both commands print `Built-in module list unavailable; results may miss modules already in Open
+Mercato core.` and `Reason: <detail>` on stderr, and `module search --json` adds `builtInUnavailable: true`.
 
 ## API Contracts
 
@@ -86,6 +89,7 @@ additive.
 | `line` | `string \| null` |
 | `omVersion` | `string \| null` |
 | `builtIn` | `BuiltInCard[]` (`tools@1`, plus `enabled: boolean \| null` from `src/modules.ts`) |
+| `builtInUnavailable` | `true`, only when the built-in list could not be loaded (`builtIn` may then miss core modules) |
 | `results` | `ModuleCard[]` (`tools@1`) |
 | `total` | `number`, matches on any line |
 | `hidden` | `number`, matches not verified on `line` (`0` with `--all-lines`) |
