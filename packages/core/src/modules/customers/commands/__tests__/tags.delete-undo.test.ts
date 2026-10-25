@@ -356,6 +356,113 @@ describe('customers.tags.delete membership undo', () => {
     expect(store.assignments.size).toBe(3)
   })
 
+  it.each(['tenantId', 'organizationId'] as const)('excludes foreign %s tags from both snapshot reads and locking queries', async (field) => {
+    const store = makeStore()
+    const foreignTag = store.tags.get(TAG_ID)!
+    foreignTag[field] = field === 'tenantId' ? OTHER_TENANT_ID : OTHER_ORGANIZATION_ID
+    const handler = deleteHandler()
+    const input = { body: { id: TAG_ID } }
+    const authorizedWhere = { id: TAG_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
+    const authorizedScope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
+    expect(await handler.prepare?.(input, store.ctx)).toEqual({})
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, authorizedWhere, {}, authorizedScope)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    mockFindOneWithDecryption.mockClear()
+    await expect(handler.execute(input, store.ctx)).rejects.toMatchObject({ status: 404 })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, authorizedWhere, { lockMode: LockMode.PESSIMISTIC_WRITE }, authorizedScope)
+    expect(store.em.nativeDelete).not.toHaveBeenCalled()
+    expect(store.em.remove).not.toHaveBeenCalled()
+    expect(store.tags.get(TAG_ID)).toEqual(foreignTag)
+    expect(store.assignments.size).toBe(2)
+    expect(store.dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('allows every authorized organization while retaining the tenant predicate before reads and locks', async () => {
+    const store = makeStore()
+    store.ctx.selectedOrganizationId = OTHER_ORGANIZATION_ID
+    store.ctx.organizationScope = {
+      tenantId: TENANT_ID, selectedId: OTHER_ORGANIZATION_ID,
+      allowedIds: [ORGANIZATION_ID, OTHER_ORGANIZATION_ID], filterIds: [OTHER_ORGANIZATION_ID],
+    }
+    const log = await deleteTag(store)
+    const authorizedWhere = { id: TAG_ID, tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_ID, OTHER_ORGANIZATION_ID] } }
+    const authorizedScope = { tenantId: TENANT_ID, organizationId: null }
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, authorizedWhere, { lockMode: LockMode.PESSIMISTIC_WRITE }, authorizedScope)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, authorizedWhere, {}, authorizedScope)
+    expect(log.commandPayload.undo.before.assignments).toHaveLength(2)
+  })
+
+  it('keeps an explicitly unrestricted organization scope within its authorized tenant', async () => {
+    const store = makeStore()
+    store.ctx.selectedOrganizationId = OTHER_ORGANIZATION_ID
+    store.ctx.organizationScope = {
+      tenantId: TENANT_ID, selectedId: OTHER_ORGANIZATION_ID, allowedIds: null, filterIds: null,
+    }
+    await deleteTag(store)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, { id: TAG_ID, tenantId: TENANT_ID }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: TENANT_ID, organizationId: null })
+  })
+
+  it('does not widen an empty allowed-organization list to the selected organization', async () => {
+    const store = makeStore()
+    store.ctx.organizationScope = {
+      tenantId: TENANT_ID, selectedId: ORGANIZATION_ID, allowedIds: [], filterIds: [],
+    }
+    const handler = deleteHandler()
+    const input = { body: { id: TAG_ID } }
+    expect(await handler.prepare?.(input, store.ctx)).toEqual({})
+    await expect(handler.execute(input, store.ctx)).rejects.toMatchObject({ status: 404 })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, { id: TAG_ID, tenantId: TENANT_ID, organizationId: { $in: [] } }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: TENANT_ID, organizationId: null })
+    expect(store.em.nativeDelete).not.toHaveBeenCalled()
+  })
+
+  it.each([TENANT_ID, null])('preserves superadmin organization access with tenant context %s', async (tenantId) => {
+    const store = makeStore()
+    store.ctx.auth = { sub: 'superadmin', tenantId, orgId: OTHER_ORGANIZATION_ID, isSuperAdmin: true }
+    store.ctx.selectedOrganizationId = OTHER_ORGANIZATION_ID
+    store.ctx.organizationScope = { tenantId, selectedId: OTHER_ORGANIZATION_ID, allowedIds: [], filterIds: [] }
+    await deleteTag(store)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, { id: TAG_ID, ...(tenantId ? { tenantId } : {}) }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId, organizationId: null })
+  })
+
+  it('uses the resolved tenant and organization for an auth-less system actor before selecting a tag', async () => {
+    const store = makeStore()
+    store.ctx.auth = null
+    store.ctx.systemActor = true
+    store.ctx.organizationScope = {
+      tenantId: TENANT_ID, selectedId: ORGANIZATION_ID, allowedIds: [ORGANIZATION_ID], filterIds: [ORGANIZATION_ID],
+    }
+    store.tags.get(TAG_ID)!.tenantId = OTHER_TENANT_ID
+    const handler = deleteHandler()
+    const input = { body: { id: TAG_ID } }
+    expect(await handler.prepare?.(input, store.ctx)).toEqual({})
+    await expect(handler.execute(input, store.ctx)).rejects.toMatchObject({ status: 404 })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, { id: TAG_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
+    expect(store.em.nativeDelete).not.toHaveBeenCalled()
+  })
+
+  it('preserves auth-less system execution without a resolved tenant or organization', async () => {
+    const store = makeStore()
+    store.ctx.auth = null
+    store.ctx.systemActor = true
+    store.ctx.selectedOrganizationId = null
+    await deleteTag(store)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(store.em, CustomerTag, { id: TAG_ID }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId: null, organizationId: null })
+  })
+
+  it.each(['actor-tenant', 'organization-tenant'] as const)('rejects authenticated system actors with missing %s before any query', async (missingContext) => {
+    const store = makeStore()
+    store.ctx.systemActor = true
+    if (missingContext === 'actor-tenant') store.ctx.auth!.tenantId = null
+    else store.ctx.organizationScope = { tenantId: null, selectedId: ORGANIZATION_ID, allowedIds: [ORGANIZATION_ID], filterIds: [ORGANIZATION_ID] }
+    const handler = deleteHandler()
+    const input = { body: { id: TAG_ID } }
+    await expect(handler.prepare?.(input, store.ctx)).rejects.toMatchObject({ status: 403 })
+    await expect(handler.execute(input, store.ctx)).rejects.toMatchObject({ status: 403 })
+    expect(store.em.findOne).not.toHaveBeenCalled()
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(store.em.nativeDelete).not.toHaveBeenCalled()
+  })
+
   it.each(['missing', 'deleted', 'other-tenant', 'other-organization'] as const)('skips a %s customer while restoring valid memberships', async (state) => {
     const store = makeStore()
     const log = await deleteTag(store)

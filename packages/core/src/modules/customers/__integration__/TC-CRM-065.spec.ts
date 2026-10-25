@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   createDealFixture,
   createPersonFixture,
   deleteEntityByBody,
   deleteEntityIfExists,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+} from '@open-mercato/core/helpers/integration/crmFixtures';
 
 /**
  * TC-CRM-065: People bulk delete with partial dependency failure
@@ -53,22 +53,28 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       });
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
+      await page.goto(`/backend/customers/people?search=${encodeURIComponent(prefix)}`, { waitUntil: 'domcontentloaded' });
 
-      const searchInput = page.getByPlaceholder(/Search by name/i);
-      await searchInput.fill(prefix);
-      await page.waitForTimeout(1200);
-      await page
-        .getByText('Loading table', { exact: false })
-        .waitFor({ state: 'hidden', timeout: 10_000 })
-        .catch(() => {});
+      const fixtureNames = [`${prefix} Free0`, `${prefix} Free1`, `${prefix} Blocked`];
+      const fixtureIds = [...deletableIds, blockedId].sort();
+      for (const name of fixtureNames) {
+        await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
+      }
+      await expect(page.getByRole('checkbox', { name: 'Select row', exact: true })).toHaveCount(3);
 
-      const blockedRow = page.getByRole('link', { name: `${prefix} Blocked`, exact: true });
-      await expect(blockedRow).toBeVisible();
+      const deletedPersonIds: string[] = [];
+      page.on('request', (sentRequest) => {
+        const url = new URL(sentRequest.url());
+        const id = url.searchParams.get('id');
+        if (sentRequest.method() === 'DELETE' && url.pathname === '/api/customers/people' && id) {
+          deletedPersonIds.push(id);
+        }
+      });
 
-      const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
+      const selectAllCheckbox = page.getByRole('checkbox', { name: 'Select all', exact: true });
       await expect(selectAllCheckbox).toBeVisible();
       await selectAllCheckbox.check();
+      await expect(page.getByRole('checkbox', { name: 'Select row', exact: true, checked: true })).toHaveCount(3);
 
       const deleteButton = page.getByRole('button', { name: /Delete selected/i });
       await expect(deleteButton).toBeVisible();
@@ -76,10 +82,12 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
 
       const confirmDialog = page.getByRole('alertdialog');
       await expect(confirmDialog).toBeVisible();
+      await expect(confirmDialog).toContainText('Delete 3 people?');
       await confirmDialog.getByRole('button', { name: /Delete|Confirm/i }).click();
 
       // Grouped failure toast must surface the dependency reason from the server.
       await expect(page.getByText(/linked deals/i).first()).toBeVisible({ timeout: 10_000 });
+      expect(deletedPersonIds.sort()).toEqual(fixtureIds);
 
       // Server state: blocked person remains; deletable people are gone.
       await expect
@@ -106,10 +114,9 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       deletableIds.length = 0;
 
       // Blocked row is still in the rendered table after a refetch.
-      await searchInput.fill('');
-      await searchInput.fill(prefix);
-      await page.waitForTimeout(800);
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('link', { name: `${prefix} Blocked`, exact: true })).toBeVisible();
+      await expect(page.getByRole('checkbox', { name: 'Select row', exact: true })).toHaveCount(1);
     } finally {
       if (dealId) {
         await deleteEntityByBody(request, token, '/api/customers/deals', dealId);

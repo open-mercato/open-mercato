@@ -3,7 +3,9 @@ import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { LockMode } from '@mikro-orm/core'
+import { LockMode, type FilterQuery } from '@mikro-orm/core'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { CustomerEntity, CustomerTag, CustomerTagAssignment } from '../data/entities'
 import {
   tagCreateSchema,
@@ -23,7 +25,7 @@ import {
   emitQueryIndexUpsertEvents,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
@@ -86,8 +88,40 @@ type TagAssignmentUndoPayload = {
   before?: TagAssignmentSnapshot | null
 }
 
-async function loadTagSnapshot(em: EntityManager, id: string): Promise<TagSnapshot | null> {
-  const tag = await em.findOne(CustomerTag, { id })
+function tagDeleteLookup(id: string, ctx: CommandRuntimeContext) {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
+  const organizationScope = ctx.organizationScope
+  const tenantId = ctx.auth ? (ctx.auth.tenantId ?? null) : (organizationScope?.tenantId ?? null)
+  if (ctx.auth && !isSuperAdmin && (!tenantId || (organizationScope && !organizationScope.tenantId))) {
+    throw forbidden()
+  }
+  let organizationIds: string[] | undefined
+  if (organizationScope) {
+    if (!isUnrestrictedOrganizationScope({ isSuperAdmin, allowedOrganizationIds: organizationScope.allowedIds })) {
+      organizationIds = organizationScope.allowedIds ?? []
+    }
+  } else if (!isSuperAdmin) {
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId
+    if (organizationId) organizationIds = [organizationId]
+  }
+  return {
+    where: buildScopedWhere({ id }, {
+      tenantId: tenantId ?? undefined,
+      organizationIds,
+      softDeleteField: null,
+    }) as FilterQuery<CustomerTag>,
+    scope: { tenantId, organizationId: organizationIds?.length === 1 ? organizationIds[0] : null },
+  }
+}
+
+async function loadTagSnapshot(
+  em: EntityManager,
+  id: string,
+  lookup?: ReturnType<typeof tagDeleteLookup>,
+): Promise<TagSnapshot | null> {
+  const tag = lookup
+    ? await findOneWithDecryption(em, CustomerTag, lookup.where, {}, lookup.scope)
+    : await em.findOne(CustomerTag, { id })
   if (!tag) return null
   return {
     id: tag.id,
@@ -346,7 +380,7 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
   async prepare(input, ctx) {
     const id = requireId(input, 'Tag id required')
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTagSnapshot(em, id)
+    const snapshot = await loadTagSnapshot(em, id, tagDeleteLookup(id, ctx))
     if (!snapshot) return {}
     ensureTenantScope(ctx, snapshot.tenantId)
     ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -366,12 +400,13 @@ const deleteTagCommand: CommandHandler<{ body?: Record<string, unknown>; query?:
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Tag id required')
+    const lookup = tagDeleteLookup(id, ctx)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let tag: CustomerTag | null = null
     let assignments: CustomerTagAssignment[] = []
     await withAtomicFlush(em, [
       async () => {
-        tag = await findOneWithDecryption(em, CustomerTag, { id }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        tag = await findOneWithDecryption(em, CustomerTag, lookup.where, { lockMode: LockMode.PESSIMISTIC_WRITE }, lookup.scope)
         if (!tag) throw notFound('Tag not found')
         ensureTenantScope(ctx, tag.tenantId)
         ensureOrganizationScope(ctx, tag.organizationId)
