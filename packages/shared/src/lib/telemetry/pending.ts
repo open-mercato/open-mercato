@@ -1,4 +1,5 @@
 import {
+  getTelemetryRuntime,
   recordTelemetryMetric,
   registerTelemetryMetricCollector,
 } from './runtime'
@@ -69,17 +70,36 @@ export function createBoundedPendingOperationTracker(
   let disposeCollector: (() => void) | null = null
   let disposed = false
 
-  const reportError = (error: unknown) => {
+  const reportFailure = (
+    error: unknown,
+    code: 'telemetry.pending_metric_failed' | 'telemetry.pending_drop_callback_failed',
+  ) => {
+    const failure = toError(error)
     try {
-      options.onError?.(toError(error))
+      getTelemetryRuntime()?.reportError(failure, {
+        module: 'telemetry',
+        code,
+        attributes: { stage: options.stage },
+      })
     } catch {}
+    try {
+      options.onError?.(failure)
+    } catch (callbackError) {
+      try {
+        getTelemetryRuntime()?.reportError(toError(callbackError), {
+          module: 'telemetry',
+          code: 'telemetry.pending_error_callback_failed',
+          attributes: { stage: options.stage },
+        })
+      } catch {}
+    }
   }
 
   const recordMetric = (point: Parameters<typeof recordTelemetryMetric>[0]) => {
     try {
       recordTelemetryMetric(point)
     } catch (error) {
-      reportError(error)
+      reportFailure(error, 'telemetry.pending_metric_failed')
     }
   }
 
@@ -128,7 +148,7 @@ export function createBoundedPendingOperationTracker(
     try {
       options.onDrop?.({ dropped, totalDropped: droppedCount, backlogDrained })
     } catch (error) {
-      reportError(error)
+      reportFailure(error, 'telemetry.pending_drop_callback_failed')
     }
   }
 

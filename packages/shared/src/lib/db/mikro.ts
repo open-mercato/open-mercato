@@ -7,6 +7,7 @@ import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
 import { createLogger } from '../logger'
 import {
+  getTelemetryRuntime,
   recordTelemetryMetric,
   registerTelemetryMetricCollector,
 } from '../telemetry/runtime'
@@ -286,6 +287,12 @@ export function instrumentPrimaryPool(
         unit: 's',
       })
     } catch (err) {
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'telemetry',
+          code: 'telemetry.pool_wait_metric_failed',
+        })
+      } catch {}
       if (metricFailureLogged) return
       metricFailureLogged = true
       logger.warn('Failed to record pg pool acquisition wait metric', { err })

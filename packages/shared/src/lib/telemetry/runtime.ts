@@ -144,11 +144,25 @@ export function collectTelemetryMetrics(onError?: (error: Error) => void): void 
     try {
       collector()
     } catch (error) {
-      onError?.(
-        error instanceof Error
-          ? error
-          : new Error('Telemetry metric collector failed with a non-Error value'),
-      )
+      const failure = error instanceof Error
+        ? error
+        : new Error('[internal] Telemetry metric collector failed with a non-Error value')
+      try {
+        getTelemetryRuntime()?.reportError(failure, {
+          module: 'telemetry',
+          code: 'telemetry.metric_collector_failed',
+        })
+      } catch {}
+      try {
+        onError?.(failure)
+      } catch (callbackError) {
+        try {
+          getTelemetryRuntime()?.reportError(callbackError, {
+            module: 'telemetry',
+            code: 'telemetry.metric_collector_callback_failed',
+          })
+        } catch {}
+      }
     }
   }
 }

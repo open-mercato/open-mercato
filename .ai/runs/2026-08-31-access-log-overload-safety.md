@@ -73,3 +73,12 @@ PR: #5802
 
 - [x] 4.1 Add the application/template environment example, user guide, telemetry catalog, and implemented-spec catalog updates. — 22be33f313
 - [x] 4.2 Run template synchronization and the repository validation gate. — 2fe9bc2808
+
+### Phase 5: Review remediation
+
+- [x] 5.1 Merge the current main base and resolve the lesson catalog conflict. — 63cb10f0c
+- [ ] 5.2 Route sampler, collector, pool, and tracker callback failures through guarded error reporting with regression coverage.
+- [ ] 5.3 Verify the corrected head, record coverage-job applicability, publish the fixes, and request independent re-review.
+- [ ] 5.4 After corrected prerequisite #5801 is approved and merged, merge main again and confirm the remaining access-log diff.
+
+The final step is an external merge-order gate. This continuation does not authorize merging #5801 or this PR into main. Prerequisite #5801 remains open at `3f5a5e9e5e6de4bc9c7205f9eb8016329cdf9ba9`, with corrected `om.db.pool.*` names and explicit seconds buckets. Incorporate those prerequisite corrections into this branch, retain its run plan, and compare again after #5801 lands.

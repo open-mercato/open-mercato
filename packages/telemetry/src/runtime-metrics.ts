@@ -2,6 +2,7 @@ import { monitorEventLoopDelay, performance, type EventLoopUtilization } from 'n
 import { getHeapSpaceStatistics } from 'node:v8'
 import {
   collectTelemetryMetrics,
+  getTelemetryRuntime,
   recordTelemetryMetric,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -120,6 +121,12 @@ export function createRuntimeMetricsSampler(
         logger.warn('Runtime metric collector failed', { err })
       })
     } catch (err) {
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'telemetry',
+          code: 'telemetry.runtime_sampling_failed',
+        })
+      } catch {}
       logger.warn('Runtime metric sampling failed', { err })
     } finally {
       delay.reset()

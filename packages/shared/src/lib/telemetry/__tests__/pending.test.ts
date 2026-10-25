@@ -294,6 +294,8 @@ describe('createBoundedPendingOperationTracker', () => {
 
   it('isolates drain notification failures without reporting the same drops again', async () => {
     const failure = new Error('[internal] drop sink failed')
+    const reportError = jest.fn()
+    registerTelemetryRuntime({ ...createRuntime(() => {}), reportError })
     const onDrop = jest.fn(() => {
       throw failure
     })
@@ -317,10 +319,57 @@ describe('createBoundedPendingOperationTracker', () => {
     expect(onDrop).toHaveBeenLastCalledWith({ dropped: 1, totalDropped: 2, backlogDrained: true })
     expect(onError).toHaveBeenCalledTimes(2)
     expect(onError).toHaveBeenLastCalledWith(failure)
+    expect(reportError).toHaveBeenCalledTimes(2)
+    expect(reportError).toHaveBeenLastCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.pending_drop_callback_failed',
+      attributes: { stage: 'test' },
+    })
 
     expect(tracker.tryStart(async () => undefined).accepted).toBe(true)
     await tracker.flush()
     expect(onDrop).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])('keeps admission and flushing working when metric and error callbacks fail (reporting throws: %s)', async (reportingThrows) => {
+    const metricFailure = new Error('[internal] metric sink failed')
+    const callbackFailure = new Error('[internal] error callback failed')
+    const reportError = jest.fn(() => {
+      if (reportingThrows) throw new Error('[internal] reporting sink failed')
+    })
+    const onError = jest.fn(() => { throw callbackFailure })
+    registerTelemetryRuntime({
+      ...createRuntime(() => { throw metricFailure }),
+      reportError,
+    })
+    const tracker = createBoundedPendingOperationTracker({
+      capacity: 1,
+      stage: 'crud_dispatch',
+      onError,
+    })
+    const active = deferred<void>()
+    expect(tracker.tryStart(() => active.promise).accepted).toBe(true)
+    expect(() => collectTelemetryMetrics()).not.toThrow()
+    expect(tracker.tryStart(async () => undefined)).toEqual({ accepted: false, pending: 1 })
+    active.resolve()
+    await tracker.flush()
+
+    expect(tracker.pending).toBe(0)
+    expect(tracker.dropped).toBe(1)
+    expect(reportError).toHaveBeenCalledWith(metricFailure, {
+      module: 'telemetry',
+      code: 'telemetry.pending_metric_failed',
+      attributes: { stage: 'crud_dispatch' },
+    })
+    expect(reportError).toHaveBeenCalledWith(callbackFailure, {
+      module: 'telemetry',
+      code: 'telemetry.pending_error_callback_failed',
+      attributes: { stage: 'crud_dispatch' },
+    })
+    expect(onError).toHaveBeenCalledWith(metricFailure)
+    expect(tracker.tryStart(async () => undefined).accepted).toBe(true)
+    await tracker.flush()
+    expect(tracker.pending).toBe(0)
   })
 
   it('does not report drained drops after disposal', async () => {

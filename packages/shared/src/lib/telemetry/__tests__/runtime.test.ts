@@ -196,6 +196,8 @@ describe('telemetry metric bridge', () => {
     const failure = new Error('[internal] collector failed')
     const nextCollector = jest.fn()
     const onError = jest.fn()
+    const reportError = jest.fn()
+    registerTelemetryRuntime(createRuntime({ reportError }))
     registerTelemetryMetricCollector(() => {
       throw failure
     })
@@ -204,7 +206,34 @@ describe('telemetry metric bridge', () => {
     collectTelemetryMetrics(onError)
 
     expect(onError).toHaveBeenCalledWith(failure)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.metric_collector_failed',
+    })
     expect(nextCollector).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('continues collection when the error callback fails (reporting throws: %s)', (reportingThrows) => {
+    const failure = new Error('[internal] collector failed')
+    const callbackFailure = new Error('[internal] error callback failed')
+    const reportError = jest.fn(() => {
+      if (reportingThrows) throw new Error('[internal] reporting sink failed')
+    })
+    registerTelemetryRuntime(createRuntime({ reportError }))
+    const nextCollector = jest.fn()
+    registerTelemetryMetricCollector(() => { throw failure })
+    registerTelemetryMetricCollector(nextCollector)
+    const onError = jest.fn(() => { throw callbackFailure })
+
+    expect(() => collectTelemetryMetrics(onError)).not.toThrow()
+    expect(() => collectTelemetryMetrics(onError)).not.toThrow()
+
+    expect(nextCollector).toHaveBeenCalledTimes(2)
+    expect(reportError).toHaveBeenCalledTimes(4)
+    expect(reportError).toHaveBeenCalledWith(callbackFailure, {
+      module: 'telemetry',
+      code: 'telemetry.metric_collector_callback_failed',
+    })
   })
 })
 

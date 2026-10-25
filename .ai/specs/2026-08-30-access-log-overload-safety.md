@@ -63,6 +63,8 @@ Create a shared utility backed by `Map<operationToken, { promise, startedAtMonot
 
 Telemetry must not be required for enforcement: admission, settlement cleanup, and flushing work identically when telemetry is off. A sampling interval exists only while an active metric runtime is available and is cleared when the tracker empties or is disposed.
 
+Tracker metric and notification failures also reach the existing error-reporting bridge with fixed codes `telemetry.pending_metric_failed`, `telemetry.pending_drop_callback_failed`, and `telemetry.pending_error_callback_failed`. Reporting is guarded independently of the warning callback so a broken sink cannot interrupt admission, settlement, or flush. Every failure is reported; warning throttling never suppresses error reports.
+
 ### Apply finite admission at both access-log boundaries
 
 Both stages read `AUDIT_LOGS_MAX_PENDING`, default `256`. Only positive integers are accepted; missing, invalid, zero, or negative values fall back to 256. Each stage has its own capacity and fixed label:
@@ -256,6 +258,11 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-10-25
+
+- Route caught tracker, collector, sampler, and pool-wait telemetry failures through guarded reporting while retaining best-effort operation and testing throwing reporting sinks.
+- Keep the external #5801 approval/merge prerequisite explicit; the prerequisite remains outside this continuation's merge authority.
 
 ### 2026-10-08
 
