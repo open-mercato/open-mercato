@@ -40,5 +40,5 @@ A settle probe must fail on storage errors and unfinished jobs, including delaye
 
 ### Phase 2: Review remediation
 
-- [ ] 2.1 Restore the email queue barrier and prove delayed forbidden writes remain detectable
+- [x] 2.1 Restore the email queue barrier and prove delayed forbidden writes remain detectable — 691371812
 - [ ] 2.2 Review the final diff, publish focused validation evidence, request re-review and release the claim
