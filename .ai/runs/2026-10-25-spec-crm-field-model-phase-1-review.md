@@ -43,8 +43,12 @@ These are documentation corrections, with no runtime validation claim. Future im
 
 ### Phase 2: Review remediation
 
-- [ ] 2.1 Preserve delivery health for the same canonical identity and specify sender regression coverage.
-- [ ] 2.2 Define missing/invalid parent-currency errors and guarded manual-line recovery.
-- [ ] 2.3 Define independent lifecycle, health and renewal mapping versions, approval and deployment gates.
-- [ ] 2.4 Verify documentation readiness, compatibility, scope, links and merged lessons catalog.
-- [ ] 2.5 Publish corrections, report evidence, request human re-review and release the claim.
+- [x] 2.1 Preserve delivery health for the same canonical identity and specify sender regression coverage. — 9f95f7b35
+- [x] 2.2 Define missing/invalid parent-currency errors and guarded manual-line recovery. — 9f95f7b35
+- [x] 2.3 Define independent lifecycle, health and renewal mapping versions, approval and deployment gates. — 9f95f7b35
+- [x] 2.4 Verify documentation readiness, compatibility, scope, links and merged lessons catalog. — 9f95f7b35
+- [x] 2.5 Publish corrections, report evidence, request human re-review and release the claim. — 9f95f7b35
+
+## Completion evidence
+
+All three findings are addressed in the published specification commit. Local Node/Git checks pass for 16 Markdown files, 48 relative links, readiness assertions and whitespace; `node --test scripts/__tests__/check-lessons.test.mjs` passes 5/5 after merging current main. The original reviewer has been requested through GitHub. The PR summary records the final remote head/check state and claim release. Application builds, runtime/integration tests, migrations and browser QA are inapplicable to this design-only remediation and are not claimed. A2–A4 and the original draft state remain; completing this review plan does not approve product/migration/policy decisions or make the PR merge-ready.
