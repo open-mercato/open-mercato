@@ -27,7 +27,7 @@ yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-thir
 yarn db:migrate
 ```
 
-- Keep the exact version from the module page. It is the newest version that installed cleanly on your Open Mercato line.
+- Keep the exact version from the module page. When the module is verified on your Open Mercato line, it is the version that installed cleanly there. Otherwise check the module page's status for your line before you install: the box can show a version that is untested or broken there.
 - Packages outside `@open-mercato/*` need `--allow-third-party`. The flag is an explicit opt-in; the package must still pass the module-structure validation.
 - A new app refuses third-party versions younger than 5 days (`npmMinimalAgeGate: 5d` in `.yarnrc.yml`). The module page shows the date a fresh release becomes installable as **Installable from**. Until then the catalog keeps recommending the previous version.
 
@@ -35,8 +35,8 @@ See the [`module add` CLI reference](/cli/module-add) for multi-module packages,
 
 ## What Listed and Verified mean
 
-- **Listed**: the entry is valid, the npm package exists and contains a real module (`src/modules/<id>/index.ts` and `dist/modules/<id>/`), the license is shown (or shown as unknown), and there is no known malware or unpatched critical advisory. Checked by machine.
-- **Verified** (for example `VERIFIED · 0.9`): the catalog installed this version in a fresh app of that Open Mercato line within the last 14 days, and the app generated, built, and started. Granted and removed automatically, per version and per line. A release that is still waiting for **Installable from** does not remove the level from the previous version.
+- **Listed**: the entry is valid, the npm package exists with a stable version and is not deprecated, the published package matches its kind (a module package contains `src/modules/<id>/` and `dist/modules/<id>/`; tools and libraries are listed too), the license is shown (or shown as unknown), and there is no known malware or open critical advisory. Checked by machine.
+- **Verified** (for example `VERIFIED · 0.9`): within the last 14 days the catalog installed the newest installable stable version in a fresh app of the latest Open Mercato line, with a green baseline, and the app generated, built, and started. The package must also fit the latest line statically and pass the supply chain, hygiene, and source checks. Granted and removed automatically. The module page shows the install result on each line separately. A release that is still waiting for **Installable from** does not remove the level from the previous version.
 - **OM Quality**: a human review against a published checklist. It requires Verified.
 
 Neither level is a code review of the module. The rules are on the [quality page](https://modules.openmercato.com/quality).
