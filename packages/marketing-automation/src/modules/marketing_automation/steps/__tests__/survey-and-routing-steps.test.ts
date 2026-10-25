@@ -150,24 +150,24 @@ describe('nps_survey', () => {
     expect(reportError).toHaveBeenCalled()
   })
 
-  it('skips rather than sending an unanswerable survey when nothing can sign the links', async () => {
+  it('fails the run rather than sending an unanswerable survey when nothing can sign the links', async () => {
+    // Thrown rather than returned `skipped`: a run that never asked the question must not report
+    // itself `completed` — same reason `send_email` throws on the identical guard.
     resolveTrackingSecret.mockReturnValue(null)
-    const result = await npsSurveyStep.execute(ctx(), params, deps)
-    expect(result).toMatchObject({ status: 'skipped' })
+    await expect(npsSurveyStep.execute(ctx(), params, deps)).rejects.toThrow(/tracking secret or base url/)
     expect(sendEmail).not.toHaveBeenCalled()
     expect(recordSurveyAsked).not.toHaveBeenCalled()
   })
 
-  it('skips when there is no base url to build the links on', async () => {
+  it('fails the run when there is no base url to build the links on', async () => {
     resolveTrackingBaseUrl.mockReturnValue(null)
-    expect(await npsSurveyStep.execute(ctx(), params, deps)).toMatchObject({ status: 'skipped' })
+    await expect(npsSurveyStep.execute(ctx(), params, deps)).rejects.toThrow(/tracking secret or base url/)
     expect(sendEmail).not.toHaveBeenCalled()
   })
 
-  it('skips an unanswerable survey when the public answer route is not deployed yet', async () => {
+  it('fails the run rather than asking an unanswerable survey when the public answer route is not deployed yet', async () => {
     resolveTrackingRoutesReady.mockReturnValue(false)
-    const result = await npsSurveyStep.execute(ctx(), params, deps)
-    expect(result).toMatchObject({ status: 'skipped' })
+    await expect(npsSurveyStep.execute(ctx(), params, deps)).rejects.toThrow(/public tracking routes are not ready/)
     expect(sendEmail).not.toHaveBeenCalled()
     expect(recordSurveyAsked).not.toHaveBeenCalled()
   })

@@ -116,23 +116,23 @@ describe('a real marketing send', () => {
     expect(sent.html.replace(/&amp;/g, '&')).toContain(url)
   })
 
-  it('sends nothing at all when no unsubscribe URL can be built', async () => {
+  it('sends nothing at all when no unsubscribe URL can be built, and fails the run rather than completing it', async () => {
     // The guard that owns this is the same one the headers depend on, so they cannot drift apart.
+    // Thrown rather than returned `skipped`: a run that never sent anything must not report itself
+    // `completed` — the executor's own `failed` path is what marks it `dead` after its retry budget.
     delete process.env.OM_MARKETING_TRACKING_SECRET
     try {
-      const outcome = await sendEmailStep.execute(ctx(), params, deps)
-      expect(outcome.status).toBe('skipped')
+      await expect(sendEmailStep.execute(ctx(), params, deps)).rejects.toThrow(/unsubscribe URL/)
       expect(sendEmail).not.toHaveBeenCalled()
     } finally {
       process.env.OM_MARKETING_TRACKING_SECRET = 'test-tracking-secret'
     }
   })
 
-  it('sends nothing when the public routes those headers point at are not deployed yet', async () => {
+  it('sends nothing when the public routes those headers point at are not deployed yet, and fails the run rather than completing it', async () => {
     delete process.env.OM_MARKETING_PUBLIC_ROUTES_READY
     try {
-      const outcome = await sendEmailStep.execute(ctx(), params, deps)
-      expect(outcome.status).toBe('skipped')
+      await expect(sendEmailStep.execute(ctx(), params, deps)).rejects.toThrow(/public tracking routes are not ready/)
       expect(sendEmail).not.toHaveBeenCalled()
     } finally {
       process.env.OM_MARKETING_PUBLIC_ROUTES_READY = 'true'

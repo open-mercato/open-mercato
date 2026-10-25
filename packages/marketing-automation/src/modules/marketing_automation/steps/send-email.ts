@@ -392,8 +392,11 @@ export const sendEmailStep: StepHandler<StepDeps> = {
      * `renderEmail` offers the author `{{unsubscribeUrl}}` and appends a footer when they did not place
      * it, but both need a signing secret and an absolute base URL; without either, the link is null and
      * the message would ship with no opt-out at all — which in much of the world is not lawful. This is a
-     * configuration fault, so it is reported and the run is skipped rather than thrown: five retries
-     * cannot supply a missing environment variable, and dead-lettering the journey hides the cause.
+     * configuration fault, so it is reported AND thrown: the executor's own `failed` path is what marks
+     * the run `dead` instead of `completed` after its retry budget, which `skipped` never did — a run
+     * that never sent anything has no business reporting success. Retrying costs a few bounded attempts
+     * on a bug this old shape worked around; it also means a same-day fix to the missing variable is
+     * caught by a later attempt instead of stranding the run regardless.
      *
      * A test send is unaffected: it has no run, renders through `renderEmail` directly, and never
      * reaches this handler.
@@ -415,10 +418,7 @@ export const sendEmailStep: StepHandler<StepDeps> = {
         code: 'marketing_automation.unsubscribe_url_unavailable',
         attributes: { campaignId: ctx.campaignId ?? undefined, stepId: ctx.actionId ?? undefined },
       })
-      return {
-        status: 'skipped',
-        detail: 'no unsubscribe URL: set OM_MARKETING_TRACKING_SECRET and APP_URL',
-      }
+      throw new Error('[internal] no unsubscribe URL: set OM_MARKETING_TRACKING_SECRET and APP_URL')
     }
 
     /**
@@ -427,8 +427,8 @@ export const sendEmailStep: StepHandler<StepDeps> = {
      * The dispatch engine ships ahead of the public `track`/`unsubscribe`/`survey` routes those links
      * point at — a later phase ships those. Nothing stops an operator enabling this module on a
      * checkout that has the engine without the routes, and a real send would then promise an opt-out
-     * and a survey answer that both 404. Same shape as the guard above: a configuration fault, so it
-     * is reported and skipped rather than retried.
+     * and a survey answer that both 404. Same shape as the guard above, and thrown for the same reason:
+     * a run that could not send must not report itself `completed`.
      */
     if (!resolveTrackingRoutesReady()) {
       deps.logger.error('[internal] marketing send refused: public tracking routes are not ready', {
@@ -441,10 +441,9 @@ export const sendEmailStep: StepHandler<StepDeps> = {
         code: 'marketing_automation.public_routes_unavailable',
         attributes: { campaignId: ctx.campaignId ?? undefined, stepId: ctx.actionId ?? undefined },
       })
-      return {
-        status: 'skipped',
-        detail: 'public tracking routes are not ready: set OM_MARKETING_PUBLIC_ROUTES_READY=true once they are deployed',
-      }
+      throw new Error(
+        '[internal] public tracking routes are not ready: set OM_MARKETING_PUBLIC_ROUTES_READY=true once they are deployed',
+      )
     }
 
     /**

@@ -49,4 +49,10 @@ describe('notify: team audience', () => {
       restrictRecipientsToOrganization: true,
     })
   })
+
+  it('resolves {{customer.displayName}} in the authored message, not just in the title/body variables', async () => {
+    await notifyStep.execute(ctx(), { audience: 'team', message: '{{customer.displayName}} answered 2 on the NPS' }, deps)
+    const [input] = createForFeature.mock.calls[0]
+    expect(input).toMatchObject({ bodyVariables: { message: 'Jane Doe answered 2 on the NPS' } })
+  })
 })

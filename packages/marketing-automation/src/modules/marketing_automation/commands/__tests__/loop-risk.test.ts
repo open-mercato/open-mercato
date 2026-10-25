@@ -66,6 +66,69 @@ describe('assertNoLoopRisk', () => {
   test('allows a campaign with no triggers to check against', () => {
     expect(() => assertNoLoopRisk([step('s1', 'add_tag')] as never, [])).not.toThrow()
   })
+
+  /**
+   * The audience carve-out: a tag-triggered campaign may still tag its own subjects, as long as the
+   * tag it adds is provably not the one its own audience requires on `trigger.tagId`.
+   */
+  const addTag = (id: string, tagId: string): Step => ({ id, type: 'add_tag', params: { tagId } })
+
+  test('allows adding a DIFFERENT tag than the one the audience requires', () => {
+    const audience = { field: 'trigger.tagId', operator: '==', value: 'vip' }
+    expect(() => assertNoLoopRisk(
+      [addTag('s1', 'bronze')] as never,
+      ['customers.tag.assigned'],
+      audience as never,
+    )).not.toThrow()
+  })
+
+  test('still refuses adding the SAME tag the audience requires', () => {
+    const audience = { field: 'trigger.tagId', operator: '==', value: 'vip' }
+    expect(() => assertNoLoopRisk(
+      [addTag('s1', 'vip')] as never,
+      ['customers.tag.assigned'],
+      audience as never,
+    )).toThrow()
+  })
+
+  test('still refuses any add_tag step when the audience says nothing about the tag', () => {
+    const audience = { field: 'customer.tier', operator: '==', value: 'gold' }
+    expect(() => assertNoLoopRisk(
+      [addTag('s1', 'bronze')] as never,
+      ['customers.tag.assigned'],
+      audience as never,
+    )).toThrow()
+  })
+
+  test('still refuses when the audience ORs the tag check with an unconstrained branch', () => {
+    const audience = {
+      operator: 'OR',
+      rules: [
+        { field: 'trigger.tagId', operator: '==', value: 'vip' },
+        { field: 'customer.tier', operator: '==', value: 'gold' },
+      ],
+    }
+    expect(() => assertNoLoopRisk(
+      [addTag('s1', 'bronze')] as never,
+      ['customers.tag.assigned'],
+      audience as never,
+    )).toThrow()
+  })
+
+  test('allows a DIFFERENT tag when the audience ANDs the tag check with an unrelated condition', () => {
+    const audience = {
+      operator: 'AND',
+      rules: [
+        { field: 'trigger.tagId', operator: '==', value: 'vip' },
+        { field: 'customer.tier', operator: '==', value: 'gold' },
+      ],
+    }
+    expect(() => assertNoLoopRisk(
+      [addTag('s1', 'bronze')] as never,
+      ['customers.tag.assigned'],
+      audience as never,
+    )).not.toThrow()
+  })
 })
 
 /**

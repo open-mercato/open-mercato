@@ -12,7 +12,12 @@ import {
   campaignEnabledSchema,
   campaignGraphSaveSchema,
 } from '../data/validators.js'
-import type { CampaignEnabledInput, CampaignGraphSaveInput, CampaignTriggerInput } from '../data/validators.js'
+import type { Audience, CampaignEnabledInput, CampaignGraphSaveInput, CampaignTriggerInput } from '../data/validators.js'
+import type {
+  ConditionExpression,
+  GroupCondition,
+  SimpleCondition,
+} from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
 import { getMarketingStep } from '../lib/engine/registry.js'
 import { WAIT_STEP_TYPE } from '../lib/engine/chain-planner.js'
 import { SPLIT_STEP_TYPE, readVariants, writeVariants } from '../lib/engine/split.js'
@@ -175,6 +180,61 @@ function assertStepsAreRunnable(steps: CampaignGraphSaveInput['definition']['ste
   }
 }
 
+function isGroupCondition(expression: ConditionExpression): expression is GroupCondition {
+  return Array.isArray((expression as GroupCondition).rules)
+}
+
+/**
+ * The values `field` is PROVEN to equal whenever `expression` is true, or `null` when no such bound
+ * can be established.
+ *
+ * Deliberately conservative in the direction that matters: `null` means "assume unconstrained",
+ * never "assume empty". The one caller this feeds, `add_tag`'s carve-out in `collectEmittedEvents`,
+ * falls back to its old blanket refusal whenever this cannot prove a tag id impossible — a missed
+ * optimisation is a false refusal an author can work around; a wrong proof here is a campaign that
+ * drives itself.
+ */
+function requiredFieldValues(expression: unknown, field: string): Set<string> | null {
+  if (!expression || typeof expression !== 'object') return null
+  const node = expression as ConditionExpression
+  if (!isGroupCondition(node)) {
+    const leaf = node as SimpleCondition
+    if (leaf.field !== field) return null
+    if (leaf.operator === '=' || leaf.operator === '==') {
+      return leaf.value === null || leaf.value === undefined ? null : new Set([String(leaf.value)])
+    }
+    if (leaf.operator === 'IN' && Array.isArray(leaf.value)) {
+      return new Set(leaf.value.map((value) => String(value)))
+    }
+    return null
+  }
+  if (node.operator === 'AND') {
+    let result: Set<string> | null = null
+    for (const rule of node.rules) {
+      const ruleSet = requiredFieldValues(rule, field)
+      if (!ruleSet) continue
+      if (!result) {
+        result = ruleSet
+        continue
+      }
+      const current: Set<string> = result
+      result = new Set([...current].filter((value) => ruleSet.has(value)))
+    }
+    return result
+  }
+  if (node.operator === 'OR') {
+    const union = new Set<string>()
+    for (const rule of node.rules) {
+      const ruleSet = requiredFieldValues(rule, field)
+      if (!ruleSet) return null
+      for (const value of ruleSet) union.add(value)
+    }
+    return union
+  }
+  // `NOT`, or anything this evaluator gains later: no sound bound without knowing its semantics.
+  return null
+}
+
 /**
  * Every event any step could emit, INCLUDING steps inside a split's lanes.
  *
@@ -182,19 +242,35 @@ function assertStepsAreRunnable(steps: CampaignGraphSaveInput['definition']['ste
  * of wrong: its two sibling assertions both recurse, so a campaign whose `add_tag` sat inside a lane
  * passed the cycle check and then drove itself on every tag assignment, with only the per-subject run
  * budget braking it.
+ *
+ * `add_tag` is the one entry in `STEP_EMITTED_EVENTS` checked against the audience rather than
+ * reported unconditionally: the trigger catalog's `tagAssigned` entry fires on ANY tag, so without
+ * this every tag-triggered campaign was refused an `add_tag` step of its own, including the ordinary
+ * case of tagging a VIP after a reply and never touching that tag again. Reported only when the
+ * audience does not provably rule the step's own tag out — an audience with no `trigger.tagId`
+ * constraint, or one this cannot parse, keeps the old blanket refusal.
  */
 export function collectEmittedEvents(
   steps: CampaignGraphSaveInput['definition']['steps'],
+  audience: Audience | null = null,
   depth = 0,
 ): Set<string> {
   const emitted = new Set<string>()
   if (depth > 5) return emitted
+  const requiredTagIds = requiredFieldValues(audience, 'trigger.tagId')
   for (const step of steps) {
-    for (const eventId of STEP_EMITTED_EVENTS[step.type] ?? []) emitted.add(eventId)
+    for (const eventId of STEP_EMITTED_EVENTS[step.type] ?? []) {
+      if (step.type === 'add_tag' && eventId === 'customers.tag.assigned' && requiredTagIds) {
+        const tagId = (step.params as { tagId?: unknown } | undefined)?.tagId
+        if (typeof tagId === 'string' && !requiredTagIds.has(tagId)) continue
+      }
+      emitted.add(eventId)
+    }
     if (step.type !== SPLIT_STEP_TYPE) continue
     for (const variant of readVariants(step)) {
       const nested = collectEmittedEvents(
         variant.steps as CampaignGraphSaveInput['definition']['steps'],
+        audience,
         depth + 1,
       )
       for (const eventId of nested) emitted.add(eventId)
@@ -210,8 +286,9 @@ export function collectEmittedEvents(
 export function assertNoLoopRisk(
   steps: CampaignGraphSaveInput['definition']['steps'],
   eventIds: Iterable<string>,
+  audience: Audience | null = null,
 ): void {
-  const emitted = collectEmittedEvents(steps)
+  const emitted = collectEmittedEvents(steps, audience)
   for (const eventId of eventIds) {
     if (emitted.has(eventId)) {
       throw invalidGraph(
@@ -281,7 +358,7 @@ function assertGraphIsRunnable(payload: CampaignGraphSaveInput): void {
     seenSchedules.add(scheduleKey)
   }
 
-  assertNoLoopRisk(steps, seenEvents)
+  assertNoLoopRisk(steps, seenEvents, payload.definition.audience)
 }
 
 async function replaceTriggers(
@@ -700,7 +777,11 @@ const applySplitWinnerCommand: CommandHandler<
       organizationId: scope.organizationId,
       kind: 'event',
     })
-    assertNoLoopRisk(steps, triggers.map((trigger) => trigger.eventId).filter((eventId): eventId is string => !!eventId))
+    assertNoLoopRisk(
+      steps,
+      triggers.map((trigger) => trigger.eventId).filter((eventId): eventId is string => !!eventId),
+      definition.audience,
+    )
 
     await em.transactional(async (tx) => {
       // Locked and re-asserted for the reason `save_graph` is: the check above is check-then-write, and

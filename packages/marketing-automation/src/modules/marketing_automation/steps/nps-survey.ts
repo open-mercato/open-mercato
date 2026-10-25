@@ -71,16 +71,37 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
     const secret = resolveTrackingSecret()
     const baseUrl = resolveTrackingBaseUrl()
     if (!secret || !baseUrl) {
-      // Without signed links there is no way to answer, and a survey nobody can answer is worse than none.
-      return { status: 'skipped', detail: 'no tracking secret or base url, so the scale could not be signed' }
+      // Without signed links there is no way to answer, and a survey nobody can answer is worse than
+      // none — a configuration fault, so it is reported and thrown rather than skipped: `send_email`'s
+      // own guard explains why a run that sent nothing must not report itself `completed`.
+      deps.logger.error('[internal] marketing survey refused: no tracking secret or base url', {
+        campaignId: ctx.campaignId,
+        runId: ctx.runId,
+        stepId: ctx.actionId,
+      })
+      reportError(new Error('[internal] marketing survey has no signed-link secret or base url'), {
+        module: 'marketing_automation',
+        code: 'marketing_automation.unsubscribe_url_unavailable',
+        attributes: { campaignId: ctx.campaignId, stepId: ctx.actionId },
+      })
+      throw new Error('[internal] no tracking secret or base url: set OM_MARKETING_TRACKING_SECRET and APP_URL')
     }
     // Same reason send_email refuses: the public answer route this scale links to may not be
     // deployed yet, and a survey nobody can actually answer is worse than none.
     if (!resolveTrackingRoutesReady()) {
-      return {
-        status: 'skipped',
-        detail: 'public tracking routes are not ready: set OM_MARKETING_PUBLIC_ROUTES_READY=true once they are deployed',
-      }
+      deps.logger.error('[internal] marketing survey refused: public tracking routes are not ready', {
+        campaignId: ctx.campaignId,
+        runId: ctx.runId,
+        stepId: ctx.actionId,
+      })
+      reportError(new Error('[internal] marketing survey attempted before public routes were ready'), {
+        module: 'marketing_automation',
+        code: 'marketing_automation.public_routes_unavailable',
+        attributes: { campaignId: ctx.campaignId, stepId: ctx.actionId },
+      })
+      throw new Error(
+        '[internal] public tracking routes are not ready: set OM_MARKETING_PUBLIC_ROUTES_READY=true once they are deployed',
+      )
     }
 
     const entity = await findOneWithDecryption(

@@ -4,6 +4,7 @@ import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entiti
 import type { StepHandler } from '../lib/engine/registry.js'
 import type { AutomationContext } from '../lib/engine/types.js'
 import { interpolate } from '../lib/interpolate.js'
+import { loadRenderValues, neededRenderRoots } from '../lib/render-values.js'
 import type { StepDeps } from './deps.js'
 
 /**
@@ -101,7 +102,21 @@ export const notifyStep: StepHandler<StepDeps> = {
         )
       : null
 
-    const message = interpolate(params.message, ctx)
+    /**
+     * The same roots-on-demand values `send-email` resolves its copy against, loaded here too — without
+     * this, `{{customer.displayName}}` and the rest of `COPY_PLACEHOLDERS` reach a colleague's bell menu
+     * unresolved, since the persisted run context carries none of them.
+     */
+    const values = await loadRenderValues(
+      deps.em,
+      deps.container,
+      ctx,
+      deps.scope,
+      neededRenderRoots([params.message]),
+      customer,
+      deps.now ?? new Date(),
+    )
+    const message = interpolate(params.message, { ...values, ...ctx })
     const common = {
       type: 'marketing_automation.campaign_notice',
       titleKey: 'marketing_automation.notifications.campaignNotice.title',
@@ -110,8 +125,11 @@ export const notifyStep: StepHandler<StepDeps> = {
       bodyVariables: { message, customer: customer?.displayName ?? '' },
       severity: params.severity,
       sourceModule: 'marketing_automation',
-      // The bell is a prompt to act, and acting means opening the customer — not the campaign.
-      linkHref: ctx.subjectEntityId ? `/backend/marketing/customers/${ctx.subjectEntityId}` : '/backend/marketing/campaigns',
+      /**
+       * No `linkHref` yet: the customer detail and campaign list screens this notice would point at
+       * are a later phase's screens, not this one's — a link into a page that does not exist yet is
+       * worse than no link, so the bell carries the message only until that phase ships one.
+       */
       /**
        * One notice per run per step, so a redelivered step groups onto the same row rather than stacking.
        *
