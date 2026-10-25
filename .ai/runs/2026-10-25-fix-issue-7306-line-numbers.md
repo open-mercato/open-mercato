@@ -37,6 +37,10 @@ Undo conflict resolution could drop lifecycle/version checks or block retry afte
 
 ### Phase 2: Current review remediation
 
-- [ ] 2.1 Integrate current main while preserving uniqueness, undo protection, and retry semantics
-- [ ] 2.2 Correct conflict feedback and validate resolved command paths
+- [x] 2.1 Integrate current main while preserving uniqueness, undo protection, and retry semantics — 063fb3cf0
+- [x] 2.2 Correct conflict feedback and validate resolved command paths — 063fb3cf0
 - [ ] 2.3 Review final diff, publish evidence, and request human re-review
+
+## Verification evidence
+
+Runner: local. Current source command regressions: 89/89 pass. Focused ESLint, lessons checker and its 5 tests, translation synchronization, and template parity pass. Playwright discovers all 7 cases in TC-WC-038 (renamed because current main owns portal-upload TC-WC-037). A fresh live API/browser run is unavailable because no disposable application is running. The broad warranty fallback is not green: 48/63 suites and 552/561 tests passed; missing shared test dependencies, absent generated fixtures, and Windows Polish number formatting block the remaining coverage. The translation-usage scan did not finish within the local fallback window. New-head CI and manual QA remain external gates.
