@@ -89,7 +89,7 @@ Indexes:
 - `customer_email_conversation_shares_lookup_idx` — `(tenant_id, organization_id, person_entity_id) WHERE deleted_at IS NULL` (Person-page read).
 - `customer_email_conversation_shares_owner_idx` — `(tenant_id, owner_user_id) WHERE deleted_at IS NULL` (the "conversations I have shared" read).
 
-Person deletion removes every conversation-share row for that Person within the deletion transaction, including revoked rows and shares owned by other users. Delete undo restores the original share IDs, owners, sharing actors, timestamps, and revocation status within the Person restoration transaction. Share snapshots are stored only in the private undo payload; public Person audit snapshots do not gain mailbox ownership or revocation history. Undoing Person creation also removes conversation-share rows before removing the Person. All share reads and writes retain tenant and organization scoping. This closes issue #7314 without changing the schema or email visibility policy; interaction-state restoration tracked by #7204 remains separate.
+Person deletion removes every conversation-share row for that Person within the deletion transaction, including revoked rows and shares owned by other users. Delete undo restores the original share IDs, owners, sharing actors, timestamps, and revocation status within the Person restoration transaction. Share snapshots are stored only in the private undo payload; public Person audit snapshots do not gain mailbox ownership or revocation history. Undoing Person creation also removes conversation-share rows before removing the Person. All share reads and writes retain tenant and organization scoping. This closes issue #7314 without changing the schema or email visibility policy; restoration composes with the interaction-state behavior from #7204 and label history from #7575.
 
 The channel flag adds two more pieces:
 
@@ -228,6 +228,7 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 
 | Date | Change |
 |---|---|
+| 2026-10-25 | Resolved the main merge while retaining private interaction state, label history and index events, and conversation shares together. Combined command regressions cover repeated undo and rollback without audit metadata exposure. |
 | 2026-10-13 | Fixed #7314: scoped Person deletion and create undo remove active and revoked conversation shares; delete undo restores their complete state from its private payload. Added command regressions and `TC-CRM-EMAIL-SHARE-UNDO-001` API coverage. No schema or visibility-policy change. |
 | 2026-08-25 | Skeleton drafted with the Q1–Q4 Open Questions gate (`om-spec-writing`). |
 | 2026-08-25 | Readiness audit completed — 2 Critical / 6 Warning BC findings, 5 High risks ([`analysis/ANALYSIS-…`](analysis/ANALYSIS-2026-08-25-crm-channel-shared-visibility.md)). |

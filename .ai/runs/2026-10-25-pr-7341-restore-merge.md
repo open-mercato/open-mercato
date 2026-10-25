@@ -32,6 +32,6 @@ Use GitHub checks for the full gate and focused local regression coverage for th
 
 ### Phase 2: Resolve inherited review finding
 
-- [ ] 2.1 Merge current main and preserve all three restoration paths
-- [ ] 2.2 Verify combined restoration regressions and merged lessons catalog
+- [x] 2.1 Merge current main and preserve all three restoration paths — 589a04f6db8f3f5218cfc64aacc3dbba6faadc21
+- [x] 2.2 Verify combined restoration regressions and merged lessons catalog — 589a04f6db8f3f5218cfc64aacc3dbba6faadc21
 - [ ] 2.3 Review the resolved diff, publish evidence, and request independent re-review
