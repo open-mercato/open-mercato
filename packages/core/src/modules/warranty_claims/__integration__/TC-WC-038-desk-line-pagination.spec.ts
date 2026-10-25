@@ -120,8 +120,14 @@ test.describe('TC-WC-038: every accepted line is available in the claims desk', 
           currentLine = (await readLinePage(request, token, sourceClaimId, 2)).items!.find((line) => line.id === lastLine.id)!
         }
         await page.reload()
-        await page.getByRole('button', { name: 'Actions', exact: true }).click()
-        await page.getByRole('menuitem', { name: 'Create vendor recovery', exact: true }).click()
+        const actionsButton = page.getByRole('button', { name: 'Actions', exact: true })
+        await actionsButton.focus()
+        if (await actionsButton.getAttribute('aria-expanded') !== 'true') {
+          await actionsButton.press('Enter')
+        }
+        const recoveryAction = page.getByRole('menuitem', { name: 'Create vendor recovery', exact: true })
+        await expect(recoveryAction).toBeVisible()
+        await recoveryAction.press('Enter')
         const recoveryDialog = page.getByRole('dialog', { name: 'Create vendor recovery' })
         await expect(recoveryDialog.getByRole('checkbox', { name: `Line ${lineCount} — ${productName}` })).toBeChecked()
         await recoveryDialog.getByLabel('Vendor name', { exact: true }).fill(`${stamp} vendor`)

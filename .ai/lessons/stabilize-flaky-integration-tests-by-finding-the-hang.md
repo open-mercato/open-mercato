@@ -2,7 +2,7 @@
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
 areas: ["integration","testing","backend-ui"]
-topics: ["events","testing","workers","hydration","component-overrides","timers"]
+topics: ["events","testing","workers","hydration","timers","dropdowns"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -10,6 +10,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
+
+`TC-WC-038` inspected and received the last line of 101/200-line claims, then timed out opening vendor recovery. The failure screenshot showed the Actions menu closed. `ActionsDropdown` opens on hover and toggles on click, so a pointer click can immediately close the menu it just opened. Check `aria-expanded` before keyboard activation, assert the target menu item is visible, and activate it with the keyboard to avoid hover-driven toggles.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 
