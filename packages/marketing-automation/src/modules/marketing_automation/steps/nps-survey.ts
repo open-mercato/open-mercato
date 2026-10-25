@@ -81,7 +81,7 @@ export const npsSurveyStep: StepHandler<StepDeps> = {
       })
       reportError(new Error('[internal] marketing survey has no signed-link secret or base url'), {
         module: 'marketing_automation',
-        code: 'marketing_automation.unsubscribe_url_unavailable',
+        code: 'marketing_automation.signed_link_secret_unavailable',
         attributes: { campaignId: ctx.campaignId, stepId: ctx.actionId },
       })
       throw new Error('[internal] no tracking secret or base url: set OM_MARKETING_TRACKING_SECRET and APP_URL')
