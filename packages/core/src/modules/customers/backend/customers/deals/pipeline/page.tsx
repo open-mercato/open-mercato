@@ -627,7 +627,7 @@ export default function DealsKanbanPage(): React.ReactElement {
     () => ({
       pipelineId: selectedPipelineId,
       search: search.trim(),
-      status: statusFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      status: JSON.stringify(statusFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))),
       owners: ownerFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
       people: peopleFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
       companies: companyFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),

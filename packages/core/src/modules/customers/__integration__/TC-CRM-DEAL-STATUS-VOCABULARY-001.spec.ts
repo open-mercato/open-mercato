@@ -24,6 +24,8 @@ import {
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { DEAL_STATUS_RECLASSIFICATION_CODE, DEAL_STATUS_RECLASSIFICATION_HEADER, dealStatusReclassificationErrorSchema } from '../data/dealStatusVocabulary'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { formatDealStatusAliases } from '../lib/dealStatusVocabularyInput'
+import { buildPipelineDataRequest } from '../../dashboards/widgets/dashboard/pipeline-summary/config'
 
 const SETTINGS_PATH = '/api/customers/settings/deal-status-vocabulary'
 const VOCABULARY = { won: ['acquired', 'delivered'], lost: ['declined'], closed: ['finished'] }
@@ -142,7 +144,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     tenantId = expectId((await readJsonSafe<{ id: string }>(response))?.id, 'Tenant fixture has an id')
     organizationId = await createOrganizationFixture(request, superToken, { name: `Vocabulary ${stamp}`, tenantId })
     roleId = await createRoleFixture(request, superToken, { name: `Vocabulary manager ${stamp}`, tenantId })
-    await setRoleAclFeatures(request, superToken, { roleId, features: ['customers.*', 'audit_logs.undo_self', 'audit_logs.view_self'], organizations: null })
+    await setRoleAclFeatures(request, superToken, { roleId, features: ['customers.*', 'analytics.view', 'audit_logs.undo_self', 'audit_logs.view_self'], organizations: null })
     managerEmail = `vocabulary-manager-${stamp}@example.com`
     managerId = await createUserFixture(request, superToken, {
       email: managerEmail, password: fixturePassword, organizationId, roles: [roleId],
@@ -591,11 +593,72 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     }
   })
 
-  test('saves and resets through the settings editor and applies canonical Kanban filters', async ({ page, request }) => {
+  test('matches historical terminal casing across filters and analytics while preserving arbitrary status semantics', async ({ request }) => {
+    const fixtures: Fixture[] = []
+    try {
+      await saveSettings(request, managerToken, DEFAULT_VOCABULARY)
+      const companyId = await createCompanyFixture(request, managerToken, `Historical statuses ${randomUUID()}`)
+      fixtures.push({ path: '/api/customers/companies', id: companyId })
+      const address = await apiRequest(request, 'POST', '/api/customers/addresses', {
+        token: managerToken, data: { entityId: companyId, addressLine1: '1 Historical Street', city: 'Warszawa', country: 'PL', latitude: 52.1875, longitude: 21, isPrimary: true },
+      })
+      expect(address.status()).toBe(201)
+      fixtures.push({ path: '/api/customers/addresses', id: expectId((await readJsonSafe<{ id: string }>(address))?.id, 'Address fixture has an id') })
+      const ids: string[] = []
+      for (const status of ['  sIgNeD  ', '\t\u00a0sIgNeD\n', 'Custom Review', ' CUSTOM REVIEW ', 'open']) {
+        const id = await createDealFixture(request, managerToken, { title: `Historical ${status} ${randomUUID()}`, companyIds: [companyId], status, closureOutcome: status === 'open' ? 'won' : undefined })
+        ids.push(id)
+        fixtures.push({ path: '/api/customers/deals', id })
+      }
+      const snapshots = await Promise.all(ids.map((id) => readDealSnapshot(request, managerToken, id)))
+      expect(snapshots[0]).toMatchObject({ status: '  sIgNeD  ', closureOutcome: null })
+      expect(snapshots[1]).toMatchObject({ status: '\t\u00a0sIgNeD\n', closureOutcome: null })
+      const vocabulary = { won: ['Signed'], lost: ['Declined'], closed: ['Archived'] }
+      await saveSettings(request, managerToken, vocabulary)
+      await expectStatusFilter(request, managerToken, companyId, 'win', ids.slice(0, 2))
+      await expectStatusFilter(request, managerToken, companyId, 'Custom Review', [ids[2]])
+      await expectStatusFilter(request, managerToken, companyId, 'win,Custom Review', ids.slice(0, 3))
+      const assertPage = async (path: string, query: URLSearchParams, expectedIds: string[]) => {
+        const response = await apiRequest(request, 'GET', `${path}?${query}`, { token: managerToken })
+        expect(response.status()).toBe(200)
+        const body = await readJsonSafe<{ items: Array<{ id: string }> }>(response)
+        expect(body?.items.map((item) => item.id).sort()).toEqual([...expectedIds].sort())
+      }
+      await assertPage('/api/customers/deals/map', new URLSearchParams({ companyId, status: 'win' }), ids.slice(0, 2))
+      for (const [operator, expected] of [['equals', ids.slice(0, 2)], ['not_equals', ids.slice(2)]] as const) {
+        const advanced = new URLSearchParams({ companyId, 'filter[v]': '2', 'filter[root][combinator]': 'and', 'filter[root][children][0][type]': 'rule', 'filter[root][children][0][field]': 'status', 'filter[root][children][0][op]': operator, 'filter[root][children][0][value]': 'win' })
+        await assertPage('/api/customers/deals', advanced, [...expected])
+      }
+      for (const [status, expectedCount] of [['win', 2], ['Custom Review', 1], ['win,Custom Review', 3]] as const) {
+        const aggregate = await apiRequest(request, 'GET', `/api/customers/deals/aggregate?${new URLSearchParams({ companyId, status })}`, { token: managerToken })
+        expect(aggregate.status()).toBe(200)
+        const body = await readJsonSafe<{ perStage: Array<{ count: number }> }>(aggregate)
+        expect(body?.perStage.reduce((count, stage) => count + stage.count, 0)).toBe(expectedCount)
+      }
+      await expectCompanyClassification(request, managerToken, companyId, 3, 2)
+      const summary = await apiRequest(request, 'GET', '/api/customers/deals/summary', { token: managerToken })
+      expect(summary.status()).toBe(200)
+      expect(await readJsonSafe(summary)).toMatchObject({ wonThisQuarter: { dealsClosed: 3 } })
+      for (const [statusScope, expected] of [['open', 2], ['all', 5]] as const) {
+        const data = buildPipelineDataRequest({ dateRange: 'last_30_days', statusScope }, vocabulary)
+        const response = await apiRequest(request, 'POST', '/api/dashboards/widgets/data', { token: managerToken, data: { ...data, metric: { field: 'id', aggregate: 'count' } } })
+        expect(response.status()).toBe(200)
+        expect(await readJsonSafe(response)).toMatchObject({ value: expected })
+      }
+      expect(await Promise.all(ids.map((id) => readDealSnapshot(request, managerToken, id)))).toEqual(snapshots)
+    } finally {
+      await cleanupFixtures(request, managerToken, fixtures)
+    }
+  })
+
+  test('saves comma aliases through the editor and applies stable Won filters without changing legacy CSV', async ({ page, request }) => {
     const fixtures: Fixture[] = []
     const stamp = randomUUID()
     const wonTitle = `Vocabulary delivered ${stamp}`
     const openTitle = `Vocabulary active ${stamp}`
+    const uiVocabulary = { won: ['signed, approved', 'win,lost'], lost: ['declined'], closed: ['finished'] }
+    let wonId = ''
+    let lostId = ''
     const screenshotDirectory = path.resolve('.ai/qa/screenshots/issue-5546')
     try {
       const baseline = await readSettings(request, managerToken)
@@ -606,18 +669,20 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       fixtures.push({ path: '/api/customers/pipelines', id: pipelineId, bodyDelete: true })
       const stageId = await createPipelineStageFixture(request, managerToken, { pipelineId, label: 'Opportunity', order: 0 })
       fixtures.push({ path: '/api/customers/pipeline-stages', id: stageId, bodyDelete: true })
-      for (const [title, status] of [[wonTitle, 'delivered'], [openTitle, 'open']]) {
+      for (const [title, status] of [[wonTitle, 'signed, approved'], [openTitle, 'open'], [`Vocabulary lost ${stamp}`, 'lost']]) {
         const id = await createDealFixture(request, managerToken, { title, status, companyIds: [companyId], pipelineId, pipelineStageId: stageId })
         fixtures.push({ path: '/api/customers/deals', id })
+        if (status === 'signed, approved') wonId = id
+        if (status === 'lost') lostId = id
       }
       const login = await page.request.post('/api/auth/login', { form: { email: managerEmail, password: fixturePassword } })
       expect(login.status()).toBe(200)
       await page.goto('/backend/config/customers/deals')
       await expect(page.getByRole('button', { name: /^Organization: Vocabulary / })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Deal status vocabulary', exact: true })).toBeVisible()
-      await page.getByRole('textbox', { name: 'Won statuses', exact: true }).fill(VOCABULARY.won.join(', '))
-      await page.getByRole('textbox', { name: 'Lost statuses', exact: true }).fill(VOCABULARY.lost.join(', '))
-      await page.getByRole('textbox', { name: 'Closed statuses', exact: true }).fill(VOCABULARY.closed.join(', '))
+      await page.getByRole('textbox', { name: 'Won statuses', exact: true }).fill(formatDealStatusAliases(uiVocabulary.won))
+      await page.getByRole('textbox', { name: 'Lost statuses', exact: true }).fill(formatDealStatusAliases(uiVocabulary.lost))
+      await page.getByRole('textbox', { name: 'Closed statuses', exact: true }).fill(formatDealStatusAliases(uiVocabulary.closed))
       const saveResponse = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT')
       await page.getByRole('button', { name: 'Save vocabulary', exact: true }).click()
       expect((await saveResponse).status()).toBe(409)
@@ -630,10 +695,12 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       const confirmedSave = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT' && response.status() === 200)
       await confirmation.getByRole('button', { name: 'Apply vocabulary change', exact: true }).press('Control+Enter')
       await confirmedSave
-      expect((await readSettings(request, managerToken)).vocabulary).toEqual(VOCABULARY)
+      expect((await readSettings(request, managerToken)).vocabulary).toEqual(uiVocabulary)
+      await expectStatusFilter(request, managerToken, companyId, 'win', [wonId])
+      await expectStatusFilter(request, managerToken, companyId, 'win,lost', [wonId, lostId])
       await page.reload()
       await expect(page.getByRole('button', { name: /^Organization: Vocabulary / })).toBeVisible()
-      await expect(page.getByRole('textbox', { name: 'Won statuses', exact: true })).toHaveValue('acquired, delivered')
+      await expect(page.getByRole('textbox', { name: 'Won statuses', exact: true })).toHaveValue(formatDealStatusAliases(uiVocabulary.won))
       await expect(page.getByRole('button', { name: 'Reset to default', exact: true })).toBeEnabled()
       await mkdir(screenshotDirectory, { recursive: true })
       await page.screenshot({ path: path.join(screenshotDirectory, 'settings-editor.png'), fullPage: true })
@@ -647,7 +714,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await page.getByRole('button', { name: /^(Win|Won)$/ }).click()
       const filteredRequest = page.waitForRequest((request) => {
         const url = new URL(request.url())
-        return url.pathname === '/api/customers/deals' && url.searchParams.get('pipelineId') === pipelineId && url.searchParams.getAll('status').includes('acquired')
+        return url.pathname === '/api/customers/deals' && url.searchParams.get('pipelineId') === pipelineId && url.searchParams.getAll('status').includes('win')
       })
       await page.getByRole('button', { name: 'Apply', exact: true }).click()
       await filteredRequest

@@ -141,7 +141,8 @@ describe('loadDealsSummaryQueryRows', () => {
     const lostAliases = ['declined', 'lost', 'loose']
     const wonValues = executeMock.mock.calls[2][1] as string[]
     expect(wonValues.slice(8)).toEqual([tenantId, organizationId, ...wonAliases])
-    expect(normalizedSql(executeMock.mock.calls[2])).toContain("LOWER(TRIM(status)) IN (?,?,?,?) OR closure_outcome = 'won'")
+    expect(normalizedSql(executeMock.mock.calls[2])).toContain('LOWER(BTRIM(status,')
+    expect(normalizedSql(executeMock.mock.calls[2])).toContain("IN (?,?,?,?) OR closure_outcome = 'won'")
     expect(executeMock.mock.calls[3][1]).toEqual([
       ...wonAliases, currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),
       ...lostAliases, currentQuarter.start.toISOString(), currentQuarter.end.toISOString(),

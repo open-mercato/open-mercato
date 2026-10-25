@@ -391,27 +391,38 @@ describe('customers deals list filters', () => {
 })
 
 it('uses a tenant vocabulary for both plain and advanced status filters', async () => {
-  const vocabulary = { won: ['accepted'], lost: ['declined'], closed: ['archived'] }
+  const vocabulary = { won: ['Signed'], lost: ['declined'], closed: ['archived'] }
+  const execute = jest.fn().mockResolvedValue([{ status: '  sIgNeD  ' }])
   const ctx = {
     auth: { tenantId, orgId: organizationId },
     container: {
-      resolve: () => ({
+      resolve: (key: string) => key === 'em' ? { getConnection: () => ({ execute }) } : ({
         getRecord: async () => ({ value: vocabulary, source: 'tenant', tenantId, updatedAt: '2026-10-18T00:00:00.000Z' }),
       }),
     },
   } as unknown as CrudCtx
-  const plain = await buildDealListFilters(dealListQuerySchema.parse({ status: 'accepted' }), ctx)
-  expect(plain.status).toEqual({ $in: ['accepted', 'win', 'won'] })
+  const plain = await buildDealListFilters(dealListQuerySchema.parse({ status: 'win' }), ctx)
+  expect(plain.status).toEqual({ $in: ['Signed', '  sIgNeD  ', 'win', 'won'] })
+  const mixed = await buildDealListFilters(dealListQuerySchema.parse({ status: 'win,Custom Review' }), ctx)
+  expect(mixed.status).toEqual({ $in: ['Signed', '  sIgNeD  ', 'win', 'won', 'custom review', 'Custom Review'] })
   const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
   const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
   const utils = await import('../../utils')
   const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
   try {
-    const tree = makeRuleTree({ field: 'status', operator: 'is', value: 'accepted' })
+    const tree = makeRuleTree({ field: 'status', operator: 'is', value: 'win' })
     await buildDealListFilters(dealListQuerySchema.parse(serializeTree(tree)), ctx)
     const filters = (spy.mock.calls[0]![0] as { filters: Record<string, unknown> }).filters
-    expect(JSON.stringify(filters)).toContain('accepted')
+    expect(JSON.stringify(filters)).toContain('  sIgNeD  ')
     expect(JSON.stringify(filters)).toContain('won')
+    const negative = makeRuleTree({ field: 'status', operator: 'is_not', value: 'win' })
+    await buildDealListFilters(dealListQuerySchema.parse(serializeTree(negative)), ctx)
+    expect(JSON.stringify(spy.mock.calls[1]![0].filters)).toContain('$nin')
+    expect(JSON.stringify(spy.mock.calls[1]![0].filters)).toContain('  sIgNeD  ')
+    const callsBeforeTextFilter = execute.mock.calls.length
+    const text = makeRuleTree({ field: 'status', operator: 'contains', value: 'Signed' })
+    await buildDealListFilters(dealListQuerySchema.parse(serializeTree(text)), ctx)
+    expect(execute).toHaveBeenCalledTimes(callsBeforeTextFilter)
   } finally {
     spy.mockRestore()
   }

@@ -137,7 +137,7 @@ describe('customers deals aggregate route', () => {
     const aggregateCall = executeMock.mock.calls[0]
     const sql = String(aggregateCall[0])
     const values = aggregateCall[1] as string[]
-    expect(sql).toContain('status IN')
+    expect(sql).toContain('LOWER(BTRIM(status,')
     // won expands to win + won so both spellings are matched in one query
     expect(values).toContain('win')
     expect(values).toContain('won')
@@ -192,18 +192,20 @@ describe('customers deals aggregate route', () => {
   })
 })
 
-it('expands the authenticated tenant vocabulary in aggregate filters', async () => {
+it.each(['win', 'win,lost'])('preserves CSV outcome transport %s with comma-containing tenant aliases', async (status) => {
   const originalResolve = container.resolve.getMockImplementation()!
-  const vocabulary = { won: ['accepted'], lost: ['declined'], closed: ['archived'] }
+  const vocabulary = { won: ['signed, approved', 'win,lost'], lost: ['declined'], closed: ['archived'] }
   container.resolve.mockImplementation((name: string) => name === 'moduleConfigService'
     ? { getRecord: async () => ({ source: 'tenant', tenantId, value: vocabulary, updatedAt: '2026-10-18T00:00:00.000Z' }) }
     : originalResolve(name))
   executeMock.mockReset().mockResolvedValue([])
   try {
-    const response = await GET(new Request('http://localhost/api/customers/deals/aggregate?status=accepted'))
+    const response = await GET(new Request(`http://localhost/api/customers/deals/aggregate?${new URLSearchParams({ status })}`))
     expect(response.status).toBe(200)
     const bindings = executeMock.mock.calls.flatMap((call: unknown[]) => Array.isArray(call[1]) ? call[1] : [])
-    expect(bindings).toEqual(expect.arrayContaining(['accepted', 'win', 'won']))
+    expect(bindings).toEqual(expect.arrayContaining(['signed, approved', 'win,lost', 'win', 'won']))
+    if (status === 'win,lost') expect(bindings).toEqual(expect.arrayContaining(['declined', 'lost', 'loose']))
+    else expect(bindings).not.toContain('declined')
   } finally {
     container.resolve.mockImplementation(originalResolve)
   }

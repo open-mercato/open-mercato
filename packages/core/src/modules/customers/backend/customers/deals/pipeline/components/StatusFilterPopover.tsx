@@ -16,7 +16,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import { useCustomerDictionary } from '../../../../../components/detail/hooks/useCustomerDictionary'
 import { useDealStatusVocabulary } from '../../../../../components/hooks/useDealStatusVocabulary'
-import { canonicalDealStatus } from '../../../../../lib/dealStatus'
+import { canonicalDealStatus, dealStatusFilterToken } from '../../../../../lib/dealStatus'
 import { toneToDotClass } from './toneClasses'
 import { ChipButton } from './ChipButton'
 import { FilterPopoverShell } from './FilterPopoverShell'
@@ -35,7 +35,8 @@ import { FilterPopoverShell } from './FilterPopoverShell'
  * `lib/dealStatus.ts:expandDealStatusAliases`, shared by the deals list route and the
  * kanban aggregate route). The UI only exposes the canonical values to avoid duplicate
  * pills, but `canonicalDealStatus` normalizes any alias passed in through `values` so
- * the chip and draft selection render the correct label.
+ * the chip and draft selection render the correct label. Apply sends stable outcome
+ * tokens so comma-containing preferred aliases cannot collide with the existing CSV transport.
  */
 const FALLBACK_STATUS_OPTIONS: Array<{
   value: string
@@ -163,7 +164,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
 
   const handleApply = () => {
     if (selectionDisabled) return
-    onApply(draft)
+    onApply(draft.map((value) => dealStatusFilterToken(value, vocabulary)))
     setOpen(false)
   }
 

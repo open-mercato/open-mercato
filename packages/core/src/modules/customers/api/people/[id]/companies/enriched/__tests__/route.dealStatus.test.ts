@@ -60,7 +60,11 @@ jest.mock('../../../../../../lib/personCompanyLinkTable', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: jest.fn(() => ({ error: jest.fn() })),
+  createLogger: jest.fn(() => {
+    const logger = { error: jest.fn(), warn: jest.fn(), child: jest.fn() }
+    logger.child.mockReturnValue(logger)
+    return logger
+  }),
 }))
 
 import { GET } from '../route'

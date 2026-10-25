@@ -24,7 +24,8 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import type { FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { fetchStuckDealIds } from '../../lib/stuckDeals'
-import { expandDealStatusAliases } from '../../lib/dealStatus'
+import { expandDealStatusAliases, isClosedDealStatus } from '../../lib/dealStatus'
+import { resolveDealStatusFilterVocabulary, restoreDealStatusFilterVariants } from '../../lib/dealStatusFilters'
 import { resolveDealStatusVocabulary } from '../../lib/dealStatusVocabulary'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -260,8 +261,19 @@ function normalizeUuidList(values: Array<unknown>): string[] {
 }
 
 export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
-  const { vocabulary } = await resolveDealStatusVocabulary(ctx?.container, ctx?.organizationScope?.tenantId ?? ctx?.auth?.tenantId)
+  const { vocabulary: resolvedVocabulary } = await resolveDealStatusVocabulary(ctx?.container, ctx?.organizationScope?.tenantId ?? ctx?.auth?.tenantId)
   const advancedFilterTree = consumeAdvancedFilterState(query)
+  const statusInputs = query.status ? normalizeStringList(query.status) : []
+  const collectStatuses = (node: FilterGroup | FilterRule): void => {
+    if (node.type === 'rule' && node.field === 'status' && STATUS_TREE_OPERATORS.has(node.operator)) {
+      if (typeof node.value === 'string') statusInputs.push(node.value)
+      else if (Array.isArray(node.value)) statusInputs.push(...node.value.filter((value): value is string => typeof value === 'string'))
+    } else if (node.type === 'group') node.children.forEach(collectStatuses)
+  }
+  if (advancedFilterTree) collectStatuses(advancedFilterTree.root)
+  const vocabulary = statusInputs.some((value) => isClosedDealStatus(value, resolvedVocabulary))
+    ? await resolveDealStatusFilterVocabulary(ctx, resolvedVocabulary)
+    : resolvedVocabulary
   if (advancedFilterTree) {
     // Expand status aliases in the advanced-filter tree so List (tree path) and
     // Kanban (plain ?status=) share the same canonical vocabulary (#5107). Only
@@ -469,6 +481,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
 
   if (ctx && advancedFilterTree) {
     const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
+    restoreDealStatusFilterVariants(advancedFilters, vocabulary)
     const matchedIds = await findMatchingEntityIdsWithQueryEngine({
       ctx,
       entityId: E.customers.customer_deal,

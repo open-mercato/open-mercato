@@ -87,15 +87,16 @@ describe('createDealLinkAdapter', () => {
 })
 
 
-it('uses preferred tenant statuses for the linking picker filters and request', async () => {
+it.each(['signed, approved', 'all', 'orphan'])('keeps semantic linking controls distinct from tenant alias %s', async (alias) => {
   readApiResultOrThrowMock.mockReset().mockResolvedValue({ items: [], total: 0 })
   const adapter = createDealLinkAdapter({
-    vocabulary: { won: ['signed'], lost: ['declined'], closed: ['archived'] },
+    vocabulary: { won: [alias], lost: ['declined'], closed: ['archived'] },
     dialogTitle: 'Link deal', searchPlaceholder: 'Search', searchEmptyHint: 'None',
     selectedEmptyHint: 'None', confirmButtonLabel: 'Link',
     orphanWarningTitle: 'Orphan', orphanWarningMessage: 'Orphan',
   })
-  expect(adapter.filters?.options.map((option) => option.id)).toEqual(['all', 'open', 'signed', 'declined', 'orphan'])
-  await adapter.searchPage?.('', 1, 'signed')
-  expect(readApiResultOrThrowMock).toHaveBeenCalledWith(expect.stringContaining('status=signed'))
+  expect(adapter.filters?.options.map((option) => option.id)).toEqual(['all', 'open', 'win', 'lost', 'orphan'])
+  expect(adapter.filters?.clientFilter?.({ id: 'linked', label: 'Linked', meta: { isOrphan: false } }, 'win')).toBe(true)
+  await adapter.searchPage?.('', 1, 'win')
+  expect(readApiResultOrThrowMock).toHaveBeenCalledWith(expect.stringContaining('status=win'))
 })

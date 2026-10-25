@@ -206,7 +206,18 @@ describe('StatusFilterPopover', () => {
     expect(await screen.findByRole('button', { name: 'Signed contract' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByRole('button', { name: 'Accepted' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
-    expect(onApply).toHaveBeenCalledWith(['contract_signed'])
+    expect(onApply).toHaveBeenCalledWith(['win'])
+  })
+
+  it.each(['signed, approved', 'win,lost', 'all', 'orphan'])('uses a lossless outcome token for accepted alias %s', async (alias) => {
+    mockUseDealStatusVocabulary.mockReturnValue({ vocabulary: { won: [alias], lost: ['declined'], closed: ['archived'] }, isLoading: false, isError: false })
+    setDictionaryEntries([{ value: alias, label: 'Approved deal', color: null }])
+    const onApply = jest.fn()
+    render(<StatusFilterPopover values={[]} onApply={onApply} />)
+    fireEvent.click(screen.getByRole('button', { name: /Status/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approved deal' }))
+    fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+    expect(onApply).toHaveBeenCalledWith(['win'])
   })
 
   it.each(['loading', 'failed'])('blocks mouse and keyboard apply while vocabulary is %s', (state) => {

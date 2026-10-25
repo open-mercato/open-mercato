@@ -12,6 +12,7 @@ import {
 import { getDealStatusAliases, isWonDealStatus, isLostDealStatus, isClosedDealStatus, type DealStatusVocabulary } from './dealStatus'
 import { resolveDealStatusVocabulary } from './dealStatusVocabulary'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { NORMALIZED_DEAL_STATUS_SQL } from './dealStatusSql'
 
 const statusCountsSchema = z.array(z.object({ status: z.string(), count: z.coerce.number().int().nonnegative().safe() }))
 const OUTCOMES = ['won', 'lost', 'closed'] as const
@@ -28,7 +29,7 @@ function classification(status: string, vocabulary: DealStatusVocabulary): strin
 
 function classificationKey(vocabulary: DealStatusVocabulary): string {
   const aliases = getDealStatusAliases(vocabulary)
-  return JSON.stringify(OUTCOMES.map((outcome) => Array.from(new Set(aliases[outcome].map((alias) => alias.trim().toLowerCase()))).sort()))
+  return JSON.stringify(OUTCOMES.map((outcome) => Array.from(new Set(aliases[outcome].map((alias) => alias.trim().toLowerCase()))).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)))
 }
 
 export async function enforceDealStatusReclassification(input: {
@@ -49,11 +50,11 @@ export async function enforceDealStatusReclassification(input: {
     ...getDealStatusAliases(previous).terminal,
     ...getDealStatusAliases(candidate).terminal,
   ].map((status) => status.trim().toLowerCase())))
-    .filter((status) => classification(status, previous) !== classification(status, candidate)).sort()
+    .filter((status) => classification(status, previous) !== classification(status, candidate)).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
   const placeholders = statuses.map(() => '?').join(', ')
 
   const rows = statusCountsSchema.parse(await input.em.getConnection().execute(
-    `SELECT LOWER(TRIM(status)) AS status, COUNT(*)::text AS count FROM customer_deals WHERE tenant_id = ? AND deleted_at IS NULL AND LOWER(TRIM(status)) IN (${placeholders}) GROUP BY LOWER(TRIM(status)) ORDER BY status`,
+    `SELECT ${NORMALIZED_DEAL_STATUS_SQL} AS status, COUNT(*)::text AS count FROM customer_deals WHERE tenant_id = ? AND deleted_at IS NULL AND ${NORMALIZED_DEAL_STATUS_SQL} IN (${placeholders}) GROUP BY ${NORMALIZED_DEAL_STATUS_SQL} ORDER BY status`,
     [input.tenantId, ...statuses],
     'all',
     input.em.getTransactionContext(),

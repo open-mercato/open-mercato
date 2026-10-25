@@ -65,6 +65,13 @@ export function canonicalDealStatus(value: string, vocabulary: VocabularyArgumen
   return value.toLowerCase() === 'open' ? 'open' : value
 }
 
+export function dealStatusFilterToken(value: string, vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): string {
+  if (isWonDealStatus(value, vocabulary)) return DEAL_STATUS_WIN
+  if (isLostDealStatus(value, vocabulary)) return DEAL_STATUS_LOST
+  if (isClosedDealStatus(value, vocabulary)) return DEAL_STATUS_CLOSED
+  return value
+}
+
 export function expandDealStatusAliases(values: string[], vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): string[] {
   const aliases = getDealStatusAliases(vocabulary)
   const expanded = new Set<string>()

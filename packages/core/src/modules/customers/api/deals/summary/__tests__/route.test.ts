@@ -179,8 +179,9 @@ describe('customers deals summary route', () => {
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
 
     expect(response.status).toBe(200)
-    expect(String(executeMock.mock.calls[2][0])).toContain("LOWER(TRIM(status)) IN (?,?) OR closure_outcome = 'won'")
-    expect(String(executeMock.mock.calls[3][0])).toContain("LOWER(TRIM(status)) IN (?,?) OR closure_outcome = 'lost'")
+    expect(String(executeMock.mock.calls[2][0])).toContain('LOWER(BTRIM(status,')
+    expect(String(executeMock.mock.calls[2][0])).toContain("IN (?,?) OR closure_outcome = 'won'")
+    expect(String(executeMock.mock.calls[3][0])).toContain("IN (?,?) OR closure_outcome = 'lost'")
     expect(executeMock.mock.calls[2][1]).toEqual(expect.arrayContaining(['win', 'won']))
     expect(executeMock.mock.calls[4][1]).toEqual(['win', 'won', 'lost', 'loose', tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
   })

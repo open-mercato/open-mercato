@@ -23,7 +23,8 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
-import { expandDealStatusAliases, type DealStatusVocabulary } from '../../../lib/dealStatus'
+import type { DealStatusVocabulary } from '../../../lib/dealStatus'
+import { buildDealStatusSqlFilter } from '../../../lib/dealStatusFilters'
 import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -331,11 +332,9 @@ export async function GET(req: Request) {
     }
   }
   if (parsed.data.status && parsed.data.status.length) {
-    // Non-empty input always expands to a non-empty set, so this always narrows.
-    const expandedStatuses = expandDealStatusAliases(parsed.data.status, vocabulary)
-    const placeholders = expandedStatuses.map(() => '?').join(',')
-    where.push(`status IN (${placeholders})`)
-    values.push(...expandedStatuses)
+    const statusFilter = buildDealStatusSqlFilter(parsed.data.status, vocabulary)
+    where.push(statusFilter.clause)
+    values.push(...statusFilter.params)
   }
   if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
     const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')

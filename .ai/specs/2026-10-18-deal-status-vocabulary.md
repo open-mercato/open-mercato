@@ -70,6 +70,10 @@ When the count is nonzero and current confirmation is absent, write nothing and 
 
 All existing routes, helpers, constants and call signatures remain available. Pure helpers accept an optional vocabulary argument; default calls keep the shipped behavior. Server consumers resolve once per operation and pass it explicitly. Browser consumers fetch the resolved configuration with a scope-sensitive React Query key. Configuration failures propagate; malformed stored/env values fall through to the next valid level. There is no environment access in browser modules.
 
+Plain `status` query parameters retain their existing comma-separated semantics, including repeated parameters. Owned semantic filters send stable historical outcome tokens (`win`, `lost`, `closed`) rather than configurable preferred values. This keeps a valid preferred alias such as `win,lost` distinct from the existing CSV union `status=win,lost`; advanced-filter values remain the lossless literal representation. Linking controls likewise retain separate `all`/`orphan` and outcome IDs. Status-selection cache signatures serialize arrays without delimiter collisions.
+
+Recognized terminal membership matches trim/case-normalized persisted values; arbitrary statuses and text/range operators retain their existing semantics. List/map and advanced filters resolve scoped historical raw terminal spellings before using existing equality/set operators; advanced conversion retains those raw spellings after its normal input trimming. Aggregate SQL combines normalized terminal predicates with exact arbitrary predicates. Customer-owned dashboard filter rewriting uses the existing authenticated `dashboards/widgets/data` interceptor before cache/aggregation and changes only recognized terminal literals, preserving scope, outcome-null, dates, comparison and currency behavior. No generic query operator or analytics contract is added.
+
 ## UI/UX and Frontend Architecture Contract
 
 Extend the existing Deal settings page with three labeled alias fields, help explaining preferred spelling and compatibility reads, save/reset actions, and loading/error/conflict states. The impact response opens a shared confirmation dialog displaying the count; cancel leaves the setting untouched. Localize all strings and reuse shared primitives, `apiCall`, `useGuardedMutation`, optimistic-lock helpers and semantic tokens. Dialogs support Cmd/Ctrl+Enter submit and Escape cancel. Loading must not allow a previous tenant's configuration or a stale confirmation to survive a scope change. Invalidate the config query and dependent deal queries after save/reset/undo.
@@ -115,13 +119,13 @@ Implementation PR #7625 must ship self-contained fixtures, including an override
 | --- | --- |
 | Settings GET/PUT/reset and undo | Explicit ACL denial, partial-organization denial, invalid input, tenant isolation, instance row ignored, env/default precedence, reset version, mutation guards and optimistic-lock conflict. |
 | Reclassification flow | Removing `signed` reports count and writes nothing; confirm applies the candidate; changed candidate/version/impact groups refresh confirmation. Cover reassignment, newly terminal unknowns, reset, undo, zero-impact changes, cancel, and no IDs/titles in errors. |
-| `/api/customers/deals` plain/advanced filters, `/aggregate`, `/map` | Custom/historical alias agreement, closed-all-terminal, map search/intersection and tenant/organization scope. |
+| `/api/customers/deals` plain/advanced filters, `/aggregate`, `/map` | Custom/historical alias agreement including persisted mixed casing/whitespace, positive/negative membership, unchanged arbitrary/text/range filters, comma aliases through stable outcome tokens, legacy CSV unions, closed-all-terminal, map search/intersection and tenant/organization scope. |
 | `/api/customers/deals/summary` | `signed`/`declined` contribute correctly to won values, quarter counts and monthly win rates; `archived` contributes to neither outcome. Test historical `won`, explicit outcomes, parameter binding, deleted/organization scope and unchanged explicit open/overdue/date rules. |
 | `/api/customers/companies/:id`, `/api/customers/people/:id/companies/enriched` | Same override fixtures produce correct active counts/values and won counts/values; preserve historical aliases and each reader's existing outcome contract. |
 | Deal commands and approved AI mutation | Preferred spellings, closure-stage lookup, won/lost events, reopen and stable enum; pending-action approval remains required. |
 | Company/person detail UI | Verify `CompanyKpiBar`, `ActiveDealCard` and dashboard helper totals/trends under overrides, including local fallback when API KPIs are absent. |
 | Settings, deal list/detail and Kanban UI | Hydration, save/reset confirmation/conflict, canonical selection/actions, badges, QuickDealDialog, stage recognition and tenant switching without stale vocabulary. |
-| Linking picker / dashboard pipeline-summary | Custom aliases give correct filters and open/all totals; preserve `closureOutcome is_null`, lazy loading and unknown-active behavior. |
+| Linking picker / dashboard pipeline-summary | Comma and `all`/`orphan` aliases retain distinct controls; historical mixed-case/space terminal rows give correct filters and open/all totals; preserve `closureOutcome is_null`, lazy loading and unknown-active behavior. |
 
 Unit tests cover unchanged helper defaults/export shapes, env/tenant precedence, ignored instance rows, invalid config, aliases, fingerprints, SQL predicates and simultaneous tenant resolution. Run the ordered implementation validation gate and focused tests, then independent review and live UI verification. Record unavailable validation/environment limitations. This documentation PR runs only documentation-applicable checks and manual diff review.
 
@@ -147,6 +151,7 @@ Unit tests cover unchanged helper defaults/export shapes, env/tenant precedence,
 ## Changelog
 
 - 2026-10-18: Initial design for issue #5546.
+- 2026-10-25: Reconcile the upstream design with the approved implementation and address filter re-review: scoped historical terminal spellings, legacy-compatible CSV transport, distinct linking controls and the existing customer-owned dashboard interceptor.
 - 2026-10-25: User approved the revised guard architecture for #7625; implementation includes actor/tenant/version/candidate/impact-bound fingerprints, unrestricted per-feature tenant authorization, shared editor confirmation, and guarded undo confirmation header. Runtime/CI/QA evidence remains on #7625.
 - 2026-10-25: Address PR #7624 review with consumer inventory/coverage, required sections, persisted-deal confirmation, explicit ACL/source handling and env/template wiring. Implementation remains in #7625.
 

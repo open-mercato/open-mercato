@@ -2,6 +2,7 @@ import type { EntityManager as CoreEntityManager } from '@mikro-orm/core'
 import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { fetchStuckDealIds } from './stuckDeals'
 import { getDealStatusAliases, type DealStatusVocabulary } from './dealStatus'
+import { NORMALIZED_DEAL_STATUS_SQL } from './dealStatusSql'
 
 type DateWindow = {
   start: Date
@@ -74,7 +75,7 @@ function buildOutcomeDealPredicate(outcome: 'won' | 'lost', vocabulary?: DealSta
   const aliases = Array.from(new Set(getDealStatusAliases(vocabulary)[outcome].map((alias) => alias.toLowerCase())))
   const placeholders = aliases.map(() => '?').join(',')
   return {
-    clause: `LOWER(TRIM(status)) IN (${placeholders}) OR closure_outcome = '${outcome}'`,
+    clause: `${NORMALIZED_DEAL_STATUS_SQL} IN (${placeholders}) OR closure_outcome = '${outcome}'`,
     values: aliases,
   }
 }
