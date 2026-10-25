@@ -21,11 +21,24 @@ Source evidence: https://github.com/open-mercato/open-mercato/actions/runs/40151
 
 ## Progress
 
+PR: #7928
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Correct and verify
-- [ ] 1.1 Reproduce the mismatch and generate the InPost manifest version correction.
-- [ ] 1.2 Validate the version guard and CI root script suite.
+- [x] 1.1 Reproduce the mismatch and generate the InPost manifest version correction.
+- [x] 1.2 Validate the version guard and CI root script suite.
 
 ### Phase 2: Review and publish
-- [ ] 2.1 Complete review and publish the verified correction with GitHub check evidence.
+- [x] 2.1 Complete review and publish the verified correction with GitHub check evidence.
+
+## Verification evidence
+- Runner: local, Node 24.18.0; no Docker app runtime was available.
+- Before correction: version-alignment guard failed only for InPost 0.9.0 versus reference 0.10.0.
+- After correction: version-alignment guard passed all 5 tests.
+- Exact CI root script suite: 1,086 passed, 2 skipped, 0 failed (1,088 total).
+- DS token snapshot check, lucide registry check (182 icons), and git diff whitespace check passed.
+- Independent source review found no actionable defects and confirmed the synthetic Yarn workspace lock entry requires no update.
+- Implementation commit: 82f3cd61d8ee28e3cfba0bdd5cb8d02616a8ff20.
+- GitHub CI on the published PR head is pending; broad local build/typecheck/test substitutes are intentionally not run under the repository's GitHub-checks-first review policy.
+- The author account cannot provide an independent GitHub approval; the source review evidence is recorded for maintainer review.
