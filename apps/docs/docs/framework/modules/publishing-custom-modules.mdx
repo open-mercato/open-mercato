@@ -53,6 +53,12 @@ Use `--configure` to edit saved settings, `--version` to choose a version, or `-
 
 Ordinary publication keeps the real local module in the app. The app's Git origin and history remain unchanged, whether the app has its own Git repository or no repository at all. GitHub is updated before npm; if npm rejects publication, the Git commit may already exist. Registry processing can delay installation after a successful submission. Verify the exact version with `npm view @your-name/mercato-visits@0.1.0 version` before consuming it.
 
+## List your module in the catalog {#list-your-module}
+
+After a public version is on npm, list it in [Open Mercato Modules](https://modules.openmercato.com) so other teams and their coding agents can find it. Open `https://modules.openmercato.com/submit?npm=@your-name/mercato-visits`, or open [modules.openmercato.com/submit](https://modules.openmercato.com/submit) and paste the package name. The page checks that the package contains an Open Mercato module, reads its license and the **Installable from** date, builds the catalog entry, and opens a pull request for it. After the pull request is merged, the catalog reads the module from its published source and installs it in a fresh app in the next nightly run.
+
+The catalog shows the `license` field of the published `package.json`. A package published as `UNLICENSED` is listed as proprietary; set an open-source license such as `MIT` before you publish if you want one. See [Publish and list your module](/framework/modules/official-modules#publishing-your-module).
+
 ## Continue development in the dedicated repository
 
 To make the module repository its source of truth while continuing to use the same app:
