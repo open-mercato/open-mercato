@@ -144,6 +144,24 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "key_reserved": {
+          "name": "key_reserved",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean",
+          "generated": "(case when deleted_at is null then true end) stored"
+        },
         "manager_visibility": {
           "name": "manager_visibility",
           "type": "text",
@@ -242,13 +260,17 @@
           "unique": true
         },
         {
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "key",
+            "key_reserved"
+          ],
+          "composite": true,
+          "constraint": true,
           "keyName": "dictionaries_scope_key_unique",
           "primary": false,
-          "unique": false,
-          "expression": "create unique index \"dictionaries_scope_key_unique\" on \"dictionaries\" (\"organization_id\", \"tenant_id\", \"key\") where \"deleted_at\" is null"
+          "unique": true
         }
       ],
       "checks": [],
