@@ -245,8 +245,13 @@ Phase 1 (`resolveCatalogSelection` in `src/lib/catalog/selection.ts`):
 
 - Matches a request by module ID first, then by npm name (`from`) or locator (`npm:` prefix optional).
   A name that matches several module IDs (a multi-module package) is reported as ambiguous.
+  Two packages may publish the same module ID, so an ID that matches modules of several packages is also
+  reported as ambiguous, listing `<id> from <npm name>`; the npm name selects one. Picker choices are passed
+  as catalog entries and keep their package; the picker shows the npm name of rows that share a module ID.
 - Walks `requires` of each picked module: a requirement that is a selectable catalog module is added first
-  (`reason: 'required'`), so commands run deepest first; cycles are cut by a visited set.
+  (`reason: 'required'`), so commands run deepest first; cycles are cut by a visited set. A requirement that
+  modules of several packages satisfy is taken from the package the user asked for, and is otherwise reported
+  as ambiguous with none of them planned.
 - A requirement that is not a selectable module and not enabled by the preset is reported with its fix
   (`yarn mercato module enable @open-mercato/core --module <id>` for a module ID). With the `classic` preset
   (template `modules.ts`) the preset set is not resolved and core requirements are assumed present; the
@@ -390,7 +395,9 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 - `fetchPickerCatalog`: default URL, `OM_MODULES_PICKER_URL`, retry after a network error and after a 5xx,
   no retry after a 404, unsupported body, hanging request cut by the timeout.
 - `resolveCatalogSelection`: ID, npm name and locator matches; unknown and unverified requests; required
-  catalog modules first; unmet core requirements against the preset; `classic` preset.
+  catalog modules first; unmet core requirements against the preset; `classic` preset; a module ID two
+  packages share (picking the second package plans its command, the bare ID is ambiguous, each npm name
+  resolves, a shared requirement comes only from the package asked for).
 - `buildSelectionFile`: full file content.
 - `runCatalogStep`: `--modules` writes the plan and returns commands; offline and untested line return nothing
   with a notice and write no file; core IDs answered with `module enable`; interactive picker with license and
@@ -454,3 +461,5 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   are planned (commands + `.mercato/catalog-selection.json`), never installed by the scaffolder; license and
   `--allow-third-party` shown before any choice. Phase 1 implemented behind `--modules` and
   `--module-picker` (default off). Core customization moved to Phase 2. Refs #3304.
+- 2026-10-25: Picks and requirements keep their package: a module ID that several packages publish is
+  ambiguous until the npm name selects one, instead of resolving to the first package.

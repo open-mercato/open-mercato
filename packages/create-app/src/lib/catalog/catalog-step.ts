@@ -71,9 +71,12 @@ export async function promptCatalogModules(
   log(`🧩  Modules from the Open Mercato Modules catalog (verified on ${line})`)
   log('')
   const idWidth = Math.max(...selectable.map((entry) => entry.id.length))
+  // Two packages may publish the same module id; their npm names tell the rows apart.
+  const shared = (entry: CatalogModule) => selectable.filter((other) => other.id === entry.id).length > 1
   selectable.forEach((entry, index) => {
     const number = String(index + 1).padStart(String(selectable.length).length)
-    log(`   ${number}. ${entry.id.padEnd(idWidth)}  ${entry.title}  (${describeModule(entry, line)})`)
+    const from = shared(entry) ? `${entry.from} · ` : ''
+    log(`   ${number}. ${entry.id.padEnd(idWidth)}  ${entry.title}  (${from}${describeModule(entry, line)})`)
   })
   if (alreadyInAppCount > 0) {
     log(`   Not listed: ${alreadyInAppCount} catalog module${alreadyInAppCount === 1 ? '' : 's'} the app already registers in src/modules.ts.`)
@@ -181,7 +184,13 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
     }
   }
   for (const item of selection.ambiguous) {
-    options.warn(`"${item.request}" matches several modules (${item.candidates.join(', ')}). Pass a module id instead.`)
+    if (item.requiredBy) {
+      options.warn(
+        `${item.requiredBy} requires ${item.request}, which several catalog modules provide (${item.candidates.join(', ')}), so none is planned. Add the one you want to --modules by its npm name.`,
+      )
+    } else {
+      options.warn(`"${item.request}" matches several modules (${item.candidates.join(', ')}). Pass ${item.pass === 'npm name' ? 'the npm name' : 'a module id'} instead.`)
+    }
   }
   for (const item of selection.unmetRequires) {
     options.warn(`${item.id} requires ${item.requires}, which the preset does not enable: ${requirementHint(item.requires)}`)
@@ -219,6 +228,7 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
   const selectable = selectableModules(fetched.index, line).filter(notInApp)
   const withoutLineInstall = modulesWithoutLineInstall(fetched.index, line).filter(notInApp)
   const requests = [...(options.requested ?? [])]
+  let picked: CatalogModule[] = []
   if (options.picker) {
     if (!options.ask) {
       options.warn('--module-picker needs an interactive terminal; skipped. Use --modules <list> instead.')
@@ -233,13 +243,12 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
           options.log(`Nothing to add from the module catalog: the app already registers the modules verified on ${line}.`)
         } else if (withoutLineInstall.length === 0) options.warn(`No catalog modules are verified on ${line} yet.`)
       } else {
-        const picked = await promptCatalogModules(options.ask, selectable, line, options.log, options.warn, inApp.length)
-        for (const entry of picked) if (!requests.includes(entry.id)) requests.push(entry.id)
+        picked = await promptCatalogModules(options.ask, selectable, line, options.log, options.warn, inApp.length)
       }
     }
   }
-  if (requests.length === 0) return EMPTY_RESULT
-  const selection = resolveCatalogSelection(requests, selectable, options.presetModuleIds)
+  if (requests.length === 0 && picked.length === 0) return EMPTY_RESULT
+  const selection = resolveCatalogSelection(requests, selectable, options.presetModuleIds, picked)
   reportSelection(selection, { line, lines: fetched.index.lines, all: fetched.index.modules, inApp, withoutLineInstall }, options)
   if (selection.selected.length === 0) return EMPTY_RESULT
   const selectionFile = writeSelectionFile(options.targetDir, buildSelectionFile(url, fetched.index, line, selection))

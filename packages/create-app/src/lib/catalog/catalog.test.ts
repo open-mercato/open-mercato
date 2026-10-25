@@ -49,6 +49,33 @@ function fixtureWithoutInstallByLine(): Record<string, unknown> {
   return body
 }
 
+const WORK_B = 'yarn mercato module add @publisher-b/work@1.0.0 --allow-third-party'
+const WORK_A = 'yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party'
+
+/**
+ * The fixture with a second package that publishes the module id durable_work, as two community packages may, and
+ * with the durable data_sync verified on 0.9 and requiring durable_work by id.
+ */
+function fixtureWithSharedId(): Record<string, unknown> {
+  const body = fixture() as { modules: Record<string, unknown>[] }
+  const work = body.modules.find((entry) => entry.id === 'durable_work') as Record<string, unknown>
+  body.modules.push({
+    ...work,
+    from: '@publisher-b/work',
+    locator: 'npm:@publisher-b/work',
+    title: 'Durable Work B',
+    install: WORK_B,
+    installByLine: { '0.9': WORK_B },
+  })
+  const sync = body.modules.find((entry) => entry.id === 'data_sync' && entry.source === 'third-party') as Record<string, unknown>
+  Object.assign(sync, {
+    requires: ['durable_work'],
+    verifiedOn: ['0.9'],
+    installByLine: { '0.9': sync.install as string },
+  })
+  return body
+}
+
 function response(status: number, body: unknown): CatalogResponse {
   return { status, ok: status >= 200 && status < 300, json: async () => body }
 }
@@ -383,6 +410,50 @@ test('runCatalogStep runs the interactive picker with the license and level of e
   assert.ok(warnings.some((line) => line.includes('9 is not on the list (1-3).')))
   assert.ok(logs.some((line) => line.includes('1. integration_ksef_direct  KSeF Integration  (third-party · MIT · verified on 0.9)')))
   assert.ok(logs.some((line) => line.includes('3. gateway_stripe')))
+})
+
+test('runCatalogStep installs the package picked, not another package with the same module id', async () => {
+  const { options, logs, warnings } = stepOptions({
+    picker: true,
+    ask: async () => '5',
+    fetchImpl: fakeFetch(['ok'], fixtureWithSharedId).fetchImpl,
+  })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, [WORK_B])
+  assert.ok(logs.some((line) => line.includes('3. durable_work             Durable Work  (@fullstackhouse/open-mercato-durable-work · third-party')))
+  assert.ok(logs.some((line) => line.includes('5. durable_work             Durable Work B  (@publisher-b/work · third-party')))
+  assert.ok(logs.some((line) => line.includes('4. gateway_stripe           Stripe Payment Gateway  (official · MIT')), 'a module id of its own shows no package')
+  assert.ok(logs.some((line) => line.includes('durable_work from @publisher-b/work')))
+  const saved = JSON.parse(readFileSync(result.selectionFile ?? '', 'utf8'))
+  assert.deepEqual(saved.modules.map((entry: { from: string }) => entry.from), ['@publisher-b/work'])
+  assert.deepEqual(warnings, [])
+})
+
+test('runCatalogStep reports a module id two packages share and resolves their npm names', async () => {
+  const shared = fakeFetch(['ok'], fixtureWithSharedId).fetchImpl
+  const byId = stepOptions({ requested: ['durable_work'], fetchImpl: shared })
+  assert.deepEqual(await runCatalogStep(byId.options), { commands: [], selectionFile: null })
+  assert.deepEqual(byId.warnings, [
+    '"durable_work" matches several modules (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work). Pass the npm name instead.',
+  ])
+  const byName = stepOptions({ requested: ['@publisher-b/work'], fetchImpl: shared })
+  assert.deepEqual((await runCatalogStep(byName.options)).commands, [WORK_B])
+  assert.deepEqual((await runCatalogStep(stepOptions({ requested: ['npm:@fullstackhouse/open-mercato-durable-work'], fetchImpl: shared }).options)).commands, [WORK_A])
+  const enterprise = resolveCatalogSelection(['@open-mercato/enterprise'], index.modules.filter((entry) => entry.from === '@open-mercato/enterprise'), null)
+  assert.equal(enterprise.ambiguous[0]?.pass, 'module id', 'modules of one package are told apart by module id')
+})
+
+test('runCatalogStep plans a requirement two packages provide only from the package asked for', async () => {
+  const shared = fakeFetch(['ok'], fixtureWithSharedId).fetchImpl
+  const SYNC = 'yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party'
+  const alone = stepOptions({ requested: ['@fullstackhouse/open-mercato-data-sync-durable'], fetchImpl: shared })
+  assert.deepEqual((await runCatalogStep(alone.options)).commands, [SYNC], 'neither provider is guessed')
+  assert.deepEqual(alone.warnings, [
+    'data_sync requires durable_work, which several catalog modules provide (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work), so none is planned. Add the one you want to --modules by its npm name.',
+  ])
+  const chosen = stepOptions({ requested: ['@fullstackhouse/open-mercato-data-sync-durable', '@publisher-b/work'], fetchImpl: shared })
+  assert.deepEqual((await runCatalogStep(chosen.options)).commands, [WORK_B, SYNC])
+  assert.deepEqual(chosen.warnings, [])
 })
 
 test('runCatalogStep skips the picker without a terminal and keeps --modules', async () => {
