@@ -30,7 +30,9 @@ Both package builds, generation, i18n sync/usage, workspace/core typechecking, a
 
 The full `yarn test` gate failed in `create-mercato-app`: macOS sandbox policy blocks Homebrew's `libuv.1.dylib`, and tracker-copy equality sees pre-existing local tracker modifications. Core passed 2,376 suites / 22,739 tests; 47 of 48 workspace tasks succeeded. The failing harness/tracker files are outside this PR. These local environment diagnostics establish neither a changed-code defect nor a failed current-head CI check. Under the repository's CI-first review policy, pending CI is reported as incomplete evidence without running local substitutes or requesting changes.
 
-Publication: #7662 is ready under the maintainer's no-drafts policy and carries `review`. The unsupported author-side `REVISE` verdict was withdrawn; the two ad hoc review JSON files were removed because they did not use the shared schema and renderer. Independent PR review and required current-head CI remain pending. Keep `Status: in-progress` until the remaining validation and authoritative review steps finish; resume through `om-auto-continue-pr 7662`, which owns the review handoff. No approval, QA sign-off, or merge is implied by publication.
+Current verification (2026-10-25): GitHub checks passed for `83eb7f7ef02a5cad7dd0440416f504cd9248affc`, including lint, ds-lint, unit tests, documents-multi-instance, ephemeral integration, Enterprise Contribution Guard, mutation scope, and license/cla. The integration job reports 57 passed / 2 skipped, including the directory suite. Validation source: GitHub checks; the CI-first policy does not require repeating these gates locally for this documentation-only correction. The required-check endpoint is not readable by the integration, so all reported checks are treated as required.
+
+Review remediation (2026-10-25): the independent review requested removal of the unrelated `publish-ready-prs-under-maintainer-no-drafts-policy` lesson and catalog entry. Both are removed; the catalog count is restored. The test suite is unchanged. Keep `Status: in-progress` until the original reviewer completes re-review of the correction. Merge design PR #7660 before this PR so the source-document link resolves. No approval, QA sign-off, or merge is implied by publication.
 
 ## Progress
 
@@ -45,5 +47,5 @@ PR: #7662
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Prove enabled/disabled runs and validation gate — suite/disable checks passed; local harness limitations recorded; required current-head CI pending
-- [ ] 2.2 Independently review and publish evidence — implementation feedback addressed; authoritative PR review and required current-head CI pending
+- [x] 2.1 Prove enabled/disabled runs and validation gate — 83eb7f7ef0; enabled/disabled runs recorded above; GitHub CI passed (run 39300726705)
+- [ ] 2.2 Independently review and publish evidence — independent review 5643552379 requested removal of the unrelated lesson; correction published for re-review; current-head CI will be reported separately
