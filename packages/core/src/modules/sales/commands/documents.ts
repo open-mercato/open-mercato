@@ -1157,19 +1157,22 @@ async function applyDocumentUpdate({
   if (input.customerEntityId !== undefined) {
     const nextCustomerEntityId = input.customerEntityId ?? null;
     const customerChanged =
-      nextCustomerEntityId !== (entity.customerEntityId ?? null);
+      (nextCustomerEntityId?.toLowerCase() ?? null) !==
+      (entity.customerEntityId?.toLowerCase() ?? null);
     const snapshotContactId =
       input.customerContactId !== undefined
         ? input.customerContactId
         : customerChanged
           ? null
           : entity.customerContactId ?? null;
-    entity.customerEntityId = nextCustomerEntityId;
+    if (customerChanged) {
+      entity.customerEntityId = nextCustomerEntityId;
+    }
     entity.customerSnapshot = await resolveCustomerSnapshot(
       em,
       organizationId,
       tenantId,
-      nextCustomerEntityId,
+      entity.customerEntityId ?? null,
       snapshotContactId,
     );
     if (customerChanged) {

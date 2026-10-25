@@ -135,6 +135,20 @@ test.describe('TC-SALES-ADDR-CONTACT-004: re-saving the assigned customer keeps 
         expect(resaved.shippingAddressSnapshot ?? null).toEqual(before.shippingAddressSnapshot ?? null)
         expect(snapshotContactId(resaved)).toBe(current.personId)
 
+        const upperCaseCustomerId = current.entityId.toUpperCase()
+        expect(upperCaseCustomerId, 'customer id should contain hex letters').not.toBe(current.entityId)
+        await updateDocument(request, token, kind, documentId, { customerEntityId: upperCaseCustomerId })
+        const resavedUpperCase = await readDocument(request, token, kind, documentId)
+        expect(resavedUpperCase).toMatchObject({
+          customerEntityId: current.entityId,
+          customerContactId: current.personId,
+          billingAddressId,
+          shippingAddressId,
+        })
+        expect(resavedUpperCase.billingAddressSnapshot ?? null).toEqual(before.billingAddressSnapshot ?? null)
+        expect(resavedUpperCase.shippingAddressSnapshot ?? null).toEqual(before.shippingAddressSnapshot ?? null)
+        expect(snapshotContactId(resavedUpperCase)).toBe(current.personId)
+
         await updateDocument(request, token, kind, documentId, { customerEntityId: other.entityId })
         const changed = await readDocument(request, token, kind, documentId)
         expect(changed).toMatchObject({
