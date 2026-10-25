@@ -34,10 +34,10 @@ Translation is opt-in at the owning form; checkout may translate only recognized
 
 ### Phase 2: Review remediation
 
-- [x] 2.1 Scope lookup through explicit checkout-owned opt-in and namespaced keys
-- [x] 2.2 Replace cross-package fixture and cover literal collisions, opt-in and fallback
-- [x] 2.3 Run focused validation and review the final diff
-- [ ] 2.4 Publish corrections and request re-review while retaining QA and review gates
+- [x] 2.1 Scope lookup through explicit checkout-owned opt-in and namespaced keys — 16fe322ef
+- [x] 2.2 Replace cross-package fixture and cover literal collisions, opt-in and fallback — 16fe322ef
+- [x] 2.3 Run focused validation and review the final diff — 16fe322ef
+- [x] 2.4 Publish corrections and request re-review while retaining QA and review gates — 16fe322ef
 
 ## Validation evidence
 
@@ -48,3 +48,4 @@ Translation is opt-in at the owning form; checkout may translate only recognized
 - Scoped ESLint: zero errors, four existing hook warnings.
 - Full locale synchronization: all 66 modules synchronized across en/pl/de/es/ko.
 - Read-only review found no remaining actionable findings. The optional public resolver was explicitly approved by the user before publication. Existing review and manual QA gates remain; current-head CI is reported separately on the PR.
+- Published 16fe322ef to the existing upstream branch and successfully requested @wojciechszyjka re-review. Review response: https://github.com/open-mercato/open-mercato/pull/7754#issuecomment-6401637114.
