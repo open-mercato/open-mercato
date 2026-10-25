@@ -42,6 +42,12 @@ Filtering a shared replay lookup could break restoration. Tests must cover both 
 
 ### Phase 2: Review corrections
 
-- [ ] 2.1 Merge current main and preserve timestamp restoration with row revival.
-- [ ] 2.2 Reject hidden-row ordinary update/delete with regression coverage and correct the spec base reference.
-- [ ] 2.3 Validate focused tests, lessons catalog and compiler/lint, review the combined diff, publish and request re-review.
+- [x] 2.1 Merge current main and preserve timestamp restoration with row revival. — 97b854dcc
+- [x] 2.2 Reject hidden-row ordinary update/delete with regression coverage and correct the spec base reference. — 8cb19b284
+- [x] 2.3 Validate focused tests, lessons catalog and compiler/lint, review the combined diff, publish and request re-review. — 8cb19b284
+
+## Validation evidence
+
+Runner: local (no running app container). The four new hidden-row command cases failed before the lookup filters, then all 56 focused retention/timestamp cases passed. All 13 resources suites passed (99 tests). A task-only TypeScript project compiled both changed commands and both regression files with the real compiler and this checkout's source mappings. Targeted ESLint passed with only the repository's advisory missing-pages-directory message. Post-merge lesson structural tests passed (5 tests), the lesson catalog validator passed after the lesson update, and whitespace checks passed.
+
+The `om-auto-review-pr --autofix` source pass found no additional actionable findings. The four ordinary execute lookups alone filter visibility; retained-row snapshot/replay lookups remain available and scoped. Historical recreation restores `createdAt` from #7715 and retained rows preserve their creation time while clearing `deletedAt`. This resume adds no contract or schema changes. Current-head GitHub checks and independent review/QA remain merge gates; the original head's green checks are historical evidence only. Publication, final remote SHA, reviewer request and lock release are recorded in the PR resume summary.
