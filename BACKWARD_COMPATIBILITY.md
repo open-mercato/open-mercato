@@ -535,7 +535,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 Clients must submit `{ setupId, payload: { response, label? } }`, where `response` comes from the browser's WebAuthn registration ceremony using the options returned by POST setup. Legacy and malformed outer confirmation payloads return HTTP 400 without activating a method. Existing stored keys remain usable with signed assertions, but their enrollment provenance may be uncertain; operators must assess exposure and arrange trusted re-enrollment where needed, with recovery access preserved.
 
-See [the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md) and the 0.8.0 → 0.8.1 section of [UPGRADE_NOTES.md](UPGRADE_NOTES.md). Original report and proof of concept: @Sawarz (#5296, #6710). Automated reviews cannot acknowledge this waiver.
+See [the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md) and the 0.8.0 → 0.9.0 section of [UPGRADE_NOTES.md](UPGRADE_NOTES.md). Original report and proof of concept: @Sawarz (#5296, #6710). Automated reviews cannot acknowledge this waiver.
 
 ## Atomic Auth Command Replay (2026-10-04)
 
