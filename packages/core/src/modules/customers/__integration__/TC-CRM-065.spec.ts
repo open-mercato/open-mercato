@@ -56,19 +56,22 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
 
       const searchInput = page.getByPlaceholder(/Search by name/i);
+      const filteredPeople = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.pathname === '/api/customers/people' && url.searchParams.get('search') === prefix;
+      });
       await searchInput.fill(prefix);
-      await page.waitForTimeout(1200);
-      await page
-        .getByText('Loading table', { exact: false })
-        .waitFor({ state: 'hidden', timeout: 10_000 })
-        .catch(() => {});
+      expect((await filteredPeople).ok()).toBe(true);
 
       const blockedRow = page.getByRole('link', { name: `${prefix} Blocked`, exact: true });
       await expect(blockedRow).toBeVisible();
 
-      const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
-      await expect(selectAllCheckbox).toBeVisible();
-      await selectAllCheckbox.check();
+      for (const name of [`${prefix} Free0`, `${prefix} Free1`, `${prefix} Blocked`]) {
+        const row = page.getByRole('row').filter({
+          has: page.getByRole('link', { name, exact: true }),
+        });
+        await row.getByRole('checkbox').check();
+      }
 
       const deleteButton = page.getByRole('button', { name: /Delete selected/i });
       await expect(deleteButton).toBeVisible();
@@ -76,6 +79,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
 
       const confirmDialog = page.getByRole('alertdialog');
       await expect(confirmDialog).toBeVisible();
+      await expect(confirmDialog).toContainText('Delete 3 people?');
       await confirmDialog.getByRole('button', { name: /Delete|Confirm/i }).click();
 
       // Grouped failure toast must surface the dependency reason from the server.
@@ -88,7 +92,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
             const listResponse = await apiRequest(
               request,
               'GET',
-              `/api/customers/people?search=${encodeURIComponent(prefix)}&pageSize=20`,
+              `/api/customers/people?ids=${encodeURIComponent([blockedId, ...deletableIds].join(','))}&pageSize=20`,
               { token: token! },
             );
             if (!listResponse.ok()) return null;
