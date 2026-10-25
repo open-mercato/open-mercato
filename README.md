@@ -260,7 +260,7 @@ gh auth login                              # only for the dedicated GitHub repos
 npx create-mercato-module publish visits   # asks for the package name, version and repository, publishes after you retype the name
 ```
 
-**List it:** open `https://modules.openmercato.com/submit?npm=@your-name/mercato-visits`. The page checks the package, its license and the date a fresh app can install it, builds the catalog entry and opens a pull request. After the merge the catalog reads the module from its published source and installs it every night in a fresh app.
+**List it:** open `https://modules.openmercato.com/submit?npm=@your-name/mercato-visits`. The page checks the package, its license and the date a fresh app can install it, builds the catalog entry and opens GitHub with the file filled in; commit it and open the pull request. After the merge the catalog reads the module from its published source and installs it every night in a fresh app.
 
 In the receiving app: `npx create-mercato-module install @your-name/mercato-visits`, or the exact `yarn mercato module add` command from the module page in the catalog. A new app refuses third-party npm versions younger than 5 days (`npmMinimalAgeGate` in `.yarnrc.yml`; the module page shows the date as **Installable from**), so install a fresh release from its GitHub repository instead: `npx create-mercato-module install your-name/mercato-visits` (needs `gh auth login`; agents add `--approve-git-repository`).
 

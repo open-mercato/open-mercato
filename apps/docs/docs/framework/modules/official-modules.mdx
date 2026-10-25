@@ -64,7 +64,7 @@ See the [`module enable` CLI reference](/cli/module-enable) for details.
 ## Publish and list your module {#publishing-your-module}
 
 1. **Publish it.** [`create-mercato-module`](https://github.com/open-mercato/create-mercato-module) turns one module of your app into an npm package, optionally with its own GitHub repository. Follow [Publishing Custom Modules](/framework/modules/publishing-custom-modules).
-2. **List it.** Open [modules.openmercato.com/submit](https://modules.openmercato.com/submit) and paste the npm package name (or open `https://modules.openmercato.com/submit?npm=<your-package>`). The page checks the package, its license, and the **Installable from** date, builds the catalog entry, and opens a pull request for it.
+2. **List it.** Open [modules.openmercato.com/submit](https://modules.openmercato.com/submit) and paste the npm package name (or open `https://modules.openmercato.com/submit?npm=<your-package>`). The page checks the package, its license, and the **Installable from** date, builds the catalog entry, and opens GitHub with the file filled in; commit it and open the pull request.
 
 After the pull request is merged, the module is read from its published source within minutes and installed in the next nightly run. To request an OM Quality review, follow the steps on the [quality page](https://modules.openmercato.com/quality).
 
