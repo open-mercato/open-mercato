@@ -5,8 +5,10 @@ import { Link2, Unlink } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { DOCUMENTS_REALTIME_SETUP_GUIDE_URL } from '@open-mercato/documents/modules/documents/lib/constants'
 import { EntityPicker } from '../components/EntityPicker'
 import { DocumentCanvas } from './DocumentCanvas'
 import { EditorStatusPresence } from './EditorStatusPresence'
@@ -84,14 +86,11 @@ export function DocumentEditorSurface(input: Props) {
       <p>{notice ?? t('documents.editor.realtime.offline')}</p>
       <p className="mt-2">
         {t('documents.editor.realtime.setupHint')}{' '}
-        <a
-          href="https://github.com/open-mercato/open-mercato/blob/develop/packages/documents/README.md#realtime-collaboration-sidecar-m2"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-4"
-        >
-          {t('documents.editor.realtime.setupGuide')}
-        </a>
+        <LinkButton asChild underline="always">
+          <a href={DOCUMENTS_REALTIME_SETUP_GUIDE_URL} target="_blank" rel="noopener noreferrer">
+            {t('documents.editor.realtime.setupGuide')}
+          </a>
+        </LinkButton>
       </p>
     </>
   ) : notice

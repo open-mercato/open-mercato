@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
+import { DOCUMENTS_REALTIME_SETUP_GUIDE_URL } from '../lib/constants'
 
 const apiCallMock = jest.fn()
 const flashMock = jest.fn()
@@ -94,7 +95,7 @@ describe('fallback editor mode transition', () => {
     expect(screen.getByText('documents.editor.realtime.singleUserFallback')).toBeTruthy()
     expect(screen.getByText('documents.editor.realtime.setupHint')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'documents.editor.realtime.setupGuide' }).getAttribute('href')).toBe(
-      'https://github.com/open-mercato/open-mercato/blob/develop/packages/documents/README.md#realtime-collaboration-sidecar-m2',
+      DOCUMENTS_REALTIME_SETUP_GUIDE_URL,
     )
     expect(editor!.isEditable).toBe(true)
   })
