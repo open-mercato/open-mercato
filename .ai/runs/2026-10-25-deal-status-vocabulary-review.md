@@ -42,8 +42,7 @@ An incomplete consumer inventory would make tenant configuration inconsistent. A
 
 ### Phase 2: Specification review remediation
 
-- [ ] 2.1 Ground an exhaustive consumer table and endpoint/UI coverage against the codebase
-- [ ] 2.2 Add required sections, persisted-deal reclassification confirmation, ACL/source rules and env template wiring
-- [ ] 2.3 Review the amended design through all five specification lenses and check the documentation diff
+- [x] 2.1 Ground an exhaustive consumer table and endpoint/UI coverage against the codebase — 01405041239d9b57da28e7f3d0dfb63ad98445bb
+- [x] 2.2 Add required sections, persisted-deal reclassification confirmation, ACL/source rules and env template wiring — 01405041239d9b57da28e7f3d0dfb63ad98445bb
+- [x] 2.3 Review the amended design through all five specification lenses and check the documentation diff — 01405041239d9b57da28e7f3d0dfb63ad98445bb
 - [ ] 2.4 Publish the corrections, account for all inherited findings and request the original reviewer's re-review
-
