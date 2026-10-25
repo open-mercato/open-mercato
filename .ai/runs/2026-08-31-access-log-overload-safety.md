@@ -77,8 +77,14 @@ PR: #5802
 ### Phase 5: Review remediation
 
 - [x] 5.1 Merge the current main base and resolve the lesson catalog conflict. — 63cb10f0c
-- [ ] 5.2 Route sampler, collector, pool, and tracker callback failures through guarded error reporting with regression coverage.
+- [x] 5.2 Route sampler, collector, pool, and tracker callback failures through guarded error reporting with regression coverage. — 59ac59147
 - [ ] 5.3 Verify the corrected head, record coverage-job applicability, publish the fixes, and request independent re-review.
 - [ ] 5.4 After corrected prerequisite #5801 is approved and merged, merge main again and confirm the remaining access-log diff.
 
 The final step is an external merge-order gate. This continuation does not authorize merging #5801 or this PR into main. Prerequisite #5801 remains open at `3f5a5e9e5e6de4bc9c7205f9eb8016329cdf9ba9`, with corrected `om.db.pool.*` names and explicit seconds buckets. Incorporate those prerequisite corrections into this branch, retain its run plan, and compare again after #5801 lands.
+
+Prerequisite corrections were incorporated in `c051d24a5`. Its provider, OTLP integration tests, and runtime-saturation run plan match #5801 exactly; shared pool/collector code additionally retains this PR's guarded reporting fixes. Documentation preserves both corrected pool rows and the access-log rows.
+
+Verification on the merged source: shared tracker/collector/pool/CRUD tests passed (73 tests); telemetry passed (161 tests, 2 skipped); both affected packages typechecked with imports mapped to this checkout's shared source; changed-file lint, lesson catalog, and diff checks passed. The new regressions failed against the original source (11 failing assertions) and passed after the reporting fix.
+
+The previous GitHub run `38387594406` recorded `merge-coverage` as skipped despite all 15 integration shards succeeding. All 15 of that exact head's artifact summaries were downloaded and merged with `scripts/merge-coverage.mjs`: 445,048 / 710,237 lines, 62.66%. This supplies the missing aggregation evidence without changing CI policy or marking a skipped GitHub check as successful. The new published head still requires its own CI result.
