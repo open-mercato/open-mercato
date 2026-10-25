@@ -613,11 +613,6 @@ export default function DealsKanbanPage(): React.ReactElement {
   // fetched on demand and appended here, so the cached page-1 cards stay in place (no full lane refetch).
   const [extraCardsByStage, setExtraCardsByStage] = React.useState<Record<string, DealApiRecord[]>>({})
   const [loadingMoreByStage, setLoadingMoreByStage] = React.useState<Record<string, boolean>>({})
-  // Reset extra-cards + loading state when any filter changes
-  React.useEffect(() => {
-    setExtraCardsByStage({})
-    setLoadingMoreByStage({})
-  }, [selectedPipelineId, search, statusFilters, ownerFilters, peopleFilters, companyFilters, closeDateFilter, currencyFilter])
 
   // Filter signature shared by every per-lane query so all lanes invalidate together when filters change
   const filterSignature = React.useMemo(
@@ -711,28 +706,40 @@ export default function DealsKanbanPage(): React.ReactElement {
     return mapped ?? { sortField: 'updatedAt' as const, sortDir: 'desc' as const }
   }, [sortBy])
 
+  const laneQueryKey = React.useMemo(
+    () => [
+      'customers',
+      'deals',
+      'kanban-lane',
+      `scope:${scopeVersion}`,
+      `organization:${activeOrgId ?? 'none'}`,
+      `pipeline:${filterSignature.pipelineId ?? 'none'}`,
+      `search:${filterSignature.search}`,
+      `status:${filterSignature.status}`,
+      `owners:${filterSignature.owners}`,
+      `people:${filterSignature.people}`,
+      `companies:${filterSignature.companies}`,
+      `close:${filterSignature.closeFrom}-${filterSignature.closeTo}`,
+      `sort:${apiSort.sortField}:${apiSort.sortDir}`,
+      `currency:${filterSignature.currency}`,
+    ],
+    [scopeVersion, activeOrgId, filterSignature, apiSort],
+  )
+  const paginationGeneration = React.useRef(0)
+
+  React.useEffect(() => {
+    paginationGeneration.current += 1
+    setExtraCardsByStage({})
+    setLoadingMoreByStage({})
+    return () => {
+      paginationGeneration.current += 1
+    }
+  }, [laneQueryKey])
+
   const laneQueries = useQueries({
     queries: lanes.map((stage) => {
       return {
-        queryKey: [
-          'customers',
-          'deals',
-          'kanban-lane',
-          `scope:${scopeVersion}`,
-          `pipeline:${filterSignature.pipelineId ?? 'none'}`,
-          `search:${filterSignature.search}`,
-          `status:${filterSignature.status}`,
-          `owners:${filterSignature.owners}`,
-          `people:${filterSignature.people}`,
-          `companies:${filterSignature.companies}`,
-          `close:${filterSignature.closeFrom}-${filterSignature.closeTo}`,
-          // Sort affects which 25 deals come back on page 1, so it MUST be in the key —
-          // otherwise switching from "Value (high to low)" to "Close (soonest)" reuses
-          // the old (wrong-sort) cache and silently keeps the wrong slice on screen.
-          `sort:${apiSort.sortField}:${apiSort.sortDir}`,
-          `currency:${filterSignature.currency}`,
-          `stage:${stage.id}`,
-        ],
+        queryKey: [...laneQueryKey, `stage:${stage.id}`],
         enabled: !!selectedPipelineId,
         staleTime: 30_000,
         queryFn: async () => {
@@ -900,6 +907,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       // Page 1 = first 25 (initial useQueries fetch). Subsequent pages come from extraCardsByStage.
       const already = extraCardsByStage[stageId]?.length ?? 0
       const nextPage = Math.floor((LANE_PAGE_SIZE + already) / LANE_PAGE_SIZE) + 1
+      const requestGeneration = paginationGeneration.current
       setLoadingMoreByStage((prev) => ({ ...prev, [stageId]: true }))
       try {
         const params = new URLSearchParams()
@@ -922,18 +930,20 @@ export default function DealsKanbanPage(): React.ReactElement {
         const call = await apiCall<{ items?: DealApiRecord[] }>(
           `/api/customers/deals?${params.toString()}`,
         )
-        if (!call.ok) return
+        if (requestGeneration !== paginationGeneration.current || !call.ok) return
         const items = Array.isArray(call.result?.items) ? (call.result!.items as DealApiRecord[]) : []
         setExtraCardsByStage((prev) => ({
           ...prev,
           [stageId]: [...(prev[stageId] ?? []), ...items],
         }))
       } finally {
-        setLoadingMoreByStage((prev) => {
-          const next = { ...prev }
-          delete next[stageId]
-          return next
-        })
+        if (requestGeneration === paginationGeneration.current) {
+          setLoadingMoreByStage((prev) => {
+            const next = { ...prev }
+            delete next[stageId]
+            return next
+          })
+        }
       }
     },
     [
@@ -947,7 +957,9 @@ export default function DealsKanbanPage(): React.ReactElement {
       companyFilters,
       closeDateFilter.from,
       closeDateFilter.to,
+      currencyFilter,
       apiSort,
+      laneQueryKey,
     ],
   )
 
