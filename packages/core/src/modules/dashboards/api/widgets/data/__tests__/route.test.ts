@@ -29,7 +29,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({ selectedId: organizationId })),
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({ selectedId: organizationId, filterIds: [organizationId], tenantId })),
+}))
+
+jest.mock('@open-mercato/core/modules/customers/lib/dealStatusFilters', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/customers/lib/dealStatusFilters'),
+  resolveDealStatusFilterVocabulary: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/interceptor-runner', () => ({
@@ -53,6 +58,10 @@ import {
 import { MAX_SET_FILTER_VALUES } from '../schema'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { Module } from '@open-mercato/shared/modules/registry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { interceptors } from '@open-mercato/core/modules/customers/api/interceptors'
+import { resolveDealStatusFilterVocabulary } from '@open-mercato/core/modules/customers/lib/dealStatusFilters'
 
 type OpenApiSchemaNode = {
   type?: string
@@ -267,5 +276,40 @@ describe('widget data organization scope', () => {
       cache,
       undefined,
     )
+  })
+
+  test('normalizes a headerless trusted-auth request using the original authenticated scope', async () => {
+    const actualAuth = jest.requireActual<typeof import('@open-mercato/shared/lib/auth/server')>('@open-mercato/shared/lib/auth/server')
+    const auth = { sub: userId, tenantId, orgId: organizationId, features: ['analytics.view', 'customers.deals.view'] }
+    const original = actualAuth.attachTrustedAuthContext(buildRequest({
+      entityType: 'customers:deals',
+      metric: { field: 'valueAmount', aggregate: 'sum' },
+      filters: [{ field: 'status', operator: 'neq', value: 'win' }],
+      metadata: { authenticatedScope: { auth: { sub: 'untrusted', tenantId: 'other-tenant' } } },
+    }), { auth })
+    jest.mocked(getAuthFromRequest).mockImplementationOnce(actualAuth.getAuthFromRequest)
+    jest.mocked(resolveDealStatusFilterVocabulary).mockImplementationOnce(async (_context, vocabulary) => ({
+      ...vocabulary, won: [...vocabulary.won, ' WIN '],
+    }))
+    jest.mocked(runApiInterceptorsBefore).mockImplementationOnce(async (args) => {
+      const result = await interceptors[0].before!(args.request, args.context)
+      return result.ok
+        ? { ok: true, request: { ...args.request, body: result.body ?? args.request.body }, metadataByInterceptor: {} }
+        : { ok: false, statusCode: result.statusCode ?? 400, body: { error: result.message } }
+    })
+
+    const response = await POST(original)
+
+    expect(response.status).toBe(200)
+    expect(original.headers.has('authorization')).toBe(false)
+    expect(original.headers.has('cookie')).toBe(false)
+    expect(getAuthFromRequest).toHaveBeenCalledTimes(1)
+    expect(getAuthFromRequest).toHaveBeenCalledWith(original)
+    expect(resolveDealStatusFilterVocabulary).toHaveBeenCalledWith(expect.objectContaining({
+      auth, organizationIds: [organizationId], organizationScope: expect.objectContaining({ tenantId, filterIds: [organizationId] }),
+    }), expect.any(Object))
+    expect(fetchWidgetData).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ field: 'status', operator: 'not_in', value: ['win', ' WIN '] }],
+    }))
   })
 })

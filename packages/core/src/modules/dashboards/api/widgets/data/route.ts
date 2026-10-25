@@ -14,6 +14,7 @@ import {
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
 import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from './schema'
@@ -91,6 +92,17 @@ export async function POST(req: Request) {
     headers[key] = value
   })
 
+  const interceptorContext: InterceptorContext = {
+    em,
+    container,
+    userId: auth.sub ?? '',
+    tenantId,
+    organizationId: rbacOrganizationId ?? '',
+    userFeatures,
+    metadata: {
+      authenticatedScope: { auth, organizationScope: scope, selectedOrganizationId: scope.selectedId ?? null, organizationIds },
+    },
+  }
   const interceptorResult = await runApiInterceptorsBefore({
     routePath: 'dashboards/widgets/data',
     method: 'POST',
@@ -100,14 +112,7 @@ export async function POST(req: Request) {
       headers,
       body: parsed.data as unknown as Record<string, unknown>,
     },
-    context: {
-      em,
-      container,
-      userId: auth.sub ?? '',
-      tenantId,
-      organizationId: rbacOrganizationId ?? '',
-      userFeatures,
-    },
+    context: interceptorContext,
   })
 
   if (!interceptorResult.ok) {

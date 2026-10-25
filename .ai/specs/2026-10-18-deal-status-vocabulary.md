@@ -36,7 +36,7 @@ Paths are relative to `packages/core/src/modules/customers/` unless another modu
 | `commands/deals.ts` | Server | Resolve from command scope for canonical writes, closure/reopen detection and won/lost event selection; keep event IDs and outcome enums. |
 | `lib/closureStage.ts` | Server helper | Receive vocabulary from commands/AI preview for status classification and configured won/lost stage-label candidates, retaining English compatibility labels. |
 | `ai-tools/deals-pack.ts` | Server | Resolve from tool scope for previews, closure-stage lookup and canonical status; approved execution uses the same command path. |
-| `backend/customers/deals/page.tsx` | Browser | Own the scope-sensitive hook; use vocabulary for badges and preferred quick-filter values while accepting existing URLs. |
+| `backend/customers/deals/page.tsx` | Browser | Own the scope-sensitive hook; use vocabulary for badges and stable semantic quick-filter values while accepting existing URLs. |
 | `backend/customers/deals/pipeline/page.tsx` | Browser | Own the hook and pass data through Kanban props; status actions write preferred spellings with stable semantic outcomes. |
 | `backend/customers/deals/pipeline/components/StatusFilterPopover.tsx` | Browser | Receive host vocabulary for canonical selections, options and alias matching. |
 | `backend/customers/deals/pipeline/components/Lane.tsx` | Browser | Forward host vocabulary to filter/action children; no independent fallback aliases. |
@@ -46,7 +46,7 @@ Paths are relative to `packages/core/src/modules/customers/` unless another modu
 | `components/detail/ActiveDealCard.tsx` | Browser | Receive vocabulary from detail host for active-deal filtering. |
 | `components/detail/dashboard/helpers.ts` | Browser pure helpers | Accept optional vocabulary forwarded by company/person dashboard callers for sums, active lists and trends. |
 | `components/detail/pipelineStageUtils.ts`, `DealDetailHeader.tsx`, `PipelineStepper.tsx` | Browser | Host forwards vocabulary for configured stage-label recognition; preserve existing won/lost/stalled compatibility labels and stable outcome rendering. |
-| `components/linking/adapters/dealAdapter.tsx` | Browser | Linking host passes vocabulary into preferred won/lost filter values; server expansion still accepts legacy filter IDs. |
+| `components/linking/adapters/dealAdapter.tsx` | Browser | Keep stable won/lost filter IDs distinct from all/orphan controls; server expansion resolves configured aliases. |
 | `dashboards/widgets/dashboard/pipeline-summary/{widget.client.tsx,config.ts}` under `packages/core/src/modules/` | Browser / pure request builder | Widget obtains scoped vocabulary and passes terminal aliases into `buildPipelineDataRequest`; preserve `closureOutcome is_null`, `all` mode and the default-only `CLOSED_DEAL_STATUSES` export. No server resolver import. |
 | `backend/config/customers/deals/page.tsx` and editor | Browser | GET supplies vocabulary/source/version; guarded PUT handles save/reset, impact confirmation and lock conflicts. |
 
@@ -72,7 +72,9 @@ All existing routes, helpers, constants and call signatures remain available. Pu
 
 Plain `status` query parameters retain their existing comma-separated semantics, including repeated parameters. Owned semantic filters send stable historical outcome tokens (`win`, `lost`, `closed`) rather than configurable preferred values. This keeps a valid preferred alias such as `win,lost` distinct from the existing CSV union `status=win,lost`; advanced-filter values remain the lossless literal representation. Linking controls likewise retain separate `all`/`orphan` and outcome IDs. Status-selection cache signatures serialize arrays without delimiter collisions.
 
-Recognized terminal membership matches trim/case-normalized persisted values; arbitrary statuses and text/range operators retain their existing semantics. List/map and advanced filters resolve scoped historical raw terminal spellings before using existing equality/set operators; advanced conversion retains those raw spellings after its normal input trimming. Aggregate SQL combines normalized terminal predicates with exact arbitrary predicates. Customer-owned dashboard filter rewriting uses the existing authenticated `dashboards/widgets/data` interceptor before cache/aggregation and changes only recognized terminal literals, preserving scope, outcome-null, dates, comparison and currency behavior. No generic query operator or analytics contract is added.
+Recognized terminal membership matches trim/case-normalized persisted values; arbitrary statuses and text/range operators retain their existing semantics. List/map and advanced filters resolve scoped historical raw terminal spellings before using existing equality/set operators; advanced conversion retains those raw spellings after its normal input trimming. Aggregate SQL combines normalized terminal predicates with exact arbitrary predicates. Customer-owned dashboard filter rewriting uses existing interceptors on `dashboards/widgets/data` and `dashboards/widgets/data/batch` before cache/aggregation and changes only recognized terminal literals, preserving scope, outcome-null, dates, comparison and currency behavior. Routes supply their already authenticated server scope through internal interceptor metadata, including headerless trusted-auth requests; request bodies cannot supply it. Batch authorization precedes each widget's hook and preserves per-widget failure isolation. No generic query operator or analytics contract is added.
+
+Summary outcome counts retain their existing independent status-or-recorded-outcome predicates. A persisted won outcome still contributes to wins when its custom status is reassigned to lost; that row also contributes to losses through its current status. Configuration never rewrites the stored outcome to reconcile those independent counts.
 
 ## UI/UX and Frontend Architecture Contract
 
@@ -125,7 +127,7 @@ Implementation PR #7625 must ship self-contained fixtures, including an override
 | Deal commands and approved AI mutation | Preferred spellings, closure-stage lookup, won/lost events, reopen and stable enum; pending-action approval remains required. |
 | Company/person detail UI | Verify `CompanyKpiBar`, `ActiveDealCard` and dashboard helper totals/trends under overrides, including local fallback when API KPIs are absent. |
 | Settings, deal list/detail and Kanban UI | Hydration, save/reset confirmation/conflict, canonical selection/actions, badges, QuickDealDialog, stage recognition and tenant switching without stale vocabulary. |
-| Linking picker / dashboard pipeline-summary | Comma and `all`/`orphan` aliases retain distinct controls; historical mixed-case/space terminal rows give correct filters and open/all totals; preserve `closureOutcome is_null`, lazy loading and unknown-active behavior. |
+| Linking picker / dashboard pipeline-summary | Comma and `all`/`orphan` aliases retain distinct controls; historical mixed-case/space terminal rows give correct filters and open/all totals through both single and live batch APIs; preserve `closureOutcome is_null`, lazy loading, unknown-active behavior, trusted auth and per-widget authorization/isolation. |
 
 Unit tests cover unchanged helper defaults/export shapes, env/tenant precedence, ignored instance rows, invalid config, aliases, fingerprints, SQL predicates and simultaneous tenant resolution. Run the ordered implementation validation gate and focused tests, then independent review and live UI verification. Record unavailable validation/environment limitations. This documentation PR runs only documentation-applicable checks and manual diff review.
 
@@ -151,7 +153,7 @@ Unit tests cover unchanged helper defaults/export shapes, env/tenant precedence,
 ## Changelog
 
 - 2026-10-18: Initial design for issue #5546.
-- 2026-10-25: Reconcile the upstream design with the approved implementation and address filter re-review: scoped historical terminal spellings, legacy-compatible CSV transport, distinct linking controls and the existing customer-owned dashboard interceptor.
+- 2026-10-25: Reconcile the upstream design with the approved implementation and address filter re-review: scoped historical terminal spellings, legacy-compatible CSV transport, distinct linking controls and customer-owned single/batch dashboard interceptors using authenticated server context. Preserve independent summary status/outcome counting.
 - 2026-10-25: User approved the revised guard architecture for #7625; implementation includes actor/tenant/version/candidate/impact-bound fingerprints, unrestricted per-feature tenant authorization, shared editor confirmation, and guarded undo confirmation header. Runtime/CI/QA evidence remains on #7625.
 - 2026-10-25: Address PR #7624 review with consumer inventory/coverage, required sections, persisted-deal confirmation, explicit ACL/source handling and env/template wiring. Implementation remains in #7625.
 

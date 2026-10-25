@@ -529,7 +529,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await expectCompanyClassification(request, managerToken, companyId, 0, 1)
       const summary = await apiRequest(request, 'GET', '/api/customers/deals/summary', { token: managerToken })
       expect(summary.status()).toBe(200)
-      expect(await readJsonSafe(summary)).toMatchObject({ wonThisQuarter: { dealsClosed: 2 }, winRate: { value: 100 } })
+      expect(await readJsonSafe(summary)).toMatchObject({ wonThisQuarter: { dealsClosed: 2 }, winRate: { value: 67 } })
       const staleVersion = await apiRequest(request, 'PUT', SETTINGS_PATH, {
         token: managerToken, data: { vocabulary: null }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
       })
@@ -644,6 +644,9 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
         const response = await apiRequest(request, 'POST', '/api/dashboards/widgets/data', { token: managerToken, data: { ...data, metric: { field: 'id', aggregate: 'count' } } })
         expect(response.status()).toBe(200)
         expect(await readJsonSafe(response)).toMatchObject({ value: expected })
+        const batch = await apiRequest(request, 'POST', '/api/dashboards/widgets/data/batch', { token: managerToken, data: { requests: [{ id: statusScope, request: { ...data, metric: { field: 'id', aggregate: 'count' } } }] } })
+        expect(batch.status()).toBe(200)
+        expect(await readJsonSafe(batch)).toMatchObject({ results: [{ id: statusScope, ok: true, data: { value: expected } }] })
       }
       expect(await Promise.all(ids.map((id) => readDealSnapshot(request, managerToken, id)))).toEqual(snapshots)
     } finally {

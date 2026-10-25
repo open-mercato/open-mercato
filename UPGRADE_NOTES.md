@@ -1982,6 +1982,8 @@ The JSON shape is `{ "won": ["signed"], "lost": ["declined"], "closed": ["archiv
 
 **Filter transport:** plain/repeated `status` parameters keep their existing CSV meaning. Use `win`, `lost` or `closed` for semantic outcome filters; they expand to configured and historical aliases, including aliases containing commas. The owned Kanban, Map and linking controls send those stable tokens. Advanced-filter values retain literal strings without CSV splitting. Even with a configured won alias `win,lost`, `?status=win,lost` still selects both won and lost groups. Historical terminal spellings are compared consistently after trim/case normalization; arbitrary-status and text/range filters retain their prior behavior.
 
+Single and batched dashboard requests normalize recognized terminal filter literals within the authenticated tenant/organization scope before aggregation/cache access. Summary counts retain their existing independent status-or-recorded-outcome rules: a row with a recorded won outcome and a status now classified as lost contributes to each respective count. Configuration does not rewrite historical status/outcome snapshots.
+
 ### CRM deal status filters and closures now use one canonical vocabulary (#5107)
 
 `customer_deals.status` is a lenient text column whose writers disagreed on spelling: UI closure flows persist `win` / `loose`, the AI tool `customers.update_deal_stage` persists `won` / `lost`, and the seeded dictionary also carries `closed`. Deal filtering previously matched whatever spelling the caller sent, so "won" results differed between the CRM list view, the Kanban board, and deals closed through different surfaces.
