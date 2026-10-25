@@ -84,6 +84,24 @@ describe('MdxEditorImpl change propagation', () => {
     expect(mockSetMarkdown).not.toHaveBeenCalled()
   })
 
+  it('applies a rewritten controlled value from the form without republishing it', () => {
+    const onChange = jest.fn()
+    function RewritingEditor() {
+      const [value, setValue] = React.useState(originalMarkdown)
+      return <MdxEditorImpl value={value} onChange={(markdown) => {
+        onChange(markdown)
+        setValue(markdown.trim())
+      }} />
+    }
+    render(<RewritingEditor />)
+
+    act(() => mockEditorProps.onChange('  Updated introduction  '))
+
+    expect(mockSetMarkdown).toHaveBeenCalledWith('Updated introduction')
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith('  Updated introduction  ')
+  })
+
   it('applies an external form reset after an editor change', () => {
     const onChange = jest.fn()
     const { rerender } = render(<MdxEditorImpl value={originalMarkdown} onChange={onChange} />)
@@ -104,9 +122,8 @@ describe('MdxEditorImpl change propagation', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('does not notify for unchanged Markdown or an echo from an external reset', () => {
+  it('does not notify for unchanged Markdown or an external reset', () => {
     const onChange = jest.fn()
-    mockSetMarkdown.mockImplementation((markdown: string) => mockEditorProps.onChange(markdown))
     const { rerender } = render(<MdxEditorImpl value={originalMarkdown} onChange={onChange} />)
 
     act(() => mockEditorProps.onChange(originalMarkdown))

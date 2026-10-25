@@ -25,6 +25,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/communicationChannelsFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+import { waitForEmailQueuesToSettle } from './helpers/emailQueueSettle'
 
 /**
  * TC-CRM-EMAIL-008: a CRM reply may only name a parent the caller can read on
@@ -45,7 +46,9 @@ const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
 
 if (!process.env.OM_TEST_APP_ROOT?.trim()) {
   loadEnv({ path: path.resolve(APP_ROOT, '.env') })
-  process.env.QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
+  if (!process.env.QUEUE_BASE_DIR?.trim()) {
+    process.env.QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
+  }
 }
 
 const OUTBOUND_QUEUE = 'communication-channels-outbound'
@@ -81,6 +84,15 @@ async function drainUntil(check: () => Promise<boolean>, label: string): Promise
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   throw new Error(`Timed out waiting for ${label}`)
+}
+
+async function settleEmailQueues(): Promise<void> {
+  if (parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) === true) {
+    await waitForEmailQueuesToSettle(APP_ROOT)
+    return
+  }
+  await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+  await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
 }
 
 async function setConversationShared(
@@ -313,10 +325,7 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
           parentMessageId,
         })
         expect(hijack.status, "replying onto User A's unreadable email is refused").toBe(404)
-        if (parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) !== true) {
-          await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
-          await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
-        }
+        await settleEmailQueues()
         expect(
           await readWriteFootprint(userBId, channelBId),
           'the refused reply wrote no message, link, conversation, mapping or interaction',
@@ -331,6 +340,7 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
         })
         expect(unknown.status, 'an unknown parent id is refused').toBe(404)
         expect(hijack.body, 'the refusal is indistinguishable from an unknown id').toEqual(unknown.body)
+        await settleEmailQueues()
         expect(await readWriteFootprint(userBId, channelBId)).toEqual(footprintBefore)
 
         expect(await setConversationShared(request, userAToken, personId, true), 'User A shares').toBe(200)
@@ -369,6 +379,7 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
         })
         expect(staleShare.status, 'a reply from a stale tab after un-sharing is refused').toBe(404)
         expect(staleShare.body).toEqual(unknown.body)
+        await settleEmailQueues()
         expect(await readWriteFootprint(userBId, channelBId)).toEqual(footprintAfterShare)
 
         expect(
@@ -402,6 +413,7 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
           parentMessageId,
         })
         expect(staleChannel.status, 'a reply after the mailbox is made private again is refused').toBe(404)
+        await settleEmailQueues()
         expect(await readWriteFootprint(userBId, channelBId)).toEqual(footprintAfterChannel)
 
         const ownReply = await composeOnPerson(request, {
