@@ -2846,6 +2846,7 @@
   "customers.settings.dealStatusVocabulary.closed": "Estados cerrados",
   "customers.settings.dealStatusVocabulary.errorLoad": "No se pudo cargar el vocabulario de estados.",
   "customers.settings.dealStatusVocabulary.errorSave": "No se pudo guardar el vocabulario de estados.",
+  "customers.settings.dealStatusVocabulary.tenantScope": "Esta configuración se aplica a todas las organizaciones del inquilino. Guardarla o restablecerla con permiso de gestión de oportunidades afecta a su clasificación en todas las organizaciones. Escriba entre comillas dobles los alias que contengan comas.",
   "customers.settings.dealStatusVocabulary.help": "Introduzca estados separados por comas. El primer valor de cada grupo se usa en los nuevos registros. Los alias integrados siguen siendo reconocidos. Los estados cerrados no indican un resultado ganado ni perdido.",
   "customers.settings.dealStatusVocabulary.loading": "Cargando vocabulario de estados…",
   "customers.settings.dealStatusVocabulary.lost": "Estados perdidos",

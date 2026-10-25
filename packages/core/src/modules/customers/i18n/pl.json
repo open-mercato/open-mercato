@@ -2846,6 +2846,7 @@
   "customers.settings.dealStatusVocabulary.closed": "Statusy zamknięte",
   "customers.settings.dealStatusVocabulary.errorLoad": "Nie udało się wczytać słownika statusów.",
   "customers.settings.dealStatusVocabulary.errorSave": "Nie udało się zapisać słownika statusów.",
+  "customers.settings.dealStatusVocabulary.tenantScope": "To ustawienie dotyczy wszystkich organizacji w tym tenancie. Zapisanie lub zresetowanie z uprawnieniem do zarządzania szansami zmienia klasyfikację szans we wszystkich organizacjach. Aliasy zawierające przecinki ujmij w podwójne cudzysłowy.",
   "customers.settings.dealStatusVocabulary.help": "Wpisz statusy rozdzielone przecinkami. Pierwsza wartość w każdej grupie jest używana przy zapisie. Wbudowane aliasy pozostają obsługiwane. Statusy zamknięte nie oznaczają wygranej ani przegranej.",
   "customers.settings.dealStatusVocabulary.loading": "Wczytywanie słownika statusów…",
   "customers.settings.dealStatusVocabulary.lost": "Statusy przegrane",

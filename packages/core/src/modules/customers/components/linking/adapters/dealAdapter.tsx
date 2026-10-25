@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { DEFAULT_DEAL_STATUS_VOCABULARY, type DealStatusVocabulary } from '../../../lib/dealStatus'
 import { AlertTriangle, Briefcase, CalendarDays, Link2 } from 'lucide-react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -27,6 +28,7 @@ type DealDetails = {
 }
 
 type DealAdapterOptions = {
+  vocabulary?: DealStatusVocabulary
   dialogTitle: string
   dialogSubtitle?: string
   sectionLabel?: string
@@ -269,14 +271,15 @@ function formatRelative(dateString: string | null): string {
 }
 
 export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAdapter<DealDetails> {
+  const vocabulary = options.vocabulary ?? DEFAULT_DEAL_STATUS_VOCABULARY
   const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE
 
   const filters = {
     options: [
       { id: 'all', label: 'All' },
       { id: 'open', label: 'Open' },
-      { id: 'win', label: 'Won' },
-      { id: 'lost', label: 'Lost' },
+      { id: vocabulary.won[0]!, label: 'Won' },
+      { id: vocabulary.lost[0]!, label: 'Lost' },
       { id: 'orphan', label: 'Orphan', dotColor: '#eb9426' /* TODO(ds-review): #eb9426 — requires LinkEntityDialog to support semantic token classNames */ },
     ],
     defaultId: 'all',

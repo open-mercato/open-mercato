@@ -2846,6 +2846,7 @@
   "customers.settings.dealStatusVocabulary.closed": "종료 상태",
   "customers.settings.dealStatusVocabulary.errorLoad": "거래 상태 용어를 불러오지 못했습니다.",
   "customers.settings.dealStatusVocabulary.errorSave": "거래 상태 용어를 저장하지 못했습니다.",
+  "customers.settings.dealStatusVocabulary.tenantScope": "이 설정은 이 테넌트의 모든 조직에 적용됩니다. 거래 관리 권한으로 저장하거나 초기화하면 모든 조직의 거래 분류가 변경됩니다. 쉼표가 포함된 별칭은 큰따옴표로 묶으세요.",
   "customers.settings.dealStatusVocabulary.help": "쉼표로 구분한 상태 값을 입력하세요. 각 그룹의 첫 번째 값은 새 기록에 사용됩니다. 기본 별칭은 계속 인식됩니다. 종료 상태는 성공 또는 실패 결과를 나타내지 않습니다.",
   "customers.settings.dealStatusVocabulary.loading": "거래 상태 용어를 불러오는 중…",
   "customers.settings.dealStatusVocabulary.lost": "실패 상태",

@@ -34,9 +34,9 @@ The deals workspace delivers kanban-style pipeline management alongside structur
 
 ## Configure terminal deal statuses
 
-Open **Settings → Customers → Deal settings** (`/backend/config/customers/deals`) to configure which status values mean won, lost, or closed without an outcome. Reading the vocabulary requires `customers.deals.view`; saving or resetting it requires `customers.deals.manage`. The vocabulary applies to the whole tenant, including its organizations.
+Open **Settings → Customers → Deal settings** (`/backend/config/customers/deals`) to configure which status values mean won, lost, or closed without an outcome. Reading the vocabulary requires `customers.deals.view`; saving or resetting it requires `customers.deals.manage`. The vocabulary applies to the whole tenant, including its organizations. A user granted deal management in one organization can therefore change classification across all organizations in that tenant; assign this permission accordingly.
 
-Enter comma-separated aliases in each group. The first value is the preferred spelling for new writes; the remaining values recognize alternative spellings. For example:
+Enter comma-separated aliases in each group. Empty entries and trailing commas are ignored. Enclose aliases containing commas in double quotes (for example, `"signed, approved"`). The first value is the preferred spelling for new writes; the remaining values recognize alternative spellings. For example:
 
 ```json
 {

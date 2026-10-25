@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { loadClosurePipelineStageSnapshot, normalizePipelineStageLabel } from '../closureStage'
+import { dealClosureOutcomeFromStatus, loadClosurePipelineStageSnapshot, normalizePipelineStageLabel } from '../closureStage'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findWithDecryption: jest.fn() }))
@@ -27,4 +27,21 @@ it('does not treat an empty normalized alias as any punctuation-only stage', asy
     vocabulary: { won: ['!!!'], lost: ['declined'], closed: ['finished'] },
   })
   expect(stage).toBeNull()
+})
+
+
+it('keeps point-free closure outcome mapping compatible', () => {
+  expect(['won', 'loose', 'closed', 'open'].map(dealClosureOutcomeFromStatus)).toEqual(['won', 'lost', null, null])
+})
+
+it('prefers the explicit Won stage over an earlier configured alias', async () => {
+  jest.mocked(findWithDecryption).mockResolvedValue([
+    { id: 'contract-stage', pipelineId: 'pipeline', label: 'Contract', order: 1 },
+    { id: 'won-stage', pipelineId: 'pipeline', label: 'Won', order: 2 },
+  ] as never)
+  const stage = await loadClosurePipelineStageSnapshot({} as EntityManager, {
+    tenantId: 'tenant', organizationId: 'organization', pipelineId: 'pipeline', closureOutcome: 'won',
+    vocabulary: { won: ['contract'], lost: ['declined'], closed: ['archived'] },
+  })
+  expect(stage?.id).toBe('won-stage')
 })

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useDealStatusVocabulary } from '../../../../components/hooks/useDealStatusVocabulary'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { Building2, FileText, Hash, UserSearch } from 'lucide-react'
@@ -53,6 +54,7 @@ import { useScheduleDialog } from './hooks/useScheduleDialog'
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id ?? ''
   const t = useT()
+  const { vocabulary } = useDealStatusVocabulary()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -222,6 +224,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     handleWon,
     handleLostConfirm,
   } = useDealClosure({
+    vocabulary,
     currentDealId,
     dealUpdatedAt: data?.deal.updatedAt ?? null,
     runMutationWithContext,
@@ -628,6 +631,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           <InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />
 
           <DealDetailHeader
+            vocabulary={vocabulary}
             deal={data.deal}
             owner={data.owner}
             people={data.people}
@@ -646,6 +650,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} onDataChange={setData} />
 
           <PipelineStepper
+            vocabulary={vocabulary}
             stages={data.pipelineStages}
             transitions={data.stageTransitions}
             currentStageId={data.deal.pipelineStageId}

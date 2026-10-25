@@ -1,10 +1,10 @@
 import { z } from 'zod'
 
-export const DEFAULT_DEAL_STATUS_VOCABULARY = {
-  won: ['win', 'won'],
-  lost: ['lost', 'loose'],
-  closed: ['closed'],
-}
+export const DEFAULT_DEAL_STATUS_VOCABULARY = Object.freeze({
+  won: Object.freeze(['win', 'won']),
+  lost: Object.freeze(['lost', 'loose']),
+  closed: Object.freeze(['closed']),
+})
 
 const statusAliasesSchema = z.array(z.string().trim().min(1).max(50)).min(1).max(20)
 
@@ -34,7 +34,9 @@ export const dealStatusVocabularySchema = z.object({
   }
 })
 
-export type DealStatusVocabulary = z.infer<typeof dealStatusVocabularySchema>
+export type DealStatusVocabulary = {
+  readonly [Outcome in keyof z.infer<typeof dealStatusVocabularySchema>]: readonly string[]
+}
 
 export const saveDealStatusVocabularySchema = z.object({
   vocabulary: dealStatusVocabularySchema.nullable(),

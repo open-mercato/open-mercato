@@ -85,3 +85,17 @@ describe('createDealLinkAdapter', () => {
     expect(screen.queryByText('Fallback deal label')).not.toBeInTheDocument()
   })
 })
+
+
+it('uses preferred tenant statuses for the linking picker filters and request', async () => {
+  readApiResultOrThrowMock.mockReset().mockResolvedValue({ items: [], total: 0 })
+  const adapter = createDealLinkAdapter({
+    vocabulary: { won: ['signed'], lost: ['declined'], closed: ['archived'] },
+    dialogTitle: 'Link deal', searchPlaceholder: 'Search', searchEmptyHint: 'None',
+    selectedEmptyHint: 'None', confirmButtonLabel: 'Link',
+    orphanWarningTitle: 'Orphan', orphanWarningMessage: 'Orphan',
+  })
+  expect(adapter.filters?.options.map((option) => option.id)).toEqual(['all', 'open', 'signed', 'declined', 'orphan'])
+  await adapter.searchPage?.('', 1, 'signed')
+  expect(readApiResultOrThrowMock).toHaveBeenCalledWith(expect.stringContaining('status=signed'))
+})

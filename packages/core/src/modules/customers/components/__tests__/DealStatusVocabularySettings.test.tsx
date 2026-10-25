@@ -12,6 +12,7 @@ const readMock = jest.fn()
 const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 const scopedHeadersMock = jest.fn((_headers: Record<string, string>, operation: () => Promise<unknown>) => operation())
 const initialValuesMock = jest.fn()
+const formErrorsMock = jest.fn()
 const conflictMock = jest.fn()
 const flashMock = jest.fn()
 const refetchMock = jest.fn()
@@ -47,7 +48,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
             }) : <input value={String(values[field.id] ?? '')} onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))} />}
           </div>
         ))}
-        <button type="button" onClick={() => { void Promise.resolve(onSubmit?.(values)).catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught))) }}>{submitLabel}</button>
+        <button type="button" onClick={() => { void Promise.resolve(onSubmit?.(values)).catch((caught: unknown) => (formErrorsMock(caught), setError(caught instanceof Error ? caught.message : String(caught)))) }}>{submitLabel}</button>
         {extraActions}
         {error ? <div role="alert">{error}</div> : null}
       </div>
@@ -79,7 +80,7 @@ describe('deal status vocabulary editor', () => {
     expect(screen.getByRole('textbox', { name: 'Won statuses' })).toHaveAttribute('name', 'won')
     expect(screen.getByRole('textbox', { name: 'Lost statuses' })).toHaveAttribute('name', 'lost')
     expect(screen.getByRole('textbox', { name: 'Closed statuses' })).toHaveAttribute('name', 'closed')
-    fireEvent.change(screen.getByRole('textbox', { name: 'Won statuses' }), { target: { value: 'signed, contract' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Won statuses' }), { target: { value: 'signed, contract, ' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Lost statuses' }), { target: { value: 'rejected' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Closed statuses' }), { target: { value: 'archived' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save vocabulary' }))
@@ -95,6 +96,9 @@ describe('deal status vocabulary editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save vocabulary' }))
     await screen.findByText(dictionary['customers.settings.dealStatusVocabulary.validationError'])
     expect(readMock).not.toHaveBeenCalled()
+    expect(formErrorsMock).toHaveBeenCalledWith(expect.objectContaining({
+      fieldErrors: expect.objectContaining({ won: dictionary['customers.settings.dealStatusVocabulary.validationError'] }),
+    }))
   })
 
   it('resets through mutation guards with the loaded optimistic-lock version', async () => {

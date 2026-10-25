@@ -27,7 +27,7 @@ export const TERMINAL_PIPELINE_STAGE_LABELS: Record<DealClosureOutcome, Readonly
  */
 export function dealClosureOutcomeFromStatus(
   status: string | null | undefined,
-  vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY,
+  vocabulary: DealStatusVocabulary | number = DEFAULT_DEAL_STATUS_VOCABULARY,
 ): DealClosureOutcome | null {
   const canonical = typeof status === 'string' ? canonicalDealStatus(status.trim(), vocabulary) : status
   if (isWonDealStatus(canonical, vocabulary)) return 'won'
@@ -70,11 +70,9 @@ export async function loadClosurePipelineStageSnapshot(
     { orderBy: { order: 'ASC' } },
     { tenantId: input.tenantId, organizationId: input.organizationId },
   )
-  const aliases = new Set([
-    ...TERMINAL_PIPELINE_STAGE_LABELS[input.closureOutcome],
-    ...getDealStatusAliases(input.vocabulary)[input.closureOutcome].map(normalizePipelineStageLabel).filter(Boolean),
-  ])
-  const stage = stages.find((candidate) => aliases.has(normalizePipelineStageLabel(candidate.label)))
+  const aliases = new Set(getDealStatusAliases(input.vocabulary)[input.closureOutcome].map(normalizePipelineStageLabel).filter(Boolean))
+  const stage = stages.find((candidate) => TERMINAL_PIPELINE_STAGE_LABELS[input.closureOutcome].has(normalizePipelineStageLabel(candidate.label)))
+    ?? stages.find((candidate) => aliases.has(normalizePipelineStageLabel(candidate.label)))
   if (!stage) return null
   return {
     id: stage.id,

@@ -159,3 +159,17 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
   })
 
 })
+
+
+it('renders server KPIs for company-only viewers when the vocabulary request is forbidden', () => {
+  mockUseDealStatusVocabulary.mockReturnValue({ vocabulary: mockVocabulary, isLoading: false, isError: true })
+  const overview = buildOverview([OPEN_DEAL])
+  overview.kpis = {
+    activeDealsValue: 1200, activeDealsCount: 1, dealCurrency: 'PLN', ltvValue: 3400,
+    activityCount: 0, activityTrend: null, clientTenureYears: 2, completedDealsCount: 3,
+  }
+  renderWithProviders(<CompanyKpiBar data={overview} />, { locale: EN })
+  expect(within(tile(ACTIVE_DEALS)).getByText('PLN 1,200')).toBeInTheDocument()
+  expect(within(tile(LTV)).getByText('PLN 3,400')).toBeInTheDocument()
+  expect(screen.queryByText('Failed to load deal status vocabulary.')).not.toBeInTheDocument()
+})

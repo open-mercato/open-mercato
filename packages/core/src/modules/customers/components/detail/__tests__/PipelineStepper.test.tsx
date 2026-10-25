@@ -102,3 +102,16 @@ describe('PipelineStepper', () => {
     expect(progressbar.getAttribute('aria-valuetext')).toMatch(/won/i)
   })
 })
+
+
+it('hides configured Unicode terminal stages from the normal pipeline steps', () => {
+  renderWithProviders(<PipelineStepper
+    vocabulary={{ won: ['승인'], lost: ['거절'], closed: ['종료'] }}
+    stages={[{ id: 'open', label: '진행', order: 0 }, { id: 'won', label: '승인', order: 1 }]}
+    transitions={[]}
+    currentStageId="won"
+    closureOutcome="won"
+  />)
+  expect(screen.queryByText('승인')).not.toBeInTheDocument()
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '1')
+})

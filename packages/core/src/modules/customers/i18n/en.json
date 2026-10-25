@@ -2846,6 +2846,7 @@
   "customers.settings.dealStatusVocabulary.closed": "Closed statuses",
   "customers.settings.dealStatusVocabulary.errorLoad": "Failed to load deal status vocabulary.",
   "customers.settings.dealStatusVocabulary.errorSave": "Failed to save deal status vocabulary.",
+  "customers.settings.dealStatusVocabulary.tenantScope": "This setting applies to every organization in this tenant. Saving or resetting it with deal management permission affects how deals are classified across all organizations. Quote aliases containing commas with double quotes.",
   "customers.settings.dealStatusVocabulary.help": "Enter comma-separated status values. The first value in each group is used for new writes. Built-in aliases remain readable. Closed statuses have no won or lost outcome.",
   "customers.settings.dealStatusVocabulary.loading": "Loading deal status vocabulary…",
   "customers.settings.dealStatusVocabulary.lost": "Lost statuses",

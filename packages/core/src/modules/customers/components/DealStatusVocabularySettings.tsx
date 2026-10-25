@@ -15,6 +15,7 @@ import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { dealStatusVocabularySchema } from '../data/dealStatusVocabulary'
+import { formatDealStatusAliases, parseDealStatusAliases } from '../lib/dealStatusVocabularyInput'
 import type { DealStatusVocabulary } from '../lib/dealStatus'
 import { useDealStatusVocabulary } from './hooks/useDealStatusVocabulary'
 
@@ -41,9 +42,9 @@ export function DealStatusVocabularySettings(): React.ReactElement {
   }>({ contextId: FORM_ID, blockedMessage: t('ui.forms.flash.saveBlocked') })
 
   const initialValues = React.useMemo<VocabularyFormValues>(() => ({
-    won: vocabulary.won.join(', '),
-    lost: vocabulary.lost.join(', '),
-    closed: vocabulary.closed.join(', '),
+    won: formatDealStatusAliases(vocabulary.won),
+    lost: formatDealStatusAliases(vocabulary.lost),
+    closed: formatDealStatusAliases(vocabulary.closed),
     updatedAt,
   }), [vocabulary, updatedAt])
 
@@ -77,12 +78,14 @@ export function DealStatusVocabularySettings(): React.ReactElement {
 
   const handleSubmit = React.useCallback(async (values: VocabularyFormValues) => {
     const parsed = dealStatusVocabularySchema.safeParse({
-      won: values.won.split(',').map((value) => value.trim()),
-      lost: values.lost.split(',').map((value) => value.trim()),
-      closed: values.closed.split(',').map((value) => value.trim()),
+      won: parseDealStatusAliases(values.won),
+      lost: parseDealStatusAliases(values.lost),
+      closed: parseDealStatusAliases(values.closed),
     })
     if (!parsed.success) {
-      throw createCrudFormError(t('customers.settings.dealStatusVocabulary.validationError'))
+      const message = t('customers.settings.dealStatusVocabulary.validationError')
+      const fieldErrors = Object.fromEntries(parsed.error.issues.map((issue) => [String(issue.path[0]), message]))
+      throw createCrudFormError(message, fieldErrors)
     }
     setIsSaving(true)
     try {
@@ -113,6 +116,7 @@ export function DealStatusVocabularySettings(): React.ReactElement {
     <section className="flex max-w-xl flex-col gap-4 rounded-lg border border-border bg-card p-6">
       <SectionHeader title={t('customers.settings.dealStatusVocabulary.title')} />
       <p className="text-sm text-muted-foreground">{t('customers.settings.dealStatusVocabulary.help')}</p>
+      <p className="text-sm text-muted-foreground">{t('customers.settings.dealStatusVocabulary.tenantScope')}</p>
       {isLoading ? <LoadingMessage label={t('customers.settings.dealStatusVocabulary.loading')} /> : isError ? (
         <ErrorMessage
           label={t('customers.settings.dealStatusVocabulary.errorLoad')}

@@ -2846,6 +2846,7 @@
   "customers.settings.dealStatusVocabulary.closed": "Geschlossene Status",
   "customers.settings.dealStatusVocabulary.errorLoad": "Statuswörterbuch konnte nicht geladen werden.",
   "customers.settings.dealStatusVocabulary.errorSave": "Statuswörterbuch konnte nicht gespeichert werden.",
+  "customers.settings.dealStatusVocabulary.tenantScope": "Diese Einstellung gilt für alle Organisationen dieses Mandanten. Speichern oder Zurücksetzen mit der Berechtigung zur Deal-Verwaltung ändert die Klassifizierung in allen Organisationen. Aliase mit Kommas müssen in doppelten Anführungszeichen stehen.",
   "customers.settings.dealStatusVocabulary.help": "Geben Sie kommagetrennte Statuswerte ein. Der erste Wert jeder Gruppe wird für neue Einträge verwendet. Integrierte Aliase bleiben lesbar. Geschlossene Status haben kein gewonnenes oder verlorenes Ergebnis.",
   "customers.settings.dealStatusVocabulary.loading": "Statuswörterbuch wird geladen…",
   "customers.settings.dealStatusVocabulary.lost": "Verlorene Status",

@@ -71,6 +71,10 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
   const locale = useLocale()
   const { vocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
 
+  const needsVocabulary = data.kpis === undefined
+  const fallbackLoading = needsVocabulary && vocabularyLoading
+  const fallbackError = needsVocabulary && vocabularyError
+
   const activeDeals = React.useMemo(() => getActiveDeals(data.deals, vocabulary), [data.deals, vocabulary])
   const activeDealsValue = React.useMemo(
     () => data.kpis?.activeDealsValue ?? sumActiveDeals(data.deals, vocabulary),
@@ -157,11 +161,11 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
           ? `< 1 ${t('customers.companies.dashboard.kpi.year', 'year')}`
           : `${v} ${v === 1 ? t('customers.companies.dashboard.kpi.year', 'year') : t('customers.companies.dashboard.kpi.years', 'years')}`
         : undefined,
-      comparisonLabel: vocabularyLoading || vocabularyError ? undefined : clientTenureYears !== null
+      comparisonLabel: fallbackLoading || fallbackError ? undefined : clientTenureYears !== null
         ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status, vocabulary)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
         : t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet'),
     },
-  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, vocabulary, vocabularyError, vocabularyLoading])
+  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, vocabulary, fallbackError, fallbackLoading])
 
   const visibleTiles = kpiTiles.filter((tile) => !hiddenTiles.has(tile.id))
 
@@ -176,8 +180,8 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
               trend={tile.trend}
               formatValue={tile.formatValue}
               comparisonLabel={tile.comparisonLabel}
-              loading={(tile.id === 'activeDeals' || tile.id === 'ltv') && vocabularyLoading}
-              error={(tile.id === 'activeDeals' || tile.id === 'ltv') && vocabularyError
+              loading={(tile.id === 'activeDeals' || tile.id === 'ltv') && fallbackLoading}
+              error={(tile.id === 'activeDeals' || tile.id === 'ltv') && fallbackError
                 ? t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.')
                 : null}
             />

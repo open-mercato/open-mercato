@@ -5,6 +5,11 @@ import { canonicalDealStatus, expandDealStatusAliases, isClosedDealStatus, isWon
 import { resolveDealStatusVocabulary } from '../dealStatusVocabulary'
 import { dealClosureOutcomeFromStatus } from '../closureStage'
 
+const mockWarning = jest.fn()
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({ child: () => ({ warn: (...args: unknown[]) => mockWarning(...args) }) }),
+}))
+
 const custom = { won: ['accepted'], lost: ['declined'], closed: ['archived'] }
 const envDefault = { won: ['signed'], lost: ['rejected'], closed: ['finished'] }
 const originalEnv = process.env.OM_CUSTOMERS_DEAL_STATUS_VOCABULARY
@@ -96,4 +101,27 @@ describe('configured status semantics', () => {
   ])('rejects ambiguous or invalid vocabulary %p', (vocabulary) => {
     expect(dealStatusVocabularySchema.safeParse(vocabulary).success).toBe(false)
   })
+})
+
+
+it('parses an unchanged environment default only once', async () => {
+  process.env.OM_CUSTOMERS_DEAL_STATUS_VOCABULARY = JSON.stringify({ won: ['cached-signed'], lost: ['cached-declined'], closed: ['cached-archived'] })
+  const parse = jest.spyOn(JSON, 'parse')
+  try {
+    await resolveDealStatusVocabulary(undefined, 'tenant-a')
+    await resolveDealStatusVocabulary(undefined, 'tenant-b')
+    expect(parse).toHaveBeenCalledTimes(1)
+  } finally {
+    parse.mockRestore()
+  }
+})
+
+
+it('warns once for an unchanged invalid environment default', async () => {
+  mockWarning.mockClear()
+  process.env.OM_CUSTOMERS_DEAL_STATUS_VOCABULARY = '{invalid-cached-json'
+  await resolveDealStatusVocabulary(undefined, 'tenant-a')
+  await resolveDealStatusVocabulary(undefined, 'tenant-b')
+  expect(mockWarning).toHaveBeenCalledTimes(1)
+  expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('using built-in defaults'))
 })

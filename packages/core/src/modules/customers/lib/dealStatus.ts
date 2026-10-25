@@ -17,42 +17,55 @@ export const CLOSED_DEAL_STATUS_LIST: readonly string[] = [
   ...DEFAULT_DEAL_STATUS_VOCABULARY.closed,
 ]
 
-export function getDealStatusAliases(vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY) {
+type VocabularyArgument = DealStatusVocabulary | number
+
+function resolveVocabulary(vocabulary: VocabularyArgument): DealStatusVocabulary {
+  return typeof vocabulary === 'object' && vocabulary !== null ? vocabulary : DEFAULT_DEAL_STATUS_VOCABULARY
+}
+
+const aliasCache = new WeakMap<DealStatusVocabulary, { won: readonly string[]; lost: readonly string[]; closed: readonly string[]; terminal: readonly string[] }>()
+
+export function getDealStatusAliases(input: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY) {
+  const vocabulary = resolveVocabulary(input)
+  const cached = aliasCache.get(vocabulary)
+  if (cached) return cached
   const won = Array.from(new Set([...vocabulary.won, ...DEFAULT_DEAL_STATUS_VOCABULARY.won]))
   const lost = Array.from(new Set([...vocabulary.lost, ...DEFAULT_DEAL_STATUS_VOCABULARY.lost]))
   const closed = Array.from(new Set([...vocabulary.closed, ...DEFAULT_DEAL_STATUS_VOCABULARY.closed]))
-  return { won, lost, closed, terminal: [...won, ...lost, ...closed] }
+  const aliases = Object.freeze({ won: Object.freeze(won), lost: Object.freeze(lost), closed: Object.freeze(closed), terminal: Object.freeze([...won, ...lost, ...closed]) })
+  aliasCache.set(vocabulary, aliases)
+  return aliases
 }
 
-function matchesAlias(value: string | null | undefined, aliases: string[]): boolean {
-  return typeof value === 'string' && aliases.some((alias) => alias.toLowerCase() === value.trim().toLowerCase())
+function matchesAlias(value: string | null | undefined, aliases: readonly string[]): boolean {
+  return typeof value === 'string' && aliases.some((alias) => alias.trim().toLowerCase() === value.trim().toLowerCase())
 }
 
-export function isWonDealStatus(value: string | null | undefined, vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
-  return value != null && getDealStatusAliases(vocabulary).won.includes(value)
+export function isWonDealStatus(value: string | null | undefined, vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
+  return matchesAlias(value, getDealStatusAliases(vocabulary).won)
 }
 
-export function isLostDealStatus(value: string | null | undefined, vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
-  return value != null && getDealStatusAliases(vocabulary).lost.includes(value)
+export function isLostDealStatus(value: string | null | undefined, vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
+  return matchesAlias(value, getDealStatusAliases(vocabulary).lost)
 }
 
-export function isClosedDealStatus(value: string | null | undefined, vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
-  return value != null && getDealStatusAliases(vocabulary).terminal.includes(value)
+export function isClosedDealStatus(value: string | null | undefined, vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
+  return matchesAlias(value, getDealStatusAliases(vocabulary).terminal)
 }
 
-export function isOpenDealStatus(value: string | null | undefined, vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
+export function isOpenDealStatus(value: string | null | undefined, vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): boolean {
   return !isClosedDealStatus(value, vocabulary)
 }
 
-export function canonicalDealStatus(value: string, vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY): string {
+export function canonicalDealStatus(value: string, vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): string {
   const aliases = getDealStatusAliases(vocabulary)
   for (const outcome of ['won', 'lost', 'closed'] as const) {
-    if (matchesAlias(value, aliases[outcome])) return vocabulary[outcome][0]!
+    if (matchesAlias(value, aliases[outcome])) return resolveVocabulary(vocabulary)[outcome][0]!
   }
   return value.toLowerCase() === 'open' ? 'open' : value
 }
 
-export function expandDealStatusAliases(values: string[], vocabulary: DealStatusVocabulary = DEFAULT_DEAL_STATUS_VOCABULARY): string[] {
+export function expandDealStatusAliases(values: string[], vocabulary: VocabularyArgument = DEFAULT_DEAL_STATUS_VOCABULARY): string[] {
   const aliases = getDealStatusAliases(vocabulary)
   const expanded = new Set<string>()
   for (const value of values) {
