@@ -2856,6 +2856,7 @@
   "customers.settings.dealStatusVocabulary.reset": "Reset to default",
   "customers.settings.dealStatusVocabulary.retry": "Retry",
   "customers.settings.dealStatusVocabulary.save": "Save vocabulary",
+  "customers.settings.dealStatusVocabulary.saveInterrupted": "Save interrupted. Review your changes before saving again.",
   "customers.settings.dealStatusVocabulary.saved": "Deal status vocabulary saved.",
   "customers.settings.dealStatusVocabulary.source.default": "Using built-in vocabulary",
   "customers.settings.dealStatusVocabulary.source.env": "Using environment vocabulary",

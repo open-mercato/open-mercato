@@ -16,6 +16,7 @@ const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise
 const scopedHeadersMock = jest.fn((_headers: Record<string, string>, operation: () => Promise<unknown>) => operation())
 const initialValuesMock = jest.fn()
 const formErrorsMock = jest.fn()
+const formSavedMock = jest.fn()
 const conflictMock = jest.fn()
 const flashMock = jest.fn()
 const refetchMock = jest.fn()
@@ -51,7 +52,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
             }) : <input value={String(values[field.id] ?? '')} onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))} />}
           </div>
         ))}
-        <button type="button" onClick={() => { void Promise.resolve(onSubmit?.(values)).catch((caught: unknown) => (formErrorsMock(caught), setError(caught instanceof Error ? caught.message : String(caught)))) }}>{submitLabel}</button>
+        <button type="button" onClick={() => { void Promise.resolve(onSubmit?.(values)).then(formSavedMock).catch((caught: unknown) => (formErrorsMock(caught), setError(caught instanceof Error ? caught.message : String(caught)))) }}>{submitLabel}</button>
         {extraActions}
         {error ? <div role="alert">{error}</div> : null}
       </div>
@@ -162,6 +163,34 @@ describe('deal status vocabulary editor', () => {
     expect(readMock).toHaveBeenCalledTimes(1)
     expect(invalidate).not.toHaveBeenCalled()
     expect(flashMock).not.toHaveBeenCalled()
+    await waitFor(() => expect(formErrorsMock).toHaveBeenCalledWith(expect.objectContaining({ message: dictionary['customers.settings.dealStatusVocabulary.saveInterrupted'] })))
+    expect(formSavedMock).not.toHaveBeenCalled()
+  })
+
+  it('cancels reset without completing mutation guards or flashing an error', async () => {
+    readMock.mockRejectedValueOnce(reclassificationError())
+    renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+    await screen.findByRole('alertdialog')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(readMock).toHaveBeenCalledTimes(1)
+    await expect(runMutationMock.mock.results[0].value).rejects.toMatchObject({ message: dictionary['customers.settings.dealStatusVocabulary.saveInterrupted'] })
+    expect(flashMock).not.toHaveBeenCalled()
+  })
+
+  it('does not complete form success when scope changes during query invalidation', async () => {
+    const view = renderEditor()
+    let finishInvalidation: () => void = () => undefined
+    view.invalidate.mockImplementationOnce(() => new Promise<void>((resolve) => { finishInvalidation = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save vocabulary' }))
+    await waitFor(() => expect(view.invalidate).toHaveBeenCalled())
+    mockScopeVersion += 1
+    view.rerender(<DealStatusVocabularySettings />)
+    finishInvalidation()
+    await waitFor(() => expect(formErrorsMock).toHaveBeenCalled())
+    expect(formSavedMock).not.toHaveBeenCalled()
+    expect(flashMock).not.toHaveBeenCalled()
   })
 
   it('confirms the same candidate with fingerprint and version through Ctrl+Enter', async () => {
@@ -202,6 +231,7 @@ describe('deal status vocabulary editor', () => {
     else view.rerender(<DealStatusVocabularySettings />)
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(readMock).toHaveBeenCalledTimes(1)
+    expect(formSavedMock).not.toHaveBeenCalled()
   })
 
 })

@@ -2856,6 +2856,7 @@
   "customers.settings.dealStatusVocabulary.reset": "Przywróć domyślny",
   "customers.settings.dealStatusVocabulary.retry": "Spróbuj ponownie",
   "customers.settings.dealStatusVocabulary.save": "Zapisz słownik",
+  "customers.settings.dealStatusVocabulary.saveInterrupted": "Zapisywanie przerwane. Sprawdź zmiany przed ponownym zapisaniem.",
   "customers.settings.dealStatusVocabulary.saved": "Słownik statusów został zapisany.",
   "customers.settings.dealStatusVocabulary.source.default": "Używany jest wbudowany słownik",
   "customers.settings.dealStatusVocabulary.source.env": "Używany jest słownik środowiska",

@@ -23,6 +23,7 @@ import { useDealStatusVocabulary } from './hooks/useDealStatusVocabulary'
 
 const FORM_ID = 'customers-deals-settings:status-vocabulary'
 const VOCABULARY_GROUPS = ['won', 'lost', 'closed'] as const
+const INTERRUPTED_CHANGE = Symbol('deal-status-vocabulary-interrupted')
 
 type VocabularyFormValues = {
   won: string
@@ -82,6 +83,9 @@ export function DealStatusVocabularySettings(): React.ReactElement {
   })), [t, finishConfirmation])
 
   const persist = React.useCallback(async (nextVocabulary: DealStatusVocabulary | null, expectedUpdatedAt: string | null) => {
+    const interrupt = () => {
+      throw Object.assign(createCrudFormError(t('customers.settings.dealStatusVocabulary.saveInterrupted')), { [INTERRUPTED_CHANGE]: true })
+    }
     let reclassificationConfirmation: { fingerprint: string } | undefined
     while (currentScope.current === scopeVersion) {
       try {
@@ -91,22 +95,24 @@ export function DealStatusVocabularySettings(): React.ReactElement {
           body: JSON.stringify({ vocabulary: nextVocabulary, ...(reclassificationConfirmation ? { reclassificationConfirmation } : {}) }),
         }, { errorMessage: t('customers.settings.dealStatusVocabulary.errorSave') }))
       } catch (error) {
-        if (currentScope.current !== scopeVersion) return
+        if (currentScope.current !== scopeVersion) return interrupt()
         const required = dealStatusReclassificationErrorSchema.safeParse(error)
         if (!required.success) throw error
         const confirmed = await new Promise<boolean>((resolve) => {
           decideImpact.current = resolve
           setImpact(required.data.impact)
         })
-        if (!confirmed || currentScope.current !== scopeVersion) return
+        if (!confirmed || currentScope.current !== scopeVersion) return interrupt()
         reclassificationConfirmation = { fingerprint: required.data.impact.fingerprint }
         continue
       }
-      if (currentScope.current !== scopeVersion) return
+      if (currentScope.current !== scopeVersion) return interrupt()
       await queryClient.invalidateQueries({ queryKey: ['customers'] })
-      if (currentScope.current === scopeVersion) flash(t('customers.settings.dealStatusVocabulary.saved'), 'success')
+      if (currentScope.current !== scopeVersion) return interrupt()
+      flash(t('customers.settings.dealStatusVocabulary.saved'), 'success')
       return
     }
+    interrupt()
   }, [queryClient, scopeVersion, t])
 
   const handleSubmit = React.useCallback(async (values: VocabularyFormValues) => {
@@ -137,6 +143,7 @@ export function DealStatusVocabularySettings(): React.ReactElement {
         context: { formId: FORM_ID, resourceKind: 'customers.deal_status_vocabulary', retryLastMutation },
       })
     } catch (error) {
+      if (typeof error === 'object' && error !== null && INTERRUPTED_CHANGE in error) return
       if (!surfaceRecordConflict(error, t)) {
         flash(t('customers.settings.dealStatusVocabulary.errorSave'), 'error')
       }

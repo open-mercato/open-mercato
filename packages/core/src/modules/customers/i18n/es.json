@@ -2856,6 +2856,7 @@
   "customers.settings.dealStatusVocabulary.reset": "Restablecer predeterminado",
   "customers.settings.dealStatusVocabulary.retry": "Reintentar",
   "customers.settings.dealStatusVocabulary.save": "Guardar vocabulario",
+  "customers.settings.dealStatusVocabulary.saveInterrupted": "Guardado interrumpido. Revisa los cambios antes de volver a guardar.",
   "customers.settings.dealStatusVocabulary.saved": "Vocabulario de estados guardado.",
   "customers.settings.dealStatusVocabulary.source.default": "Se usa el vocabulario integrado",
   "customers.settings.dealStatusVocabulary.source.env": "Se usa el vocabulario del entorno",

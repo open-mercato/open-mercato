@@ -1964,6 +1964,8 @@ Nothing that was previously accepted is now rejected, and no field was removed f
 
 **Action for API consumers:** treat `participants[].userId` as optional. A generated client or hand-written type that declares it required keeps working until someone in that tenant actually invites an external guest, at which point a strict response validator will reject the payload and a `participant.userId` dereference will yield `undefined`. Identify a participant by `userId` when present and fall back to the normalized (trimmed, lower-cased) `email` otherwise — that is exactly the canonical actor key the platform's own calendar mapping, participant dedupe and conflict detection now use (`lib/calendar/participantIdentity.ts`). No database migration is required: `customer_interactions.participants` is a schemaless JSONB column with no foreign key or constraint.
 
+<a id="5546"></a>
+
 ### Tenant-configurable deal status vocabulary (#5546)
 
 Deal outcome aliases can now be configured in **Settings → Customers → Deal settings**. The tenant's `customers/dealStatusVocabulary` module configuration takes precedence over the server-side `OM_CUSTOMERS_DEAL_STATUS_VOCABULARY` JSON default, followed by the shipped vocabulary. Instance module-configuration rows are ignored. Resetting the tenant override restores environment/built-in resolution; settings writes support undo and the standard optimistic-lock header. GET `/api/customers/settings/deal-status-vocabulary` requires `customers.deals.view`. PUT requires unrestricted tenant-wide `customers.deals.manage`; an organization-only manager receives 403 before tenant-wide impact is counted.

@@ -2856,6 +2856,7 @@
   "customers.settings.dealStatusVocabulary.reset": "Standard wiederherstellen",
   "customers.settings.dealStatusVocabulary.retry": "Erneut versuchen",
   "customers.settings.dealStatusVocabulary.save": "Wörterbuch speichern",
+  "customers.settings.dealStatusVocabulary.saveInterrupted": "Speichern unterbrochen. Prüfen Sie Ihre Änderungen, bevor Sie erneut speichern.",
   "customers.settings.dealStatusVocabulary.saved": "Statuswörterbuch gespeichert.",
   "customers.settings.dealStatusVocabulary.source.default": "Integriertes Wörterbuch wird verwendet",
   "customers.settings.dealStatusVocabulary.source.env": "Umgebungswörterbuch wird verwendet",
