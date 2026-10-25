@@ -13,6 +13,7 @@ import {
   CHANNEL_DISCORD_AI_PROPOSAL_DISMISS_COMMAND_ID,
 } from '../lib/ai-proposal-contract'
 import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
+import { hasDiscordProposalOrigin } from '../lib/ai-proposal-origin'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
 
 const logger = createLogger('channel_discord').child({ component: 'ai-reply-proposal' })
@@ -57,7 +58,7 @@ async function loadProposal(
   const proposal = await findOneWithDecryption(
     em,
     Message,
-    { id: messageId, tenantId: scope.tenantId, deletedAt: null },
+    { id: messageId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
     undefined,
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
@@ -67,6 +68,9 @@ async function loadProposal(
     // the id was swapped, so refuse rather than sending an unrelated message body
     // into a Discord server.
     throw new Error('[internal] Message is not a Discord AI reply proposal')
+  }
+  if (!hasDiscordProposalOrigin(proposal)) {
+    throw new Error('[internal] Discord AI reply proposal has no valid system origin')
   }
   return proposal
 }
@@ -90,12 +94,7 @@ const approveProposalCommand: CommandHandler<ProposalActionInput, ApproveProposa
     const inbound = await findOneWithDecryption(
       em,
       Message,
-      {
-        id: inboundMessageId,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      },
+      { id: inboundMessageId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
       undefined,
       { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )

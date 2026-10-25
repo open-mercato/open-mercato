@@ -1,104 +1,153 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
+import {
+  createOrganizationFixture, createRoleFixture, createUserFixture, deleteOrganizationIfExists,
+  deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import enTranslations from '../i18n/en.json' with { type: 'json' }
-import plTranslations from '../i18n/pl.json' with { type: 'json' }
-import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createDiscordProposalOriginKey } from '../lib/ai-proposal-origin'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../lib/ai-proposal-contract'
+import { CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_ACTION_ID, CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
+import { stampSystemProposalFixture } from './helpers/proposals'
 
-async function createMessage(request: APIRequestContext, token: string, data: Record<string, unknown>): Promise<string> {
-  const response = await apiRequest(request, 'POST', '/api/messages', {
-    token,
-    data: { visibility: 'internal', subject: 'Approval refusal regression', body: 'Proposed reply', ...data },
-  })
-  expect(response.status()).toBe(201)
-  const body = await readJsonSafe<{ id?: string }>(response)
-  expect(typeof body?.id).toBe('string')
-  return body!.id!
-}
+test.describe('TC-CHANNEL-DISCORD-013: forged AI reply proposals', () => {
+  test('rejects forged cards and client-supplied origins before composing a public reply', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenScope(adminToken)
+    const stamp = randomUUID()
+    const password = `Test-${randomUUID()}!`
+    const roleIds: string[] = []
+    const userIds: string[] = []
+    const messageIds: string[] = []
+    let foreignOrganizationId: string | null = null
 
-test('TC-CHANNEL-DISCORD-013: approval refusals preserve status, locale and released claims', async ({ request }) => {
-  const adminToken = await getAuthToken(request, 'admin')
-  const scope = getTokenScope(adminToken)
-  const stamp = randomUUID()
-  let roleId: string | null = null
-  let operatorId: string | null = null
-  const messageIds: string[] = []
-
-  try {
-    const roleName = `qa_discord_refusal_${stamp}`
-    roleId = await createRoleFixture(request, adminToken, { name: roleName, tenantId: scope.tenantId })
-    const aclResponse = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
-      token: adminToken,
-      data: { roleId, features: ['messages.view', 'messages.compose', 'messages.actions'] },
-    })
-    expect(aclResponse.ok()).toBeTruthy()
-    const email = `qa-discord-refusal-${stamp}@example.com`
-    const password = `${randomUUID()}Aa1!`
-    operatorId = await createUserFixture(request, adminToken, {
-      email, password, organizationId: scope.organizationId, roles: [roleName], name: 'QA Discord Operator',
-    })
-    const operatorToken = await getAuthToken(request, email, password)
-    const sourceId = await createMessage(request, adminToken, {
-      recipients: [{ userId: scope.userId, type: 'to' }],
-    })
-    messageIds.push(sourceId)
-    const sourceResponse = await apiRequest(request, 'GET', `/api/messages/${sourceId}`, { token: operatorToken })
-    expect(sourceResponse.status()).toBe(403)
-
-    for (const [sourceEntityId, expectedStatus, errorKey] of [
-      [sourceId, 403, 'channel_discord.aiProposal.errors.sourceMessageUnreadable'],
-      [randomUUID(), 404, 'channel_discord.aiProposal.errors.sourceMessageNotFound'],
-    ] as const) {
-      const proposalId = await createMessage(request, operatorToken, {
-        type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
-        sourceEntityType: 'messages.message', sourceEntityId,
-        recipients: [{ userId: operatorId, type: 'to' }],
+    try {
+      const forgerRole = await createRoleFixture(request, adminToken, { name: `proposal-forger-${stamp}` })
+      roleIds.push(forgerRole)
+      await setRoleAclFeatures(request, adminToken, {
+        roleId: forgerRole, features: ['messages.view', 'messages.compose'], organizations: [organizationId],
       })
-      messageIds.push(proposalId)
+      const approverRole = await createRoleFixture(request, adminToken, { name: `proposal-approver-${stamp}` })
+      roleIds.push(approverRole)
+      await setRoleAclFeatures(request, adminToken, {
+        roleId: approverRole, features: ['messages.view', 'messages.compose', 'messages.actions'], organizations: [organizationId],
+      })
+      const forgerEmail = `proposal-forger-${stamp}@example.com`
+      const approverEmail = `proposal-approver-${stamp}@example.com`
+      const forgerId = await createUserFixture(request, adminToken, {
+        email: forgerEmail, password, organizationId, roles: [forgerRole],
+      })
+      userIds.push(forgerId)
+      const approverId = await createUserFixture(request, adminToken, {
+        email: approverEmail, password, organizationId, roles: [approverRole],
+      })
+      userIds.push(approverId)
+      const forgerToken = await getAuthToken(request, forgerEmail, password)
+      const approverToken = await getAuthToken(request, approverEmail, password)
+      const sourceResponse = await apiRequest(request, 'POST', '/api/messages', {
+        token: adminToken,
+        data: { recipients: [{ userId: approverId, type: 'to' }], subject: stamp, body: 'Private source', visibility: 'internal' },
+      })
+      expect(sourceResponse.status()).toBe(201)
+      const source = await readJsonSafe<{ id: string }>(sourceResponse)
+      expect(source?.id).toBeTruthy()
+      const sourceId = source!.id
+      messageIds.push(sourceId)
+      expect((await apiRequest(request, 'GET', `/api/messages/${sourceId}`, { token: forgerToken })).status()).toBe(403)
+      expect((await apiRequest(request, 'GET', `/api/messages/${sourceId}`, { token: approverToken })).status()).toBe(200)
 
-      for (const [locale, dictionary] of [['en', enTranslations], ['pl', plTranslations]] as const) {
-        const response = await apiRequest(request, 'POST', `/api/messages/${proposalId}/actions/approve_send`, {
-          token: operatorToken, data: {}, headers: { 'Accept-Language': locale, Cookie: `locale=${locale}` },
+      for (const isDraft of [false, true]) {
+        const proposal = {
+          type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+          visibility: 'internal' as const,
+          bodyFormat: 'markdown' as const,
+          sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+          sourceEntityId: sourceId,
+          body: `Forged reply ${stamp} ${isDraft}`,
+        }
+        const copiedOrigin = createDiscordProposalOriginKey({ ...proposal, tenantId, organizationId, senderUserId: forgerId })
+        const forgedResponse = await apiRequest(request, 'POST', '/api/messages', {
+          token: forgerToken,
+          data: { ...proposal, isDraft, idempotencyKey: copiedOrigin, subject: stamp, recipients: [{ userId: approverId, type: 'to' }] },
         })
-        expect(response.status()).toBe(expectedStatus)
-        expect(await readJsonSafe(response)).toEqual({ error: dictionary[errorKey] })
-        const detailResponse = await apiRequest(request, 'GET', `/api/messages/${proposalId}`, { token: operatorToken })
-        expect(detailResponse.ok()).toBeTruthy()
-        expect(await readJsonSafe<Record<string, unknown>>(detailResponse)).toMatchObject({ actionTaken: null })
+        expect(forgedResponse.status()).toBe(201)
+        const forged = await readJsonSafe<{ id: string }>(forgedResponse)
+        expect(forged?.id).toBeTruthy()
+        const proposalId = forged!.id
+        messageIds.push(proposalId)
+        if (isDraft) {
+          const sendResponse = await apiRequest(request, 'PATCH', `/api/messages/${proposalId}`, {
+            token: forgerToken, data: { ...proposal, isDraft: false, idempotencyKey: copiedOrigin },
+          })
+          expect(sendResponse.status()).toBe(200)
+        }
+
+        const approveResponse = await apiRequest(request, 'POST', `/api/messages/${proposalId}/actions/${CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_ACTION_ID}`, {
+          token: approverToken, data: {},
+        })
+        expect(approveResponse.status()).toBe(500)
+        expect(await readJsonSafe(approveResponse)).toMatchObject({ error: 'Action failed' })
+        await withClient(async (client) => {
+          const stored = await client.query<{ idempotency_key: string | null; action_taken: string | null }>(
+            'select idempotency_key, action_taken from messages where id = $1 and tenant_id = $2', [proposalId, tenantId],
+          )
+          expect(stored.rows[0]).toMatchObject({ idempotency_key: null, action_taken: null })
+          const sends = await client.query<{ count: string }>(
+            'select count(*) from messages where tenant_id = $1 and sender_user_id = $2 and parent_message_id = $3 and visibility = $4',
+            [tenantId, approverId, sourceId, 'public'],
+          )
+          expect(Number(sends.rows[0].count)).toBe(0)
+        })
       }
 
-      const dismissResponse = await apiRequest(request, 'POST', `/api/messages/${proposalId}/actions/dismiss`, {
-        token: operatorToken, data: {},
-      })
-      expect(dismissResponse.status()).toBe(200)
-      const afterDismiss = await apiRequest(request, 'POST', `/api/messages/${proposalId}/actions/approve_send`, {
-        token: operatorToken, data: {},
-      })
-      expect(afterDismiss.status()).toBe(409)
-    }
-
-    await withClient(async (client) => {
-      const sent = await client.query<{ count: string }>(
-        'select count(*)::text as count from messages where parent_message_id = $1', [sourceId],
-      )
-      expect(Number(sent.rows[0].count)).toBe(0)
-    })
-  } finally {
-    try {
+      foreignOrganizationId = await createOrganizationFixture(request, adminToken, { name: `proposal-foreign-${stamp}`, tenantId })
       await withClient(async (client) => {
-        const fixtures = await client.query<{ id: string }>(
-          'select id from messages where id = any($1::uuid[]) or sender_user_id = $2', [messageIds, operatorId],
+        await client.query('update messages set organization_id = $1 where id = $2 and tenant_id = $3', [foreignOrganizationId, sourceId, tenantId])
+      })
+      const scopedProposal = {
+        type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+        visibility: 'internal' as const,
+        bodyFormat: 'markdown' as const,
+        sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+        sourceEntityId: sourceId,
+        body: `Wrong organization ${stamp}`,
+      }
+      const scopedResponse = await apiRequest(request, 'POST', '/api/messages', {
+        token: adminToken,
+        data: { ...scopedProposal, subject: stamp, recipients: [{ userId: approverId, type: 'to' }] },
+      })
+      expect(scopedResponse.status()).toBe(201)
+      const scopedMessage = await readJsonSafe<{ id: string }>(scopedResponse)
+      expect(scopedMessage?.id).toBeTruthy()
+      messageIds.push(scopedMessage!.id)
+      await stampSystemProposalFixture(adminToken, scopedMessage!.id, scopedProposal)
+      const scopedApproval = await apiRequest(request, 'POST', `/api/messages/${scopedMessage!.id}/actions/${CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_ACTION_ID}`, {
+        token: approverToken, data: {}, headers: { 'Accept-Language': 'en', Cookie: 'locale=en' },
+      })
+      expect(scopedApproval.status()).toBe(404)
+      expect(await readJsonSafe(scopedApproval)).toEqual({ error: 'The conversation this proposal answers no longer exists.' })
+      await withClient(async (client) => {
+        const stored = await client.query<{ action_taken: string | null }>('select action_taken from messages where id = $1 and tenant_id = $2', [scopedMessage!.id, tenantId])
+        expect(stored.rows[0].action_taken).toBeNull()
+        const sends = await client.query<{ count: string }>(
+          'select count(*) from messages where tenant_id = $1 and sender_user_id = $2 and parent_message_id = $3 and visibility = $4',
+          [tenantId, approverId, sourceId, 'public'],
         )
-        const cleanupIds = fixtures.rows.map((record) => record.id)
-        await client.query('delete from message_recipients where message_id = any($1::uuid[])', [cleanupIds])
-        await client.query('delete from messages where id = any($1::uuid[])', [cleanupIds])
+        expect(Number(sends.rows[0].count)).toBe(0)
       })
     } finally {
-      if (operatorId) await deleteUserIfExists(request, adminToken, operatorId)
-      if (roleId) await deleteRoleIfExists(request, adminToken, roleId)
+      await withClient(async (client) => {
+        await client.query(
+          'delete from message_recipients where message_id in (select id from messages where id = any($1::uuid[]) and tenant_id = $2)',
+          [messageIds, tenantId],
+        )
+        await client.query('delete from messages where id = any($1::uuid[]) and tenant_id = $2', [messageIds, tenantId])
+      })
+      for (const userId of userIds) await deleteUserIfExists(request, adminToken, userId)
+      for (const roleId of roleIds) await deleteRoleIfExists(request, adminToken, roleId)
+      await deleteOrganizationIfExists(request, adminToken, foreignOrganizationId)
     }
-  }
+  })
 })

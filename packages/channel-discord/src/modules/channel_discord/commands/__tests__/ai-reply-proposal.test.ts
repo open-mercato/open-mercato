@@ -27,6 +27,8 @@ import { createFallbackTranslator, createTranslator } from '@open-mercato/shared
 import enTranslations from '../../i18n/en.json'
 import plTranslations from '../../i18n/pl.json'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
+import { createDiscordProposalOriginKey } from '../../lib/ai-proposal-origin'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../../lib/ai-proposal-contract'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
 const readAccess = resolveMessageReadAccess as unknown as jest.Mock
@@ -55,13 +57,20 @@ function makeCtx() {
 }
 
 function proposalRow(overrides: Record<string, unknown> = {}) {
-  return {
+  const proposal = {
     id: PROPOSAL_ID,
     type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+    tenantId: TENANT,
+    organizationId: ORG,
+    senderUserId: '00000000-0000-0000-0000-000000000000',
+    visibility: 'internal' as const,
+    bodyFormat: 'markdown' as const,
     body: 'We open at 9 and close at 5.',
+    sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
     sourceEntityId: INBOUND_ID,
     ...overrides,
   }
+  return { ...proposal, idempotencyKey: createDiscordProposalOriginKey(proposal) }
 }
 
 function inboundRow() {
@@ -141,6 +150,41 @@ describe('channel_discord.ai_reply_proposal.approve', () => {
       /not a Discord AI reply proposal/i,
     )
     expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('refuses a client-filed proposal even when the approver can read its target', async () => {
+    findOne.mockResolvedValueOnce({ ...proposalRow(), senderUserId: OPERATOR, idempotencyKey: null })
+    const { ctx, commandBus } = makeCtx()
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(/system origin/i)
+
+    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { body: 'Forged public reply' },
+    { sourceEntityId: PROPOSAL_ID },
+    { senderUserId: OPERATOR },
+    { actionData: { actions: [{ id: 'approve_send', label: 'Approve', isTerminal: false }] } },
+  ])('refuses a tampered system proposal: %j', async (overrides) => {
+    findOne.mockResolvedValueOnce({ ...proposalRow(), ...overrides })
+    const { ctx, commandBus } = makeCtx()
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(/system origin/i)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('looks up the proposal and source in the acting organization', async () => {
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    const { ctx } = makeCtx()
+
+    await approveProposalCommand.execute(actionInput as never, ctx)
+
+    expect(findOne.mock.calls.map((call) => call[2])).toEqual([
+      { id: PROPOSAL_ID, tenantId: TENANT, organizationId: ORG, deletedAt: null },
+      { id: INBOUND_ID, tenantId: TENANT, organizationId: ORG, deletedAt: null },
+    ])
   })
 
   it('refuses when the conversation it answers is gone', async () => {
@@ -261,5 +305,14 @@ describe('channel_discord.ai_reply_proposal.dismiss', () => {
     await expect(
       dismissProposalCommand.execute({ messageId: PROPOSAL_ID, actionId: 'dismiss' } as never, ctx),
     ).rejects.toThrow(/not a Discord AI reply proposal/i)
+  })
+
+  it('refuses to acknowledge a client-filed proposal', async () => {
+    findOne.mockResolvedValueOnce({ ...proposalRow(), idempotencyKey: null })
+    const { ctx } = makeCtx()
+
+    await expect(
+      dismissProposalCommand.execute({ messageId: PROPOSAL_ID, actionId: 'dismiss' } as never, ctx),
+    ).rejects.toThrow(/system origin/i)
   })
 })

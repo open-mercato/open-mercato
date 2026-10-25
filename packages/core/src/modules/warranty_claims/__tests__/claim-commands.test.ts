@@ -1,4 +1,5 @@
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { LockMode } from '@mikro-orm/core'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
@@ -40,6 +41,7 @@ const noRisk: ClaimRiskAssessment = { level: 'none', signals: [] }
 let mockClaims: WarrantyClaim[] = []
 let mockLines: WarrantyClaimLine[] = []
 let mockEvents: WarrantyClaimEvent[] = []
+let mockFindOneCalls: Array<{ entity: string; where: Record<string, unknown>; options: Record<string, unknown> }> = []
 
 const enforceWithGuardsMock = jest.fn<Promise<void>, [unknown, Record<string, unknown>]>()
 const emitWarrantyClaimsEventMock = jest.fn<Promise<void>, [string, unknown, unknown?]>()
@@ -74,9 +76,18 @@ jest.mock('../lib/risk', () => ({
     evaluateClaimRiskMock(em, claim, lines),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    locale: 'en',
+    dict: {},
+    t: (key: string) => key,
+    translate: (key: string, fallback?: string) => fallback ?? key,
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: async (_em: unknown, entity: unknown, where: unknown, _options?: unknown, scope?: unknown) =>
-    mockFindOne(entity, where, scope),
+  findOneWithDecryption: async (_em: unknown, entity: unknown, where: unknown, options?: unknown, scope?: unknown) =>
+    mockFindOne(entity, where, scope, options),
   findWithDecryption: async (_em: unknown, entity: unknown, where: unknown, _options?: unknown, scope?: unknown) =>
     mockFindMany(entity, where, scope),
 }))
@@ -94,8 +105,10 @@ import {
 } from '../commands/claims'
 import {
   createClaimLineCommand,
+  deleteClaimLineCommand,
   receiveClaimLineCommand,
   releaseClaimLineQuarantineCommand,
+  setClaimLineAssessmentCommand,
   updateClaimLineCommand,
 } from '../commands/claim-lines'
 
@@ -229,7 +242,8 @@ function mockFindMany(entity: unknown, where: unknown, scope: unknown): unknown[
   return []
 }
 
-async function mockFindOne(entity: unknown, where: unknown, scope: unknown): Promise<unknown> {
+async function mockFindOne(entity: unknown, where: unknown, scope: unknown, options?: unknown): Promise<unknown> {
+  mockFindOneCalls.push({ entity: entityName(entity), where: asRecord(where), options: asRecord(options) })
   return mockFindMany(entity, where, scope)[0] ?? null
 }
 
@@ -442,6 +456,7 @@ beforeEach(() => {
   mockClaims = []
   mockLines = []
   mockEvents = []
+  mockFindOneCalls = []
   enforceWithGuardsMock.mockReset()
   enforceWithGuardsMock.mockResolvedValue(undefined)
   emitWarrantyClaimsEventMock.mockReset()
@@ -607,7 +622,10 @@ describe('warranty claim commands', () => {
       }
 
       await expect(updateClaimCommand.undo!({ input, logEntry: logEntry as never, ctx }))
-        .rejects.toMatchObject({ status: 409, body: { error: 'warranty_claims.errors.conflict' } })
+        .rejects.toMatchObject({
+          status: 409,
+          body: { error: 'This claim changed while you were editing it.', code: 'warranty_claims.errors.conflict' },
+        })
       expect(claim.notes).toBe('after')
       if (target === 'aggregate') expect(claim.customerName).toBe('Intervening customer name')
       else expect(line.inspectionNotes).toBe('Intervening inspection')
@@ -1002,6 +1020,93 @@ describe('warranty claim commands', () => {
     expect(line.conditionGrade).toBe('D')
   })
 
+  test.each([
+    ['warranty', 'A', 'restock'],
+    ['warranty', 'B', 'repair'],
+    ['warranty', 'C', 'scrap'],
+    ['warranty', 'D', 'scrap'],
+    ['return', 'A', 'restock'],
+    ['return', 'B', null],
+    ['return', 'C', null],
+    ['return', 'D', null],
+    ['core_return', 'A', 'restock'],
+    ['core_return', 'B', null],
+    ['core_return', 'C', 'scrap'],
+    ['core_return', 'D', 'scrap'],
+    ['vendor_recovery', 'A', null],
+    ['vendor_recovery', 'B', null],
+    ['vendor_recovery', 'C', null],
+    ['vendor_recovery', 'D', null],
+  ] as const)('receiving %s grade %s keeps the line editable with disposition %s', async (claimType, conditionGrade, disposition) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received', { claimType })
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade }, ctx)
+
+    expect(line.conditionGrade).toBe(conditionGrade)
+    expect(line.disposition).toBe(disposition)
+    expect(mockEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ action: 'line_received', disposition }) }),
+    ]))
+
+    await updateClaimLineCommand.execute({
+      id: LINE_ID,
+      claimId: CLAIM_ID,
+      disposition: line.disposition,
+      qtyClaimed: 1,
+      inspectionNotes: 'Updated after receiving',
+    }, ctx)
+
+    expect(line.inspectionNotes).toBe('Updated after receiving')
+    expect(line.disposition).toBe(disposition)
+  })
+
+  test.each(['C', 'D'] as const)('receiving return grade %s preserves the chosen refund disposition', async (conditionGrade) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received', { claimType: 'return' })
+    const line = makeLine(claim, { disposition: 'refund' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade }, ctx)
+
+    expect(line.disposition).toBe('refund')
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, disposition: 'scrap' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.dispositionTypeConflict' } })
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, disposition: 'restock' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.dispositionGradeConflict' } })
+    expect(line.disposition).toBe('refund')
+  })
+
+  test.each(['C', 'D'] as const)('a quarantined return grade %s stays editable before and after release', async (conditionGrade) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received', { claimType: 'return' })
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({ ...defaultSettings, quarantineGrades: ['C', 'D'] })
+
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade }, ctx)
+
+    expect(line.quarantineStatus).toBe('held')
+    expect(line.disposition).toBeNull()
+    expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
+      'warranty_claims.claim_line.quarantined',
+      expect.objectContaining({ lineId: LINE_ID, grade: conditionGrade }),
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+    )
+
+    await updateClaimLineCommand.execute({ id: LINE_ID, disposition: line.disposition, inspectionNotes: 'Held edit' }, ctx)
+    expect(line.inspectionNotes).toBe('Held edit')
+    await releaseClaimLineQuarantineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID }, ctx)
+    expect(line.quarantineStatus).toBe('released')
+    await updateClaimLineCommand.execute({ id: LINE_ID, disposition: line.disposition, inspectionNotes: 'Released edit' }, ctx)
+    expect(line.inspectionNotes).toBe('Released edit')
+  })
+
   test('receiving and quarantine release version the line, not the parent claim', async () => {
     const { ctx } = makeContext()
     const claimUpdatedAt = new Date('2026-07-05T12:00:00.000Z')
@@ -1228,5 +1333,355 @@ describe('warranty claim commands', () => {
 
     await expect(updateClaimCommand.execute({ id: CLAIM_ID, notes: 'new' }, ctx)).rejects.toMatchObject({ status: 409 })
     expect(claim.notes).toBeNull()
+  })
+})
+
+type LineCommandResult = { lineId: string; claimId: string }
+
+type LineSnapshots = { before: Record<string, unknown> | null; after: Record<string, unknown> | null }
+
+type RecordedLineCommand = {
+  lineId: string
+  snapshots: LineSnapshots
+  undo: () => Promise<void>
+  undoWithSnapshots: (snapshots: LineSnapshots) => Promise<void>
+}
+
+type LineUndoScenario = {
+  name: string
+  claimStatus: WarrantyClaimStatus
+  lineFields?: Partial<WarrantyClaimLine>
+  run: (ctx: CommandRuntimeContext) => Promise<RecordedLineCommand>
+  expectRestored: (line: WarrantyClaimLine) => void
+}
+
+const CONFLICT_REFUSAL = {
+  status: 409,
+  body: { error: 'This claim changed while you were editing it.', code: 'warranty_claims.errors.conflict' },
+}
+
+const LINE_LOCKED_REFUSAL = {
+  status: 409,
+  body: { error: 'This line is locked in the current claim status.', code: 'warranty_claims.errors.lineLocked' },
+}
+
+const RECEIVING_STATUS_REFUSAL = {
+  status: 409,
+  body: {
+    error: 'Receiving details can only be saved when the claim is received or under inspection.',
+    code: 'warranty_claims.errors.receivingStatusInvalid',
+  },
+}
+
+function snapshotRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? { ...(value as Record<string, unknown>) } : null
+}
+
+async function recordLineCommand<TInput>(
+  handler: CommandHandler<TInput, LineCommandResult>,
+  input: TInput,
+  ctx: CommandRuntimeContext,
+): Promise<RecordedLineCommand> {
+  const prepared = handler.prepare ? await handler.prepare(input, ctx) : null
+  jest.setSystemTime(new Date('2026-07-02T00:00:00.000Z'))
+  const result = await handler.execute(input, ctx)
+  const after = await handler.captureAfter!(input, result, ctx)
+  const snapshots: LineSnapshots = { before: snapshotRecord(prepared?.before), after: snapshotRecord(after) }
+  const undoWithSnapshots = async (override: LineSnapshots) => {
+    const logEntry = await handler.buildLog!({ input, result, ctx, snapshots: override })
+    await handler.undo!({ input, logEntry: logEntry as never, ctx })
+  }
+  return {
+    lineId: result.lineId,
+    snapshots,
+    undo: () => undoWithSnapshots(snapshots),
+    undoWithSnapshots,
+  }
+}
+
+const lineUndoScenarios: LineUndoScenario[] = [
+  {
+    name: 'create',
+    claimStatus: 'approved',
+    run: (ctx) => recordLineCommand(createClaimLineCommand, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      claimId: CLAIM_ID,
+      qtyClaimed: 1,
+      creditAmount: 40,
+    }, ctx),
+    expectRestored: (line) => expect(line.deletedAt).toBeInstanceOf(Date),
+  },
+  {
+    name: 'update',
+    claimStatus: 'approved',
+    run: (ctx) => recordLineCommand(updateClaimLineCommand, { id: LINE_ID, creditAmount: 30 }, ctx),
+    expectRestored: (line) => expect(line.creditAmount).toBe('10'),
+  },
+  {
+    name: 'delete',
+    claimStatus: 'approved',
+    run: (ctx) => recordLineCommand(deleteClaimLineCommand, { id: LINE_ID }, ctx),
+    expectRestored: (line) => expect(line.deletedAt).toBeNull(),
+  },
+  {
+    name: 'receive',
+    claimStatus: 'received',
+    run: (ctx) => recordLineCommand(receiveClaimLineCommand, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      id: LINE_ID,
+      conditionGrade: 'B',
+    }, ctx),
+    expectRestored: (line) => expect(line.conditionGrade).toBeNull(),
+  },
+  {
+    name: 'release_quarantine',
+    claimStatus: 'received',
+    lineFields: { quarantineStatus: 'held' },
+    run: (ctx) => recordLineCommand(releaseClaimLineQuarantineCommand, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      id: LINE_ID,
+    }, ctx),
+    expectRestored: (line) => expect(line.quarantineStatus).toBe('held'),
+  },
+  {
+    name: 'set_assessment',
+    claimStatus: 'approved',
+    run: (ctx) => recordLineCommand(setClaimLineAssessmentCommand, {
+      id: LINE_ID,
+      assessmentPayload: { verdict: 'covered' },
+    }, ctx),
+    expectRestored: (line) => expect(line.assessmentPayload).toBeNull(),
+  },
+]
+
+const mutableParentScenarios = lineUndoScenarios.filter((scenario) => scenario.claimStatus === 'approved')
+const receivingScenarios = lineUndoScenarios.filter((scenario) => scenario.claimStatus === 'received')
+
+function seedLineUndoScenario(scenario: LineUndoScenario): WarrantyClaim {
+  const claim = makeClaim(scenario.claimStatus, { totalClaimedAmount: '10', totalApprovedAmount: '10' })
+  mockClaims.push(claim)
+  mockLines.push(makeLine(claim, { lineStatus: 'approved', creditAmount: '10', ...scenario.lineFields }))
+  return claim
+}
+
+function lineById(lineId: string): WarrantyClaimLine {
+  const line = mockLines.find((candidate) => candidate.id === lineId)
+  if (!line) throw new Error(`[internal] test line ${lineId} missing`)
+  return line
+}
+
+describe('warranty claim line undo staleness guard', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-07-01T12:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  test.each(lineUndoScenarios.map((scenario) => [scenario.name, scenario] as const))(
+    '%s undo rejects an intervening line edit without overwriting it or the header totals',
+    async (_name, scenario) => {
+      const { ctx } = makeContext()
+      const claim = seedLineUndoScenario(scenario)
+      const recorded = await scenario.run(ctx)
+      const line = lineById(recorded.lineId)
+      jest.setSystemTime(new Date('2026-07-03T00:00:00.000Z'))
+      line.inspectionNotes = 'Intervening inspection'
+      line.updatedAt = new Date('2026-07-03T00:00:00.000Z')
+      claim.totalClaimedAmount = '999'
+      claim.totalApprovedAmount = '888'
+      const lineBeforeUndo = { ...line }
+
+      await expect(recorded.undo()).rejects.toMatchObject(CONFLICT_REFUSAL)
+
+      expect(line).toEqual(lineBeforeUndo)
+      expect(line.inspectionNotes).toBe('Intervening inspection')
+      expect(claim.totalClaimedAmount).toBe('999')
+      expect(claim.totalApprovedAmount).toBe('888')
+    },
+  )
+
+  test.each(lineUndoScenarios.map((scenario) => [scenario.name, scenario] as const))(
+    '%s undo restores the before snapshot and recomputes the header totals',
+    async (_name, scenario) => {
+      const { ctx } = makeContext()
+      const claim = seedLineUndoScenario(scenario)
+      const recorded = await scenario.run(ctx)
+      const line = lineById(recorded.lineId)
+      claim.totalClaimedAmount = '999'
+      claim.totalApprovedAmount = '888'
+
+      await recorded.undo()
+
+      scenario.expectRestored(line)
+      expect(claim.totalClaimedAmount).toBe('10')
+      expect(claim.totalApprovedAmount).toBe('10')
+    },
+  )
+
+  test.each(lineUndoScenarios.map((scenario) => [scenario.name, scenario] as const))(
+    '%s undo fails closed when the log entry has no after snapshot',
+    async (_name, scenario) => {
+      const { ctx } = makeContext()
+      seedLineUndoScenario(scenario)
+      const recorded = await scenario.run(ctx)
+      const line = lineById(recorded.lineId)
+      const lineBeforeUndo = { ...line }
+
+      await expect(recorded.undoWithSnapshots({ before: recorded.snapshots.before, after: null }))
+        .rejects.toMatchObject(CONFLICT_REFUSAL)
+
+      expect(line).toEqual(lineBeforeUndo)
+    },
+  )
+
+  test.each(lineUndoScenarios.map((scenario) => [scenario.name, scenario] as const))(
+    '%s undo refuses when the parent claim was soft-deleted',
+    async (_name, scenario) => {
+      const { ctx } = makeContext()
+      const claim = seedLineUndoScenario(scenario)
+      const recorded = await scenario.run(ctx)
+      const line = lineById(recorded.lineId)
+      claim.deletedAt = new Date('2026-07-03T00:00:00.000Z')
+      const lineBeforeUndo = { ...line }
+      const totalsBeforeUndo = [claim.totalClaimedAmount, claim.totalApprovedAmount]
+
+      await expect(recorded.undo()).rejects.toMatchObject(CONFLICT_REFUSAL)
+
+      expect(line).toEqual(lineBeforeUndo)
+      expect([claim.totalClaimedAmount, claim.totalApprovedAmount]).toEqual(totalsBeforeUndo)
+    },
+  )
+
+  test.each(mutableParentScenarios.map((scenario) => [scenario.name, scenario] as const))(
+    '%s undo refuses with lineLocked once the claim is closed',
+    async (_name, scenario) => {
+      const { ctx } = makeContext()
+      const claim = seedLineUndoScenario(scenario)
+      const recorded = await scenario.run(ctx)
+      const line = lineById(recorded.lineId)
+      claim.status = 'closed'
+      const lineBeforeUndo = { ...line }
+      const totalsBeforeUndo = [claim.totalClaimedAmount, claim.totalApprovedAmount]
+
+      await expect(recorded.undo()).rejects.toMatchObject(LINE_LOCKED_REFUSAL)
+
+      expect(line).toEqual(lineBeforeUndo)
+      expect([claim.totalClaimedAmount, claim.totalApprovedAmount]).toEqual(totalsBeforeUndo)
+    },
+  )
+
+  test.each(receivingScenarios.map((scenario) => [scenario.name, scenario] as const))(
+    '%s undo refuses with receivingStatusInvalid once the claim left receiving',
+    async (_name, scenario) => {
+      const { ctx } = makeContext()
+      const claim = seedLineUndoScenario(scenario)
+      const recorded = await scenario.run(ctx)
+      const line = lineById(recorded.lineId)
+      claim.status = 'resolved'
+      const lineBeforeUndo = { ...line }
+
+      await expect(recorded.undo()).rejects.toMatchObject(RECEIVING_STATUS_REFUSAL)
+
+      expect(line).toEqual(lineBeforeUndo)
+    },
+  )
+
+  test('update undo after a quarantining receive keeps grade D and the hold', async () => {
+    const { ctx } = makeContext()
+    resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({ ...defaultSettings, quarantineGrades: ['D'] })
+    const claim = makeClaim('received', { totalClaimedAmount: '10', totalApprovedAmount: '10' })
+    const line = makeLine(claim, { lineStatus: 'approved', creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    const recorded = await recordLineCommand(updateClaimLineCommand, { id: LINE_ID, inspectionNotes: 'Bench tested' }, ctx)
+    jest.setSystemTime(new Date('2026-07-03T00:00:00.000Z'))
+    await receiveClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade: 'D' }, ctx)
+    expect(line.conditionGrade).toBe('D')
+    expect(line.quarantineStatus).toBe('held')
+
+    await expect(recorded.undo()).rejects.toMatchObject(CONFLICT_REFUSAL)
+
+    expect(line.conditionGrade).toBe('D')
+    expect(line.quarantineStatus).toBe('held')
+    expect(line.inspectionNotes).toBe('Bench tested')
+  })
+
+  test('set_assessment undo recomputes the header totals from restored amounts', async () => {
+    const { ctx } = makeContext()
+    const scenario = lineUndoScenarios.find((candidate) => candidate.name === 'set_assessment')!
+    const claim = seedLineUndoScenario(scenario)
+    const recorded = await scenario.run(ctx)
+    const line = lineById(recorded.lineId)
+
+    await recorded.undoWithSnapshots({
+      before: { ...recorded.snapshots.before, creditAmount: '100' },
+      after: recorded.snapshots.after,
+    })
+
+    expect(line.creditAmount).toBe('100')
+    expect(line.assessmentPayload).toBeNull()
+    expect(claim.totalClaimedAmount).toBe('100')
+    expect(claim.totalApprovedAmount).toBe('100')
+  })
+
+  test('delete undo refuses instead of re-creating a missing line row', async () => {
+    const { ctx } = makeContext()
+    const scenario = lineUndoScenarios.find((candidate) => candidate.name === 'delete')!
+    const claim = seedLineUndoScenario(scenario)
+    const recorded = await scenario.run(ctx)
+    mockLines = mockLines.filter((candidate) => candidate.id !== LINE_ID)
+
+    await expect(recorded.undo()).rejects.toMatchObject(CONFLICT_REFUSAL)
+
+    expect(mockLines.some((candidate) => candidate.id === LINE_ID)).toBe(false)
+    expect(claim.totalClaimedAmount).toBe('0')
+  })
+
+  test('undo locks the live claim before the line, both scoped by tenant and organization', async () => {
+    const { ctx } = makeContext()
+    const scenario = lineUndoScenarios.find((candidate) => candidate.name === 'update')!
+    seedLineUndoScenario(scenario)
+    const recorded = await scenario.run(ctx)
+    mockFindOneCalls = []
+
+    await recorded.undo()
+
+    const claimLockIndex = mockFindOneCalls.findIndex((call) => call.entity === 'WarrantyClaim')
+    const lineLockIndex = mockFindOneCalls.findIndex((call) => call.entity === 'WarrantyClaimLine')
+    expect(claimLockIndex).toBeGreaterThanOrEqual(0)
+    expect(lineLockIndex).toBeGreaterThan(claimLockIndex)
+    expect(mockFindOneCalls[claimLockIndex]).toMatchObject({
+      where: { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null },
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE },
+    })
+    expect(mockFindOneCalls[lineLockIndex]).toMatchObject({
+      where: { id: LINE_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE },
+    })
+    expect(mockFindOneCalls[lineLockIndex].where).not.toHaveProperty('deletedAt')
+  })
+
+  test('undo refuses a snapshot whose line lies outside the logged organization scope', async () => {
+    const { ctx } = makeContext()
+    const scenario = lineUndoScenarios.find((candidate) => candidate.name === 'update')!
+    seedLineUndoScenario(scenario)
+    const recorded = await scenario.run(ctx)
+    const line = lineById(LINE_ID)
+    const lineBeforeUndo = { ...line }
+    const foreignOrgId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+    await expect(recorded.undoWithSnapshots({
+      before: { ...recorded.snapshots.before, organizationId: foreignOrgId },
+      after: { ...recorded.snapshots.after, organizationId: foreignOrgId },
+    })).rejects.toMatchObject(CONFLICT_REFUSAL)
+
+    expect(line).toEqual(lineBeforeUndo)
   })
 })

@@ -1,12 +1,16 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
+import { ChannelThreadMapping, CommunicationChannel, ExternalConversation } from '../data/entities'
+import { ChannelAccessDeniedError, assertCanManageChannel } from '../lib/access-control'
 import { emitCommunicationChannelsEvent } from '../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('communication_channels').child({ component: 'reassign-conversation' })
 
@@ -22,6 +26,91 @@ const reassignConversationSchema = z.object({
 
 export type ReassignConversationInput = z.infer<typeof reassignConversationSchema>
 
+type RbacServiceLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<{ isSuperAdmin: boolean; features: string[] } | null>
+}
+
+/**
+ * Resolve the acting user's granted features from the command context rather
+ * than the input, so a redo re-checks the user performing it and no ACL
+ * snapshot is persisted into the action log. Fails closed to no features.
+ */
+async function resolveActorFeatures(
+  ctx: CommandRuntimeContext,
+  actorUserId: string | null,
+  scope: ReassignConversationInput['scope'],
+): Promise<string[]> {
+  if (!actorUserId) return []
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacServiceLike
+    const acl = await rbac.loadAcl(actorUserId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    })
+    return acl?.isSuperAdmin ? ['*'] : Array.isArray(acl?.features) ? acl.features : []
+  } catch (err) {
+    logger.warn('actor ACL lookup failed; denying shared-channel reassignment', { err })
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'communication_channels',
+        code: 'communication_channels.reassign_acl_lookup_failed',
+        attributes: {
+          actorUserId,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId ?? undefined,
+        },
+      })
+    } catch (reportErr) {
+      logger.warn('reassign ACL lookup failure could not be reported', { err: reportErr })
+    }
+    return []
+  }
+}
+
+/**
+ * Run the channel-ownership check for the acting user: a personal mailbox is
+ * owner-only, a shared channel needs `communication_channels.assign`. Returns
+ * the denial reason, or `null` when the actor may manage the channel.
+ */
+async function checkChannelAccess(
+  ctx: CommandRuntimeContext,
+  channel: CommunicationChannel,
+  scope: ReassignConversationInput['scope'],
+): Promise<string | null> {
+  const actorUserId = ctx.auth?.sub ?? null
+  try {
+    assertCanManageChannel(
+      { userId: channel.userId ?? null },
+      actorUserId,
+      channel.userId == null ? await resolveActorFeatures(ctx, actorUserId, scope) : [],
+      'communication_channels.assign',
+    )
+    return null
+  } catch (err) {
+    if (err instanceof ChannelAccessDeniedError) return err.message
+    throw err
+  }
+}
+
+const THREAD_NOT_FOUND_FALLBACK = 'Thread not found'
+
+/**
+ * The generic "not found" message used to mask an authorization refusal, so a
+ * caller cannot tell a personal mailbox owned by someone else from a missing
+ * thread. Falls back to English when the i18n registry is unavailable.
+ */
+export async function resolveThreadNotFoundMessage(): Promise<string> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate('communication_channels.errors.threadNotFound', THREAD_NOT_FOUND_FALLBACK)
+  } catch {
+    return THREAD_NOT_FOUND_FALLBACK
+  }
+}
+
 export type ReassignConversationResult =
   | {
       status: 'reassigned'
@@ -32,6 +121,7 @@ export type ReassignConversationResult =
       undo: ReassignConversationUndoSnapshot
     }
   | { status: 'no_channel_link'; reason: string }
+  | { status: 'access_denied'; reason: string }
   | { status: 'invalid_assignee'; reason: string }
   | { status: 'noop'; reason: string }
 
@@ -97,6 +187,24 @@ const reassignConversationCommand: CommandHandler<
         status: 'no_channel_link',
         reason: `no ChannelThreadMapping for thread ${input.threadId}`,
       }
+    }
+
+    const channel = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      { id: mapping.channelId, tenantId: input.scope.tenantId },
+      undefined,
+      dscope,
+    )
+    if (!channel) {
+      return {
+        status: 'no_channel_link',
+        reason: `no CommunicationChannel for thread ${input.threadId}`,
+      }
+    }
+    const denialReason = await checkChannelAccess(ctx, channel, input.scope)
+    if (denialReason) {
+      return { status: 'access_denied', reason: denialReason }
     }
 
     const previousAssignedUserId = mapping.assignedUserId ?? null
@@ -205,6 +313,16 @@ const reassignConversationCommand: CommandHandler<
       snapshotBefore: result.undo,
     }
   },
+  // A redo replays execute(); an authorization refusal there must surface as a
+  // domain error so the redo route leaves the source log undone instead of
+  // marking it redone with the assignment unchanged.
+  async redo({ input, ctx }) {
+    const result = await reassignConversationCommand.execute(input, ctx)
+    if (result.status === 'access_denied') {
+      throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+    }
+    return result
+  },
   async undo({ ctx, logEntry }) {
     const snapshot = extractSnapshotFromLog(logEntry)
     if (!snapshot) return
@@ -221,6 +339,28 @@ const reassignConversationCommand: CommandHandler<
       undefined,
       dscope,
     )
+    // An undo writes the assignment just like execute(), so it must pass the
+    // same ownership check — otherwise `audit_logs.undo_tenant` would let a
+    // non-owner change who is assigned on someone else's personal mailbox.
+    const channel = mapping
+      ? await findOneWithDecryption(
+          em,
+          CommunicationChannel,
+          { id: mapping.channelId, tenantId: snapshot.tenantId },
+          undefined,
+          dscope,
+        )
+      : null
+    if (!mapping || !channel) {
+      throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+    }
+    const denialReason = await checkChannelAccess(ctx, channel, {
+      tenantId: snapshot.tenantId,
+      organizationId: mapping.organizationId ?? null,
+    })
+    if (denialReason) {
+      throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+    }
     const conversation = await findOneWithDecryption(
       em,
       ExternalConversation,
@@ -228,9 +368,9 @@ const reassignConversationCommand: CommandHandler<
       undefined,
       dscope,
     )
-    if (mapping) mapping.assignedUserId = snapshot.previousAssignedUserId
+    mapping.assignedUserId = snapshot.previousAssignedUserId
     if (conversation) conversation.assignedUserId = snapshot.previousAssignedUserId
-    if (mapping || conversation) await em.flush()
+    await em.flush()
   },
 }
 
