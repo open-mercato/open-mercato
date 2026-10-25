@@ -13,7 +13,7 @@ import {
   type PipelineStageDeleteInput,
   type PipelineStageReorderInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } from './shared'
+import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry, invalidateDictionaryKindCaches } from './shared'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
@@ -90,6 +90,8 @@ const createPipelineStageCommand: CommandHandler<PipelineStageCreateInput, { sta
       },
     ], { transaction: true })
 
+    await invalidateDictionaryKindCaches(ctx, parsed, ['pipeline_stage'])
+
     return { stageId: stage.id }
   },
 }
@@ -125,6 +127,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
       request: ctx.request ?? null,
     })
 
+    const dictionaryEntryTouched = parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined
     await withAtomicFlush(em, [
       () => {
         if (parsed.label !== undefined) stage.label = parsed.label
@@ -132,7 +135,7 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
         stage.updatedAt = new Date()
       },
       async () => {
-        if (parsed.label !== undefined || parsed.color !== undefined || parsed.icon !== undefined) {
+        if (dictionaryEntryTouched) {
           await ensureDictionaryEntry(em, {
             tenantId: stage.tenantId,
             organizationId: stage.organizationId,
@@ -144,6 +147,10 @@ const updatePipelineStageCommand: CommandHandler<PipelineStageUpdateInput, void>
         }
       },
     ], { transaction: true })
+
+    if (dictionaryEntryTouched) {
+      await invalidateDictionaryKindCaches(ctx, stage, ['pipeline_stage'])
+    }
   },
 }
 
