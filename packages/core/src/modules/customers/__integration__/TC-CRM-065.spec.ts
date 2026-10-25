@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readJsonSafe as parseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
@@ -65,7 +66,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       await searchInput.fill(prefix);
       const filteredResponse = await filteredResponsePromise;
       expect(filteredResponse.status()).toBe(200);
-      const filteredPayload = (await readJsonSafe<{ items?: Array<{ id?: unknown }> }>(filteredResponse)) ?? {};
+      const filteredPayload = (await parseJsonSafe<{ items?: Array<{ id?: unknown }> }>(await filteredResponse.text())) ?? {};
       expect((filteredPayload.items ?? [])
         .map((item) => (typeof item.id === 'string' ? item.id : null))
         .filter((id): id is string => id !== null)
