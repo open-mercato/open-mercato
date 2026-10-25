@@ -153,38 +153,53 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   )
   const groups = React.useMemo(() => createProjectFormGroups(t), [t])
 
+  // The organization switcher settles the scope just after mount, bumping the
+  // scope version from 0 and reloading the project. A screen resolved before
+  // that stays up until the answer arrives: falling back to the full-page
+  // loader would unmount it and drop its local state — the form's unsaved
+  // edits, or an access request the user has just sent. A switch between two
+  // known scopes still goes through the loader, so no form outlives the scope
+  // it was loaded for. The decision looks at the load this one replaces,
+  // settled or not: a version-0 load cancelled by a quick second switch must
+  // not let that switch through.
+  const lastLoadRef = React.useRef<{ projectId: string; scopeVersion: number; scopeKey: string } | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
+    const replaced = lastLoadRef.current
+    lastLoadRef.current = { projectId, scopeVersion, scopeKey: projectAccessScopeKey }
+    const keepScreen = replaced !== null
+      && replaced.projectId === projectId
+      && replaced.scopeVersion === 0
+      && replaced.scopeKey === projectAccessScopeKey
     async function load() {
-      setLoading(true)
-      setError(null)
-      setIsNotFound(false)
+      if (!keepScreen) setLoading(true)
+      const settle = (outcome: { values?: ProjectFormValues; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
+        if (cancelled) return
+        setAccessDeniedScopeKey(outcome.accessDenied === true ? projectAccessScopeKey : null)
+        setIsNotFound(outcome.isNotFound === true)
+        setError(outcome.error ?? null)
+        if (outcome.values) setInitialValues(outcome.values)
+        setLoadedScopeKey(projectAccessScopeKey)
+        setLoading(false)
+      }
       try {
         const record = await fetchProject()
-        if (!cancelled) setAccessDeniedScopeKey(null)
         if (!record) {
-          if (!cancelled) setIsNotFound(true)
+          settle({ isNotFound: true })
           return
         }
-        if (!cancelled) setInitialValues(toValues(record))
+        settle({ values: toValues(record) })
       } catch (err) {
-        if (cancelled) return
         if (err instanceof ProjectAccessDeniedError) {
-          setAccessDeniedScopeKey(projectAccessScopeKey)
+          settle({ accessDenied: true })
           return
         }
-        setAccessDeniedScopeKey(null)
-        setError(
-          err instanceof Error
+        settle({
+          error: err instanceof Error
             ? err.message
             : t('staff.timesheets.projects.errors.load', 'Failed to load project.'),
-        )
-      } finally {
-        if (!cancelled) {
-          setLoadedScopeKey(projectAccessScopeKey)
-          setLoading(false)
-        }
+        })
       }
     }
     load()

@@ -75,6 +75,14 @@ jest.mock('../../projectFormConfig', () => ({
   createProjectFormSchema: () => ({}),
   createProjectFormFields: () => [],
   createProjectFormGroups: () => [],
+  pickCustomFieldValues: () => ({}),
+}))
+
+jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
+  CrudForm: ({ initialValues }: { initialValues: { name: string } }) => {
+    const [name, setName] = React.useState(initialValues.name)
+    return <input aria-label="Project name" value={name} onChange={(event) => setName(event.target.value)} />
+  },
 }))
 
 const denied = { ok: false, status: 404, result: { reason: 'no_project_access' }, response: {} }
@@ -260,5 +268,78 @@ describe.each([
     refresh()
     expect(await screen.findByText('Failed to load project.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Request sent' })).not.toBeInTheDocument()
+  })
+})
+
+describe('edit project form scope refresh', () => {
+  const loadedProject = {
+    ok: true,
+    status: 200,
+    result: { items: [{ id: PROJECT_ID, name: 'Apollo', code: 'APL', status: 'active' }] },
+    response: {},
+  }
+
+  function renderProject() {
+    const content = <TimeTrackingProjectEditPage params={{ id: PROJECT_ID }} />
+    const rendered = render(content)
+    return { refresh: () => rendered.rerender(<TimeTrackingProjectEditPage params={{ id: PROJECT_ID }} />) }
+  }
+
+  it.each(['existing', 'fresh'])('preserves unsaved edits while an %s session first persists its scope', async (session) => {
+    if (session === 'fresh') clearScope()
+    apiCallMock.mockResolvedValue(loadedProject as never)
+    const { refresh } = renderProject()
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Project name' }), { target: { value: 'Unsaved changes' } })
+    const reload = deferred<typeof loadedProject>()
+    apiCallMock.mockReturnValue(reload.promise as never)
+
+    setScope()
+    mockScopeVersion = 1
+    refresh()
+
+    expect(screen.getByRole('textbox', { name: 'Project name' })).toHaveValue('Unsaved changes')
+    await act(async () => { reload.resolve(loadedProject) })
+    expect(screen.getByRole('textbox', { name: 'Project name' })).toHaveValue('Unsaved changes')
+  })
+
+  it('hides the edit form on a genuine scope change even before the first scope version settles', async () => {
+    apiCallMock.mockResolvedValue(loadedProject as never)
+    const { refresh } = renderProject()
+    await screen.findByRole('textbox', { name: 'Project name' })
+    const reload = deferred<typeof denied>()
+    apiCallMock.mockReturnValue(reload.promise as never)
+
+    setScope('org-b')
+    mockScopeVersion = 1
+    refresh()
+
+    expect(screen.queryByRole('textbox', { name: 'Project name' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+    await act(async () => { reload.resolve(denied) })
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeEnabled()
+  })
+
+  it('ignores a cancelled bootstrap result after a second scope change', async () => {
+    apiCallMock.mockResolvedValue(loadedProject as never)
+    const { refresh } = renderProject()
+    await screen.findByRole('textbox', { name: 'Project name' })
+    const bootstrap = deferred<typeof loadedProject>()
+    apiCallMock.mockReturnValue(bootstrap.promise as never)
+    mockScopeVersion = 1
+    refresh()
+    expect(screen.getByRole('textbox', { name: 'Project name' })).toBeInTheDocument()
+
+    const changedScope = deferred<typeof denied>()
+    apiCallMock.mockReturnValue(changedScope.promise as never)
+    setScope('org-b')
+    mockScopeVersion = 2
+    refresh()
+    expect(screen.queryByRole('textbox', { name: 'Project name' })).not.toBeInTheDocument()
+
+    await act(async () => { bootstrap.resolve(loadedProject) })
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Project name' })).not.toBeInTheDocument()
+    await act(async () => { changedScope.resolve(denied) })
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeEnabled()
   })
 })
