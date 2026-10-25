@@ -36,6 +36,18 @@ An incorrect merge could drop redo coverage, undo state/version guards, or main'
 
 ### Phase 2: Review remediation
 
-- [ ] 2.1 Merge current main and reconcile both command regression suites and scenario identifiers
-- [ ] 2.2 Verify command behavior, compiler/lint, and merged lesson catalog; review the final diff
+- [x] 2.1 Merge current main and reconcile both command regression suites and scenario identifiers — eb0030eec
+- [x] 2.2 Verify command behavior, compiler/lint, and merged lesson catalog; review the final diff — eb0030eec
 - [ ] 2.3 Publish the fix, record evidence, request human re-review, and release the claim
+
+## Verification
+
+Runner: local. Docker compose app probes were unavailable. Validation source: local fallback for the merged source, followed by exact-head GitHub checks after publication.
+
+- Reconciled `claim-commands.test.ts`: 101 tests passed. Incoming main undo suite preserved byte-for-byte after newline normalization; redo fixtures now supply the required captured after snapshot.
+- Warranty suite with read-only dependency overlays and existing generated helper dependencies: 63 suites / 737 tests passed, excluding the unchanged `quantity.test.ts` suite. The first broad run exposed missing local test dependencies/generated helpers; those were repaired only in task-owned runtime setup. Quantity has two decimal-format assertions that expect an English locale but receive Polish separators on this Windows host; both source and test are identical to main, and this limitation remains disclosed.
+- Actual strict TypeScript 6.0.3 options/syntactic/semantic diagnostics passed for the changed `commands/claim-lines.ts` file, using app compiler options and the existing generated entity-ID type dependency read-only. Full workspace typecheck remains CI-owned.
+- ESLint passed for all eight changed TypeScript files; it emitted the existing pages-directory configuration warning.
+- Lesson catalog structural tests: 5 passed. `git diff --check` passed.
+- Task-local Playwright discovery found both `TC-WC-039` redo scenarios. Repository-wide discovery produced no output before interruption. No app or ephemeral-environment descriptor exists for this checkout; live API scenarios and provider-dependent assessment were not rerun here. Prior combined-build QA is historical evidence only.
+- Source review found no remaining actionable change-local findings. The production diff against main remains three redo hooks. Current request headers, normal-write locks, tenant/organization scope, parent status, atomic flush, side effects, and main's missing-row undo refusal remain intact. No contract changes.
