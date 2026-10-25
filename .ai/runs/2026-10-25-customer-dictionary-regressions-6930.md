@@ -37,10 +37,22 @@ The new UI scenario must run against the real dispatcher and browser; static dis
 
 ### Phase 2: Regression coverage
 
-- [ ] 2.1 Isolate the seeded status API regression with exact fixtures and cleanup
-- [ ] 2.2 Cover TranslationManager selection/save and Polish/English Source filters at 390px
+- [x] 2.1 Isolate the seeded status API regression with exact fixtures and cleanup — a35b24fc2c3dbb92151205f90a142c91f30d4b25
+- [x] 2.2 Cover TranslationManager selection/save and Polish/English Source filters at 390px — a35b24fc2c3dbb92151205f90a142c91f30d4b25
 
 ### Phase 3: Verification and handoff
 
 - [ ] 3.1 Validate discovery and types, inspect CI and review the final diff
 - [ ] 3.2 Publish evidence and request human reassessment while preserving QA gates
+
+## Validation evidence
+
+Runner: local, narrow fallback using the existing shared dependency runtime through task-local links. No shared dependency or application mutation.
+
+- Strict no-emit typecheck of both changed specs and their shared helpers: passed.
+- Scoped Playwright discovery: passed, 5 tests in 3 files (including the new browser scenario).
+- `git diff --check`: passed.
+- `git merge-tree --write-tree HEAD upstream/main`: clean against current fetched `main`; no merge needed.
+- Native repository-wide Playwright discovery was bounded and stopped after it produced no output. A temporary configuration outside the repository successfully discovered only the requested specs.
+- No active disposable app or database was available locally. Browser/API execution is not claimed; new-head CI and human QA must provide that evidence.
+- Earlier head c10be753 had green reported CI checks; those results are historical, not results for these new tests.
