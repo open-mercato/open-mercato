@@ -41,4 +41,14 @@ A settle probe must fail on storage errors and unfinished jobs, including delaye
 ### Phase 2: Review remediation
 
 - [x] 2.1 Restore the email queue barrier and prove delayed forbidden writes remain detectable — 691371812
-- [ ] 2.2 Review the final diff, publish focused validation evidence, request re-review and release the claim
+- [x] 2.2 Review the final diff, publish focused validation evidence, request re-review and release the claim — 7aad8d4e2
+
+## Validation evidence
+
+- Local runner using read-only dependency overlays: nine CRM barrier tests and seven editor tests pass.
+- Both real active-handler controls fail with a temporary immediate-return barrier and pass with the restored barrier. Late forbidden writes remain visible to full footprint equality.
+- Native Playwright discovery with `OM_INTEGRATION_MODULES=customers` lists exactly one test in `TC-CRM-EMAIL-008.spec.ts`.
+- Lessons catalog validation and all five catalog tests pass; `git diff --check` is clean.
+- The first editor-test attempt was blocked by a missing shared CSS dependency; the existing read-only dependency overlay resolved it. Initial native discovery could not resolve ESM `dotenv` via `NODE_PATH`; the isolated checkout's dependency junction resolved it.
+- The full app/database scenario was not rerun locally: no live test environment is registered and Docker is unavailable. Current-head CI and independent re-review remain remote gates. Historical screenshots and CI from `01a8ba8bf` are retained as historical evidence.
+- Review 5643640619's required first-denial barrier is restored. Generic flake work belongs to #7897; scope splitting and a shared worker-flag helper are deferred. The rewritten controlled-value test pins existing editor behavior without changing production code.
