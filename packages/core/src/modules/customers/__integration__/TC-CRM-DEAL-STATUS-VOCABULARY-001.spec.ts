@@ -22,6 +22,7 @@ import {
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { DEAL_STATUS_RECLASSIFICATION_CODE, DEAL_STATUS_RECLASSIFICATION_HEADER, dealStatusReclassificationErrorSchema } from '../data/dealStatusVocabulary'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const SETTINGS_PATH = '/api/customers/settings/deal-status-vocabulary'
@@ -47,11 +48,17 @@ async function saveSettings(
   vocabulary: Vocabulary | null,
   updatedAt?: string | null,
 ): Promise<Settings> {
-  const response = await apiRequest(request, 'PUT', SETTINGS_PATH, {
-    token,
-    data: { vocabulary },
-    headers: updatedAt ? { [OPTIMISTIC_LOCK_HEADER_NAME]: updatedAt } : {},
+  let response = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+    token, data: { vocabulary }, headers: updatedAt ? { [OPTIMISTIC_LOCK_HEADER_NAME]: updatedAt } : {},
   })
+  if (response.status() === 409) {
+    const preview = dealStatusReclassificationErrorSchema.safeParse(await readJsonSafe(response))
+    if (preview.success) response = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+      token,
+      data: { vocabulary, reclassificationConfirmation: { fingerprint: preview.data.impact.fingerprint } },
+      headers: updatedAt ? { [OPTIMISTIC_LOCK_HEADER_NAME]: updatedAt } : {},
+    })
+  }
   expect(response.status()).toBe(200)
   const body = await readJsonSafe<Settings>(response)
   expect(body).not.toBeNull()
@@ -114,7 +121,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     tenantId = expectId((await readJsonSafe<{ id: string }>(response))?.id, 'Tenant fixture has an id')
     organizationId = await createOrganizationFixture(request, superToken, { name: `Vocabulary ${stamp}`, tenantId })
     roleId = await createRoleFixture(request, superToken, { name: `Vocabulary manager ${stamp}`, tenantId })
-    await setRoleAclFeatures(request, superToken, { roleId, features: ['customers.*'] })
+    await setRoleAclFeatures(request, superToken, { roleId, features: ['customers.*', 'audit_logs.undo_self', 'audit_logs.view_self'], organizations: null })
     managerEmail = `vocabulary-manager-${stamp}@example.com`
     managerId = await createUserFixture(request, superToken, {
       email: managerEmail, password: fixturePassword, organizationId, roles: [roleId],
@@ -235,6 +242,10 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     try {
       await setViewerFeatures(request, ['customers.people.view'])
       expect((await apiRequest(request, 'GET', SETTINGS_PATH, { token: viewerToken })).status()).toBe(403)
+      await setViewerFeatures(request, ['customers.deals.view', 'customers.deals.manage'])
+      const partialManager = await apiRequest(request, 'PUT', SETTINGS_PATH, { token: viewerToken, data: { vocabulary: null } })
+      expect(partialManager.status()).toBe(403)
+      expect(await readJsonSafe(partialManager)).not.toHaveProperty('impact')
     } finally {
       await setViewerFeatures(request, ['customers.deals.view'])
     }
@@ -365,6 +376,168 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
     }
   })
 
+  test('requires fresh impact confirmation across tenant organizations without exposing restricted counts', async ({ request }) => {
+    const fixtures: Fixture[] = []
+    let secondOrganizationId: string | null = null
+    let secondManagerId: string | null = null
+    let secondToken = ''
+    let secondCompanyId: string | null = null
+    let secondDealId: string | null = null
+    let foreignCompanyId: string | null = null
+    let foreignDealId: string | null = null
+    try {
+      const current = await saveSettings(request, managerToken, VOCABULARY)
+      const companyId = await createCompanyFixture(request, managerToken, `Reclassification ${randomUUID()}`)
+      fixtures.push({ path: '/api/customers/companies', id: companyId })
+      const dealId = await createDealFixture(request, managerToken, { title: `Signed ${randomUUID()}`, companyIds: [companyId], status: 'acquired' })
+      fixtures.push({ path: '/api/customers/deals', id: dealId })
+      const deletedId = await createDealFixture(request, managerToken, { title: `Deleted ${randomUUID()}`, companyIds: [companyId], status: 'acquired' })
+      fixtures.push({ path: '/api/customers/deals', id: deletedId })
+      await deleteEntityIfExists(request, managerToken, '/api/customers/deals', deletedId)
+      const candidate = { ...VOCABULARY, won: ['replacement'] }
+      const send = (fingerprint?: string, version = current.updatedAt) => apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken,
+        data: { vocabulary: candidate, ...(fingerprint ? { reclassificationConfirmation: { fingerprint } } : {}) },
+        headers: version ? { [OPTIMISTIC_LOCK_HEADER_NAME]: version } : {},
+      })
+      const initial = await send()
+      expect(initial.status()).toBe(409)
+      const initialBody = await readJsonSafe(initial)
+      const preview = dealStatusReclassificationErrorSchema.parse(initialBody)
+      expect(preview.code).toBe(DEAL_STATUS_RECLASSIFICATION_CODE)
+      expect(preview.impact.affectedDeals).toBe(1)
+      expect(Object.keys(initialBody as object).sort()).toEqual(['code', 'error', 'impact'])
+      expect(Object.keys(preview.impact).sort()).toEqual(['affectedDeals', 'fingerprint'])
+      expect(await readSettings(request, managerToken)).toEqual(current)
+
+      secondOrganizationId = await createOrganizationFixture(request, superToken, { name: `Hidden ${randomUUID()}`, tenantId: tenantId! })
+      const email = `second-vocabulary-${randomUUID()}@example.com`
+      secondManagerId = await createUserFixture(request, superToken, { email, password: fixturePassword, organizationId: secondOrganizationId, roles: [roleId!] })
+      secondToken = await getAuthToken(request, email, fixturePassword)
+      secondCompanyId = await createCompanyFixture(request, secondToken, `Second ${randomUUID()}`)
+      secondDealId = await createDealFixture(request, secondToken, { title: `Second signed ${randomUUID()}`, companyIds: [secondCompanyId], status: 'acquired' })
+      foreignCompanyId = await createCompanyFixture(request, otherTenantToken, `Foreign ${randomUUID()}`)
+      foreignDealId = await createDealFixture(request, otherTenantToken, { title: `Foreign ${randomUUID()}`, companyIds: [foreignCompanyId], status: 'acquired' })
+      try {
+        await setViewerFeatures(request, ['customers.deals.view', 'customers.deals.manage'])
+        const denied = await apiRequest(request, 'PUT', SETTINGS_PATH, { token: viewerToken, data: { vocabulary: candidate } })
+        expect(denied.status()).toBe(403)
+        expect(await readJsonSafe(denied)).not.toHaveProperty('impact')
+        const refreshed = await send(preview.impact.fingerprint)
+        expect(refreshed.status()).toBe(409)
+        const next = dealStatusReclassificationErrorSchema.parse(await readJsonSafe(refreshed))
+        expect(next.impact.affectedDeals).toBe(2)
+        expect(next.impact.fingerprint).not.toBe(preview.impact.fingerprint)
+        expect(await readSettings(request, managerToken)).toEqual(current)
+        const confirmed = await send(next.impact.fingerprint)
+        expect(confirmed.status()).toBe(200)
+        expect((await readSettings(request, managerToken)).vocabulary).toEqual(candidate)
+        expect(await readDeal(request, managerToken, dealId)).toMatchObject({ status: 'acquired', closureOutcome: 'won' })
+        expect(await readDeal(request, secondToken, secondDealId)).toMatchObject({ status: 'acquired', closureOutcome: 'won' })
+      } finally {
+        await setViewerFeatures(request, ['customers.deals.view'])
+      }
+    } finally {
+      await deleteEntityIfExists(request, secondToken, '/api/customers/deals', secondDealId)
+      await deleteEntityIfExists(request, secondToken, '/api/customers/companies', secondCompanyId)
+      await deleteEntityIfExists(request, otherTenantToken, '/api/customers/deals', foreignDealId)
+      await deleteEntityIfExists(request, otherTenantToken, '/api/customers/companies', foreignCompanyId)
+      await cleanupFixtures(request, managerToken, fixtures)
+      await deleteUserIfExists(request, superToken, secondManagerId)
+      await deleteOrganizationIfExists(request, superToken, secondOrganizationId)
+    }
+  })
+
+  test('guards reassignment and newly-terminal statuses, refreshes changed candidates and resets explicitly', async ({ request }) => {
+    const fixtures: Fixture[] = []
+    try {
+      const current = await saveSettings(request, managerToken, VOCABULARY)
+      const companyId = await createCompanyFixture(request, managerToken, `Classification ${randomUUID()}`)
+      fixtures.push({ path: '/api/customers/companies', id: companyId })
+      const statuses = ['awaiting_contract', 'acquired', 'finished']
+      const dealIds: string[] = []
+      for (const status of statuses) {
+        const id = await createDealFixture(request, managerToken, { title: `Classification ${status} ${randomUUID()}`, companyIds: [companyId], status })
+        dealIds.push(id)
+        fixtures.push({ path: '/api/customers/deals', id })
+      }
+      const candidate = { won: ['awaiting_contract'], lost: ['acquired', 'declined'], closed: ['finished'] }
+      const first = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken, data: { vocabulary: candidate }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
+      })
+      expect(first.status()).toBe(409)
+      const preview = dealStatusReclassificationErrorSchema.parse(await readJsonSafe(first))
+      expect(preview.impact.affectedDeals).toBe(2)
+      const changedCandidate = { ...candidate, won: ['awaiting_contract', 'additional_alias'] }
+      const staleCandidate = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken,
+        data: { vocabulary: changedCandidate, reclassificationConfirmation: { fingerprint: preview.impact.fingerprint } },
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
+      })
+      expect(staleCandidate.status()).toBe(409)
+      const refreshed = dealStatusReclassificationErrorSchema.parse(await readJsonSafe(staleCandidate))
+      expect(refreshed.impact.affectedDeals).toBe(2)
+      expect(refreshed.impact.fingerprint).not.toBe(preview.impact.fingerprint)
+      const confirmed = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken,
+        data: { vocabulary: changedCandidate, reclassificationConfirmation: { fingerprint: refreshed.impact.fingerprint } },
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
+      })
+      expect(confirmed.status()).toBe(200)
+      const updated = await readJsonSafe<Settings>(confirmed)
+      expect(await readDeal(request, managerToken, dealIds[0])).toMatchObject({ status: statuses[0], closureOutcome: null })
+      expect(await readDeal(request, managerToken, dealIds[1])).toMatchObject({ status: statuses[1], closureOutcome: 'won' })
+      const staleVersion = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken, data: { vocabulary: null }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
+      })
+      expect(staleVersion.status()).toBe(409)
+      expect(await readJsonSafe(staleVersion)).toMatchObject({ code: 'optimistic_lock_conflict' })
+      const reset = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken, data: { vocabulary: null }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: updated!.updatedAt! },
+      })
+      expect(reset.status()).toBe(409)
+      const resetPreview = dealStatusReclassificationErrorSchema.parse(await readJsonSafe(reset))
+      expect(resetPreview.impact.affectedDeals).toBe(3)
+      const appliedReset = await apiRequest(request, 'PUT', SETTINGS_PATH, {
+        token: managerToken,
+        data: { vocabulary: null, reclassificationConfirmation: { fingerprint: resetPreview.impact.fingerprint } },
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: updated!.updatedAt! },
+      })
+      expect(appliedReset.status()).toBe(200)
+    } finally {
+      await cleanupFixtures(request, managerToken, fixtures)
+    }
+  })
+
+  test('refuses unsafe undo and accepts its freshly confirmed status-only impact', async ({ request }) => {
+    const fixtures: Fixture[] = []
+    try {
+      await saveSettings(request, managerToken, VOCABULARY)
+      const companyId = await createCompanyFixture(request, managerToken, `Undo impact ${randomUUID()}`)
+      fixtures.push({ path: '/api/customers/companies', id: companyId })
+      const dealId = await createDealFixture(request, managerToken, { title: `Undo signed ${randomUUID()}`, companyIds: [companyId], status: 'acquired' })
+      fixtures.push({ path: '/api/customers/deals', id: dealId })
+      const logs = await apiRequest(request, 'GET', `/api/audit_logs/audit-logs/actions?resourceKind=customers.deal_status_vocabulary&resourceId=${tenantId}&undoableOnly=true`, { token: managerToken, headers: { Cookie: 'om_selected_org=__all__' } })
+      expect(logs.status()).toBe(200)
+      const entries = await readJsonSafe<{ items: Array<{ commandId: string; undoToken: string | null }> }>(logs)
+      const undoToken = entries?.items.find((entry) => entry.commandId === 'customers.settings.save_deal_status_vocabulary')?.undoToken
+      expect(undoToken).toBeTruthy()
+      const unsafe = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', { token: managerToken, data: { undoToken } })
+      expect(unsafe.status()).toBe(409)
+      const required = dealStatusReclassificationErrorSchema.parse(await readJsonSafe(unsafe))
+      expect(required.impact.affectedDeals).toBe(1)
+      expect((await readSettings(request, managerToken)).source).toBe('tenant')
+      const confirmed = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
+        token: managerToken, data: { undoToken }, headers: { [DEAL_STATUS_RECLASSIFICATION_HEADER]: required.impact.fingerprint },
+      })
+      expect(confirmed.status()).toBe(200)
+      expect((await readSettings(request, managerToken)).source).not.toBe('tenant')
+      expect(await readDeal(request, managerToken, dealId)).toMatchObject({ status: 'acquired', closureOutcome: 'won' })
+    } finally {
+      await cleanupFixtures(request, managerToken, fixtures)
+    }
+  })
+
   test('saves and resets through the settings editor and applies canonical Kanban filters', async ({ page, request }) => {
     const fixtures: Fixture[] = []
     const stamp = randomUUID()
@@ -393,7 +566,16 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await page.getByRole('textbox', { name: 'Closed statuses', exact: true }).fill(VOCABULARY.closed.join(', '))
       const saveResponse = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT')
       await page.getByRole('button', { name: 'Save vocabulary', exact: true }).click()
-      expect((await saveResponse).status()).toBe(200)
+      expect((await saveResponse).status()).toBe(409)
+      const confirmation = page.getByRole('alertdialog', { name: 'Confirm deal reclassification' })
+      await expect(confirmation).toContainText('Existing deals affected: 1')
+      await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+      expect((await readSettings(request, managerToken)).vocabulary).toEqual(DEFAULT_VOCABULARY)
+      await page.getByRole('button', { name: 'Save vocabulary', exact: true }).click()
+      await expect(confirmation).toBeVisible()
+      const confirmedSave = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT' && response.status() === 200)
+      await confirmation.getByRole('button', { name: 'Apply vocabulary change', exact: true }).press('Control+Enter')
+      await confirmedSave
       expect((await readSettings(request, managerToken)).vocabulary).toEqual(VOCABULARY)
       await page.reload()
       await expect(page.getByRole('textbox', { name: 'Won statuses', exact: true })).toHaveValue('acquired, delivered')
@@ -420,7 +602,11 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await page.goto('/backend/config/customers/deals')
       const resetResponse = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT')
       await page.getByRole('button', { name: 'Reset to default', exact: true }).click()
-      expect((await resetResponse).status()).toBe(200)
+      expect((await resetResponse).status()).toBe(409)
+      await expect(page.getByRole('alertdialog', { name: 'Confirm deal reclassification' })).toContainText('Existing deals affected: 1')
+      const confirmedReset = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT' && response.status() === 200)
+      await page.getByRole('button', { name: 'Apply vocabulary change', exact: true }).click()
+      await confirmedReset
       expect(await readSettings(request, managerToken)).toMatchObject({ vocabulary: baseline.vocabulary, source: baseline.source })
       await expect(page.getByRole('textbox', { name: 'Won statuses', exact: true })).toHaveValue(baseline.vocabulary.won.join(', '))
       await expect(page.getByRole('button', { name: 'Reset to default', exact: true })).toBeDisabled()

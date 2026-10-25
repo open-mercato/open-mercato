@@ -22,7 +22,7 @@ Tenant/env/default vocabulary resolution, guarded settings API and editor, consi
 
 Legacy status exports and existing no-configuration results remain compatible. Scope-sensitive client and server caches must not retain prior config. The tenant-wide settings authorization consequence is documented in the editor and operator guide.
 
-Merge prerequisite: merge design PR #7624 before this implementation. Its 2026-10-25 revision additionally proposes persisted-deal reclassification confirmation and tenant-wide authorization enforcement; those expanded API/command requirements need a separate implementation decision before declaring conformance to that revised design. This review remediation preserves the existing settings contract and addresses the concrete requests in review 5643620850.
+The revised #7624 specification is included in this implementation branch. The user explicitly approved its reclassification confirmation/fingerprint and full-tenant authorization architecture on 2026-10-25. The approved guard is implemented in the existing atomic settings command and shared editor, including save/reset/undo, with additive request/409/header contracts. Risk is high because authorization and tenant-wide classification are affected; priority remains medium.
 
 ## Progress
 
@@ -46,4 +46,13 @@ PR: #7625
 
 Merged current `main`, preserving both compatibility-document additions. Addressed the exported callback helper bridge, company-only KPI display, dashboard vocabulary requests, case/Unicode classification, preferred closure stages, tenant-scope help, environment caching/diagnostics and per-field alias validation. Existing detail, Kanban, linking and dashboard helper consumers now forward the resolved vocabulary.
 
-Validation runner: local. All 20 focused suites / 179 tests passed, as did point-free TypeScript compilation (zero diagnostics), five lessons catalog tests and the client-boundary report (no new client root). The previous head's Linux CI passed; replacement-head CI must run after publication. Step 2.2 remains pending until current-head validation, revised-spec alignment and human QA/re-review are complete. Prior browser evidence and manual QA instructions remain linked on PR #7625; they do not grant QA approval.
+Validation runner: local. All 20 focused suites / 179 tests passed, as did point-free TypeScript compilation (zero diagnostics), five lessons catalog tests and the client-boundary report (no new client root). The previous head's Linux CI passed; replacement-head CI must run after publication. Step 2.2 remains pending until current-head validation and human QA/re-review are complete. Prior browser evidence and manual QA instructions remain linked on PR #7625; they do not grant QA approval.
+
+## Approved persisted-deal guard — 2026-10-25
+
+- [x] Require unrestricted per-feature tenant access before impact queries, including direct commands and replay.
+- [x] Count only changed normalized aliases in non-deleted tenant deals under the existing configuration advisory lock; preserve stored statuses/outcomes.
+- [x] Bind explicit confirmation fingerprints to tenant, actor, setting version, effective candidate and impacted status/count groups; recompute before save/reset/undo and preserve optimistic-lock precedence.
+- [x] Add the shared confirmation dialog, cancel/keyboard handling and scope/version/candidate invalidation.
+- [x] Add API/command/UI regression coverage and self-contained integration paths; update spec, OpenAPI and operator compatibility guidance.
+- [ ] Validate the full guarded flow in the repository-managed disposable app and inspect current-head CI before marking verification complete.

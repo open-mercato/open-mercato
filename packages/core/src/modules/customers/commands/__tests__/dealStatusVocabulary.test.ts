@@ -3,7 +3,8 @@ import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { DEFAULT_DEAL_STATUS_VOCABULARY } from '../../data/dealStatusVocabulary'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { DEFAULT_DEAL_STATUS_VOCABULARY, dealStatusReclassificationErrorSchema, DEAL_STATUS_RECLASSIFICATION_HEADER } from '../../data/dealStatusVocabulary'
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({ registerCommand: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -33,6 +34,7 @@ type TestEntityManager = {
   release: () => void
 }
 const records = new Map<string, StoredConfig>()
+const statusCounts = new Map<string, Array<{ status: string; count: number }>>()
 const locks = new Map<string, Promise<void>>()
 const hasFeature = jest.fn()
 const sqlMock = jest.fn()
@@ -57,6 +59,7 @@ function createEm(transactional = false): TestEntityManager {
     getConnection: () => ({
       execute: async (sql: string, parameters: string[], method: string, context: unknown) => {
         sqlMock(sql, parameters, method, context)
+        if (sql.includes('FROM customer_deals')) { trace.push('count'); return statusCounts.get(parameters[0]) ?? [] }
         const key = parameters.join(':')
         const predecessor = locks.get(key) ?? Promise.resolve()
         const gate = deferred()
@@ -112,7 +115,7 @@ function createEm(transactional = false): TestEntityManager {
 function fixture() {
   const cache = createCacheService({ strategy: 'memory' })
   const container = createContainer()
-  container.register({ em: asValue(createEm()), cache: asValue(cache), rbacService: asValue({ userHasAllFeatures: hasFeature }) })
+  container.register({ em: asValue(createEm()), cache: asValue(cache), rbacService: asValue({ resolveFeatureOrganizationAccess: async (...args: unknown[]) => ({ unrestricted: await hasFeature(...args) }) }) })
   const service = createModuleConfigService(container)
   const invalidate = jest.spyOn(service, 'invalidate')
   container.register({ moduleConfigService: asValue(service) })
@@ -156,6 +159,7 @@ describe('tenant deal status vocabulary command', () => {
 
   beforeEach(() => {
     records.clear()
+    statusCounts.clear()
     locks.clear()
     trace.length = 0
     flushInterceptor = undefined
@@ -228,7 +232,7 @@ describe('tenant deal status vocabulary command', () => {
     expect(results[1]).toMatchObject({ status: 'rejected', reason: { status: 409, body: { code: 'optimistic_lock_conflict' } } })
     expect(committedWrites).toBe(1)
     expect(records.get(tenantId)?.valueJson).toEqual(nextVocabulary)
-    expect(sqlMock).toHaveBeenCalledTimes(2)
+    expect(sqlMock.mock.calls.filter(([sql]: [string]) => sql.includes('pg_advisory_xact_lock'))).toHaveLength(2)
   })
 
   it('resets to the environment default while keeping the tenant version', async () => {
@@ -323,4 +327,132 @@ describe('tenant deal status vocabulary command', () => {
     await expect(command.execute({ vocabulary: null }, context(state))).rejects.toMatchObject({ status: 403 })
     expect(committedWrites).toBe(0)
   })
+
+  async function preview(ctx: CommandRuntimeContext, input: Parameters<typeof command.execute>[0]) {
+    try {
+      await command.execute(input, ctx)
+    } catch (error) {
+      if (!isCrudHttpError(error)) throw error
+      expect(error.status).toBe(409)
+      const body = dealStatusReclassificationErrorSchema.parse(error.body)
+      expect(Object.keys(error.body).sort()).toEqual(['code', 'error', 'impact'])
+      expect(Object.keys(body.impact).sort()).toEqual(['affectedDeals', 'fingerprint'])
+      return body.impact
+    }
+    throw new Error('[internal] Expected reclassification preview')
+  }
+
+  it('requires fresh confirmation for persisted status reclassification and writes nothing on preview', async () => {
+    seed(nextVocabulary)
+    statusCounts.set(tenantId, [{ status: 'signed', count: 3 }, { status: 'win', count: 2 }, { status: 'open', count: 4 }])
+    statusCounts.set(otherTenantId, [{ status: 'signed', count: 99 }])
+    const state = fixture()
+    const ctx = context(state, originalVersion)
+    const candidate = { won: ['accepted'], lost: ['signed', 'rejected'], closed: ['archived'] }
+    const impact = await preview(ctx, { vocabulary: candidate })
+    expect(impact.affectedDeals).toBe(3)
+    expect(committedWrites).toBe(0)
+    expect(state.invalidate).not.toHaveBeenCalled()
+    expect(records.get(tenantId)?.valueJson).toEqual(nextVocabulary)
+    expect(sqlMock).toHaveBeenCalledWith(expect.stringContaining('tenant_id = ? AND deleted_at IS NULL'), expect.arrayContaining([tenantId, 'signed']), 'all', expect.any(Object))
+    await command.execute({ vocabulary: candidate, reclassificationConfirmation: { fingerprint: impact.fingerprint } }, ctx)
+    expect(committedWrites).toBe(1)
+    expect(records.get(tenantId)?.valueJson).toEqual(candidate)
+  })
+
+  it('refreshes confirmation when counts, affected status groups, candidate, actor or version change', async () => {
+    seed(nextVocabulary)
+    statusCounts.set(tenantId, [{ status: 'signed', count: 1 }])
+    const state = fixture()
+    const ctx = context(state)
+    const candidate = { vocabulary: null }
+    const first = await preview(ctx, candidate)
+    statusCounts.set(tenantId, [{ status: 'signed', count: 2 }])
+    const changedCount = await preview(ctx, { ...candidate, reclassificationConfirmation: { fingerprint: first.fingerprint } })
+    expect(changedCount.affectedDeals).toBe(2)
+    expect(changedCount.fingerprint).not.toBe(first.fingerprint)
+    statusCounts.set(tenantId, [{ status: 'rejected', count: 2 }])
+    const changedGroup = await preview(ctx, { ...candidate, reclassificationConfirmation: { fingerprint: changedCount.fingerprint } })
+    expect(changedGroup.fingerprint).not.toBe(changedCount.fingerprint)
+    const changedCandidate = await preview(ctx, { vocabulary: { won: ['rejected'], lost: ['declined'], closed: ['archived'] } })
+    expect(changedCandidate.fingerprint).not.toBe(changedGroup.fingerprint)
+    const changedActor = await preview({ ...ctx, auth: { ...ctx.auth!, sub: 'another-manager' } }, candidate)
+    expect(changedActor.fingerprint).not.toBe(changedGroup.fingerprint)
+    records.get(tenantId)!.updatedAt = new Date('2026-10-25T10:00:00.000Z')
+    const changedVersion = await preview(ctx, candidate)
+    expect(changedVersion.fingerprint).not.toBe(changedGroup.fingerprint)
+    expect(committedWrites).toBe(0)
+  })
+
+  it('checks the optimistic-lock version before exposing impact counts', async () => {
+    seed(nextVocabulary)
+    statusCounts.set(tenantId, [{ status: 'signed', count: 2 }])
+    const state = fixture()
+    await expect(command.execute({ vocabulary: null }, context(state, '2020-01-01T00:00:00.000Z'))).rejects.toMatchObject({
+      status: 409, body: { code: 'optimistic_lock_conflict' },
+    })
+    expect(trace).not.toContain('count')
+  })
+
+  it('denies organization-only manage permission before querying or returning tenant-wide impact', async () => {
+    const state = fixture()
+    hasFeature.mockResolvedValue(false)
+    statusCounts.set(tenantId, [{ status: 'signed', count: 42 }])
+    await expect(command.execute({ vocabulary: null }, { ...context(state), auth: { sub: userId, tenantId, orgId: 'visible-org' } })).rejects.toMatchObject({ status: 403 })
+    expect(hasFeature).toHaveBeenCalledWith(userId, ['customers.deals.manage'], { tenantId })
+    expect(sqlMock).not.toHaveBeenCalled()
+    expect(committedWrites).toBe(0)
+  })
+
+  it('guards removals, newly-terminal unknowns and reset but keeps classification-neutral writes compatible', async () => {
+    seed(nextVocabulary)
+    const state = fixture()
+    statusCounts.set(tenantId, [{ status: 'signed', count: 2 }, { status: 'unknown-terminal', count: 1 }])
+    const removed = await preview(context(state), { vocabulary: { ...nextVocabulary, won: ['accepted'] } })
+    expect(removed.affectedDeals).toBe(2)
+    const added = await preview(context(state), { vocabulary: { ...nextVocabulary, closed: ['unknown-terminal'] } })
+    expect(added.affectedDeals).toBe(1)
+    const reset = await preview(context(state), { vocabulary: null })
+    expect(reset.affectedDeals).toBe(2)
+    trace.length = 0
+    await command.execute({ vocabulary: { ...nextVocabulary, won: ['SIGNED'] } }, context(state))
+    expect(trace).not.toContain('count')
+    expect(committedWrites).toBe(1)
+  })
+
+  it('guards undo against deals added since the save and accepts only its recomputed confirmation', async () => {
+    const state = fixture()
+    const execution = await executeWithSnapshots(context(state))
+    statusCounts.set(tenantId, [{ status: 'signed', count: 1 }])
+    let fingerprint = ''
+    try {
+      await command.undo!({ input: execution.input, ctx: context(state), logEntry: execution.logEntry })
+    } catch (error) {
+      if (!isCrudHttpError(error)) throw error
+      const body = dealStatusReclassificationErrorSchema.parse(error.body)
+      expect(body.impact.affectedDeals).toBe(1)
+      fingerprint = body.impact.fingerprint
+    }
+    expect(fingerprint).toHaveLength(64)
+    expect(records.get(tenantId)?.valueJson).toEqual(nextVocabulary)
+    const undoCtx = context(state)
+    undoCtx.request = new Request('http://localhost/api/audit_logs/audit-logs/actions/undo', {
+      method: 'POST', headers: { [DEAL_STATUS_RECLASSIFICATION_HEADER]: fingerprint },
+    })
+    await command.undo!({ input: execution.input, ctx: undoCtx, logEntry: execution.logEntry })
+    expect(records.get(tenantId)?.valueJson).toBeNull()
+  })
+
+
+  it('parameterizes reclassification aliases instead of interpolating SQL fragments', async () => {
+    const alias = "signed' OR 1=1 --"
+    statusCounts.set(tenantId, [{ status: alias, count: 1 }])
+    const state = fixture()
+    const impact = await preview(context(state), { vocabulary: { ...nextVocabulary, won: [alias] } })
+    expect(impact.affectedDeals).toBe(1)
+    const query = sqlMock.mock.calls.find(([sql]: [string]) => sql.includes('FROM customer_deals'))
+    expect(query?.[0]).not.toContain(alias)
+    expect(query?.[1]).toContain(alias.toLowerCase())
+  })
+
 })

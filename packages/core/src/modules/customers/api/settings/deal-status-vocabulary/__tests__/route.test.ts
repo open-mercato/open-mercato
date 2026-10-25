@@ -6,6 +6,7 @@ const vocabulary = { won: ['signed'], lost: ['rejected'], closed: ['archived'] }
 const responseBody = { vocabulary, source: 'tenant', updatedAt: '2026-10-18T09:00:00.000Z' }
 const getAuthMock = jest.fn()
 const userHasFeaturesMock = jest.fn()
+const tenantAccessMock = jest.fn()
 const grantedFeaturesMock = jest.fn()
 const executeMock = jest.fn()
 const resolveVocabularyMock = jest.fn()
@@ -17,7 +18,7 @@ const legacyGuard = { id: 'test.legacy', targetEntity: '*', operations: ['update
 const container = {
   resolve: (token: string) => {
     if (token === 'commandBus') return { execute: executeMock }
-    if (token === 'rbacService') return { userHasAllFeatures: userHasFeaturesMock, getGrantedFeatures: grantedFeaturesMock }
+    if (token === 'rbacService') return { userHasAllFeatures: userHasFeaturesMock, getGrantedFeatures: grantedFeaturesMock, resolveFeatureOrganizationAccess: tenantAccessMock }
     return undefined
   },
 }
@@ -53,6 +54,7 @@ describe('deal status vocabulary settings route', () => {
     jest.clearAllMocks()
     getAuthMock.mockResolvedValue({ sub: userId, tenantId, orgId: null })
     userHasFeaturesMock.mockResolvedValue(true)
+    tenantAccessMock.mockResolvedValue({ unrestricted: true })
     grantedFeaturesMock.mockResolvedValue(['customers.deals.manage', 'record_locks.enforce'])
     resolveVocabularyMock.mockResolvedValue(responseBody)
     executeMock.mockResolvedValue({ result: responseBody })
@@ -83,6 +85,8 @@ describe('deal status vocabulary settings route', () => {
       { vocabulary: { ...vocabulary, won: [] } },
       { vocabulary: { ...vocabulary, lost: ['SIGNED'] } },
       { vocabulary, tenantId: 'other-tenant' },
+      { vocabulary, reclassificationConfirmation: true },
+      { vocabulary, reclassificationConfirmation: { fingerprint: 'invalid' } },
     ]
     for (const body of invalidBodies) expect((await PUT(request(body))).status).toBe(400)
     expect(runGuardsMock).not.toHaveBeenCalled()
@@ -132,4 +136,18 @@ describe('deal status vocabulary settings route', () => {
     expect((await PUT(request())).status).toBe(200)
     expect(reportErrorMock).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ module: 'customers' }))
   })
+})
+
+
+it('denies partial-organization managers before mutation guards or the command can count deals', async () => {
+  getAuthMock.mockResolvedValue({ sub: userId, tenantId, orgId: null })
+  userHasFeaturesMock.mockResolvedValue(true)
+  tenantAccessMock.mockResolvedValue({ unrestricted: false })
+  runGuardsMock.mockClear()
+  executeMock.mockClear()
+  const response = await PUT(request())
+  expect(response.status).toBe(403)
+  expect(await response.json()).not.toHaveProperty('impact')
+  expect(runGuardsMock).not.toHaveBeenCalled()
+  expect(executeMock).not.toHaveBeenCalled()
 })

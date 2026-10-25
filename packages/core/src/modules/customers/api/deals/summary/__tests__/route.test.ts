@@ -173,16 +173,16 @@ describe('customers deals summary route', () => {
     expect(executeMock.mock.calls[0][1]).toEqual([effectiveTenantId, organizationId, 'open', 'in_progress'])
   })
 
-  it('keeps the original literal predicates when there is no configuration override', async () => {
+  it('passes built-in aliases to summary queries so historical won rows agree with other readers', async () => {
     executeMock.mockResolvedValue([])
 
     const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
 
     expect(response.status).toBe(200)
-    expect(String(executeMock.mock.calls[2][0])).toContain("status = 'win' OR closure_outcome = 'won'")
-    expect(String(executeMock.mock.calls[3][0])).toContain("status IN ('lost', 'loose') OR closure_outcome = 'lost'")
-    expect(executeMock.mock.calls[2][1]).not.toContain('won')
-    expect(executeMock.mock.calls[4][1]).toEqual([tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
+    expect(String(executeMock.mock.calls[2][0])).toContain("LOWER(TRIM(status)) IN (?,?) OR closure_outcome = 'won'")
+    expect(String(executeMock.mock.calls[3][0])).toContain("LOWER(TRIM(status)) IN (?,?) OR closure_outcome = 'lost'")
+    expect(executeMock.mock.calls[2][1]).toEqual(expect.arrayContaining(['win', 'won']))
+    expect(executeMock.mock.calls[4][1]).toEqual(['win', 'won', 'lost', 'loose', tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
   })
 
   // A null `orgId` is how an all-organizations selection reaches this route (the super-admin

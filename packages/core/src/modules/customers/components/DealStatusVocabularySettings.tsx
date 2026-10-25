@@ -1,6 +1,8 @@
 'use client'
 
 import * as React from 'react'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
@@ -14,7 +16,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { dealStatusVocabularySchema } from '../data/dealStatusVocabulary'
+import { dealStatusVocabularySchema, dealStatusReclassificationErrorSchema, type DealStatusReclassificationImpact } from '../data/dealStatusVocabulary'
 import { formatDealStatusAliases, parseDealStatusAliases } from '../lib/dealStatusVocabularyInput'
 import type { DealStatusVocabulary } from '../lib/dealStatus'
 import { useDealStatusVocabulary } from './hooks/useDealStatusVocabulary'
@@ -32,7 +34,20 @@ type VocabularyFormValues = {
 export function DealStatusVocabularySettings(): React.ReactElement {
   const t = useT()
   const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
+  const currentScope = React.useRef(scopeVersion)
+  currentScope.current = scopeVersion
+  const [impact, setImpact] = React.useState<DealStatusReclassificationImpact | null>(null)
+  const confirmedDialogClose = React.useRef(false)
+  const decideImpact = React.useRef<((confirmed: boolean) => void) | null>(null)
+  const finishConfirmation = React.useCallback((confirmed = false) => {
+    decideImpact.current?.(confirmed)
+    decideImpact.current = null
+    setImpact(null)
+  }, [])
   const { vocabulary, source, updatedAt, isLoading, isError, refetch } = useDealStatusVocabulary()
+  React.useEffect(() => { finishConfirmation() }, [scopeVersion, updatedAt, finishConfirmation])
+  React.useEffect(() => () => { decideImpact.current?.(false) }, [])
   const [isResetting, setIsResetting] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -59,22 +74,40 @@ export function DealStatusVocabularySettings(): React.ReactElement {
         name={id}
         aria-label={t(`customers.settings.dealStatusVocabulary.${group}`)}
         value={typeof value === 'string' ? value : ''}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => { finishConfirmation(); setValue(event.target.value) }}
         autoFocus={autoFocus}
         disabled={disabled}
       />
     ),
-  })), [t])
+  })), [t, finishConfirmation])
 
-  const persist = React.useCallback(async (nextVocabulary: DealStatusVocabulary | null) => {
-    await readApiResultOrThrow('/api/customers/settings/deal-status-vocabulary', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ vocabulary: nextVocabulary }),
-    }, { errorMessage: t('customers.settings.dealStatusVocabulary.errorSave') })
-    await queryClient.invalidateQueries({ queryKey: ['customers'] })
-    flash(t('customers.settings.dealStatusVocabulary.saved'), 'success')
-  }, [queryClient, t])
+  const persist = React.useCallback(async (nextVocabulary: DealStatusVocabulary | null, expectedUpdatedAt: string | null) => {
+    let reclassificationConfirmation: { fingerprint: string } | undefined
+    while (currentScope.current === scopeVersion) {
+      try {
+        await withScopedApiRequestHeaders(buildOptimisticLockHeader(expectedUpdatedAt), () => readApiResultOrThrow('/api/customers/settings/deal-status-vocabulary', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ vocabulary: nextVocabulary, ...(reclassificationConfirmation ? { reclassificationConfirmation } : {}) }),
+        }, { errorMessage: t('customers.settings.dealStatusVocabulary.errorSave') }))
+      } catch (error) {
+        if (currentScope.current !== scopeVersion) return
+        const required = dealStatusReclassificationErrorSchema.safeParse(error)
+        if (!required.success) throw error
+        const confirmed = await new Promise<boolean>((resolve) => {
+          decideImpact.current = resolve
+          setImpact(required.data.impact)
+        })
+        if (!confirmed || currentScope.current !== scopeVersion) return
+        reclassificationConfirmation = { fingerprint: required.data.impact.fingerprint }
+        continue
+      }
+      if (currentScope.current !== scopeVersion) return
+      await queryClient.invalidateQueries({ queryKey: ['customers'] })
+      if (currentScope.current === scopeVersion) flash(t('customers.settings.dealStatusVocabulary.saved'), 'success')
+      return
+    }
+  }, [queryClient, scopeVersion, t])
 
   const handleSubmit = React.useCallback(async (values: VocabularyFormValues) => {
     const parsed = dealStatusVocabularySchema.safeParse({
@@ -89,7 +122,7 @@ export function DealStatusVocabularySettings(): React.ReactElement {
     }
     setIsSaving(true)
     try {
-      await persist(parsed.data)
+      await persist(parsed.data, values.updatedAt)
     } finally {
       setIsSaving(false)
     }
@@ -99,7 +132,7 @@ export function DealStatusVocabularySettings(): React.ReactElement {
     setIsResetting(true)
     try {
       await runMutation({
-        operation: () => withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt), () => persist(null)),
+        operation: () => persist(null, updatedAt),
         mutationPayload: { vocabulary: null },
         context: { formId: FORM_ID, resourceKind: 'customers.deal_status_vocabulary', retryLastMutation },
       })
@@ -117,6 +150,18 @@ export function DealStatusVocabularySettings(): React.ReactElement {
       <SectionHeader title={t('customers.settings.dealStatusVocabulary.title')} />
       <p className="text-sm text-muted-foreground">{t('customers.settings.dealStatusVocabulary.help')}</p>
       <p className="text-sm text-muted-foreground">{t('customers.settings.dealStatusVocabulary.tenantScope')}</p>
+      <ConfirmDialog
+        open={impact !== null}
+        title={t('customers.settings.dealStatusVocabulary.confirmTitle')}
+        text={t('customers.settings.dealStatusVocabulary.confirmImpact', { count: impact?.affectedDeals ?? 0 })}
+        confirmText={t('customers.settings.dealStatusVocabulary.confirmApply')}
+        onConfirm={() => { confirmedDialogClose.current = true; finishConfirmation(true) }}
+        onOpenChange={(open) => {
+          if (open) return
+          if (confirmedDialogClose.current) confirmedDialogClose.current = false
+          else finishConfirmation()
+        }}
+      />
       {isLoading ? <LoadingMessage label={t('customers.settings.dealStatusVocabulary.loading')} /> : isError ? (
         <ErrorMessage
           label={t('customers.settings.dealStatusVocabulary.errorLoad')}

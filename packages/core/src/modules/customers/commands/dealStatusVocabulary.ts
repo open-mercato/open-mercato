@@ -11,7 +11,8 @@ import { deriveCrudSegmentTag } from '@open-mercato/shared/lib/crud/cache-stats'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createModuleConfigService, type ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { requireTenantDealStatusManageAccess } from '../lib/dealStatusVocabularyAccess'
+import { enforceDealStatusReclassification } from '../lib/dealStatusReclassification'
 import { saveDealStatusVocabularySchema } from '../data/dealStatusVocabulary'
 export { saveDealStatusVocabularySchema } from '../data/dealStatusVocabulary'
 import { DEAL_STATUS_VOCABULARY_CONFIG_KEY, DEAL_STATUS_VOCABULARY_RESOURCE_KIND, resolveDealStatusVocabulary } from '../lib/dealStatusVocabulary'
@@ -55,22 +56,6 @@ async function withVocabularyWrite<TResult>(
   return result
 }
 
-async function requireManageAccess(ctx: CommandRuntimeContext): Promise<string> {
-  const { translate } = await resolveTranslations()
-  if (!ctx.auth?.tenantId || !ctx.auth.sub) {
-    throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
-  }
-  const rbac = ctx.container.resolve('rbacService') as RbacService
-  const allowed = await rbac.userHasAllFeatures(ctx.auth.sub, ['customers.deals.manage'], {
-    tenantId: ctx.auth.tenantId,
-    organizationId: ctx.auth.orgId ?? null,
-  })
-  if (!allowed) {
-    throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
-  }
-  return ctx.auth.tenantId
-}
-
 async function loadTenantSnapshot(ctx: CommandRuntimeContext, tenantId: string): Promise<VocabularySnapshot> {
   const container = ctx.transactionalEm ? createTransactionalContainer(ctx, ctx.transactionalEm) : ctx.container
   const service = container.resolve('moduleConfigService') as ModuleConfigService
@@ -85,11 +70,11 @@ export const saveDealStatusVocabularyCommand: CommandHandler<SaveDealStatusVocab
   isUndoable: true,
   prepareSnapshotInsideTransaction: true,
   async prepare(_input, ctx) {
-    const tenantId = await requireManageAccess(ctx)
+    const tenantId = await requireTenantDealStatusManageAccess(ctx)
     return { before: await loadTenantSnapshot(ctx, tenantId) }
   },
   async execute(rawInput, ctx) {
-    const tenantId = await requireManageAccess(ctx)
+    const tenantId = await requireTenantDealStatusManageAccess(ctx)
     const input = saveDealStatusVocabularySchema.parse(rawInput)
     return withVocabularyWrite(ctx, tenantId, async (container, transactionEm) => {
       await ctx.beforeTransactionalWrite?.(transactionEm, input)
@@ -100,6 +85,11 @@ export const saveDealStatusVocabularyCommand: CommandHandler<SaveDealStatusVocab
         resourceId: tenantId,
         current: current?.source === 'tenant' && current.tenantId === tenantId ? current.updatedAt : null,
         request: ctx.request ?? null,
+      })
+      await enforceDealStatusReclassification({
+        em: transactionEm, container, tenantId, userId: ctx.auth!.sub,
+        updatedAt: current?.source === 'tenant' && current.tenantId === tenantId ? current.updatedAt : null,
+        candidate: input.vocabulary, confirmation: input.reclassificationConfirmation, request: ctx.request,
       })
       await service.setValue('customers', DEAL_STATUS_VOCABULARY_CONFIG_KEY, input.vocabulary, { tenantId })
       return resolveDealStatusVocabulary(container, tenantId)
@@ -126,7 +116,7 @@ export const saveDealStatusVocabularyCommand: CommandHandler<SaveDealStatusVocab
     }
   },
   async authorizeReplay({ ctx, logEntry }) {
-    const tenantId = await requireManageAccess(ctx)
+    const tenantId = await requireTenantDealStatusManageAccess(ctx)
     const snapshot = extractUndoPayload<UndoPayload<VocabularySnapshot>>(logEntry)
     if ((snapshot?.before?.tenantId ?? snapshot?.after?.tenantId) !== tenantId) {
       const { translate } = await resolveTranslations()
@@ -134,7 +124,7 @@ export const saveDealStatusVocabularyCommand: CommandHandler<SaveDealStatusVocab
     }
   },
   async undo({ ctx, logEntry }) {
-    const tenantId = await requireManageAccess(ctx)
+    const tenantId = await requireTenantDealStatusManageAccess(ctx)
     const payload = extractUndoPayload<UndoPayload<VocabularySnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
@@ -144,7 +134,7 @@ export const saveDealStatusVocabularyCommand: CommandHandler<SaveDealStatusVocab
     }
     const expected = payload?.after?.updatedAt
     if (!expected) throw new Error('[internal] Missing deal status vocabulary undo version')
-    await withVocabularyWrite(ctx, tenantId, async (container) => {
+    await withVocabularyWrite(ctx, tenantId, async (container, transactionEm) => {
       const service = container.resolve('moduleConfigService') as ModuleConfigService
       const current = await service.getRecord('customers', DEAL_STATUS_VOCABULARY_CONFIG_KEY, { tenantId })
       const tenantRecord = current?.source === 'tenant' && current.tenantId === tenantId ? current : null
@@ -157,6 +147,10 @@ export const saveDealStatusVocabularyCommand: CommandHandler<SaveDealStatusVocab
         current: tenantRecord?.updatedAt,
         expected,
         request: ctx.request ?? null,
+      })
+      await enforceDealStatusReclassification({
+        em: transactionEm, container, tenantId, userId: ctx.auth!.sub,
+        updatedAt: tenantRecord?.updatedAt ?? null, candidate: before.value, request: ctx.request,
       })
       await service.setValue('customers', DEAL_STATUS_VOCABULARY_CONFIG_KEY, before.value, { tenantId })
     })

@@ -13,7 +13,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { dealStatusVocabularySchema, saveDealStatusVocabularySchema } from '../../../data/dealStatusVocabulary'
+import { dealStatusVocabularySchema, saveDealStatusVocabularySchema, dealStatusReclassificationErrorSchema } from '../../../data/dealStatusVocabulary'
+import { requireTenantDealStatusManageAccess } from '../../../lib/dealStatusVocabularyAccess'
 import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import { DEAL_STATUS_VOCABULARY_RESOURCE_KIND } from '../../../commands/dealStatusVocabulary'
 
@@ -84,6 +85,7 @@ export async function GET(req: Request) {
 export async function PUT(req: Request) {
   try {
     const { ctx, auth, tenantId, rbac, permissionScope } = await resolveContext(req, 'customers.deals.manage')
+    await requireTenantDealStatusManageAccess(ctx)
     let input = saveDealStatusVocabularySchema.parse(await readJsonSafe(req, null))
     const legacyGuard = bridgeLegacyGuard(ctx.container)
     const guards = [...getAllMutationGuardInstances(), ...(legacyGuard ? [legacyGuard] : [])]
@@ -151,14 +153,14 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Save or reset the tenant deal status vocabulary',
-      description: 'Requires customers.deals.manage. Send null to reset to the environment or built-in vocabulary. Supports the standard optimistic-lock expected-updated-at header.',
+      description: 'Requires tenant-wide customers.deals.manage access. Send null to reset. Reclassification of persisted deals returns 409 with an impact count and fingerprint; retry the same candidate with reclassificationConfirmation.fingerprint and the current optimistic-lock header after explicit confirmation. Partial-organization managers receive 403 without impact counts.',
       requestBody: { contentType: 'application/json', schema: saveDealStatusVocabularySchema },
       responses: [{ status: 200, description: 'Updated effective vocabulary', schema: responseSchema }],
       errors: [
         { status: 400, description: 'Invalid vocabulary', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },
-        { status: 409, description: 'Concurrent edit conflict', schema: errorSchema },
+        { status: 409, description: 'Concurrent edit conflict or persisted-deal reclassification confirmation required', schema: z.union([dealStatusReclassificationErrorSchema.extend({ error: z.string() }), errorSchema]) },
         { status: 422, description: 'Mutation blocked', schema: errorSchema },
       ],
     },

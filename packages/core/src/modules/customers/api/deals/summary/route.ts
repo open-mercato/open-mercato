@@ -165,7 +165,7 @@ export async function GET(req: Request) {
       currentQuarter,
       previousQuarter,
       seriesStart,
-      vocabulary: resolvedVocabulary.source === 'default' ? undefined : resolvedVocabulary.vocabulary,
+      vocabulary: resolvedVocabulary.vocabulary,
     })
 
   const attentionIds = new Set<string>()

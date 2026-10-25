@@ -7,6 +7,9 @@ import type { CrudFormProps } from '@open-mercato/ui/backend/CrudForm'
 import dictionary from '../../i18n/en.json'
 import { DealStatusVocabularySettings } from '../DealStatusVocabularySettings'
 
+let mockScopeVersion = 0
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({ useOrganizationScopeVersion: () => mockScopeVersion }))
+
 const version = '2026-10-18T09:00:00.000Z'
 const readMock = jest.fn()
 const runMutationMock = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
@@ -59,6 +62,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 describe('deal status vocabulary editor', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockScopeVersion = 0
     hookState = {
       vocabulary: { won: ['win', 'won'], lost: ['lost', 'loose'], closed: ['closed'] },
       source: 'tenant', updatedAt: version, isLoading: false, isError: false, refetch: refetchMock,
@@ -133,4 +137,71 @@ describe('deal status vocabulary editor', () => {
     await waitFor(() => expect(conflictMock).toHaveBeenCalledWith(conflict, expect.any(Function)))
     expect(flashMock).not.toHaveBeenCalled()
   })
+
+  function reclassificationError(affectedDeals = 2, token = 'a') {
+    return Object.assign(new Error('Confirmation required'), {
+      status: 409, code: 'deal_status_reclassification_confirmation_required',
+      impact: { affectedDeals, fingerprint: token.repeat(64) },
+    })
+  }
+
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+  })
+
+  it('shows affected count, supports Escape cancel and leaves the setting untouched', async () => {
+    readMock.mockRejectedValueOnce(reclassificationError())
+    const { invalidate } = renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Save vocabulary' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Existing deals affected: 2')
+    expect(readMock).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(readMock).toHaveBeenCalledTimes(1)
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(flashMock).not.toHaveBeenCalled()
+  })
+
+  it('confirms the same candidate with fingerprint and version through Ctrl+Enter', async () => {
+    readMock.mockRejectedValueOnce(reclassificationError())
+    renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Save vocabulary' }))
+    await screen.findByRole('alertdialog')
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Apply vocabulary change' }), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(readMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(readMock.mock.calls[1][1].body)).toEqual({
+      vocabulary: hookState.vocabulary, reclassificationConfirmation: { fingerprint: 'a'.repeat(64) },
+    })
+    expect(scopedHeadersMock).toHaveBeenLastCalledWith({ 'x-om-ext-optimistic-lock-expected-updated-at': version }, expect.any(Function))
+    await waitFor(() => expect(flashMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('requires a refreshed explicit confirmation when reset impact changes', async () => {
+    readMock.mockRejectedValueOnce(reclassificationError(2, 'a')).mockRejectedValueOnce(reclassificationError(3, 'b'))
+    renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Existing deals affected: 2')
+    fireEvent.click(screen.getByRole('button', { name: 'Apply vocabulary change' }))
+    await waitFor(() => expect(screen.getByRole('alertdialog')).toHaveTextContent('Existing deals affected: 3'))
+    expect(readMock).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Apply vocabulary change' }))
+    await waitFor(() => expect(readMock).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(readMock.mock.calls[2][1].body)).toEqual({ vocabulary: null, reclassificationConfirmation: { fingerprint: 'b'.repeat(64) } })
+  })
+
+  it.each(['scope', 'version', 'candidate'])('discards pending confirmation when %s changes', async (change) => {
+    readMock.mockRejectedValueOnce(reclassificationError())
+    const view = renderEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Save vocabulary' }))
+    await screen.findByRole('alertdialog')
+    if (change === 'scope') mockScopeVersion += 1
+    if (change === 'version') hookState = { ...hookState, updatedAt: '2026-10-25T12:00:00.000Z' }
+    if (change === 'candidate') fireEvent.change(screen.getByLabelText('Won statuses'), { target: { value: 'changed' } })
+    else view.rerender(<DealStatusVocabularySettings />)
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(readMock).toHaveBeenCalledTimes(1)
+  })
+
 })

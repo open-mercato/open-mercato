@@ -38,6 +38,26 @@ export type DealStatusVocabulary = {
   readonly [Outcome in keyof z.infer<typeof dealStatusVocabularySchema>]: readonly string[]
 }
 
+export const DEAL_STATUS_RECLASSIFICATION_CODE = 'deal_status_reclassification_confirmation_required'
+export const DEAL_STATUS_RECLASSIFICATION_HEADER = 'x-om-customers-deal-status-reclassification-confirmation'
+
+export const dealStatusReclassificationConfirmationSchema = z.object({
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict()
+
+export const dealStatusReclassificationImpactSchema = z.object({
+  affectedDeals: z.number().int().positive().safe(),
+  fingerprint: dealStatusReclassificationConfirmationSchema.shape.fingerprint,
+}).strict()
+
+export type DealStatusReclassificationImpact = z.infer<typeof dealStatusReclassificationImpactSchema>
+
+export const dealStatusReclassificationErrorSchema = z.object({
+  code: z.literal(DEAL_STATUS_RECLASSIFICATION_CODE),
+  impact: dealStatusReclassificationImpactSchema,
+})
+
 export const saveDealStatusVocabularySchema = z.object({
   vocabulary: dealStatusVocabularySchema.nullable(),
+  reclassificationConfirmation: dealStatusReclassificationConfirmationSchema.optional(),
 }).strict()
