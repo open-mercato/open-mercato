@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -10,6 +10,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
+
+`TC-CRM-065` selected ten unfiltered people after waiting 1,200 ms for a search with a 1,000 ms debounce. Rerenders restarted the debounce, and the blocked fixture was already visible in the initial list. The resulting extra delete failures replaced the dependency toast. Before a destructive select-all action, await the filtered API response, verify the complete fixture row set and count, and assert the confirmation count. Fixture visibility alone does not prove the filter has finished. Evidence: CI run `40225746832`, its retry trace, and `customers/__integration__/TC-CRM-065.spec.ts`.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 

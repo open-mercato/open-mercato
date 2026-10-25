@@ -53,15 +53,30 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       });
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
+      await Promise.all([
+        page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return response.request().method() === 'GET'
+            && url.pathname === '/api/customers/people'
+            && response.ok();
+        }),
+        page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' }),
+      ]);
 
       const searchInput = page.getByPlaceholder(/Search by name/i);
+      const filteredResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'GET'
+          && url.pathname === '/api/customers/people'
+          && url.searchParams.get('search') === prefix
+          && response.ok();
+      });
       await searchInput.fill(prefix);
-      await page.waitForTimeout(1200);
-      await page
-        .getByText('Loading table', { exact: false })
-        .waitFor({ state: 'hidden', timeout: 10_000 })
-        .catch(() => {});
+      await filteredResponse;
+      await expect(page.locator('tbody').getByRole('row')).toHaveCount(3);
+      for (const name of [`${prefix} Free0`, `${prefix} Free1`, `${prefix} Blocked`]) {
+        await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
+      }
 
       const blockedRow = page.getByRole('link', { name: `${prefix} Blocked`, exact: true });
       await expect(blockedRow).toBeVisible();
@@ -76,6 +91,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
 
       const confirmDialog = page.getByRole('alertdialog');
       await expect(confirmDialog).toBeVisible();
+      await expect(confirmDialog).toContainText('Delete 3 people?');
       await confirmDialog.getByRole('button', { name: /Delete|Confirm/i }).click();
 
       // Grouped failure toast must surface the dependency reason from the server.
@@ -106,10 +122,9 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       deletableIds.length = 0;
 
       // Blocked row is still in the rendered table after a refetch.
-      await searchInput.fill('');
-      await searchInput.fill(prefix);
-      await page.waitForTimeout(800);
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('link', { name: `${prefix} Blocked`, exact: true })).toBeVisible();
+      await expect(page.locator('tbody').getByRole('row')).toHaveCount(1);
     } finally {
       if (dealId) {
         await deleteEntityByBody(request, token, '/api/customers/deals', dealId);
