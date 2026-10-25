@@ -112,7 +112,7 @@ test('TC-CRM-EMAIL-VISIBILITY-005: private email mutation authorization follows 
       const legacyAttempts = [
         { method: 'PUT', path: '/api/customers/activities', data: { id: interactionId, authorUserId: actor.userId } },
         { method: 'PUT', path: '/api/customers/activities', data: { id: interactionId, activityType: 'note' } },
-        { method: 'DELETE', path: `/api/customers/activities?id=${interactionId}`, data: undefined },
+        { method: 'DELETE', path: '/api/customers/activities', data: { id: interactionId } },
       ]
       for (const attempt of legacyAttempts) {
         const response = await apiRequest(request, attempt.method, attempt.path, {
