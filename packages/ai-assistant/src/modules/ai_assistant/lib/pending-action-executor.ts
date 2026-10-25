@@ -26,6 +26,7 @@ import type { AiActionConfirmedPayload } from '../events'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
 import { hasRequiredFeatures } from './auth'
+import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
@@ -362,7 +363,7 @@ export async function executePendingActionConfirm(
       executionResult: {
         error: {
           code: 'tool_features_denied',
-          message: `Caller lacks one of the tool's required features: ${toolFeatures.join(', ')}`,
+          message: await resolveToolFeaturesDeniedMessage(toolFeatures),
         },
       },
       cause: new Error(`Caller lacks one of the tool's required features for "${tool.name}"`),

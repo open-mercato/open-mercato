@@ -317,6 +317,7 @@
   "ai_assistant.dock.right": "Dock Right",
   "ai_assistant.errors.moderationBlocked": "Your message was blocked by the content safety filter. Please rephrase and try again.",
   "ai_assistant.errors.moderationUnavailable": "The content safety check is temporarily unavailable. Please try again in a moment.",
+  "ai_assistant.errors.toolFeaturesDenied": "Caller lacks one of the tool's required features: {features}",
   "ai_assistant.launcher.composerPlaceholder": "Ask anything…",
   "ai_assistant.launcher.dialogDescription": "Pick an assistant. Use ↑/↓ to navigate, Enter to launch, Esc to close.",
   "ai_assistant.launcher.dialogTitle": "AI assistants",

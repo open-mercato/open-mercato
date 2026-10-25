@@ -28,6 +28,7 @@ import type {
 } from './pending-action-types'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
+import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 
 export type PendingActionRecheckCode =
@@ -200,17 +201,17 @@ export function checkToolWhitelist(
  * tool. The agent features alone are not enough: a mutation tool usually
  * needs a stronger feature than the agent that proposes it. Missing → 403.
  */
-export function checkToolFeatures(
+export async function checkToolFeatures(
   tool: AiToolDefinition,
   ctx: PendingActionAuthContext,
-): PendingActionRecheckResult {
+): Promise<PendingActionRecheckResult> {
   const required = tool.requiredFeatures ?? []
   if (!hasRequiredFeatures(required, ctx.userFeatures, ctx.isSuperAdmin)) {
     return {
       ok: false,
       status: 403,
       code: 'tool_features_denied',
-      message: `Caller lacks one of the tool's required features: ${required.join(', ')}`,
+      message: await resolveToolFeaturesDeniedMessage(required),
     }
   }
   return { ok: true }
@@ -398,7 +399,7 @@ export async function runPendingActionRechecks(
   })
   if (!whitelistCheck.ok) return whitelistCheck
 
-  const toolFeaturesCheck = checkToolFeatures(tool!, ctx)
+  const toolFeaturesCheck = await checkToolFeatures(tool!, ctx)
   if (!toolFeaturesCheck.ok) return toolFeaturesCheck
 
   const attachmentCheck = await checkAttachmentScope(action, ctx)

@@ -9,6 +9,17 @@ import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
 import type { AiPendingAction } from '../../data/entities'
 import { AiPendingActionRepository } from '../../data/repositories/AiPendingActionRepository'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import plTranslations from '../../i18n/pl.json'
+
+const requestHeaders = { acceptLanguage: '' }
+
+jest.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined }),
+  headers: async () => ({
+    get: (name: string) => (name.toLowerCase() === 'accept-language' ? requestHeaders.acceptLanguage : null),
+  }),
+}))
 
 function makeAction(overrides: Partial<AiPendingAction> = {}): AiPendingAction {
   return {
@@ -244,6 +255,30 @@ describe('executePendingActionConfirm', () => {
     expect(handlerSpy).not.toHaveBeenCalled()
     expect(repo.setStatus).not.toHaveBeenCalled()
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  it('localizes the tool_features_denied message for a non-English request', async () => {
+    registerModules([
+      { id: 'ai_assistant', translations: { pl: plTranslations } },
+    ] as unknown as Parameters<typeof registerModules>[0])
+    requestHeaders.acceptLanguage = 'pl'
+    try {
+      const repo = makeRepoStub(makeAction())
+      const result = await executePendingActionConfirm({
+        action: makeAction(),
+        agent: makeAgent(),
+        tool: makeTool({ requiredFeatures: ['catalog.products.manage'] }),
+        ctx: { ...makeCtx(), userFeatures: ['ai_assistant.view', 'catalog.products.view'] },
+        repo: repo as unknown as never,
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      })
+      expect(result.executionResult.error).toEqual({
+        code: 'tool_features_denied',
+        message: 'Brakuje Ci jednego z uprawnień wymaganych przez narzędzie: catalog.products.manage',
+      })
+    } finally {
+      requestHeaders.acceptLanguage = ''
+    }
   })
 
   it('stops before the handler when the real repository refuses a non-owner transition', async () => {

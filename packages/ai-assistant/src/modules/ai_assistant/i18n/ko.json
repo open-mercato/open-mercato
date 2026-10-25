@@ -317,6 +317,7 @@
   "ai_assistant.dock.right": "오른쪽 독",
   "ai_assistant.errors.moderationBlocked": "귀하의 메시지가 콘텐츠 안전 필터에 의해 차단되었습니다. 문구를 바꾸고 다시 시도해 주세요.",
   "ai_assistant.errors.moderationUnavailable": "콘텐츠 안전 확인을 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+  "ai_assistant.errors.toolFeaturesDenied": "도구에 필요한 권한 중 하나가 없습니다: {features}",
   "ai_assistant.launcher.composerPlaceholder": "무엇이든 물어보세요…",
   "ai_assistant.launcher.dialogDescription": "어시스턴트를 선택하세요. 탐색하려면 ↑/↓를 사용하고, 실행하려면 Enter를, 닫으려면 Esc를 사용하세요.",
   "ai_assistant.launcher.dialogTitle": "AI 어시스턴트",

@@ -317,6 +317,7 @@
   "ai_assistant.dock.right": "Dokuj po prawej",
   "ai_assistant.errors.moderationBlocked": "Twoja wiadomość została zablokowana przez filtr bezpieczeństwa treści. Przeformułuj ją i spróbuj ponownie.",
   "ai_assistant.errors.moderationUnavailable": "Sprawdzanie bezpieczeństwa treści jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
+  "ai_assistant.errors.toolFeaturesDenied": "Brakuje Ci jednego z uprawnień wymaganych przez narzędzie: {features}",
   "ai_assistant.launcher.composerPlaceholder": "Zapytaj o cokolwiek…",
   "ai_assistant.launcher.dialogDescription": "Wybierz asystenta. Nawiguj klawiszami ↑/↓, Enter uruchamia, Esc zamyka.",
   "ai_assistant.launcher.dialogTitle": "Asystenci AI",

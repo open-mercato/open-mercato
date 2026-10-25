@@ -174,6 +174,17 @@ test.describe('TC-AI-ACTIONS-OWNER-008: pending action owner scope and tool feat
       });
       expect(denied.status(), 'owner whose tool feature was revoked cannot confirm').toBe(403);
       expect((await readJsonSafe<{ code?: string }>(denied))?.code).toBe('tool_features_denied');
+
+      const deniedPolish = await apiRequest(request, 'POST', `${ACTIONS}/${viewerRow.id}/confirm`, {
+        token: viewer.token,
+        data: {},
+        headers: { 'Accept-Language': 'pl' },
+      });
+      expect(deniedPolish.status()).toBe(403);
+      expect(await readJsonSafe<{ code?: string; error?: string }>(deniedPolish), 'the refusal is localized').toEqual({
+        code: 'tool_features_denied',
+        error: 'Brakuje Ci jednego z uprawnień wymaganych przez narzędzie: catalog.products.manage',
+      });
       expect(await readCatalogProductTitleInDb(productId)).toBe(originalTitle);
       expect((await readPendingActionStateInDb(viewerRow.id))?.status).toBe('pending');
 

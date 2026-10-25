@@ -354,21 +354,26 @@ describe('pending-action-recheck guards', () => {
   })
 
   describe('checkToolFeatures', () => {
-    it('passes when the tool declares no features', () => {
-      expect(checkToolFeatures(makeTool({ requiredFeatures: undefined }), makeCtx()).ok).toBe(true)
+    it('passes when the tool declares no features', async () => {
+      expect((await checkToolFeatures(makeTool({ requiredFeatures: undefined }), makeCtx())).ok).toBe(true)
     })
 
-    it('rejects a caller missing a tool feature with 403 tool_features_denied', () => {
-      const result = checkToolFeatures(
+    it('rejects a caller missing a tool feature with 403 tool_features_denied', async () => {
+      const result = await checkToolFeatures(
         makeTool({ requiredFeatures: ['catalog.products.manage'] }),
         makeCtx({ userFeatures: ['catalog.products.view'] }),
       )
-      expect(result).toMatchObject({ ok: false, status: 403, code: 'tool_features_denied' })
+      expect(result).toMatchObject({
+        ok: false,
+        status: 403,
+        code: 'tool_features_denied',
+        message: "Caller lacks one of the tool's required features: catalog.products.manage",
+      })
       expect(isPendingActionRecheckCode('tool_features_denied')).toBe(true)
     })
 
-    it('lets a super admin through without explicit grants', () => {
-      const result = checkToolFeatures(
+    it('lets a super admin through without explicit grants', async () => {
+      const result = await checkToolFeatures(
         makeTool({ requiredFeatures: ['catalog.products.manage'] }),
         makeCtx({ userFeatures: [], isSuperAdmin: true }),
       )
