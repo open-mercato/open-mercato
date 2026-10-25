@@ -69,16 +69,16 @@ Non-goals (explicitly out of scope, left for the author to decide with full cont
 
 ### Phase 1: Shipped defaults and personalization
 
-- [x] 1.1 Flip `OM_MARKETING_PUBLIC_ROUTES_READY` to `false` in both `.env.example` files. — 9f5a3b1c0
-- [x] 1.2 Route `notify` step messages through `loadRenderValues`/`neededRenderRoots`; drop its dead `linkHref`. — 9f5a3b1c0
+- [x] 1.1 Flip `OM_MARKETING_PUBLIC_ROUTES_READY` to `false` in both `.env.example` files. — 28e66ffa8
+- [x] 1.2 Route `notify` step messages through `loadRenderValues`/`neededRenderRoots`; drop its dead `linkHref`. — 28e66ffa8
 
 ### Phase 2: Loop guard and run status
 
-- [x] 2.1 Narrow the `add_tag` loop-guard carve-out in `commands/campaigns.ts` to the provably-safe case. — 9f5a3b1c0
-- [x] 2.2 Make `send-email.ts` and `nps-survey.ts` throw on their configuration-fault guards instead of returning `skipped`. — 9f5a3b1c0
+- [x] 2.1 Narrow the `add_tag` loop-guard carve-out in `commands/campaigns.ts` to the provably-safe case. — 28e66ffa8
+- [x] 2.2 Make `send-email.ts` and `nps-survey.ts` throw on their configuration-fault guards instead of returning `skipped`. — 28e66ffa8
 
 ### Phase 3: Verification and delivery
 
-- [x] 3.1 Update/add unit tests for every behavior change above. — 9f5a3b1c0
+- [x] 3.1 Update/add unit tests for every behavior change above. — 28e66ffa8
 - [x] 3.2 Run the repository validation gate. — build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck and build:app all green; `yarn test` is green for every package touched here (marketing-automation: full suite pass) — the one unrelated failure, `create-mercato-app#test`, reproduces in isolation on an unmodified checkout (macOS launcher-path validation and a 120s nested-typecheck timing budget) and is pre-existing, environment-specific flakiness untouched by this change.
 - [ ] 3.3 Run the authoritative `om-auto-review-pr` pass and finalize the PR.
