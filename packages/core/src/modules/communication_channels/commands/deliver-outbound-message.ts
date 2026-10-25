@@ -155,12 +155,24 @@ const deliverOutboundMessageCommand: CommandHandler<
       return NO_THREAD_MAPPING_RESULT
     }
 
-    // (1 cont.) Look up the channel link via ChannelThreadMapping.threadId.
+    let link = await findOneWithDecryption(
+      em,
+      MessageChannelLink,
+      {
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      undefined,
+      dscope,
+    )
+
     const mapping = await findOneWithDecryption(
       em,
       ChannelThreadMapping,
       {
         messageThreadId: message.threadId,
+        ...(link ? { externalConversationId: link.externalConversationId } : {}),
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
@@ -204,17 +216,6 @@ const deliverOutboundMessageCommand: CommandHandler<
     }
 
     // (3) Idempotently upsert a 'pending' MessageChannelLink.
-    let link = await findOneWithDecryption(
-      em,
-      MessageChannelLink,
-      {
-        messageId: message.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
     if (
       link &&
       (link.deliveryStatus === 'queued' ||
