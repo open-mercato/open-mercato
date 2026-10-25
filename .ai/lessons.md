@@ -179,6 +179,7 @@ This catalog indexes 154 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [Route contract edits must load the real handler](lessons/route-contract-edits-must-load-the-real-handler.md) — area:testing; module:attachments; topic:api-contracts,runtime-startup,testing
 - [Repository-source tests must register as cross-package guards](lessons/repository-source-tests-must-register-as-cross-package-guards.md) — area:testing; module:cli,catalog; topic:testing,module-boundaries,generated-files
 
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads

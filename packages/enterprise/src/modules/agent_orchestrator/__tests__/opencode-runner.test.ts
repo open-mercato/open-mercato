@@ -18,10 +18,15 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: () => Promise.resolve([{ role: { id: 'role-caller' } }]),
+  findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.findOne(...args),
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
+import { AttachmentStorageConfigurationError, isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
+import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
@@ -196,6 +201,55 @@ const validOutcome = {
 
 describe('OpenCodeAgentRunner (integration, fake client)', () => {
   const runCtx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
+
+  it.each([
+    ['missing partition', null, 'partition_missing'],
+    ['unknown driver', { storageDriver: 'unknown', configJson: {} }, 'unknown_driver'],
+    ['malformed config', { storageDriver: 'local', configJson: 'secret-sentinel' }, 'invalid_config'],
+  ] as const)('preserves typed %s rejection through real staging and records a redacted run failure', async (_case, partition, reason) => {
+    const priorPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    const priorFiles = process.env.OM_OPENCODE_FILES_ENABLED
+    process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
+    process.env.OM_OPENCODE_FILES_ENABLED = 'true'
+    const entry = { ...registerExampleFileAgent(), files: { enabled: true } }
+    const { calls, commandBus, container, registrations } = makeHarness()
+    const attachmentId = '123e4567-e89b-42d3-a456-426614174001'
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity !== Attachment) return partition
+        if (where.tenantId !== runCtx.tenantId || where.organizationId !== runCtx.organizationId) return null
+        return { id: attachmentId, partitionCode: 'privateAttachments', storagePath: 'secret-sentinel', fileName: 'file.txt' }
+      }),
+    }
+    const release = jest.fn(async () => undefined)
+    registrations.em = em
+    registrations.storageDriverFactory = new StorageDriverFactory(em as unknown as EntityManager)
+    registrations.agentWorkspaceManager = { acquire: async () => ({ inDir: '/unused/in', outDir: '/unused/out', release }) }
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef: { value: '' }, agentSentRef: { value: undefined }, container })
+    const sendMessage = jest.spyOn(client, 'sendMessage')
+    const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+    try {
+      const error = await runner.run(entry, { __files: { attachments: [{ attachmentId }] } }, runCtx).catch((caught: unknown) => caught)
+      expect(isAttachmentStorageConfigurationError(error)).toBe(true)
+      expect(error).toBeInstanceOf(AttachmentStorageConfigurationError)
+      expect(error).toMatchObject({ reason })
+      expect(calls).toContainEqual({ id: 'agent_orchestrator.runs.fail', input: expect.objectContaining({
+        errorMessage: `ATTACHMENT_STORAGE_CONFIGURATION_INVALID: ${reason}`,
+      }) })
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(release).toHaveBeenCalledTimes(1)
+      expect(deleteSessionApiKeyMock).toHaveBeenCalled()
+      expect(JSON.stringify(calls)).not.toContain('secret-sentinel')
+    } finally {
+      if (priorPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = priorPolicy
+      if (priorFiles === undefined) delete process.env.OM_OPENCODE_FILES_ENABLED
+      else process.env.OM_OPENCODE_FILES_ENABLED = priorFiles
+      createSessionApiKeyMock.mockClear()
+      deleteSessionApiKeyMock.mockClear()
+    }
+  })
 
   it('runs the example file agent end-to-end: mints a caller-scoped token, sends the agent field, captures the outcome, persists run + proposal', async () => {
     const entry = registerExampleFileAgent()

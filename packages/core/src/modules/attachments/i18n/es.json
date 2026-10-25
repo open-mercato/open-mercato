@@ -9,6 +9,7 @@
   "attachments.errors.quotaRecoveryUnsupported": "El controlador de almacenamiento no puede participar en la recuperación de cuota.",
   "attachments.errors.quotaUnavailable": "La contabilidad de la cuota de almacenamiento no está disponible.",
   "attachments.errors.selectOrganization": "Selecciona una organización específica antes de subir un adjunto.",
+  "attachments.errors.storageConfigurationInvalid": "La configuración del almacenamiento de archivos adjuntos no está disponible.",
   "attachments.errors.storageFailed": "No se pudo almacenar el archivo adjunto.",
   "attachments.errors.storagePathExists": "La ruta de almacenamiento de destino ya existe.",
   "attachments.errors.uploadFailed": "Error al subir el archivo adjunto.",

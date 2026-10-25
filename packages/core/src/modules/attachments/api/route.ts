@@ -1,3 +1,6 @@
+import { attachmentErrorSchema } from './openapi'
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -272,7 +275,7 @@ export async function GET(req: Request) {
   })
 }
 
-export async function POST(req: Request) {
+async function uploadAttachment(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -374,7 +377,7 @@ export async function POST(req: Request) {
   if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  await ensureDefaultPartitions(em)
+  if (getAttachmentStoragePolicy() === 'legacy') await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
   let fieldMaxAttachmentSizeMb: number | null = null
@@ -447,6 +450,7 @@ export async function POST(req: Request) {
   let partition: AttachmentPartition | null = null
   for (const code of partitionCodeCandidates) {
     const record = await em.findOne(AttachmentPartition, { code })
+    assertAttachmentStoragePartitionExists(Boolean(record))
     if (record) {
       partition = record
       break
@@ -456,6 +460,7 @@ export async function POST(req: Request) {
     partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
   }
   if (!partition) {
+    assertAttachmentStoragePartitionExists(false)
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
   const requestedPublicOverride =
@@ -703,7 +708,7 @@ async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: strin
   }
 }
 
-export async function DELETE(req: Request) {
+async function deleteAttachment(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
@@ -726,18 +731,18 @@ export async function DELETE(req: Request) {
   if (orgId) deleteFilter.organizationId = orgId
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+  const delDriver = record.storagePath
+    ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
+      tenantId: record.tenantId ?? auth.tenantId!,
+      organizationId: record.organizationId ?? orgId ?? '',
+    })
+    : null
   const removal = await removeAttachmentRecord(em, record)
   if (!removal.removed) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
-  if (record.storagePath && removal.releaseStorage) {
-    const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
-      tenantId: record.tenantId ?? auth.tenantId!,
-      organizationId: record.organizationId ?? orgId ?? '',
-    })
-    await delDriver.delete(record.partitionCode, record.storagePath)
-  }
+  if (delDriver && removal.releaseStorage) await delDriver.delete(record.partitionCode, record.storagePath)
   if (dataEngine) {
     await emitCrudSideEffects({
       dataEngine,
@@ -755,6 +760,9 @@ export async function DELETE(req: Request) {
   }
   return NextResponse.json({ ok: true })
 }
+
+export const POST = withAttachmentStorageErrors(uploadAttachment)
+export const DELETE = withAttachmentStorageErrors(deleteAttachment)
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Manage entity attachments',
@@ -783,6 +791,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Attachment stored successfully', schema: uploadResponseSchema },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Payload validation error', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Attachment violates field constraints', schema: errorSchema },
@@ -797,6 +806,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'Attachment not found', schema: errorSchema },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Missing attachment identifier', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
       ],

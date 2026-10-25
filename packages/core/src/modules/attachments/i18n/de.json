@@ -9,6 +9,7 @@
   "attachments.errors.quotaRecoveryUnsupported": "Der Speichertreiber kann nicht an der Kontingent-Wiederherstellung teilnehmen.",
   "attachments.errors.quotaUnavailable": "Die Speicherkontingent-Abrechnung ist nicht verfügbar.",
   "attachments.errors.selectOrganization": "Wählen Sie eine bestimmte Organisation aus, bevor Sie einen Anhang hochladen.",
+  "attachments.errors.storageConfigurationInvalid": "Die Speicherkonfiguration für Anhänge ist nicht verfügbar.",
   "attachments.errors.storageFailed": "Die Anhangsdatei konnte nicht im Speicher abgelegt werden.",
   "attachments.errors.storagePathExists": "Der Zielspeicherpfad existiert bereits.",
   "attachments.errors.uploadFailed": "Das Hochladen des Anhangs ist fehlgeschlagen.",

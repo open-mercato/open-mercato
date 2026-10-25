@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { attachmentStorageErrorResponse } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
@@ -521,6 +522,8 @@ async function localizeRouteErrorBody(body: Record<string, unknown>): Promise<Re
 }
 
 export async function handleDocumentsRouteError(error: unknown, label: string): Promise<Response> {
+  const storageResponse = await attachmentStorageErrorResponse(error)
+  if (storageResponse) return storageResponse
   if (isCrudHttpError(error)) {
     const body = error.body && typeof error.body === 'object' && !Array.isArray(error.body)
       ? error.body as Record<string, unknown>

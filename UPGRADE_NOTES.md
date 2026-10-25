@@ -770,6 +770,14 @@ unaffected.
 remove or relax (`required: false`, a broader type) any port declaration that is not actually
 part of the child's contract.
 
+### Optional strict attachment storage configuration
+
+Attachment factory resolution now supports `OM_ATTACHMENT_STORAGE_POLICY=strict` across web, worker, CLI and direct/late factory instances. The default `legacy` policy preserves local fallback. Before opting in, verify partitions select explicit drivers and register provider-owned synchronous validators with `registerStorageDriverValidator`; the S3 package registers its validator automatically when enabled. Strict invalid configuration produces redacted typed errors instead of selecting local storage. The `attachments` module's own routes map these errors to HTTP 503 and validate deletion before removing metadata; its quota recovery worker and CLI preserve typed failures. Missing requested partitions are rejected before substituting defaults.
+
+Follow-up [#7941](https://github.com/open-mercato/open-mercato/issues/7941) extends these guarantees to warranty portal downloads/deletion/replacement and document attachment reads. Warranty deletion validates before metadata removal, preserves shared stored objects and deletes final-reference bytes after commit; replacement validates the old attachment before uploading new bytes. Enterprise staging retains the typed rejection, run/rerun endpoints expose the localized redacted 503, and run/workflow failure records retain the stable code and reason. Audit independent callers beyond these documented paths before enabling strict mode. Legacy defaults, authorization and provider validation remain unchanged.
+
+No migration or data rewrite is required. Set the policy consistently in every process; rollback is returning to `legacy` and restarting. Supported explicit-local storage, ambient S3 credentials and existing endpoint allowances remain available. See [the attachment API policy guide](apps/docs/docs/api/attachments.mdx#storage-configuration-policy) and [design PR #6819](https://github.com/open-mercato/open-mercato/pull/6819).
+
 ### Catalog validates its required modules during generation (#6517)
 
 Standalone apps enabling `catalog` must also enable `attachments`, `currencies`,

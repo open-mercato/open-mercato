@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { AttachmentStorageConfigurationError } from '../drivers/storageValidation'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
@@ -229,6 +230,32 @@ async function expectStatus(promise: Promise<unknown>, status: number) {
 }
 
 describe('DefaultAttachmentService', () => {
+  it.each([['strict', 503], ['legacy', 500]] as const)('%s preserves its missing-partition response', async (policy, status) => {
+    const priorPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    process.env.OM_ATTACHMENT_STORAGE_POLICY = policy
+    const { service, em, factory } = createHarness()
+    em.findOne.mockImplementation(async (entity: unknown) => entity === Attachment ? attachment() : null)
+    try {
+      await expectStatus(service.readScoped({
+        attachmentId: 'attachment-1', auth: scopedAuth,
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      }), status)
+      expect(factory.resolveForPartition).not.toHaveBeenCalled()
+    } finally {
+      if (priorPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = priorPolicy
+    }
+  })
+
+  it('preserves a typed storage error raised during a scoped provider read', async () => {
+    const error = new AttachmentStorageConfigurationError('invalid_config')
+    const { service } = createHarness({ readError: error })
+    await expect(service.readScoped({
+      attachmentId: 'attachment-1', auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    })).rejects.toBe(error)
+  })
+
   afterEach(() => {
     delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OM_ATTACHMENT_TENANT_QUOTA_MB
