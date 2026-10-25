@@ -23,7 +23,6 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { ResourcesResourceActivity } from '../data/entities'
 import {
   resourcesResourceActivityCreateSchema,
@@ -314,7 +313,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(resourcesResourceActivityUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const activity = await em.findOne(ResourcesResourceActivity, { id: parsed.id })
+    const activity = await em.findOne(ResourcesResourceActivity, { id: parsed.id, deletedAt: null })
     if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
     ensureTenantScope(ctx, activity.tenantId)
     ensureOrganizationScope(ctx, activity.organizationId)
@@ -465,7 +464,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
   async execute(input, ctx) {
     const id = requireId(input, 'Activity id required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const activity = await em.findOne(ResourcesResourceActivity, { id })
+    const activity = await em.findOne(ResourcesResourceActivity, { id, deletedAt: null })
     if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
     ensureTenantScope(ctx, activity.tenantId)
     ensureOrganizationScope(ctx, activity.organizationId)

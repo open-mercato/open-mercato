@@ -207,7 +207,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
   async execute(rawInput, ctx) {
     const parsed = resourcesResourceCommentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(ResourcesResourceComment, { id: parsed.id })
+    const comment = await em.findOne(ResourcesResourceComment, { id: parsed.id, deletedAt: null })
     if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
@@ -331,7 +331,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
   async execute(input, ctx) {
     const id = requireId(input, 'Comment id required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(ResourcesResourceComment, { id })
+    const comment = await em.findOne(ResourcesResourceComment, { id, deletedAt: null })
     if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)

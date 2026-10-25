@@ -105,7 +105,10 @@ function buildFixture(scenario: ResourceCase, rowExists = true) {
     findOne: jest.fn(async (entity: unknown, where?: Record<string, unknown>) => {
       if (Object.values(where ?? {}).includes(undefined)) return null
       if (entity === ResourcesResource) return resource
-      if (entity === scenario.entityClass) return stored
+      if (entity === scenario.entityClass) {
+        if (where?.deletedAt === null && stored?.deletedAt) return null
+        return stored
+      }
       return null
     }),
     create: jest.fn((_entity: unknown, values: Record<string, unknown>) => {
@@ -271,6 +274,38 @@ describe.each(cases)('resources $kind create undo row retention (#7667)', (scena
         notify: false,
       }))
     }
+  })
+
+  it.each(['update', 'delete'] as const)('rejects ordinary %s after creation undo and permits it after redo', async (action) => {
+    const fixture = buildFixture(scenario)
+    await command().undo({ input: {}, ctx: fixture.ctx, logEntry: fixture.logEntry })
+    const hiddenRow = { ...fixture.child }
+    jest.clearAllMocks()
+    const handler = commandRegistry.get<unknown, unknown>(scenario.commandId.replace('.create', `.${action}`))
+    if (!handler) throw new Error('[internal] Resource mutation handler missing')
+    const input = action === 'update'
+      ? { id: CHILD_ID, body: 'Changed after redo' }
+      : { query: { id: CHILD_ID } }
+
+    await expect(handler.execute(input, fixture.ctx)).rejects.toMatchObject({ status: 404 })
+
+    expect(fixture.em.findOne).toHaveBeenCalledWith(scenario.entityClass, { id: CHILD_ID, deletedAt: null })
+    expect(fixture.child).toEqual(hiddenRow)
+    expect(fixture.em.remove).not.toHaveBeenCalled()
+    expect(fixture.em.flush).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(setCustomFieldsIfAny).not.toHaveBeenCalled()
+
+    await command().redo({ input: {}, ctx: fixture.ctx, logEntry: fixture.logEntry })
+    expect(fixture.child.deletedAt).toBeNull()
+    expect(fixture.em.create).not.toHaveBeenCalled()
+    jest.clearAllMocks()
+
+    await expect(handler.execute(input, fixture.ctx)).resolves.toMatchObject({ [scenario.resultKey]: CHILD_ID })
+    expect(fixture.em.flush).toHaveBeenCalledTimes(1)
+    expect(emitCrudSideEffects).toHaveBeenCalledWith(expect.objectContaining({ action: action === 'update' ? 'updated' : 'deleted' }))
+    if (action === 'update') expect(fixture.child.body).toBe('Changed after redo')
+    else expect(fixture.em.remove).toHaveBeenCalledWith(fixture.child)
   })
 
   it.each(['tenantId', 'organizationId'] as const)('rejects undo of a row outside the caller %s', async (scopeField) => {

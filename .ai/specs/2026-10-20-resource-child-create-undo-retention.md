@@ -10,7 +10,7 @@ Scope is the resources module's comment/activity create commands and the missing
 
 ## Problem Statement
 
-Both create undo handlers call `em.remove`. Current develop already declares comment `deletedAt` in metadata and its migration snapshot, but activities lack it. List invisibility alone cannot distinguish a retained row from physical deletion.
+Both create undo handlers call `em.remove`. Current main already declares comment `deletedAt` in metadata and its migration snapshot, but activities lack it. List invisibility alone cannot distinguish a retained row from physical deletion.
 
 ## Proposed Solution
 
@@ -30,7 +30,7 @@ Generate the activity-only ALTER TABLE migration and updated resources snapshot 
 
 ## API Contracts
 
-`POST /api/resources/comments` and `/api/resources/activities` still return the created ID and author with the `x-om-operation` token. Undo through `/api/audit_logs/undo` hides the child from its list while retaining the scoped database row. Redo through `/api/audit_logs/redo` revives the same ID. Existing update/delete behavior and request/response schemas are preserved.
+`POST /api/resources/comments` and `/api/resources/activities` still return the created ID and author with the `x-om-operation` token. Undo through `/api/audit_logs/undo` hides the child from its list while retaining the scoped database row. Redo through `/api/audit_logs/redo` revives the same ID. Ordinary update/delete execute lookups require `deletedAt: null`, preserving the previous 404 for an undone child. Snapshot and replay lookups continue to find retained rows. Existing request/response schemas are preserved.
 
 ## Risks & Impact Review
 
@@ -61,3 +61,4 @@ Design checks: resources-only scope, additive schema, stable API/events, no migr
 - 2026-10-20: Documented the scoped retention fix and migration/compatibility plan before implementation.
 - 2026-10-20: Implemented retention and the generated migration/snapshot; independently reviewed scope queries and historical date fallbacks, with 77 unit tests passing.
 - 2026-10-20: Verified both SQL/API lifecycles in the migrated disposable runtime (2 passed); recorded the scoped full-gate limitation.
+- 2026-10-25: Reconciled merged #7715 timestamp restoration with retained-row revival; covered historical recreation and retained rows independently. Restricted ordinary comment/activity update/delete to visible rows, with four command regressions proving hidden-row 404, unchanged retained data and successful mutation after redo.
