@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequestWithSelectedOrg } from '@open-mercato/core/helpers/integration/authFixtures'
+import { createOrganizationInDb, deleteOrganizationInDb } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 export const integrationMeta = { dependsOnModules: ['customers', 'translations'] }
 
@@ -8,16 +11,36 @@ type DictionaryItem = { id: string; value: string; label: string }
 test.describe('TC-CRM-6197: Customer dictionary localization', () => {
   test('serves seeded labels by locale while preserving their values', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    for (const [locale, label] of Object.entries({ en: 'Active', pl: 'Aktywny', de: 'Aktiv', es: 'Activo', ko: '활성' })) {
-      const response = await apiRequest(request, 'GET', `/api/customers/dictionaries/statuses?locale=${locale}`, { token })
-      expect(response.ok()).toBeTruthy()
-      const body: { items: DictionaryItem[] } = await response.json()
-      expect(body.items.find((item) => item.value === 'active')?.label).toBe(label)
+    const { tenantId } = getTokenScope(token)
+    const organizationId = await createOrganizationInDb({ name: `Dictionary labels ${crypto.randomUUID()}`, tenantId })
+    const scope = { token, selectedOrgId: organizationId }
+    let entryId: string | null = null
+    try {
+      const created = await apiRequestWithSelectedOrg(request, 'POST', '/api/customers/dictionaries/statuses', {
+        ...scope, data: { value: 'active', label: 'Active' },
+      })
+      expect(created.ok()).toBeTruthy()
+      entryId = expectId((await readJsonSafe<{ id: string }>(created))?.id, 'Status fixture must have an id')
+      for (const [locale, label] of Object.entries({ en: 'Active', pl: 'Aktywny', de: 'Aktiv', es: 'Activo', ko: '활성' })) {
+        const response = await apiRequestWithSelectedOrg(request, 'GET', `/api/customers/dictionaries/statuses?locale=${locale}`, scope)
+        expect(response.ok()).toBeTruthy()
+        const body = await readJsonSafe<{ items: DictionaryItem[] }>(response)
+        expect(body?.items.find((item) => item.id === entryId)).toMatchObject({ id: entryId, value: 'active', label })
+      }
+      const management = await apiRequestWithSelectedOrg(request, 'GET', '/api/customers/dictionaries/statuses?locale=pl&labels=base', scope)
+      expect(management.ok()).toBeTruthy()
+      const managementBody = await readJsonSafe<{ items: DictionaryItem[] }>(management)
+      expect(managementBody?.items.find((item) => item.id === entryId)).toMatchObject({ id: entryId, value: 'active', label: 'Active' })
+    } finally {
+      try {
+        if (entryId) {
+          const deleted = await apiRequestWithSelectedOrg(request, 'DELETE', `/api/customers/dictionaries/statuses/${entryId}`, scope)
+          expect(deleted.ok()).toBeTruthy()
+        }
+      } finally {
+        await deleteOrganizationInDb(organizationId)
+      }
     }
-    const management = await apiRequest(request, 'GET', '/api/customers/dictionaries/statuses?locale=pl&labels=base', { token })
-    expect(management.ok()).toBeTruthy()
-    const managementBody: { items: DictionaryItem[] } = await management.json()
-    expect(managementBody.items.find((item) => item.value === 'active')?.label).toBe('Active')
   })
 
   test('lets TranslationManager find custom records and reflects saved labels through cached reads', async ({ request }) => {
