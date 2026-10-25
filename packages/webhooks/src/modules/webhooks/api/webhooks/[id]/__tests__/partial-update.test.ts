@@ -70,6 +70,7 @@ jest.mock('../../../helpers', () => ({
     allowedOrganizationIds: null,
   })),
   findScopedWebhook: jest.fn(async () => currentWebhook),
+  canRevealWebhookCredentialHeaders: jest.fn(async () => false),
   serializeWebhookDetail: (item: { id: string; isActive: boolean }) => ({ id: item.id, isActive: item.isActive }),
 }))
 
