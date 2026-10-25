@@ -224,6 +224,33 @@ describe('--help never triggers side effects (issue #5581)', () => {
       })
     })
 
+    it('keeps module search and module info read-only and quiet, so --json output parses', () => {
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef', '--json'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'info', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      // module add changes the app: it may still create .env, and prints as before
+      expect(resolveEnvBootstrapOptions(['module', 'add', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+    })
+
+    it('silences the dotenv line for any --json invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'status', '--json'])).toEqual({
+        createIfMissing: true,
+        quiet: true,
+      })
+    })
+
     it('keeps the pre-existing deploy and telemetry opt-outs', () => {
       expect(resolveEnvBootstrapOptions(['deploy', 'railway'])).toEqual({
         createIfMissing: false,

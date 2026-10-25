@@ -933,13 +933,18 @@ const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
 
 // A help invocation must never materialize .env from .env.example — asking what the flags are
 // should not mutate the working tree, least of all with the example's placeholder DATABASE_URL.
+// `module search` and `module info` only read the catalog, so they never create .env either, and
+// their output stays clean: dotenv prints its `injected env` line on stdout, which breaks
+// `--json | jq` and agents that parse the tools@1 contract. Any `--json` run stays quiet.
 export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: boolean; quiet: boolean } {
   const first = parts[0]
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
+  const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
+  const jsonOutput = parts.includes('--json')
   const helpRequested = isHelpRequest(parts)
   return {
-    createIfMissing: !helpRequested && !opaqueEnvCommand,
-    quiet: helpRequested || opaqueEnvCommand,
+    createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput,
   }
 }
 
