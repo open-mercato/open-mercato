@@ -6,6 +6,8 @@ const mockFindWithDecryption = jest.fn(async (_manager: unknown, _entityClass: u
 const mockFindOneWithDecryption = jest.fn(async (_manager: unknown, _entityClass: unknown): Promise<unknown> => null)
 const mockEmitCrudSideEffects = jest.fn(async () => undefined)
 const mockEmitCrudUndoSideEffects = jest.fn(async () => undefined)
+const mockEmitQueryIndexDeleteEvents = jest.fn(async (..._args: unknown[]) => undefined)
+const mockEmitQueryIndexUpsertEvents = jest.fn(async (..._args: unknown[]) => undefined)
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: [unknown, unknown, unknown]) => mockFindWithDecryption(...args),
@@ -38,8 +40,8 @@ jest.mock('../shared', () => ({
   ...jest.requireActual<typeof import('../shared')>('../shared'),
   loadEntityTagIds: async () => [],
   syncEntityTags: async () => undefined,
-  emitQueryIndexDeleteEvents: async () => undefined,
-  emitQueryIndexUpsertEvents: async () => undefined,
+  emitQueryIndexDeleteEvents: (...args: unknown[]) => mockEmitQueryIndexDeleteEvents(...args),
+  emitQueryIndexUpsertEvents: (...args: unknown[]) => mockEmitQueryIndexUpsertEvents(...args),
 }))
 
 import '../people'
@@ -48,6 +50,9 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import {
   CustomerEmailConversationShare,
   CustomerEntity,
+  CustomerInteraction,
+  CustomerLabel,
+  CustomerLabelAssignment,
   CustomerPersonProfile,
 } from '../../data/entities'
 
@@ -121,15 +126,30 @@ function makeFixture() {
       createdAt: CREATED_AT, updatedAt: null, deletedAt: null,
     }),
   ]
-  const state = { shares: [...shares], entity: entity as CustomerEntity | null, profile: profile as CustomerPersonProfile | null }
-  let transactionSnapshot = { ...state, shares: [...state.shares] }
+  const state = {
+    shares: [...shares],
+    interactions: [] as CustomerInteraction[],
+    labels: [] as CustomerLabel[],
+    labelAssignments: [] as CustomerLabelAssignment[],
+    entity: entity as CustomerEntity | null,
+    profile: profile as CustomerPersonProfile | null,
+  }
+  const snapshotState = () => ({
+    ...state,
+    shares: [...state.shares],
+    interactions: [...state.interactions],
+    labelAssignments: [...state.labelAssignments],
+  })
+  let transactionSnapshot = snapshotState()
   const em = {
     fork: jest.fn(),
     findOne: jest.fn(async (entityClass: unknown) => entityClass === CustomerEntity ? state.entity : entityClass === CustomerPersonProfile ? state.profile : null),
-    find: jest.fn(async () => []),
+    find: jest.fn(async (entityClass: unknown) => entityClass === CustomerInteraction ? state.interactions : []),
     count: jest.fn(async () => 0),
     nativeDelete: jest.fn(async (entityClass: unknown, where: Record<string, unknown>) => {
       if (entityClass === CustomerEmailConversationShare) state.shares = state.shares.filter((share) => !matchesShare(share, where))
+      if (entityClass === CustomerInteraction) state.interactions = []
+      if (entityClass === CustomerLabelAssignment) state.labelAssignments = []
       return 0
     }),
     nativeUpdate: jest.fn(async (entityClass: unknown, where: Record<string, unknown>, values: Record<string, unknown>) => {
@@ -144,7 +164,7 @@ function makeFixture() {
     }),
     remove: jest.fn((record: unknown) => {
       if (record === state.entity) {
-        if (state.shares.some((share) => share.personEntity.id === entity.id)) throw new Error('[internal] foreign key violation')
+        if (state.shares.some((share) => share.personEntity.id === entity.id) || state.labelAssignments.length) throw new Error('[internal] foreign key violation')
         state.entity = null
       }
       if (record === state.profile) state.profile = null
@@ -152,25 +172,35 @@ function makeFixture() {
     create: jest.fn((entityClass: unknown, values: Record<string, unknown>) => {
       if (entityClass === CustomerEmailConversationShare) return Object.assign(new CustomerEmailConversationShare(), values, { updatedAt: values.updatedAt ?? new Date() })
       if (entityClass === CustomerEntity) return Object.assign(new CustomerEntity(), values)
-      if (entityClass === CustomerPersonProfile) return Object.assign(new CustomerPersonProfile(), values)
+      if (entityClass === CustomerPersonProfile) {
+        state.profile = Object.assign(new CustomerPersonProfile(), values)
+        return state.profile
+      }
+      if (entityClass === CustomerInteraction) return Object.assign(new CustomerInteraction(), values)
+      if (entityClass === CustomerLabelAssignment) return Object.assign(new CustomerLabelAssignment(), values)
       return values
     }),
     persist: jest.fn((record: unknown) => {
       if (record instanceof CustomerEmailConversationShare) state.shares.push(record)
       if (record instanceof CustomerEntity) state.entity = record
       if (record instanceof CustomerPersonProfile) state.profile = record
+      if (record instanceof CustomerInteraction) state.interactions.push(record)
+      if (record instanceof CustomerLabelAssignment) state.labelAssignments.push(record)
     }),
     flush: jest.fn(async () => undefined),
-    begin: jest.fn(async () => { transactionSnapshot = { ...state, shares: [...state.shares] } }),
+    begin: jest.fn(async () => { transactionSnapshot = snapshotState() }),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => { Object.assign(state, transactionSnapshot) }),
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
   }
   em.fork.mockReturnValue(em)
   mockFindOneWithDecryption.mockImplementation(async (_manager, entityClass) => em.findOne(entityClass))
-  mockFindWithDecryption.mockImplementation(async (_manager, entityClass, where) => entityClass === CustomerEmailConversationShare
-    ? state.shares.filter((share) => matchesShare(share, asRecord(where)))
-    : [])
+  mockFindWithDecryption.mockImplementation(async (_manager, entityClass, where) => {
+    if (entityClass === CustomerEmailConversationShare) return state.shares.filter((share) => matchesShare(share, asRecord(where)))
+    if (entityClass === CustomerLabelAssignment) return state.labelAssignments
+    if (entityClass === CustomerLabel) return state.labels
+    return []
+  })
   const dataEngine = {
     setCustomFields: jest.fn(async () => undefined),
     emitOrmEntityEvent: jest.fn(async () => undefined),
@@ -195,6 +225,25 @@ async function captureDelete(fixture: ReturnType<typeof makeFixture>) {
   const log = await handler.buildLog?.({ input, result: { entityId: PERSON_ID }, ctx: fixture.ctx, snapshots: { before } })
   if (!log) throw new Error('[internal] Missing delete log')
   return { handler, input, before, log }
+}
+
+function makeCombinedFixture() {
+  const fixture = makeFixture()
+  fixture.state.interactions.push(Object.assign(new CustomerInteraction(), {
+    id: 'private-email', entity: fixture.entity, organizationId: ORGANIZATION_ID, tenantId: TENANT_ID,
+    interactionType: 'email', title: 'Private email', status: 'done', authorUserId: OWNER_ID,
+    externalMessageId: 'message-link', channelProviderKey: 'gmail', channelId: 'private-channel',
+    visibility: 'private', pinned: true, createdAt: CREATED_AT, updatedAt: UPDATED_AT,
+  }))
+  const label = Object.assign(new CustomerLabel(), {
+    id: 'private-label', organizationId: ORGANIZATION_ID, tenantId: TENANT_ID, userId: OTHER_OWNER_ID,
+  })
+  fixture.state.labels.push(label)
+  fixture.state.labelAssignments.push(Object.assign(new CustomerLabelAssignment(), {
+    id: 'private-assignment', entity: fixture.entity, label, organizationId: ORGANIZATION_ID,
+    tenantId: TENANT_ID, userId: OTHER_OWNER_ID, createdAt: CREATED_AT,
+  }))
+  return fixture
 }
 
 describe('Person delete and undo preserve conversation shares', () => {
@@ -240,7 +289,7 @@ describe('Person delete and undo preserve conversation shares', () => {
     fixture.state.shares = fixture.shares.filter((share) => status === 'active' ? !share.deletedAt : Boolean(share.deletedAt))
     const neighbor = Object.assign(new CustomerEmailConversationShare(), fixture.shares[0], { id: 'neighbor-share', personEntity: { id: 'neighbor-person' } })
     fixture.state.shares.push(neighbor)
-    await expect(getHandler('customers.people.delete').execute({ body: { id: PERSON_ID } }, fixture.ctx)).resolves.toEqual({ entityId: PERSON_ID })
+    await expect(getHandler('customers.people.delete').execute({ body: { id: PERSON_ID } }, fixture.ctx)).resolves.toEqual({ entityId: PERSON_ID, labelAssignments: [] })
     expect(fixture.state.entity).toBeNull()
     expect(fixture.state.shares).toEqual([neighbor])
     expect(fixture.em.nativeDelete).toHaveBeenCalledWith(CustomerEmailConversationShare, { personEntity: fixture.entity, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
@@ -284,6 +333,81 @@ describe('Person delete and undo preserve conversation shares', () => {
     await expect(handler.undo?.({ input, ctx: fixture.ctx, logEntry: { commandPayload: { undo: { before } } } })).resolves.toBeUndefined()
     expect(fixture.state.shares).toEqual([])
     expect(fixture.em.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves private email state, another owner\'s label and share history across delete, undo, redo and undo', async () => {
+    const fixture = makeCombinedFixture()
+    const handler = getHandler('customers.people.delete')
+    const input = { body: { id: PERSON_ID } }
+    const expectedShares = fixture.shares.map((share) => ({
+      id: share.id, ownerUserId: share.ownerUserId, sharedByUserId: share.sharedByUserId,
+      createdAt: share.createdAt, updatedAt: share.updatedAt, deletedAt: share.deletedAt,
+    }))
+
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      const snapshots = await handler.prepare?.(input, fixture.ctx)
+      const result = await handler.execute(input, fixture.ctx)
+      const log = await handler.buildLog?.({ input, result, ctx: fixture.ctx, snapshots: snapshots ?? {} })
+      if (!log) throw new Error('[internal] Missing combined delete log')
+      expect(fixture.state.entity).toBeNull()
+      expect(fixture.state.interactions).toEqual([])
+      expect(fixture.state.labelAssignments).toEqual([])
+      expect(fixture.state.shares).toEqual([])
+      expect(mockEmitQueryIndexDeleteEvents).toHaveBeenCalledWith(fixture.ctx, [expect.objectContaining({
+        recordId: 'private-assignment', organizationId: ORGANIZATION_ID, tenantId: TENANT_ID,
+      })])
+      expect(log.snapshotBefore).not.toHaveProperty('emailConversationShares')
+      const auditInteractions = asRecord(log.snapshotBefore).interactions
+      if (!Array.isArray(auditInteractions)) throw new Error('[internal] Missing audit interactions')
+      expect(auditInteractions).toHaveLength(1)
+      for (const privateKey of ['visibility', 'channelId', 'externalMessageId', 'pinned']) {
+        expect(auditInteractions[0]).not.toHaveProperty(privateKey)
+      }
+      expect(log.snapshotBefore).not.toHaveProperty('labelAssignments')
+
+      await handler.undo?.({ input, ctx: fixture.ctx, logEntry: { commandPayload: JSON.parse(JSON.stringify(log.payload)) } })
+
+      expect(fixture.state.interactions).toEqual([expect.objectContaining({
+        id: 'private-email', externalMessageId: 'message-link', channelProviderKey: 'gmail',
+        channelId: 'private-channel', visibility: 'private', pinned: true,
+        organizationId: ORGANIZATION_ID, tenantId: TENANT_ID,
+      })])
+      expect(fixture.state.labelAssignments).toEqual([expect.objectContaining({
+        id: 'private-assignment', userId: OTHER_OWNER_ID, label: fixture.state.labels[0],
+        createdAt: CREATED_AT, organizationId: ORGANIZATION_ID, tenantId: TENANT_ID,
+      })])
+      expect(mockEmitQueryIndexUpsertEvents).toHaveBeenCalledWith(fixture.ctx, [expect.objectContaining({
+        recordId: 'private-assignment', organizationId: ORGANIZATION_ID, tenantId: TENANT_ID,
+      })])
+      expect(fixture.state.shares.map((share) => ({
+        id: share.id, ownerUserId: share.ownerUserId, sharedByUserId: share.sharedByUserId,
+        createdAt: share.createdAt, updatedAt: share.updatedAt, deletedAt: share.deletedAt,
+      }))).toEqual(expectedShares)
+    }
+    expect(fixture.em.commit).toHaveBeenCalledTimes(4)
+  })
+
+  it('rolls back interactions and labels together when restoring share history fails', async () => {
+    const fixture = makeCombinedFixture()
+    const handler = getHandler('customers.people.delete')
+    const input = { body: { id: PERSON_ID } }
+    const snapshots = await handler.prepare?.(input, fixture.ctx)
+    const result = await handler.execute(input, fixture.ctx)
+    const log = await handler.buildLog?.({ input, result, ctx: fixture.ctx, snapshots: snapshots ?? {} })
+    const create = fixture.em.create.getMockImplementation()!
+    fixture.em.create.mockImplementation((entityClass, values) => {
+      if (entityClass === CustomerEmailConversationShare) throw new Error('[internal] share restoration failed')
+      return create(entityClass, values)
+    })
+
+    await expect(handler.undo?.({ input, ctx: fixture.ctx, logEntry: { commandPayload: log?.payload } })).rejects.toThrow('[internal] share restoration failed')
+
+    expect(fixture.state.entity).toBeNull()
+    expect(fixture.state.interactions).toEqual([])
+    expect(fixture.state.labelAssignments).toEqual([])
+    expect(fixture.state.shares).toEqual([])
+    expect(fixture.em.rollback).toHaveBeenCalledTimes(1)
+    expect(mockEmitCrudUndoSideEffects).not.toHaveBeenCalled()
   })
 
   it('rolls back the delete when removing shares fails without emitting side effects', async () => {

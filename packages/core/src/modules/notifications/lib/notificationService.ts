@@ -1,10 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
-import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
+import {
+  NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
+  type NotificationPollData,
+} from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -85,6 +88,13 @@ async function assertNotificationRecipientsInScope(
   if (scopedRecipientUserIds.length !== recipientUserIds.length) {
     throw new CrudHttpError(404, { error: 'Notification recipient not found' })
   }
+}
+
+function actionAlreadyExecuted(): CrudHttpError {
+  return new CrudHttpError(409, {
+    error: 'Notification action already executed',
+    code: NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
+  })
 }
 
 function applyNotificationContent(
@@ -643,7 +653,9 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         return notification
       }
 
-      const targetStatus = status ?? 'read'
+      // A dismissed notification whose action already ran comes back as `actioned`,
+      // whatever the caller asked for: `actioned_at` outlives the dismissal.
+      const targetStatus: NotificationStatus = notification.actionedAt != null ? 'actioned' : status ?? 'read'
       notification.status = targetStatus
       notification.dismissedAt = null
 
@@ -678,9 +690,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       }
 
       // Reject an already-actioned notification before dispatching the command,
-      // so a retry or double-click cannot re-run the side effect.
-      if (notification.status === 'actioned') {
-        throw conflict('Notification action already executed')
+      // so a retry or double-click cannot re-run the side effect. `actioned_at` is
+      // the durable marker: `status` is overwritten by a dismissal.
+      if (notification.status === 'actioned' || notification.actionedAt != null) {
+        throw actionAlreadyExecuted()
       }
 
       const actionedAt = new Date()
@@ -702,29 +715,33 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         .where('recipient_user_id' as any, '=', ctx.userId as any)
         .where('tenant_id' as any, '=', ctx.tenantId)
         .where('status' as any, '!=', 'actioned')
+        .where('actioned_at' as any, 'is', null)
         .executeTakeFirst()) as { numUpdatedRows?: bigint | number } | undefined
 
       if (Number(claimResult?.numUpdatedRows ?? 0) === 0) {
-        throw conflict('Notification action already executed')
+        throw actionAlreadyExecuted()
       }
 
       // The claim is provisional: if the side-effecting command fails, the action
       // never actually completed, so release the claim to its prior state. This
       // lets the user retry the action instead of the notification being locked as
-      // `actioned` forever. Only release while we still own the claim
-      // (status = 'actioned'), so a concurrent winner's state is never clobbered.
+      // `actioned` forever. The claim is owned through its own `actioned_at` and
+      // `action_taken`, not through `status`: a dismissal that lands while the
+      // command runs overwrites `status`, and the release must still clear the
+      // claim then — while leaving that dismissal in place.
       const releaseClaim = async () => {
         await getDb(em)
           .updateTable('notifications' as any)
           .set({
-            status: previousStatus,
+            status: sql`case when status = 'actioned' then ${previousStatus} else status end`,
             actioned_at: previousActionedAt,
             action_taken: previousActionTaken,
           } as any)
           .where('id' as any, '=', notification.id)
           .where('recipient_user_id' as any, '=', ctx.userId as any)
           .where('tenant_id' as any, '=', ctx.tenantId)
-          .where('status' as any, '=', 'actioned')
+          .where('actioned_at' as any, '=', actionedAt)
+          .where('action_taken' as any, '=', input.actionId)
           .executeTakeFirst()
       }
 
