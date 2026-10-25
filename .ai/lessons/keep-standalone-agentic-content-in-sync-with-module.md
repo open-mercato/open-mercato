@@ -1,7 +1,7 @@
 ---
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
-areas: ["architecture","framework-context"]
+areas: ["architecture","framework-context","testing"]
 topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing"]
 ---
 
@@ -14,5 +14,7 @@ topics: ["auto-discovery","events","generated-files","package-runtime","session-
 **Rule**: Whenever root agent guidance or a bundled local skill changes in a way that affects standalone app development or maintenance — module placement, testing, standalone parity, auto-discovery file conventions, CLI commands, `yarn generate` behavior, or harness-native session export — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks/skills). Harness-native retrieval must use a bounded, explicit helper and trusted active-request identifiers; it must never discover sessions by crawling local history.
 
 When an enabled package-backed module adds a generated fact sheet, add or expand a harness case whose prompt makes that module fact necessary and lists `.ai/guides/modules/<id>.md` in `context.required`. Putting the fact sheet only in `allowedExtra` makes it available but does not prove an agent reads it, so the emitted-fact coverage guard must continue to reject that state.
+
+Measure instruction budgets after tool patches and the real enabled-module fact index are present. A source-only root fixture can fit while the packed scaffold exceeds a case's context cap. Reclaim redundant routing prose, preserve the contract's hard caps, and keep the existing budget regression representative of the actual scaffold.
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.

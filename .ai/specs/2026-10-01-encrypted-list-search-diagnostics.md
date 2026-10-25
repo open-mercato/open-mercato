@@ -54,4 +54,5 @@ Additive public metadata only; no new dependency, cross-module ORM access, schem
 
 ## Changelog
 
+- 2026-10-25: Compact standalone routing while preserving encrypted-search guidance and existing hard caps; measure compatibility budgets with the classic module-fact index. The unchanged knowledge controller proves failure before the correction and success afterward. Live certification remains blocked by automatic approval review and unsupported Win32 containment.
 - 2026-10-01: Document #6729 correction, additive development diagnostics, and explicit dependency-bound harness scope.
