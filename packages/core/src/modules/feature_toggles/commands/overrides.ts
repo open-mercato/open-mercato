@@ -11,7 +11,7 @@ import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { badRequest, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, conflict, CrudHttpError, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type OverrideSnapshot = {
@@ -57,6 +57,14 @@ async function throwOverrideUndoConflict(): Promise<never> {
     ),
     code: 'feature_toggles.errors.overrideUndoConflict',
   })
+}
+
+async function throwOverrideRedoConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw conflict(translate(
+    'feature_toggles.errors.overrideRedoConflict',
+    'An override already exists for this feature toggle. Redo was refused.',
+  ))
 }
 
 const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInput, { overrideToggleId: string | null }> = {
@@ -192,13 +200,21 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
       throw notFound(translate('api.errors.notFound', 'Not Found'))
     }
 
+    const existing = await findOneWithDecryption(em, FeatureToggleOverride, { toggle: after.toggleId, tenantId: after.tenantId }, undefined, { tenantId: after.tenantId })
+    if (existing) await throwOverrideRedoConflict()
+
     const override = em.create(FeatureToggleOverride, {
       id: after.id,
       toggle,
       tenantId: after.tenantId,
       value: after.value,
     })
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      if (isUniqueViolation(error)) await throwOverrideRedoConflict()
+      throw error
+    }
     const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
     await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, after.tenantId)
     return { overrideToggleId: override.id }

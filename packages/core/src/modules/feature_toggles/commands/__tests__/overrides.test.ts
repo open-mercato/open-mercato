@@ -423,7 +423,7 @@ describe('feature_toggles.overrides commands', () => {
                         return query.deletedAt === null && state.toggle?.deletedAt ? null : state.toggle
                     }
                     if (entity.name === 'FeatureToggleOverride' && query.toggle === toggleId && query.tenantId === tenantId) {
-                        return state.override
+                        return state.override?.tenantId === query.tenantId ? state.override : null
                     }
                     return null
                 }),
@@ -482,6 +482,107 @@ describe('feature_toggles.overrides commands', () => {
             await expect(command.redo!({ input, ctx, logEntry })).resolves.toEqual({ overrideToggleId: overrideId })
 
             expect(em.create).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ id: overrideId, value: false, tenantId }))
+        })
+
+        it.each([overrideId, 'd0eebc99-9c0b-4ef8-bb6d-6bb9bd380a44'])('refuses an occupied creation redo without mutating override %s and allows retry after removal', async (occupiedId) => {
+            const command = loadRedoCommand()
+            const { ctx, em, state } = buildRedoContext()
+            const occupyingOverride: FeatureToggleOverride = {
+                id: occupiedId,
+                toggle: state.toggle!,
+                tenantId,
+                value: { occupied: true },
+                createdAt: new Date(originalUpdatedAt),
+                updatedAt: new Date(restoredUpdatedAt),
+            }
+            state.override = occupyingOverride
+            const logEntry = { commandPayload: { undo: { before, after } } }
+
+            await expect(command.redo!({ input, ctx, logEntry })).rejects.toMatchObject({
+                status: 409,
+                body: { error: 'An override already exists for this feature toggle. Redo was refused.' },
+            })
+
+            expect(em.findOne).toHaveBeenCalledWith(expect.any(Function), { toggle: toggleId, tenantId }, undefined)
+            expect(state.override).toBe(occupyingOverride)
+            expect(occupyingOverride).toMatchObject({ id: occupiedId, value: { occupied: true }, updatedAt: new Date(restoredUpdatedAt) })
+            expect(em.create).not.toHaveBeenCalled()
+            expect(em.nativeDelete).not.toHaveBeenCalled()
+            expect(em.flush).not.toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).not.toHaveBeenCalled()
+
+            state.override = null
+            await expect(command.redo!({ input, ctx, logEntry })).resolves.toEqual({ overrideToggleId: overrideId })
+            expect(state.override).toMatchObject({ id: overrideId, value: after.value, tenantId })
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            { code: '23505', constraint: 'feature_toggle_overrides_toggle_tenant_unique' },
+            { cause: { code: '23505', constraint: 'feature_toggle_overrides_toggle_tenant_unique' } },
+            { previous: { code: '23505', constraint: 'feature_toggle_overrides_pkey' } },
+        ])('maps a creation flush uniqueness race to 409 without invalidating cache: %j', async (databaseError) => {
+            const command = loadRedoCommand()
+            const { ctx, em, state } = buildRedoContext()
+            const occupyingOverride: FeatureToggleOverride = {
+                id: 'd0eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
+                toggle: state.toggle!,
+                tenantId,
+                value: 'concurrent value',
+                createdAt: new Date(originalUpdatedAt),
+                updatedAt: new Date(restoredUpdatedAt),
+            }
+            em.flush.mockImplementationOnce(async () => {
+                state.override = occupyingOverride
+                throw databaseError
+            })
+            const logEntry = { commandPayload: { undo: { before, after } } }
+
+            await expect(command.redo!({ input, ctx, logEntry })).rejects.toMatchObject({
+                status: 409,
+                body: { error: 'An override already exists for this feature toggle. Redo was refused.' },
+            })
+
+            expect(state.override).toBe(occupyingOverride)
+            expect(occupyingOverride.value).toBe('concurrent value')
+            expect(em.nativeDelete).not.toHaveBeenCalled()
+            expect(invalidateIsEnabledCacheByKey).not.toHaveBeenCalled()
+
+            state.override = null
+            await expect(command.redo!({ input, ctx, logEntry })).resolves.toEqual({ overrideToggleId: overrideId })
+            expect(state.override).toMatchObject({ id: overrideId, value: after.value })
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledTimes(1)
+        })
+
+        it('preserves an unrelated tenant override while restoring this tenant override', async () => {
+            const command = loadRedoCommand()
+            const { ctx, em, state } = buildRedoContext()
+            const otherTenantOverride: FeatureToggleOverride = {
+                id: 'd0eebc99-9c0b-4ef8-bb6d-6bb9bd380a44',
+                toggle: state.toggle!,
+                tenantId: 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380a55',
+                value: 'other tenant value',
+                createdAt: new Date(originalUpdatedAt),
+                updatedAt: new Date(restoredUpdatedAt),
+            }
+            state.override = otherTenantOverride
+
+            await expect(command.redo!({ input, ctx, logEntry: { commandPayload: { undo: { before, after } } } })).resolves.toEqual({ overrideToggleId: overrideId })
+
+            expect(otherTenantOverride.value).toBe('other tenant value')
+            expect(em.findOne).toHaveBeenCalledWith(expect.any(Function), { toggle: toggleId, tenantId }, undefined)
+            expect(invalidateIsEnabledCacheByKey).toHaveBeenCalledWith('test_feature', tenantId)
+        })
+
+        it('propagates an unrelated persistence error without invalidating cache', async () => {
+            const command = loadRedoCommand()
+            const { ctx, em } = buildRedoContext()
+            const databaseError = new Error('database unavailable')
+            em.flush.mockRejectedValueOnce(databaseError)
+
+            await expect(command.redo!({ input, ctx, logEntry: { commandPayload: { undo: { before, after } } } })).rejects.toBe(databaseError)
+
+            expect(invalidateIsEnabledCacheByKey).not.toHaveBeenCalled()
         })
 
         it.each([
