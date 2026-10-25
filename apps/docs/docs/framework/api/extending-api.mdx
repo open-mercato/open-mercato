@@ -103,8 +103,21 @@ Every other route — the overwhelming majority, since `packages/core/AGENTS.md`
 requires deriving `tenantId` from the authenticated context rather than
 request input — keeps the pre-existing behavior for this oversized-body case: an
 upload, a bulk write, or a telemetry batch whose body exceeds 64 KB is
-treated as "no candidate" and proceeds to the route's own (larger) body
-handling unaffected, same as before #7877. Only set `honorsBodyTenantId`
-after confirming the route's handler genuinely reads and acts on a
-body-level `tenantId` — setting it on a route that doesn't would start
-rejecting that route's own legitimate oversized bodies for non-superadmins.
+treated as "no candidate" at the dispatcher level and proceeds to the
+route's own (larger) body handling unaffected, same as before #7877. Only
+set `honorsBodyTenantId` after confirming the route's handler reads a
+body-level `tenantId` by some path *other than* `withScopedPayload` /
+`parseScopedCommandInput` (see below) — setting it on a route that doesn't
+would start rejecting that route's own legitimate oversized bodies for
+non-superadmins.
+
+This dispatcher-level peek is a bounded, best-effort check — it is **not**
+the only place a body-supplied `tenantId` is enforced. A handler that reads
+a scoped payload through `withScopedPayload` or `parseScopedCommandInput`
+(`packages/shared/src/lib/api/scoped.ts`) gets tenant enforcement
+unconditionally, regardless of request body size: those helpers reject a
+non-superadmin's foreign `tenantId` themselves, so a route built on them
+needs no `honorsBodyTenantId` flag and no size-bound workaround at all. A
+route that reads a body `tenantId` by any other path — without going
+through those helpers and without calling `enforceTenantSelection`
+itself — is the one case this dispatcher-level flag exists for.

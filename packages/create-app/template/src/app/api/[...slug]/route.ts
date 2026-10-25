@@ -45,17 +45,24 @@ type MethodMetadata = {
    * reads/clears that telemetry, so tracking it would perturb the data it just reported). Set
    * `skipModuleResourceUsageTracking: true` in the route's `metadata` export for the method. */
   skipModuleResourceUsageTracking?: boolean
-  /** Route-declared acknowledgement that its handler reads a body-supplied `tenantId` and uses it
-   * to select tenant scope (issue #7877) — the convention (`packages/core/AGENTS.md`: "Always
-   * derive `tenantId` from the authenticated context, never from request input") makes this rare;
-   * it is true only for a few superadmin/cross-tenant management endpoints (e.g.
-   * `auth/roles`, `auth/roles/acl`, `auth/users/acl`). When the dispatcher's body-peek cannot
-   * determine whether an oversized body carries a `tenantId` at all, it fails closed (403 for a
-   * non-superadmin) ONLY for a route that sets this — every other route (the overwhelming
-   * majority, including every CRUD-factory route and every upload/bulk endpoint, none of which
-   * read `tenantId` from body) keeps the pre-existing behavior of treating an unreadable body as
-   * "no candidate" for this oversized-body case specifically; within-budget bodies are always
-   * fully checked regardless of this flag. */
+  /** Route-declared acknowledgement that its handler reads a body-supplied `tenantId` by some path
+   * OTHER than the shared `withScopedPayload`/`parseScopedCommandInput` helpers (issue #7877) — the
+   * convention (`packages/core/AGENTS.md`: "Always derive `tenantId` from the authenticated context,
+   * never from request input") makes this rare; it is true only for a few superadmin/cross-tenant
+   * management endpoints (e.g. `auth/roles`, `auth/roles/acl`, `auth/users/acl`). When the
+   * dispatcher's body-peek cannot determine whether an oversized body carries a `tenantId` at all,
+   * it fails closed (403 for a non-superadmin) ONLY for a route that sets this — every other route
+   * (the overwhelming majority, including every CRUD-factory route and every upload/bulk endpoint)
+   * keeps the pre-existing behavior of treating an unreadable body as "no candidate" for this
+   * oversized-body case specifically; within-budget bodies are always fully checked regardless of
+   * this flag.
+   *
+   * This is a narrow, best-effort backstop, not the only line of defense: a handler that reads a
+   * body `tenantId` through `withScopedPayload`/`parseScopedCommandInput`
+   * (`packages/shared/src/lib/api/scoped.ts`) is independently protected regardless of body size or
+   * this flag — those helpers reject a non-superadmin's foreign `tenantId` unconditionally. This flag
+   * only matters for a handler that reads a body `tenantId` by some other path and does not already
+   * call `enforceTenantSelection` itself. */
   honorsBodyTenantId?: boolean
 }
 

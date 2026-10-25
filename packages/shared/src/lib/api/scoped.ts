@@ -59,6 +59,11 @@ export function withScopedPayload<T extends Record<string, unknown>>(
     const msg = resolveMessage(options.messages, 'tenantRequired')
     throw new CrudHttpError(400, { error: translate(msg.key, msg.fallback) })
   }
+  // A payload-supplied `tenantId` must still belong to the actor (issue #7877): the central API
+  // dispatcher only validates a body-supplied `tenantId` up to a small byte budget, so a non-superadmin
+  // can bypass that gate with an oversized body. This is the one place every caller of this helper
+  // converges on, so the check holds regardless of body size or dispatcher-level route flags.
+  enforceActorTenant(tenantId, ctx, translate, options)
 
   const resolvedOrg =
     (source as { organizationId?: string })?.organizationId ??
@@ -94,20 +99,6 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     translate,
     options
   )
-  const actorTenantId = normalizeTenant(ctx.auth?.tenantId)
-  const requestedTenantId = normalizeTenant(scoped.tenantId)
-  const isSuperAdmin = authIsSuperAdmin(ctx.auth)
-  if (!isSuperAdmin) {
-    if (actorTenantId) {
-      if (!requestedTenantId || requestedTenantId !== actorTenantId) {
-        const msg = resolveMessage(options.messages, 'tenantForbidden')
-        throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
-      }
-    } else if (requestedTenantId) {
-      const msg = resolveMessage(options.messages, 'tenantForbidden')
-      throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
-    }
-  }
   const { base, custom } = splitCustomFieldPayload(scoped)
   const hasCustomFields = custom && Object.keys(custom).length > 0
   const candidates: Array<Record<string, unknown>> = hasCustomFields
@@ -134,6 +125,24 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     : parsed
 
   return parsedWithCustom as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+}
+
+function enforceActorTenant(
+  tenantId: string,
+  ctx: ScopedContext,
+  translate: TranslateFn,
+  options: ScopedPayloadOptions
+): void {
+  if (authIsSuperAdmin(ctx.auth)) return
+  const actorTenantId = normalizeTenant(ctx.auth?.tenantId)
+  const requestedTenantId = normalizeTenant(tenantId)
+  const mismatched = actorTenantId
+    ? !requestedTenantId || requestedTenantId !== actorTenantId
+    : Boolean(requestedTenantId)
+  if (mismatched) {
+    const msg = resolveMessage(options.messages, 'tenantForbidden')
+    throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
+  }
 }
 
 function normalizeTenant(candidate: unknown): string | null {
