@@ -2,7 +2,7 @@
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
 areas: ["architecture","framework-context"]
-topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing"]
+topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing","context-budgets"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -16,3 +16,5 @@ topics: ["auto-discovery","events","generated-files","package-runtime","session-
 When an enabled package-backed module adds a generated fact sheet, add or expand a harness case whose prompt makes that module fact necessary and lists `.ai/guides/modules/<id>.md` in `context.required`. Putting the fact sheet only in `allowedExtra` makes it available but does not prove an agent reads it, so the emitted-fact coverage guard must continue to reject that state.
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+**Context budgets**: When a release-matched contract document grows, measure each affected case's existing exact required and allowed files in a fresh scaffold. Adjust only overflowing total caps with bounded measured headroom; preserve initial budgets and read sets, report cases independently, and retain the unmodified knowledge-change controller's failing-base/passing-head evidence. A deterministic pass does not establish the full packed-preset or certified release gate.
