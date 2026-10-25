@@ -50,7 +50,7 @@ yarn mercato module info currencies
 Already in Open Mercato core:
   currencies  Currencies   yarn mercato module enable @open-mercato/core --module currencies
 
-@fastwhitecat/integration-ksef-direct 0.1.8   VERIFIED · 0.9   3rd-party · MIT
+@fastwhitecat/integration-ksef-direct 0.1.8   VERIFIED · 0.9   community · MIT
   Sends and receives Polish structured e-invoices through the KSeF API v2.
   matched: provider KSeF · agent policy: ask (third-party)
   install: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party
@@ -63,7 +63,7 @@ Already in Open Mercato core:
 
 ## JSON output
 
-`--json` prints the same cards the catalog's MCP server returns from its `search_modules` and `get_module` tools (contract `tools@1`), so agents get the same answer from the CLI, the website and MCP. The ranking is the catalog's own.
+`--json` prints the same cards as the catalog's `search_modules` and `get_module` tools (contract `tools@1`), so agents get the same answer from the CLI and the website, and from the catalog's MCP server once it is live. The ranking is the catalog's own.
 
 `module search --json`:
 

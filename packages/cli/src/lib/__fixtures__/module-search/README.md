@@ -9,4 +9,7 @@ Generated from the test fixture of the Open Mercato Modules catalog (8 real entr
   the golden queries of the catalog spec (Appendix B) plus filter cases, on the same data. `module-search.test.ts`
   checks that `yarn mercato module search|info` produces the same ranking, cards and lookups.
 
+The data predates the catalog's move of partner modules to `community`, so `@fastwhitecat/integration-ksef-direct` is
+`3rd-party` here while the live catalog lists it as `community`; the tests keep it to cover the third-party label.
+
 Do not edit by hand. Regenerate from the catalog repository when its ranking or published schema changes.
