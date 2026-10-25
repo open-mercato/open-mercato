@@ -7,6 +7,8 @@ import {
   resolveLine,
   searchModules,
   type BuiltInIndex,
+  type BuiltInModule,
+  type CatalogEntry,
   type CatalogIndex,
   type SearchModulesInput,
   type SearchModulesOutput,
@@ -152,6 +154,28 @@ describe('module search fixture', () => {
     expect(parseCatalogIndex({ schemaVersion: 2, entries: [] })).toBeNull()
     expect(parseCatalogIndex({ ...index, entries: [{ locator: 'npm:x' }] })).toBeNull()
     expect(parseBuiltInIndex({ schemaVersion: 1, coreVersion: '0.9.0', modules: [{ id: 'x' }] })).toBeNull()
+  })
+
+  it('rejects an index whose nested fields search or module info would trip over', () => {
+    const ksef = index.entries.find((entry) => entry.locator === 'npm:@fastwhitecat/integration-ksef-direct') as CatalogEntry
+    const anatomy = ksef.anatomy as NonNullable<CatalogEntry['anatomy']>
+    const broken: Record<string, unknown>[] = [
+      { providers: [null] },
+      { providers: [{ name: 'ksef' }] },
+      { agentPolicy: { '0.9': { decision: 'allow', reasons: null } } },
+      { version: { ...ksef.version, recommended: { '0.9': 7 } } },
+      { compat: { ...ksef.compat, lines: { '0.9': null } } },
+      { anatomy: { ...anatomy, lists: { ...anatomy.lists, credentials: [null] } } },
+      { anatomy: { ...anatomy, lists: { ...anatomy.lists, hosts: 'api.ksef.mf.gov.pl' } } },
+      { signals: { supplyChain: { status: 'warn', reasons: null } } },
+      { license: { spdx: 1, kind: 'osi' } },
+    ]
+    for (const change of broken) {
+      const entries = index.entries.map((entry) => (entry === ksef ? { ...entry, ...change } : entry))
+      expect(parseCatalogIndex({ ...index, entries })).toBeNull()
+    }
+    const core = builtIn.modules[0] as BuiltInModule
+    expect(parseBuiltInIndex({ ...builtIn, modules: [{ ...core, anatomy: { lists: { tables: [1] } } }] })).toBeNull()
   })
 })
 
@@ -371,6 +395,44 @@ describe('module index download and offline cache', () => {
     expect(code).toBe(0)
     expect(io.stderr).toEqual([`Using cached module index from ${new Date(NOW).toISOString()}.`])
     expect(io.stdout[0]).toContain('@fastwhitecat/integration-ksef-direct 0.1.8')
+  })
+
+  it('keeps the cached copy when a new index is malformed or cannot be searched', async () => {
+    const app = tempApp({ coreVersion: '0.9.0' })
+    await loadIndex({ appRoot: app, fetchImpl: fixtureFetch().fetchImpl, now: () => NOW })
+    const cacheFile = path.join(app, MODULE_INDEX_CACHE_FILE)
+    const healthy = fs.readFileSync(cacheFile, 'utf8')
+    const body = readFixture('modules-index.json') as CatalogIndex
+    const [first] = body.entries as [CatalogEntry]
+    const responses = [
+      { ...body, entries: body.entries.map((entry) => (entry === first ? { ...entry, providers: [null] } : entry)) },
+      // passes validation, but MiniSearch refuses a second document with the same locator
+      { ...body, entries: [...body.entries, first] },
+    ]
+    for (const response of responses) {
+      const fetchImpl: FetchLike = async (url) =>
+        url.endsWith('/modules.json') ? jsonResponse(200, response, '"idx-2"') : jsonResponse(200, readFixture('built-in.json'), '"bi-1"')
+      const io = capture()
+      const code = await runModuleSearch(['ksef'], deps(app, fetchImpl, io, NOW + 60 * 60 * 1000))
+      expect(code).toBe(0)
+      expect(io.stderr).toEqual([`Using cached module index from ${new Date(NOW).toISOString()}.`])
+      expect(io.stdout[0]).toContain('@fastwhitecat/integration-ksef-direct 0.1.8')
+      expect(fs.readFileSync(cacheFile, 'utf8')).toBe(healthy)
+    }
+  })
+
+  it('downloads a new copy when the cached one was written with fields this CLI cannot read', async () => {
+    const app = tempApp()
+    await loadIndex({ appRoot: app, fetchImpl: fixtureFetch().fetchImpl, now: () => NOW })
+    const cacheFile = path.join(app, MODULE_INDEX_CACHE_FILE)
+    const cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+    cache.index.entries[0].providers = [null]
+    fs.writeFileSync(cacheFile, JSON.stringify(cache))
+    const { fetchImpl, calls } = fixtureFetch()
+    const loaded = await loadIndex({ appRoot: app, fetchImpl, now: () => NOW + 60 * 1000 })
+    expect(loaded.source).toBe('network')
+    expect(calls[0]?.headers['if-none-match']).toBeUndefined()
+    expect(loaded.searcher.modules.size).toBeGreaterThan(0)
   })
 
   it('exits with code 2 and a readable message offline without a cache', async () => {

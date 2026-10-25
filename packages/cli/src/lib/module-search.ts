@@ -58,6 +58,7 @@ export type LoadedModuleIndex = {
   builtInUnavailable: string | null
   source: 'network' | 'cache' | 'stale-cache'
   fetchedAt: string
+  searcher: CatalogSearcher
 }
 
 export type LoadIndexOptions = {
@@ -95,7 +96,49 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
+const isNullableString = (value: unknown): value is string | null => value === null || isString(value)
+const isArrayOf = (value: unknown, item: (value: unknown) => boolean): boolean => Array.isArray(value) && value.every(item)
+const isRecordOf = (value: unknown, item: (value: unknown) => boolean): boolean =>
+  isRecord(value) && Object.values(value).every(item)
+const isAbsentOr = (value: unknown, check: (value: unknown) => boolean): boolean => value === undefined || check(value)
 
+const ANATOMY_LISTS = ['aclFeatures', 'eventsEmitted', 'eventsConsumed', 'env', 'hosts', 'tables', 'publicRoutes'] as const
+
+// The anatomy lists search indexes and `module info` prints; a module without anatomy has null.
+function isAnatomy(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (!isRecord(value)) return false
+  const lists = value.lists
+  if (lists === undefined) return true
+  return (
+    isRecord(lists) &&
+    ANATOMY_LISTS.every((key) => isAbsentOr(lists[key], isStringArray)) &&
+    isAbsentOr(lists.credentials, (credentials) =>
+      isArrayOf(credentials, (credential) => isRecord(credential) && isString(credential.key)),
+    )
+  )
+}
+
+function isAgentPolicy(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value.decision) &&
+    isArrayOf(value.reasons, (reason) => isRecord(reason) && isString(reason.code) && isString(reason.text))
+  )
+}
+
+function isSignals(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  return (
+    isRecord(value) &&
+    isAbsentOr(value.supplyChain, (item) => isRecord(item) && isString(item.status) && isStringArray(item.reasons)) &&
+    isAbsentOr(value.hygiene, (item) => isRecord(item) && isString(item.status) && isStringArray(item.failing)) &&
+    isAbsentOr(value.anatomy, isString)
+  )
+}
+
+// Every field search, `module info` and their output read, nested ones too: an entry that passes is never the reason
+// a command throws, so a malformed index is refused before it can replace a working cached copy.
 function isCatalogEntry(value: unknown): value is CatalogEntry {
   if (!isRecord(value)) return false
   const version = value.version
@@ -114,19 +157,30 @@ function isCatalogEntry(value: unknown): value is CatalogEntry {
     isString(value.kind) &&
     isString(value.category) &&
     isStringArray(value.tags) &&
-    Array.isArray(value.providers) &&
+    isArrayOf(value.providers, (provider) => isRecord(provider) && isString(provider.name) && isString(provider.label)) &&
     isStringArray(value.moduleIds) &&
     isStringArray(value.renamedFrom) &&
+    isString(value.status) &&
     typeof value.listed === 'boolean' &&
+    isNullableString(value.tier) &&
     isRecord(license) &&
+    isNullableString(license.spdx) &&
+    isString(license.kind) &&
     isRecord(version) &&
-    isRecord(version.recommended) &&
+    isNullableString(version.latest) &&
+    isNullableString(version.preview) &&
+    isNullableString(version.installableFrom) &&
+    isNullableString(version.gitRef) &&
+    isRecordOf(version.recommended, isNullableString) &&
     isRecord(compat) &&
-    isRecord(compat.lines) &&
+    isRecordOf(compat.lines, (cell) => isRecord(cell) && isString(cell.status)) &&
     isStringArray(compat.verifiedOn) &&
-    isRecord(value.agentPolicy) &&
+    isAnatomy(value.anatomy) &&
+    isSignals(value.signals) &&
+    isRecordOf(value.agentPolicy, isAgentPolicy) &&
     isRecord(install) &&
     isString(install.cli) &&
+    isAbsentOr(install.moduleFlag, isNullableString) &&
     isRecord(links) &&
     isString(links.page) &&
     isString(links.md)
@@ -161,7 +215,10 @@ export function parseBuiltInIndex(value: unknown): BuiltInIndex | null {
       isString(coreModule.description) &&
       isString(coreModule.category) &&
       isString(coreModule.install) &&
-      isString(coreModule.page),
+      isString(coreModule.page) &&
+      isAbsentOr(coreModule.requires, isStringArray) &&
+      isAbsentOr(coreModule.inPresets, isStringArray) &&
+      isAnatomy(coreModule.anatomy),
   )
   return valid ? (value as BuiltInIndex) : null
 }
@@ -259,6 +316,14 @@ async function fetchJson<T>(
   return { notModified: false, value, etag: response.headers.get('etag') }
 }
 
+function searcherOf(index: CatalogIndex, builtIn: BuiltInIndex | null): CatalogSearcher | null {
+  try {
+    return createCatalogSearcher(index, builtIn)
+  } catch {
+    return null
+  }
+}
+
 export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModuleIndex> {
   const url = options.url ?? DEFAULT_MODULES_INDEX_URL
   const builtInUrl = options.builtInUrl ?? defaultBuiltInUrl(url)
@@ -268,11 +333,16 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
   const now = options.now ?? (() => Date.now())
   const cacheFile = path.join(options.appRoot, MODULE_INDEX_CACHE_FILE)
   const cached = readCache(cacheFile)
-  const usable = cached && cached.url === url && cached.builtInUrl === builtInUrl ? cached : null
+  let usable = cached && cached.url === url && cached.builtInUrl === builtInUrl ? cached : null
 
   // a copy without the built-in list is not fresh: the next run asks for built-in.json again
   if (usable && usable.builtIn && now() - Date.parse(usable.fetchedAt) < ttlMs) {
-    return { index: usable.index, builtIn: usable.builtIn, builtInUnavailable: null, source: 'cache', fetchedAt: usable.fetchedAt }
+    const searcher = searcherOf(usable.index, usable.builtIn)
+    if (searcher) {
+      return { index: usable.index, builtIn: usable.builtIn, builtInUnavailable: null, source: 'cache', fetchedAt: usable.fetchedAt, searcher }
+    }
+    // a copy this CLI cannot search is no copy: download a new one
+    usable = null
   }
 
   try {
@@ -306,6 +376,8 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
       builtIn = usable?.builtIn ?? null
       if (!builtIn) builtInUnavailable = error instanceof Error ? error.message : String(error)
     }
+    // built before the copy is saved, so an index the CLI cannot search never replaces one it can
+    const searcher = createCatalogSearcher(index, builtIn)
     const fetchedAt = new Date(now()).toISOString()
     writeCache(cacheFile, {
       cacheVersion: 1,
@@ -317,15 +389,17 @@ export async function loadIndex(options: LoadIndexOptions): Promise<LoadedModule
       index,
       builtIn,
     })
-    return { index, builtIn, builtInUnavailable, source: 'network', fetchedAt }
+    return { index, builtIn, builtInUnavailable, source: 'network', fetchedAt, searcher }
   } catch (error: unknown) {
-    if (usable) {
+    const searcher = usable ? searcherOf(usable.index, usable.builtIn) : null
+    if (usable && searcher) {
       return {
         index: usable.index,
         builtIn: usable.builtIn,
         builtInUnavailable: usable.builtIn ? null : 'the cached copy has no built-in module list',
         source: 'stale-cache',
         fetchedAt: usable.fetchedAt,
+        searcher,
       }
     }
     const detail = error instanceof Error ? error.message : String(error)
@@ -719,7 +793,7 @@ async function loadForCommand(deps: ModuleSearchDeps): Promise<LoadedForCommand>
   }
   const app = detectAppContext(appRoot, deps.readEnabledModules ?? null)
   return {
-    searcher: createCatalogSearcher(loaded.index, loaded.builtIn),
+    searcher: loaded.searcher,
     app,
     builtInUnavailable: loaded.builtInUnavailable !== null,
   }

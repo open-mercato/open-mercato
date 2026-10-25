@@ -71,6 +71,9 @@ type ModuleIndexCache = {
 
 Fresh for 10 minutes (used without a request and without a message); afterwards revalidated with `If-None-Match`.
 When revalidation fails the older copy is used with `Using cached module index from <date>.` on stderr.
+A downloaded index is checked down to every nested field search and `module info` read, and the searcher is built
+from it, before it replaces the cached copy; one that fails either counts as a failed revalidation. A cached copy
+that fails the same check is ignored and downloaded again.
 A copy without the built-in list (`builtIn: null`) is never fresh: the next run asks for `built-in.json` again. When
 that list is missing, both commands print `Built-in module list unavailable; results may miss modules already in Open
 Mercato core.` and `Reason: <detail>` on stderr, and `module search --json` adds `builtInUnavailable: true`.
@@ -108,6 +111,7 @@ No API route and no UI path is added, so there is no `.ai/qa/tests/` scenario. C
 (`packages/cli/src/lib/__tests__/module-search.test.ts`, `packages/cli/src/__tests__/mercato.test.ts`) with the
 catalog's fixture through an injected `fetch`: parity with `search_modules` and `get_module`, golden queries,
 `--json` keys, line filter and `--all-lines`, line detection, download, TTL cache, ETag 304, retry, stale copy,
+a malformed or unsearchable download that keeps the cached copy, a cached copy the CLI cannot read,
 exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON.
 
 ## Risks & Impact Review
@@ -129,3 +133,5 @@ exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON
 ## Changelog
 
 - 2026-10-23: Initial spec, implemented in the same change.
+- 2026-10-25: A malformed index (an entry with `providers: [null]`) can no longer replace a working cached copy:
+  nested fields are validated and the searcher is built before the copy is saved.
