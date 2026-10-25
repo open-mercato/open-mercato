@@ -73,6 +73,27 @@ async function readDeal(request: APIRequestContext, token: string, dealId: strin
   return body!.deal
 }
 
+async function readDealSnapshot(request: APIRequestContext, token: string, dealId: string) {
+  const deal = await readDeal(request, token, dealId)
+  return { status: deal.status, closureOutcome: deal.closureOutcome, lossNotes: deal.lossNotes, updatedAt: deal.updatedAt }
+}
+
+async function expectStatusFilter(request: APIRequestContext, token: string, companyId: string, status: string, expectedIds: string[]) {
+  const query = new URLSearchParams({ companyId, status, pageSize: '100' })
+  const response = await apiRequest(request, 'GET', `/api/customers/deals?${query}`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ items: Array<{ id: string }>; total: number }>(response)
+  expect(body?.items.map((item) => item.id).sort()).toEqual([...expectedIds].sort())
+  expect(body?.total).toBe(expectedIds.length)
+}
+
+async function expectCompanyClassification(request: APIRequestContext, token: string, companyId: string, activeDealsCount: number, completedDealsCount: number) {
+  const response = await apiRequest(request, 'GET', `/api/customers/companies/${companyId}`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ kpis: { activeDealsCount: number; completedDealsCount: number } }>(response)
+  expect(body?.kpis).toMatchObject({ activeDealsCount, completedDealsCount })
+}
+
 async function cleanupFixtures(request: APIRequestContext, token: string, fixtures: Fixture[]): Promise<void> {
   for (const fixture of fixtures.reverse()) {
     if (fixture.bodyDelete) await deleteEntityByBody(request, token, fixture.path, fixture.id)
@@ -391,6 +412,10 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       fixtures.push({ path: '/api/customers/companies', id: companyId })
       const dealId = await createDealFixture(request, managerToken, { title: `Signed ${randomUUID()}`, companyIds: [companyId], status: 'acquired' })
       fixtures.push({ path: '/api/customers/deals', id: dealId })
+      const originalDeal = await readDealSnapshot(request, managerToken, dealId)
+      expect(originalDeal).toMatchObject({ status: 'acquired', closureOutcome: null })
+      await expectStatusFilter(request, managerToken, companyId, 'win', [dealId])
+      await expectCompanyClassification(request, managerToken, companyId, 0, 1)
       const deletedId = await createDealFixture(request, managerToken, { title: `Deleted ${randomUUID()}`, companyIds: [companyId], status: 'acquired' })
       fixtures.push({ path: '/api/customers/deals', id: deletedId })
       await deleteEntityIfExists(request, managerToken, '/api/customers/deals', deletedId)
@@ -416,6 +441,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       secondToken = await getAuthToken(request, email, fixturePassword)
       secondCompanyId = await createCompanyFixture(request, secondToken, `Second ${randomUUID()}`)
       secondDealId = await createDealFixture(request, secondToken, { title: `Second signed ${randomUUID()}`, companyIds: [secondCompanyId], status: 'acquired' })
+      const originalSecondDeal = await readDealSnapshot(request, secondToken, secondDealId)
       foreignCompanyId = await createCompanyFixture(request, otherTenantToken, `Foreign ${randomUUID()}`)
       foreignDealId = await createDealFixture(request, otherTenantToken, { title: `Foreign ${randomUUID()}`, companyIds: [foreignCompanyId], status: 'acquired' })
       try {
@@ -432,8 +458,11 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
         const confirmed = await send(next.impact.fingerprint)
         expect(confirmed.status()).toBe(200)
         expect((await readSettings(request, managerToken)).vocabulary).toEqual(candidate)
-        expect(await readDeal(request, managerToken, dealId)).toMatchObject({ status: 'acquired', closureOutcome: 'won' })
-        expect(await readDeal(request, secondToken, secondDealId)).toMatchObject({ status: 'acquired', closureOutcome: 'won' })
+        expect(await readDealSnapshot(request, managerToken, dealId)).toEqual(originalDeal)
+        expect(await readDealSnapshot(request, secondToken, secondDealId)).toEqual(originalSecondDeal)
+        await expectStatusFilter(request, managerToken, companyId, 'win', [])
+        await expectCompanyClassification(request, managerToken, companyId, 1, 0)
+        await expectCompanyClassification(request, secondToken, secondCompanyId, 1, 0)
       } finally {
         await setViewerFeatures(request, ['customers.deals.view'])
       }
@@ -457,10 +486,17 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       const statuses = ['awaiting_contract', 'acquired', 'finished']
       const dealIds: string[] = []
       for (const status of statuses) {
-        const id = await createDealFixture(request, managerToken, { title: `Classification ${status} ${randomUUID()}`, companyIds: [companyId], status })
+        const id = await createDealFixture(request, managerToken, {
+          title: `Classification ${status} ${randomUUID()}`, companyIds: [companyId], status,
+          closureOutcome: status === 'acquired' ? 'won' : undefined,
+        })
         dealIds.push(id)
         fixtures.push({ path: '/api/customers/deals', id })
       }
+      const originalDeals = await Promise.all(dealIds.map((id) => readDealSnapshot(request, managerToken, id)))
+      expect(originalDeals.map((deal) => deal.closureOutcome)).toEqual([null, 'won', null])
+      await expectStatusFilter(request, managerToken, companyId, 'win', [dealIds[1]])
+      await expectCompanyClassification(request, managerToken, companyId, 1, 1)
       const candidate = { won: ['awaiting_contract'], lost: ['acquired', 'declined'], closed: ['finished'] }
       const first = await apiRequest(request, 'PUT', SETTINGS_PATH, {
         token: managerToken, data: { vocabulary: candidate }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
@@ -485,8 +521,13 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       })
       expect(confirmed.status()).toBe(200)
       const updated = await readJsonSafe<Settings>(confirmed)
-      expect(await readDeal(request, managerToken, dealIds[0])).toMatchObject({ status: statuses[0], closureOutcome: null })
-      expect(await readDeal(request, managerToken, dealIds[1])).toMatchObject({ status: statuses[1], closureOutcome: 'won' })
+      expect(await Promise.all(dealIds.map((id) => readDealSnapshot(request, managerToken, id)))).toEqual(originalDeals)
+      await expectStatusFilter(request, managerToken, companyId, 'win', [dealIds[0]])
+      await expectStatusFilter(request, managerToken, companyId, 'lost', [dealIds[1]])
+      await expectCompanyClassification(request, managerToken, companyId, 0, 1)
+      const summary = await apiRequest(request, 'GET', '/api/customers/deals/summary', { token: managerToken })
+      expect(summary.status()).toBe(200)
+      expect(await readJsonSafe(summary)).toMatchObject({ wonThisQuarter: { dealsClosed: 2 }, winRate: { value: 100 } })
       const staleVersion = await apiRequest(request, 'PUT', SETTINGS_PATH, {
         token: managerToken, data: { vocabulary: null }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: current.updatedAt! },
       })
@@ -504,6 +545,12 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
         headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: updated!.updatedAt! },
       })
       expect(appliedReset.status()).toBe(200)
+      expect(await Promise.all(dealIds.map((id) => readDealSnapshot(request, managerToken, id)))).toEqual(originalDeals)
+      await expectStatusFilter(request, managerToken, companyId, 'win', [])
+      await expectCompanyClassification(request, managerToken, companyId, 3, 0)
+      const resetSummary = await apiRequest(request, 'GET', '/api/customers/deals/summary', { token: managerToken })
+      expect(resetSummary.status()).toBe(200)
+      expect(await readJsonSafe(resetSummary)).toMatchObject({ wonThisQuarter: { dealsClosed: 1 }, winRate: { value: 100 } })
     } finally {
       await cleanupFixtures(request, managerToken, fixtures)
     }
@@ -517,6 +564,10 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       fixtures.push({ path: '/api/customers/companies', id: companyId })
       const dealId = await createDealFixture(request, managerToken, { title: `Undo signed ${randomUUID()}`, companyIds: [companyId], status: 'acquired' })
       fixtures.push({ path: '/api/customers/deals', id: dealId })
+      const originalDeal = await readDealSnapshot(request, managerToken, dealId)
+      expect(originalDeal).toMatchObject({ status: 'acquired', closureOutcome: null })
+      await expectStatusFilter(request, managerToken, companyId, 'win', [dealId])
+      await expectCompanyClassification(request, managerToken, companyId, 0, 1)
       const logs = await apiRequest(request, 'GET', `/api/audit_logs/audit-logs/actions?resourceKind=customers.deal_status_vocabulary&resourceId=${tenantId}&undoableOnly=true`, { token: managerToken, headers: { Cookie: 'om_selected_org=__all__' } })
       expect(logs.status()).toBe(200)
       const entries = await readJsonSafe<{ items: Array<{ commandId: string; undoToken: string | null }> }>(logs)
@@ -532,7 +583,9 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       })
       expect(confirmed.status()).toBe(200)
       expect((await readSettings(request, managerToken)).source).not.toBe('tenant')
-      expect(await readDeal(request, managerToken, dealId)).toMatchObject({ status: 'acquired', closureOutcome: 'won' })
+      expect(await readDealSnapshot(request, managerToken, dealId)).toEqual(originalDeal)
+      await expectStatusFilter(request, managerToken, companyId, 'win', [])
+      await expectCompanyClassification(request, managerToken, companyId, 1, 0)
     } finally {
       await cleanupFixtures(request, managerToken, fixtures)
     }
@@ -560,6 +613,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       const login = await page.request.post('/api/auth/login', { form: { email: managerEmail, password: fixturePassword } })
       expect(login.status()).toBe(200)
       await page.goto('/backend/config/customers/deals')
+      await expect(page.getByRole('button', { name: /^Organization: Vocabulary / })).toBeVisible()
       await expect(page.getByRole('heading', { name: 'Deal status vocabulary', exact: true })).toBeVisible()
       await page.getByRole('textbox', { name: 'Won statuses', exact: true }).fill(VOCABULARY.won.join(', '))
       await page.getByRole('textbox', { name: 'Lost statuses', exact: true }).fill(VOCABULARY.lost.join(', '))
@@ -578,12 +632,14 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await confirmedSave
       expect((await readSettings(request, managerToken)).vocabulary).toEqual(VOCABULARY)
       await page.reload()
+      await expect(page.getByRole('button', { name: /^Organization: Vocabulary / })).toBeVisible()
       await expect(page.getByRole('textbox', { name: 'Won statuses', exact: true })).toHaveValue('acquired, delivered')
       await expect(page.getByRole('button', { name: 'Reset to default', exact: true })).toBeEnabled()
       await mkdir(screenshotDirectory, { recursive: true })
       await page.screenshot({ path: path.join(screenshotDirectory, 'settings-editor.png'), fullPage: true })
 
       await page.goto('/backend/customers/deals/pipeline')
+      await expect(page.getByRole('button', { name: /^Organization: Vocabulary / })).toBeVisible()
       await expect(page.getByRole('tab', { name: 'Kanban', exact: true })).toHaveAttribute('aria-selected', 'true')
       await expect(page.getByText(wonTitle, { exact: true })).toBeVisible()
       await expect(page.getByText(openTitle, { exact: true })).toBeVisible()
@@ -600,6 +656,7 @@ test.describe('TC-CRM-DEAL-STATUS-VOCABULARY-001: tenant vocabulary', () => {
       await page.screenshot({ path: path.join(screenshotDirectory, 'kanban-configured-status.png'), fullPage: true })
 
       await page.goto('/backend/config/customers/deals')
+      await expect(page.getByRole('button', { name: /^Organization: Vocabulary / })).toBeVisible()
       const resetResponse = page.waitForResponse((response) => new URL(response.url()).pathname === SETTINGS_PATH && response.request().method() === 'PUT')
       await page.getByRole('button', { name: 'Reset to default', exact: true }).click()
       expect((await resetResponse).status()).toBe(409)
