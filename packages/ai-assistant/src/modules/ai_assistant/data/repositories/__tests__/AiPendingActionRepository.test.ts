@@ -215,6 +215,41 @@ describe('AiPendingActionRepository', () => {
     expect(em.__store).toHaveLength(1)
   })
 
+  it.each([
+    { recordVersion: 'v-2' },
+    { recordVersion: 'v-1', fieldDiff: [{ field: 'name', before: 'changed', after: 'new' }] },
+  ])('replaces a pending approval when its preview changes: %j', async (preview) => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const { row: first } = await repo.create(baseInput(), ctx)
+
+    const { row: second, reused } = await repo.create(baseInput(preview), ctx)
+
+    expect(reused).toBe(false)
+    expect(second.id).not.toBe(first.id)
+    expect(second.idempotencyKey).toBe('idem-1')
+    expect(first.idempotencyKey).toBe(`idem-1:superseded:${first.id}`)
+    expect(await repo.getById(first.id, ctx)).toBe(first)
+  })
+
+  it('reuses equivalent previews after JSON storage and nested object key reordering', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const { row: first } = await repo.create(baseInput({
+      fieldDiff: [{ field: 'attributes', after: { color: 'red', size: 'large' } }],
+    }), ctx)
+
+    const { row: second, reused } = await repo.create(baseInput({
+      fieldDiff: [{ field: 'attributes', before: undefined, after: { size: 'large', color: 'red' } }],
+    }), ctx)
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
   it('after a terminal status, same idempotencyKey mints a NEW row (new id) and re-keys the stale one', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)

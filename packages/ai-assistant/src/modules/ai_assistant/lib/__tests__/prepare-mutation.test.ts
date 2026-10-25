@@ -629,6 +629,7 @@ describe('prepareMutation', () => {
     const input = { agent, tool, toolCallArgs }
     const ctx = { ...baseCtx, container }
     const first = await prepareMutation(input, ctx)
+    const originalKey = first.pendingAction.idempotencyKey
 
     recordVersion = 'v-2'
     title = 'Bug Alpha MANUAL'
@@ -636,6 +637,8 @@ describe('prepareMutation', () => {
     const retry = await prepareMutation(input, ctx)
 
     expect(second.pendingAction.id).not.toBe(first.pendingAction.id)
+    expect(second.pendingAction.idempotencyKey).toBe(originalKey)
+    expect(first.pendingAction.idempotencyKey).toBe(`${originalKey}:superseded:${first.pendingAction.id}`)
     expect(second.pendingAction.normalizedInput).toEqual(toolCallArgs)
     const diff = isBulk ? second.pendingAction.records?.[0].fieldDiff : second.pendingAction.fieldDiff
     expect(diff).toEqual([{ field: 'title', before: 'Bug Alpha MANUAL', after: 'Bug Alpha SINGLE' }])
@@ -643,6 +646,56 @@ describe('prepareMutation', () => {
     expect(retry.pendingAction.id).toBe(second.pendingAction.id)
     expect(em.__store).toHaveLength(2)
     expect(first.pendingAction.status).toBe('pending')
+  })
+
+  it.each([
+    { isBulk: false, status: 'confirmed' },
+    { isBulk: true, status: 'confirmed' },
+    { isBulk: false, status: 'executing' },
+    { isBulk: true, status: 'executing' },
+  ] as const)('reuses $status mutations after the preview changes (bulk=$isBulk)', async ({ isBulk, status }) => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    let recordVersion = 'v-1'
+    let title = 'Old title'
+    const loadRecord = () => ({
+      recordId: 'p-1',
+      entityType: 'catalog.product',
+      recordVersion,
+      before: { title },
+    })
+    const tool = makeTool({
+      name: isBulk ? 'catalog.bulk_update_products' : 'catalog.update_product',
+      isMutation: true,
+      isBulk,
+      loadBeforeRecord: async () => loadRecord(),
+      loadBeforeRecords: async () => [{ ...loadRecord(), label: title }],
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const patch = { title: 'New title' }
+    const toolCallArgs = isBulk
+      ? { records: [{ recordId: 'p-1', patch }] }
+      : { productId: 'p-1', patch }
+    const input = { agent, tool, toolCallArgs, conversationId: 'conv-1' }
+    const ctx = { ...baseCtx, container }
+    const first = await prepareMutation(input, ctx)
+    const repo = new AiPendingActionRepository(em)
+    await repo.setStatus(first.pendingAction.id, 'confirmed', baseCtx, {
+      executionResult: { recordId: 'p-1' },
+    })
+    if (status === 'executing') {
+      await repo.setStatus(first.pendingAction.id, 'executing', baseCtx)
+    }
+
+    recordVersion = 'v-2'
+    title = 'New title'
+    const second = await prepareMutation(input, ctx)
+
+    expect(second.reused).toBe(true)
+    expect(second.pendingAction.id).toBe(first.pendingAction.id)
+    expect(second.pendingAction.status).toBe(status)
+    expect(second.pendingAction.executionResult).toEqual({ recordId: 'p-1' })
+    expect(em.__store).toHaveLength(1)
   })
 
   it('enforces tenant scoping: persisted row carries ctx.tenantId + ctx.organizationId', async () => {
