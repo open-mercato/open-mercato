@@ -73,3 +73,21 @@ Fresh CI at `4c8b5f9481` passed all 15 integration shards and scheduled the cove
 A regression creates 15 shard summaries under the configured download destination and invokes the actual merge command. It fails on the old path and passes with the correction, asserting all 15 summaries contribute to the result. Coverage/audit/cache focused tests pass (24/24). Independent review verified all 15 real CI archive members at `coverage-shard-N/code/coverage-summary.json` and replayed their reports at the corrected destination: the actual merge command exited successfully, merging all 15 summaries (461457/743829 lines, 62.04%). Source review found no actionable issue. The final published-head CI job must actually merge all 15 reports before approval.
 
 - [x] Verify the real CI artifact layout and merge, independently review, and publish the artifact path correction with this checkpoint.
+
+## Human review remediation — 2026-10-25
+
+Review 5643610084 requests an operator upgrade note for nested wildcard permissions, removal of unrelated CI/workflow-test changes, and nonblocking page middleware. Main was merged cleanly before remediation. The prior CI follow-up entries above are historical evidence; their workflow, test and regression-file changes are restored to current main or removed from this PR. No CI or QA policy change is introduced.
+
+### Phase 3: Review remediation
+
+- [x] 3.1 Document effective nested-wildcard permission changes and the role/user ACL audit. — ec3318dd0
+- [x] 3.2 Restore unrelated CI/workflow-test files to current main. — ec3318dd0
+- [x] 3.3 Make middleware notification enqueue nonblocking and prove degraded-queue/error paths. — ec3318dd0
+- [x] 3.4 Run focused validation, review the final diff, publish and request human re-review. — ec3318dd0; publication and reviewer-request evidence are recorded on PR #7619
+
+
+Verification for this remediation used the local runner (no running compose app was available) with Node 24.12.0 and read-only dependency overlays; repository dependencies were unchanged. The new nonblocking regressions failed in all three middleware branches before the production fix. Afterward, 109 enterprise security tests, 23 shared enabled-registry/feature-policy tests, and 38 notification-service tests passed (170 total). The final typed middleware table also passed 23/23. Hanging enqueues do not delay navigation, timeout failures still log and report, late rejections are consumed, immediate rejection remains fail-open, and each branch requests the trusted scoped persistent event. Login/sudo, canonical recipient authorization, transaction locking and daily/all-status deduplication retain regression coverage.
+
+Post-merge checks passed: lesson catalog 5/5, all 240 deterministic harness cases in an emitted-layout fixture, and source links (8 pinned assets, 136/136 dispositions, 150 topics). Source-link validation used a temporary Windows launcher for the unchanged npm pack dry-run command. Harness dispositions are covered by existing OMH-020 (notification contract), OMH-037 (wildcard ACL), OMH-099 and OMH-116 (once-per-window alerts); no new catalog or knowledge owner was needed. A full live harness release suite was not run. The focused existing wildcard lesson now records effective-permission upgrade disclosure and the same scoped denials.
+
+Final source/contract review found no remaining actionable finding in the remediation. The operator upgrade note explicitly covers all enabled modules and both role and per-user ACLs. The workflow, TC-WF-006, and removed coverage-test file have no diff against merged main. Existing successful CI at c3bb1ae8df is historical evidence only; fresh published-head checks and human MFA/notification QA remain required. changes-requested and needs-qa are preserved; no approval or merge is granted.
