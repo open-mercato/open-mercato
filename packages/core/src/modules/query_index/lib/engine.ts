@@ -346,12 +346,17 @@ export class HybridQueryEngine implements QueryEngine {
     const applyAfterExtensions = async <R>(queryResult: QueryResult<R>): Promise<QueryResult<R>> => {
       if (!ext || !hybridExtCtx) return queryResult
       const diCtx = ext.resolve ? { resolve: ext.resolve } : noopDi
-      return await runAfterQueryPipeline(
+      const ciphertextSearchWarnings = queryResult.meta?.ciphertextSearchWarnings
+      const result = await runAfterQueryPipeline(
         queryResult as QueryResult<Record<string, unknown>>,
         opts,
         hybridExtCtx,
         diCtx,
       ) as QueryResult<R>
+      if (ciphertextSearchWarnings?.length) {
+        result.meta = { ...result.meta, ciphertextSearchWarnings }
+      }
+      return result
     }
 
     try {

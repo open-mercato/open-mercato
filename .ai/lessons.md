@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 151 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 152 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -82,6 +82,7 @@ This catalog indexes 151 focused lessons. Route the task first, then read only r
 - [Preserve Turbopack compiler cache during greenfield dev warmup](lessons/preserve-turbopack-compiler-cache-during-greenfield-dev.md) — area:module-data,architecture,debugging; module:cache,auth,create_app; topic:dev-runtime,runtime-startup,template-sync
 - [Projection updates that change indexed parent fields must emit query-index upserts](lessons/projection-updates-that-change-indexed-parent-fields.md) — area:module-data,debugging; module:query_index,customers,events; topic:command-pattern,events,filters
 - [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search; topic:custom-fields,data-scoping,query-index
+- [Query diagnostics must survive result replacement](lessons/query-diagnostics-must-survive-result-replacement.md) — area:module-data,umes,testing; module:query_index; topic:query-index,encryption,filters
 - [makeCrudRoute `sortField` must be `z.string()` + `sortFieldMap`, not a strict enum](lessons/makecrudroute-sortfield-is-a-string-with-a-sortfieldmap.md) — area:module-data,backend-ui; module:eudr,customers; topic:crud-factory,query-index
 - [Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files](lessons/standalone-generators-must-reuse-package-generated.md) — area:module-data,architecture,framework-context; module:entities,cli,create_app; topic:auto-discovery,build-output,data-scoping
 - [Store global event bus in `globalThis` to survive module duplication in dev](lessons/store-global-event-bus-in-globalthis-to-survive-module.md) — area:module-data,architecture,debugging; module:events,shared; topic:events,module-boundaries,package-runtime
