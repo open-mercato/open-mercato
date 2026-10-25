@@ -40,7 +40,17 @@ Finalization must preserve subscriber result items and unrelated metadata, and m
 
 ### Phase 2: Address the fallback review finding
 
-- [ ] 2.1 Reproduce lost diagnostics with a no-index fallback and replacement subscriber.
-- [ ] 2.2 Preserve fallback diagnostics after Hybrid extensions on every fallback return.
-- [ ] 2.3 Validate the focused fix and review compatibility, security, and scope.
+- [x] 2.1 Reproduce lost diagnostics with a no-index fallback and replacement subscriber. — b6ea4127d30f03e082e1bc720324fa6655403062
+- [x] 2.2 Preserve fallback diagnostics after Hybrid extensions on every fallback return. — b6ea4127d30f03e082e1bc720324fa6655403062
+- [x] 2.3 Validate the focused fix and review compatibility, security, and scope. — b6ea4127d30f03e082e1bc720324fa6655403062
 - [ ] 2.4 Publish evidence and request independent re-review while retaining QA and review gates.
+
+## Verification evidence
+
+- Runner: local. Docker daemon access was unavailable; dependency overlays were read-only and no repository manifests changed.
+- Red: four development fallback cases failed on the absent `ciphertextSearchWarnings` before the fix.
+- Green: complete Hybrid suite, 87 tests; shared Basic engine, warning helper, and extension runner suites, 100 tests.
+- Lessons catalog check and five focused validator tests passed; `git diff --check` passed.
+- Fresh `main` at `774c64847` merged cleanly in `git merge-tree --write-tree`; no base merge was needed.
+- Existing-head CI had 24 successful and five explicitly skipped checks. New-head CI is reported separately and is not inferred from those results.
+- Follow-up review found no additional contract, query-semantics, data-scope, production-payload, or privacy change. Independent human review and QA remain pending.
