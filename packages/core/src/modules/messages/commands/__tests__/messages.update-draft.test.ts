@@ -1,4 +1,5 @@
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { linkAttachmentsToMessage } from '@open-mercato/core/modules/messages/lib/attachments'
 
 type RegisteredCommand = {
   id: string
@@ -205,6 +206,19 @@ describe('messages.messages.update_draft command send transition', () => {
     )
     expect(emFork.flush.mock.invocationCallOrder[0]).toBeLessThan(
       emFork.commit.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('links attachments with the acting principal so owner access policies apply', async () => {
+    const { command, ctx } = createHarness({}, [
+      { recipientUserId, recipientType: 'to', deletedAt: null },
+    ])
+    const attachmentId = '66666666-6666-4666-8666-666666666666'
+
+    await command.execute(updateInput({ attachmentIds: [attachmentId] }), ctx)
+
+    expect(linkAttachmentsToMessage).toHaveBeenCalledWith(
+      expect.anything(), messageId, [attachmentId], organizationId, tenantId, { auth: ctx.auth, container: ctx.container },
     )
   })
 

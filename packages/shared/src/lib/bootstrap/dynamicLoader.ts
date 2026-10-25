@@ -4,6 +4,7 @@ import type { AppDiRegistrar } from '../di/container'
 import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import {
   applyModuleOverridesFromEnabledModules,
   type ModuleEntryWithOverrides,
@@ -12,6 +13,7 @@ import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
 } from './generatedCacheRecovery'
+import { markBootstrapRegistrationsFailed } from './bootstrapRegistrations'
 import { CLIENT_ONLY_STUB_NAMESPACE, createClientOnlyStubPlugin } from './clientOnlyModules'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -584,6 +586,7 @@ function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegist
 async function loadOptionalGeneratedModule(
   tsPath: string,
   fallback: Record<string, unknown>,
+  onLoadFailure?: (error: unknown) => void,
 ): Promise<Record<string, unknown>> {
   try {
     return await compileAndImport(tsPath)
@@ -600,8 +603,14 @@ async function loadOptionalGeneratedModule(
       filePath: tsPath,
       err: error,
     })
+    onLoadFailure?.(error)
     return fallback
   }
+}
+
+function recordBootstrapRegistrationsFailure(error: unknown): void {
+  markBootstrapRegistrationsFailed()
+  getTelemetryRuntime()?.reportError(error, { module: 'shared', code: 'shared.bootstrap_registrations_load_failed' })
 }
 
 function resolveAppRootOrThrow(appRoot?: string): AppRoot {
@@ -874,6 +883,7 @@ export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapD
       loadOptionalGeneratedModule(
         path.join(resolved.generatedDir, 'bootstrap-registrations.generated.ts'),
         { runBootstrapRegistrations: () => undefined },
+        recordBootstrapRegistrationsFailure,
       ),
     ])
     return {

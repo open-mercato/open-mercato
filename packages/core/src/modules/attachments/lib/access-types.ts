@@ -75,4 +75,6 @@ export type AttachmentAccessResolverEntry = {
   moduleId: string
   resolvers: readonly unknown[]
   protectedTargets?: readonly unknown[]
+  /** The module's direct attachment readers evaluate owner access through `evaluateAttachmentRowAccess`. */
+  enforcesOwnerAccessOnDirectReads?: boolean
 }
