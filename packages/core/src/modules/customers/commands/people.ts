@@ -83,8 +83,11 @@ type PersonAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -333,8 +336,11 @@ function serializePersonSnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -1643,8 +1649,11 @@ const deletePersonCommand: CommandHandler<
           entity,
           name: address.name,
           purpose: address.purpose,
+          companyName: address.companyName ?? null,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
+          buildingNumber: address.buildingNumber ?? null,
+          flatNumber: address.flatNumber ?? null,
           city: address.city,
           region: address.region,
           postalCode: address.postalCode,
