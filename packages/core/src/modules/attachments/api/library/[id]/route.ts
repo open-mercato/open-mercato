@@ -20,6 +20,7 @@ import {
   readAttachmentMetadata,
 } from '../../../lib/metadata'
 import type { StorageDriverFactory } from '../../../lib/drivers'
+import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../../../lib/storageReferences'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -256,6 +257,13 @@ async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
     organizationId: auth.orgId,
   }
   const outcome = await em.transactional(async (tx) => {
+    const candidate = await findOneWithDecryption(tx, Attachment, deleteFilter, undefined, {
+      tenantId: auth.tenantId, organizationId: auth.orgId,
+    })
+    if (!candidate) return throwAttachmentAccessError(404)
+    const referenceIds = await lockAttachmentStorageReferences(tx, candidate)
+    const removal = resolveAttachmentStorageRelease(referenceIds, candidate.id)
+    if (!removal.removed) return throwAttachmentAccessError(404)
     const record = await findOneWithDecryption(tx, Attachment, deleteFilter, {
       lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
     }, { tenantId: auth.tenantId, organizationId: auth.orgId })
@@ -267,10 +275,10 @@ async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
     })
     tx.remove(record)
     await tx.flush()
-    return { record, driver, guard }
+    return { record, driver, guard, releaseStorage: removal.releaseStorage }
   })
   const { record } = outcome
-  await outcome.driver.delete(record.partitionCode, record.storagePath)
+  if (outcome.releaseStorage) await outcome.driver.delete(record.partitionCode, record.storagePath)
   await outcome.guard.runAfterSuccess()
 
   if (dataEngine) {
