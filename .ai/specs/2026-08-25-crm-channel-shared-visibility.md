@@ -156,6 +156,8 @@ Response-shape additions (all **optional** fields, fail-closed absent ⇒ today'
 
 Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 
+The interaction command boundary also enforces this privacy policy for updates, completion, cancellation, deletion, and undo/redo (#7850). Authorization uses the original row before optimistic-lock checks or mutation: a hidden private email returns 404, including for wildcard administrators and API keys. Explicit conversation and channel shares allow teammates to edit visible email content; changing an email's author, type, or visibility still requires its original author. Legacy activity adapters inherit the same checks. Routes, payload schemas, response shapes, events, and historical undo-log decoding are unchanged. `TC-CRM-EMAIL-VISIBILITY-005` covers the generic and legacy mutation paths and conversation-share revocation.
+
 | Surface | Change | Classification |
 |---|---|---|
 | **2. Types / 3. Signatures** | `EmailVisibilityMikroFilter` narrows from `{ $or?: … }` to an opaque `FilterQuery<CustomerInteraction>`. All four callers are in-repo and converted in the same commit. `ApplyEmailVisibilityFilterOptions` and `BuildPersonEmailThreadsOptions` gain **optional** `sharedConversations` with a fail-closed default (absent ⇒ today's strict owner-only behaviour), matching the `userFeatures` precedent. | Breaking-shape but fully in-repo → **allowed with same-commit caller update**. `@deprecated` alias `EmailVisibilityMikroFilter` retained as a type alias for one minor per the deprecation protocol. |
@@ -225,6 +227,7 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 
 | Date | Change |
 |---|---|
+| 2026-10-25 | Close #7850 at the canonical interaction mutation boundary: check original-row privacy before writes and replay, preserve team-shared content editing, and require the author for author/type/visibility changes. Add command regression coverage and `TC-CRM-EMAIL-VISIBILITY-005` API coverage. |
 | 2026-08-25 | Skeleton drafted with the Q1–Q4 Open Questions gate (`om-spec-writing`). |
 | 2026-08-25 | Readiness audit completed — 2 Critical / 6 Warning BC findings, 5 High risks ([`analysis/ANALYSIS-…`](analysis/ANALYSIS-2026-08-25-crm-channel-shared-visibility.md)). |
 | 2026-08-25 | Gate closed (Q1–Q4 decided from the implementation brief + audit safety findings); all deferred sections filled; 16-step Implementation Plan added. Ready for implementation. |
