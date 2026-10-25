@@ -55,9 +55,9 @@ function readErrorKey(value: unknown): string | null {
   return typeof value.error === 'string' && value.error.trim().length ? value.error.trim() : null
 }
 
-function toApiError(status: number, result: unknown, fallbackKey: string, t: TranslateFn): Error & { status?: number } {
+function toApiError(status: number, result: unknown, fallbackKey: string, t: TranslateFn): Error & { status: number; body: unknown } {
   const key = readErrorKey(result) ?? fallbackKey
-  return Object.assign(new Error(t(key, key)), { status })
+  return Object.assign(new Error(t(key, key)), { status, body: result })
 }
 
 function isReturnLabelStatus(value: unknown): value is ReturnLabelResponse {
