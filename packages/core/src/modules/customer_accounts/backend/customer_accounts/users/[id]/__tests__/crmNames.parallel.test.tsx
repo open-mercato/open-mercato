@@ -88,9 +88,10 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? '',
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const translate = (_key: string, fallback?: string) => fallback ?? ''
+  return { useT: () => translate }
+})
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(async () => true), ConfirmDialogElement: null }),
@@ -145,6 +146,7 @@ describe('PortalUserDetailPageClient CRM name lookups', () => {
     const companyCalls = apiCallMock.mock.calls.filter((call) => call[0] === '/api/customers/companies/company-1')
     expect(personCalls).toHaveLength(1)
     expect(companyCalls).toHaveLength(1)
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
 
     personDeferred.resolve({ ok: true, status: 200, result: { person: { id: 'person-1', displayName: 'Jane Doe' } } })
     companyDeferred.resolve({ ok: true, status: 200, result: { company: { id: 'company-1', displayName: 'Acme Inc' } } })
