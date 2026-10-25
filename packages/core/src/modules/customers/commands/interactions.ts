@@ -202,7 +202,7 @@ async function ensureInteractionRestoreAccess(
 ): Promise<void> {
   if (current) {
     await ensureInteractionMutationAccess(ctx, em, current)
-    await ensureInteractionPrivacyChangeAccess(ctx, current, restored)
+    await ensureInteractionPrivacyChangeAccess(ctx, current, { ...restored, visibility: restored.visibility ?? null })
   }
   await ensureInteractionMutationAccess(ctx, em, { ...restored, channelId: current?.channelId })
 }

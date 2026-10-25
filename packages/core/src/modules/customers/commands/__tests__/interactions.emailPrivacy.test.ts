@@ -425,4 +425,33 @@ describe('private email command authorization', () => {
     })).rejects.toMatchObject({ status: 404 })
     expect(em.flush).not.toHaveBeenCalled()
   })
+
+  it.each(['shared', 'conversation'])('keeps a historical visibility restore owner-only for %s email', async (sharing) => {
+    const visibility = sharing === 'shared' ? 'shared' : 'private'
+    const { interaction, em, ctx } = createHarness(createInteraction({ visibility }))
+    if (sharing === 'conversation') {
+      jest.mocked(listGrantsForViewerOnPerson).mockResolvedValue([{ personEntityId: PERSON_ID, ownerUserId: AUTHOR_ID }])
+    }
+    const snapshot = historicalSnapshot(interaction)
+    delete snapshot.interaction.visibility
+    await expect(handler('interactions.update').undo!({
+      input: {},
+      ctx,
+      logEntry: { commandPayload: { undo: { before: snapshot } } } as never,
+    })).rejects.toMatchObject({ status: 404 })
+    expect(interaction.visibility).toBe(visibility)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('allows the author to restore a historical snapshot without visibility', async () => {
+    const { interaction, em, ctx } = createHarness(createInteraction(), { sub: AUTHOR_ID })
+    const snapshot = historicalSnapshot(interaction)
+    delete snapshot.interaction.visibility
+    await handler('interactions.update').undo!({
+      input: {},
+      ctx,
+      logEntry: { commandPayload: { undo: { before: snapshot } } } as never,
+    })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
 })
