@@ -43,4 +43,15 @@ The main risk is repeating a completed mutation or retaining a stale pending pre
 ### Phase 2: Review remediation
 
 - [x] 2.1 Merge main and preserve fresh pending previews plus confirmed/executing deduplication with regression tests. — e893cd89d
-- [ ] 2.2 Run focused validation, the post-merge lessons validator and code review; publish evidence and request rereview.
+- [x] 2.2 Run focused validation, the post-merge lessons validator and code review; publish evidence and request rereview. — e893cd89d
+
+## Verification and handoff
+
+Runner: local, focused fallback for the new correction under the repository CI-first override.
+
+- Preparation, repository and stale-version recheck suites: 61 tests pass.
+- New single/bulk confirmed/executing regressions: 4 fail before the correction, 4 pass with it.
+- Post-merge lessons tests: 5/5 pass; catalog checker and diff checks pass.
+- Review found no additional actionable code findings. Public API, schema, TTL, scoping and confirmation semantics remain intact.
+- Evidence: https://github.com/open-mercato/open-mercato/pull/7756#issuecomment-6399371225
+- Rereview requested from wojciechszyjka. Preserve changes-requested and needs-qa; full CI and live QA remain external merge gates.
