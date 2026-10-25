@@ -2,14 +2,14 @@ import { randomUUID } from 'crypto'
 import { LockMode, type FindOneOptions } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { assertFound, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError, assertFound } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   WarrantyClaim,
   WarrantyClaimEvent,
@@ -66,6 +66,11 @@ export async function enforceWarrantyClaimOptimisticLock(
   })
 }
 
+export async function throwUndoRefusal(key: string, fallback: string): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, { error: translate(key, fallback), code: key })
+}
+
 export async function loadScopedClaim(
   em: EntityManager,
   id: string,
@@ -104,7 +109,7 @@ export async function assertUniqueClaimLineNumbers(lineNumbers: Iterable<number>
       const { translate } = await resolveTranslations()
       const code = 'warranty_claims.errors.duplicateLineNo'
       throw new CrudHttpError(409, {
-        error: translate(code, 'Another line on this claim already uses that line number. Choose a different number before retrying.'),
+        error: translate(code, 'Another line on this claim already uses that line number. Remove the line using that number or change its number through the API, then retry.'),
         code,
       })
     }

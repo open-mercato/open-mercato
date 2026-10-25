@@ -45,6 +45,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   requireScopedClaim,
+  throwUndoRefusal,
   type WarrantyClaimScope,
 } from './shared'
 import { assertPendingClaimQuantitiesWithinSold, validateClaimReferences } from './claims'
@@ -136,6 +137,31 @@ const mutableParentStatuses = new Set([
   'received',
   'inspecting',
 ])
+
+const receivingParentStatuses = new Set(['received', 'inspecting'])
+
+type LineUndoParentRule = {
+  allowedParentStatuses: ReadonlySet<string>
+  lockedKey: string
+  lockedFallback: string
+}
+
+type LineUndoState = {
+  claim: WarrantyClaim
+  line: WarrantyClaimLine
+}
+
+const mutableParentUndoRule: LineUndoParentRule = {
+  allowedParentStatuses: mutableParentStatuses,
+  lockedKey: 'warranty_claims.errors.lineLocked',
+  lockedFallback: 'This line is locked in the current claim status.',
+}
+
+const receivingParentUndoRule: LineUndoParentRule = {
+  allowedParentStatuses: receivingParentStatuses,
+  lockedKey: 'warranty_claims.errors.receivingStatusInvalid',
+  lockedFallback: 'Receiving details can only be saved when the claim is received or under inspection.',
+}
 
 function parseCommandInput<T>(schema: z.ZodType<T>, rawInput: unknown): T {
   const result = schema.safeParse(rawInput ?? {})
@@ -489,6 +515,37 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
   claim.updatedAt = new Date()
 }
 
+function refuseLineUndoConflict(): Promise<never> {
+  return throwUndoRefusal('warranty_claims.errors.conflict', 'This claim changed while you were editing it.')
+}
+
+async function requireCurrentLineUndoState(
+  em: EntityManager,
+  after: LineSnapshot | null | undefined,
+  rule: LineUndoParentRule,
+): Promise<LineUndoState> {
+  if (!after) return refuseLineUndoConflict()
+  const scope: WarrantyClaimScope = { tenantId: after.tenantId, organizationId: after.organizationId }
+  const claim = await findOneWithDecryption(
+    em,
+    WarrantyClaim,
+    { id: after.claimId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+  if (!claim) return refuseLineUndoConflict()
+  if (!rule.allowedParentStatuses.has(claim.status)) return throwUndoRefusal(rule.lockedKey, rule.lockedFallback)
+  const line = await findOneWithDecryption(
+    em,
+    WarrantyClaimLine,
+    { id: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+  if (!line || !after.updatedAt || toIso(line.updatedAt) !== after.updatedAt) return refuseLineUndoConflict()
+  return { claim, line }
+}
+
 async function requireScopedLine(
   em: EntityManager,
   lineId: string,
@@ -662,25 +719,20 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
   buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.create', result.lineId, snapshots),
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
-    const after = payload?.after
-    if (!after) return
-    const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
-    const claim = line ? claimOf(line) : null
-    if (!line || !claim) return
+    let state!: LineUndoState
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
       },
       () => {
-        line.deletedAt = new Date()
-        line.updatedAt = new Date()
+        state.line.deletedAt = new Date()
+        state.line.updatedAt = new Date()
       },
-      () => recomputeClaimRollups(em, claim),
+      () => recomputeClaimRollups(em, state.claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.create.undo' })
-    await emitClaimUpdated(ctx, claim)
-    await emitLineUndoCrud(ctx, 'deleted', line)
+    await emitClaimUpdated(ctx, state.claim)
+    await emitLineUndoCrud(ctx, 'deleted', state.line)
   },
 }
 
@@ -756,18 +808,18 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
-    if (!line) return
-    const claim = claimOf(line) ?? await requireScopedClaim(em, before.claimId, scope)
+    let state!: LineUndoState
     await withAtomicFlush(em, [
-      () => assertLineSnapshotNumberAvailable(em, claim, before),
-      () => restoreLineFromSnapshot(line, before),
-      () => recomputeClaimRollups(em, claim),
+      async () => {
+        state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
+        await assertLineSnapshotNumberAvailable(em, state.claim, before)
+      },
+      () => restoreLineFromSnapshot(state.line, before),
+      () => recomputeClaimRollups(em, state.claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.update.undo' })
-    await emitClaimUpdated(ctx, claim)
-    await emitLineUndoCrud(ctx, 'updated', line)
+    await emitClaimUpdated(ctx, state.claim)
+    await emitLineUndoCrud(ctx, 'updated', state.line)
   },
 }
 
@@ -816,36 +868,21 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
-    const claim = (line ? claimOf(line) : null) ?? await requireScopedClaim(em, before.claimId, scope)
+    let state!: LineUndoState
     await withAtomicFlush(em, [
       async () => {
-        await assertClaimLineNumberAvailable(em, claim, before.lineNo, before.id)
-        if (!line) {
-          line = em.create(WarrantyClaimLine, {
-            id: before.id,
-            claim,
-            organizationId: before.organizationId,
-            tenantId: before.tenantId,
-            lineNo: before.lineNo,
-            qtyClaimed: before.qtyClaimed,
-            lineStatus: before.lineStatus,
-            warrantyStatus: before.warrantyStatus,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
-          em.persist(line)
-        }
-        restoreLineFromSnapshot(line, before)
-        line.deletedAt = null
+        state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
+        await assertLineSnapshotNumberAvailable(em, state.claim, before)
       },
-      () => recomputeClaimRollups(em, claim),
+      () => {
+        restoreLineFromSnapshot(state.line, before)
+        state.line.deletedAt = null
+      },
+      () => recomputeClaimRollups(em, state.claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.delete.undo' })
-    if (!line) return
-    await emitClaimUpdated(ctx, claim)
-    await emitLineUndoCrud(ctx, 'created', line)
+    await emitClaimUpdated(ctx, state.claim)
+    await emitLineUndoCrud(ctx, 'created', state.line)
   },
 }
 
@@ -936,18 +973,18 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
-    if (!line) return
-    const claim = await requireScopedClaim(em, before.claimId, scope)
+    let state!: LineUndoState
     await withAtomicFlush(em, [
-      () => assertLineSnapshotNumberAvailable(em, claim, before),
-      () => restoreLineFromSnapshot(line, before),
-      () => recomputeClaimRollups(em, claim),
+      async () => {
+        state = await requireCurrentLineUndoState(em, payload?.after, receivingParentUndoRule)
+        await assertLineSnapshotNumberAvailable(em, state.claim, before)
+      },
+      () => restoreLineFromSnapshot(state.line, before),
+      () => recomputeClaimRollups(em, state.claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.receive.undo' })
-    await emitClaimUpdated(ctx, claim)
-    await emitLineUndoCrud(ctx, 'updated', line)
+    await emitClaimUpdated(ctx, state.claim)
+    await emitLineUndoCrud(ctx, 'updated', state.line)
   },
 }
 
@@ -1004,18 +1041,18 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
-    if (!line) return
-    const claim = await requireScopedClaim(em, before.claimId, scope)
+    let state!: LineUndoState
     await withAtomicFlush(em, [
-      () => assertLineSnapshotNumberAvailable(em, claim, before),
-      () => restoreLineFromSnapshot(line, before),
-      () => recomputeClaimRollups(em, claim),
+      async () => {
+        state = await requireCurrentLineUndoState(em, payload?.after, receivingParentUndoRule)
+        await assertLineSnapshotNumberAvailable(em, state.claim, before)
+      },
+      () => restoreLineFromSnapshot(state.line, before),
+      () => recomputeClaimRollups(em, state.claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.release_quarantine.undo' })
-    await emitClaimUpdated(ctx, claim)
-    await emitLineUndoCrud(ctx, 'updated', line)
+    await emitClaimUpdated(ctx, state.claim)
+    await emitLineUndoCrud(ctx, 'updated', state.line)
   },
 }
 
@@ -1071,17 +1108,18 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     const payload = extractUndoPayload<LineUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
-    if (!line) return
-    const claim = claimOf(line) ?? await requireScopedClaim(em, before.claimId, scope)
+    let state!: LineUndoState
     await withAtomicFlush(em, [
-      () => assertLineSnapshotNumberAvailable(em, claim, before),
-      () => restoreLineFromSnapshot(line, before),
+      async () => {
+        state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
+        await assertLineSnapshotNumberAvailable(em, state.claim, before)
+      },
+      () => restoreLineFromSnapshot(state.line, before),
+      () => recomputeClaimRollups(em, state.claim),
     ], { transaction: true, label: 'warranty_claims.claim_line.set_assessment.undo' })
-    await emitClaimUpdated(ctx, claim)
-    await emitLineUndoCrud(ctx, 'updated', line)
+    await emitClaimUpdated(ctx, state.claim)
+    await emitLineUndoCrud(ctx, 'updated', state.line)
   },
 }
 

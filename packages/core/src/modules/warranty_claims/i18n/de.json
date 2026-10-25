@@ -287,7 +287,7 @@
   "warranty_claims.errors.deleteNotAllowed": "Nur Claims mit Status Entwurf oder Storniert können gelöscht werden.",
   "warranty_claims.errors.dispositionGradeConflict": "Wiedereinlagerung ist nur für Artikel mit Bewertung A oder B erlaubt.",
   "warranty_claims.errors.dispositionTypeConflict": "Diese Disposition ist für diesen Reklamationstyp nicht verfügbar.",
-  "warranty_claims.errors.duplicateLineNo": "Eine andere Position dieses Anspruchs verwendet bereits diese Positionsnummer. Wählen Sie vor einem erneuten Versuch eine andere Nummer.",
+  "warranty_claims.errors.duplicateLineNo": "Eine andere Position dieses Anspruchs verwendet bereits diese Positionsnummer. Entfernen Sie die Position mit dieser Nummer oder ändern Sie ihre Nummer über die API und versuchen Sie es erneut.",
   "warranty_claims.errors.duplicateSerial": "Eine Registrierung mit dieser Seriennummer existiert bereits.",
   "warranty_claims.errors.fieldLocked": "Dieses Feld kann im aktuellen Claim-Status nicht bearbeitet werden.",
   "warranty_claims.errors.invalidAssignee": "Die ausgewählte zuständige Person wurde nicht gefunden.",
