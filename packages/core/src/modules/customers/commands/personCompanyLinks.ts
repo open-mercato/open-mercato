@@ -68,6 +68,14 @@ type PersonCompanyLinkCreateBefore = {
   profileCompanyId: string | null
 }
 
+type PersonCompanyLinkCreateResult = {
+  linkId: string
+  created: boolean
+  undeleted: boolean
+  changed: boolean
+  createBefore: PersonCompanyLinkCreateBefore
+}
+
 /**
  * Snapshot of a legacy profile-only company assignment — `customer_person_profiles.company_id`
  * set with no backing link row (#5114). It carries no link id because none exists; `kind`
@@ -178,6 +186,10 @@ async function loadPersonCompanyLinkSnapshot(
     },
   )
   if (!link) return null
+  return snapshotPersonCompanyLink(link)
+}
+
+function snapshotPersonCompanyLink(link: CustomerPersonCompanyLink): PersonCompanyLinkSnapshot {
   const personId = typeof link.person === 'string' ? link.person : link.person.id
   const companyId = typeof link.company === 'string' ? link.company : link.company.id
   return {
@@ -310,7 +322,7 @@ async function restoreCreatePersonCompanyLink(
   })
 }
 
-const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInput, { linkId: string; created: boolean; undeleted: boolean }> = {
+const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInput, PersonCompanyLinkCreateResult> = {
   id: 'customers.personCompanyLinks.create',
   async prepare(rawInput, ctx) {
     const parsed = personCompanyLinkCreateSchema.parse(rawInput)
@@ -346,9 +358,17 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     const makePrimary = Boolean(parsed.isPrimary) || existingLinks.length === 0
     const existingLive =
       existingLinks.find((link) => (typeof link.company === 'string' ? link.company : link.company.id) === company.id) ?? null
+    // This state must come from execute's decision, not prepare's earlier read: another
+    // request may have created the link between prepare and execute.
+    const createBefore: PersonCompanyLinkCreateBefore = {
+      link: existingLive ? snapshotPersonCompanyLink(existingLive) : null,
+      primaryLinkIds: existingLinks.filter((link) => link.isPrimary).map((link) => link.id),
+      profileCompanyId: typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null,
+    }
 
     if (existingLive) {
-      if (makePrimary && !existingLive.isPrimary) {
+      const changed = makePrimary && !existingLive.isPrimary
+      if (changed) {
         await withAtomicFlush(em, [
           () => clearPrimaryFlagsForPerson(em, person),
           () => {
@@ -357,7 +377,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
           },
         ], { transaction: true })
       }
-      return { linkId: existingLive.id, created: false, undeleted: false }
+      return { linkId: existingLive.id, created: false, undeleted: false, changed, createBefore }
     }
 
     let link!: CustomerPersonCompanyLink
@@ -365,6 +385,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     await withAtomicFlush(em, [
       async () => {
         const deletedLink = await findDeletedPersonCompanyLink(em, person, company)
+        if (deletedLink) createBefore.link = snapshotPersonCompanyLink(deletedLink)
         if (makePrimary) {
           await clearPrimaryFlagsForPerson(em, person)
         }
@@ -406,7 +427,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
-    return { linkId: link.id, created: !undeleted, undeleted }
+    return { linkId: link.id, created: !undeleted, undeleted, changed: true, createBefore }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -416,9 +437,9 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     })
   },
   buildLog: async ({ result, snapshots }) => {
-    const before = snapshots.before as PersonCompanyLinkCreateBefore | undefined
+    const before = result.createBefore
     const after = snapshots.after as PersonCompanyLinkSnapshot | undefined
-    if (!result.created && !result.undeleted && before?.link?.isPrimary === after?.isPrimary) {
+    if (!result.changed) {
       return { skipLog: true }
     }
     const { translate } = await resolveTranslations()
@@ -525,6 +546,12 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       undefined,
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
+    const existingLinks = await loadPersonCompanyLinks(em, person)
+    const createBefore: PersonCompanyLinkCreateBefore = {
+      link: link ? snapshotPersonCompanyLink(link) : null,
+      primaryLinkIds: existingLinks.filter((entry) => entry.isPrimary).map((entry) => entry.id),
+      profileCompanyId: typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null,
+    }
 
     await withAtomicFlush(em, [
       async () => {
@@ -565,7 +592,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
-    return { linkId: link!.id, created: true, undeleted: false }
+    return { linkId: link!.id, created: true, undeleted: false, changed: true, createBefore }
   },
 }
 

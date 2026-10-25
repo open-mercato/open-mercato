@@ -290,6 +290,36 @@ describe('customers.personCompanyLinks.create — repeated request undo (#7857)'
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
   })
 
+  it('does not offer undo when another request creates the link after prepare', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const handler = commandRegistry.get('customers.personCompanyLinks.create') as CommandHandler
+    const input = inputFor(COMPANY_B_ID)
+    const ctx = makeCtx(fixtures.em)
+
+    // Request B prepares first, then request A creates the relationship before B executes.
+    const staleBefore = await handler.prepare!(input, ctx)
+    expect((staleBefore.before as { link: unknown }).link).toBeNull()
+    await createAndLog(fixtures, COMPANY_B_ID)
+
+    const result = await handler.execute(input, ctx) as {
+      created: boolean
+      undeleted: boolean
+      changed: boolean
+      createBefore: { link: { id: string; deletedAt: string | null } | null }
+    }
+    const after = await handler.captureAfter!(input, result, ctx)
+    const log = await handler.buildLog!({ input, ctx, result, snapshots: { ...staleBefore, after } })
+
+    expect(result).toMatchObject({ created: false, undeleted: false, changed: false })
+    expect(result.createBefore.link).toMatchObject({ id: LINK_B_ID, deletedAt: null })
+    expect(log?.skipLog).toBe(true)
+    expect(log?.payload).toBeUndefined()
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
   it('undoes a primary promotion without deleting the existing relationship', async () => {
     const fixtures = makeFixtures([
       { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
