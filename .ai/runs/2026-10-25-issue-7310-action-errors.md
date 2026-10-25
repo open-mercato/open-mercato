@@ -39,7 +39,7 @@ Conflict resolution touches authorization-sensitive commands; targeted unit suit
 - [x] 2.1 Merge current main preserving origin guards and localized refusal behavior — ee11fa35a
 - [x] 2.2 Repair authenticated refusal fixtures and assign a unique integration ID — ee11fa35a
 - [x] 2.3 Validate the merged commands, integration discovery, compiler/lint, and lessons catalog — ee11fa35a
-- [ ] 2.4 Publish findings resolution and request human re-review
+- [x] 2.4 Publish findings resolution and request human re-review — d78650250
 
 ## Validation evidence
 
@@ -54,3 +54,4 @@ Runner: local. No running compose app or reusable test-environment descriptor wa
 - `git diff --check`: passed.
 - The initial broad package compiler attempt lacked installed drag-and-drop types; the source-mapped focused compiler used verified installed types and passed. Full package compilation also traversed unrelated AI SDK/generation dependencies unavailable in the local runtime. No full-gate result is claimed for this merged head.
 - Existing manual QA was performed on a locally adapted cherry-pick; no new QA approval was granted.
+
