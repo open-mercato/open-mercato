@@ -46,6 +46,8 @@ Conflicts may combine main's error-reporting requirements with the provider's lo
 - [x] 2.2 Run focused validation and review the resulting head using CI-first policy — 7543cae85002724af0ef768f63e9664ba37f11b9; source review and static checks complete, remote checks queued/running, no green CI claim
 - [x] 2.3 Publish evidence and request re-review while preserving changes-requested — 7543cae85002724af0ef768f63e9664ba37f11b9; review requested from @wojciechszyjka
 
+- [x] 2.4 Correct the merged lesson catalog count exposed by CI and verify focused checks — CI test job 121197721648; count 153 to 155, validator and 5/5 focused tests passed
+
 ### Phase 3: Human merge gates
 
 - [ ] 3.1 Obtain named human maintainer acknowledgment of the Emergency Security Exception
@@ -61,3 +63,10 @@ Conflicts may combine main's error-reporting requirements with the provider's lo
 - The source review reconfirmed response-only enrollment, the localized synchronous/asynchronous validation boundary, unchanged authentication and scope guards, retained real-crypto tests, and two-authenticator integration coverage. No new source defect was found. The security compatibility waiver is still a blocker.
 - @wojciechszyjka, who reviewed related proof of concept #6710, was requested through GitHub for re-review on #6824. This is a request for fresh human assessment, not sign-off.
 - Historical QA at `5862cad3` is preserved as historical evidence only. This run does not grant QA approval, human waiver, CLA acknowledgment, or merge permission.
+## CI count correction follow-up
+
+The test job for `0e97769f53058bbbf074c0b84fd6e88d42feed3f` in run `40202422396` passed the workspace Jest tasks, then failed the root `check-lessons.test.mjs` assertion: the merged catalog contains 155 records and rows while its introduction says 153. All other reported checks completed successfully or were conditionally skipped, including the security integration job.
+
+The focused test reproduced the count failure before the fix (4/5 passed). Changed only the catalog's declared count to 155, preserving every row and record. Afterward, `node packages/create-app/agentic/shared/scripts/check-lessons.mjs --root .` passed, `node --test scripts/__tests__/check-lessons.test.mjs` passed 5/5, and `git diff --check` passed. Runner: local. The initially requested `scripts/check-lessons.mjs` path does not exist; the package script identifies the canonical validator path used above.
+
+No broad Jest rerun or security source change was needed for this documentation correction. The new commit requires fresh exact-head CI; prior-head successful jobs are historical evidence only. The named human Emergency Security Exception acknowledgment remains required. The `license/cla` context succeeded at the preceding head; the PR body's human checkbox was left untouched.
