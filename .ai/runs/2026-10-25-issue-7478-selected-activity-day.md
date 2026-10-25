@@ -42,5 +42,11 @@ The late-night today policy intentionally allows the resulting date to advance. 
 
 ### Phase 2: Review correction
 
-- [ ] 2.1 Correct future-day and today defaults, cover both review cases and historical dates, and document the policy
-- [ ] 2.2 Verify the correction, review compatibility and scope, publish, and request human re-review
+- [x] 2.1 Correct future-day and today defaults, cover both review cases and historical dates, and document the policy — baf2937f9
+- [x] 2.2 Verify the correction, review compatibility and scope, publish, and request human re-review — baf2937f9
+
+## Verification and handoff
+
+Runner: local; no compose app was running. The original helper failed 11 new assertions. The correction passes 4 targeted suites / 49 tests, covering helper defaults, existing edit/date seeding, form state, and the real deal scheduling hook. The same 49 tests pass east of UTC in Asia/Tokyo. Scoped ESLint, strict TypeScript compilation of the changed helper and direct unit suite, `git diff --check`, and the lessons catalog validator pass.
+
+The source correction is published and re-review requested from @wojciechszyjka. Current-head CI is still pending, and human review plus the existing `needs-qa` approval gate remain. No live application flow or new screenshot capture was executed. Existing screenshots remain bound to head `839feaf`.
