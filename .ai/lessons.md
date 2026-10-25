@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 153 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 154 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -177,6 +177,8 @@ This catalog indexes 153 focused lessons. Route the task first, then read only r
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
 
 ### testing
+
+- [Verify persisted state with fresh CRUD reads](lessons/verify-persisted-state-with-fresh-crud-reads.md) — area:testing,integration,module-data; module:customers,shared; topic:cache,data-integrity,testing
 
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
 

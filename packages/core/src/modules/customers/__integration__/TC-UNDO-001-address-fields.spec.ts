@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createCompanyFixture,
@@ -15,11 +16,12 @@ import {
 
 const ADDRESSES_PATH = '/api/customers/addresses'
 
-async function listAddresses(request: APIRequestContext, token: string, entityId: string) {
-  const response = await apiRequest(request, 'GET', `${ADDRESSES_PATH}?entityId=${encodeURIComponent(entityId)}`, {
+async function listFreshAddresses(request: APIRequestContext, token: string, entityId: string) {
+  const response = await apiRequest(request, 'GET', `${ADDRESSES_PATH}?entityId=${encodeURIComponent(entityId)}&_testRead=${randomUUID()}`, {
     token,
   })
   expect(response.status(), 'address list should succeed').toBe(200)
+  expect(response.headers()['x-om-cache'], 'address verification should use a fresh response').not.toBe('hit')
   const body = await readJsonSafe<{ items?: Record<string, unknown>[] }>(response)
   expect(Array.isArray(body?.items), 'address list should contain items').toBe(true)
   return body?.items ?? []
@@ -88,24 +90,24 @@ test.describe('TC-UNDO-001 customer deletion preserves address fields (#7854)', 
           longitude: 21.0625,
           is_primary: true,
         }
-        expect(await listAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
+        expect(await listFreshAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
 
         const deleteResponse = await apiRequest(request, 'DELETE', `${parentPath}?id=${encodeURIComponent(parentId)}`, {
           token,
         })
         expect(deleteResponse.ok(), 'customer deletion should succeed').toBe(true)
         const deleted = expectOperation(deleteResponse, `${kind} delete`)
-        expect(await listAddresses(request, token, parentId)).toEqual([])
+        expect(await listFreshAddresses(request, token, parentId)).toEqual([])
 
         await undoOk(request, token, deleted.undoToken, `${kind} delete`)
-        expect(await listAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
+        expect(await listFreshAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
 
         const redone = await redoOk(request, token, deleted.logId, `${kind} delete`)
-        expect(await listAddresses(request, token, parentId)).toEqual([])
+        expect(await listFreshAddresses(request, token, parentId)).toEqual([])
 
         const secondUndoToken = expectId(redone.undoToken, 'redo should issue an undo token')
         await undoOk(request, token, secondUndoToken, `${kind} delete redo`)
-        expect(await listAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
+        expect(await listFreshAddresses(request, token, parentId)).toEqual([expect.objectContaining(expectedAddress)])
       } finally {
         await deleteEntityIfExists(request, token, ADDRESSES_PATH, addressId)
         await deleteEntityIfExists(request, token, parentPath, parentId)
