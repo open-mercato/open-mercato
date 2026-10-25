@@ -55,7 +55,7 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(async () => register([], {})) })
 
-it('runs rendered then headless handlers once across canonical, legacy and wildcard registrations', async () => {
+it('runs rendered and headless handlers once in priority order across canonical, legacy and wildcard registrations', async () => {
   const order: string[] = []
   const rootLoad = jest.fn()
   const fieldLoad = jest.fn()
@@ -78,7 +78,7 @@ it('runs rendered then headless handlers once across canonical, legacy and wildc
   fireEvent.change(getByLabelText('Priority'), { target: { value: 'high' } })
   fireEvent.submit(container.querySelector('form')!)
   await waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1))
-  await waitFor(() => expect(order).toEqual(['root-before', 'field-before', 'root-save', 'field-save', 'native', 'root-after', 'field-after']))
+  await waitFor(() => expect(order).toEqual(['field-before', 'root-before', 'field-save', 'root-save', 'native', 'field-after', 'root-after']))
   expect(fieldLoad.mock.calls[0][0]).toEqual(expect.objectContaining({ recordId: 'record-1', sharedState: expect.any(Object) }))
 })
 
@@ -171,6 +171,54 @@ it('dispatches supported headless delete hooks in existing order and blocks deni
   fireEvent.click(container.querySelector('button[type="button"]')!)
   await waitFor(() => expect(nativeDelete).toHaveBeenCalledTimes(1))
   await waitFor(() => expect(order).toEqual(['before', 'before', 'delete', 'native', 'after']))
+})
+
+it('protects headless fields from delete-to-save fallbacks while preserving rendered widget fallbacks', async () => {
+  const order: string[] = []
+  const fieldBeforeSave = jest.fn(async () => false)
+  const fieldSave = jest.fn()
+  const fieldAfterSave = jest.fn()
+  const root: TestWidget = {
+    metadata: { id: 'test.root', title: 'Root' },
+    Widget: () => <span>Root</span>,
+    eventHandlers: {
+      onBeforeSave: async () => { order.push('root-before') },
+      onSave: async () => { order.push('root-delete') },
+      onAfterSave: async () => { order.push('root-after') },
+    },
+  }
+  const field = fieldWidget('test.priority', { onBeforeSave: fieldBeforeSave, onSave: fieldSave, onAfterSave: fieldAfterSave })
+  register([root, field], { [SPOT]: 'test.root', [LEGACY]: 'test.root', [`${SPOT}:fields`]: 'test.priority', [`${LEGACY}:fields`]: 'test.priority' })
+  const nativeDelete = jest.fn(async () => { order.push('native') })
+  const { container, getByLabelText } = renderForm({ legacyInjectionSpotId: LEGACY, onDelete: nativeDelete, deleteVisible: true })
+  await waitFor(() => expect(getByLabelText('Priority')).toHaveValue('normal'))
+  fireEvent.click(container.querySelector('button[type="button"]')!)
+  await waitFor(() => expect(order).toEqual(['root-before', 'root-delete', 'native', 'root-after']))
+  expect(nativeDelete).toHaveBeenCalledTimes(1)
+  expect(fieldBeforeSave).not.toHaveBeenCalled()
+  expect(fieldSave).not.toHaveBeenCalled()
+  expect(fieldAfterSave).not.toHaveBeenCalled()
+})
+
+it('renders a contributed group beside aliased fields and dispatches both owning lifecycles once', async () => {
+  const before = jest.fn(async (_data: Values) => true)
+  const card = fieldWidget('test.card', { onBeforeSave: before })
+  card.fields = [{ id: '_extension.reason', label: 'Reason', type: 'text', group: 'extension-card' }]
+  register([fieldWidget(), card], {
+    [`${SPOT}:fields`]: ['test.priority', { widgetId: 'test.card', kind: 'group', groupLabel: 'Extension card', column: 2 }],
+  })
+  const nativeSubmit = jest.fn()
+  const { container, getByLabelText, getByText } = renderForm({ onSubmit: nativeSubmit })
+  await waitFor(() => expect(getByLabelText('Reason')).toBeInTheDocument())
+  expect(getByText('Main').parentElement).toContainElement(getByLabelText('Priority'))
+  expect(getByText('Extension card').parentElement).toContainElement(getByLabelText('Reason'))
+  expect(container.querySelectorAll('form')).toHaveLength(1)
+  fireEvent.change(getByLabelText('Reason'), { target: { value: 'Requested' } })
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(nativeSubmit).toHaveBeenCalledTimes(1))
+  expect(before).toHaveBeenCalledTimes(1)
+  expect(before.mock.calls[0][0]).toEqual(expect.objectContaining({ '_extension.reason': 'Requested' }))
+  expect(nativeSubmit.mock.calls[0][0]).toEqual({ id: 'record-1', name: 'Original' })
 })
 
 it('routes headless display, field-change and validation transformations through the shared dispatcher', async () => {

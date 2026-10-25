@@ -108,7 +108,7 @@ import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './cr
 import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
-import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
+import { placeInjectedFieldsInGroups, type InjectedFieldWidgetPlacement } from './crud/injectedFieldGroups'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { crudFormExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
@@ -1965,6 +1965,26 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     return definitions
   }, [injectedFieldWidgets, injectionGroupAliases])
 
+  const injectedFieldPlacements = React.useMemo(() => {
+    const placements = new Map<string, InjectedFieldWidgetPlacement | undefined>()
+    for (const widget of injectedFieldWidgets) {
+      if (!('fields' in widget)) continue
+      for (const field of widget.fields ?? []) {
+        placements.set((field as InjectionFieldDefinition).id, widget.placement)
+      }
+    }
+    return placements
+  }, [injectedFieldWidgets])
+
+  const groupsWithInjectedFields = React.useMemo(() => {
+    if (!groups || groups.length === 0 || injectedFieldDefinitions.length === 0) return groups
+    return placeInjectedFieldsInGroups(groups, injectedFieldDefinitions, injectedFieldPlacements, (definition) => {
+      if (process.env.NODE_ENV !== 'production') {
+        logger.warn('Injected field targets a group that does not exist; appended to the last plain-field group', { fieldId: definition.id, group: definition.group })
+      }
+    })
+  }, [groups, injectedFieldDefinitions, injectedFieldPlacements])
+
   const injectedFieldContext = React.useMemo<FieldContext>(() => {
     const recordValues = values as Record<string, unknown>
     const organizationId = typeof recordValues.organizationId === 'string' ? recordValues.organizationId : null
@@ -2021,27 +2041,15 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
       return (group.fields ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.id))
     }
-    const declaredGroups = groups ?? []
     const hidden = new Set<string>()
     const visible = new Set<string>()
-    for (const group of declaredGroups) {
+    for (const group of groupsWithInjectedFields ?? []) {
       const target = hiddenGroupIdSet.has(group.id) ? hidden : visible
       for (const fieldId of groupFieldIds(group)) target.add(fieldId)
     }
-    // Mirror the injection fallback in `groupsWithInjectedFields`: a definition
-    // whose target group does not exist is appended to the last declared group,
-    // so it is hidden exactly when that fallback group is.
-    const declaredGroupIds = new Set(declaredGroups.map((group) => group.id))
-    const fallbackGroupId = declaredGroups[declaredGroups.length - 1]?.id
-    for (const definition of injectedFieldDefinitions) {
-      const targetGroupId = definition.group && declaredGroupIds.has(definition.group)
-        ? definition.group
-        : fallbackGroupId
-      if (targetGroupId && hiddenGroupIdSet.has(targetGroupId)) hidden.add(definition.id)
-    }
     for (const fieldId of visible) hidden.delete(fieldId)
     return hidden
-  }, [cfFields, groups, hiddenGroupIdSet, injectedFieldDefinitions, placedCustomFieldIds])
+  }, [cfFields, groupsWithInjectedFields, hiddenGroupIdSet, placedCustomFieldIds])
 
   const hiddenInjectedFieldIds = React.useMemo(() => {
     const hidden = new Set<string>()
@@ -2343,34 +2351,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     return pairs.map((p) => p.group)
   }, [injectionWidgets, injectionContext, pending, setValues, values])
   
-  const groupsWithInjectedFields = React.useMemo(() => {
-    if (!groups || groups.length === 0 || injectedFieldDefinitions.length === 0) return groups
-    const cloned = groups.map((group) => ({ ...group, fields: [...(group.fields ?? [])] }))
-    const fallbackIndex = cloned.length - 1
-    for (const definition of injectedFieldDefinitions) {
-      const targetIndex = cloned.findIndex((group) => group.id === definition.group)
-      const index = targetIndex >= 0 ? targetIndex : fallbackIndex
-      if (targetIndex < 0 && process.env.NODE_ENV !== 'production') {
-        logger.warn('Injected field targets a group that does not exist; appended to last group', { fieldId: definition.id, group: definition.group })
-      }
-      if (index < 0) continue
-      const fieldEntries = cloned[index].fields ?? []
-      const alreadyPresent = fieldEntries.some((entry) => {
-        const entryId = typeof entry === 'string' ? entry : entry.id
-        return entryId === definition.id
-      })
-      cloned[index].fields = alreadyPresent
-        ? fieldEntries
-        : insertByInjectionPlacement(
-            fieldEntries,
-            definition.id,
-            definition.placement,
-            (entry) => (typeof entry === 'string' ? entry : entry.id),
-          )
-    }
-    return cloned
-  }, [groups, injectedFieldDefinitions])
-
   const shouldAutoGroup = (!groupsWithInjectedFields || groupsWithInjectedFields.length === 0) && injectionGroupCards.length > 0
   const declaredGroupsForLayout = React.useMemo(() => {
     const baseGroups = groupsWithInjectedFields && groupsWithInjectedFields.length ? groupsWithInjectedFields : []
@@ -4345,12 +4325,16 @@ function NumberInput({
   placeholder,
   autoFocus,
   onSubmit,
+  disabled,
+  readOnly,
 }: {
   value: number | string | null | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  disabled?: boolean
+  readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
@@ -4432,6 +4416,8 @@ function NumberInput({
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      disabled={disabled}
+      readOnly={readOnly}
       data-crud-focus-target=""
     />
   )
@@ -4822,6 +4808,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          disabled={disabled}
+          readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
@@ -4921,6 +4909,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={loadFieldSuggestions}
+          disabled={disabled}
         />
       )}
       {field.type === 'combobox' && (
