@@ -42,8 +42,8 @@ The new UI scenario must run against the real dispatcher and browser; static dis
 
 ### Phase 3: Verification and handoff
 
-- [ ] 3.1 Validate discovery and types, inspect CI and review the final diff
-- [ ] 3.2 Publish evidence and request human reassessment while preserving QA gates
+- [x] 3.1 Validate discovery and types, inspect CI and review the final diff — be2908c48e59a57bdca3dd901831aeb0d0b02637
+- [x] 3.2 Publish evidence and request human reassessment while preserving QA gates — be2908c48e59a57bdca3dd901831aeb0d0b02637
 
 ## Validation evidence
 
@@ -56,3 +56,7 @@ Runner: local, narrow fallback using the existing shared dependency runtime thro
 - Native repository-wide Playwright discovery was bounded and stopped after it produced no output. A temporary configuration outside the repository successfully discovered only the requested specs.
 - No active disposable app or database was available locally. Browser/API execution is not claimed; new-head CI and human QA must provide that evidence.
 - Earlier head c10be753 had green reported CI checks; those results are historical, not results for these new tests.
+
+## Handoff
+
+Both inherited findings are implemented in a35b24fc2. A comment-only source reassessment and targeted request to the original changes-requesting human reviewer were posted; re-review is requested from adeptofvoltron. The PR remains `changes-requested` and `needs-qa`. No approval or merge was granted. At handoff, new-head scope/guard checks were running and other gates were not yet reported. The source work is complete; integration execution, CI acceptance and human QA remain external gates.
