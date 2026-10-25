@@ -1367,6 +1367,34 @@ describe('warranty claim commands', () => {
     expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
+  test('claim undo refuses a missing before-line snapshot without restoring the header or line', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { notes: 'before', totalClaimedAmount: '10' })
+    const line = makeLine(claim, { creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const input = { id: CLAIM_ID, notes: 'after' }
+    const prepared = await updateClaimCommand.prepare!(input, ctx)
+    const result = await updateClaimCommand.execute(input, ctx)
+    const after = await updateClaimCommand.captureAfter!(input, result, ctx)
+    const logEntry = await updateClaimCommand.buildLog!({
+      input,
+      result,
+      ctx,
+      snapshots: { before: { ...asRecord(prepared?.before), lines: [] }, after },
+    })
+    const claimBeforeUndo = { ...claim }
+    const lineBeforeUndo = { ...line }
+    dataEngine.markOrmEntityChange.mockClear()
+
+    await expect(updateClaimCommand.undo!({ input, logEntry: logEntry as CommandUndoLogEntry, ctx }))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.conflict' } })
+
+    expect(claim).toEqual(claimBeforeUndo)
+    expect(line).toEqual(lineBeforeUndo)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
   test('claim notes undo remains available on a legacy claim with unchanged duplicate live numbers', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('draft', { notes: 'before', totalClaimedAmount: '15' })

@@ -677,14 +677,15 @@ async function restoreSnapshot(em: EntityManager, before: ClaimSnapshot, after: 
   const { claim, lines } = await requireCurrentUndoSnapshot(em, after)
   const beforeLinesById = new Map((Array.isArray(before.lines) ? before.lines : []).map((line) => [line.id, line]))
   const afterLinesById = new Map((Array.isArray(after.lines) ? after.lines : []).map((line) => [line.id, line]))
-  const projectedLines = lines.map((line) => {
+  const projectedLines = []
+  for (const line of lines) {
     const beforeLine = beforeLinesById.get(line.id)
     const afterLine = afterLinesById.get(line.id)
-    if (!beforeLine || !afterLine) throwClaimUndoConflict()
+    if (!beforeLine || !afterLine) return throwClaimUndoConflict()
     const deletedAt = beforeLine.deletedAt !== afterLine.deletedAt ? beforeLine.deletedAt : line.deletedAt
     const lineNo = beforeLine.lineNo !== afterLine.lineNo ? beforeLine.lineNo : line.lineNo
-    return { id: line.id, lineNo, deletedAt, changesNumber: Boolean(line.deletedAt) || lineNo !== line.lineNo }
-  })
+    projectedLines.push({ id: line.id, lineNo, deletedAt, changesNumber: Boolean(line.deletedAt) || lineNo !== line.lineNo })
+  }
   for (const projected of projectedLines) {
     if (projected.deletedAt || !projected.changesNumber) continue
     await assertUniqueClaimLineNumbers([

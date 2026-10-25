@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 153 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 154 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -92,6 +92,7 @@ This catalog indexes 153 focused lessons. Route the task first, then read only r
 - [Tool-scoped regeneration commands must not be blocked by unrelated existing files](lessons/tool-scoped-regeneration-commands-must-not-be-blocked.md) — area:module-data,architecture; module:cli; topic:command-pattern,data-scoping,regeneration
 - [Use canonical generated entity ids, not shortened ad-hoc aliases](lessons/use-canonical-generated-entity-ids-not-shortened-ad-hoc.md) — area:module-data,umes,architecture; module:checkout,entities,query_index; topic:auto-discovery,custom-fields,data-integrity
 - [We've got centralized helpers for extracting `UndoPayload`](lessons/weve-got-centralized-helpers-for-extracting-undopayload.md) — area:module-data; module:shared; topic:command-pattern,weve,centralized
+- [Propagate async undo refusals before snapshot access](lessons/propagate-async-undo-refusals-before-snapshot-access.md) — area:module-data,testing,debugging; module:warranty_claims; topic:command-pattern,undo,async-control-flow,typecheck
 - [WeakSet-based circular reference detection drops shared (non-circular) object references](lessons/weakset-based-circular-reference-detection-drops-shared.md) — area:module-data,architecture; module:cache,events,shared; topic:events,generated-files,testing
 - [Windows `.cmd` wrappers must not be spawned directly in Node dev scripts](lessons/windows-cmd-wrappers-must-not-be-spawned-directly-in.md) — area:module-data,architecture,debugging; module:create_app; topic:command-pattern,dev-runtime,package-runtime
 - [Worker-emitted progress needs polling fallback even when SSE exists](lessons/worker-emitted-progress-needs-polling-fallback-even.md) — area:module-data,backend-ui,debugging; module:events,progress,queue; topic:events,realtime,testing
