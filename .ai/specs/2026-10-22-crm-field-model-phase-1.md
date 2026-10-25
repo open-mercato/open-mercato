@@ -2,19 +2,19 @@
 
 ## 📝 TLDR
 
-Specify the full CRM field-model proposal in [issue #7700](https://github.com/open-mercato/open-mercato/issues/7700) as thirteen independently deliverable capabilities. Preserve existing integrations and data while improving identity, contact information, outreach permissions, classification, hierarchy, deal valuation, actual closure dates and contact recency. This umbrella is a decision/traceability document, not a monolithic implementation ticket; each linked capability has its own schema, API, migration, UI, risk and test plan.
+Specify the full CRM field-model proposal in [issue #7700](https://github.com/open-mercato/open-mercato/issues/7700) through thirteen capability documents, with classification explicitly divided into three independent delivery slices. Preserve existing integrations and data while improving identity, contact information, outreach permissions, classification, hierarchy, deal valuation, actual closure dates and contact recency. This umbrella is a decision/traceability document, not a monolithic implementation ticket; each capability or slice has its own approval, schema, API, migration, UI, risk and test plan.
 
 ## Overview
 
 Status: **design complete for review; draft PR pending the marked migration/policy confirmations**. Created 2026-10-22. No runtime code, migrations, generated files, production dependencies or design-system governance files change in this PR. Merging a spec must not close #7700. Implementation follows separate PRs referencing the approved capability spec.
 
-The issue was a proposal based on `main` `ab23d45ff`. This review uses current `main` `0c886d0a14c02106ff2abc9728be36c04c5a2ccd`. Remote `git ls-remote --heads origin main develop` returned only main on 2026-10-22; configured `.ai/agentic.config.json` also selects main. [PR #7625](https://github.com/open-mercato/open-mercato/pull/7625) remains open at `a0ca00340a29549bada6558281fbc0fa7edbb9da` and now targets main. Its configurable vocabulary is a dependency to compose with, not assumed shipped functionality. [#5106](https://github.com/open-mercato/open-mercato/issues/5106) is closed, and status-to-stage logic exists at the inspected baseline.
+The issue was a proposal based on `main` `ab23d45ff`. Initial authoring inspected `main` `0c886d0a14c02106ff2abc9728be36c04c5a2ccd`; review remediation on 2026-10-25 merged `main` `db279a693eb283f6147b6e1ef24abfeeca6de646` and rechecked the affected customer fields, legacy custom-field defaults, nullable deal currency and existing currency selector/update path. Remote `git ls-remote --heads origin main develop` returned only main on 2026-10-22; configured `.ai/agentic.config.json` also selects main. At initial authoring, [PR #7625](https://github.com/open-mercato/open-mercato/pull/7625) was open at `a0ca00340a29549bada6558281fbc0fa7edbb9da` targeting main. Its configurable vocabulary is a dependency to compose with and recheck at implementation, not assumed shipped functionality. [#5106](https://github.com/open-mercato/open-mercato/issues/5106) was closed, and status-to-stage logic exists at the inspected baseline.
 
 ## Resolved assumptions (autonomous defaults)
 
 | ID | Question | Applied default and rationale | Confirmation |
 |---|---|---|---|
-| A1 | One large spec or a set? | Thirteen capability specs plus this coordination map. Each can be reviewed/deployed independently; all issue requirements remain represented. | Reversible default. |
+| A1 | One large spec or a set? | Thirteen capability specs plus this coordination map; classification has separate lifecycle, health and renewal slices. Approve/deploy each capability or slice independently; all issue requirements remain represented. | Reversible default. |
 | A2 | Final lifecycle vocabulary and migration? | Offer lead/prospect/customer/former_customer/disqualified, preserve legacy/custom values and source evidence; no destructive subscriber/other rewrite or inferred consent. | **⚠ NEEDS HUMAN CONFIRMATION** of vocabulary and migration policy before implementation. |
 | A3 | Missing year on Q1–Q4 renewal data? | Retain source value with a review-needed result; do not invent the current year. | **⚠ NEEDS HUMAN CONFIRMATION** of any bulk year mapping. |
 | A4 | Does legacy newsletter/subscriber data authorize outreach? | Import unknown-quality assertions with original provenance, no invented consent date/basis; activate sender enforcement only after review. Built-in consent policy allows evidenced consent; other recorded bases require a separately approved evaluator. | **⚠ NEEDS HUMAN CONFIRMATION** because permission activation changes existing outbound behavior. |
@@ -42,7 +42,9 @@ The [research note](assets/crm-field-model-phase-1/research.md) compares Salesfo
 | Optional company lookup and enrichment diff preview/apply | [Company enrichment](2026-10-22-crm-company-enrichment.md) | No unconfirmed overwrite; version-bound application; manual CRM works without a provider. |
 | Multiple email/phone points, labels, one primary/kind, legacy primary mirrors | [Contact points](2026-10-22-crm-contact-points.md) | Atomic child/primary projection with each child's own version and invalid legacy preservation. |
 | Consent channel/purpose/basis/history, do-not-contact/email/call, email-bounced projection, newsletter migration | [Contact permissions and consent history](2026-10-22-crm-contact-permissions-and-consent-history.md) | Suppression overrides permission for the actual destination at enqueue and dispatch; no invented evidence. |
-| lifecycle_stage, deprecated status/temperature, core relationship_health, renewal_quarter | [Classification](2026-10-22-crm-classification.md) | Distinct meanings and reversible migration receipts; legacy APIs/data survive. |
+| lifecycle_stage, deprecated status/temperature | [Classification — lifecycle slice](2026-10-22-crm-classification.md#independent-approval-and-deployment-slices) | C1–C2 / A2 approval, own mapping version and reconciliation; health/renewal unchanged. |
+| core relationship_health | [Classification — health slice](2026-10-22-crm-classification.md#independent-approval-and-deployment-slices) | Independent health approval/deployment with no C1–C3 prerequisite; retained native/CF bridge. |
+| renewal_quarter | [Classification — renewal slice](2026-10-22-crm-classification.md#independent-approval-and-deployment-slices) | C3 / A3 approval and own reconciliation; no invented year or lifecycle/health rewrite. |
 | Company-only multi-select relationship_type | [Company relationship types](2026-10-22-crm-company-relationship-types.md) | Scoped role assignments never grant access or propagate to people. |
 | parent_company_id | [Company hierarchy](2026-10-22-crm-company-hierarchy.md) | Same-scope acyclic parent edge; hierarchy never implies access or financial rollup. |
 | stage outcome, bidirectional sync, closed_at/backfill/index, closure_outcome, loss dialog/events | [Deal closure integrity](2026-10-22-crm-deal-closure-integrity.md) | One transition resolver; unrelated edits cannot move actual close date or repeat sales events. |
@@ -78,6 +80,12 @@ Optional provider packages register with a customers host contract; their creden
 
 New dictionary kinds keep existing custom-slug identity and 150-character value bounds. An absent-only seed must not assume existing commands provide kind-level serialization. Each owning capability uses the same narrow customers-owned `customers_dictionary_kind` advisory-lock convention across its seed, entry and kind-setting writes, with tenant/organization/kind key and one shared transaction/entity manager; this helper is additive and implemented once, then reused. Preserve existing configured/empty kinds and mark initial creation to prevent reseeding. The existing upgrade registry lives in `configs/lib/upgrade-actions.ts`; a registration there is the explicit infrastructure exception to customers-owned implementation. Seed/admin races and rollback belong in each affected capability's tests. New selector read endpoints enforce their parent capability's view permission without widening the existing generic dictionary guard.
 
+### Shared classification normalization and journal conventions
+
+Classification slices share conventions, not approvals or an all-fields migration. Normalize supported `cf_`, `cf:` and `customValues` payloads before choosing precedence; an omitted key preserves, explicit null clears a nullable value, and an explicit native key wins over its legacy mirror for that deployed slice. Preserve old keys/values, snapshot both representations and use customer aggregate commands for atomic writes/undo and after-commit effects. An undeployed slice retains its current writer/UI behavior.
+
+Each reconciliation preview is immutable and pins exactly one slice, approved mapping version, tenant/org, eligible record IDs, input fingerprints, expected aggregate versions and expiry. Apply uses that preview, never a newly selected set. Receipts deduplicate by scope/record/slice/version; a receipt or approval for health cannot satisfy lifecycle or renewal. Compare that slice's inputs and the parent version under its command lock, record conflicts rather than overwriting edits, and limit domain writes/compensating undo to that slice's fields. Reuse queue/progress and these journal conventions without introducing a shared migration platform. Exact fields, request union, mappings and independent gates live in [classification](2026-10-22-crm-classification.md).
+
 ## 📝 Data Model, API and UI boundary
 
 The capability documents are authoritative for their tables and exact requests/responses; this umbrella does not create a second schema. Dictionary-valued business fields remain tenant-editable, while semantic outcomes/channel enums are stable machine values. Multi-select company relationships use a scoped junction model, never an unbounded JSON array. Contact points and permissions distinguish identity, primary convenience and effective permission; product lines distinguish snapshot/catalog source and amount authority.
@@ -107,6 +115,8 @@ Use expand → bridge → dry-run/backfill → reconcile → UI/read cutover, pe
 
 Applying migrations to a developer database still requires explicit approval. Generate/review module migrations and snapshot only; no hand-edited generated registries. Rollback preserves new data, pauses affected queues if old writers would bypass guards, and uses a compatibility release; do not drop columns/consent history/line items after writes. Meaning-changing cutovers (lifecycle/consent/report dates) require the marked human review and per-tenant reconciliation report.
 
+A2 governs lifecycle reconciliation, A3 governs renewal/year mapping, and A4 governs legacy permission/sender activation. They remain unconfirmed and keep this spec PR draft. Independent approval of an unaffected capability or the health slice does not approve those decisions; its own implementation PR must carry its approval and tests. Health can be deployed without enabling lifecycle/renewal, changing their dictionaries/editors, or using their mapping versions.
+
 ## 📝 Risks & Impact Review
 
 | Risk / severity | Affected area | Mitigation and residual risk |
@@ -116,7 +126,7 @@ Applying migrations to a developer database still requires explicit approval. Ge
 | New rows lost under stale parent headers / high | Contact/identifier/line/consent children | Child versions plus parent lock/version for aggregate changes. Old clients retain established no-header behavior. |
 | Provider/module absent or delivery race / high | Enrichment, catalog, outbound permission | Graceful manual paths; exact provider/context contracts; sender-time fail closed for activated CRM policy. Accepted external sends cannot be recalled. |
 | Money or closure statistics drift / high | Deal value and reports | Exact server arithmetic, explicit authority, stable actual timestamp, date-source disclosure and integration tests. Legacy estimates remain estimates. |
-| Over-broad implementation PR / medium | Review and deployment | Thirteen separately testable capabilities and explicit dependency order. Shared contracts are reviewed before consumers land. |
+| Over-broad implementation PR / medium | Review and deployment | Thirteen capability documents, independent classification slices and explicit dependency order. Shared conventions never couple their approval/deployment gates. |
 
 ## Integration and validation strategy
 
@@ -135,17 +145,28 @@ Documentation-only validation for this PR: scope/architecture review, relative-l
 | UI/backend and DS skills/rules | Shared primitives/guarded HTTP, frontend boundary ledger, accessibility, budgets and touched-line cleanup required. |
 | QA/integration guides | Every capability maps API/UI behavior to same-change self-contained tests. |
 
-Internal consistency review checks data-to-API, API-to-UI, command coverage, reversibility, cache/privacy, dependency absence and migration traceability. Structural compliance does not mean implementation verified or product/legal policy approved. **Verdict: suitable for specification review; A2–A4 require confirmation before implementation/cutover.** Independent review split enrichment from identifiers, catalog selection from manual lines, deal types from closure, and relationship types/hierarchy from legacy classification. All issue requirements remain covered. Review also corrected closure-reader rollout order, version-bound migration previews, hierarchy undo locking, keyed-only identifier hashing, explicit line-create parent expectations and withdrawal references. Findings and validation limits are recorded in the PR summary.
+Internal consistency review checks data-to-API, API-to-UI, command coverage, reversibility, cache/privacy, dependency absence and migration traceability. Structural compliance does not mean implementation verified or product/legal policy approved. **Verdict: suitable for specification review; A2–A4 keep this PR draft and require confirmation before their affected implementation/cutover.** Independent review split enrichment from identifiers, catalog selection from manual lines, deal types from closure, and relationship types/hierarchy from legacy classification. Classification now explicitly separates lifecycle, health and renewal approval/deployment slices. All issue requirements remain covered. Review also corrected closure-reader rollout order, version-bound migration previews, hierarchy undo locking, keyed-only identifier hashing, explicit line-create parent expectations, withdrawal references, canonical-equivalent delivery-health preservation and currency-null manual-line recovery. Findings and validation limits are recorded in the PR summary.
 
 ## Changelog
 
 - 2026-10-22: Initial architecture-grounded spec set and 17-source research note for #7700; corrected historical/date/consent assumptions and retained all Phase 1 requirements.
+- 2026-10-25: Address specification review with canonical-equivalent bounce preservation, guarded parent-currency recovery for manual lines, and independent lifecycle/health/renewal slice gates plus shared normalization/journal conventions. A2–A4 and the draft remain unapproved.
+
+### Review — 2026-10-25
+
+- **Reviewer:** Agent remediation self-check against @wojciechszyjka's review of `024fd84e`; human re-review requested separately.
+- **Security:** Canonical-equivalent edits preserve delivery blocks/provenance and address-bound permission; scoped guards and encryption contracts remain required.
+- **Performance:** Existing bounded queries, pages and frontend budgets remain; no runtime performance result is claimed.
+- **Cache:** Existing after-commit parent/child invalidation and fresh sender decisions remain; no cached allow is introduced.
+- **Commands:** Locked identity transitions, guarded parent-currency selection and slice-limited reconciliation/undo are explicit, with future API/UI regression cases.
+- **Risks:** The three reported design findings are addressed; A2–A4 remain unconfirmed human gates, and implementation verification remains future work.
+- **Verdict:** Ready for human specification re-review; no product/policy approval or runtime verification is implied.
 
 ## 📋 Phasing and Implementation Plan
 
 1. Review this decision map and confirm A2–A4. Approve each capability contract separately; no monolithic implementation command should treat this umbrella as one coding task.
 2. Land low-coupling foundations independently: creator provenance, company hierarchy, company relationship types, deal types, contact points and company identifiers. Each slice includes its own migrations/API/UI/tests and remains usable without the others.
-3. Land classification only after its mapping review; identifiers support later optional lead-funnel work. Land recency independently after its current interaction/privacy predicates are verified.
+3. Land classification slices independently: health after its own contract/mapping approval, lifecycle after C1–C2 / A2 confirmation, and renewal after C3 / A3 confirmation. Each has its own mapping version, preview/apply, full API/UI tests and cutover; health waits for neither lifecycle nor renewal. Identifiers support later optional lead-funnel work. Land recency independently after its current interaction/privacy predicates are verified.
 4. Integrate/verify #7625, then land deal closure and line-item capabilities independently. Closure needs no consent/provider implementation; lines need no live catalog integration. Land optional company enrichment after identifiers and catalog selection after manual lines; neither delays the standalone foundation.
 5. Land permission history after contact points; wire and verify both actual sender paths, review legacy evidence and explicitly activate policy. Country provider packages remain separate future PRs, not deferred missing work inside Phase 1 core.
 6. For each approved slice run `om-auto-implement-spec <capability-path>` against the approved target head, referencing this spec PR with `Refs`, and complete that slice's tests/rollback evidence. #7700 stays open until all accepted capabilities and explicit verification criteria are implemented.

@@ -81,7 +81,9 @@ Add `GET /api/customers/contact-points/type-options?entityId=UUID`, returning `{
 
 `PUT` and `DELETE` require the child's `updatedAt` via `x-om-ext-optimistic-lock-expected-updated-at`, using the shared helpers and command guard. Missing required version returns 428; mismatch returns the existing 409 conflict shape. Parent and previous-primary mismatches use the same conflict mechanism with the affected resource identified. Invalid value/dictionary yields 422; same-record duplicate yields 409 with code `CONTACT_POINT_DUPLICATE`. GET responses include versions for edit and delete. Custom routes retain the mutation registry, modified-payload validation and after-success callbacks.
 
-Editing a value clears that row's delivery status to unknown and retains its former value in encrypted undo/audit evidence. It never transfers address-bound permission evidence to the new value. Setting `isPrimary: false`, deleting a primary, or explicitly clearing a legacy primary field sets its parent projection to null. No other row is chosen. Deleting a non-primary leaves the projection unchanged.
+Editing a value compares the old and new decrypted canonical identities under the same parent/child locks. If canonical identity is unchanged, preserve `delivery_status`, `delivery_status_at` and `delivery_source` exactly; email case or surrounding-whitespace edits change display spelling, not destination health or address-bound permission. Still record the display edit in encrypted undo/audit evidence and advance affected versions. Only a genuinely different destination resets delivery status to `unknown` and clears its delivery timestamp/provenance; its permission is unknown rather than transferred from the old destination. An unchanged unparsed legacy value preserves its state; repairing it into a new valid canonical destination follows the new-destination rule. Deliberately changing health for the same destination requires the guarded, audited delivery-status action defined by the permission capability; ordinary value edits cannot substitute for it.
+
+Setting `isPrimary: false`, deleting a primary, or explicitly clearing a legacy primary field sets its parent projection to null. No other row is chosen. Deleting a non-primary leaves the projection unchanged.
 
 ## 📝 Migration & Backward Compatibility
 
@@ -93,6 +95,8 @@ The internal `customer_contact_point_migrations` receipt stores UUID ID, tenant/
 Preserve every nonempty legacy value, including malformed email and local phone strings, as an explicit `legacy_unparsed` primary when canonicalization fails. Leave its legacy projection byte-for-byte unchanged and exclude it from automatic routing. Empty/null values create no child. Report repair counts and scoped review links. No destructive column/custom-field removal occurs in this capability.
 
 Existing person/company `primaryEmail` and `primaryPhone` writes remain accepted. Before backfill completes, the bridge first materializes any existing nonempty primary lacking a child, preserving its encrypted before-snapshot. It then updates the currently primary child, makes an existing matching child primary, or creates one; null clears primary without deleting stored contacts. Legacy request versions retain their established parent-header contract. The bridge acquires the parent lock and reads current child versions inside that same transaction; because old clients never observed those children, it must not claim a child edit based on a caller-supplied stale snapshot. New child UIs use explicit child/parent versions. A mixed payload that expresses contradictory legacy and child choices is rejected.
+
+The bridge uses the same canonical-identity transition rule as child writes. A case-only `primaryEmail` update preserves the matching point's delivery status, timestamp and source; selecting an existing matching destination retains that destination's own health. Neither bridge nor backfill upsert resets an existing point's health just because display spelling differs. A fresh canonical destination starts unknown, and primary selection never copies another destination's health.
 
 Responses, list columns, filters and exports retain legacy primary fields for at least one minor version. Email linking and exact phone duplicate checks add all valid contact points, dedupe person IDs and maintain existing privacy and organization filters; legacy-primary fallback remains during backfill. General list filtering stays primary-based unless a new explicit `contactPoint` filter is requested. Document the bridge/deprecation in `UPGRADE_NOTES.md`. Rollback disables child editing and retains children plus primaries; it never drops data or overwrites a newer primary. Reconciliation is required before resuming after an old binary wrote legacy columns.
 
@@ -120,6 +124,10 @@ The main risks are lost primaries during migration, alternate-address privacy le
 2. Backfill and reconcile, then release child APIs and contact editing together.
 3. Extend address matching and verify compatibility/rollback with the companion permission capability independently gated.
 
+## Integration Coverage
+
+Standalone contact-point tests cover case/whitespace-equivalent email edits through child PUT and both person/company legacy primary-field bridges, preserving all three health/provenance fields with encryption on/off and keyed/no-pepper matching. A genuinely different destination resets those fields; selecting an existing matching point preserves its own state. Cross-spec permission/sender tests create an evidenced grant for `sales@example.com`, mark it bounced through the delivery-status action, edit it to `Sales@example.com`, and require fresh evaluation and both actual sender paths to remain denied as `DESTINATION_BOUNCED` with zero provider calls. Repeat through the person's legacy `primaryEmail` update, and verify its `emailBounced` projection stays true. These are required future implementation tests, not executed runtime tests in this design PR.
+
 
 ## Final Compliance Report — 2026-10-22
 
@@ -136,6 +144,7 @@ Design review passes these rules; implementation and runtime validation remain f
 ## Changelog
 
 - 2026-10-22: Initial autonomous design for issue #7700; separated contact points from contact-permission policy.
+- 2026-10-25: Preserve delivery health/provenance for canonical-equivalent child and legacy-primary edits; require cross-spec bounce/grant/sender regression coverage.
 
 ## 📋 Implementation Plan
 

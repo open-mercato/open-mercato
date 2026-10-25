@@ -36,13 +36,15 @@ The adapter owns source-specific price resolution and the picker; customers owns
 
 ## 📝 Data Model
 
-No new table or source-specific schema is required. Populate the prerequisite `CustomerDealLineItem` fields: nullable `source`, scalar UUID `product_id`/`variant_id`, snapshot `name` (1–200, encrypted), optional `sku` (≤100), positive four-place `quantity`, nonnegative four-place `unit_price`, and three-letter `currency` identical to the deal. Manual lines leave source IDs null. Source IDs are references, not cross-module ORM relationships. The same product may appear more than once with different negotiated terms.
+No new table or source-specific schema is required. Populate the prerequisite `CustomerDealLineItem` fields: nullable `source`, scalar UUID `product_id`/`variant_id`, snapshot `name` (1–200, encrypted), optional `sku` (≤100), positive four-place `quantity`, nonnegative four-place `unit_price`, and three-letter uppercase `currency` identical to the normalized deal currency. Manual lines leave source IDs null. Source IDs are references, not cross-module ORM relationships. The same product may appear more than once with different negotiated terms.
 
 The resolver returns only schema-validated source ID/IDs, display name, SKU, unit price and currency. The preview response adds the authorized deal version and requested quantity; no durable preview receipt or source-version field is introduced. No ORM entity, credentials or raw provider response is stored. Existing line/deal versions, encryption maps, active-row ordering, 1000-line bound and ≤100 pagination remain unchanged. Snapshots retain their values after catalog updates, deletion or disabling. Catalog's current currency does not reinterpret a stored line currency. Exact arithmetic, discounts and authoritative totals remain the prerequisite's responsibility; this capability creates no FX posting or ledger entry.
 
 ## 📝 API Contracts
 
 The additive `customersDealProductSources` host descriptor exposes `resolve({productId,variantId?,quantity,currency,customerIds},scope)` and returns the typed snapshot described above. `scope` is authenticated server tenant/organization/user context. The customers preview handler derives `currency` and `customerIds` from the authorized deal and passes them to the adapter; the browser cannot choose a pricing customer or currency.
+
+Use the manual-line prerequisite's parent-currency normalization and translated `DEAL_CURRENCY_REQUIRED` / `DEAL_CURRENCY_INVALID` preconditions before calling the resolver, with the normalized code as provider context and comparison value. Its guarded parent-currency selection/recovery is already available without catalog; preview never chooses or changes currency. Include missing/malformed and lowercase legacy-parent cases in the preview tests.
 
 | Route | Request / response | Authorization and errors |
 |---|---|---|
@@ -93,6 +95,7 @@ Design specifies catalog-owned optional glue, customers-owned host interface, sc
 ## Changelog
 
 - 2026-10-22: Extracted concrete catalog resolver/picker/pricing behavior and former Phase 2 from the researched line-item design after scope review. Preserved optional dependency, source authorization, snapshot, negotiated-price, currency, rollback and test requirements. Added the deal-owned product-preview endpoint after independent review so pricing context is derived server-side; clarified that save checks authorization/existence and deal versions without claiming catalog source-version immutability.
+- 2026-10-25: Reuse the manual-line currency preconditions, normalization and guarded recovery; catalog introduces no separate currency-selection dependency.
 
 ## 📋 Implementation Plan
 
