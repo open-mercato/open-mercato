@@ -1,8 +1,8 @@
 ---
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
-areas: ["architecture","framework-context"]
-topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing","context-budgets"]
+areas: ["architecture","framework-context","testing"]
+topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
