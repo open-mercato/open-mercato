@@ -611,6 +611,7 @@ async function maybeRunCatalogStep(
       requested,
       picker,
       presetModuleIds,
+      presetModules: preset.isClassic ? null : preset.modules,
       ask,
       log: (line) => console.log(line),
       warn: (line) => console.log(pc.yellow(line)),

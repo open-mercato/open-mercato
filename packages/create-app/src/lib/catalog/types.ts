@@ -20,6 +20,10 @@ export type CatalogModule = {
   install: string
   /** Command per verified line (`picker.json` `installByLine`); null when the catalog does not publish it. */
   installByLine: Record<string, string> | null
+  /** Lines whose new app (classic preset) already registers this module (`picker.json` `inPresets`); [] when none. */
+  inPresets: string[]
+  /** What the catalog says instead of a command when the latest line's new app has the module (`presetNote`). */
+  presetNote: string | null
 }
 
 export type PickerIndex = {

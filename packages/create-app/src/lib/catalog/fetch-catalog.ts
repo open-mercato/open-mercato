@@ -61,6 +61,8 @@ function toCatalogModule(value: unknown): CatalogModule | null {
     verifiedOn: value.verifiedOn,
     install: value.install,
     installByLine: toInstallByLine(value.installByLine),
+    inPresets: isStringArray(value.inPresets) ? value.inPresets : [],
+    presetNote: isString(value.presetNote) ? value.presetNote : null,
   }
 }
 

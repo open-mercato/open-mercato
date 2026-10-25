@@ -162,6 +162,10 @@ export type CatalogModule = {
                                    // exact command per line in verifiedOn, with the version verified on that
                                    // line (catalog `version.recommended[line]`); null from a catalog that
                                    // predates the field
+  inPresets: string[]              // lines whose new app (classic preset) already registers the module;
+                                   // [] when the catalog omits the field
+  presetNote: string | null        // the catalog's sentence for such a module on the latest line, e.g.
+                                   // 'Nothing to install: a new app already registers gateway_stripe in src/modules.ts.'
 }
 
 export type PickerIndex = { schemaVersion: 1; generatedAt: string; lines: string[]; modules: CatalogModule[] }
@@ -189,6 +193,15 @@ Fetch contract (`fetch-catalog.ts`):
   item carries that command as its `install`. Core modules are the presets' job
   (Phase 2); a core ID passed to `--modules` is answered with its `module enable` command, or "the preset
   already enables it".
+- Modules the new app already registers are never planned: for `classic` the catalog's `inPresets` contains the
+  line, for another preset its own `src/modules.ts` list has the same ID and package. The picker leaves them out
+  (`Not listed: <n> catalog modules the app already registers in src/modules.ts.`) and `--modules` answers with
+  the catalog's `presetNote` (classic, latest line) or `Nothing to install: <a new app | the preset> already
+  registers <id> in src/modules.ts.` instead of a command.
+- Requests the catalog cannot plan get one of three notes: a module listed in the catalog but not verified on
+  the line (`Not verified on <line>: <request> is in the module catalog, ...`), a name the catalog does not have
+  with the closest module ID or npm name (`Not in the module catalog: ksef_direct. Did you mean
+  integration_ksef_direct?`), or the same without a suggestion when nothing is close.
 
 ### Licenses and third-party code
 
@@ -382,7 +395,9 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 - `runCatalogStep`: `--modules` writes the plan and returns commands; offline and untested line return nothing
   with a notice and write no file; core IDs answered with `module enable`; interactive picker with license and
   level shown and an invalid answer re-asked; no TTY skips the picker but keeps `--modules`; a develop build
-  plans the `next` version; a module without a command for a line other than latest is left out with a notice.
+  plans the `next` version; a module without a command for a line other than latest is left out with a notice;
+  a module a new classic app or the chosen preset already registers is neither offered nor planned; unknown names
+  are told apart from listed but unverified modules, with the closest name suggested.
 
 ### Integration tests (`yarn test:create-app:integration`, planned with Phase 1 follow-up)
 

@@ -23,7 +23,7 @@ import {
   parseModulesFlag,
   resolveCatalogSelection,
 } from './selection.js'
-import { parsePickerAnswer, runCatalogStep, type CatalogStepOptions } from './catalog-step.js'
+import { closestCatalogName, parsePickerAnswer, runCatalogStep, type CatalogStepOptions } from './catalog-step.js'
 import type { PickerIndex } from './types.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -352,7 +352,7 @@ test('runCatalogStep warns about unknown modules and unmet core requirements', a
   const { options, warnings } = stepOptions({ requested: ['integration_ksef_direct', 'gateway_tpay'], presetModuleIds: ['auth'] })
   const result = await runCatalogStep(options)
   assert.equal(result.commands.length, 1)
-  assert.ok(warnings.some((line) => line.startsWith('Not verified on 0.9 in the module catalog: gateway_tpay.')))
+  assert.ok(warnings.some((line) => line.startsWith('Not verified on 0.9: gateway_tpay is in the module catalog, but the catalog has not verified it on 0.9.')))
   assert.ok(
     warnings.some((line) =>
       line.includes('integration_ksef_direct requires integrations, which the preset does not enable: yarn mercato module enable @open-mercato/core --module integrations'),
@@ -403,4 +403,79 @@ test('runCatalogStep reads the picker URL from OM_MODULES_PICKER_URL', async () 
   assert.equal(mirror.calls[0]?.url, 'https://mirror.example.com/picker.json')
   const saved = JSON.parse(readFileSync(result.selectionFile ?? '', 'utf8'))
   assert.equal(saved.catalog, 'https://mirror.example.com/picker.json')
+})
+
+test('parsePickerIndex reads inPresets and presetNote, and older files without them', () => {
+  const stripe = index.modules.find((entry) => entry.id === 'gateway_stripe')!
+  assert.deepEqual(stripe.inPresets, ['0.8', '0.9', 'next'])
+  assert.equal(stripe.presetNote, 'Nothing to install: a new app already registers gateway_stripe in src/modules.ts.')
+  const ksef = index.modules.find((entry) => entry.id === 'integration_ksef_direct')!
+  assert.deepEqual(ksef.inPresets, [])
+  assert.equal(ksef.presetNote, null)
+})
+
+test('runCatalogStep plans nothing for a module a new classic app already registers', async () => {
+  const { options, logs, warnings } = stepOptions({ requested: ['gateway_stripe', 'integration_ksef_direct'], presetModuleIds: null })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, ['yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party'])
+  const saved = JSON.parse(readFileSync(result.selectionFile ?? '', 'utf8'))
+  assert.deepEqual(saved.modules.map((entry: { id: string }) => entry.id), ['integration_ksef_direct'])
+  assert.deepEqual(warnings, [])
+  assert.ok(logs.includes('Nothing to install: a new app already registers gateway_stripe in src/modules.ts.'))
+  assert.ok(!logs.some((line) => line.includes('gateway-stripe@')))
+
+  const only = stepOptions({ requested: ['@open-mercato/gateway-stripe'], presetModuleIds: null })
+  assert.deepEqual(await runCatalogStep(only.options), { commands: [], selectionFile: null })
+  assert.equal(existsSync(join(only.options.targetDir, CATALOG_SELECTION_FILE)), false)
+  assert.deepEqual(only.warnings, [])
+})
+
+test('runCatalogStep checks a preset other than classic against its own module list', async () => {
+  const registers = stepOptions({
+    requested: ['gateway_stripe'],
+    presetModuleIds: ['auth', 'gateway_stripe'],
+    presetModules: [
+      { id: 'auth', from: '@open-mercato/core' },
+      { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+    ],
+  })
+  assert.deepEqual(await runCatalogStep(registers.options), { commands: [], selectionFile: null })
+  assert.ok(registers.logs.includes('Nothing to install: the preset already registers gateway_stripe in src/modules.ts.'))
+
+  const lacks = stepOptions({
+    requested: ['gateway_stripe'],
+    presetModuleIds: ['auth'],
+    presetModules: [{ id: 'auth', from: '@open-mercato/core' }],
+  })
+  assert.deepEqual((await runCatalogStep(lacks.options)).commands, ['yarn mercato module add @open-mercato/gateway-stripe@0.9.0'])
+})
+
+test('runCatalogStep leaves modules a new classic app has out of the picker', async () => {
+  const { options, logs } = stepOptions({ picker: true, presetModuleIds: null, ask: async () => '' })
+  await runCatalogStep(options)
+  assert.ok(logs.some((line) => line.includes('1. integration_ksef_direct')))
+  assert.ok(logs.some((line) => line.includes('2. durable_work')))
+  assert.ok(!logs.some((line) => line.includes('gateway_stripe')))
+  assert.ok(logs.includes('   Not listed: 1 catalog module the app already registers in src/modules.ts.'))
+})
+
+test('runCatalogStep tells a name the catalog lacks from a module it lists but has not verified', async () => {
+  const { options, warnings } = stepOptions({
+    requested: ['ksef_direct', 'nonexistent-x', '@piotrkarwatka/marketing-consents'],
+    presetModuleIds: null,
+  })
+  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null })
+  assert.deepEqual(warnings, [
+    'Not in the module catalog: ksef_direct. Did you mean integration_ksef_direct?',
+    'Not in the module catalog: nonexistent-x. Search https://modules.openmercato.com for modules.',
+    'Not verified on 0.9: @piotrkarwatka/marketing-consents is in the module catalog, but the catalog has not verified it on 0.9. Check its page on https://modules.openmercato.com or pick an alternative there.',
+  ])
+})
+
+test('closestCatalogName suggests a near module ID or npm name, and nothing for a far one', () => {
+  assert.equal(closestCatalogName('ksef_direct', index.modules), 'integration_ksef_direct')
+  assert.equal(closestCatalogName('gateway-strip', index.modules), 'gateway_stripe')
+  assert.equal(closestCatalogName('@open-mercato/gateway-stripee', index.modules), '@open-mercato/gateway-stripe')
+  assert.equal(closestCatalogName('nonexistent-x', index.modules), null)
+  assert.equal(closestCatalogName('  ', index.modules), null)
 })

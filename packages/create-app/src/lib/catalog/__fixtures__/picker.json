@@ -174,9 +174,13 @@
         "0.9"
       ],
       "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
-      "installByLine": {
-        "0.9": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0"
-      }
+      "installByLine": {},
+      "inPresets": [
+        "0.8",
+        "0.9",
+        "next"
+      ],
+      "presetNote": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts."
     },
     {
       "id": "gateway_tpay",
