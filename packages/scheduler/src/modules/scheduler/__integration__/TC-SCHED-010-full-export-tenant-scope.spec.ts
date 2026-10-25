@@ -97,6 +97,7 @@ test.describe('TC-SCHED-010: full export stays scoped to the caller tenant/organ
     let ownOrgJobId: string | null = null
     let otherOrgJobId: string | null = null
     let foreignTenantJobId: string | null = null
+    let foreignToken: string | null = null
 
     try {
       // Own-org actor: scoped to the home tenant's existing organization.
@@ -135,7 +136,7 @@ test.describe('TC-SCHED-010: full export stays scoped to the caller tenant/organ
         organizationId: foreignOrgId,
         roles: [foreignRoleId],
       })
-      const foreignToken = await getAuthToken(request, foreignEmail, foreignPassword)
+      foreignToken = await getAuthToken(request, foreignEmail, foreignPassword)
 
       // View-only (no scheduler.jobs.view) actor in the home org, for the 403 assertion.
       viewOnlyActor = await createScopedActor(request, superadminToken, {
@@ -179,8 +180,8 @@ test.describe('TC-SCHED-010: full export stays scoped to the caller tenant/organ
       expect(forbiddenBody?.requiredFeatures ?? []).toContain('scheduler.jobs.view')
     } finally {
       await deleteScheduleJob(request, superadminToken, ownOrgJobId)
-      await deleteScheduleJob(request, superadminToken, otherOrgJobId)
-      await deleteScheduleJob(request, superadminToken, foreignTenantJobId)
+      await deleteScheduleJob(request, otherOrgActor?.token ?? superadminToken, otherOrgJobId)
+      await deleteScheduleJob(request, foreignToken ?? superadminToken, foreignTenantJobId)
 
       await cleanupScopedActor(request, superadminToken, ownOrgActor)
       await cleanupScopedActor(request, superadminToken, otherOrgActor)
