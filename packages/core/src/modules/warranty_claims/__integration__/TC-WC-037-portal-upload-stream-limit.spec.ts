@@ -20,7 +20,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const UPLOAD_PATH = '/api/warranty_claims/portal/attachments'
 const BOUNDARY = '----om-tc-wc-037'
 const OVERSIZED_BODY_BYTES = 40 * 1024 * 1024
-const UPLOAD_IDLE_TIMEOUT_MS = 60_000
+const UPLOAD_IDLE_TIMEOUT_MS = 10_000
 
 // The server stops reading and answers 413 as soon as the body passes the
 // multipart limit. A client that keeps writing after that point races the
