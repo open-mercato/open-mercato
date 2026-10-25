@@ -43,7 +43,7 @@ Finalization must preserve subscriber result items and unrelated metadata, and m
 - [x] 2.1 Reproduce lost diagnostics with a no-index fallback and replacement subscriber. — b6ea4127d30f03e082e1bc720324fa6655403062
 - [x] 2.2 Preserve fallback diagnostics after Hybrid extensions on every fallback return. — b6ea4127d30f03e082e1bc720324fa6655403062
 - [x] 2.3 Validate the focused fix and review compatibility, security, and scope. — b6ea4127d30f03e082e1bc720324fa6655403062
-- [ ] 2.4 Publish evidence and request independent re-review while retaining QA and review gates.
+- [x] 2.4 Publish evidence and request independent re-review while retaining QA and review gates. — e9433e17bdbed31fe74c73e6d39848217127c336; [follow-up review](https://github.com/open-mercato/open-mercato/pull/6827#pullrequestreview-5643858127), reviewer request: @pkarw.
 
 ## Verification evidence
 
@@ -54,3 +54,4 @@ Finalization must preserve subscriber result items and unrelated metadata, and m
 - Fresh `main` at `774c64847` initially merged cleanly. Adding the focused lesson then conflicted with its updated catalog count, so main was merged and all 154 lesson records were retained with the correct declaration.
 - Existing-head CI had 24 successful and five explicitly skipped checks. New-head CI is reported separately and is not inferred from those results.
 - Follow-up review found no additional contract, query-semantics, data-scope, production-payload, or privacy change. Independent human review and QA remain pending.
+- Post-merge rerun: Hybrid 87/87, shared query suites 100/100, lessons script tests 5/5. The shared Jest process reports its existing open-handle notice and exits successfully without forced termination.
