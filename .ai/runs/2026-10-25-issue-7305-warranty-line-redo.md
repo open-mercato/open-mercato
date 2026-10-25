@@ -38,7 +38,7 @@ An incorrect merge could drop redo coverage, undo state/version guards, or main'
 
 - [x] 2.1 Merge current main and reconcile both command regression suites and scenario identifiers — eb0030eec
 - [x] 2.2 Verify command behavior, compiler/lint, and merged lesson catalog; review the final diff — eb0030eec
-- [ ] 2.3 Publish the fix, record evidence, request human re-review, and release the claim
+- [x] 2.3 Publish the fix, record evidence, request human re-review, and release the claim — bee4b6a12
 
 ## Verification
 
@@ -51,3 +51,6 @@ Runner: local. Docker compose app probes were unavailable. Validation source: lo
 - Lesson catalog structural tests: 5 passed. `git diff --check` passed.
 - Task-local Playwright discovery found both `TC-WC-039` redo scenarios. Repository-wide discovery produced no output before interruption. No app or ephemeral-environment descriptor exists for this checkout; live API scenarios and provider-dependent assessment were not rerun here. Prior combined-build QA is historical evidence only.
 - Source review found no remaining actionable change-local findings. The production diff against main remains three redo hooks. Current request headers, normal-write locks, tenant/organization scope, parent status, atomic flush, side effects, and main's missing-row undo refusal remain intact. No contract changes.
+## Publication and human handoff
+
+The source merge and validation record were published on the existing branch at `bee4b6a12`. Source review: https://github.com/open-mercato/open-mercato/pull/7357#pullrequestreview-5644641043. Comprehensive summary: https://github.com/open-mercato/open-mercato/pull/7357#issuecomment-6401451756. Human re-review was requested from Kapsik89, whose inherited feedback requested preservation of both regression suites. Existing changes-requested, QA, priority, and risk states are preserved pending reassessment; no merge or QA approval is claimed. The temporary claim is released during final tracker cleanup. Full current-head CI remains an external gate.
