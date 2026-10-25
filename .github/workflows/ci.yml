@@ -1122,13 +1122,7 @@ jobs:
   merge-coverage:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, test, documents-multi-instance, ephemeral-integration]
-    if: |
-      !cancelled() &&
-      needs.prepare.result == 'success' &&
-      needs.test.result == 'success' &&
-      needs['documents-multi-instance'].result == 'success' &&
-      needs['ephemeral-integration'].result == 'success' &&
-      needs.prepare.outputs.shard_matrix != '["none"]'
+    if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -1142,7 +1136,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: integration-test-results-*
-          path: .ai/qa/test-results
           merge-multiple: true
 
       - name: Merge shard coverage reports

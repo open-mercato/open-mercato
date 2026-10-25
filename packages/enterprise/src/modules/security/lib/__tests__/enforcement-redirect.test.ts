@@ -3,6 +3,11 @@ jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
 
 const mockLoggerError = jest.fn()
 const mockLoggerWarn = jest.fn()
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
@@ -47,7 +52,8 @@ function buildArgs(overrides?: Partial<ResolveArgs>): ResolveArgs {
 describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
-    mockEmitSecurityEvent.mockClear()
+    mockEmitSecurityEvent.mockReset().mockResolvedValue(undefined)
+    mockReportError.mockClear()
     mockLoggerError.mockClear()
     mockLoggerWarn.mockClear()
   })
@@ -228,6 +234,73 @@ describe('resolveMfaEnrollmentRedirect', () => {
         pathname: '/backend/customers/people',
       }),
     )
+  })
+
+  test.each<[string, ResolveArgs['container']]>([
+    ['non-compliant user', buildArgs().container],
+    ['unavailable enforcement service', { resolve: () => null }],
+    ['failed compliance check', {
+      resolve: () => ({
+        checkUserCompliance: async () => {
+          throw new Error('compliance unavailable')
+        },
+      }),
+    }],
+  ])('does not wait for the notification enqueue in the %s case', async (_scenario, container) => {
+    jest.useFakeTimers()
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    let rejectEnqueue: (error: Error) => void = () => {}
+    mockEmitSecurityEvent.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => {
+      rejectEnqueue = reject
+    }))
+    let completed = false
+    const redirect = resolveMfaEnrollmentRedirect(buildArgs({ container })).then((result) => {
+      completed = true
+      return result
+    })
+
+    try {
+      await jest.advanceTimersByTimeAsync(0)
+      expect(completed).toBe(true)
+      await expect(redirect).resolves.toBeNull()
+      expect(mockEmitSecurityEvent).toHaveBeenCalledTimes(1)
+      expect(mockEmitSecurityEvent).toHaveBeenCalledWith(
+        'security.mfa.emergency_bypass_detected',
+        expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+        { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' },
+      )
+      expect(mockReportError).not.toHaveBeenCalled()
+
+      await jest.advanceTimersByTimeAsync(2_000)
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        'Unable to enqueue MFA emergency bypass notification',
+        { err: expect.any(Error) },
+      )
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'security', code: 'security.mfa_bypass_notification_failed',
+      })
+      rejectEnqueue(new Error('late queue failure'))
+      await jest.advanceTimersByTimeAsync(0)
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+    } finally {
+      rejectEnqueue(new Error('queue unavailable'))
+      await redirect
+      await jest.advanceTimersByTimeAsync(0)
+      jest.useRealTimers()
+    }
+  })
+
+  test('reports a rejected notification enqueue without blocking navigation', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+    const failure = new Error('queue unavailable')
+    mockEmitSecurityEvent.mockRejectedValueOnce(failure)
+
+    await expect(resolveMfaEnrollmentRedirect(buildArgs())).resolves.toBeNull()
+    await Promise.resolve()
+
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'security', code: 'security.mfa_bypass_notification_failed',
+    })
   })
 
   test('does not emit warning when bypass is enabled but user is compliant', async () => {

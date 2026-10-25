@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Nested ACL wildcards now grant their matching enabled-module features (#5523)
+
+Nested role and user ACL grants such as `sales.order.*`, `catalog.product.*`,
+`auth.users.*`, and `security.mfa.*` were incorrectly discarded by the enabled-module
+filter after the module registry initialized. They now resolve to their owning module
+and participate in canonical authorization. This affects all enabled modules, not only
+MFA notification recipients: existing stored nested wildcards can grant access that was
+previously denied. Exact grants, module-level wildcards such as `security.*`, and global
+`*` grants keep their existing semantics. Disabled modules, removed features, and tenant
+or organization scope restrictions still take precedence.
+
+**Action for operators before upgrading:** audit both role ACLs and per-user ACLs for
+nested wildcard grants. Check the matching features in each enabled module and the users
+who inherit those grants. If that access is not intended, remove the wildcard or replace
+it with the explicitly approved feature IDs before upgrading; verify representative users
+in their tenant and organization scopes after upgrading. No database migration or API
+payload change is required. Module authors should use canonical scoped authorization and
+must not rely on nested wildcards being filtered out. The notification design is tracked
+in [PR #7618](https://github.com/open-mercato/open-mercato/pull/7618).
+
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
 The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
