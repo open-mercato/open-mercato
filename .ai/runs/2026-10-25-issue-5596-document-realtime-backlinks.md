@@ -43,6 +43,16 @@ The setup link and inline presentation need focused validation. Existing `change
 
 ### Phase 2: Review remediation
 
-- [ ] 2.1 Share the verified setup URL and use LinkButton
-- [ ] 2.2 Run focused validation and review the final diff
-- [ ] 2.3 Publish, report evidence, and request human re-review
+- [x] 2.1 Share the verified setup URL and use LinkButton — d7c798fe37ad6c009036d96282492da8b357c5fd
+- [x] 2.2 Run focused validation and review the final diff — d7c798fe37ad6c009036d96282492da8b357c5fd
+- [x] 2.3 Publish, report evidence, and request human re-review — d7c798fe37ad6c009036d96282492da8b357c5fd
+
+## Verification and handoff
+
+Runner: local fallback. The existing editor render/behavior suite passed (1 suite, 3 tests). Focused normal ESLint passed with zero errors and two unchanged hook warnings; focused design-system lint and `git diff --check` passed. Existing dependencies were read-only, with the installed TypeScript 6 alias used for ESLint parser compatibility. No broad build or new constant-only tests were added.
+
+The exact guide URL returned HTTP 200 and upstream `main` contains the target sidecar heading. Merge-tree against fetched upstream `main` (`db279a693eb283f6147b6e1ef24abfeeca6de646`) was clean.
+
+Original-head CI run 39163934965 passed. Correction-head CI run 40224396644 was running when handed back (normal lint, audit-scope and guard already passed); full new-head typecheck, build and integration results are not claimed. Manual QA remains required.
+
+Evidence: https://github.com/open-mercato/open-mercato/pull/7626#issuecomment-6401893964. Re-review was successfully requested from @wojciechszyjka. Preserve `changes-requested`, `needs-qa`, priority and risk labels pending human reassessment.
