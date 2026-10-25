@@ -67,6 +67,7 @@ import {
 import { AiAssessButtons } from '../../components/AiAssessButtons'
 import { useUserDisplayNames } from '../../components/useUserDisplayNames'
 import { ReceivingPanel } from '../../components/ReceivingPanel'
+import { loadClaimLines } from '../../components/claimLines'
 import { ReturnLabelPanel } from '../../components/ReturnLabelPanel'
 import { VendorRecoverySuggestionsPanel } from '../../components/VendorRecoverySuggestionsPanel'
 import { ClaimStageProgress } from '../../components/ClaimStageProgress'
@@ -929,11 +930,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           undefined,
           { fallback: { items: [] }, errorMessage: t('warranty_claims.detail.error.load') },
         ),
-        readApiResultOrThrow<{ items?: unknown[] }>(
-          `/api/warranty_claims/lines?claimId=${encodeURIComponent(id)}&page=1&pageSize=100`,
-          undefined,
-          { fallback: { items: [] }, errorMessage: t('warranty_claims.detail.error.loadLines') },
-        ),
+        loadClaimLines(id, t('warranty_claims.detail.error.loadLines')),
         readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims/events?claimId=${encodeURIComponent(id)}`,
           undefined,
