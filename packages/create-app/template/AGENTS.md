@@ -6,7 +6,7 @@ Route first; never probe unmatched context.
 
 - Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
-- App code: `src/modules/<id>/`; framework context only for named gaps.
+- App code: `src/modules/<id>/`.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
@@ -34,11 +34,11 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Production Deployment
 
-Route production deployment, go-live, or security-readiness work to `architecture` and read `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; the guide carries the safe configuration inventory. During the later readiness review, inspect only names and comments in the checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or a live deployment.
+Route production deployment/go-live/security-readiness to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use its inventory. Readiness: only names and comments in checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
 
 ## Three-Axis Context Assembler
 
-Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
+Select all matches on all axes.
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
@@ -68,7 +68,7 @@ API/command/record/status/event/UI changes/guards = `umes`; app persistence = `m
 
 ### Axis 2 — Work Units
 
-Match every work-unit row; OPEN its skill before selection.
+Open every matched work-unit skill before selection.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -91,7 +91,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `framework-context` | Exact installed contract still unknown | `.ai/guides/framework-contracts.md`, then bounded `om-framework-context`, last |
 | `debugging` + `testing` | Add/fix recurring harness case/test | `om-evolve-harness` |
 
-`framework-context`: resolve one named fact first. Use bounded source only if the guide leaves current behavior, authorization, dependents, or safest customization seam unresolved; never for “installed contracts” alone.
+`framework-context`: resolve a named fact first; bounded source only for current behavior, authorization, dependents, or safest customization seam gaps left by the guide, never “installed contracts” alone.
 
 ### Axis 3 — SDLC and Delivery
 
@@ -107,8 +107,8 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once, then only needed references/facts.
-- Hard budgets: guide > skill > references; open a reference only for its named subject.
+- Load matched guides once; only needed references/facts.
+- Budget order: guide > skill > references; only subject-matched references.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
@@ -116,14 +116,14 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ## Module-Specific Facts
 
-Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex or encrypted search box/filter by name→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed or encrypted fields are text-filtered. Big fact-sheets: read in sections.
+Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; query index/reindex or encrypted search box/filter by name→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. Primitives skip api_docs/search/query_index unless changed or filtering encrypted text. Read big facts by section.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->
 
 ## Working Sequence
 
-1. Route, then implement the smallest complete slice through real call sites.
-2. Discovery change: run `yarn generate`; then the smallest gate/integration paths.
+1. Route; implement the smallest complete slice through real call sites.
+2. Discovery changes: `yarn generate`; then focused gates/integration paths.
 
 Precedence: root→BC→installed `AGENTS.md`→facts; stop on skew/conflict; never guess.
