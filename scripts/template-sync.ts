@@ -333,6 +333,17 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  carrier_inpost: {
+    source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+    template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays
+  // disabled in the scaffold for the same reason as forms below: a module enabled
+  // in the template ships a generated fact sheet that the standalone AI harness
+  // must cover with an evaluation case (src/lib/module-facts-build.test.ts), so
+  // enabling it is a maintainer call that follows
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md. Install
+  // @open-mercato/carrier-inpost and uncomment the line to use it.
+  // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+  },
   forms: {
     source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
   // submissions, role-sliced rendering, public runner + portal + embed surfaces.
@@ -374,6 +385,17 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // case'). Run the om-refresh-standalone-harness skill to add that coverage,
   // then enable it in the template.
   // { id: 'availability', from: '@open-mercato/core' },`,
+  },
+  ecommerce: {
+    source: `  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },`,
+    template: `  // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
+  // Stays commented out with customer_groups, which it requires, and availability, which it
+  // integrates with when enabled, until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage.
+  // { id: 'ecommerce', from: '@open-mercato/core' },`,
   },
 }
 
