@@ -15,6 +15,7 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import { removeAttachmentRecord } from '../lib/storageReferences'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
@@ -61,11 +62,13 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
+const ATTACHMENT_LIST_MAX_PAGE_SIZE = 100
+
 const attachmentQuerySchema = z.object({
   entityId: z.string().min(1).describe('Entity identifier that owns the attachments'),
   recordId: z.string().min(1).describe('Record identifier within the entity'),
   page: z.coerce.number().min(1).optional(),
-  pageSize: z.coerce.number().min(1).max(100).optional(),
+  pageSize: z.coerce.number().min(1).max(ATTACHMENT_LIST_MAX_PAGE_SIZE).optional(),
 })
 
 const attachmentAssignmentSchema = z.object({
@@ -215,7 +218,7 @@ export async function GET(req: Request) {
   const orgId = requestScope.organizationId
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (orgId) filter.organizationId = orgId
-  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC' }
+  const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC', id: 'DESC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
   const total = usePaging ? await em.count(Attachment, filter) : null
   const currentPage = usePaging ? Math.max(1, page) : null
@@ -233,7 +236,7 @@ export async function GET(req: Request) {
             limit: currentPageSize!,
             offset: pageOffset,
           }
-        : {}),
+        : { limit: ATTACHMENT_LIST_MAX_PAGE_SIZE }),
     },
     {
       tenantId: auth.tenantId ?? null,
@@ -734,11 +737,12 @@ async function deleteAttachment(req: Request) {
       organizationId: record.organizationId ?? orgId ?? '',
     })
     : null
-  await em.remove(record).flush()
+  const removal = await removeAttachmentRecord(em, record)
+  if (!removal.removed) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
-  if (delDriver) await delDriver.delete(record.partitionCode, record.storagePath)
+  if (delDriver && removal.releaseStorage) await delDriver.delete(record.partitionCode, record.storagePath)
   if (dataEngine) {
     await emitCrudSideEffects({
       dataEngine,
@@ -766,7 +770,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List attachments for a record',
-      description: 'Returns uploaded attachments for the given entity record, ordered by newest first.',
+      description: 'Returns uploaded attachments for the given entity record, ordered by newest first. Without both page and pageSize, only the newest 100 attachments are returned; pass page and pageSize to page through the rest.',
       query: attachmentQuerySchema,
       responses: [
         { status: 200, description: 'Attachments found for the record', schema: attachmentListResponseSchema },

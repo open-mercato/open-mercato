@@ -21,12 +21,14 @@ const defaultFindOneImpl = async (entity: any, where: any) => {
   return null
 }
 
-function buildUsageKysely(totalSize: number) {
+function buildUsageKysely(totalSize: number, storageReferenceIds: string[] = ['att-1']) {
   const selectChain: any = {
     select: jest.fn(() => selectChain),
     where: jest.fn(() => selectChain),
+    orderBy: jest.fn(() => selectChain),
+    forUpdate: jest.fn(() => selectChain),
     executeTakeFirst: jest.fn(async () => ({ total_size: totalSize })),
-    execute: jest.fn(async () => []),
+    execute: jest.fn(async () => storageReferenceIds.map((id) => ({ id }))),
   }
   return {
     selectFrom: jest.fn(() => selectChain),
@@ -47,6 +49,9 @@ const mockEm = {
   find: jest.fn(),
   count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
+  begin: jest.fn(async () => {}),
+  commit: jest.fn(async () => {}),
+  rollback: jest.fn(async () => {}),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -622,6 +627,35 @@ describe('attachments API', () => {
     )
   })
 
+  it('caps an unpaginated record list at the page-size ceiling (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual({ items: [] })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 100, orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
+  it('caps the list when only one of page and pageSize is supplied (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    for (const query of ['page=3', 'pageSize=5']) {
+      mockEm.find.mockClear()
+      const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
+      expect(res.status).toBe(200)
+      const options = mockEm.find.mock.calls[0]?.[2] as { limit?: number } | undefined
+      expect(typeof options?.limit).toBe('number')
+      expect(options!.limit!).toBeLessThanOrEqual(100)
+    }
+  })
+
   it('rejects superadmin uploads with no organization selected using a 400 with a clear message instead of a 401 (#3764)', async () => {
     mockGetAuthFromRequest.mockImplementation(() => ({
       orgId: null,
@@ -682,6 +716,64 @@ describe('attachments API', () => {
       { id: 'att-1', tenantId: 't1' },
     )
     expect(mockEm.remove).toHaveBeenCalled()
+  })
+
+  describe.each(['legacy', 'strict'])('DELETE with shared stored objects under %s policy', (policy) => {
+    const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    beforeEach(() => { process.env.OM_ATTACHMENT_STORAGE_POLICY = policy })
+    afterEach(() => {
+      if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
+    })
+    const storedAttachment = {
+      id: 'att-1',
+      tenantId: 't1',
+      organizationId: 'org',
+      partitionCode: 'productsMedia',
+      storagePath: 'productsMedia/org/shared.png',
+    }
+
+    const storedObjectRemovals = () =>
+      (fsp.rm as jest.Mock).mock.calls.filter(([target]) => String(target).endsWith('shared.png'))
+
+    beforeEach(() => {
+      mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity?.name === 'Attachment') return { ...storedAttachment }
+        return defaultFindOneImpl(entity, where)
+      })
+    })
+
+    it('keeps the stored object while another attachment row still references it', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1', 'att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(mockEm.commit).toHaveBeenCalledTimes(1)
+      expect(storedObjectRemovals()).toHaveLength(0)
+    })
+
+    it('deletes the stored object once the last referencing row is removed', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(storedObjectRemovals()).toHaveLength(1)
+      const removalCall = (fsp.rm as jest.Mock).mock.calls.findIndex(([target]) => String(target).endsWith('shared.png'))
+      expect(mockEm.commit.mock.invocationCallOrder[0])
+        .toBeLessThan((fsp.rm as jest.Mock).mock.invocationCallOrder[removalCall])
+    })
+
+    it('returns 404 without touching storage when a concurrent delete already removed the row', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(404)
+      expect(mockEm.remove).not.toHaveBeenCalled()
+      expect(fsp.rm).not.toHaveBeenCalled()
+      expect(mockDataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    })
   })
 
   it('still returns 401 for a non-superadmin delete with no organization', async () => {
@@ -766,7 +858,11 @@ describe('attachments API', () => {
       expect(mockEm.persist).not.toHaveBeenCalled()
     })
 
-    it('retains metadata and bytes when deletion configuration is rejected', async () => {
+    it.each([
+      { referenceIds: ['protected'] },
+      { referenceIds: ['protected', 'attachment-copy'] },
+    ])('retains metadata and bytes when deletion configuration is rejected with references $referenceIds', async ({ referenceIds }) => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, referenceIds))
       mockEm.findOne.mockImplementation(async (entity: { name?: string }) => entity.name === 'Attachment'
         ? { id: 'protected', tenantId: 't1', organizationId: 'org', partitionCode: 'privateAttachments', storagePath: 'private/file' }
         : { ...partitions[0], storageDriver: 'unregistered' })
@@ -776,6 +872,8 @@ describe('attachments API', () => {
       expect(await response.json()).toMatchObject({ reason: 'unknown_driver' })
       expect(mockEm.remove).not.toHaveBeenCalled()
       expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockEm.begin).not.toHaveBeenCalled()
+      expect(mockEm.commit).not.toHaveBeenCalled()
       expect(fsp.rm).not.toHaveBeenCalled()
     })
 

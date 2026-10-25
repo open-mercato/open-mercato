@@ -36,12 +36,19 @@ const attachment = {
   fileName: 'image.png', mimeType: 'image/png', fileSize: 0,
 }
 let mockPartition: Record<string, unknown> | null
+let mockStorageReferenceIds: string[]
+const mockPersistedIds = new Set<string>()
 let imageBytes: Buffer
 const mockFlush = jest.fn(async () => undefined)
-const mockRemove = jest.fn(() => ({ flush: mockFlush }))
+const mockRemove = jest.fn((record: { id: string }) => {
+  mockPersistedIds.delete(record.id)
+  return { flush: mockFlush }
+})
 const mockPersist = jest.fn(() => ({ flush: mockFlush }))
 const lookupChain = {
   select: jest.fn(() => lookupChain), where: jest.fn(() => lookupChain),
+  orderBy: jest.fn(() => lookupChain), forUpdate: jest.fn(() => lookupChain),
+  execute: jest.fn(async () => mockStorageReferenceIds.map((id) => ({ id }))),
   executeTakeFirst: jest.fn(async () => undefined),
 }
 const mockEm = {
@@ -49,6 +56,9 @@ const mockEm = {
   find: jest.fn(async () => [attachment]),
   create: jest.fn((_entity: unknown, data: Record<string, unknown>) => data),
   remove: mockRemove, persist: mockPersist, flush: mockFlush,
+  begin: jest.fn(async () => undefined),
+  commit: jest.fn(async () => undefined),
+  rollback: jest.fn(async () => undefined),
   getKysely: () => ({ selectFrom: () => lookupChain }),
   transactional: async (work: (manager: { persist: typeof mockPersist }) => Promise<void>) => work({ persist: mockPersist }),
 }
@@ -91,6 +101,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
   mockPartition = { code: 'privateAttachments', storageDriver: 'consumer-proof', configJson: { bucket: 'valid' }, isPublic: false }
+  mockStorageReferenceIds = [attachment.id]
+  mockPersistedIds.clear()
+  mockPersistedIds.add(attachment.id)
 })
 afterEach(() => {
   if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
@@ -122,6 +135,8 @@ describe.each(httpPaths)('%s storage configuration', (_path, request) => {
     expect(driver.read).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
     expect(mockRemove).not.toHaveBeenCalled()
+    expect(mockPersistedIds.has(attachment.id)).toBe(true)
+    expect(mockEm.begin).not.toHaveBeenCalled()
   })
 
   it('uses the valid provider with trusted operation scope', async () => {
@@ -130,6 +145,9 @@ describe.each(httpPaths)('%s storage configuration', (_path, request) => {
     expect(construct).toHaveBeenCalledTimes(1)
     expect(validate).toHaveBeenCalledWith(expect.objectContaining({ scope: { tenantId: 'tenant-test', organizationId: 'org-test' } }))
     expect(_path === 'library deletion' ? driver.delete : driver.read).toHaveBeenCalledWith('privateAttachments', 'provider/file')
+    if (_path === 'library deletion') {
+      expect(mockEm.commit.mock.invocationCallOrder[0]).toBeLessThan((driver.delete as jest.Mock).mock.invocationCallOrder[0])
+    }
   })
 })
 
@@ -154,6 +172,8 @@ it('propagates a typed CLI failure without deleting metadata or bytes', async ()
   mockPartition = { storageDriver: null }
   await expect(commands[0].run(['--id', attachment.id])).rejects.toMatchObject({ reason: 'driver_missing' })
   expect(mockRemove).not.toHaveBeenCalled()
+  expect(mockPersistedIds.has(attachment.id)).toBe(true)
+  expect(mockEm.begin).not.toHaveBeenCalled()
   expect(driver.delete).not.toHaveBeenCalled()
 })
 
@@ -163,7 +183,45 @@ it('deletes through the registered provider from the CLI', async () => {
     await commands[0].run(['--id', attachment.id])
     expect(driver.delete).toHaveBeenCalledWith('privateAttachments', 'provider/file')
     expect(mockRemove).toHaveBeenCalledWith(attachment)
+    expect(mockEm.commit.mock.invocationCallOrder[0]).toBeLessThan((driver.delete as jest.Mock).mock.invocationCallOrder[0])
   } finally { print.mockRestore() }
+})
+
+describe.each(['library', 'CLI'] as const)('%s reference-counted strict deletion', (entryPoint) => {
+  const remove = async () => entryPoint === 'CLI'
+    ? commands[0].run(['--id', attachment.id])
+    : deleteLibraryFile(new Request('http://x/api/attachments/library/attachment-test', { method: 'DELETE' }) as NextRequest, context)
+
+  it('retains the row and shared bytes when validation rejects the partition', async () => {
+    mockStorageReferenceIds = [attachment.id, 'attachment-copy']
+    mockPartition = { storageDriver: 'unknown' }
+    if (entryPoint === 'CLI') {
+      await expect(remove()).rejects.toMatchObject({ reason: 'unknown_driver' })
+    } else {
+      expect((await remove() as Response).status).toBe(503)
+    }
+    expect(mockPersistedIds.has(attachment.id)).toBe(true)
+    expect(lookupChain.forUpdate).not.toHaveBeenCalled()
+    expect(mockEm.commit).not.toHaveBeenCalled()
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('removes metadata but retains bytes referenced by another row', async () => {
+    mockStorageReferenceIds = [attachment.id, 'attachment-copy']
+    await remove()
+    expect(lookupChain.forUpdate).toHaveBeenCalledTimes(1)
+    expect(mockPersistedIds.has(attachment.id)).toBe(false)
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('does not delete bytes when another request already removed the row', async () => {
+    mockStorageReferenceIds = ['attachment-copy']
+    mockPersistedIds.delete(attachment.id)
+    await remove()
+    expect(mockRemove).not.toHaveBeenCalled()
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
 })
 
 it('uses strict policy in a helper that directly constructs a late factory', async () => {
