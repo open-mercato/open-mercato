@@ -173,7 +173,7 @@ export default async function handle(
     variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
     icon?: string              // Optional icon
     commandId?: string         // Command to execute (e.g., 'sales.orders.approve')
-    href?: string              // Or URL to navigate to
+    href?: string              // Or same-origin path to navigate to (see below)
     confirmRequired?: boolean  // Show confirmation dialog
     confirmMessage?: string    // Confirmation text
   }>
@@ -183,7 +183,7 @@ export default async function handle(
   sourceModule?: string        // Module that created the notification
   sourceEntityType?: string    // Entity type (e.g., 'order', 'leave_request')
   sourceEntityId?: string      // Entity UUID
-  linkHref?: string            // URL to navigate when clicking notification
+  linkHref?: string            // Same-origin path to navigate to when clicking
 
   // Organization
   groupKey?: string            // Key for collapsing similar notifications
@@ -277,6 +277,8 @@ actions: [
   },
 ]
 ```
+
+`href` and `linkHref` must be same-origin paths starting with `/`. Values containing a backslash or a control character, or resolving to another origin (for example `//host` or `/\host`), are rejected when the notification is created.
 
 ## Batch Notifications
 
@@ -804,7 +806,10 @@ The notifications module emits the following events:
 | `PUT` | `/api/notifications/:id/read` | Mark as read |
 | `POST` | `/api/notifications/:id/action` | Execute action |
 | `PUT` | `/api/notifications/:id/dismiss` | Dismiss notification |
+| `PUT` | `/api/notifications/:id/restore` | Undo a dismissal (`status`: `read` or `unread`) |
 | `PUT` | `/api/notifications/mark-all-read` | Mark all as read |
+
+An action runs once. While a notification's action has been executed, `POST /api/notifications/:id/action` answers `409` with `code: "notification_action_already_executed"` — also after the notification was dismissed or restored. A `409` without that code comes from a mutation guard or from the action's own command; the action was not recorded as executed and can be retried. Restoring a dismissed notification whose action was executed brings it back as `actioned`, whatever `status` is requested.
 
 ## Frontend Components
 
