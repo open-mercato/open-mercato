@@ -42,5 +42,5 @@ The main risk is repeating a completed mutation or retaining a stale pending pre
 
 ### Phase 2: Review remediation
 
-- [ ] 2.1 Merge main and preserve fresh pending previews plus confirmed/executing deduplication with regression tests.
+- [x] 2.1 Merge main and preserve fresh pending previews plus confirmed/executing deduplication with regression tests. — e893cd89d
 - [ ] 2.2 Run focused validation, the post-merge lessons validator and code review; publish evidence and request rereview.
