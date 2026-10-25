@@ -45,4 +45,10 @@ An incomplete consumer inventory would make tenant configuration inconsistent. A
 - [x] 2.1 Ground an exhaustive consumer table and endpoint/UI coverage against the codebase — 01405041239d9b57da28e7f3d0dfb63ad98445bb
 - [x] 2.2 Add required sections, persisted-deal reclassification confirmation, ACL/source rules and env template wiring — 01405041239d9b57da28e7f3d0dfb63ad98445bb
 - [x] 2.3 Review the amended design through all five specification lenses and check the documentation diff — 01405041239d9b57da28e7f3d0dfb63ad98445bb
-- [ ] 2.4 Publish the corrections, account for all inherited findings and request the original reviewer's re-review
+- [x] 2.4 Publish the corrections, account for all inherited findings and request the original reviewer's re-review — 2674516cdf3ee4b27e921a5cbf5996657cca31d7
+
+## Verification outcome
+
+The amended design was audited through all five specification lenses against existing customer, config and dashboard call sites. All five inherited findings are addressed. `git diff --check upstream/main...HEAD` passes; configured runtime gates are inapplicable to this documentation-only diff. GitHub's reported checks were successful/skipped at review time; required-check configuration is inaccessible to the integration (403), and newly scheduled CI is not certified here.
+
+Re-review was requested from @wojciechszyjka. The original changes-requesting review and pipeline label remain in place pending that review. No self-approval, merge, review dismissal or implementation change was performed. Runtime delivery remains in PR #7625.
