@@ -18,6 +18,8 @@ This catalog indexes 153 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities; topic:testing,fixture-cleanup,api-contracts
+
 ### architecture
 
 - [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync
@@ -203,3 +205,4 @@ This catalog indexes 153 focused lessons. Route the task first, then read only r
 ### spec-pr
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
+- [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language

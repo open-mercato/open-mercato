@@ -68,7 +68,12 @@ function makeCtx(opts: { isSuperAdmin?: boolean; tenantId?: string | null; syste
     resolve: (token: string) => {
       if (token === 'em') return em
       if (token === 'dataEngine') return dataEngine
-      if (token === 'rbacService') return { invalidateUserCache: async () => {} }
+      if (token === 'rbacService') {
+        return {
+          invalidateUserCache: async () => {},
+          loadAcl: async () => ({ isSuperAdmin: false, features: [], organizations: null }),
+        }
+      }
       if (token === 'cache') return null
       throw new Error(`Unexpected dependency: ${token}`)
     },
