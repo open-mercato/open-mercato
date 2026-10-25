@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { resolveOwnedCompanyForPerson } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -55,10 +56,6 @@ export default async function handle(
 
     const emailHashes = lookupHashCandidates(email.toLowerCase().trim())
 
-    const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
-    const personProfile = await em.findOne(CustomerPersonProfile as any, { entity: (entity as any).id } as any) as any
-    const companyEntityId = personProfile?.companyEntityId as string | undefined
-
     const customerUser = await em.findOne(CustomerUser, {
       emailHash: { $in: emailHashes },
       tenantId,
@@ -68,11 +65,22 @@ export default async function handle(
 
     if (customerUser) {
       const updates: Record<string, unknown> = { personEntityId: (entity as any).id }
-      if (companyEntityId && !customerUser.customerEntityId) {
-        updates.customerEntityId = companyEntityId
+      if (!customerUser.customerEntityId) {
+        const companyEntityId = await resolveOwnedCompanyForPerson(em, entity.id, {
+          tenantId: customerUser.tenantId,
+          organizationId: customerUser.organizationId,
+        })
+        if (companyEntityId) updates.customerEntityId = companyEntityId
       }
-      const affected = await em.nativeUpdate(CustomerUser, { id: customerUser.id, personEntityId: null }, updates)
-      if (affected === 0) return
+      const where = { id: customerUser.id, personEntityId: null }
+      const affected = await em.nativeUpdate(
+        CustomerUser,
+        { ...where, ...(updates.customerEntityId ? { customerEntityId: null } : {}) },
+        updates,
+      )
+      if (affected === 0 && updates.customerEntityId) {
+        await em.nativeUpdate(CustomerUser, where, { personEntityId: entity.id })
+      }
     }
   } catch (err) {
     logger.error('Failed to link CRM person to customer user', { err })
