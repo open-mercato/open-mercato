@@ -813,6 +813,28 @@ This intentional tightening is covered by the pending Emergency Security Excepti
 in `BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
 A named human maintainer acknowledgment is required before merge.
 
+### AI attachment tools, AI chat attachments and Messages linking enforce attachment owner policies (#6282)
+
+Owner access resolvers (#6726) guard the attachment routes. Several code paths outside those routes loaded attachment rows by id directly and checked only tenant and organization, so they bypassed a protected owner's policy (for example a Documents file the caller may not open). These paths now evaluate the owner policy through the new `evaluateAttachmentRowAccess` helper (`@open-mercato/core/modules/attachments`):
+
+- AI tools `attachments.list_record_attachments` and `attachments.read_attachment` omit, or report as not found, attachments the caller may not read; `attachments.transfer_record_attachments` leaves attachments the caller may not see in place, as if absent, and refuses the request when any visible attachment may not be reassigned, including into a protected destination.
+- AI chat attachments (`attachmentIds` on `POST /api/ai_assistant/ai/chat`, also used by the warranty-claim AI assist) drop protected attachments the caller may not read before anything reaches the model; the pending-action confirmation recheck rejects such attachments with `403`.
+- The catalog tool `catalog.draft_description_from_media` drops protected `userUploadedAttachmentIds` the caller may not see.
+- Messages compose, reply, draft update and draft attachment linking (`linkAttachmentsToMessage`, `linkLibraryAttachmentsToMessage`) refuse the whole request with `403` when any attachment may not be reassigned onto the message.
+
+Attachments whose owner declares no policy behave exactly as before.
+
+Known limitation: on the AI tool, AI chat, catalog tool and MCP server paths, a key-authenticated caller is evaluated as the key without its backing user, because those tool contexts carry no backing user verified by API-key authentication (the HTTP routes and the stdio and dev MCP servers pass only the `api_key:<id>` subject, and the HTTP MCP server carries the key's creator or session user unverified). A key whose access to a protected file comes only from that user's own ownership or user-level share is refused there, while the attachment routes allow it. The check fails closed; access granted to the key's roles works on every path.
+
+**Module authors:**
+- `linkAttachmentsToMessage` and `linkLibraryAttachmentsToMessage` gain an optional last parameter `access: { auth, container }`. Callers that omit it can no longer link protected attachments. Pass the command context's principal (`resolveAttachmentLinkAccess(ctx)` from `messages/lib/attachmentLinkAccess`) to keep linking files the user may access.
+- Custom code that reads attachment rows directly should filter them with `evaluateAttachmentRowAccess`.
+- MCP tool contexts gain an optional `apiKeyId`, so key-authenticated calls are evaluated as the key rather than as the key's creator.
+
+**Operator action:** no schema, configuration or data change. An API key or MCP client that must read a protected file (for example a Documents file) through the AI tools or chat needs access granted to the key's role, such as a document share with that role. **Rollback:** these checks add no stored state; rolling them back restores the previous behavior of these paths and reopens the bypass.
+
+This intentional tightening is covered by the pending Emergency Security Exception described in `BACKWARD_COMPATIBILITY.md` together with #6726. A named human maintainer acknowledgment is required before merge.
+
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
 Accent-insensitive product search (`GET /api/catalog/products?search=hustawka` now finds `huśtawka`)

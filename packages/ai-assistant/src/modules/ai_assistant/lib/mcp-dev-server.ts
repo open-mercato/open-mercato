@@ -285,6 +285,7 @@ export async function runMcpDevServer(): Promise<void> {
     userFeatures: authResult.features,
     isSuperAdmin: authResult.isSuperAdmin,
     apiKeySecret: apiKey,
+    apiKeyId: authResult.keyId,
     sessionId: devSessionId,
   }
 

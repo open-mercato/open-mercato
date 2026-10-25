@@ -29,6 +29,7 @@ import type {
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
+import { filterAttachmentRowsByOwnerAccess, type AttachmentOwnerAccessRow } from './attachment-owner-access'
 
 export type PendingActionRecheckCode =
   | 'invalid_status'
@@ -246,6 +247,26 @@ export async function checkAttachmentScope(
         code: 'attachment_cross_tenant',
         message: 'One or more attachments belong to a different organization.',
       }
+    }
+  }
+  const { denied } = await filterAttachmentRowsByOwnerAccess(
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      isSuperAdmin: ctx.isSuperAdmin,
+      container: ctx.container,
+      em,
+    },
+    rows as unknown as AttachmentOwnerAccessRow[],
+    'read',
+  )
+  if (denied.length > 0) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'attachment_cross_tenant',
+      message: 'One or more attachments are not accessible to the caller.',
     }
   }
   return { ok: true }

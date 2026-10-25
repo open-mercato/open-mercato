@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { defineAiTool } from '../lib/ai-tool-definition'
 import type { AiToolDefinition } from '../lib/types'
+import { filterAttachmentRowsByOwnerAccess } from '../lib/attachment-owner-access'
 
 type AttachmentMetadataModule = {
   readAttachmentMetadata: (raw: unknown) => {
@@ -53,7 +54,7 @@ type AttachmentRow = {
   content?: string | null
   tenantId?: string | null
   organizationId?: string | null
-  partitionCode?: string
+  partitionCode: string
   createdAt?: Date
 }
 
@@ -101,11 +102,12 @@ const listRecordAttachmentsTool = defineAiTool({
       { orderBy: { createdAt: 'desc' } as any },
       { tenantId, organizationId: ctx.organizationId },
     )) as AttachmentRow[]
+    const { allowed } = await filterAttachmentRowsByOwnerAccess(ctx, rows, 'metadata')
     return {
       entityType: input.entityType,
       recordId: input.recordId,
-      total: rows.length,
-      items: rows.map((row) => ({
+      total: allowed.length,
+      items: allowed.map((row) => ({
         id: row.id,
         entityType: row.entityId,
         recordId: row.recordId,
@@ -151,6 +153,11 @@ const readAttachmentTool = defineAiTool({
       { tenantId, organizationId: ctx.organizationId },
     )) as AttachmentRow | null
     if (!row) {
+      return { found: false as const, attachmentId: input.attachmentId }
+    }
+    const action = input.includeExtractedText === true ? 'read' : 'metadata'
+    const { allowed } = await filterAttachmentRowsByOwnerAccess(ctx, [row], action)
+    if (allowed.length === 0) {
       return { found: false as const, attachmentId: input.attachmentId }
     }
     const metadata = readAttachmentMetadata(row.storageMetadata)
@@ -215,13 +222,22 @@ const transferRecordAttachmentsTool = defineAiTool({
     if (input.attachmentIds && input.attachmentIds.length > 0) {
       where.id = { $in: input.attachmentIds }
     }
-    const rows = (await findWithDecryption<AttachmentRow>(
+    const loadedRows = (await findWithDecryption<AttachmentRow>(
       em,
       Attachment as unknown as new () => AttachmentRow,
       where,
       undefined,
       { tenantId, organizationId: ctx.organizationId },
     )) as AttachmentRow[]
+    const { allowed: rows } = await filterAttachmentRowsByOwnerAccess(ctx, loadedRows, 'metadata')
+    const { denied } = await filterAttachmentRowsByOwnerAccess(ctx, rows, 'reassign', {
+      entityId: input.toEntityType,
+      recordId: input.toRecordId,
+      moveAssignments: true,
+    })
+    if (denied.length > 0) {
+      throw new Error('attachments.transfer_record_attachments is not allowed for one or more of these attachments')
+    }
     if (!rows.length) {
       return {
         transferred: 0,

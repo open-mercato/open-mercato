@@ -98,11 +98,11 @@ function makeCtx(overrides: Partial<PendingActionAuthContext> = {}): PendingActi
     isSuperAdmin: false,
     container: {
       resolve: (name: string) => {
-        if (name === 'em') return {}
+        if (name === 'em') return { find: async () => [] }
         throw new Error(`unknown dep ${name}`)
       },
     } as unknown as AwilixContainer,
-    em: {} as never,
+    em: { find: async () => [] } as never,
     ...overrides,
   }
 }

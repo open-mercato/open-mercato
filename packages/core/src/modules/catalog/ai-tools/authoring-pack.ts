@@ -44,6 +44,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { buildAttachmentAccessAuth, evaluateAttachmentRowAccess } from '@open-mercato/core/modules/attachments/lib/access-rows'
 import { E } from '#generated/entities.ids.generated'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
 import {
@@ -295,7 +296,20 @@ async function loadUserMedia(
     { limit: unique.length } as any,
     buildScope(ctx, tenantId),
   )
-  const tenantScoped = rows.filter((row) => (row.tenantId ?? null) === tenantId)
+  const scoped = rows.filter((row) => (row.tenantId ?? null) === tenantId)
+  const { allowed: tenantScoped } = await evaluateAttachmentRowAccess({
+    container: ctx.container,
+    em,
+    auth: buildAttachmentAccessAuth({
+      tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      apiKeyId: ctx.apiKeyId,
+      isSuperAdmin: ctx.isSuperAdmin,
+    }),
+    rows: scoped,
+    action: 'metadata',
+  })
   for (const dropped of unique) {
     if (!tenantScoped.find((row) => row.id === dropped)) {
       logger.warn('catalog.draft_description_from_media dropping attachment not in scope', { attachmentId: dropped })

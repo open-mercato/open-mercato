@@ -106,7 +106,7 @@ function makeRow(overrides: AttachmentRowOverrides = {}): Record<string, unknown
 function makeContainer(options?: { signer?: AttachmentSigner | null; omitEm?: boolean }) {
   const registry: Record<string, unknown> = {}
   if (!options?.omitEm) {
-    registry.em = { __label: 'em-stub' }
+    registry.em = { __label: 'em-stub', find: async () => [] }
   }
   if (options?.signer) {
     registry.attachmentSigner = options.signer

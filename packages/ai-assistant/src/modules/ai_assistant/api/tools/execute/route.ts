@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
       container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      ...(auth.isApiKey && typeof auth.keyId === 'string' ? { apiKeyId: auth.keyId } : {}),
     }
 
     // Execute the tool

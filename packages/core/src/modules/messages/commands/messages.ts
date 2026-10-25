@@ -13,6 +13,7 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import { resolveAttachmentLinkAccess } from '../lib/attachmentLinkAccess'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveActorFeatures,
@@ -394,6 +395,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          resolveAttachmentLinkAccess(ctx),
         )
       }
 
@@ -404,6 +406,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
           input.attachmentRecordId,
           input.organizationId,
           input.tenantId,
+          resolveAttachmentLinkAccess(ctx),
         )
       }
 
@@ -644,6 +647,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          resolveAttachmentLinkAccess(ctx),
         )
       }
 
@@ -860,6 +864,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          resolveAttachmentLinkAccess(ctx),
         )
       }
       if (input.attachmentRecordId) {
@@ -869,6 +874,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           input.attachmentRecordId,
           input.organizationId,
           input.tenantId,
+          resolveAttachmentLinkAccess(ctx),
         )
       }
       messageId = message.id

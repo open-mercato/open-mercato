@@ -61,6 +61,7 @@ function makeCtx(overrides: Partial<Ctx> = {}): {
       return em
     }),
     flush: jest.fn().mockResolvedValue(undefined),
+    find: jest.fn().mockResolvedValue([]),
   }
   const container = {
     resolve: jest.fn((name: string) => {

@@ -635,3 +635,23 @@ rollback instructions are in `UPGRADE_NOTES.md`.
 **Human waiver: PENDING.** This PR must not merge until a named human maintainer explicitly
 acknowledges this Emergency Security Exception and migration. Automated tests, agent review
 and the `security` label do not supply that acknowledgment.
+
+---
+
+## Attachment Owner Policies on Direct Attachment Readers (2026-10-25)
+
+Issue #6282 and spec `2026-10-25-inbox-ops-inbound-attachments.md` (Phase 0) apply the attachment owner access resolvers of #6726 to the code paths that load attachment rows by caller-supplied id outside the attachment routes.
+
+| Surface | Change | Classification |
+| --- | --- | --- |
+| Exports | `evaluateAttachmentRowAccess`, `buildAttachmentAccessAuth` and their types from `@open-mercato/core/modules/attachments` | ADDITIVE |
+| Types | Optional `apiKeyId` on `McpToolContext` and `CatalogToolContext` | ADDITIVE |
+| Function signatures | `linkAttachmentsToMessage` and `linkLibraryAttachmentsToMessage` gain an optional last `access` parameter | ADDITIVE parameter; callers without it can no longer link protected attachments |
+| AI tool, AI chat and Messages behavior | `attachments.list_record_attachments`, `attachments.read_attachment`, `attachments.transfer_record_attachments`, chat `attachmentIds`, the pending-action recheck, `catalog.draft_description_from_media`, and Messages compose, reply and draft linking deny protected attachments the caller may not access | **BREAKING tightening of STABLE behavior** for protected owners only (for example Documents), requested under the same Emergency Security Exception as #6726 |
+| Events, routes, response fields, ACL/DI keys, database schema, CLI, widget/notification IDs | No change | No removal |
+
+**Qualifying condition:** without this change, a caller could reach a protected owner's file or its extracted text through an AI tool, a chat turn or a Messages link, bypassing the owner policy that #6726 enforces on the attachment routes. Unprotected owners keep their behavior.
+
+**Migration:** none. Third-party callers of the two Messages link functions pass `access` to keep linking protected files the user may access (see `UPGRADE_NOTES.md`).
+
+**Human waiver: PENDING**, together with the #6726 Emergency Security Exception.

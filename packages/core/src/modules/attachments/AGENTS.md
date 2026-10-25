@@ -56,6 +56,12 @@ write time.
   attachments upload route (`api/route.ts`) already guards its creation site.
 - **MUST gate every attachment read through `checkAttachmentAccess`** (`lib/access.ts`)
   so tenant scoping and partition visibility are enforced consistently.
+- Code that loads attachment rows directly (outside the attachment routes and
+  `attachmentService`), for example an AI tool or a link into another record,
+  **MUST filter them with `evaluateAttachmentRowAccess`** (exported from the module
+  index) for the acting principal, so owner access policies apply. Pass a
+  `destination` when moving rows to another owner; build key-authenticated
+  principals with `buildAttachmentAccessAuth` so the key, not its creator, is evaluated.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.

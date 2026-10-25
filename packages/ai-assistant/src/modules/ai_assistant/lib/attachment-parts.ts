@@ -1,8 +1,10 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { promises as fs } from 'fs'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { filterAttachmentRowsByOwnerAccess } from './attachment-owner-access'
 import type {
   AiAgentAcceptedMediaType,
   AiAgentDefinition,
@@ -111,6 +113,8 @@ function resolveSigner(container: AwilixContainer | undefined): AttachmentSigner
 type AttachmentRow = {
   id: string
   entityId: string
+  recordId: string
+  storageMetadata: unknown
   fileName: string
   mimeType: string
   fileSize: number
@@ -159,6 +163,8 @@ async function loadAttachmentRow(
   return {
     id: row.id,
     entityId: row.entityId,
+    recordId: row.recordId,
+    storageMetadata: row.storageMetadata ?? null,
     fileName: row.fileName,
     mimeType: row.mimeType,
     fileSize: row.fileSize,
@@ -307,7 +313,7 @@ export async function resolveAttachmentParts(
     ? new Set<AiAgentAcceptedMediaType>(input.acceptedMediaTypes)
     : null
 
-  const parts: AiResolvedAttachmentPart[] = []
+  const scopedRows: AttachmentRow[] = []
   for (const id of ids) {
     if (typeof id !== 'string' || id.length === 0) continue
     let row: AttachmentRow | null
@@ -325,9 +331,41 @@ export async function resolveAttachmentParts(
       logger.warn('Attachment is out of scope for caller; skipping', { attachmentId: id, tenantId: input.authContext.tenantId, organizationId: input.authContext.organizationId })
       continue
     }
+    scopedRows.push(row)
+  }
+
+  let deniedIds: Set<string>
+  try {
+    const { denied } = await filterAttachmentRowsByOwnerAccess(
+      {
+        tenantId: input.authContext.tenantId,
+        organizationId: input.authContext.organizationId,
+        userId: input.authContext.userId,
+        isSuperAdmin: input.authContext.isSuperAdmin,
+        container: input.container,
+        em,
+      },
+      scopedRows,
+      'read',
+    )
+    deniedIds = new Set(denied.map((row) => row.id))
+  } catch (error) {
+    logger.warn('Attachment owner access evaluation failed; skipping all attachments', { attachmentCount: scopedRows.length, err: error })
+    getTelemetryRuntime()?.reportError(new Error('[internal] Attachment owner access evaluation failed'), {
+      module: 'ai_assistant', code: 'ai_assistant.attachment_owner_access_failed', attributes: { attachmentCount: scopedRows.length },
+    })
+    return []
+  }
+
+  const parts: AiResolvedAttachmentPart[] = []
+  for (const row of scopedRows) {
+    if (deniedIds.has(row.id)) {
+      logger.warn('Attachment owner access denied for caller; skipping', { attachmentId: row.id })
+      continue
+    }
     const mediaClass = classifyMediaType(row.mimeType)
     if (acceptedSet && !acceptedSet.has(mediaClass)) {
-      logger.warn('Attachment is not in agent acceptedMediaTypes; skipping', { attachmentId: id, mimeType: row.mimeType, acceptedMediaTypes: [...acceptedSet].join(',') })
+      logger.warn('Attachment is not in agent acceptedMediaTypes; skipping', { attachmentId: row.id, mimeType: row.mimeType, acceptedMediaTypes: [...acceptedSet].join(',') })
       continue
     }
     try {
@@ -341,7 +379,7 @@ export async function resolveAttachmentParts(
       )
       parts.push(part)
     } catch (error) {
-      logger.warn('Failed to build attachment part; skipping', { attachmentId: id, err: error })
+      logger.warn('Failed to build attachment part; skipping', { attachmentId: row.id, err: error })
     }
   }
 

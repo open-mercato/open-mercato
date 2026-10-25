@@ -1,7 +1,34 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgresEntityManager } from '@mikro-orm/postgresql'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
+import type { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
+import type { MessageAttachmentLinkAccess } from './attachmentLinkAccess'
 const LIBRARY_ATTACHMENT_ENTITY_ID = 'attachments:library'
+
+async function assertAttachmentsLinkable(
+  em: EntityManager,
+  attachments: Attachment[],
+  messageId: string,
+  access: MessageAttachmentLinkAccess | undefined,
+): Promise<void> {
+  const { evaluateAttachmentRowAccess } = await import('@open-mercato/core/modules/attachments/lib/access-rows')
+  const { denied } = await evaluateAttachmentRowAccess({
+    container: access?.container,
+    em: em as unknown as PostgresEntityManager,
+    auth: access?.auth ?? undefined,
+    rows: attachments,
+    action: 'reassign',
+    destination: { entityId: MESSAGE_ATTACHMENT_ENTITY_ID, recordId: messageId },
+  })
+  if (denied.length === 0) return
+  const { t } = await resolveTranslations()
+  throw new CrudHttpError(403, {
+    error: t('messages.errors.attachmentAccessDenied', 'You cannot attach one or more of these files.'),
+  })
+}
 
 function buildOrganizationScopeFilter(organizationId: string | null) {
   if (!organizationId) {
@@ -21,6 +48,7 @@ export async function linkAttachmentsToMessage(
   attachmentIds: string[],
   organizationId: string | null,
   tenantId: string,
+  access?: MessageAttachmentLinkAccess,
 ): Promise<void> {
   if (attachmentIds.length === 0) return
 
@@ -31,6 +59,8 @@ export async function linkAttachmentsToMessage(
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
   })
+
+  await assertAttachmentsLinkable(em, attachments, messageId, access)
 
   for (const attachment of attachments) {
     attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
@@ -110,6 +140,7 @@ export async function linkLibraryAttachmentsToMessage(
   sourceRecordId: string,
   organizationId: string | null,
   tenantId: string,
+  access?: MessageAttachmentLinkAccess,
 ): Promise<void> {
   if (!sourceRecordId.trim()) return
 
@@ -123,6 +154,8 @@ export async function linkLibraryAttachmentsToMessage(
   })
 
   if (!attachments.length) return
+
+  await assertAttachmentsLinkable(em, attachments, messageId, access)
 
   for (const attachment of attachments) {
     attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID

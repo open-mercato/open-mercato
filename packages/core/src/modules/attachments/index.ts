@@ -37,3 +37,10 @@ export { registerAttachmentAccessResolvers } from './lib/access-registry'
 export { syncAttachmentAccessProtection } from './lib/access-protection'
 export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
 export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
+export { buildAttachmentAccessAuth, evaluateAttachmentRowAccess } from './lib/access-rows'
+export type {
+  AttachmentAccessDestination,
+  AttachmentAccessPrincipal,
+  EvaluateAttachmentRowAccessInput,
+  EvaluateAttachmentRowAccessResult,
+} from './lib/access-rows'

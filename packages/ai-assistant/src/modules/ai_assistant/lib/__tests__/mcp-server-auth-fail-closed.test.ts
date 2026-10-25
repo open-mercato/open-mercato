@@ -1,17 +1,22 @@
 import { createMcpServer } from '../mcp-server'
 import type { McpServerOptions } from '../types'
 
+const mockRequestHandlers = new Map<unknown, (request: unknown) => Promise<unknown>>()
+const mockExecuteTool = jest.fn()
+
 jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   Server: class {
-    setRequestHandler() {}
+    setRequestHandler(schema: unknown, handler: (request: unknown) => Promise<unknown>) {
+      mockRequestHandlers.set(schema, handler)
+    }
   },
 }))
 jest.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: class {},
 }))
 jest.mock('@modelcontextprotocol/sdk/types.js', () => ({
-  ListToolsRequestSchema: {},
-  CallToolRequestSchema: {},
+  ListToolsRequestSchema: { name: 'list' },
+  CallToolRequestSchema: { name: 'call' },
 }))
 jest.mock('../tool-registry', () => ({
   getToolRegistry: () => ({
@@ -19,7 +24,7 @@ jest.mock('../tool-registry', () => ({
     listToolNames: () => [],
   }),
 }))
-jest.mock('../tool-executor', () => ({ executeTool: jest.fn() }))
+jest.mock('../tool-executor', () => ({ executeTool: (...args: unknown[]) => mockExecuteTool(...args) }))
 jest.mock('../tool-loader', () => ({
   loadAllModuleTools: jest.fn(),
   indexToolsForSearch: jest.fn(),
@@ -129,5 +134,23 @@ describe('issue #2673 — MCP stdio server must fail closed without auth', () =>
     const server = await createMcpServer(baseOptions({ apiKeySecret: 'omk_valid.secret' }))
     expect(server).toBeDefined()
     expect(authenticateMcpRequest).toHaveBeenCalledWith('omk_valid.secret', expect.anything())
+  })
+
+  it('passes the authenticated key id to tool calls so owner access evaluates the key', async () => {
+    authenticateMcpRequest.mockResolvedValue({
+      success: true,
+      tenantId: 't1',
+      organizationId: 'o1',
+      userId: 'api_key:key-1',
+      keyId: 'key-1',
+      features: ['ai_assistant.view'],
+      isSuperAdmin: false,
+      keyName: 'test-key',
+    })
+    mockExecuteTool.mockResolvedValue({ success: true, result: {} })
+    await createMcpServer(baseOptions({ apiKeySecret: 'omk_valid.secret' }))
+    const callTool = [...mockRequestHandlers.entries()].find(([schema]) => (schema as { name?: string }).name === 'call')?.[1]
+    await callTool?.({ params: { name: 'attachments.read_attachment', arguments: {} } })
+    expect(mockExecuteTool).toHaveBeenCalledWith('attachments.read_attachment', {}, expect.objectContaining({ apiKeyId: 'key-1' }))
   })
 })

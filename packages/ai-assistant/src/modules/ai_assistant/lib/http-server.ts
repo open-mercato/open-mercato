@@ -88,6 +88,7 @@ async function resolveSessionContext(
       isSuperAdmin: acl.isSuperAdmin,
       // Use the decrypted session secret for API calls (not the MCP server key)
       apiKeySecret: sessionSecret,
+      apiKeyId: sessionKey.id,
     }
   } catch (error) {
     if (debug) {
@@ -139,6 +140,7 @@ async function resolveApiKeyContext(
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
       apiKeySecret: baseContext.apiKeySecret,
+      apiKeyId: apiKeyRecord.id,
     }
   } catch (error) {
     if (debug) {
@@ -521,6 +523,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       userFeatures: [],
       isSuperAdmin: false,
       apiKeySecret: providedApiKey,
+      apiKeyId: apiKeyRecord.id,
     }
 
     try {

@@ -14,6 +14,12 @@ export interface McpToolContext {
   isSuperAdmin: boolean
   /** API key secret for authenticating HTTP requests to internal APIs */
   apiKeySecret?: string
+  /**
+   * Id of the API key (or session key) whose ACL produced `userFeatures`, when the
+   * call is key-authenticated. Owner access checks evaluate `api_key:<apiKeyId>`,
+   * not `userId`, which may name the key's creator.
+   */
+  apiKeyId?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
   sessionId?: string
   /** Pending action that the operator explicitly confirmed before this handler invocation. */
