@@ -76,6 +76,7 @@ export type ReportExportInput = {
   issuedByLabel: string | null
   issuedAtLabel: string | null
   currencyCode: string | null
+  /** Omission preserves legacy visibility; the export route always supplies its permission decision. */
   canSeeMoney?: boolean
   showRates: boolean
   groups: readonly ReportGroup[]
