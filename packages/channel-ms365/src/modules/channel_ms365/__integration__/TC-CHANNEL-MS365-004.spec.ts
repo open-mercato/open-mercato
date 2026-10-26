@@ -13,7 +13,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || ''
  * and MUST NOT create a channel — the code is never exchanged.
  */
 test.describe('TC-CHANNEL-MS365-004: OAuth callback state verification', () => {
-  test('GET /oauth/ms365/callback with a forged state redirects with flash=error and creates no channel', async ({ request }) => {
+  test('GET /oauth/ms365/callback with a forged state redirects with oauth=error and creates no channel', async ({ request }) => {
     const token = await getAuthToken(request)
 
     const before = await apiRequest(request, 'GET', '/api/communication_channels/me/channels', { token })
@@ -28,9 +28,9 @@ test.describe('TC-CHANNEL-MS365-004: OAuth callback state verification', () => {
     expect(response.status()).toBe(302)
     const location = response.headers()['location'] ?? ''
     expect(location).toContain('/backend/profile/communication-channels')
-    expect(location).toContain('flash=error')
+    expect(location).toContain('oauth=error')
     expect(location).toContain('provider=ms365')
-    expect(location).not.toContain('flash=connected')
+    expect(location).not.toContain('oauth=connected')
 
     const after = await apiRequest(request, 'GET', '/api/communication_channels/me/channels', { token })
     const afterBody = (await after.json()) as { items?: unknown[]; channels?: unknown[] }
