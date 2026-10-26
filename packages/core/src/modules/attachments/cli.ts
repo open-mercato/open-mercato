@@ -17,6 +17,7 @@ import {
 import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
 import { runDocumentStructureBackfill } from './lib/documentStructure/backfill'
 import { documentOcrModeSchema } from './lib/documentStructure/types'
+import { removeAttachmentRecord } from './lib/storageReferences'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -95,12 +96,12 @@ const deleteAttachments: ModuleCli = {
           tenantId: entry.tenantId ?? '',
           organizationId: entry.organizationId ?? '',
         })
-        await driver.delete(entry.partitionCode, entry.storagePath)
-        em.remove(entry)
+        const removal = await removeAttachmentRecord(em, entry)
+        if (!removal.removed) continue
+        if (removal.releaseStorage) await driver.delete(entry.partitionCode, entry.storagePath)
         removedIds.add(entry.id)
         console.log(`Deleted attachment ${entry.id}${entry.fileName ? ` (${entry.fileName})` : ''}`)
       }
-      await em.flush()
       const missing = idList.filter((id) => !removedIds.has(id))
       if (missing.length > 0) {
         console.log(`Not found: ${missing.join(', ')}`)

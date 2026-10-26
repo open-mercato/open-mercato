@@ -81,6 +81,12 @@ export interface PrepareMutationContext extends AiChatRequestContext {
 export interface PrepareMutationResult {
   uiPart: AiUiPart
   pendingAction: AiPendingAction
+  /**
+   * True when `pendingAction` is an existing row the repository returned
+   * as-is (still `pending`, or `confirmed`/`executing` because the
+   * mutation already ran) instead of a freshly inserted row.
+   */
+  reused: boolean
 }
 
 const MUTATION_PREVIEW_CARD_COMPONENT_ID = 'mutation-preview-card'
@@ -520,7 +526,7 @@ export async function prepareMutation(
     },
   }
 
-  return { uiPart, pendingAction }
+  return { uiPart, pendingAction, reused: !created }
 }
 
 export const MUTATION_PREVIEW_CARD_COMPONENT = MUTATION_PREVIEW_CARD_COMPONENT_ID

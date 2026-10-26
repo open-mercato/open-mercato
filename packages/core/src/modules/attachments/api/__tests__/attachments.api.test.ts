@@ -21,12 +21,14 @@ const defaultFindOneImpl = async (entity: any, where: any) => {
   return null
 }
 
-function buildUsageKysely(totalSize: number) {
+function buildUsageKysely(totalSize: number, storageReferenceIds: string[] = ['att-1']) {
   const selectChain: any = {
     select: jest.fn(() => selectChain),
     where: jest.fn(() => selectChain),
+    orderBy: jest.fn(() => selectChain),
+    forUpdate: jest.fn(() => selectChain),
     executeTakeFirst: jest.fn(async () => ({ total_size: totalSize })),
-    execute: jest.fn(async () => []),
+    execute: jest.fn(async () => storageReferenceIds.map((id) => ({ id }))),
   }
   return {
     selectFrom: jest.fn(() => selectChain),
@@ -47,6 +49,9 @@ const mockEm = {
   find: jest.fn(),
   count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
+  begin: jest.fn(async () => {}),
+  commit: jest.fn(async () => {}),
+  rollback: jest.fn(async () => {}),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -725,6 +730,58 @@ describe('attachments API', () => {
     expect(mockPurgeDocumentStructure.mock.invocationCallOrder[0]).toBeLessThan(
       mockEm.flush.mock.invocationCallOrder[0],
     )
+  })
+
+  describe('DELETE with stored objects shared between attachment rows', () => {
+    const storedAttachment = {
+      id: 'att-1',
+      tenantId: 't1',
+      organizationId: 'org',
+      partitionCode: 'productsMedia',
+      storagePath: 'productsMedia/org/shared.png',
+    }
+
+    const storedObjectRemovals = () =>
+      (fsp.rm as jest.Mock).mock.calls.filter(([target]) => String(target).endsWith('shared.png'))
+
+    beforeEach(() => {
+      mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity?.name === 'Attachment') return { ...storedAttachment }
+        return defaultFindOneImpl(entity, where)
+      })
+    })
+
+    it('keeps the stored object while another attachment row still references it', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1', 'att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(mockEm.commit).toHaveBeenCalledTimes(1)
+      expect(storedObjectRemovals()).toHaveLength(0)
+    })
+
+    it('deletes the stored object once the last referencing row is removed', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(storedObjectRemovals()).toHaveLength(1)
+      const removalCall = (fsp.rm as jest.Mock).mock.calls.findIndex(([target]) => String(target).endsWith('shared.png'))
+      expect(mockEm.commit.mock.invocationCallOrder[0])
+        .toBeLessThan((fsp.rm as jest.Mock).mock.invocationCallOrder[removalCall])
+    })
+
+    it('returns 404 without touching storage when a concurrent delete already removed the row', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(404)
+      expect(mockEm.remove).not.toHaveBeenCalled()
+      expect(fsp.rm).not.toHaveBeenCalled()
+      expect(mockDataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    })
   })
 
   it('still returns 401 for a non-superadmin delete with no organization', async () => {
