@@ -58,6 +58,10 @@ When multiple price rows match the same context, `selectBestPrice` resolves ties
     - **Same kind** (e.g. tier vs tier): **descending** — the row with the larger `minQuantity` wins. This implements the standard volume-discount semantic: for `qty=50` with tiers `minQty=10` ($9) and `minQty=50` ($8), the `minQty=50` row applies (issue #1706).
     - **Different kinds** (e.g. promotion vs tier): **ascending** — the row with the smaller `minQuantity` wins. The `+1 for minQuantity > 1` bonus in `scorePrice` can pull a lower-base kind up to the same total as a higher-base kind (e.g. tier `minQty=3` = 3+1 vs promotion `minQty=1` = 4). Ascending across kinds preserves the kind precedence in those collisions.
 
+### Buyer-facing line pricing (`services/catalogBuyerPricingService.ts`)
+
+Per-line resolver (`resolveLinePrice`) for `cart`/`sales` call sites — winning row, derived net/gross, quantity tiers, `priceIsPromotional`. **`ecommerce/lib/storefrontPricing.ts` deliberately does NOT call this**: it has no shared cache across a page's targets, and calling it once per product/variant regressed the Storefront Public API's O(1)-queries-per-page invariant (3.4 Part A, owner decision 2026-10-16, permanent exemption — see that file's header comment).
+
 ### Resolver-chain tie-break
 
 `registerCatalogPricingResolver`'s chain is sorted by `priority` (descending) using a stable sort, so two resolvers registered at the **same priority** run in **registration order** — the first-registered resolver is asked first. This is deterministic and tested (`lib/__tests__/pricing.test.ts`), not an accident of array order; a resolver depending on running before/after a same-priority peer should still set an explicit, distinct `priority` rather than relying on load order.
