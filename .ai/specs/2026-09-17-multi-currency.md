@@ -1765,9 +1765,11 @@ practice for not-yet-built modules.
   instrument* for a treasury/trading system, a different problem from
   recording an invoice's booked rate or revaluing an open balance;
   flagged explicitly so it isn't mistaken for on-topic material later.
-- **Hay, *Data Model Patterns* — Confirmed absence.** Zero hits for
+- **Hay, *Data Model Patterns* — Confirmed absence in the pages available
+  (our copy is partial: pages 63, 136–137 and index pages 265–266 are
+  missing).** Zero hits for
   "foreign currency," "exchange rate," "multi-currency," or
-  "multicurrency" across the full extracted text — consistent with
+  "multicurrency" across the extracted text — consistent with
   this book's established pattern of having no accounting-specific
   content in this project's prior research.
 - **Ustawa o rachunkowości, Art. 9 — Confirmed** (checked directly
