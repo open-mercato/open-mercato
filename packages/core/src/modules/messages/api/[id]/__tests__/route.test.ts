@@ -8,6 +8,11 @@ const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
 const findWithDecryptionMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
+const ensureChannelInboxRecipientMock = jest.fn(async (..._args: unknown[]) => null as unknown)
+
+jest.mock('@open-mercato/core/modules/messages/lib/channelInboxRecipient', () => ({
+  ensureChannelInboxRecipient: (...args: unknown[]) => ensureChannelInboxRecipientMock(...args),
+}))
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   // Only the request-context entry points are stubbed. `canUseChannelThreadFallback`
@@ -925,6 +930,91 @@ describe('messages /api/messages/[id] DELETE authorization', () => {
   })
 })
 
+describe('messages /api/messages/[id] DELETE on a channel-inbox message (#6106)', () => {
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const actorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const systemUserId = '00000000-0000-0000-0000-000000000000'
+  const messageId = '22222222-2222-4222-8222-222222222222'
+
+  function setup() {
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn(async (entity: unknown) => (entity === Message
+        ? { id: messageId, tenantId, organizationId, senderUserId: systemUserId, deletedAt: null, updatedAt: new Date('2026-02-24T10:00:00.000Z') }
+        : null)),
+    }
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }) }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+    return { em, commandBus, container }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    hasOrganizationAccessMock.mockReturnValue(true)
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    ensureChannelInboxRecipientMock.mockResolvedValue(null)
+  })
+
+  it('creates the caller recipient row on first delete, so the action no longer answers 403', async () => {
+    const { em, commandBus, container } = setup()
+    ensureChannelInboxRecipientMock.mockResolvedValueOnce({ id: 'recipient-1', messageId, recipientUserId: actorUserId })
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(ensureChannelInboxRecipientMock).toHaveBeenCalledWith(
+      container,
+      em,
+      { tenantId, organizationId, userId: actorUserId },
+      messageId,
+    )
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('still answers 403 when the message is not a channel-inbox message for the caller', async () => {
+    const { commandBus } = setup()
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(ensureChannelInboxRecipientMock).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('does not materialise a row for the sender', async () => {
+    const { em, commandBus } = setup()
+    em.findOne.mockImplementation(async (entity: unknown) => (entity === Message
+      ? { id: messageId, tenantId, organizationId, senderUserId: actorUserId, deletedAt: null, updatedAt: new Date('2026-02-24T10:00:00.000Z') }
+      : null))
+
+    const response = await DELETE(
+      new Request(`https://example.test/api/messages/${messageId}`, { method: 'DELETE' }),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(ensureChannelInboxRecipientMock).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('messages /api/messages/[id] optimistic locking', () => {
   const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
   const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
@@ -1104,6 +1194,7 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
       anchor?: unknown
       /** `false` drops `rbacService` from the container entirely. */
       rbac?: boolean
+      commandBus?: { execute: jest.Mock }
     } = {},
   ) {
     const thread = options.thread ?? threadMessages
@@ -1142,6 +1233,7 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
           resolve: (name: string) => {
             if (name === 'em') return em
             if (name === 'rbacService') return options.rbac === false ? null : rbacService
+            if (name === 'commandBus') return options.commandBus ?? null
             if (name === 'communicationChannelsResolveChannelThreadAccess') {
               return options.registered === false ? null : resolveChannelThreadAccess
             }
@@ -1170,6 +1262,46 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
       { params: { id: anchorId } },
     )
   }
+
+  describe('first open materialises the caller recipient row (#6106)', () => {
+    const openMessage = () => GET(
+      new Request(`http://localhost/api/messages/${anchorId}`),
+      { params: { id: anchorId } },
+    )
+
+    it('creates the row on a real open and marks the message read for the caller', async () => {
+      const commandBus = { execute: jest.fn().mockResolvedValue({ result: { ok: true }, logEntry: null }) }
+      setupHarness(grantedThread, { commandBus })
+      ensureChannelInboxRecipientMock.mockResolvedValueOnce({
+        messageId: anchorId,
+        recipientUserId: operatorUserId,
+        status: 'unread',
+        readAt: null,
+        deletedAt: null,
+      })
+
+      const response = await openMessage()
+
+      expect(response.status).toBe(200)
+      expect(ensureChannelInboxRecipientMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        { tenantId, organizationId, userId: operatorUserId },
+        anchorId,
+      )
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        'messages.recipients.mark_read',
+        expect.objectContaining({ input: expect.objectContaining({ messageId: anchorId, userId: operatorUserId }) }),
+      )
+    })
+
+    it('does not create a row on a skipMarkRead peek', async () => {
+      setupHarness(grantedThread)
+
+      expect((await getDetail()).status).toBe(200)
+      expect(ensureChannelInboxRecipientMock).not.toHaveBeenCalled()
+    })
+  })
 
   it('lets an operator open a message the channel behind its thread grants access to', async () => {
     const { resolveChannelThreadAccess, rbacService } = setupHarness(grantedThread)

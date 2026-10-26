@@ -85,6 +85,14 @@ export async function seedConnectedChannel(
      */
     providerFlavor?: 'email' | 'chat';
     /**
+     * Connect a tenant-wide shared channel (`user_id = NULL`) instead of a personal
+     * mailbox owned by the caller. Inbound messages on a shared channel have no
+     * default assignee, so the conversation is genuinely unassigned and no
+     * `message_recipients` row is written — the shape #6106's inbox list targets.
+     * A personal channel routes every inbound message to its owner.
+     */
+    shared?: boolean;
+    /**
      * Relabel the connected stub channel's `provider_key`. Provider packages own
      * routes that filter on their own key, and a real channel for those providers
      * cannot be connected in CI (the Discord adapter validates its bot token

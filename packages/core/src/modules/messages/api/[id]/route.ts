@@ -10,6 +10,7 @@ import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
+import { ensureChannelInboxRecipient } from '../../lib/channelInboxRecipient'
 import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
@@ -103,11 +104,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  const recipient = await em.findOne(MessageRecipient, {
-    messageId: params.id,
-    recipientUserId: scope.userId,
-    deletedAt: null,
-  })
+  // A channel-inbox message (inbound, unassigned conversation) is listed without a
+  // recipient row. Opening it for real (not a `skipMarkRead` peek) gives the caller
+  // their own row, so it is flagged as new until now and read/archive/delete work
+  // afterwards (#6106).
+  const recipient =
+    (await em.findOne(MessageRecipient, {
+      messageId: params.id,
+      recipientUserId: scope.userId,
+      deletedAt: null,
+    })) ?? (skipMarkRead ? null : await ensureChannelInboxRecipient(ctx.container, em, scope, params.id))
 
   const isSender = message.senderUserId === scope.userId
   const isRecipient = Boolean(recipient)
@@ -543,19 +549,23 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   const isSender = message.senderUserId === scope.userId
   // Only look the recipient row up when the actor is not the sender: deleting one's own
   // message is the common path, and the lookup is a decryption-aware query.
+  // A channel-inbox message has no recipient row until the caller's first action:
+  // materialise theirs so deleting it works like deleting any inbox message (#6106).
   const isRecipient = isSender
     ? false
-    : Boolean(await findOneWithDecryption(
-      em,
-      MessageRecipient,
-      {
-        messageId: params.id,
-        recipientUserId: scope.userId,
-        deletedAt: null,
-      },
-      undefined,
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    ))
+    : Boolean(
+      (await findOneWithDecryption(
+        em,
+        MessageRecipient,
+        {
+          messageId: params.id,
+          recipientUserId: scope.userId,
+          deletedAt: null,
+        },
+        undefined,
+        { tenantId: scope.tenantId, organizationId: scope.organizationId },
+      )) ?? (await ensureChannelInboxRecipient(ctx.container, em, scope, params.id)),
+    )
 
   if (!isSender && !isRecipient) {
     return Response.json({ error: 'Access denied' }, { status: 403 })

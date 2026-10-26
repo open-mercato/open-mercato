@@ -14,7 +14,8 @@ import { ensureTestSeedAdapterRegistered } from './lib/test-seed'
 import { sendAsUser } from './lib/send-as-user'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from './lib/system-email'
 import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
-import { listAccessibleChannelThreadIds, resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
+import { resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
+import { buildChannelInboxPredicate } from './lib/channel-inbox-predicate'
 
 export function register(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when
@@ -60,8 +61,9 @@ export function register(container: AppContainer) {
     // module owns. Absent module or failed lookup reads as "internal thread",
     // which leaves the participant rule in force.
     communicationChannelsResolveChannelThreadAccess: asValue(resolveChannelThreadAccessSafely),
-    // Inbox-list counterpart (#6106): the channel threads the actor may act on, for
-    // widening the participant predicate. Same optional-module, fail-closed contract.
-    communicationChannelsListAccessibleChannelThreadIds: asValue(listAccessibleChannelThreadIds),
+    // Inbox-list counterpart (#6106): a SQL predicate over `messages as m` selecting
+    // inbound messages on unassigned conversations of channels the actor may work.
+    // Same optional-module, fail-closed contract: absent module = no widening.
+    communicationChannelsBuildChannelInboxPredicate: asValue(buildChannelInboxPredicate),
   })
 }

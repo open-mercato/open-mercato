@@ -25,10 +25,9 @@ import {
 import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
-  resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { resolveChannelThreadWideningIds } from '../lib/channelThreadWidening'
+import { resolveChannelInboxPredicate } from '../lib/channelThreadWidening'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
@@ -41,7 +40,7 @@ import {
   canUseMessageEmailFeature,
   resolveMessageContext,
 } from '../lib/routeHelpers'
-import { applyMessageParticipantScope, channelThreadVisibilityClause } from '../lib/participantScope'
+import { applyMessageParticipantScope, channelInboxWideningClause } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
@@ -70,6 +69,18 @@ type MessageListScopeRow = {
   is_draft: boolean
   recipient_status: string | null
   read_at: string | null
+}
+
+/**
+ * List status of a row the caller has no recipient row for. Their own drafts and
+ * sent messages keep `draft` / `sent`. Anything else can only be a channel-inbox
+ * message (#6106) — the participant scope admits nothing else without a row — and
+ * is reported `unread`: until the operator opens or acts on it there is no row to
+ * carry a read state, and a new customer message must be flagged as new.
+ */
+function resolveListStatus(row: MessageListScopeRow, userId: string): string {
+  if (row.is_draft) return 'draft'
+  return row.sender_user_id === userId ? 'sent' : 'unread'
 }
 
 type AttachmentCountRow = {
@@ -146,20 +157,22 @@ export async function GET(req: Request) {
   const params = Object.fromEntries(url.searchParams)
   const input = listMessagesSchema.parse(params)
 
-  // Channel-thread widening (#6106). Cached lists are keyed on scope and filters only,
-  // but who may see a channel thread changes with channel sharing, so a request that
-  // widens bypasses the list cache entirely.
-  const channelThreadIds =
+  // Channel-inbox widening (#6106): inbound messages on unassigned conversations of
+  // channels the caller may work are listed without a recipient row. The predicate is
+  // SQL, resolved from the channels hub; null when the caller lacks `messages.view`
+  // or the hub is absent. Cached lists are keyed on scope and filters only, but who
+  // may see a channel conversation changes with channel sharing and assignment, so a
+  // request that widens bypasses the list cache entirely.
+  const channelInboxPredicate =
     (input.folder === 'inbox' || input.folder === 'all') && scope.userId && scope.tenantId
-      ? await resolveChannelThreadWideningIds(ctx.container, {
+      ? await resolveChannelInboxPredicate(ctx.container, {
           userId: scope.userId,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-          features: resolveActorFeatures(ctx.auth),
         })
-      : []
+      : null
 
-  const cache = isCrudCacheEnabled() && channelThreadIds.length === 0 ? resolveCrudCache(ctx.container) : null
+  const cache = isCrudCacheEnabled() && !channelInboxPredicate ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
   if (cache && cacheKey) {
     try {
@@ -207,10 +220,10 @@ export async function GET(req: Request) {
     switch (input.folder) {
       case 'inbox':
         joinRecipient()
-        // A message on a channel thread the caller may act on is listed even with no
-        // recipient row (an unassigned conversation). `r.message_id is null` confines
-        // that branch to messages the caller has no row for, so an archived or deleted
-        // row cannot resurface through it (#6106).
+        // An inbound message on an unassigned conversation of a channel the caller may
+        // work is listed even with no recipient row. The widening clause requires that
+        // the caller has no row at all (deleted or archived included), so a row the
+        // caller archived or deleted cannot resurface through it (#6106).
         q = q
           .where((eb: any) => eb.or([
             eb.and([
@@ -218,8 +231,8 @@ export async function GET(req: Request) {
               eb('r.deleted_at', 'is', null),
               eb('r.archived_at', 'is', null),
             ]),
-            ...(channelThreadIds.length > 0
-              ? [eb.and([eb('r.message_id', 'is', null), channelThreadVisibilityClause(eb, channelThreadIds)])]
+            ...(channelInboxPredicate
+              ? [channelInboxWideningClause(eb, scope.userId, channelInboxPredicate)]
               : []),
           ]))
           .where('m.is_draft', '=', false)
@@ -246,7 +259,7 @@ export async function GET(req: Request) {
       case 'all':
         // Sender-OR-recipient participant scope shared with the
         // communication_channels message enricher — see participantScope.ts (#4133).
-        q = applyMessageParticipantScope(q, scope.userId, channelThreadIds)
+        q = applyMessageParticipantScope(q, scope.userId, channelInboxPredicate)
         break
       default: {
         const unsupportedFolder: never = input.folder
@@ -254,7 +267,16 @@ export async function GET(req: Request) {
       }
     }
 
-    if (input.status) q = q.where('r.status', '=', input.status)
+    if (input.status) {
+      // A channel-inbox row has no recipient row yet and reads as `unread` (see the
+      // item mapping below), so `status=unread` must keep it.
+      q = input.status === 'unread' && channelInboxPredicate
+        ? q.where((eb: any) => eb.or([
+            eb('r.status', '=', 'unread'),
+            channelInboxWideningClause(eb, scope.userId, channelInboxPredicate),
+          ]))
+        : q.where('r.status', '=', input.status)
+    }
     if (input.type) q = q.where('m.type', '=', input.type)
     if (input.visibility) q = q.where('m.visibility', '=', input.visibility)
     if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
@@ -439,7 +461,7 @@ export async function GET(req: Request) {
           bodyPreview,
           senderUserId: message.senderUserId,
           priority: message.priority,
-          status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          status: row.recipient_status ?? resolveListStatus(row, scope.userId),
           hasObjects: (objectsByMessage[message.id] || []).length > 0,
           objectCount: (objectsByMessage[message.id] || []).length,
           hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,

@@ -1,51 +1,48 @@
 import { canUseChannelThreadFallback } from './routeHelpers'
+import type { ChannelInboxPredicate } from './participantScope'
 
 type ContainerLike = { resolve: <T = unknown>(name: string) => T }
 
-export type ChannelThreadWideningScope = {
+export type ChannelInboxScope = {
   userId: string
   tenantId: string
   organizationId: string | null
-  features: string[]
 }
 
-type ListAccessibleChannelThreadIds = (
-  container: ContainerLike,
+type BuildChannelInboxPredicate = (
+  eb: Parameters<ChannelInboxPredicate>[0],
   scope: { tenantId: string; organizationId: string | null },
-  actor: { userId: string | null; features: string[] },
-) => Promise<string[] | null>
+  actor: { userId: string | null },
+) => ReturnType<ChannelInboxPredicate>
 
 /**
- * Channel thread ids the caller may widen the inbox to (#6106).
+ * The channel-inbox predicate for the caller, or `null` when nothing widens (#6106).
  *
- * Empty unless the caller holds `messages.view` (RBAC, wildcard-aware, not the JWT)
- * — the hub grants every shared channel regardless of features, so the feature gate
- * must come first. A missing hub, a failed lookup, or a tenant over the hub's list
- * limit all resolve to `[]`: the participant-only rule stays in force.
+ * `null` unless the caller holds `messages.view` (RBAC, wildcard-aware, never the
+ * JWT) — the hub's channel-owner rule grants every shared channel regardless of
+ * features, so the feature gate has to come first. A missing hub, or a hub service
+ * that is not callable, also reads as `null`: the participant-only rule stays in
+ * force.
+ *
+ * No query runs here. The returned predicate is a SQL fragment the caller embeds in
+ * its own query, so there is no thread-id scan, no cap and no per-request lookup.
  */
-export async function resolveChannelThreadWideningIds(
+export async function resolveChannelInboxPredicate(
   container: ContainerLike,
-  scope: ChannelThreadWideningScope,
-): Promise<string[]> {
+  scope: ChannelInboxScope,
+): Promise<ChannelInboxPredicate | null> {
   const callerScope = { userId: scope.userId, tenantId: scope.tenantId, organizationId: scope.organizationId }
-  if (!(await canUseChannelThreadFallback({ container }, callerScope))) return []
+  if (!(await canUseChannelThreadFallback({ container }, callerScope))) return null
 
-  let list: ListAccessibleChannelThreadIds | undefined
+  let build: BuildChannelInboxPredicate | undefined
   try {
-    list = container.resolve<ListAccessibleChannelThreadIds>('communicationChannelsListAccessibleChannelThreadIds')
+    build = container.resolve<BuildChannelInboxPredicate>('communicationChannelsBuildChannelInboxPredicate')
   } catch {
-    return []
+    return null
   }
-  if (typeof list !== 'function') return []
+  if (typeof build !== 'function') return null
 
-  try {
-    const ids = await list(
-      container,
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-      { userId: scope.userId, features: scope.features },
-    )
-    return Array.isArray(ids) ? ids : []
-  } catch {
-    return []
-  }
+  const hubScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const actor = { userId: scope.userId }
+  return (eb) => build!(eb, hubScope, actor)
 }

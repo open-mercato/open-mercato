@@ -98,6 +98,14 @@ const connectChannelSchema = z.object({
    */
   providerFlavor: z.enum(['email', 'chat']).optional(),
   /**
+   * Connect the channel as a tenant-wide shared channel (`user_id = NULL`) instead
+   * of a personal one owned by the caller. A conversation on a shared channel has
+   * no default assignee, so its inbound messages are the "unassigned" ones the
+   * inbox lists for every operator (#6106); a personal channel routes every
+   * inbound message to its owner.
+   */
+  shared: z.boolean().optional(),
+  /**
    * TEST-ONLY: rewrite the connected stub channel's `provider_key` to this value.
    *
    * Routes that a provider package owns filter on their own `provider_key`, and
@@ -400,7 +408,7 @@ export async function POST(req: Request): Promise<Response> {
       displayName:
         body.displayName ?? `Test Seed ${isChatFlavor ? 'Chat ' : ''}Channel ${stamp}`,
       credentials,
-      userId,
+      userId: body.shared ? null : userId,
       scope: { tenantId, organizationId },
     }
     const { result } = await commandBus.execute<

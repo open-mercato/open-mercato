@@ -37,6 +37,8 @@ const resolveMessageContextMock = jest.fn(async () => ({
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
+  // Channel-inbox widening (#6106) off unless a test opts in.
+  canUseChannelThreadFallback: jest.fn(async () => false),
 }))
 
 jest.mock('@open-mercato/cache', () => ({
