@@ -43,14 +43,15 @@ describe('accountNumberFitsType', () => {
 })
 
 describe('reprefixNumber', () => {
-  it('keeps an edit form value that already carries the prefix once it loads (406 stays 406, not 4406)', () => {
+  it('never rewrites a stored value when the prefix first becomes known', () => {
     expect(reprefixNumber('406', null, '4')).toBe('406')
     expect(reprefixNumber('402-01', null, '402')).toBe('402-01')
+    expect(reprefixNumber('999', null, '402')).toBe('999')
+    expect(reprefixNumber('06', null, '4')).toBe('06')
   })
 
-  it('prefixes an empty or unprefixed value when the prefix first becomes known', () => {
+  it('prefixes an empty field when the prefix first becomes known', () => {
     expect(reprefixNumber('', null, '4')).toBe('4')
-    expect(reprefixNumber('06', null, '4')).toBe('406')
   })
 
   it('swaps the prefix and keeps the typed ending', () => {

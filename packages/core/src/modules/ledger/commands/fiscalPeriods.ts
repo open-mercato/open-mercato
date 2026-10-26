@@ -57,11 +57,11 @@ const ledgerFiscalPeriodCrudIndexer: CrudIndexerConfig<FiscalPeriod> = {
  * ambiguous, and an unlocked period could shadow a locked one covering the
  * same range. An exclusion constraint is Phase 2 (see Out of scope); this
  * app-layer check is the documented Phase 1 guard — the caller
- * (`createFiscalPeriodCommand`) now runs it inside a per-(organizationId,
+ * (`createFiscalPeriodCommand`) runs it inside a per-(organizationId,
  * tenantId) `pg_advisory_xact_lock`, so two concurrent creates for the same
- * scope no longer both pass the check before either inserts. That closes
- * the race for today's Phase 1 guard; it is not a substitute for the
- * Phase 2 exclusion constraint.
+ * scope cannot both pass the check before either inserts. That covers the
+ * race for the Phase 1 guard; it is not a substitute for the Phase 2
+ * exclusion constraint.
  * Overlap test: `existing.startDate <= new.endDate AND existing.endDate >= new.startDate`.
  */
 async function findOverlappingFiscalPeriod(
@@ -158,7 +158,7 @@ const createFiscalPeriodCommand: CommandHandler<CreateFiscalPeriodInput, { fisca
 
 /**
  * `generateFiscalPeriods` — twelve consecutive calendar months from the first
- * day of the month the caller names, in one write (PR #5663 review, point 3).
+ * day of the month the caller names, in one write.
  * All or nothing: if the span overlaps an existing period nothing is created
  * and the answer is the same 409 as `createFiscalPeriod`. Same advisory lock
  * as `createFiscalPeriod`, so a generate and a create for one organization

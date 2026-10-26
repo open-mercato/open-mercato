@@ -13,7 +13,7 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
-import { checkTypeNumber, planAccountRenumber } from '../lib/accountNumbering'
+import { checkTypeNumber, isPolishGroup, planAccountRenumber } from '../lib/accountNumbering'
 import { ledgerAccountCrudEvents, ledgerAccountCrudIndexer } from '../lib/ledgerAccountCrud'
 import {
   ledgerAccountTypeCreateSchema,
@@ -324,7 +324,7 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
         const nextGroupId = parsed.accountGroupId !== undefined ? parsed.accountGroupId : (record.accountGroupId ?? null)
         const nextGroup = nextGroupId ? await requireExistingAccountGroup(em, nextGroupId, scope, translate) : null
         requireTypeNumberMatchesGroup(nextNumber, nextGroup, translate)
-        if (changesNumber && nextGroup && checkTypeNumber(nextNumber, nextGroup) === null) {
+        if (changesNumber && isPolishGroup(nextGroup)) {
           // The accounts follow their type: their prefix is swapped together
           // with the type number. A type with posted lines is frozen above, so
           // none of these accounts has posted lines.

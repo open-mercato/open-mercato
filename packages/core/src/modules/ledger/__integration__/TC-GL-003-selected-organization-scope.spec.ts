@@ -81,6 +81,8 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
     let fiscalPeriodBId: string | null = null;
     let journalEntryAId: string | null = null;
     let journalEntryBId: string | null = null;
+    let headersA: Record<string, string> | undefined;
+    let headersB: Record<string, string> | undefined;
 
     try {
       tenantId = await createTenant(request, superadminToken, `QA TC-GL-003 Tenant ${stamp}`);
@@ -92,8 +94,8 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
         name: `QA TC-GL-003 Organization B ${stamp}`,
         tenantId,
       });
-      const headersA = scopedHeaders({ tenantId, organizationId: orgAId });
-      const headersB = scopedHeaders({ tenantId, organizationId: orgBId });
+      headersA = scopedHeaders({ tenantId, organizationId: orgAId });
+      headersB = scopedHeaders({ tenantId, organizationId: orgBId });
 
       // A single currency is enough — it's only referenced by id in the raw
       // SQL insert below, which bypasses API-level organization scoping.
@@ -208,16 +210,18 @@ test.describe('TC-GL-003: GET routes honor the selected organization, not the ca
       expect(journalEntryIds, 'org B journal-entries list should include org B\'s entry').toContain(journalEntryBId);
       expect(journalEntryIds, 'org B journal-entries list must not include org A\'s entry').not.toContain(journalEntryAId);
     } finally {
-      // JournalEntry ships no DELETE route (append-only by design — see
-      // `seedJournalEntryInDb`'s doc comment); the seeded entries are left
-      // behind but scoped to org A/B, both deleted below.
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountAId);
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountBId);
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeAId);
-      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeBId);
+      // JournalEntry and FiscalPeriod ship no DELETE route (append-only by
+      // design — see `seedJournalEntryInDb`'s doc comment); the seeded rows
+      // are left behind, scoped to org A/B and the tenant, which are deleted
+      // below. Every other row is deleted under the scope it was created in.
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountAId, { headers: headersA });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountBId, { headers: headersB });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeAId, { headers: headersA });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeBId, { headers: headersB });
       await deleteCurrenciesEntityIfExists(request, superadminToken, '/api/currencies/currencies', currencyId);
       await deleteOrganizationIfExists(request, superadminToken, orgAId);
       await deleteOrganizationIfExists(request, superadminToken, orgBId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
     }
   });
 });

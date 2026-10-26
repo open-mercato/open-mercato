@@ -203,5 +203,6 @@
   "ledger.journal_entries.type.normal": "Normal",
   "ledger.journal_entries.type.opening": "Eröffnung",
   "ledger.journal_entries.type.reversal": "Storno",
+  "ledger.nav.group": "Hauptbuch",
   "ledger.reversal.defaultDescription": "Storno des Buchungssatzes Nr. {sequenceNumber}"
 }

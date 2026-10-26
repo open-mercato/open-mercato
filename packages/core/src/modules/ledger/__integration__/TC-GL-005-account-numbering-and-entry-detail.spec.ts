@@ -108,7 +108,7 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
       const typeId = await createAccountTypeFixture(
         request,
         token,
-        { ...scope, number: '402', name: 'QA expenses by nature', normalBalance: 'DEBIT', accountGroupId: groupId } as never,
+        { ...scope, number: '402', name: 'QA expenses by nature', normalBalance: 'DEBIT', accountGroupId: groupId },
         { headers },
       );
       const wrongPrefix = await postAccount({ number: '403-01', accountTypeId: typeId });
@@ -134,7 +134,7 @@ test.describe('TC-GL-005: account numbering, frozen numbers, entry detail', () =
       const movingTypeId = await createAccountTypeFixture(
         request,
         token,
-        { ...scope, number: '410', name: 'QA moving type', normalBalance: 'DEBIT', accountGroupId: groupId } as never,
+        { ...scope, number: '410', name: 'QA moving type', normalBalance: 'DEBIT', accountGroupId: groupId },
         { headers },
       );
       const movingAccountId = await createAccountFixture(

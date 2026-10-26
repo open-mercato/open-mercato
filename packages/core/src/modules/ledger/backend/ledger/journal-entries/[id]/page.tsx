@@ -7,8 +7,9 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { formatAmountOrBlank, formatAmountUnits, sumAmountUnits } from '../../../../lib/decimalAmount'
 
 // Read-only detail of one posted journal entry: header fields and the posted
 // lines (account number, name, debit, credit). Nothing here edits or deletes —
@@ -65,16 +66,9 @@ function typeLabel(type: JournalEntryType, t: TranslateFn): string {
   }
 }
 
-// Amounts are `numeric(19,4)` strings. Totals are summed as integers of the
-// smallest unit (1/10 000) so the footer never shows a float artefact.
-const SCALE = 10_000
-const toUnits = (value: string): number => Math.round(Number(value) * SCALE)
-const formatUnits = (units: number): string =>
-  (units / SCALE).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
-const formatAmount = (value: string): string => (toUnits(value) === 0 ? '' : formatUnits(toUnits(value)))
-
 export default function JournalEntryDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const id = params?.id
 
   const [entry, setEntry] = React.useState<JournalEntryDetail | null>(null)
@@ -171,8 +165,8 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
   }
 
   const lines = entry.lines ?? []
-  const totalDebit = lines.reduce((sum, line) => sum + toUnits(line.debit), 0)
-  const totalCredit = lines.reduce((sum, line) => sum + toUnits(line.credit), 0)
+  const totalDebit = sumAmountUnits(lines.map((line) => line.debit))
+  const totalCredit = sumAmountUnits(lines.map((line) => line.credit))
   const documentParts = [entry.documentType, entry.documentNumber].filter(Boolean).join(' ')
 
   const fields: Array<{ key: string; label: string; value: React.ReactNode }> = [
@@ -209,7 +203,7 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
       key: 'reverses',
       label: t('ledger.journal_entries.detail.field.reverses', 'Reverses entry'),
       value: (
-        <Link className="underline" href={`/backend/ledger/journal-entries/${original.id}`}>
+        <Link className="underline" href={`/backend/ledger/journal-entries/${encodeURIComponent(original.id)}`}>
           #{original.sequenceNumber}
         </Link>
       ),
@@ -220,7 +214,7 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
       key: 'reversedBy',
       label: t('ledger.journal_entries.detail.field.reversedBy', 'Reversed by entry'),
       value: (
-        <Link className="underline" href={`/backend/ledger/journal-entries/${reversal.id}`}>
+        <Link className="underline" href={`/backend/ledger/journal-entries/${encodeURIComponent(reversal.id)}`}>
           #{reversal.sequenceNumber}
         </Link>
       ),
@@ -275,8 +269,8 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
                     <tr key={line.id} className="border-t">
                       <td className="px-3 py-2 font-mono">{line.accountNumber ?? line.accountId}</td>
                       <td className="px-3 py-2">{line.accountName || '—'}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmount(line.debit)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmount(line.credit)}</td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountOrBlank(line.debit, locale)}</td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountOrBlank(line.credit, locale)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -285,8 +279,8 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
                     <td className="px-3 py-2" colSpan={2}>
                       {t('ledger.journal_entries.detail.lines.total', 'Total')}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">{formatUnits(totalDebit)}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">{formatUnits(totalCredit)}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountUnits(totalDebit, locale)}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountUnits(totalCredit, locale)}</td>
                   </tr>
                 </tfoot>
               </table>

@@ -64,6 +64,7 @@ export async function createAccountTypeFixture(
     number: string;
     name: string;
     normalBalance: 'DEBIT' | 'CREDIT';
+    accountGroupId?: string;
   },
   opts: { headers?: Record<string, string> } = {},
 ): Promise<string> {

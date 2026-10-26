@@ -203,5 +203,6 @@
   "ledger.journal_entries.type.normal": "일반",
   "ledger.journal_entries.type.opening": "개설",
   "ledger.journal_entries.type.reversal": "역분개",
+  "ledger.nav.group": "총계정원장",
   "ledger.reversal.defaultDescription": "전표 #{sequenceNumber}의 역분개"
 }

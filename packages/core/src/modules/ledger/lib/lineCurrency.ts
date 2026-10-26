@@ -77,7 +77,7 @@ export function resolveLineCurrency(
 
 /**
  * `|amountCurrency x exchangeRate - base|` must not exceed half the smallest
- * unit of the base currency (team decision 2026-10-23, not yet reviewed by a controller or maintainer).
+ * unit of the base currency (team decision, not yet confirmed by a controller).
  * A line with `amountCurrency = 0` is exempt: an exchange-difference line
  * changes the base value of an open item without changing its foreign amount.
  */

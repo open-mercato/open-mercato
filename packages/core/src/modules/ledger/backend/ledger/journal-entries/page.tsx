@@ -125,7 +125,7 @@ export default function JournalEntriesPage() {
         accessorKey: 'sequenceNumber',
         header: t('ledger.journal_entries.list.columns.sequenceNumber', '#'),
         cell: ({ row }) => (
-          <Link className="font-mono underline" href={`/backend/ledger/journal-entries/${row.original.id}`}>
+          <Link className="font-mono underline" href={`/backend/ledger/journal-entries/${encodeURIComponent(row.original.id)}`}>
             {row.original.sequenceNumber}
           </Link>
         ),

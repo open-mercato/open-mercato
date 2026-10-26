@@ -1,5 +1,5 @@
 /**
- * Calendar-month ranges for "generate 12 months" (PR #5663 review, point 3).
+ * Calendar-month ranges for "generate 12 months".
  *
  * The model accepts any non-overlapping date range; this only produces the
  * usual case in one step: consecutive calendar months starting on the first

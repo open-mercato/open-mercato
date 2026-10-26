@@ -203,5 +203,6 @@
   "ledger.journal_entries.type.normal": "Normal",
   "ledger.journal_entries.type.opening": "Apertura",
   "ledger.journal_entries.type.reversal": "Reversión",
+  "ledger.nav.group": "Libro mayor",
   "ledger.reversal.defaultDescription": "Reversión del asiento contable n.º {sequenceNumber}"
 }

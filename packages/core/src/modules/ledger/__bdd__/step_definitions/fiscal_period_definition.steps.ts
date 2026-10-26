@@ -100,4 +100,7 @@ Then('only the existing period remains', async function () {
 
 Then('the request is rejected because the start is not the first day of a month', function () {
   assert.ok(rejection, 'expected generateFiscalPeriods to reject, but it succeeded')
+  const err = rejection as { message?: string; issues?: unknown }
+  const text = `${err.message ?? ''} ${JSON.stringify(err.issues ?? [])}`
+  assert.match(text, /first day of a month/, `rejected for a different reason: ${text}`)
 })

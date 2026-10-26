@@ -337,19 +337,13 @@ const deleteLedgerAccountCommand: CommandHandler<LedgerAccountDeleteInput, { led
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
 
-    // The account row, the posted-entries check, and the
-    // soft-delete write all now happen inside one transaction, holding a
-    // `for update` lock on the account row for the whole span — the same
-    // shape `fiscalPeriods.ts`'s
-    // `toggleFiscalPeriodLock` uses for its own row. Before this, the
-    // lookup and checks ran in autocommit (no lock held), so a concurrent
-    // `postJournalEntry` (which takes `for share` on this same row, see
-    // `requireValidPostingReferences`) could post new lines against this
-    // account in the gap between this delete's check and its write.
-    // `runCrudCommandWrite`'s own `withAtomicFlush` joins this ambient
-    // transaction rather than opening a nested one (see its own
-    // "Re-entrancy / composability" doc comment), so passing `trx` as its
-    // `em` keeps the whole thing atomic.
+    // The account row, the posted-entries check and the soft-delete write
+    // run in one transaction that holds `for update` on the account row for
+    // the whole span, so a concurrent `postJournalEntry` (`for share` on the
+    // same row, see `requireValidPostingReferences`) cannot add lines between
+    // the check and the write. `runCrudCommandWrite` joins this ambient
+    // transaction (see its "Re-entrancy / composability" note) when `trx` is
+    // passed as its `em`.
     const record = await em.transactional(async (trx) => {
       const account = await trx.findOne(
         LedgerAccount,

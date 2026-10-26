@@ -88,7 +88,7 @@ export class LedgerAccountGroup {
 
 /**
  * Flat chart-of-accounts type, e.g. "Fixed Asset" or "Current Liability"
- * (no parent type: nothing reads one — PR #5663 review). `number`,
+ * (no parent type: nothing reads one). `number`,
  * `normalBalance` and `accountGroupId` are immutable once any account of
  * this type has posted entries, and `number` follows the PL numbering rule
  * for the type's group — both enforced at the command layer

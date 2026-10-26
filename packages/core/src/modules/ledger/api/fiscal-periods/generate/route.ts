@@ -1,7 +1,7 @@
 /**
  * `POST /api/ledger/fiscal-periods/generate`.
  *
- * "Generate 12 months" (PR #5663 review, point 3): creates twelve consecutive
+ * "Generate 12 months": creates twelve consecutive
  * calendar-month periods starting on the first day of the month in the body's
  * `startDate`. A custom write route rather than a `makeCrudRoute` action,
  * because one request creates several rows. All or nothing — an overlap with

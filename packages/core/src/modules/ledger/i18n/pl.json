@@ -203,5 +203,6 @@
   "ledger.journal_entries.type.normal": "Zwykły",
   "ledger.journal_entries.type.opening": "Otwarcia",
   "ledger.journal_entries.type.reversal": "Storno",
+  "ledger.nav.group": "Księga główna",
   "ledger.reversal.defaultDescription": "Storno zapisu księgowego nr {sequenceNumber}"
 }

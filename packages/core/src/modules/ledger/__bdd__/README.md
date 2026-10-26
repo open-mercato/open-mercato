@@ -222,7 +222,8 @@ parent in `delete_blocking.feature` is gone together with the parent columns.
 `posted_entry_immutability.feature` checks that no command or API route edits
 or deletes a posted entry. The database trigger behind it
 (`journal_entries` blocks UPDATE and DELETE) cannot run in the in-memory fake,
-so it is covered by the integration suite against a real database.
+so it is covered by `TC-GL-006` in `__integration__/`, which runs against a
+real database.
 
 ### What this doesn't verify
 

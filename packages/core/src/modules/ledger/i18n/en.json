@@ -203,5 +203,6 @@
   "ledger.journal_entries.type.normal": "Normal",
   "ledger.journal_entries.type.opening": "Opening",
   "ledger.journal_entries.type.reversal": "Reversal",
+  "ledger.nav.group": "General Ledger",
   "ledger.reversal.defaultDescription": "Reversal of journal entry #{sequenceNumber}"
 }

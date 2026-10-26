@@ -49,16 +49,6 @@ export type PostJournalEntryResult = {
 
 type Scope = { organizationId: string; tenantId: string }
 
-// This used to be a module-local `TranslateFn` widened to
-// `params?: Record<string, unknown>` for requireValidPostingReferences's
-// {placeholder} interpolation needs. `resolveTranslations().translate` is
-// actually a `TranslateWithFallbackFn` (params: `TranslateParams`, i.e.
-// `Record<string, string | number>`), and `Record<string, unknown>` isn't
-// assignable to that — every call site that passed the real `translate`
-// failed TS2345. Importing the real type instead of re-declaring a wider
-// one, as `reverseJournalEntry.ts` already did, fixes it at the source
-// rather than at each call site.
-
 /**
  * Detects the deferred `journal_entry_lines_balanced` constraint trigger
  * (see migrations) firing at commit — a plain Postgres exception (SQLSTATE
