@@ -4,6 +4,7 @@ import {
   Index,
   PrimaryKey,
   Property,
+  Unique,
 } from '@mikro-orm/decorators/legacy'
 import type {
   AiPendingActionChannel,
@@ -1005,4 +1006,326 @@ export class AiModerationFlag {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'ai_agent_runs' })
+@Index({
+  name: 'ai_agent_runs_tenant_org_created_idx',
+  expression:
+    'create index "ai_agent_runs_tenant_org_created_idx" on "ai_agent_runs" ("tenant_id", "organization_id", "created_at" desc)',
+})
+@Index({
+  name: 'ai_agent_runs_tenant_conversation_created_idx',
+  properties: ['tenantId', 'conversationId', 'createdAt'],
+})
+@Index({
+  name: 'ai_agent_runs_tenant_agent_created_idx',
+  properties: ['tenantId', 'agentId', 'createdAt'],
+})
+@Index({
+  name: 'ai_agent_runs_tenant_user_created_idx',
+  properties: ['tenantId', 'userId', 'createdAt'],
+})
+@Index({
+  name: 'ai_agent_runs_tenant_correlation_idx',
+  properties: ['tenantId', 'correlationId'],
+})
+export class AiAgentRun {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'organizationId'
+    | 'userId'
+    | 'apiKeyId'
+    | 'agentVersion'
+    | 'promptOverrideId'
+    | 'promptOverrideVersion'
+    | 'conversationId'
+    | 'correlationId'
+    | 'baseUrlHost'
+    | 'stopReason'
+    | 'finishReason'
+    | 'cachedInputTokens'
+    | 'reasoningTokens'
+    | 'inputText'
+    | 'outputText'
+    | 'systemPrompt'
+    | 'citations'
+    | 'errorCode'
+    | 'errorMessage'
+
+  @PrimaryKey({ type: 'uuid' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'user_id', type: 'uuid', nullable: true })
+  userId?: string | null
+
+  @Property({ name: 'api_key_id', type: 'uuid', nullable: true })
+  apiKeyId?: string | null
+
+  @Property({ name: 'agent_id', type: 'text' })
+  agentId!: string
+
+  @Property({ name: 'module_id', type: 'text' })
+  moduleId!: string
+
+  @Property({ name: 'agent_version', type: 'text', nullable: true })
+  agentVersion?: string | null
+
+  @Property({ name: 'agent_definition_hash', type: 'text' })
+  agentDefinitionHash!: string
+
+  @Property({ name: 'prompt_override_id', type: 'uuid', nullable: true })
+  promptOverrideId?: string | null
+
+  @Property({ name: 'prompt_override_version', type: 'int', nullable: true })
+  promptOverrideVersion?: number | null
+
+  @Property({ name: 'execution_mode', type: 'text' })
+  executionMode!: 'chat' | 'object'
+
+  @Property({ name: 'channel', type: 'text' })
+  channel!: 'chat' | 'playground' | 'run-object' | 'mcp' | 'tools-api' | 'internal'
+
+  @Property({ name: 'conversation_id', type: 'text', nullable: true })
+  conversationId?: string | null
+
+  @Property({ name: 'turn_id', type: 'uuid' })
+  turnId!: string
+
+  @Property({ name: 'correlation_id', type: 'text', nullable: true })
+  correlationId?: string | null
+
+  @Property({ name: 'provider_id', type: 'text' })
+  providerId!: string
+
+  @Property({ name: 'model_id', type: 'text' })
+  modelId!: string
+
+  @Property({ name: 'base_url_host', type: 'text', nullable: true })
+  baseUrlHost?: string | null
+
+  @Property({ name: 'model_params', type: 'jsonb' })
+  modelParams!: Record<string, unknown>
+
+  @Property({ name: 'effective_mutation_policy', type: 'text' })
+  effectiveMutationPolicy!: string
+
+  @Property({ name: 'tool_names', type: 'text[]' })
+  toolNames!: string[]
+
+  @Property({ name: 'status', type: 'text' })
+  status!: 'completed' | 'failed' | 'aborted'
+
+  @Property({ name: 'stop_reason', type: 'text', nullable: true })
+  stopReason?: string | null
+
+  @Property({ name: 'finish_reason', type: 'text', nullable: true })
+  finishReason?: string | null
+
+  @Property({ name: 'input_tokens', type: 'int' })
+  inputTokens!: number
+
+  @Property({ name: 'output_tokens', type: 'int' })
+  outputTokens!: number
+
+  @Property({ name: 'cached_input_tokens', type: 'int', nullable: true })
+  cachedInputTokens?: number | null
+
+  @Property({ name: 'reasoning_tokens', type: 'int', nullable: true })
+  reasoningTokens?: number | null
+
+  @Property({ name: 'step_count', type: 'int' })
+  stepCount!: number
+
+  @Property({ name: 'tool_call_count', type: 'int' })
+  toolCallCount!: number
+
+  @Property({ name: 'duration_ms', type: 'int' })
+  durationMs!: number
+
+  @Property({ name: 'started_at', type: Date })
+  startedAt!: Date
+
+  @Property({ name: 'completed_at', type: Date })
+  completedAt!: Date
+
+  @Property({ name: 'input_text', type: 'text', nullable: true })
+  inputText?: string | null
+
+  @Property({ name: 'output_text', type: 'text', nullable: true })
+  outputText?: string | null
+
+  @Property({ name: 'content_truncated', type: 'boolean' })
+  contentTruncated!: boolean
+
+  @Property({ name: 'system_prompt_hash', type: 'text' })
+  systemPromptHash!: string
+
+  @Property({ name: 'system_prompt', type: 'text', nullable: true })
+  systemPrompt?: string | null
+
+  @Property({ name: 'citations', type: 'jsonb', nullable: true })
+  citations?: unknown[] | null
+
+  @Property({ name: 'error_code', type: 'text', nullable: true })
+  errorCode?: string | null
+
+  @Property({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string | null
+
+  @Property({ name: 'capture_level', type: 'text' })
+  captureLevel!: 'full' | 'metadata'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'ai_agent_run_steps' })
+@Unique({ name: 'ai_agent_run_steps_run_step_uq', properties: ['runId', 'stepIndex'] })
+export class AiAgentRunStep {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'organizationId' | 'text'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  @Property({ name: 'step_index', type: 'int' })
+  stepIndex!: number
+
+  @Property({ name: 'model_id', type: 'text' })
+  modelId!: string
+
+  @Property({ name: 'finish_reason', type: 'text' })
+  finishReason!: string
+
+  @Property({ name: 'input_tokens', type: 'int' })
+  inputTokens!: number
+
+  @Property({ name: 'output_tokens', type: 'int' })
+  outputTokens!: number
+
+  @Property({ name: 'text', type: 'text', nullable: true })
+  text?: string | null
+
+  @Property({ name: 'text_truncated', type: 'boolean' })
+  textTruncated!: boolean
+
+  @Property({ name: 'ended_at', type: Date })
+  endedAt!: Date
+
+  @Property({ name: 'duration_ms', type: 'int' })
+  durationMs!: number
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'ai_agent_run_tool_calls' })
+@Unique({
+  name: 'ai_agent_run_tool_calls_run_step_call_uq',
+  properties: ['runId', 'stepIndex', 'callIndex'],
+})
+@Index({
+  name: 'ai_agent_run_tool_calls_tenant_tool_created_idx',
+  properties: ['tenantId', 'toolName', 'createdAt'],
+})
+export class AiAgentRunToolCall {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'toolCallId'
+    | 'pendingActionId'
+    | 'args'
+    | 'result'
+    | 'errorCode'
+    | 'errorMessage'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  @Property({ name: 'step_index', type: 'int' })
+  stepIndex!: number
+
+  @Property({ name: 'call_index', type: 'int' })
+  callIndex!: number
+
+  @Property({ name: 'tool_call_id', type: 'text', nullable: true })
+  toolCallId?: string | null
+
+  @Property({ name: 'tool_name', type: 'text' })
+  toolName!: string
+
+  @Property({ name: 'is_mutation', type: 'boolean' })
+  isMutation!: boolean
+
+  @Property({ name: 'pending_action_id', type: 'uuid', nullable: true })
+  pendingActionId?: string | null
+
+  @Property({ name: 'arg_keys', type: 'text[]' })
+  argKeys!: string[]
+
+  @Property({ name: 'args', type: 'jsonb', nullable: true })
+  args?: unknown | null
+
+  @Property({ name: 'result', type: 'jsonb', nullable: true })
+  result?: unknown | null
+
+  @Property({ name: 'args_truncated', type: 'boolean' })
+  argsTruncated!: boolean
+
+  @Property({ name: 'result_truncated', type: 'boolean' })
+  resultTruncated!: boolean
+
+  @Property({ name: 'result_bytes', type: 'int' })
+  resultBytes!: number
+
+  @Property({ name: 'error_code', type: 'text', nullable: true })
+  errorCode?: string | null
+
+  @Property({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string | null
+
+  @Property({ name: 'duration_ms', type: 'int' })
+  durationMs!: number
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
