@@ -9,13 +9,16 @@ export type SupportAttachmentActivityKind = 'attachment_added' | 'attachment_rem
 
 /**
  * Tells open backoffice screens that a customer changed the files on a ticket.
- * Ids only, like every `activity_recorded` broadcast; a failed publish is
- * reported and never fails the upload or deletion that already happened.
+ * Ids only, like every `activity_recorded` broadcast. The attachment id keeps
+ * two quick changes of the same kind distinct for the browser bridge's 500 ms
+ * duplicate filter. A failed publish is reported and never fails the upload or
+ * deletion that already happened.
  */
 export function emitSupportAttachmentActivity(
   task: Pick<StaffTimeTask, 'id' | 'tenantId' | 'organizationId' | 'timeProjectId'>,
   ticket: Pick<StaffSupportTicket, 'id'>,
   kind: SupportAttachmentActivityKind,
+  attachmentId: string,
 ): void {
   void emitStaffEvent(
     'staff.support_ticket.activity_recorded',
@@ -26,6 +29,7 @@ export function emitSupportAttachmentActivity(
       taskId: task.id,
       projectId: task.timeProjectId,
       kind,
+      attachmentId,
     },
     { persistent: true },
   ).catch((err) => {

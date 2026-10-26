@@ -312,6 +312,8 @@ const supportTicketActivityRecorded = scope
     taskId: z.string(),
     projectId: z.string(),
     kind: z.enum(['created', 'customer_replied', 'portal_status', 'attachment_added', 'attachment_removed']),
+    /** The changed attachment for `attachment_added` / `attachment_removed`, so distinct changes stay distinct for the 500 ms duplicate filter. */
+    attachmentId: z.string().optional(),
   })
   .passthrough()
 

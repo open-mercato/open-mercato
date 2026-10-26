@@ -76,9 +76,20 @@ describe('staff.support_ticket.* webhook payload contracts', () => {
           taskId: 'task',
           projectId: 'project',
           kind,
+          attachmentId: 'attachment',
         }).success,
       ).toBe(true)
     }
+    expect(
+      staffSupportTicketEventPayloadSchemas['staff.support_ticket.activity_recorded'].safeParse({
+        ...scope,
+        id: 'ticket',
+        taskId: 'task',
+        projectId: 'project',
+        kind: 'attachment_added',
+        attachmentId: 42,
+      }).success,
+    ).toBe(false)
     expect(
       staffSupportTicketEventPayloadSchemas['staff.support_ticket.portal_updated'].safeParse({
         ...scope,

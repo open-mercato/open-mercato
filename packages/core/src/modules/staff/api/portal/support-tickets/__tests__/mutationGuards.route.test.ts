@@ -220,7 +220,7 @@ describe('portal support ticket attachment upload', () => {
     const response = await uploadAttachment(uploadRequest())
     expect(response.status).toBe(201)
     expect(mockEmitAttachmentActivity).toHaveBeenCalledTimes(1)
-    expect(mockEmitAttachmentActivity).toHaveBeenCalledWith(owned.task, owned.ticket, 'attachment_added')
+    expect(mockEmitAttachmentActivity).toHaveBeenCalledWith(owned.task, owned.ticket, 'attachment_added', ATTACHMENT_ID)
   })
 
   it('rejects an invalid transformed file name with 400 and stores nothing', async () => {

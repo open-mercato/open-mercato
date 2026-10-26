@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { APP_EVENT_DOM_NAME } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useEventBridge } from '@open-mercato/ui/backend/injection/eventBridge'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -797,6 +798,99 @@ describe('TaskDrawer', () => {
     broadcastSupportActivity('attachment_added')
 
     expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+  })
+
+  describe('through the real browser event bridge', () => {
+    class BridgeEventSource {
+      static instances: BridgeEventSource[] = []
+      onopen: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+      close = jest.fn()
+      constructor() {
+        BridgeEventSource.instances.push(this)
+      }
+    }
+
+    const originalEventSource = (window as unknown as { EventSource?: typeof EventSource }).EventSource
+
+    function BridgeHost() {
+      useEventBridge()
+      return null
+    }
+
+    function renderDrawerWithBridge() {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+      render(
+        <QueryClientProvider client={queryClient}>
+          <BridgeHost />
+          <TaskDrawer taskId={TASK_ID} open onOpenChange={jest.fn()} projectName="Nordvik" />
+        </QueryClientProvider>,
+      )
+      const source = BridgeEventSource.instances[0]
+      act(() => source.onopen?.(new Event('open')))
+      return source
+    }
+
+    function streamAttachmentActivity(source: BridgeEventSource, attachmentId: string) {
+      act(() => {
+        source.onmessage?.(new MessageEvent('message', {
+          data: JSON.stringify({
+            id: 'staff.support_ticket.activity_recorded',
+            payload: { id: 'ticket-1', taskId: TASK_ID, projectId: PROJECT_ID, kind: 'attachment_added', attachmentId },
+            timestamp: Date.now(),
+            organizationId: 'org-1',
+          }),
+        }))
+      })
+    }
+
+    const secondFile = { ...customerFile, id: 'attachment-2', url: '/api/attachments/file/attachment-2', fileName: 'receipt.pdf' }
+    const attachmentFetches = () => mockApiCall.mock.calls.filter(([url]) => String(url).includes('/api/attachments?')).length
+
+    beforeEach(() => {
+      BridgeEventSource.instances = []
+      ;(window as unknown as { EventSource?: unknown }).EventSource = BridgeEventSource
+    })
+
+    afterEach(() => {
+      ;(window as unknown as { EventSource?: unknown }).EventSource = originalEventSource
+    })
+
+    it('refreshes again for a second upload that arrives within 500 ms of the first', async () => {
+      makeSupportTicket()
+      const source = renderDrawerWithBridge()
+      expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+      const startedAt = Date.now()
+      attachmentRows = [customerFile]
+      streamAttachmentActivity(source, customerFile.id)
+      expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+
+      attachmentRows = [customerFile, secondFile]
+      streamAttachmentActivity(source, secondFile.id)
+      expect(Date.now() - startedAt).toBeLessThan(500)
+
+      expect(await screen.findByText('receipt.pdf')).toBeInTheDocument()
+    })
+
+    it('still drops an identical repeat within 500 ms, which is why each upload carries its attachment id', async () => {
+      makeSupportTicket()
+      const source = renderDrawerWithBridge()
+      expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+      attachmentRows = [customerFile]
+      streamAttachmentActivity(source, customerFile.id)
+      expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+      const afterFirst = attachmentFetches()
+
+      attachmentRows = [customerFile, secondFile]
+      streamAttachmentActivity(source, customerFile.id)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      expect(attachmentFetches()).toBe(afterFirst)
+      expect(screen.queryByText('receipt.pdf')).not.toBeInTheDocument()
+    })
   })
 
   it('leaves the ticket files alone when the activity belongs to another ticket', async () => {
