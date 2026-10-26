@@ -1,4 +1,4 @@
-import type { InjectionFieldWidget } from '@open-mercato/shared/modules/widgets/injection'
+import type { InjectionContext, InjectionFieldWidget } from '@open-mercato/shared/modules/widgets/injection'
 import {
   encodeCatalogInventoryProfileIntent,
   WMS_CATALOG_PROFILE_HEADER,
@@ -29,8 +29,9 @@ function readNumber(value: unknown): number | undefined {
   return undefined
 }
 
-function buildIntent(data: RecordLike): CatalogInventoryProfileIntent {
+function buildIntent(data: RecordLike, sourceEntityId: string): CatalogInventoryProfileIntent {
   return {
+    sourceEntityId,
     manageInventory: readBoolean(data['wms.manageInventory']),
     defaultUom: readString(data['wms.defaultUom']).trim() || null,
     defaultStrategy: (() => {
@@ -45,6 +46,10 @@ function buildIntent(data: RecordLike): CatalogInventoryProfileIntent {
     reorderPoint: readNumber(data['wms.reorderPoint']) ?? 0,
     safetyStock: readNumber(data['wms.safetyStock']) ?? 0,
   }
+}
+
+function hasLoadedInventoryProfile(data: RecordLike): boolean {
+  return Boolean(asRecord(asRecord(data._wms)?.inventoryProfile))
 }
 
 function buildDisplayState(data: RecordLike): RecordLike {
@@ -170,12 +175,16 @@ const widget: InjectionFieldWidget = {
       if (!source) return data
       return buildDisplayState(source) as typeof data
     },
-    async onBeforeSave(data) {
+    async onBeforeSave(data, context: InjectionContext) {
       const source = asRecord(data)
       if (!source) return { ok: true }
 
-      const intent = buildIntent(source)
+      const sourceEntityId = readString(context?.entityId)
+      const intent = buildIntent(source, sourceEntityId)
       if (!intent.manageInventory) {
+        if (source['wms.manageInventory'] !== false || !hasLoadedInventoryProfile(source)) {
+          return { ok: true }
+        }
         return {
           ok: true,
           requestHeaders: {
