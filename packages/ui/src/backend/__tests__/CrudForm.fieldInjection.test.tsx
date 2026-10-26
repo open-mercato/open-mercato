@@ -4,7 +4,8 @@ jest.setTimeout(15000)
 // Injected field definitions for the CrudForm `:fields` injection spot. The
 // hook is mocked so the test drives `injectedFieldDefinitions` directly without
 // standing up the full injection registry/bootstrap. See issue #3047.
-let injectedFieldWidgets: Array<{ fields: unknown[] }> = []
+let injectedFieldWidgets: Array<Record<string, unknown> & { fields: unknown[] }> = []
+let capturedEventWidgets: Array<{ widgetId: string; module: { eventHandlers?: Record<string, unknown> } }> = []
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
@@ -16,7 +17,12 @@ jest.mock('../injection/InjectionSpot', () => ({
   __esModule: true,
   InjectionSpot: () => null,
   useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
-  useInjectionSpotEvents: () => ({ triggerEvent: jest.fn(async () => ({ ok: true, data: {} })) }),
+  // Echo the payload so `transformFormData` is a no-op and submit assertions see
+  // exactly what CrudForm forwards to the host `onSubmit`.
+  useInjectionSpotEvents: (_spotId: string, widgets?: typeof capturedEventWidgets) => {
+    capturedEventWidgets = widgets ?? []
+    return { triggerEvent: jest.fn(async (_event: string, data: unknown) => ({ ok: true, data })) }
+  },
 }))
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   __esModule: true,
@@ -31,7 +37,8 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 }))
 
 import * as React from 'react'
-import { waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/react'
+import { z } from 'zod'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
@@ -60,6 +67,7 @@ function orderedFieldIds(container: HTMLElement): string[] {
 describe('CrudForm group field injection (#3047)', () => {
   afterEach(() => {
     injectedFieldWidgets = []
+    capturedEventWidgets = []
   })
 
   it('honors placement when injecting a field into an existing group', async () => {
@@ -137,5 +145,215 @@ describe('CrudForm group field injection (#3047)', () => {
       (node) => node.textContent?.trim() === 'Middle name',
     )
     expect(labelMatches).toHaveLength(1)
+  })
+
+  it('renders a group-kind injection targeting an undeclared group as its own card, even when the last group is customFields (#6142)', async () => {
+    const onBeforeSave = jest.fn(async () => ({ ok: true }))
+    injectedFieldWidgets = [
+      {
+        metadata: { id: 'wms.injection.catalog-inventory-profile' },
+        moduleId: 'wms',
+        key: 'wms:catalog-inventory-profile',
+        placement: { kind: 'group', column: 2, groupLabel: 'Inventory profile', groupDescription: 'Warehouse settings', priority: 120 },
+        fields: [
+          { id: 'wms.manageInventory', label: 'Manage inventory with WMS', type: 'boolean', group: 'wms.inventoryProfile' },
+          { id: 'wms.safetyStock', label: 'Safety stock', type: 'number', group: 'wms.inventoryProfile' },
+        ],
+        eventHandlers: { onBeforeSave },
+      },
+    ]
+
+    const { container, getByText } = renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'catalog:catalog_product',
+        fields: baseFields,
+        groups: [
+          ...groups,
+          { id: 'custom', title: 'Custom attributes', column: 2, kind: 'customFields' },
+        ],
+        onSubmit: () => {},
+      }),
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-crud-field-id="wms.manageInventory"]')).toBeTruthy()
+    })
+    expect(container.querySelector('[data-crud-field-id="wms.safetyStock"]')).toBeTruthy()
+    expect(getByText('Inventory profile')).toBeTruthy()
+    expect(getByText('Warehouse settings')).toBeTruthy()
+    expect(orderedFieldIds(container).slice(0, 3)).toEqual(['firstName', 'lastName', 'email'])
+  })
+
+  it('dispatches injection events to field widgets that declare event handlers (#6142)', async () => {
+    const onBeforeSave = jest.fn(async () => ({ ok: true }))
+    injectedFieldWidgets = [
+      {
+        metadata: { id: 'wms.injection.catalog-inventory-profile' },
+        moduleId: 'wms',
+        key: 'wms:catalog-inventory-profile',
+        fields: [{ id: 'wms.manageInventory', label: 'Manage inventory with WMS', type: 'boolean', group: 'personalData' }],
+        eventHandlers: { onBeforeSave },
+      },
+      {
+        metadata: { id: 'example.injection.handlerless-field' },
+        moduleId: 'example',
+        key: 'example:handlerless-field',
+        fields: [{ id: 'example.note', label: 'Note', type: 'text', group: 'personalData' }],
+      },
+    ]
+
+    renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'catalog:catalog_product',
+        fields: baseFields,
+        groups,
+        onSubmit: () => {},
+      }),
+    )
+
+    await waitFor(() => {
+      expect(capturedEventWidgets.map((widget) => widget.widgetId)).toEqual(['wms.injection.catalog-inventory-profile'])
+    })
+    const handlers = capturedEventWidgets[0].module.eventHandlers as Record<string, (...args: unknown[]) => unknown>
+    expect(handlers.onBeforeSave).toBe(onBeforeSave)
+    for (const deleteEvent of ['onBeforeDelete', 'onDelete', 'onAfterDelete']) {
+      expect(typeof handlers[deleteEvent]).toBe('function')
+      await handlers[deleteEvent]({})
+    }
+    expect(onBeforeSave).not.toHaveBeenCalled()
+  })
+})
+
+describe('CrudForm injected field id collisions', () => {
+  afterEach(() => {
+    injectedFieldWidgets = []
+  })
+
+  function renderCollisionForm(options: {
+    fields: CrudField[]
+    initialValues: Record<string, unknown>
+    onSubmit: (values: unknown) => void
+    schema?: z.ZodTypeAny
+  }) {
+    return renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'catalog:catalog_product_price',
+        fields: options.fields,
+        groups: [{ id: 'scope', title: 'Scope', fields: options.fields.map((field) => field.id) }],
+        initialValues: options.initialValues,
+        schema: options.schema,
+        onSubmit: options.onSubmit,
+      }),
+    )
+  }
+
+  it('submits the value of an injected field that reuses a host field id', async () => {
+    injectedFieldWidgets = [
+      { fields: [{ id: 'customerGroupId', label: 'Customer group', type: 'text', group: 'scope' }] },
+    ]
+    const onSubmit = jest.fn()
+    const { container } = renderCollisionForm({
+      fields: [
+        { id: 'name', label: 'Name', type: 'text' },
+        { id: 'customerGroupId', label: 'Customer group id', type: 'text' },
+      ],
+      initialValues: { name: 'Retail', customerGroupId: 'group-1' },
+      onSubmit,
+    })
+
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ name: 'Retail', customerGroupId: 'group-1' }),
+    )
+  })
+
+  it('submits the value of an injected field that reuses a group-inline host field id', async () => {
+    injectedFieldWidgets = [
+      { fields: [{ id: 'customerGroupId', label: 'Customer group', type: 'text', group: 'scope' }] },
+    ]
+    const onSubmit = jest.fn()
+    const { container } = renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'catalog:catalog_product_price',
+        fields: [{ id: 'name', label: 'Name', type: 'text' }],
+        groups: [
+          {
+            id: 'scope',
+            title: 'Scope',
+            fields: ['name', { id: 'customerGroupId', label: 'Customer group id', type: 'text' }],
+          },
+        ],
+        initialValues: { name: 'Retail', customerGroupId: 'group-1' },
+        onSubmit,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-crud-field-id="customerGroupId"]')).toBeTruthy()
+    })
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ name: 'Retail', customerGroupId: 'group-1' }),
+    )
+  })
+
+  it('still strips an injected-only field from the host payload', async () => {
+    injectedFieldWidgets = [
+      { fields: [{ id: 'widgetOnlyNote', label: 'Widget note', type: 'text', group: 'scope' }] },
+    ]
+    const onSubmit = jest.fn()
+    const { container } = renderCollisionForm({
+      fields: [{ id: 'name', label: 'Name', type: 'text' }],
+      initialValues: { name: 'Retail', widgetOnlyNote: 'extra' },
+      onSubmit,
+    })
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-crud-field-id="widgetOnlyNote"]')).toBeTruthy()
+    })
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    const submitted = onSubmit.mock.calls[0][0] as Record<string, unknown>
+    expect(submitted.name).toBe('Retail')
+    expect(submitted).not.toHaveProperty('widgetOnlyNote')
+  })
+
+  it('collapses a dot-path host field that an injected field reuses into its nested shape', async () => {
+    injectedFieldWidgets = [
+      { fields: [{ id: 'metadata.channel', label: 'Channel', type: 'text', group: 'scope' }] },
+    ]
+    const onSubmit = jest.fn()
+    const { container } = renderCollisionForm({
+      fields: [
+        { id: 'name', label: 'Name', type: 'text' },
+        { id: 'metadata.channel', label: 'Channel', type: 'text' },
+      ],
+      initialValues: { name: 'Retail', metadata: { channel: 'web' } },
+      schema: z.object({
+        name: z.string(),
+        metadata: z.object({ channel: z.string() }).optional(),
+      }),
+      onSubmit,
+    })
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-crud-field-id="metadata.channel"] input')).toBeTruthy()
+    })
+    const channelInput = container.querySelector('[data-crud-field-id="metadata.channel"] input') as HTMLInputElement
+    await waitFor(() => expect(channelInput.value).toBe('web'))
+    fireEvent.change(channelInput, { target: { value: 'store' } })
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toEqual({ name: 'Retail', metadata: { channel: 'store' } })
   })
 })

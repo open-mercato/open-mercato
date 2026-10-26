@@ -102,7 +102,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 - `WorkerMeta`: `queue` — MUST NOT remove
 - `TelemetryProvider` (`@open-mercato/telemetry`): `name`, `supports`, `start`, `shutdown`, `runInSpan`, `activeSpan`, `activeTraceContext`, `inject`, `runInRemoteSpan`, `emitLog`, `recordMetric` — MUST NOT remove. `reportError?()` was added 2026-09-08 as an additive OPTIONAL method (see [spec](.ai/specs/2026-09-08-error-reporting-policy.md)); it **MUST stay optional** — third parties implement this interface and a required method would break every existing provider. The facade calls it as `provider.reportError?.(…)` *in addition to* the span/log/metric path, so a provider that omits it loses nothing.
 - `ReportErrorContext` (`@open-mercato/telemetry`) and the `reportError` context of `TelemetryRuntime` (`@open-mercato/shared/lib/telemetry/runtime`): `module?` and `attributes?` — MUST NOT remove. `code?: string` was added 2026-09-08 as an additive optional field carrying the enumerated `module.reason` fingerprint the backend groups on; it MUST stay optional so existing callers (the API dispatcher, the CRUD factory) keep compiling and keep emitting exactly what they emit today. `om.errors` gains an `error.code` label only when a caller supplies one — the same attribute name the span and the log record use, so one query works against all three.
-- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter is **deprecated and slated for removal in the next minor release** — pass OAuth client config via `RefreshCredentialsInput.oauthClient` instead.
+- `RefreshCredentialsInput` (communication_channels hub): `channelId`, `credentials`, `scope` — MUST NOT remove. `oauthClient?` was added 2026-05-27 as an additive optional field (see [Spec A](.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md)). The legacy `credentials._client` read path in the Gmail adapter was **removed** (see #3828 / UPGRADE_NOTES) — OAuth client config MUST be passed via `RefreshCredentialsInput.oauthClient`.
 - `OAuthClientConfig` (communication_channels hub): added 2026-05-27 with `clientId` required; optional `clientSecret`, `tenantId`, `scopes`. New optional fields may be added; required `clientId` MUST NOT be removed.
 - `BackendChromePayload`: `groups`, `settingsSections`, `settingsPathPrefixes`, `profileSections`, `profilePathPrefixes`, `grantedFeatures`, `roles` — MUST NOT remove. `currentOrganization?` (`BackendChromeCurrentOrganization | null`) was added 2026-07-30 as an additive optional field (see [spec](.ai/specs/2026-07-30-backend-chrome-current-organization.md)); it is `null` under an all-organizations selection, when no organization is in scope, and when the lookup fails, so consumers MUST treat `null` as "unknown" rather than "no organization". `brand?` is **unchanged** and remains the branding channel — it populates only when the organization has a `logoUrl`, and `currentOrganization` does not supersede it.
 
@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 
@@ -360,6 +361,29 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ---
 
+## Canonical API Interceptor Route Identity (2026-10-04)
+
+API dispatch and API-interceptor selection now share the same matched-route identity.
+This closes a policy bypass where a mixed-case or percent-encoded spelling dispatched
+to a handler but did not select its exact `before` interceptor.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Function signature (`findApiRouteManifestMatch`) | New optional fourth parameter `request?: Request`; existing three-argument callers keep the same return value and matching behavior | ✓ ADDITIVE (optional parameter appended) |
+| API route URLs and handler context | No route is added, removed, or renamed; handler `params` and request query semantics are unchanged | ✓ No contract change |
+| Interceptor selection | Static segments use the matched manifest spelling, while matched dynamic/catch-all values stay concrete. Alternate spellings that already reached a route now run the same exact/prefix interceptors as its normal spelling; malformed percent encoding reaches no handler | ⚠️ Intentional security narrowing only (previous policy-bypass requests are denied or intercepted) |
+| Request cloning/reconstruction | Dispatcher identity survives `Request.clone()` and `new Request(request.url, request)`. Unknown, forged, or evicted internal continuity metadata fails closed; unbound direct handlers retain legacy URL-derived matching | ✓ Behavior-preserving for valid dispatches; intentional security narrowing for forged metadata |
+| Handler ordering | Authorization and interceptor `before`/`after` positions are unchanged | ✓ Behavior-preserving for normally spelled requests |
+
+**Migration path for existing modules**: none. Keep authored `targetRoute` values.
+Callers that dispatch through the framework catch-all receive canonical binding
+automatically; direct three-argument matcher consumers continue to work unchanged.
+Synthetic dispatchers should pass the exact request they invoke as argument four.
+Request wrappers should retain headers when reconstructing the request, or pass an
+authored route constant directly to the interceptor runner.
+
+---
+
 ## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
 
 Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
@@ -472,6 +496,24 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
 
+## Data Sync Retry, Resume and Run Again (2026-09-16)
+
+[`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (§2) | New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun` | ✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it) |
+| Import paths (§4) | New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
+| API route URLs (§7) | **No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12 | ✓ n/a |
+| Database schema (§8) | No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was | ✓ n/a |
+| Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: the retry endpoint deliberately does **not** enforce `supportsStartControl('fullSync', entityType)` before honouring `fromBeginning: true`. [§ Data Sync Start Control Applicability (2026-09-02)](#data-sync-start-control-applicability-2026-09-02) already commits that the declaration "governs what the dashboard **offers**, never what the run API **accepts**", and `fromBeginning: true` on `retry` requests the identical thing as `fullSync: true` on `run` — a `null` start cursor — so the two siblings MUST answer identically. An adapter-declared restriction hides the from-the-beginning action in the UI and nothing more; a scripted or API client keeps the documented escape hatch. Making either endpoint strict is a breaking change under §7 and needs the deprecation protocol, not a UI spec.
+
+`ResumePoint` also has **no `fromBeginning` variant, by design**. `api/runs/[id]/retry.ts` resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row — state the run row does not carry — so a run that committed no batch of its own may still resume at a cursor an earlier run wrote. `noCommittedBatch` therefore means only "this run committed nothing" and MUST NOT be widened by a caller into a positional claim about where a retry starts. A future additive `retryStartCursor` response field is the only way to close that gap; it is out of scope here.
+
+**Migration path for existing adapters and clients**: none. The module is new, every endpoint is unchanged, and an adapter or API client that ignores all of this behaves exactly as before.
+
 ## Customers Quick-Create Injection Spot Bridge (2026-09-16)
 
 [`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
@@ -484,3 +526,79 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
+
+## Atomic Auth Command Replay (2026-10-04)
+
+[`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (`CommandHandler`, `CommandRuntimeContext`, `CommandExecuteResult`) | New optional `atomicReplay?: boolean` and `stabilizeReplay(...)` handler capabilities, optional `replayTransactionGuard` request guard, optional caller-owned `transactionLifetime`, and optional `replaySourceFinalized?: boolean` result signal. `TransactionLifetime` plus its observation/completion-registration helpers are new exports; lifetime creation/completion remains owned by `withAtomicFlush` | ✓ ADDITIVE (optional fields and exports; omitted handlers and contexts keep the prior flow) |
+| `ActionLogService` method signatures | `log`, `claimForUndo`, `releaseUndoClaim`, and `markUndone` accept an optional trailing transactional `EntityManager`; new `claimForRedo` method | ✓ ADDITIVE (optional parameters appended and a new method; existing calls retain behavior) |
+| `RbacService` | New `loadAclWithEntityManager`, `userHasAllFeaturesWithEntityManager`, and `getGrantedFeaturesWithEntityManager` methods bypass caches and bind every query to the supplied transaction | ✓ ADDITIVE (new methods; existing cache-backed methods are unchanged) |
+| Auth command replay behavior | Auth user/role handlers opt in so source-log state, domain changes, undo trace or new redo log, and redo source finalization commit or roll back together. Before the request guard or feature interceptors run, `stabilizeReplay` discovers and seals one actor/target/destination footprint and locks API keys, users, roles, tenant/organization hierarchy, and authorization children in a total order using the same transaction | ⚠️ Intentional security hardening. A race that previously could deadlock or replay with stale authority is rejected with the existing domain `409`; successful, authorized replay keeps the same response shape |
+| Action-log actor persistence and self replay | `actor_user_id` remains a UUID; new entries also store the canonical user or `api_key:<uuid>` subject in `context.actorSubject`. API-key list ownership, undo/redo ownership, exact-EM RBAC, locks, and latest replay queries use the canonical subject. Canonical history is selected before the legacy bare-UUID fallback, which additionally requires a coherent live `isApiKey`/`keyId`/`sub` tuple | ✓ Database-compatible additive context metadata; same-UUID user, malformed, or ambiguous ownership cannot shadow canonical key history and fails closed |
+| Auth authorization-state writers | First-party `UserRole`, `UserAcl`, and `RoleAcl` writers in commands, setup, CLI, execution principals, SSO, and agent orchestration now share the canonical parent-lock protocol; SSO membership and grant rows commit together | ⚠️ Intentional concurrency hardening; no request, response, schema, import-path, event, feature, or CLI contract changes |
+| Non-auth command replay | Handlers that omit `atomicReplay` retain the existing undo claim/release compensation and route-level redo finalization | ✓ Behavior-preserving |
+| API routes, response schemas, database schema, event IDs, ACL feature IDs, DI names, CLI commands, generated files | No shape or identifier change | ✓ n/a |
+
+**Migration path for existing modules**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
+
+---
+
+## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
+
+`directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Command behaviour (`directory.organizations.update`) | `parentId` is written and validated only when present in the input; children are reconciled only when `childIds` is present. Explicit `parentId: null` and `childIds: []` still clear. With `childIds` present and `parentId` omitted, listing the current parent answers `400 Child cannot equal parent` (it answered `400 Cannot assign ancestor as child`) | ⚠️ Behaviour change on a previously-corrupting path. A caller that omitted the fields to clear the hierarchy must send the explicit values. Regression-tested in `updateOrganization.partial-hierarchy.test.ts` and `TC-DIR-018` |
+| API routes (`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`) | Same URLs, request schema (`organizationUpdateSchema` already declares both fields optional) and response shapes | ✓ No shape change |
+| Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Staff Logout Runs Without A Valid Access Token (2026-10-13)
+
+`POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
+| URL, method, response shape | Unchanged | ✓ n/a |
+| `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+---
+
+## OAuth2 Grant Lifecycle Core (2026-10-12)
+
+[`.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md`](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [`.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md`](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import paths (§4) | New `@open-mercato/shared/lib/db/advisoryLock` (explicit `exports` entry); `@open-mercato/core/modules/integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}` and `…/lib/oauth/testing/fakeAuthorizationServer` — exactly these files, no directory index. Every path, plus `…/lib/credentials-service`, `…/lib/log-service` and the hub's `…/communication_channels/lib/oauth-state`, is verified against the built `dist` by `scripts/check-oauth-publish-shape.mjs` in CI | ✓ ADDITIVE (new import paths) |
+| Type definitions (§2) | New `OAuthProviderDescriptor`, `OAuthGrantOwner`, `OAuthTokenEndpointResponse`, `OAuthClientAuthMethod`, the grant-service result and inspection types (the inspection carries no token), `AdvisoryLockOptions` (`waitDeadlineMs`, `maxConcurrentHolders`); the `FakeAuthorizationServer` handle with its options, `FakeInjection` and `FakeRotationMode`; error classes `OAuthGrantError`, `OAuthDescriptorError`, `AdvisoryLockUnavailableError` (`reason: AdvisoryLockUnavailableReason` = `'deadline' \| 'transient_db' \| 'commit_unknown'`); closed unions (`OAuthTokenFailure`, `OAuthConnectFailure`, `OAuthConnectionState`, `OAuthUnavailableReason`, …) that are additive-only, so consumers keep a default branch. `IntegrationOAuthGrantService` is a type to call, not to implement: adding a method is additive. Optional `IntegrationDetailPageConfig.connectTabId`. `CredentialsService`, `IntegrationLogService` and `IntegrationCredentialFieldOauth` are unchanged apart from `@internal` options | ✓ ADDITIVE (new types; optional fields) |
+| Function signatures (§3) | New `withAdvisoryXactLock`, `createPkcePair`, `buildAuthorizationUrl`, `exchangeAuthorizationCode`, `resolveOAuthRedirectUri`, `classifyResourceChallenge`, `mapInspectionToHealth` with `OAUTH_HEALTH_CODES`, `startFakeAuthorizationServer` with the methods of the handle it returns (`issueAuthorizationCode`, `inject`, `revokeAuthorization`, `reset`, `counters`, `requests`, `issuedTokens`, `close`) and the `IntegrationOAuthGrantService` methods | ✓ ADDITIVE (new functions) |
+| DI service names (§9) | New scoped `integrationOAuthGrantService`. Contract note: inside the grant lock the service builds its credentials and log services from the core factories, so DI overrides of `integrationCredentialsService` don't apply to grant rows | ✓ ADDITIVE |
+| API routes (§7) | `GET /api/integrations/:id` gains the nullable `oauthGrant: { status: 'active' \| 'invalidated' \| 'unavailable' } \| null` (always present; `null` without a live grant) and returns `integration.detailPage.connectTabId` | ✓ ADDITIVE (response fields) |
+| Widget injection context (§6) | Spot IDs unchanged; the `integrations.detail.v1` context gains the optional `detail.oauthGrant` and `integration.detailPage.connectTabId` | ✓ ADDITIVE (context fields) |
+| Log and health codes | Log codes `integrations.oauth_*` and the `OAUTH_HEALTH_CODES` values with `OAuthHealthCode` | ✓ ADDITIVE; STABLE once released, additive-only |
+| Persisted formats | The grant row id `<integrationId>__oauth_grant`; the blob `version`; the lock key `oauth_grant:<integrationId>:<tenantId>:<organizationId>:<userId or ->` and its mapping `pg_try_advisory_xact_lock(hashtextextended(key, 0))`; `resourceKind` `integrations.oauth_grant`; the `Symbol.for` brands `@open-mercato/shared:AdvisoryLockUnavailableError`, `@open-mercato/core:OAuthGrantError` and `@open-mercato/core:OAuthDescriptorError` that keep `instanceof` reliable across module copies. The codes `integrations.oauth_disconnected` and `integrations.oauth_revocation_{pending,confirmed,failed,unsupported,skipped_reconnected,skipped_invalidated}` with their `disconnectId` payload key are read back to derive `lastDisconnect`; the per-process holder-slot registry `globalThis.__openMercatoAdvisoryLockSlots__` is shared by every `@open-mercato/shared` instance | The lock key, its mapping and the brand keys FROZEN for every existing Grant Owner (processes of two versions must exclude each other during a rolling deploy); everything else ADDITIVE-ONLY |
+| External dependency | Provider routes import the hub-owned `@open-mercato/core/modules/communication_channels/lib/oauth-state`: `createOAuthState`, `verifyOAuthState`, `consumeOAuthStateOnce`, `OAuthStatePayload`, `OAuthStateConsumeStore` and `OAuthStateError` (its `code` values additive-only, `replay` included) are documented as STABLE; the path's other exports are not covered | ✓ No change to the path (now a documented STABLE import) |
+| Testing contract | With `OM_ENABLE_TEST_OAUTH_GRANTS` on (or outside production), a descriptor may use `http:` endpoints on a loopback host (`localhost`, `127.0.0.1`, `[::1]`), so a provider's test seam can point its descriptor at an in-process fake; otherwise endpoints are `https:` | STABLE; the flag itself enables nothing else for providers |
+| API routes (§7): `GET` / `PUT /api/integrations/:id/credentials` | Answer 404 for any id ending in `__oauth_grant`, also when an integration with that id is registered (I4: grant secrets never reach the admin credentials API) | ⚠️ Intentional security narrowing only (no first-party integration id ends in the suffix) |
+| Function behaviour (§3, §9): `resolve()` and `resolveUpdatedAt()` of `createCredentialsService` / DI `integrationCredentialsService` | Don't fall through to a `bundleId` ending in `__oauth_grant`, for every caller (integration list and detail GETs, the credentials route, the health service, data_sync); the grant service's Client Configuration read skips it too | ⚠️ Intentional security narrowing only (I4, I7; no first-party bundle id ends in the suffix) |
+| Explicitly not covered (`@internal`) | `createIntegrationOAuthGrantService`, `IntegrationOAuthGrantServiceDeps`, `requestTokenEndpoint`, `revokeToken`, `OAuthTokenEndpointError` with `OAuthTokenEndpointErrorKind` and its brand, `OAUTH_RESPONSE_MAX_BYTES`, `OAuthClientCredentials`, `OAuthInvalidatedReason`, `oauthProviderDescriptorSchema`, `resolveOAuthProviderDescriptor`, `AdvisoryLockOptions.onWait` with `AdvisoryLockWaitResult`, `isTransientLockDbError` (`@open-mercato/shared/lib/db/pg-errors`), the third parameter `{ kms }` of `createCredentialsService`, `CredentialsWriteOptions.ensureEncryptionMap`, `eraseIntegrationCredentials`, `readCredentialRowLayered`, `LayeredCredentialRead`, `isReservedOAuthGrantId`, `bundleFallthroughId`, `findLatestIntegrationLogsByCodes`, and every export of `lib/oauth/{grant-blob,pin-tenant-dek,error-brand}` | Not a contract surface; may change without the deprecation protocol |
+| Not contracts | The test-only route `POST /api/integrations/test-oauth-grants`, its helper `@open-mercato/core/helpers/integration/oauthGrantTestRoute`, the flag `OM_ENABLE_TEST_OAUTH_GRANTS` (apart from the testing contract above) and the `test_oauth_grant` integration (like `test-seed`) | n/a |
+| Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
