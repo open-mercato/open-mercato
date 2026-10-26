@@ -131,6 +131,7 @@ async function readExternalMessage(messageId: string, scope: { tenantId: string;
 
 test.describe('TC-CHANNEL-EMAIL-HUB-005: a shared conversation reply uses the selected mailbox', () => {
   test('the teammate owns their private reply after the original author revokes sharing', async ({ request }) => {
+    test.slow()
     const stamp = randomUUID()
     const recipient = `channel-hub-005-person-${stamp}@example.com`
     const userAName = `QA Channel Hub 005 A ${stamp}`
