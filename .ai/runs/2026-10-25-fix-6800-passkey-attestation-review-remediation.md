@@ -83,3 +83,15 @@ The unchanged controller derives knowledge-contract (context-read, evaluator) an
 Full deterministic catalog validation in the minimal source fixture remains incomplete due to unrelated absent installed/example/template surfaces. Full packed-preset/certified release proof is unavailable: official target-isolation preflight rejects win32. These are explicit unpassed gates, not asset-sync exemptions or waived checks. The local sanitized refresh report records the bounded proof. The separate authorized continuation publishes the concrete correction; fresh-head CI and named human Emergency Security Exception acknowledgment remain required.
 
 The migration-section reference nit was corrected from 0.8.0 → 0.8.1 to the existing 0.8.0 → 0.9.0 heading. Its byte length is unchanged; final measurements and controller proof include the corrected reference. No passkey/security source changed.
+
+## Maintenance continuation — 2026-10-26
+
+The latest independent review confirms the measured context-cap correction and migration-reference fix. Its remaining blockers are the named human Emergency Security Exception acknowledgment and supported-environment certified harness/release evidence. No further production-code correction is requested.
+
+Merged latest main `c3cfc9211cbd0bdf0c59643e5df7859aa4c95b94` cleanly in `bd6b7522a2bdf047e89c00eaddbeceeb9c2f8bb4`. The security module, harness catalog and focused compatibility test are unchanged by the merge. The merge combined two additional lesson records with the branch's earlier catalog count; the focused lesson regression caught the resulting 155-versus-157 mismatch. Updated only the declared count to match all 157 retained records.
+
+Runner: local for narrow post-merge checks, because this new head has no GitHub check results yet and neither installed Docker context supplies a running engine. Compatibility regression: 6/6 passed. The lesson regression first failed 4/5 with the count mismatch, then passed 5/5 after correction; the canonical lesson validator and final diff whitespace also passed. Ordinary CI on preceding head `e27c47d96f4f6251517cbffcb04c1a949e7646e1` succeeded in run `40217884584`; that is historical evidence after this continuation and does not establish new-head CI.
+
+Called the unchanged release runner's `releaseHostPrerequisiteViolations` against the checked-out release matrix on native macOS. It reports: `isolated loopback is unavailable with macOS sandbox-exec; run this lane in a Linux VM/container with Bubblewrap`. Docker Desktop reports it cannot start; the existing alternate Colima context has no daemon socket. The full packed-preset/certified release gate remains unpassed. No containment, assertion, controller or release gate was weakened, and no external infrastructure was provisioned.
+
+The original fork PR and historical QA evidence are preserved. Independent re-review is requested; `changes-requested` remains appropriate while GitHub's review decision and the two explicit gates remain outstanding. No automated review supplies the named human acknowledgment, QA renewal or merge approval.
