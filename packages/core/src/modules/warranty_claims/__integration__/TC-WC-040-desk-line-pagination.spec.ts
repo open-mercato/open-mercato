@@ -89,6 +89,7 @@ test.describe('TC-WC-040: every accepted line is available in the claims desk', 
       })
 
       test.afterAll(async ({ request }) => {
+        test.setTimeout(60_000)
         try {
           if (recoveryClaimId) await cleanupClaim(request, token, recoveryClaimId)
         } finally {
@@ -104,8 +105,11 @@ test.describe('TC-WC-040: every accepted line is available in the claims desk', 
         await expect(page.getByRole('row').filter({ hasText: productName })).toHaveCount(1)
         const receivingButton = page.getByRole('button', { name: 'Grade / Receive', exact: true }).nth(lineCount - 1)
         await expect(receivingButton).toBeVisible()
-        await receivingButton.click()
         const receivingDialog = page.getByRole('dialog', { name: 'Grade received line' })
+        await expect(async () => {
+          if (!await receivingDialog.isVisible()) await receivingButton.click({ timeout: 1_000 })
+          await expect(receivingDialog).toBeVisible({ timeout: 1_000 })
+        }).toPass({ timeout: 5_000 })
         await receivingDialog.getByLabel('Inspection notes').fill(stamp)
         const received = page.waitForResponse((response) =>
           response.url().endsWith('/api/warranty_claims/receiving') && response.request().method() === 'POST')
