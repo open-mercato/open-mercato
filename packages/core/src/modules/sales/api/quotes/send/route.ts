@@ -23,6 +23,7 @@ import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/te
 import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
 import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
 import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
+import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
@@ -227,6 +228,11 @@ export async function POST(req: Request) {
         currency: quote.currencyCode,
       }),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
+      schedule: recurrence
+        ? translate('sales.quotes.email.schedule', 'Billing: {schedule}', {
+            schedule: formatRecurrenceSchedule(recurrence, translate, locale),
+          })
+        : null,
       cta: translate('sales.quotes.email.cta', 'View quote'),
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }

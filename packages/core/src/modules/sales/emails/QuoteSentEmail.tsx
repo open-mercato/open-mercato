@@ -6,6 +6,7 @@ export type QuoteSentEmailCopy = {
   heading: string
   total: string
   validUntil: string
+  schedule?: string | null
   cta: string
   footer: string
 }
@@ -35,6 +36,9 @@ export function QuoteSentEmail({ url, copy }: QuoteSentEmailProps) {
           <Heading style={{ fontSize: '24px', fontWeight: 600, margin: '0 0 16px' }}>{copy.heading}</Heading>
           <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '12px' }}>{copy.total}</Text>
           <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '16px' }}>{copy.validUntil}</Text>
+          {copy.schedule ? (
+            <Text style={{ fontSize: '16px', color: '#334155', marginBottom: '16px' }}>{copy.schedule}</Text>
+          ) : null}
           <Section style={{ textAlign: 'center', margin: '28px 0' }}>
             <Button
               href={url}
