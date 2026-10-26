@@ -2,12 +2,13 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 8 — proposal seam review fixes) |
+| **Status** | Specification (rev 9 — Release 4 decisions applied; **Phases 1–3 implemented 2026-10-15, PR adeptofvoltron/open-mercato#15** — see §18 Changelog; Phase 4 unchanged, spec-only, not built) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 5, Phase 2 |
 | **Modules** | `cart` (new) |
 | **Depends on** | [Customer Groups & B2B Terms](./2026-08-14-customer-groups-and-b2b-terms.md), [Availability Contract](./2026-08-14-availability-contract.md), [SPEC-029 Ecommerce Store Module](./SPEC-029-2026-02-17-ecommerce-storefront-module.md) |
 | **Related** | [SPEC-055 Promotions](./SPEC-055-2026-02-23-promotions-module.md), [Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md), [Assisted Selling](./2026-09-22-assisted-selling.md), [ADR-1](./2026-08-14-ecommerce-suite-roadmap.md#adr-1--the-cart-is-a-module-not-a-checkout-status), [ADR-2](./2026-08-14-ecommerce-suite-roadmap.md#adr-2--cart-never-computes-tax-or-totals-itself), [ADR-10](./2026-08-14-ecommerce-suite-roadmap.md#adr-10--a-proposal-is-a-cart-and-acceptance-is-a-merge) |
+| **Release 4 decisions** | [eComm Release 4 Decisions](./analysis/ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md) D-R4-1…29 (authoritative audit trail; this revision is where they land in the spec text) |
 
 ---
 
@@ -15,7 +16,7 @@
 
 **Key Points:**
 - A channel-agnostic basket module. `Cart` and `CartLine` are first-class entities addressed by an opaque token, usable by the storefront, POS, pay links and AI purchasing agents alike. Checkout consumes a cart; it does not own one.
-- **The cart does no arithmetic.** It resolves unit prices via `catalogPricingService`, discounts via `promotionsService`, then hands `SalesLineSnapshot[]` to `salesCalculationService.calculateDocumentTotals` with `documentKind: 'quote'`. Cart totals and order totals are produced by the same code, so they cannot disagree.
+- **The cart does no arithmetic.** It resolves unit prices via `catalogBuyerPricingService.resolveLinePrice(...)` (rev 9 — D-R4-3), discounts via `promotionsService`, then hands `SalesLineSnapshot[]` to `salesCalculationService.calculateDocumentTotals` with `documentKind: 'quote'`. Cart totals and order totals are produced by the same code, so they cannot disagree.
 - Prices are **snapshotted per line with a resolution stamp**, and re-priced on a defined set of triggers. A cart that silently re-prices mid-session is as broken as one that never does; the trigger list is the contract.
 - B2B changes cart behaviour in ways B2C never exercises: quantity breaks re-price the whole line as quantity crosses a tier, pack increments constrain quantities, and an over-threshold cart routes to approval before checkout.
 
@@ -32,6 +33,7 @@
 - Guest→customer merge has no universally correct rule; the chosen policy must be explicit, reversible and logged, because getting it wrong silently deletes a buyer's basket
 - Optimistic locking on a cart that the server itself re-prices means the server can bump the version under a client that did nothing wrong; re-pricing must not be indistinguishable from a concurrent edit
 - Promotion evaluation on every mutation is expensive; caching it is unsafe because the rule tree depends on the whole cart
+- **(rev 9)** Scope, channel and store are never caller-supplied: a public route resolves them server-side via `storeContextService`, and request bodies are `.strict()` so a client cannot smuggle `assortmentScope`, `channel` or `storeId` into a mutation (D-R4-1, D-R4-2). This is the fix for the two Critical holes the Release 4 pre-implementation analysis found in rev 8.
 
 ---
 
@@ -74,12 +76,15 @@ storefront / POS / pay link / AI agent
         ┌──────────┐
         │   cart   │   lines, quantities, snapshots, totals, TTL
         └────┬─────┘
-             ├──► catalog       catalogPricingService — unit price for THIS buyer & quantity
+             ├──► catalog       catalogBuyerPricingService.resolveLinePrice(...) — unit price for THIS buyer & quantity
+             ├──► catalog       catalogScopedProductService.loadScopedProducts(ids, scope) — ancestor-expanded category/tag ids for the visibility check (§6a)
              ├──► promotions    promotionsService.evaluate(cart) — resolved effects
-             ├──► availability  availabilityService.check() — advisory state + quantity rules
+             ├──► availability  resolveAvailability(query, { moduleConfig, container }) — advisory state; shared quantity-rule derivation for §5.5
              ├──► sales         salesCalculationService.calculateDocumentTotals() — ALL arithmetic
              └──► customer_groups  resolveTerms() — tax mode, min order, approval threshold
 ```
+
+**(rev 9 — D-R4-3)** `catalogBuyerPricingService` and `catalogScopedProductService` are additive services extracted from `ecommerce/lib/storefrontPricing.ts` into `catalog`, and the quantity-rule derivation is extracted from `ecommerce/lib/storefrontDetail.ts` into `availability`; `ecommerce` is refactored onto all three with no behaviour change, guarded by its existing `TC-ECOM-*` suites. This replaces rev 8's `catalogPricingService` (§3.1 S2 of the Release 4 analysis: no such sanctioned service existed — the only complete implementation was ecommerce-private) and the undefined availability-derived quantity rules of rev 8 §5.5 (S3).
 
 `cart` has no inbound dependency. `checkout` reads it; it does not read `checkout`.
 
@@ -88,17 +93,30 @@ storefront / POS / pay link / AI agent
 Every mutation is a registered command, mirroring `sales/commands/documents.ts` — this module has no exemption from root `AGENTS.md`'s "domain writes go through commands" rule, and an earlier draft of this spec had none of these, describing mutations as plain HTTP handlers instead:
 
 ```
+cart.create · cart.get                                                  (rev 9 — §6a.1a; the route edge's two entry points)
 cart.lines.add · cart.lines.update · cart.lines.remove · cart.lines.bulkAdd
 cart.promotions.apply · cart.promotions.remove
 cart.merge · cart.mergeUndo
 cart.approval.request
 cart.reprice
+cart.lock · cart.unlock · cart.markConverted                            (rev 9 — §9, F7/C6; no public route)
 cart.proposal.create · cart.proposal.accept · cart.proposal.reject      (rev 7 — §7a)
 ```
 
+**(rev 9 — command undo table, F7/C6, D-R4-4).** `cart.lines.add`, `.remove`, `.bulkAdd` and `cart.merge` carry undo via `extractUndoPayload`. `cart.lines.update`, `cart.reprice`, `cart.lock`, `cart.unlock` and `cart.markConverted` are not undoable — re-pricing to a stale price, an in-flight checkout lock, or a conversion already reflected in a `SalesOrder` are none of them a state a client would ever want restored — and are documented as such rather than left silent on the question:
+
+| Command | Undo | Reason |
+|---|---|---|
+| `cart.lines.add` / `.remove` / `.bulkAdd` | Yes | Reverses a buyer-visible content change |
+| `cart.merge` | Yes (`cart.mergeUndo`, 15 min) | §7.2 |
+| `cart.lines.update` | No | Quantity changes re-price; the "undo" a buyer wants is setting the quantity back, not a system rollback |
+| `cart.reprice`, trigger-driven re-snapshots | No | Re-pricing to a stale price is never a desired restore target |
+| `cart.lock` / `.unlock` | No | A lock is a checkout-session concern, not buyer content |
+| `cart.markConverted` | No | Terminal; the cart becomes read-only history once a `SalesOrder` exists |
+
 `cart.proposal.accept` **delegates to `cart.merge`**; it is not a second merge implementation. `cart.proposal.create` takes a target cart **id** (§7a.2). That delegation is the whole reason the proposal seam costs this module three commands rather than an entity family: disclosure (`mergeSummary`), reversal (`cart.mergeUndo`), the append-only pre-merge snapshot (`CartMergeLog.source_snapshot`) and the mandatory whole-cart re-price (§7.3) are already specified, already tested, and already the behaviour a buyer accepting someone else's suggestion needs.
 
-Each command's `execute` phase runs the optimistic-lock pre-check (§8.1) before touching the entity manager, then mutates `Cart`/`CartLine`/`CartPromotionApplication` inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` — not a raw conditional SQL update — because the write flow (load → call `catalogPricingService`/`promotionsService` → call `salesCalculationService.calculateDocumentTotals` → persist totals) is exactly the multi-phase "mutate → external work → mutate again" shape that helper exists to protect. Side effects (`emitCrudSideEffects`, cache invalidation, `clientBroadcast` events) fire after commit, never inside the atomic-flush block. `cart.lines.add`/`.remove` and `cart.merge` carry meaningful undo via `extractUndoPayload`; `cart.reprice` and pricing-triggered re-snapshots are not undoable (re-pricing to a stale price is not a state a client would ever want restored) and are documented as such.
+Each command's `execute` phase runs the optimistic-lock pre-check (§8.1) before touching the entity manager, then mutates `Cart`/`CartLine`/`CartPromotionApplication` inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` — not a raw conditional SQL update — because the write flow (load → call `catalogBuyerPricingService.resolveLinePrice`/`promotionsService` → call `salesCalculationService.calculateDocumentTotals` → persist totals) is exactly the multi-phase "mutate → external work → mutate again" shape that helper exists to protect. Side effects (`emitCrudSideEffects`, cache invalidation, `clientBroadcast` events) fire after commit, never inside the atomic-flush block. `cart.lines.add`/`.remove` and `cart.merge` carry meaningful undo via `extractUndoPayload`; `cart.reprice` and pricing-triggered re-snapshots are not undoable (re-pricing to a stale price is not a state a client would ever want restored) and are documented as such.
 
 ### 3.2 Totals
 
@@ -115,13 +133,15 @@ const result = await salesCalculationService.calculateDocumentTotals({
 
 The mapping is direct because `SalesLineSnapshot` already carries `productId`, `productVariantId`, `quantity`, `quantityUnit`, `uomSnapshot`, `unitPriceNet`, `unitPriceGross`, `discountAmount`, `taxRate`, `configuration` and even `promotionCode`. `SalesAdjustmentDraft` carries `scope: 'order' | 'line'`, `promotionId`, `amountNet`/`amountGross` and `position`. Promotion effects map onto these shapes without inventing a parallel model.
 
-**Promotion effects split by target**, per SPEC-055 §B.6 — they do not all become adjustment drafts. Only `appliesTo: 'order'` effects (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) become `SalesAdjustmentDraft`. A `LINE_DISCOUNT` becomes `SalesLineSnapshot.discountAmount` on the matching line, because `SalesAdjustmentDraft` carries no line reference and `sales` currently rejects a line-attributed draft outright (`documents.ts` — *"Line-scoped adjustments are not supported yet."*). Three rules bind this mapping, each of them a mispriced cart if broken:
+**Promotion effects split by target**, per SPEC-055 §B.6 — they do not all become adjustment drafts. Only `appliesTo: 'order'` effects (`CART_DISCOUNT`) become `SalesAdjustmentDraft`; `DELIVERY_DISCOUNT` is excluded from cart-stage totals entirely (§6a below, C5/D-R4-14). A `LINE_DISCOUNT` becomes `SalesLineSnapshot.discountAmount` on the matching line, because `SalesAdjustmentDraft` carries no line reference and `sales` currently rejects a line-attributed draft outright (`documents.ts` — *"Line-scoped adjustments are not supported yet."*). Three rules bind this mapping, each of them a mispriced cart if broken:
 
-1. `discountAmount` is **per-unit over the line's full quantity**: assign `|amount| / lineQuantity` — never `unitAmount`, never the raw `amount`, and divide by `lineQuantity` rather than `appliedQuantity`. There is no basis flag to pick: `buildBaseLineResult` (`packages/core/src/modules/sales/lib/calculations.ts:80-123`) reads `discountAmount` as `discountPerUnit` and computes `min(max(discountPerUnit × quantity, 0), netSubtotalBeforeDiscount)` for every document kind. A benefit covering 5 of 8 units at −2.40 has `amount: "-12.00"`, so `discountAmount = 1.50` and `sales` reproduces `1.50 × 8 = 12.00`; assigning `unitAmount` would discount 19.20 and assigning `amount` 96.00. Where `lineQuantity` does not divide the total the 4 dp rounding (`calculations.ts:22-24`) leaves a sub-cent gap — the document total is authoritative, the effect's `amount` is the display figure.
-2. `discountAmount` is a positive magnitude on a **net** basis; take the absolute value, and convert when the effect's `basis` is `'gross'`.
+1. **(rev 9 — C10/D-R4-9, replacing rev 8's per-unit-division rule).** `SalesLineSnapshot.discountAmountBasis` is set to `'line'` and `discountAmount = |amount|` — the resolved effect's net line-total discount, taken as-is, never divided by `lineQuantity` or `appliedQuantity`. `discountPercent` is never set on a promotion-sourced line (it would win over `discountAmount` per `sales/data/validators.ts:345` and silently discard the resolved amount). `buildBaseLineResult`'s basis-aware branch (`packages/core/src/modules/sales/lib/calculations.ts:97-116`, `resolveLineDiscountTotal`) consumes the line-total form directly, so a benefit covering 5 of 8 units at −2.40 (`amount: "-12.00"`) reaches `sales` as `discountAmount: 12.00, discountAmountBasis: 'line'` and the document reproduces 12.00 exactly — no per-unit re-derivation step exists to get wrong. `CartLine.discount_total_net` (§4.2) persists this figure so a re-read does not need to re-evaluate promotions to display it. Where the resolved effect does not divide evenly across units, the sub-cent question does not arise at all under the line basis; the document total is still the authoritative figure for any further rounding (e.g. tax computed on the discounted net).
+2. `discountAmount` is a positive magnitude on a **net** basis; take the absolute value, and convert when the effect's `basis` is `'gross'` — mirroring `ResolvedEffect.amountNet`/`amountGross` (D-R4-10): the cart always maps `amountNet`, never derives one side from the other.
 3. Several cumulative promotions on one line sum into that single scalar. Per-promotion attribution on the line does not survive; it lives in `PromotionUsage.effects_snapshot`.
 
-SPEC-055 §B.7 defers giving `SalesAdjustmentDraft` a `lineId` to its own spec against `sales`, on blast-radius grounds — `sales` is shipped code with live orders, quotes and returns, while `cart` and `promotions` are both greenfield.
+SPEC-055 §B.7 defers giving `SalesAdjustmentDraft` a `lineId` to its own spec against `sales`, on blast-radius grounds — `sales` is shipped code with live orders, quotes and returns, while `cart` and `promotions` are both greenfield. This is unaffected by the C10 change above: the line-total discount still reaches `sales` through `SalesLineSnapshot.discountAmount`, not through a line-attributed adjustment draft.
+
+**The release invariant (rev 9 — F3/D-R4-9), replacing rev 8's undefined "equals the `SalesOrder` produced."** Checkout does not exist in this release, so there is no order to compare against; the invariant is defined independently of it: *the same `SalesLineSnapshot[]` plus the same `SalesAdjustmentDraft[]` produce equal `SalesDocumentAmounts` for `documentKind: 'quote'` and `documentKind: 'order'`*, compared as 4-decimal-place numerics per key (never byte-for-byte, which JSON doubles vs `numeric(18,4)` make untestable). The Phase 2 gate (§14, §15) builds both documents from an identical snapshot set via the existing `sales` calculation path and, for the Phase 3 gate, via the existing `sales` create command against an order built from the cart's own lines — never a parallel order-creation stub.
 
 **The cart stores the returned totals verbatim.** It does not round, re-sum or adjust them.
 
@@ -135,34 +155,41 @@ Standard scoped columns throughout.
 
 | Column | Type | Notes |
 |---|---|---|
-| `token` | text | Opaque, unguessable, 32+ bytes of CSPRNG entropy, base64url. The public identifier of a **basket**. A proposal cart holds one only to satisfy the unique column; it is never returned by any route, command result or event, and never resolves (§8.3) |
-| `store_id` | uuid, nullable | `ecommerce.EcommerceStore.id`; null for non-storefront channels |
-| `channel` | text | `storefront \| pos \| pay_link \| agent \| api` |
+| `token_hash` | text | **(rev 9 — C13/D-R4-18, replacing rev 8's plaintext `token`).** SHA-256 (or equivalent) of the opaque, unguessable, 32+ bytes of CSPRNG entropy, base64url token. The plaintext token is returned **once**, at creation, in the response body only — never stored, logged, or re-derivable from `token_hash`. A proposal cart holds a `token_hash` only to satisfy the unique column; it is never returned by any route, command result or event, and never resolves (§8.3) |
+| `store_id` | uuid, nullable | `ecommerce.EcommerceStore.id`; null for non-storefront channels; resolved server-side at the route edge, never caller-supplied (§6a.1a, D-R4-1) |
+| `channel` | text | `storefront \| pos \| pay_link \| agent \| api`. **Immutable after creation (rev 9 — F2/C1/D-R4-2).** A public, unauthenticated route always creates `storefront`, bound to the store resolved from the request host; every other channel requires an authenticated principal holding an explicit feature |
 | `kind` | text | `basket \| proposal`, default `basket`. A **role**, not a status — `status` (below) is unchanged and orthogonal. See §7a |
 | `proposed_to_cart_id` | uuid, nullable | The basket this cart proposes into. Check constraint: NOT NULL exactly when `kind = 'proposal'`, NULL otherwise. Self-reference by FK id within one module, so §3.1's no-cross-module-ORM rule is not in play |
 | `sales_channel_id` | uuid, nullable | `sales.SalesChannel.id` |
 | `status` | text | `active \| locked \| converted \| abandoned \| expired \| merged` |
 | `currency_code` | text | Fixed at creation |
 | `locale` | text | |
-| `customer_id` | uuid, nullable | `customers.CustomerEntity.id` |
+| `customer_id` | uuid, nullable | `customers.CustomerEntity.id` — the identity that wins (D3/D3a, D-R4-28) |
+| `customer_ids` | jsonb, nullable | **(rev 9 — W9/D-R4-28)** `string[]` snapshot of `BuyerContext.customerIds` (order-history and per-customer-limit identity is broader than the single winning `customer_id`) |
 | `customer_user_id` | uuid, nullable | `customer_accounts.CustomerUser.id` |
 | `customer_group_ids` | jsonb | `string[]` snapshot at last pricing, for drift detection |
 | `price_kind_id` | uuid, nullable | Snapshot at last pricing |
 | `tax_mode` | text | `gross \| net` |
 | `email` | text, nullable | Guest identification; encrypted at rest — declared in `cart/encryption.ts`'s `defaultEncryptionMaps: [{ entityId: 'cart:cart', fields: [{ field: 'email' }] }]` (fixed 2026-08-17; an earlier draft asserted this in §17 without a backing declaration anywhere in the module) |
-| `buyer_digest` | text | `StoreContext.digest` at last pricing — the drift detector |
+| `buyer_digest` | text | `StoreContext.digest` at last pricing — the drift detector; re-resolved and compared on **every** request, including GET (§5.2 trigger 2, W9) |
+| `assortment_scope_hash` | text, nullable | **(rev 9 — W9)** Hash of the `EffectiveAssortmentScope` last used for the §6a visibility pass, distinct from `buyer_digest` (pricing can be stable while assortment membership lapses, and vice versa) |
 | `totals` | jsonb | Verbatim `SalesDocumentCalculationResult.totals` |
 | `totals_computed_at` | timestamptz | |
 | `promotion_effects` | jsonb | Resolved effects from the last evaluation, for display |
 | `requires_approval` | boolean | Set when gross exceeds the group threshold |
 | `approval_id` | uuid, nullable | `customer_groups.CustomerPurchaseApproval.id` |
-| `note` | text, nullable | Buyer-supplied |
+| `note` | text, nullable | Buyer-supplied; encrypted at rest alongside `email` (rev 9 — AGENTS.md free-text-about-people rule; `configuration` on `CartLine` stays plaintext because encrypting it breaks the stored `configuration_hash` generated column) |
 | `metadata` | jsonb, nullable | |
 | `merged_into_cart_id` | uuid, nullable | Set when `status = 'merged'` |
 | `last_activity_at` | timestamptz | Drives abandonment |
+| `last_price_change_at` | timestamptz, nullable | **(rev 9 — §5.3 referenced this column; rev 8 never declared it)** Set whenever a re-price populates `priceChanges` |
+| `locked_at` | timestamptz, nullable | **(rev 9 — F7/C6/D-R4-4)** Set by `cart.lock` |
+| `lock_expires_at` | timestamptz, nullable | **(rev 9 — F7/C6)** Lock timeout (default 30 min, §9); `release-stale-locks` clears both lock columns past this |
+| `checkout_session_id` | text, nullable | **(rev 9 — F7/C6)** Opaque id supplied by the lock caller; returned in the `423 cart_locked` body (§9, §15 error catalogue) |
+| `resolved_at` | timestamptz, nullable | **(rev 9 — Q6/D-R4-20, C8)** Set when a cart (basket or proposal) leaves `active` for any terminal-for-purge reason (`converted`, `abandoned` past purge-eligibility, `expired`, or — for a proposal — `merged`/`abandoned`). `purge-expired-carts` counts the 90-day retention window from this column rather than from `expires_at`, which is what makes an accepted or rejected proposal's retention well-defined (§7a.3, §12, §16 Q6) |
 | `expires_at` | timestamptz | TTL |
 
-Indexes: unique `token`; `(tenant_id, customer_id, status)`; `(tenant_id, status, expires_at)` for the sweeper; `(tenant_id, status, last_activity_at)` for abandonment; `(tenant_id, proposed_to_cart_id, status)` partial on `kind = 'proposal'`, which is the query behind "what has been proposed to this buyer and is still live".
+Indexes: unique `token_hash`; `(tenant_id, customer_id, status)`; `(tenant_id, status, expires_at)` for the sweeper; `(tenant_id, status, last_activity_at)` for abandonment; `(tenant_id, status, resolved_at)` for the purge sweeper (rev 9); `(tenant_id, proposed_to_cart_id, status)` partial on `kind = 'proposal'`, which is the query behind "what has been proposed to this buyer and is still live".
 
 **No `version` column** (fixed 2026-08-17): an earlier draft added one for optimistic locking, but this platform's optimistic-lock helpers (`enforceCommandOptimisticLock`, `packages/shared/src/lib/crud/optimistic-lock-command.ts`) are hard-coded to ISO-timestamp comparison against `updated_at` — a generic integer counter cannot plug into them, and duplicating them for a bespoke `version` token was the same mistake already made and fixed in the sibling `customer-groups-and-b2b-terms.md` spec. `Cart.updatedAt` (from "Standard scoped columns," above) is the sole concurrency token — see §8.1.
 
@@ -188,16 +215,20 @@ Indexes: unique `token`; `(tenant_id, customer_id, status)`; `(tenant_id, status
 | `price_tier_min_quantity` | integer, nullable | The tier in force; a quantity change crossing it forces a re-price |
 | `priced_at` | timestamptz | Snapshot stamp |
 | `line_totals` | jsonb | Verbatim `SalesLineCalculationResult` |
-| `availability_state` | text, nullable | Advisory, from the last check |
-| `availability_checked_at` | timestamptz, nullable | |
+| `discount_total_net` | numeric(16,4), nullable | **(rev 9 — F3/C10/D-R4-9)** The persisted net line-total discount mapped to `SalesLineSnapshot.discountAmount` (§3.2 rule 1); `null` when no promotion applies to the line |
+| `promotion_id` | uuid, nullable | **(rev 9 — F4/C3/D-R4-7)** `promotions.Promotion.id` that produced this line, for a gift (`ADD_FREE_ITEM`) line. `null` for an ordinary purchased line |
+| `origin` | text | **(rev 9 — F4/C3)** `customer \| promotion`, default `customer`. A `promotion` line is buyer-immutable (`cart.lines.update`/`.remove` on it return `409 promotion_line_immutable`; removal happens only by promotion/code removal reconciling the cart against a fresh `evaluate`), excluded from promotion eligibility (it cannot trigger or stack with the promotion that created it) but **included** in totals, and exempt from the §6a visibility check on add (its assortment is checked once, against the buyer's scope, before it is inserted — a line that would fail is never created, and the omission surfaces as a `product_unavailable` warning rather than a line) |
+| `flag_state` | text, nullable | **(rev 9 — D-R4-5)** `product_unavailable \| null`. Set by the §6a.2/§6a.5 re-visibility pass; a flagged line is excluded from totals and from promotion evaluation, shown separately with a warning, and removing it never changes the price of any other line. Distinct from `availability_state` below — a flagged line failed the *assortment* check, not an *availability* check |
+| `availability_state` | n/a | **(rev 9 — W14/D-R4-19, removed from rev 8).** Availability is **computed per response**, never persisted: a persisted field written on every read would bump `updated_at` on every read, 409-ing the buyer's very next write. `cartService` calls `resolveAvailability(...)` live and includes the result in `CartLineView` (§10.1); nothing here stores it |
 | `configuration` | jsonb, nullable | Personalization, engraving, B2B configurator output |
 | `added_by_actor_type` | text | `buyer \| rep \| ai_agent \| merge \| system` |
 | `added_by_actor_id` | uuid, nullable | `auth.User.id` for `rep` and `ai_agent`, `customer_accounts.CustomerUser.id` for an identified `buyer`; NULL for a guest buyer, for `merge` and for `system`. FK id only, resolved through DI |
 | `metadata` | jsonb, nullable | |
+| `deleted_at` | timestamptz, nullable | **(rev 9)** Soft-delete stamp; `cart.lines.remove` sets it rather than hard-deleting, so `CartMergeLog.outcome` and `CartContext` history can still name a removed line. Every query filters `deleted_at IS NULL` except the merge-log join |
 
 `added_by_actor_type` **replaces** rev 6's `added_by` (`buyer | agent | merchant | merge`), which carried no id at all — so no line could be attributed to a person, no commission could be computed and no audit could answer "who put this here". Two columns rather than one enum extension, because the id is the entire point. The vocabulary changed with it: `agent` → `ai_agent` (an AI agent is a principal with a row in `users` carrying `kind: 'agent'`, the platform's existing notion — not a nameless category), `merchant` → `rep` (a named salesperson, which is what the value was always used for), and `system` is new, for a line the platform authored on nobody's behalf. Adding `added_by_actor_id` beside the old column instead would have left two overlapping descriptions of the same fact with no rule reconciling them — the mistake this suite already made once and fixed in SPEC-029 §5.1.1.
 
-Constraint: unique `(cart_id, product_id, variant_id, configuration_hash)` among non-deleted lines. `configuration_hash` is a stored generated column over `configuration`, so two identical products with different engraving are separate lines while two identical plain lines merge by quantity.
+**Constraint (rev 9 — W3): `UNIQUE NULLS NOT DISTINCT (cart_id, product_id, variant_id, configuration_hash, promotion_id) WHERE deleted_at IS NULL`.** Rev 8's plain `UNIQUE` admits duplicate plain lines, because Postgres treats each `NULL` in a unique index as distinct from every other `NULL` — most lines have a `null` `variant_id`. `NULLS NOT DISTINCT` (PG17 baseline; precedent in the `devices`/`availability` migrations) closes that, and adding `promotion_id` to the key is what keeps a gift line (`origin: 'promotion'`, non-null `promotion_id`) from ever merging into a paid line of the same product (F4) — the two rows differ on that column even when everything else matches. `configuration_hash` is a stored generated column over `configuration`, computed by the command and stored as a plain column (a stored *generated* column is not expressible in MikroORM) — the hash is checked at write time, the uniqueness at the database. Two identical products with different engraving are separate lines while two identical plain lines merge by quantity. A SQL-shape test asserts the constraint exists with exactly this column list.
 
 ### 4.3 `CartPromotionApplication` (`cart_promotion_applications`)
 
@@ -206,12 +237,27 @@ Constraint: unique `(cart_id, product_id, variant_id, configuration_hash)` among
 | `cart_id` | uuid | |
 | `promotion_id` | uuid | `promotions.Promotion.id` |
 | `code` | text, nullable | The entered code, if any |
-| `code_reservation_id` | uuid, nullable | SPEC-055 reservation, released on cart expiry |
+| `code_id` | uuid, nullable | **(rev 9 — X1)** `promotions.PromotionCode.id`; aligns with SPEC-055 A.2's `codes: {id, type}[]` instead of rev 8's bare string `code` |
+| `code_type` | text, nullable | **(rev 9 — X1)** Mirrors SPEC-055's code-kind enum (e.g. `single_use \| shared`) |
+| `code_reservation_id` | uuid, nullable | SPEC-055 `CodeReservation.id`, keyed `(code_id, cart_id)` on the promotions side (C4/D-R4-8); released on cart expiry, abandonment, code removal or cart-side sweep, extended on activity |
 | `scope` | text | `order \| line` |
 | `cart_line_id` | uuid, nullable | For line scope |
-| `effect` | jsonb | Resolved effect as returned by `promotionsService` |
+| `effect` | jsonb | Resolved effect as returned by `promotionsService`, carrying both `amountNet` and `amountGross` (D-R4-10) |
 | `amount_net` / `amount_gross` | numeric(16,4), nullable | |
 | `applied_at` | timestamptz | |
+
+**`CartIdempotencyKey` (`cart_idempotency_keys`) (rev 9 — §8.2, previously undeclared).**
+
+| Column | Type | Notes |
+|---|---|---|
+| `cart_id` | uuid | FK → `carts` |
+| `key` | text | The client-supplied `Idempotency-Key` |
+| `request_digest` | text | Hash of the normalized request body, so a replayed key with a different body is detectable |
+| `response_status` | integer | |
+| `response_body` | jsonb | The original response envelope (§10.1), replayed verbatim |
+| `created_at` | timestamptz | |
+
+Unique `(cart_id, key)`. Swept by `expire-carts` alongside the cart it belongs to (no independent TTL — an idempotency key outlives its cart only as long as the cart does).
 
 ### 4.4 `CartMergeLog` (`cart_merge_logs`)
 
@@ -249,7 +295,7 @@ A cart re-prices when, and only when:
 2. Buyer identity changes: login, logout, a group membership change, or a change to that customer's own assortment override (created, edited, deleted, or lapsing past its `valid_until`) altering `buyer_digest` — whole cart
 3. Currency or locale changes — whole cart
 4. A line snapshot is older than the staleness budget (default 30 minutes) and the cart is read — whole cart
-5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped
+5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped; when a tax provider is configured, the tax-providers roadmap proposes this re-price as the one that computes tax with the shipping address checkout holds (`2026-10-03-tax-providers-roadmap.md`, ADR-3, amendment 6a, §14 Q16); that is a proposal to the owners of this spec, and how the address reaches `cart.lock()` is for a later pointer, after this spec's lock amendment (whose lock input carries no address) merges
 6. A promotion is applied or removed — effects only, not unit prices
 7. An operator forces it through the admin cart view
 
@@ -263,7 +309,7 @@ Re-pricing updates `updated_at` (the concurrency token, §8.1) but sets `version
 
 ### 5.4 B2B quantity tiers
 
-`catalogPricingService` is called with the line's actual quantity, so tier selection is automatic. The cart additionally exposes, per line, the next tier and the quantity needed to reach it:
+`catalogBuyerPricingService.resolveLinePrice(...)` is called with the line's actual quantity, so tier selection is automatic. The cart additionally exposes, per line, the next tier and the quantity needed to reach it:
 
 ```typescript
 nextTier: { minQuantity: 100, unitAmount: 8.40, formatted: '8,40 zł', saving: '12%' } | null
@@ -273,27 +319,36 @@ This is the single highest-value B2B affordance on the read side, and it costs o
 
 ### 5.5 Quantity rules
 
-`minOrderQuantity`, `maxOrderQuantity` and `quantityIncrement` come from the availability policy. A quantity violating an increment is **rejected with the nearest valid values offered**, not silently rounded — silent rounding on a pack-size field produces orders the buyer did not place.
+`minOrderQuantity`, `maxOrderQuantity` and `quantityIncrement` come from the shared quantity-rule derivation in `availability` (rev 9 — D-R4-3/W16; extracted from `ecommerce/lib/storefrontDetail.ts` so cart and PDP cannot disagree) rather than the availability policy directly. A quantity violating an increment is **rejected with the nearest valid values offered** (`nearestValid`), not silently rounded — silent rounding on a pack-size field produces orders the buyer did not place. Below `minOrderQuantity` is rejected outright; above `maxOrderQuantity` is capped with a warning, never rejected.
 
 ---
 
 ## 6) Promotions
 
-On every mutation that changes lines or quantities, and on code entry or removal, `cart` calls:
+On every mutation that changes lines or quantities, and on code entry or removal, `cart` calls (rev 9 — X1/X2/C11/D-R4-21/D-R4-28, aligning to SPEC-055 A.2 instead of rev 8's mismatched shape):
 
 ```typescript
 const effects = await promotionsService.evaluate({
-  cart: toPromotionCartContext(cart),
-  codes: appliedCodes,
-  buyer: { customerId, customerGroupIds, channelId },
+  items: cart.lines.map(toPromotionCartLine),   // { lineId, productId, variantId, quantity, unitPriceNet, unitPriceGross, priceIsPromotional }
+  codes: appliedCodes.map(c => ({ id: c.codeId, type: c.codeType })),   // array, never a single string (X1)
+  buyer: {                                       // BuyerContext identity (D-R4-28)
+    customerId,        // the winning identity (person wins, D3/D3a)
+    customerIds,       // broader set for order-history and per-customer-limit rules
+    customerGroupIds,
+  },
+  evaluatedAt: new Date().toISOString(),          // D-R4-13: date-window filtering happens at evaluation, not in the cache
 })
 ```
 
-`promotions` owns the rule tree, the three-pass engine and all discount arithmetic; it returns **resolved effects**. `cart` maps them to `SalesAdjustmentDraft[]` and passes them to `salesCalculationService`. The cart never computes a discount amount.
+`toPromotionCartLine` is defined here and sends only what the cart knows: ids, prices and quantities (`toPromotionCartContext`, undefined in rev 8, is withdrawn — there is no separate "cart context" object, just the lines and the buyer). **Context enrichment is promotions-side, in batch, from `productId`/`variantId`** (C11/D-R4-21): category, tag, producer, weight and attribute fields the cart cannot know are resolved by `promotions` via `catalogScopedProductService` and friends, not snapshotted onto `CartLine`. A field promotions cannot resolve for a given rule is `null` at evaluation time, so that rule evaluates false rather than the cart guessing; a promotion that newly becomes eligible once a field *is* resolvable (at checkout, which has more context) is disclosed through `priceChanges` with reason `promotion_newly_eligible` (§5.3). `priceIsPromotional` (D-R4-16) travels per item so a promotion can set `exclude_flags: exclude_promotional_prices` and have it enforced.
 
-Not cached: the rule tree depends on the entire cart composition, so any cache key would be the cart itself.
+`promotions` owns the rule tree, the three-pass engine and all discount arithmetic; it returns **resolved effects**, each carrying `amountNet` and `amountGross` (D-R4-10). `cart` maps order-scope effects to `SalesAdjustmentDraft[]` and line-scope effects to `SalesLineSnapshot.discountAmount` (§3.2). The cart never computes a discount amount.
 
-Code reservations (SPEC-055) are taken at code entry and released on cart expiry, abandonment or code removal. A reservation outliving its cart is the leak that makes single-use codes unusable; the expiry sweeper releases them.
+Not cached on the cart side: the rule tree depends on the entire cart composition, so any cache key would be the cart itself. (`promotions` caches the promotion *definitions*, not the evaluation result — D-R4-13.)
+
+Code reservations (SPEC-055, amended per C4/D-R4-8) are per-cart: `reserveCode` is idempotent per `(code, cart)`, `extendReservation` keeps a reservation alive on cart activity, and release happens by `cartId` on cart expiry, abandonment or code removal — never by a shared `(code, customer)` key, which could not express two guest carts holding the same code. A reservation outliving its cart is the leak that makes single-use codes unusable; both the cart-side expiry sweeper and a promotions-side sweeper release them independently (X7).
+
+`DELIVERY_DISCOUNT` effects are excluded from cart-stage totals (D-R4-14/C5): the cart sends `deliveryMethodCode: null, deliveryCost: null`, so no rule keyed on either ever matches, and any such effect the engine still returns is dropped before mapping, never displayed as `deferredToCheckout`. Checkout (out of scope here) re-evaluates with real delivery context.
 
 Spec 6 aligns SPEC-055's cart interaction API to these calls.
 
@@ -303,31 +358,44 @@ Spec 6 aligns SPEC-055's cart interaction API to these calls.
 
 Applies the amendments [Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §0 records against this document. Without them, the cart is the hole in an otherwise-enforced control: `storefront-public-api.md` §3.3 gates every product-returning **read** behind `buildStorefrontProductScope`, and nothing here gated the **write**. A buyer, script or AI purchasing agent holding any product id could add a restricted product straight to a cart, and cart lines flow into `checkout` and `SalesOrder` creation per ADR-1/ADR-2 — so an invisible product was fully purchasable. That is R11 below, and it is the reason this section exists.
 
-### 6a.1 Per-line check on add, update and bulk add
+### 6a.1a Scope, store and channel are resolved at the route edge, never caller-supplied (rev 9 — F1/F2/C1/C2/D-R4-1/D-R4-2, replacing rev 8's caller-supplied model)
 
-`cart.lines.add`, `cart.lines.update` and `cart.lines.bulkAdd` gain one input field:
+Rev 8's model had the storefront route resolve `assortmentScope` and the client-visible `channel`/`store` and pass them to the command as ordinary request fields. The Release 4 analysis found this is not a defense: `assortmentScope` is nullable (`null` reads as "unrestricted" and nothing rejected it), and nothing stopped a direct caller from choosing `channel: 'api'` on `POST /carts` to sidestep §6a entirely (F1, F2 — both **Critical**, independent of each other and of assisted selling).
+
+**The fix moves resolution server-side, to the route edge, for every public entry point:**
+
+- `cart.create` and `cart.get` — and every line/promotion/merge command reachable from a public route — are called from a route-edge helper that resolves `storeContextService.resolve(request)` (soft DI: no `storeContextService` registered means no storefront carts at all, a clean `503`) **before** invoking the command. The resolved `{ storeId, channel: 'storefront', assortmentScope, buyerDigest }` is passed as an **internal, branded command input** (`ResolvedCartRouteContext`, non-optional, never constructed from request JSON) — the same trust boundary shape visibility's own `EffectiveAssortmentScope` already uses.
+- **Every public request body is `.strict()`** (zod), and none of them declares `assortmentScope`, `channel`, `storeId` or `salesChannelId` as a field. A client that sends one gets the ordinary zod `400 unrecognized key` — not a silently-ignored extra field, and not a value that reaches the command.
+- An authenticated, feature-gated command path (§6a.4 below) is the only way to create or mutate a cart with a channel other than `storefront`; that path supplies its own trusted context, never the caller's request body.
 
 ```typescript
-assortmentScope?: EffectiveAssortmentScope   // packages/shared/src/lib/catalog-visibility/
+// api/cart/current/route.ts (route edge — not the command)
+const ctx = await resolveCartRouteContext(request)   // storeContextService.resolve(request); 503 if absent
+const result = await commands.run('cart.create', { routeContext: ctx })   // routeContext is internal; body carries none of it
 ```
 
-After loading the product for its existing name/sku snapshot (§4.2) and before persisting the line:
-
 ```typescript
-if (cart.channel === 'storefront') {
-  if (input.assortmentScope === undefined) {
-    throw new ValidationError('assortment_scope_required_for_storefront_channel')   // 400
-  }
-  const scoped = { id: product.id, categoryIds: product.categoryIds, tagIds: product.tagIds }
-  if (!matchesScope(scoped, input.assortmentScope)) {
-    return rejectLine({ code: 'product_unavailable', lineId: existingLineId ?? null })
+// commands/cart.ts — cart.lines.add (command, trusted input only)
+async function execute({ cartId, productId, variantId, quantity, routeContext }: CartLinesAddInput) {
+  const cart = await loadCart(cartId)
+  if (cart.channel === 'storefront' || routeContext?.assortmentScope) {   // C2 — see §6a.1b
+    const scoped = { id: product.id, categoryIds: product.categoryIds, tagIds: product.tagIds }
+    if (!matchesScope(scoped, routeContext.assortmentScope)) {
+      return rejectLine({ code: 'product_unavailable', lineId: existingLineId ?? null })
+    }
   }
 }
 ```
 
-The caller **supplies** the scope rather than `cart` re-deriving it: the storefront route that proxies here has already called `storeContextService.resolve()` for pricing, so it passes the same `buyer.assortmentScope` through unchanged. This matches ADR-7 ("resolved once, at the edge") and keeps `cart` free of any new dependency on `ecommerce` or `customer_groups` beyond the `resolveTerms()` edge §3.1 already declares. Making the field **required when `channel === 'storefront'`** — validated, not merely optional — turns "the route layer forgot to pass it" into a `400` here rather than a silent bypass.
-
 Rejection is a **non-fatal warning**, matching §10.1's existing convention for an out-of-stock line: the line is not added (or, for `.update`, the change is rejected and the line stays at its prior state), the request itself does not error, and `warnings` carries the code — which is what lets `bulkAdd` succeed partially across 50 lines.
+
+### 6a.1b Enforcement key (rev 9 — C2/D-R4-1, resolving V1)
+
+Rev 8 stated the enforcement condition two different ways in two places (§6a.1 keyed it on `channel === 'storefront'`; §6a.4/visibility §6.4 said "a scope is supplied"). Release 4 adopts the union: **enforce the assortment check if, and only if, the cart is `storefront` *or* a scope was resolved for this call.** In practice every `storefront` cart always has a resolved scope (§6a.1a), so the two conditions coincide for the public path; the `or` matters for a trusted in-process caller (e.g. assisted selling computing a preview) that supplies a scope against a non-`storefront` cart on purpose. A cart with neither — `pos`/`pay_link`/`agent`/`api` created through the authenticated path with no scope resolved — is exempt by §6a.4.
+
+### 6a.1c Per-line check on add, update and bulk add
+
+`cart.lines.add`, `cart.lines.update` and `cart.lines.bulkAdd` read `routeContext.assortmentScope` (or the trusted caller's explicit scope, §6a.1b) — never a request-body field — and run the §6a.1b check after loading the product for its existing name/sku snapshot (§4.2) and before persisting the line, exactly as the code block in §6a.1a shows.
 
 ### 6a.2 Whole-cart re-visibility pass at triggers 2 and 5
 
@@ -344,9 +412,11 @@ A line that fails is **not deleted**. Deleting a buyer's line without disclosure
 
 A restricted product and a nonexistent or deleted product id produce the **identical** `product_unavailable` warning — same body, same shape. This is `storefront-public-api.md` §4.2's handle-enumeration rule applied to a mutation: the read path goes to the trouble of collapsing "restricted" and "nonexistent" into one indistinguishable 404, and the write path must not hand that distinction back.
 
-### 6a.4 Non-storefront channels are exempt by construction
+### 6a.4 Non-storefront channels are exempt by construction, and created only through an authenticated command (rev 9 — F2/C1/D-R4-2)
 
-The rule is keyed on **whether a scope was resolved**, not on an enumerated channel list: enforcement applies exactly to carts whose channel resolved a `StoreContext`, which today is `storefront` alone. `pos`, `pay_link`, `agent` and `api` carts have no channel binding and no buyer digest, so there is nothing to check against. A future channel that gains `StoreContext` resolution inherits enforcement automatically. An in-store POS sale by staff is a deliberately different trust boundary — assortment scope is a self-service merchandising control, not a sales permission.
+The visibility rule is keyed on **whether a scope was resolved**, not on an enumerated channel list: enforcement applies exactly to carts whose channel resolved a `StoreContext`, which today is `storefront` alone. `pos`, `pay_link`, `agent` and `api` carts have no channel binding and no buyer digest, so there is nothing to check against. A future channel that gains `StoreContext` resolution inherits enforcement automatically. An in-store POS sale by staff is a deliberately different trust boundary — assortment scope is a self-service merchandising control, not a sales permission.
+
+**The companion rule rev 8 lacked (F2):** a client cannot *reach* that exemption by asking for it. `cart.create`'s public, unauthenticated path (§6a.1a) always produces a `storefront` cart bound to the host-resolved store — there is no field in any public request that selects a channel. Creating a `pos`, `pay_link`, `agent` or `api` cart requires calling `cart.create` from an **authenticated server principal** holding a channel-specific feature (`cart.channel.pos`, `cart.channel.payLink`, `cart.channel.agent`, `cart.channel.api` — `acl.ts`), supplying its own `channel`/`storeId`/`salesChannelId` as trusted command input, never from a request body reachable by an anonymous caller. `channel` is immutable once set (§4.1). A test asserts an anonymous `POST /current` with any attempt to influence the channel still yields `storefront`, and that `cart.create` called with `channel: 'api'` and no authenticated principal is rejected before a cart is ever persisted.
 
 **The exemption is a property of the cart a line lives in, not a property that travels with the line.** §6a.5 states the consequence, and it is the reason this sentence had to be added.
 
@@ -358,7 +428,7 @@ The composition: a cart in an exempt channel — `agent` or `api` today — may 
 
 **Rule.** A merge into a cart whose channel resolves a `StoreContext` runs a re-visibility pass over every incoming line against the **target** cart's freshly-resolved `EffectiveAssortmentScope`, before the lines are persisted.
 
-**Where the scope comes from (rev 8).** Exactly where §6a.1's comes from: the caller supplies it and `cart` validates its presence. Every merge into a storefront-channel target is triggered by the buyer's own storefront request — the login merge (`POST /carts/:token/merge`) and proposal acceptance (`POST /proposals/:proposalId/accept`, §7a.4) alike — and the storefront route that proxies it has already called `storeContextService.resolve()` for that request, so it passes the buyer's `assortmentScope` through, and `cart.merge` refuses a storefront-channel target without one with the same `400 assortment_scope_required_for_storefront_channel`. "Freshly resolved" therefore means resolved for the request performing the merge, which is the buyer's — never a value the proposal's author supplied at authoring time. `cart` gains no dependency on `ecommerce`. `preview` takes the scope the same way for its dry-run pass.
+**Where the scope comes from (rev 9 — D-R4-1, D-R4-22, replacing rev 8's caller-supplied model).** Exactly where §6a.1a's comes from, with one addition: the merge and lock route edges call `storeContextService.resolve(request, { fresh: true })` — an additive option (D-R4-22) that bypasses the normal 60-second resolution cache, because a merge or a checkout lock is precisely the moment a stale membership must not be trusted. Every merge into a storefront-channel target is triggered by the buyer's own storefront request — the login merge (`POST /current/merge`) and proposal acceptance (`POST /proposals/:proposalId/accept`, §7a.4) alike — and the route edge resolves fresh context for that request and passes the resolved `assortmentScope` as internal command input; `cart.merge` refuses a storefront-channel target with no resolved scope with the same `400 assortment_scope_required_for_storefront_channel`. "Freshly resolved" therefore means resolved — uncached — for the request performing the merge, which is the buyer's — never a value the proposal's author supplied at authoring time. `cart` gains no dependency on `ecommerce`. `preview` takes the scope the same way for its dry-run pass. An expiry sweeper for lapsed `customer_groups.membership.expired` rows that would otherwise only be caught on the buyer's next request is a follow-up (D-R4-22), not Release 4 scope.
 
 **A failing line is neither admitted nor deleted.** It is reported in `mergeSummary` (§7.2) with `disposition: 'rejected'` and `reason: 'product_unavailable'`, recorded with the same disposition in `CartMergeLog.outcome`, and left in the source snapshot so the merge stays reversible. Silently admitting it is R11; silently dropping it is the class of failure R2 and R4 already exist to prevent, and this section does not introduce a third instance of it. The buyer is told which lines did not come across, and why, in the same response that tells them what did.
 
@@ -391,7 +461,7 @@ Default strategy is `sum`, configurable per store. Every merge writes a `CartMer
 
 ### 7.2 Disclosure and reversal
 
-After a merge the response carries `mergeSummary` — lines added, quantities combined, anything capped, and (rev 7) anything **rejected** by the visibility pass of §6a.5 or **declined** by the buyer under the `manual` strategy. The UI must surface it. Every incoming line appears in the summary under exactly one disposition; a line that is silently absent from both the summary and the cart is the defect this rule exists to make impossible. `POST /carts/:token/undo-merge` restores the pre-merge state from the log within 15 minutes.
+After a merge the response carries `mergeSummary` — lines added, quantities combined, anything capped, and (rev 7) anything **rejected** by the visibility pass of §6a.5 or **declined** by the buyer under the `manual` strategy. The UI must surface it. Every incoming line appears in the summary under exactly one disposition; a line that is silently absent from both the summary and the cart is the defect this rule exists to make impossible. `POST /current/undo-merge` restores the pre-merge state from the log within 15 minutes.
 
 **Rejected alternative:** silently replacing the customer cart with the guest cart. It is the simplest rule and it deletes a basket the buyer assembled on another device, with no trace.
 
@@ -421,9 +491,9 @@ The seam that lets somebody other than the buyer put a priced basket in front of
 
 `cart.proposal.create` takes the **target cart's id** — its callers are authenticated server principals (§10), which have no business holding a buyer's credential and in assisted selling's case hold none — and the proposal cart is created carrying the target's `customer_id`, `customer_user_id`, `customer_group_ids`, `price_kind_id`, `currency_code`, `locale`, `tax_mode`, `channel`, `store_id`, `sales_channel_id` and `buyer_digest` — copied at creation and re-derived from the target on every re-price. The author's own identity, group membership and price kind never enter pricing at any point.
 
-This is not a convenience. A rep resolving `catalogPricingService` under their own context, or an AI agent under a service principal's, produces a proposal the buyer accepts at a price the buyer will not be charged: the mandatory post-merge re-price (§7.3) then corrects it, and `priceChanges` discloses a rise the buyer never agreed to. The pricing context is a property of the basket being proposed *into*, and copying it at the seam is what makes that true by construction rather than by discipline. ADR-7 and ADR-9 are the suite-level statements of the same rule.
+This is not a convenience. A rep resolving `catalogBuyerPricingService.resolveLinePrice(...)` under their own context, or an AI agent under a service principal's, produces a proposal the buyer accepts at a price the buyer will not be charged: the mandatory post-merge re-price (§7.3) then corrects it, and `priceChanges` discloses a rise the buyer never agreed to. The pricing context is a property of the basket being proposed *into*, and copying it at the seam is what makes that true by construction rather than by discipline. ADR-7 and ADR-9 are the suite-level statements of the same rule.
 
-Because the proposal cart carries the target's `channel`, a proposal against a storefront basket is itself scope-enforced: §6a.1's `assortmentScope` requirement applies to `cart.proposal.create` exactly as it applies to `cart.lines.add`, and §6a.5's pass at the merge boundary is the backstop rather than the only control. The scope an author passes MUST be the **target buyer's**, resolved on the server — assisted selling does so through `storeContextService.resolveForBuyer` (its §6.3) and never accepts it from a request body — but `cart` does not have to trust that: `preview` and `accept` re-check every line against the scope of the buyer's own request (§6a.5).
+Because the proposal cart carries the target's `channel`, a proposal against a storefront basket is itself scope-enforced: §6a.1b's enforcement key applies to `cart.proposal.create` exactly as it applies to `cart.lines.add`, and §6a.5's pass at the merge boundary is the backstop rather than the only control. The scope passed to `cart.proposal.create` MUST be the **target buyer's**, resolved on the server — assisted selling does so through `storeContextService.resolveForBuyer` (its §6.3), as an internal, trusted argument, never a value its own request body carries — but `cart` does not have to trust that: `preview` and `accept` re-check every line against the scope of the buyer's own request, freshly resolved (§6a.5, D-R4-22).
 
 ### 7a.3 Expiry
 
@@ -434,13 +504,13 @@ Because the proposal cart carries the target's `channel`, a proposal against a s
 Acceptance never happens in one call, because the price the buyer saw in the proposal and the price the buyer will pay after the merge are resolved at different moments, and `cart` is the module that refuses to let those two differ silently (R4).
 
 ```
-POST /api/cart/proposals/:proposalId/preview        buyer's basket token in header or cookie
+POST /api/cart/proposals/:proposalId/preview        buyer's basket token in the X-Cart-Token header
      → re-prices the proposal against the target's CURRENT buyer context,
        runs the §6a.5 visibility pass in dry-run,
        CREATES NOTHING,
        returns { acceptancePreview, acceptanceToken }      acceptanceToken TTL 15 min
 
-POST /api/cart/proposals/:proposalId/accept         buyer's basket token in header or cookie
+POST /api/cart/proposals/:proposalId/accept         buyer's basket token in the X-Cart-Token header
      body: { acceptanceToken, lines: [{ proposalLineId, accepted: boolean }] }
      → re-resolves; if anything moved since the token was issued, 409 `proposal_changed`
        with a fresh preview and a fresh token
@@ -467,7 +537,7 @@ The thread, its participants and their presence; the message bodies; who may aut
 
 ### 7a.7 Undoing an acceptance (rev 8)
 
-`POST /carts/:token/undo-merge` on a merge whose `CartMergeLog.proposal_cart_id` is set restores the target exactly as for any merge (§7.2), and additionally returns the proposal cart from `merged` to `active` — or to `expired` when its `expires_at` passed in the meantime — clearing `merged_into_cart_id`. It then emits `cart.proposal.acceptance_undone` (§11). Rev 7 promised that an undone acceptance "restores the proposal", and emitted nothing that would let the owner of the proposal's lifecycle learn it had happened.
+`POST /current/undo-merge` on a merge whose `CartMergeLog.proposal_cart_id` is set restores the target exactly as for any merge (§7.2), and additionally returns the proposal cart from `merged` to `active` — or to `expired` when its `expires_at` passed in the meantime — clearing `merged_into_cart_id`. It then emits `cart.proposal.acceptance_undone` (§11). Rev 7 promised that an undone acceptance "restores the proposal", and emitted nothing that would let the owner of the proposal's lifecycle learn it had happened.
 
 A reopened proposal is acceptable again through a fresh `preview`; the consumed `acceptanceToken` stays consumed.
 
@@ -481,7 +551,7 @@ Every mutating command starts with `enforceCommandOptimisticLock({ resourceKind:
 
 **Cart adds one thing on top, not instead of, that mechanism**: the `409` response body also embeds the full current `CartView` (§10.1) alongside the standard fields, so the client can reconcile without a second round trip — this was always additive to the platform's own conflict contract, never a reason to bypass it.
 
-The lock check runs before any entity manager work; the entity mutations themselves run inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` (§3.1a) — not a raw SQL `UPDATE ... WHERE`, because the write flow interleaves external service calls (`catalogPricingService`, `promotionsService`, `salesCalculationService`) with entity mutations, which is exactly the "mutate → external work → mutate again" shape `withAtomicFlush` exists to protect against a dropped scalar update.
+The lock check runs before any entity manager work; the entity mutations themselves run inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` (§3.1a) — not a raw SQL `UPDATE ... WHERE`, because the write flow interleaves external service calls (`catalogBuyerPricingService.resolveLinePrice`, `promotionsService`, `salesCalculationService`) with entity mutations, which is exactly the "mutate → external work → mutate again" shape `withAtomicFlush` exists to protect against a dropped scalar update.
 
 ### 8.2 Idempotency
 
@@ -491,11 +561,13 @@ Keys are stored per cart with the resulting `updatedAt` and a response digest. A
 
 ### 8.3 Token security
 
-The token is the only credential for an anonymous cart. Therefore: 32+ bytes of CSPRNG entropy; never in a URL path that could land in a referrer or a log (it is a header or an httpOnly cookie); rotated on merge **and on adoption** (§7.1, first row) so a guest token cannot address the customer's cart afterwards; and rate-limited per token to blunt enumeration.
+The token is the only credential for an anonymous cart. Therefore: 32+ bytes of CSPRNG entropy; never in a URL path that could land in a referrer or a log (it is the `X-Cart-Token` header — §10, Q5 closed); rotated on merge **and on adoption** (§7.1, first row) so a guest token cannot address the customer's cart afterwards; and rate-limited per token to blunt enumeration (§15a).
+
+**Only `token_hash` is persisted (rev 9 — C13/D-R4-18, replacing rev 8's plaintext `token` column, §4.1).** The plaintext token is returned exactly once, in the `POST /current` response body, and never again — not in any later `GET`, not in an event, not in a log line. Every subsequent request re-hashes the presented header value and looks up `token_hash`; a leaked log or database row contains no usable credential. This removes the "dummy-token wart" rev 8 carried for proposal carts (§4.1): a proposal's `token_hash` column is satisfied by a hash of a token that is never generated as a real secret, same as before, but now there is no plaintext anywhere to leak either way.
 
 Token resolution is one DI-exposed function, `cartService.resolveBasketByToken(token, scope)`, tenant-scoped and restricted to `kind = 'basket'` — used by every token-bound route here and by consumers such as assisted selling, which resolve a buyer's token to a basket id instead of storing the token or a hash of it. A consumer keyed on the cart id is unaffected by rotation by construction.
 
-**Known contradiction, not introduced by rev 8:** §10's paths carry `:token` as a path segment, which this section forbids. Rev 8 removes it from every proposal route; the pre-existing routes are §16 Q5.
+**Q5 resolved (rev 9 — C7/D-R4-6).** Rev 8 left the basket routes carrying `:token` in the path, contradicting this section, with the fix deferred to Q5. Nothing is implemented, so the fix is free now: every basket route moves to `/api/cart/current/*`, credentialed by the `X-Cart-Token` header alone (§10). No route in this module accepts a token in a path segment or a query string, asserted by test.
 
 ---
 
@@ -516,10 +588,11 @@ active ──lock (checkout)──► locked ──submit──► converted
 
 | Transition | Rule |
 |---|---|
-| `active → locked` | Requested by `checkout`; forces a whole-cart re-price **and a whole-cart re-visibility pass** (§6a.2) first; **rejected while any line carries an unresolved `product_unavailable` warning**; rejects mutation while locked |
-| `locked → active` | Explicit unlock, or a lock timeout (default 30 min) |
+| `active → locked` | **(rev 9 — F7/C6/D-R4-4)** `cartService.lock` / command `cart.lock`, called by `checkout` (no public route in Release 4); forces a whole-cart re-price **and a whole-cart re-visibility pass with a freshly-resolved buyer context** (§6a.2, §6a.5, D-R4-22) first; **refused with `409 cart_has_unavailable_lines` while any line carries a `flag_state`**; sets `locked_at`, `lock_expires_at` and the caller-supplied `checkout_session_id`; rejects mutation while locked |
+| `locked → active` | `cartService.unlock` (command `cart.unlock`), explicit, or a lock timeout (default 30 min) clearing `locked_at`/`lock_expires_at` |
+| `locked → converted` | **(rev 9 — F7/C6)** `cartService.markConverted` (command `cart.markConverted`), called by `checkout` once a `SalesOrder` exists; terminal — no command mutates a `converted` cart; sets `resolved_at` (§4.1, D-R4-20) |
 | `active → abandoned` | Baskets: no activity for 24 h (configurable); emits an event for recovery flows. Proposals: only by `cart.proposal.reject` (§7a.5) |
-| `abandoned → active` | Baskets only: any mutation; extends `expires_at`. Never for a proposal (§7a.1) |
+| `abandoned → active` | Baskets only: any mutation; extends `expires_at`. Never for a proposal (§7a.1). "Any mutation" is intentionally the mutation *attempt*, not its outcome — `loadMutableCart` reactivates before input validation runs, so a rejected add (inactive product, quantity ≤ 0) still reactivates the basket and moves `last_activity_at` (nit raised in the 2026-10-23 re-review) |
 | `active → expired` | `expires_at` reached (default 30 days for identified buyers, 7 for guests); releases promotion code reservations |
 | `* → merged` | Login merge, or the source side of a proposal acceptance; `merged_into_cart_id` set |
 | `merged → active \| expired` | Proposals only: `undo-merge` of their acceptance within 15 min (§7a.7) |
@@ -530,32 +603,36 @@ A `locked` cart that a client tries to mutate returns `423 Locked` with the chec
 
 ## 10) API Contracts
 
-Base `/api/cart`. Token-bound, public with an optional buyer session. Every mutating route accepts the expected `updatedAt` (via the standard optimistic-lock header or a typed body field — §8.1) and `Idempotency-Key`. The three line-mutating routes additionally carry `assortmentScope`, required for storefront-channel carts (§6a.1).
+**Base `/api/cart`, basket routes header-bound at `/api/cart/current/*` (rev 9 — C7/D-R4-6, §16 Q5 closed, replacing rev 8's `:token` path segment).** The credential is the `X-Cart-Token` header alone — never a path segment, never a query string, never a cookie the platform reads itself (the storefront app owns an httpOnly cookie and forwards it as this header). Every request body is `.strict()` and carries no `assortmentScope`, `channel`, `storeId` or `salesChannelId` field (§6a.1a) — scope, store and channel are resolved from `storeContextService` at the route edge, not from the body. Every mutating route accepts the expected `updatedAt` (via the standard optimistic-lock header or a typed body field — §8.1) and `Idempotency-Key`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/carts` | Create; returns token + `updatedAt` |
-| GET | `/carts/:token` | Read; re-prices only if stale (trigger 4) |
-| POST | `/carts/:token/lines` | Add line |
-| PATCH | `/carts/:token/lines/:lineId` | Change quantity or configuration |
-| DELETE | `/carts/:token/lines/:lineId` | Remove line |
-| POST | `/carts/:token/lines/bulk` | Batch add — reorder, quick-order pad, agent proposals |
-| PATCH | `/carts/:token` | Email, note, locale, currency |
-| POST | `/carts/:token/promotions` | Apply code |
-| DELETE | `/carts/:token/promotions/:id` | Remove |
-| POST | `/carts/:token/merge` | Merge a guest cart into the session's cart |
-| POST | `/carts/:token/undo-merge` | Reverse within 15 min |
-| POST | `/carts/:token/reprice` | Force re-price |
-| POST | `/carts/:token/request-approval` | B2B; creates a `CustomerPurchaseApproval` |
-| GET | `/proposals` | Live proposals addressed to the presented token's basket, newest first (§7a). Token in header/cookie |
+| POST | `/current` | Create; returns the plaintext token **once** + `updatedAt`. Anonymous → `storefront`, bound to the host-resolved store (§6a.4) |
+| GET | `/current` | Read; re-prices only if stale (trigger 4) or the buyer digest changed (W9) |
+| PATCH | `/current` | Email, note, locale, currency |
+| POST | `/current/lines` | Add line |
+| PATCH | `/current/lines/[lineId]` | Change quantity or configuration |
+| DELETE | `/current/lines/[lineId]` | Remove line |
+| POST | `/current/lines/bulk` | Batch add — reorder, quick-order pad, agent proposals |
+| POST | `/current/promotions` | Apply code |
+| DELETE | `/current/promotions/[id]` | Remove |
+| POST | `/current/merge` | Merge a guest cart into the session's cart; resolves the target's scope **fresh** (D-R4-22) |
+| POST | `/current/undo-merge` | Reverse within 15 min |
+| POST | `/current/reprice` | Force re-price |
+| POST | `/current/request-approval` | B2B; creates a `CustomerPurchaseApproval` |
+| GET | `/proposals` | Live proposals addressed to the presented token's basket, newest first (§7a). Token in header |
 | POST | `/proposals` | Author a proposal; body names `targetCartId`. `cart.proposals.author`; **no** cart token at all — see below |
-| POST | `/proposals/:proposalId/preview` | Pre-flight re-price + dry-run visibility pass; creates nothing; returns `acceptancePreview` + `acceptanceToken`. Token in header/cookie |
-| POST | `/proposals/:proposalId/accept` | Per-line acceptance; delegates to `cart.merge` with `strategy: 'manual'`. Token in header/cookie |
-| POST | `/proposals/:proposalId/reject` | Terminal; touches the target cart not at all. Token in header/cookie |
+| POST | `/proposals/:proposalId/preview` | Pre-flight re-price + dry-run visibility pass; creates nothing; returns `acceptancePreview` + `acceptanceToken`. Token in header |
+| POST | `/proposals/:proposalId/accept` | Per-line acceptance; delegates to `cart.merge` with `strategy: 'manual'`. Token in header |
+| POST | `/proposals/:proposalId/reject` | Terminal; touches the target cart not at all. Token in header |
 
-**Authoring is the one route on this base path that a cart token cannot reach.** The proposal routes (rev 8) are addressed by proposal id with the buyer's basket token in a header or httpOnly cookie, never the path (§7a.4, §8.3). `GET`, `preview`, `accept` and `reject` are token-bound like the rest of `/api/cart`, because they are the buyer acting on their own basket and a guest buyer has no session to present. `POST /proposals` is the opposite: it is somebody *other* than the buyer writing, so it requires an authenticated principal holding `cart.proposals.author` — a staff `auth.User`, or an AI agent principal (`users.kind = 'agent'`). It takes the target as `targetCartId` and accepts no cart token. Letting a leaked cart token author proposals into its own cart would hand an attacker a way to put priced lines in front of a buyer under the store's own branding, which is R15.
+`cart.lock`/`.unlock`/`.markConverted` have **no public route** in Release 4 (F7/C6) — `checkout` calls the DI service/command directly, in-process.
 
-`/carts/:token/lines/bulk` exists because B2B quick-order pads and agent proposals add 50 lines at once, and 50 sequential mutations means 50 promotion evaluations and 50 version conflicts.
+**Authoring is the one route on this base path that a cart token cannot reach.** The proposal routes (rev 8) are addressed by proposal id with the buyer's basket token in the `X-Cart-Token` header, never the path (§7a.4, §8.3). `GET`, `preview`, `accept` and `reject` are token-bound like the rest of `/api/cart`, because they are the buyer acting on their own basket and a guest buyer has no session to present. `POST /proposals` is the opposite: it is somebody *other* than the buyer writing, so it requires an authenticated principal holding `cart.proposals.author` — a staff `auth.User`, or an AI agent principal (`users.kind = 'agent'`). It takes the target as `targetCartId` and accepts no cart token. Letting a leaked cart token author proposals into its own cart would hand an attacker a way to put priced lines in front of a buyer under the store's own branding, which is R15.
+
+Admin keeps `/api/cart/carts` and `/api/cart/carts/[id]` (Phase 4, §10.2) — a distinct dynamic-segment name from the public `/current` base, so the two never collide in one Next.js route tree (this was rev 8's W2/§9 concern under the old `:token` shape; it does not arise under `/current`).
+
+`/current/lines/bulk` exists because B2B quick-order pads and agent proposals add 50 lines at once, and 50 sequential mutations means 50 promotion evaluations and 50 version conflicts.
 
 ### 10.1 Response
 
@@ -564,7 +641,8 @@ Every endpoint returns the same envelope, so a client has one parser:
 ```typescript
 {
   cart: {
-    token: string; updatedAt: string; status: CartStatus
+    token?: string   // rev 9 — present ONLY on the POST /current creation response; every other response omits it (§8.3, C13)
+    updatedAt: string; status: CartStatus
     currencyCode: string; locale: string; taxMode: 'gross' | 'net'
     lines: CartLineView[]
     totals: SalesDocumentAmounts
@@ -627,7 +705,7 @@ export const features = [
 'cart.proposal.acceptance_undone'                                   // added 2026-09-27 — §7a.7
 ```
 
-`cart.line.visibility_rejected` carries `{ cartId, productId, variantId, reason: 'not_in_assortment', triggeredBy: 'add' | 'update' | 'bulkAdd' | 'reprice' | 'checkout_lock' }` and is emitted by both enforcement points (§6a.1, §6a.2). It is **not** `clientBroadcast` — the buyer already sees the `product_unavailable` warning in the response body; this is the operator-facing signal, so a merchant who narrows a group's `assortment_scope` too far, or misconfigures a channel's `require_authentication`, sees a trend instead of scattered support tickets. Same reasoning as `availability.shortfall.detected` and `customer_groups.credit.limit_exceeded`.
+**(rev 9 — D-R4-23).** `cart.line.visibility_rejected` is emitted **once per request**, carrying `{ cartId, tenantId, organizationId, productId: string | null, variantId: string | null, rejectedCount, reason: 'not_in_assortment', triggeredBy: 'add' | 'update' | 'bulkAdd' | 'merge' | 'reprice' | 'checkout_lock' }` — never once per line, which rev 8 implied for a multi-line `bulkAdd` or merge rejection. `tenantId`/`organizationId` are explicit on the payload rather than assumed from context, so an operator dashboard can aggregate across tenants without a join. It is emitted by every enforcement point (§6a.1a–c, §6a.2, §6a.5). It is **not** `clientBroadcast` — the buyer already sees the `product_unavailable` warning in the response body; this is the operator-facing signal, so a merchant who narrows a group's `assortment_scope` too far, or misconfigures a channel's `require_authentication`, sees a trend instead of scattered support tickets. Same reasoning as `availability.shortfall.detected` and `customer_groups.credit.limit_exceeded`.
 
 The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartId, authoredByActorType, authoredByActorId, lineCount }`, and `.accepted` additionally carries `mergeLogId` and `acceptedLineCount`. `cart.proposal.acceptance_undone` (rev 8, §7a.7) carries `{ proposalCartId, targetCartId, mergeLogId, proposalCartStatus: 'active' | 'expired' }`. They are `clientBroadcast: true` so a rep's console reflects a buyer's decision without polling, and — once the transport of [`assisted_selling`](./2026-09-22-assisted-selling.md) exists — they are the events its buyer-facing bridge relays. Like every other broadcast event in this platform they are a **signal, not a payload**: the recipient re-reads state through the API. They deliberately carry no line, price or total.
 
@@ -676,10 +754,10 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 | R8 | Orphaned promotion code reservations | Medium | `cart`, `promotions` | Abandoned carts hold single-use code reservations; a limited campaign exhausts against baskets nobody bought. | Expiry sweeper releases reservations; abandonment releases them ahead of full expiry; reservation TTL is independent of and shorter than cart TTL | Low |
 | R9 | Silent quantity rounding | Medium | `cart` | A pack-size increment of 6 silently rounds a request for 7 up to 12; the buyer receives and is billed for twice what they wanted. | Rejected with nearest valid values offered, never rounded (§5.5) | Low |
 | R10 | Unbounded cart growth | Low | `cart` | A script adds 100 000 lines; promotion evaluation and totals become a denial of service. | 200 lines per cart, 10 000 units per line; per-token rate limit; batch endpoint capped at 100 lines per call | Low |
-| R11 | Write path bypasses read-side assortment visibility | **Critical** | `cart` | A product hidden from browsing is still purchasable: a buyer, script or AI agent holding a product id (a stale link, a scraped sitemap, an id from an unrelated source) `POST`s it to `/carts/:token/lines`, and the line flows through `checkout` into a `SalesOrder`. A read-side 404 that a cart mutation ignores is a suggestion, not a control. | §6a.1: `assortmentScope` is a validated, required input on `lines.add`/`.update`/`.bulkAdd` for storefront-channel carts — omission is a `400`, not a silent pass-through; §6a.2's whole-cart pass at triggers 2 and 5 closes the time-of-check/time-of-use window a lapsing membership opens, with the checkout lock refused while a line is flagged | Low once shipped — the residual is a future cart mutation forgetting the same check, mitigated by §6a.4's channel-keyed rule rather than an enumerated list |
+| R11 | Write path bypasses read-side assortment visibility | **Critical** | `cart` | A product hidden from browsing is still purchasable: a buyer, script or AI agent holding a product id (a stale link, a scraped sitemap, an id from an unrelated source) `POST`s it to `/api/cart/current/lines`, and the line flows through `checkout` into a `SalesOrder`. A read-side 404 that a cart mutation ignores is a suggestion, not a control; and (rev 9) a caller-supplied scope field is itself an attack surface — a client sending `assortmentScope: null` or `channel: 'api'` must not be able to opt out. | §6a.1a–c: scope, channel and store are resolved server-side at the route edge from `storeContextService`, never accepted from the request body (`.strict()` schemas reject the field outright); `lines.add`/`.update`/`.bulkAdd` enforce whenever the cart is `storefront` **or** a scope was resolved (§6a.1b); §6a.2's whole-cart pass at triggers 2 and 5 closes the time-of-check/time-of-use window a lapsing membership opens, with the checkout lock refused while a line is flagged | Low once shipped — the residual is a future cart mutation forgetting the same check, mitigated by §6a.4's channel-keyed rule rather than an enumerated list |
 | R12 | Write-side rejection becomes its own enumeration oracle | Medium | `cart` | A distinguishable "restricted" vs "not found" response lets a script map a private assortment through cart-add attempts — the write-side analogue of `storefront-public-api.md` R4. | §6a.3: identical `product_unavailable` warning for both cases, asserted by test | Low |
 | R13 | Merge admits lines that never passed an assortment check | **Critical** | `cart` | §6a.4 exempts channels that resolve no `StoreContext` — today `agent` and `api`. A caller creates an `agent`-channel cart holding a restricted product, merges it into the buyer's storefront cart, and the line reaches `checkout` and `SalesOrder` having never been checked. §7.3's post-merge pass is a re-*pricing* pass; §6a.2 lists re-*visibility* against triggers 2 and 5 only, and a merge is neither. Reachable with no assisted selling involved. | §6a.5: a merge into a scope-resolving cart runs the visibility pass over every incoming line against the **target's** freshly-resolved scope, reports failures in `mergeSummary` and `CartMergeLog.outcome`, and neither admits nor deletes them. Ships with **Phase 3**, beside the merge it corrects | Low once shipped — residual is a future merge-like path forgetting the pass, mitigated by keying the rule on the target cart rather than on an enumerated source channel |
-| R14 | Proposal priced as its author rather than as the buyer | **High** | `cart`, legal | A rep on a staff price kind, or an AI agent running under a service principal, authors a proposal; `catalogPricingService` resolves against the author's context. The buyer accepts 84,00 zł, the mandatory post-merge re-price (§7.3) corrects it to 129,00 zł, and `priceChanges` discloses an increase the buyer never agreed to — an undisclosed-increase complaint dressed up as a disclosure. Worse in B2B, where the two contexts differ by a negotiated contract rather than by a rounding. | §7a.2: the proposal cart copies the **target's** pricing context (`customer_group_ids`, `price_kind_id`, `currency_code`, `tax_mode`, `buyer_digest`, `channel`) at creation and re-derives it from the target on every re-price; the author's identity never enters pricing. Asserted by a test that authors as a rep on a different price kind and compares against the buyer's own resolution | Low |
+| R14 | Proposal priced as its author rather than as the buyer | **High** | `cart`, legal | A rep on a staff price kind, or an AI agent running under a service principal, authors a proposal; `catalogBuyerPricingService.resolveLinePrice(...)` resolves against the author's context. The buyer accepts 84,00 zł, the mandatory post-merge re-price (§7.3) corrects it to 129,00 zł, and `priceChanges` discloses an increase the buyer never agreed to — an undisclosed-increase complaint dressed up as a disclosure. Worse in B2B, where the two contexts differ by a negotiated contract rather than by a rounding. | §7a.2: the proposal cart copies the **target's** pricing context (`customer_group_ids`, `price_kind_id`, `currency_code`, `tax_mode`, `buyer_digest`, `channel`) at creation and re-derives it from the target on every re-price; the author's identity never enters pricing. Asserted by a test that authors as a rep on a different price kind and compares against the buyer's own resolution | Low |
 | R15 | Proposal authoring reachable by a cart token | **High** | `cart` | Every other route on `/api/cart` is token-bound, so authoring is written the same way by symmetry. A leaked token (R6) then lets an attacker inject priced lines into the buyer's own proposal tray, rendered in the store's branding and one click from the basket — phishing with the merchant's trust behind it. | §10: `POST /proposals` requires an authenticated principal holding `cart.proposals.author` and accepts no cart token and is the single route on this base path a token alone cannot reach; accept/reject/preview stay token-bound because there the token holder *is* the buyer. Asserted by a test that presents a valid cart token with no principal and expects `401` | Low |
 | R16 | Actor attribution lost or unverifiable | Medium | `cart` | `added_by_actor_id` is written from request input rather than from the authenticated principal, so a caller attributes a line to another rep — or the column is left NULL on a path nobody remembered, and commission silently under-reports. | `added_by_actor_type`/`_id` are set by the command from `ctx.auth`, never from the request body, and are non-nullable for `rep`/`ai_agent`; a test asserts a body-supplied actor id is ignored. `CartMergeLog` records the merging actor with the same rule | Low |
 
@@ -687,66 +765,84 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 
 ## 14) Integration Coverage
 
-**Totals correctness (Phase 2 gate):**
-- Cart totals equal the totals of the `SalesOrder` produced from the same lines, across a tax matrix including compound rates, mixed rates within a cart, and rounding boundaries (R1)
-- Totals stored verbatim; no re-rounding on read
-- Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`, line- and unit-scope effects as `SalesLineSnapshot.discountAmount` carrying `|amount| / lineQuantity`, and both are reflected in totals (SPEC-055 §B.6)
-- A partially covered line (`appliedQuantity < lineQuantity`) discounts `unitAmount × appliedQuantity`, not `unitAmount × lineQuantity` — asserted in all three directions (correct mapping, `unitAmount` assigned directly, raw `amount` assigned) so neither mis-mapping can pass (SPEC-055 A-R6 / `TC-PROM-060`)
-- Where `lineQuantity` does not divide `|amount|` evenly, the byte-identical-totals assertion above compares document totals; the effect's `amount` may differ from the realised discount by up to the 4 dp rounding step
+**Gate re-cut (rev 9 — W13/D-R4-29), replacing rev 8's inconsistent Phase 1/2 split:**
+- **Phase 1 gate:** line CRUD, snapshotting, the R1 assortment-visibility suite (built into the first line command, §6a), idempotency, concurrency, and the four sweepers.
+- **Phase 2 gate:** triggers 1–4 and 7 each verified in isolation (no other action re-prices), quantity tiers and `nextTier`, quantity rules, and the totals-equivalence property test **without promotions**.
+- **Phase 3 gate:** triggers 5 and 6, the R13 merge-visibility suite, promotions integration (code application, reservations), the lock/convert surface, the totals-equivalence property test **with promotions** (built via the existing `sales` create command against an order from the cart's own lines), and the P95 ≤ 150 ms benchmark at 200 promotions × 50 lines.
 
-**Pricing:**
-- Snapshot stable across repeated reads within the staleness budget
-- Each of the seven triggers re-prices, and no other action does
-- Crossing a `min_quantity` boundary re-prices that line only
-- `nextTier` correct, absent at the top tier
-- Personal customer price beats group price beats channel default
-- `price_row_id` names the winning row
-- `priceChanges` populated on every change, absent otherwise (R4)
+**Totals correctness (`TC-CART-TOT-*`, Phase 2 gate without promotions / Phase 3 gate with promotions):**
+- `TC-CART-TOT-01` Cart totals (`documentKind: 'quote'`) equal the totals of an order (`documentKind: 'order'`) built from the identical `SalesLineSnapshot[]` + adjustments, across a tax matrix including compound rates, mixed rates within a cart, and rounding boundaries, compared as 4 dp numerics per key (R1, F3)
+- `TC-CART-TOT-02` Totals stored verbatim; no re-rounding on read
+- `TC-CART-TOT-03` Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`; line-scope effects reach it as `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'` carrying the resolved effect's net total **as-is**, never divided (SPEC-055 §B.6, C10/D-R4-9 — replacing rev 8's per-unit-division rule)
+- `TC-CART-TOT-04` Assigning the old per-unit mapping (`|amount| / lineQuantity`) or the raw gross `amount` instead of the net line-total both fail this test, so neither rev-8 mis-mapping can silently regress (SPEC-055 A-R6 / `TC-PROM-060`)
+- `TC-CART-TOT-05` A non-dividing quantity (a property-test generator, not a fixed fixture) still produces equal totals under the line-basis mapping, over the tax matrix, with and without promotions (replaces rev 8's "partial coverage" assertion, which only made sense under the withdrawn per-unit rule)
 
-**Concurrency:**
-- Two clients presenting the same `updatedAt`: one succeeds, one gets 409 (standard `enforceCommandOptimisticLock` body) with the current cart additionally embedded
-- Repeated `Idempotency-Key` returns the original result without re-applying
-- Same key with a different body returns 422
-- Re-pricing bump carries `versionBumpReason: 'repricing'` (R3)
-- 20 parallel add-line calls yield a consistent final quantity
+**Pricing (`TC-CART-PRICE-*`, Phase 2 gate):**
+- `TC-CART-PRICE-01` Snapshot stable across repeated reads within the staleness budget; two GETs inside the budget leave `updated_at` unchanged (W14)
+- `TC-CART-PRICE-02` Each of the seven triggers re-prices, and no other action does
+- `TC-CART-PRICE-03` Crossing a `min_quantity` boundary re-prices that line only
+- `TC-CART-PRICE-04` `nextTier` correct, absent at the top tier
+- `TC-CART-PRICE-05` Personal customer price beats group price beats channel default
+- `TC-CART-PRICE-06` `price_row_id` names the winning row
+- `TC-CART-PRICE-07` `priceChanges` populated on every change, absent otherwise (R4); a digest mismatch (buyer context changed) fires on a GET, not only a mutation (W9)
+- `TC-CART-PRICE-08` Availability is never persisted: a line's `availability_state` in the response reflects a live `resolveAvailability` call on every read, and no column is written by a read (W14)
 
-**Merge:**
-- All six §7.1 situations, including the `manual` row added in rev 7
-- `CartMergeLog` captures the full pre-merge source
-- `undo-merge` restores within 15 minutes, refuses after
-- Post-merge re-price applied and disclosed
-- Token rotated; the old guest token no longer resolves (R6)
+**Concurrency & idempotency (`TC-CART-CONC-*`, Phase 1 gate):**
+- `TC-CART-CONC-01` Two clients presenting the same `updatedAt`: one succeeds, one gets 409 (standard `enforceCommandOptimisticLock` body) with the current cart additionally embedded
+- `TC-CART-CONC-02` Repeated `Idempotency-Key` returns the original result without re-applying; the lookup precedes the optimistic-lock check (§8.2)
+- `TC-CART-CONC-03` Same key with a different body returns 422
+- `TC-CART-CONC-04` Re-pricing bump carries `versionBumpReason: 'repricing'` (R3)
+- `TC-CART-CONC-05` 20 parallel add-line calls yield a consistent final quantity
 
-**B2B:**
-- Quantity increment violation rejected with nearest valid values (R9)
-- Below `minOrderQuantity` rejected; above `maxOrderQuantity` capped with a warning
-- Over `approval_required_above` sets `requiresApproval` and blocks the checkout lock
-- Net tax mode from group terms reflected in totals
+**Merge (`TC-CART-MERGE-*`, Phase 3 gate):**
+- `TC-CART-MERGE-01` All six §7.1 situations, including the `manual` row added in rev 7
+- `TC-CART-MERGE-02` `CartMergeLog` captures the full pre-merge source
+- `TC-CART-MERGE-03` `undo-merge` restores within 15 minutes, refuses after
+- `TC-CART-MERGE-04` Post-merge re-price applied and disclosed, using a **freshly resolved** buyer context (D-R4-22), not the 60 s cache
+- `TC-CART-MERGE-05` Token rotated; the old guest token no longer resolves (R6)
 
-**Assortment visibility (R11/R12 regression suite, §6a):**
-- `lines.add` with a restricted product and a correctly-supplied `assortmentScope`: rejected with `product_unavailable`; totals unaffected
-- `lines.add` on a `storefront`-channel cart with `assortmentScope` omitted: `400 assortment_scope_required_for_storefront_channel`, no line added
-- `lines.bulkAdd` mixing visible and restricted products: visible ones added, restricted ones reported per-line in `warnings`, no whole-batch failure
-- `lines.update` on a line whose product has since become restricted: rejected, the existing line untouched and **not** deleted, `lineId` populated in the warning
-- `pos`/`pay_link`/`agent`/`api` carts: no `assortmentScope` required, no rejection regardless of storefront assortment status (§6a.4)
-- **The TOCTOU fixture:** add a line while the buyer is a member of a scoped group, expire the membership, request the checkout lock (trigger 5) — the lock is refused while the line is flagged, and the line is still present
-- A membership change mid-session (trigger 2) runs the same whole-cart pass without waiting for checkout
-- A restricted and a nonexistent product id produce identical `lines.add` responses in body and timing (R12)
-- `cart.line.visibility_rejected` emitted from both enforcement points with the correct `triggeredBy`
+**B2B (`TC-CART-B2B-*`, Phase 2 gate):**
+- `TC-CART-B2B-01` Quantity increment violation rejected with nearest valid values (R9), via the shared `availability` derivation (D-R4-3)
+- `TC-CART-B2B-02` Below `minOrderQuantity` rejected; above `maxOrderQuantity` capped with a warning
+- `TC-CART-B2B-03` Over `approval_required_above` sets `requiresApproval` and blocks the checkout lock
+- `TC-CART-B2B-04` Net tax mode from group terms reflected in totals
 
-**Merge visibility (R13 regression suite, §6a.5) — Phase 3:**
-- A line added in an exempt-channel cart (`agent`, `api`) that is outside the target's assortment is **rejected** on merge into a storefront cart: absent from the target, present in `mergeSummary` with `disposition: 'rejected'`, present in `CartMergeLog.outcome`, and still present in `source_snapshot`
-- The same merge leaves visible lines unaffected — a partial rejection is never a whole-merge failure
-- `undo-merge` after a partially-rejected merge restores the pre-merge target exactly
-- Every incoming line appears in `mergeSummary` under exactly one disposition; a fixture asserts no line is absent from both the summary and the cart
-- Every `outcome` entry names its `targetLineId` when the disposition produced a line, and `null` when it did not; a merge that sums two lines of one product with different `configuration_hash` maps each source line to the correct distinct target
-- `cart.line.visibility_rejected` emitted with `triggeredBy: 'merge'`
-- A merge into a `pos`/`pay_link` target runs no pass and rejects nothing (§6a.4 unchanged)
+**Assortment visibility (R11/R12 regression suite, §6a) — `TC-CART-R1-*`, Phase 1 gate, built into the first line command:**
+- `TC-CART-R1-01` `lines.add` on a `storefront` cart with a restricted product: rejected with `product_unavailable`; totals unaffected
+- `TC-CART-R1-02` `lines.add` with a request body carrying `assortmentScope: null`, or any value at all, for `assortmentScope`/`channel`/`storeId`: `400` (zod `.strict()` unrecognized-key rejection) before the command runs — body-supplied scope can never substitute for the route-edge resolution
+- `TC-CART-R1-03` `POST /current` (anonymous) with `channel: 'api'` in the body: `400`, and the cart that would have been rejected is never persisted
+- `TC-CART-R1-04` `lines.bulkAdd` mixing visible and restricted products: visible ones added, restricted ones reported per-line in `warnings`, no whole-batch failure
+- `TC-CART-R1-05` `lines.update` on a line whose product has since become restricted: rejected, the existing line untouched and **not** deleted, `lineId` populated in the warning
+- `TC-CART-R1-06` `pos`/`pay_link`/`agent`/`api` carts created via the authenticated path: no assortment check, no rejection regardless of storefront assortment status (§6a.4)
+- `TC-CART-R1-07` **The TOCTOU fixture:** add a line while the buyer is a member of a scoped group, expire the membership, request the checkout lock (trigger 5) — the lock is refused while the line is flagged, and the line is still present
+- `TC-CART-R1-08` A membership change mid-session (trigger 2) runs the same whole-cart pass without waiting for checkout
+- `TC-CART-R1-09` A restricted and a nonexistent product id produce identical `lines.add` responses in body and timing (R12)
+- `TC-CART-R1-10` `cart.line.visibility_rejected` emitted once per request, with the correct `rejectedCount` and `triggeredBy`, from every enforcement point (§6a.1a–c, §6a.2)
+- `TC-CART-R1-11` An anonymous caller presenting a valid cart token cannot create a non-`storefront` cart, mutate `channel`, or supply a scope through any request field on any route (F1/F2 regression, §6a.1a/§6a.4)
 
-**Proposals (§7a) — Phase 4:**
+**Merge visibility (R13 regression suite, §6a.5) — `TC-CART-R13-*`, Phase 3 gate:**
+- `TC-CART-R13-01` A line added in an exempt-channel cart (`agent`, `api`) that is outside the target's assortment is **rejected** on merge into a storefront cart: absent from the target, present in `mergeSummary` with `disposition: 'rejected'`, present in `CartMergeLog.outcome`, and still present in `source_snapshot`
+- `TC-CART-R13-02` The same merge leaves visible lines unaffected — a partial rejection is never a whole-merge failure
+- `TC-CART-R13-03` `undo-merge` after a partially-rejected merge restores the pre-merge target exactly
+- `TC-CART-R13-04` Every incoming line appears in `mergeSummary` under exactly one disposition; a fixture asserts no line is absent from both the summary and the cart
+- `TC-CART-R13-05` Every `outcome` entry names its `targetLineId` when the disposition produced a line, and `null` when it did not; a merge that sums two lines of one product with different `configuration_hash` maps each source line to the correct distinct target
+- `TC-CART-R13-06` `cart.line.visibility_rejected` emitted with `triggeredBy: 'merge'`
+- `TC-CART-R13-07` A merge into a `pos`/`pay_link` target runs no pass and rejects nothing (§6a.4 unchanged)
+- `TC-CART-R13-08` The merge resolves the target's scope **fresh** (`{ fresh: true }`, D-R4-22), not from the 60 s cache, so a membership that lapsed moments before the merge is still caught
+
+**Promotions and lock integration (`TC-CART-PROM-*`, Phase 3 gate):**
+- `TC-CART-PROM-01` A gift (`ADD_FREE_ITEM`) line is created with `origin: 'promotion'` and `promotion_id` set, is included in totals, excluded from eligibility, and cannot be edited or removed by the buyer (`409 promotion_line_immutable`) — only reconciled by a fresh `evaluate` on promotion/code removal
+- `TC-CART-PROM-02` A gift that fails the buyer's assortment is never inserted and yields a `product_unavailable` warning instead of a line (D-R4-7)
+- `TC-CART-PROM-03` Two carts holding the same code each get an independent `CodeReservation` (`code_id, cart_id`); releasing one does not release the other (D-R4-8/F5)
+- `TC-CART-PROM-04` A reservation extends on cart activity and is released by `cartId` on cart expiry, abandonment or code removal; a lapsed reservation emits `cart.promotion.no_longer_valid` with a warning
+- `TC-CART-PROM-05` `DELIVERY_DISCOUNT` effects never reach cart totals; the cart never sends a delivery method or cost (F6/D-R4-14)
+- `TC-CART-PROM-06` `cartService.lock` forces a re-price and the §6a.2 visibility pass first, and refuses with `409 cart_has_unavailable_lines` while any line is flagged (F7/C6/D-R4-4)
+- `TC-CART-PROM-07` P95 ≤ 150 ms evaluating 200 promotions × 50 lines (R5/X6, pinned at 200 per C11/D-R4-21, benchmarked here rather than at "≥ 100")
+
+**Proposals (§7a) — Phase 4, unchanged by Release 4:**
 - `cart.proposal.create` against a target on a different price kind produces line prices byte-identical to the target buyer's own resolution, not the author's (R14)
-- A proposal against a storefront target requires `assortmentScope` and rejects a restricted product at authoring time, per §6a.1
-- `preview` and `accept` re-check every line against the scope supplied by the buyer's own request, and refuse a storefront target without one (`400`); a scope narrowed after authoring still rejects the line (§6a.5, rev 8)
+- A proposal against a storefront target requires a resolved scope and rejects a restricted product at authoring time, per §6a.1b (never a caller-supplied body field, §6a.1a)
+- `preview` and `accept` re-check every line against the freshly-resolved scope of the buyer's own request, and refuse a storefront target without one (`400`); a scope narrowed after authoring still rejects the line (§6a.5, D-R4-22)
 - `POST /proposals` with a valid cart token and no authenticated principal returns `401`; with a principal lacking `cart.proposals.author`, `403` (R15)
 - A proposal cart's token appears in no response or event, and resolving it through any token-bound route returns `404`; every line and promotion command refuses a `kind = 'proposal'` cart with `409 proposal_cart_immutable` (rev 8)
 - `preview`/`accept`/`reject` for a proposal addressed to a different basket than the presented token's return the same `404` as a nonexistent id; no proposal route accepts a token in the path
@@ -778,27 +874,65 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 
 ## 15) Implementation Phases
 
-### Phase 1 — Core cart
-Entities, token generation, line CRUD, snapshots, `salesCalculationService` totals, optimistic locking, idempotency, TTL and sweepers.
+**Rev 9 re-cuts the Phase 1–3 gates (W13/D-R4-29) to match where the Release 4 analysis actually exercises each risk.** Rev 8 had the totals-equivalence property test gate Phase 1 while promotions (the thing most likely to break it) integrate in Phase 3, and listed "each trigger in isolation" as a Phase 2 gate that silently included triggers 5 and 6, which do not exist until Phase 3. The three gates below are self-consistent; the full test-ID list is §14.
 
-**Gate:** the totals-equivalence property test passes; concurrency tests pass.
+**File manifest** (`packages/core/src/modules/cart/`): `index.ts`, `acl.ts`, `setup.ts`, `events.ts`, `di.ts`, `encryption.ts`; `data/{entities,validators}.ts`; `commands/{lines,cart,promotions,merge,lock}.ts`; `lib/{cartService,reprice,triggers,quantityRules,mergePolicy,tokens,idempotency,toSalesSnapshots,toPromotionContext,routeContext}.ts`; `api/cart/current/**`, `api/cart/proposals/**`, `api/openapi.ts`; `workers/*.ts`; `migrations/`; `i18n/{de,en,es,ko,pl}.json`; `__integration__/TC-CART-*.spec.ts`; `__tests__/` (totals and scoped-product property tests). `index.ts` declares `requires: catalog, sales, customer_groups` (promotions added when Phase 3 lands; ecommerce soft).
+
+**Migration note (D-R4-19/D-R4-20):** the Phase 1 migration includes every Phase-4-seam column up front — `Cart.kind` (default `basket`) + `proposed_to_cart_id` with its check constraint, `CartLine.added_by_actor_type`/`_id`, `CartMergeLog.merged_by_actor_type`/`_id` + `proposal_cart_id`, and `Cart.resolved_at` — because adding them later, once baskets exist, is a second migration against a live table for no benefit; every basket-only query filters `kind = 'basket'` from Phase 1 on, and a non-basket cart is refused with `409 proposal_cart_immutable` by every line/promotion command from Phase 1 on, even though nothing produces a `kind = 'proposal'` cart before Phase 4. `token_hash` (not plaintext `token`) and the absence of `availability_state`/`availability_checked_at` columns (W14) are Phase 1 migration facts, not later cleanup.
+
+### Phase 1 — Core cart, with visibility built into the first line command
+Entities (including every Phase-4-seam column per the migration note above), `token_hash` generation, line CRUD, snapshots, `salesCalculationService` totals, optimistic locking, idempotency (`CartIdempotencyKey`), the §6a.1a–c server-derived visibility check on every line command, TTL and all four sweepers.
+
+**Gate:** `TC-CART-R1-*` (the full assortment-visibility suite, attacking the HTTP surface per F1/F2, not only the command) and `TC-CART-CONC-*` pass. No storefront add-to-cart path ships before this gate.
 
 ### Phase 2 — Pricing behaviour
-Trigger set, `priceChanges` disclosure, quantity tiers and `nextTier`, quantity rules, availability advisory and warnings.
+Triggers 1–4 and 7, `priceChanges` disclosure, quantity tiers and `nextTier`, quantity rules (via the shared `availability` derivation, D-R4-3), availability advisory computed per response (never persisted, W14), the totals-equivalence property test **without promotions**.
 
-**Gate:** each trigger verified in isolation; no re-price outside the set.
+**Gate:** `TC-CART-PRICE-*`, `TC-CART-B2B-*` and `TC-CART-TOT-01/02/04/05` (the promotion-effect assertions in `TC-CART-TOT-03` gate here only insofar as "no promotion effect" is itself a case of the property test) pass; each trigger verified in isolation; no re-price outside the seven-trigger set.
 
-### Phase 3 — Promotions and merge
-`promotionsService` integration, code application and reservations, merge policy, `CartMergeLog` with its polymorphic actor, undo, **and the merge-time re-visibility pass of §6a.5**.
+### Phase 3 — Promotions, merge, lock and the release gate
+`promotionsService` integration (§6, code application and per-cart reservations, D-R4-8), triggers 5 and 6, merge policy, `CartMergeLog` with its polymorphic actor, undo, **the merge-time re-visibility pass of §6a.5**, and the lock/convert surface (`cartService.lock/unlock/markConverted`, F7/C6).
 
-§6a.5 sits here rather than in Phase 4 because it corrects merge, not proposals: the defect it closes (R13) exists the moment merge exists, independently of whether assisted selling is ever built. Deferring it would ship this phase with a documented Critical and would let the suite's Phase 2 gate — which already requires the cart-side assortment check — pass over a route that defeats it.
+§6a.5 sits here rather than in Phase 4 because it corrects merge, not proposals: the defect it closes (R13) exists the moment merge exists, independently of whether assisted selling is ever built. Deferring it would ship this phase with a documented Critical and would let the suite's Phase 1 gate — which already requires the cart-side assortment check — pass over a route that defeats it.
 
-**Gate:** merge covers the five login situations with a restorable log (the sixth, proposal acceptance, gates in Phase 4); reservations released on expiry; a restricted line merged from an exempt-channel cart is rejected, disclosed and recoverable, never silently admitted and never silently dropped.
+**Gate:** `TC-CART-MERGE-*`, `TC-CART-R13-*`, `TC-CART-PROM-*` pass; merge covers the five login situations with a restorable log (the sixth, proposal acceptance, gates in Phase 4); reservations released on expiry; a restricted line merged from an exempt-channel cart is rejected, disclosed and recoverable, never silently admitted and never silently dropped; `TC-CART-TOT-01` passes **with** promotions, built through the existing `sales` create command against an order from the cart's own lines; the P95 ≤ 150 ms benchmark passes at 200 promotions × 50 lines. This is the Release 4 completion gate for `cart`.
 
-### Phase 4 — B2B and admin
-Approval routing, bulk lines, admin cart list, abandonment events, **and the whole proposal seam (§7a)**: `Cart.kind` / `proposed_to_cart_id`, `CartLine.added_by_actor_*`, the `manual` merge strategy, the three `cart.proposal.*` commands, the five proposal routes, the `cart.proposal.*` events including `.acceptance_undone`, the proposal exemptions in the sweepers, and `cart.cart.adopted` / `.purged`.
+### Phase 4 — B2B and admin (out of Release 4 scope)
+Approval routing, bulk lines, admin cart list, abandonment events, **and the whole proposal seam (§7a)**: the `manual` merge strategy, the three `cart.proposal.*` commands, the five proposal routes, the `cart.proposal.*` events including `.acceptance_undone`, the proposal exemptions in the sweepers, and `cart.cart.adopted` / `.purged`. (`Cart.kind` / `proposed_to_cart_id` and `CartLine.added_by_actor_*` already exist from the Phase 1 migration, per D-R4-19.)
 
 **Gate:** an over-threshold cart cannot lock until approved; a 100-line bulk add evaluates promotions once; a proposal authored by a rep on a different price kind prices identically to the buyer's own resolution; `preview` creates nothing and a stale `acceptanceToken` cannot merge.
+
+---
+
+## 15a) Error Codes and Rate Limits (rev 9 — previously undeclared)
+
+### Error-code catalogue
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `product_unavailable` | 200 (warning) | §6a — restricted or nonexistent product; never distinguishable (§6a.3) |
+| `quantity_increment_violation` | 422 | Carries `nearestValid` (§5.5) |
+| `quantity_below_min` | 422 | |
+| `quantity_capped` | 200 (warning) | Above `maxOrderQuantity`, capped rather than rejected |
+| `cart_locked` | 423 | Carries `checkoutSessionId` (§9) |
+| `cart_has_unavailable_lines` | 409 | `cart.lock` refused while a line is flagged (F7) |
+| `cart_not_active` | 409 | **(rev 9 — F15, corrected 2026-10-23 — #7880)** A write was attempted against a merged, expired or converted cart; the response carries the cart's actual `status`. An `abandoned` basket is not refused — §9's `abandoned → active` applies: the write reactivates it and extends `expires_at` |
+| `idempotency_key_mismatch` | 422 | §8.2 |
+| `promotion_line_immutable` | 409 | A buyer attempted to edit/remove a gift line (F4) |
+| `proposal_cart_immutable` | 409 | A line/promotion command targeted a `kind = 'proposal'` cart (§7a.1) |
+| `assortment_scope_required_for_storefront_channel` | 400 | No `StoreContext` resolved for a route that needs one (§6a.1a) — never caused by a missing *request field* in rev 9, only by `storeContextService` itself failing to resolve |
+| `proposal_changed` | 409 | Stale `acceptanceToken` (§7a.4) |
+| `code_reservation_unavailable` | 409 | Budget or per-customer limit exhausted (D-R4-8/D-R4-12) |
+
+### Rate limits
+
+Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfig`), env prefix `CART_*`, per cart token **and** per IP:
+
+| Scope | Default |
+|---|---|
+| `CART_CREATE` | 20 / min / IP |
+| `CART_MUTATE` (lines, promotions, merge, reprice) | 60 / min / token |
+| `CART_READ` | 120 / min / token |
 
 ---
 
@@ -808,8 +942,21 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 2. **Cross-store carts** — scoped to one store per the roadmap. Revisit if a tenant wants a shared basket across storefronts.
 3. **Cart-level currency switching** — currently re-prices the whole cart. Whether a buyer may switch currency mid-cart at all, or must start over, is a merchandising decision. *Assumed re-price is acceptable.*
 4. **Agent-authored carts** — `added_by: 'agent'` is in the model. Whether an AI-proposed line needs explicit buyer confirmation before it counts toward totals is an approval-contract question for the AI framework. *Reserved, not specified.* **Closed 2026-09-22 (rev 7):** the question dissolves rather than being answered. An unaccepted line is not in the buyer's cart at all — it is in a separate cart holding the role `proposal` (§7a) — so it cannot count toward the buyer's totals, and nothing has to decide whether it does. The alternative that was implicitly on the table, a per-line `pending` flag, would have pushed a conditional into every totals path in a module whose entire discipline is that it performs no arithmetic of its own; it would also have had to be honoured by `promotionsService` evaluation, by the `salesCalculationService` mapping and by every `nextTier` and threshold calculation, each of which is a place the flag could be forgotten. It was never an approval-contract question for the AI framework: it was a modelling question about where an unaccepted intention lives, and the same answer serves a human rep, for whom the AI framework has nothing to say.
-5. **The cart token in `/carts/:token/...` paths** (raised 2026-09-27). §8.3 and R6 forbid the token as a path segment; §10 has used one for every basket route since rev 1. Rev 8 fixes the proposal routes it added and leaves the rest, because moving them changes every storefront client call. *Default:* move all basket routes to a header/cookie-bound `/api/cart/current/...` shape before Phase 1 ships, since nothing is implemented yet and the change is free now and breaking later. *Owner:* this spec, with `storefront-app.md` as the consumer.
-6. **Retention of resolved proposal carts** (raised 2026-09-27). `purge-expired-carts` hard-deletes after 90 days; §7a.3 promises an expired proposal "stays readable". *Default:* proposal carts follow the 90-day purge, counted from resolution (expiry, rejection or acceptance), and each purge emits `cart.cart.purged` so assisted selling can render "details purged" on a surviving metadata row; accepted lines survive in `CartMergeLog.source_snapshot`, which the purge already retains. *Alternative:* exempt proposal carts while a consumer references them — which needs an inbound dependency this module refuses (§3.1). A retention-and-disclosure decision for the product owner, not a mechanism question.
+5. **The cart token in `/carts/:token/...` paths** (raised 2026-09-27). **Closed 2026-10-14 (rev 9 — C7/D-R4-6).** Moved to a header-bound `/api/cart/current/*` shape before Phase 1 (§10, §8.3): the only credential is `X-Cart-Token`; the platform does not read a cookie for it — the storefront app owns an httpOnly cookie and forwards the header itself (CSRF boundary stays with the storefront). `POST /current` returns the token once in the body. Admin keeps `/carts` and `/carts/:id` (Phase 4), so there is no path collision with the public routes. Nothing is implemented, so the change was free; `storefront-app.md` is the consumer that must call the new shape.
+6. **Retention of resolved proposal carts** (raised 2026-09-27). **Closed 2026-10-14 (rev 9 — C8/D-R4-20).** Adopted the stated default: proposal carts follow the 90-day purge, counted from `resolved_at` (§4.1) rather than `expires_at` — which is what makes an accepted or rejected proposal's retention well-defined, since `resolved_at` is set at resolution (acceptance, rejection or expiry) while `expires_at` is set at creation. Each purge emits `cart.cart.purged` so assisted selling can render "details purged" on a surviving metadata row; accepted lines survive in `CartMergeLog.source_snapshot`, which the purge already retains. The only Release 4 obligation this closes with is the `resolved_at` column landing in the Phase 1 migration (D-R4-19); the purge sweeper's proposal-aware behaviour is Phase 4 work, same as the rest of the proposal seam.
+
+---
+
+## 16a) Migration & Backward Compatibility (rev 9 — previously missing, per the Release 4 analysis §2)
+
+`cart` is greenfield: no implementation exists anywhere in the repository, so no deprecation protocol is triggered and no bridge is owed for any rename this revision makes.
+
+- **Module id.** `cart` stays singular (C9/D-R4-17) — a recorded exception to the root `AGENTS.md` "modules plural" rule, alongside the existing `ecommerce` and `checkout` exceptions. Frozen on first release.
+- **Contract freeze.** Every `cart.*` event id, every `/api/cart/*` route, every table name, every ACL feature id and every DI key this spec names becomes **STABLE** per `BACKWARD_COMPATIBILITY.md` the moment Phase 1 ships. The additive DI keys this release also mints on `catalog` (`catalogBuyerPricingService`, `catalogScopedProductService`) and `availability` (the quantity-rule derivation) are **ADDITIVE-ONLY** and were called out to the owner as a multi-module change (D-R4-3) before this revision landed — the owner's approval is recorded there, not re-requested here.
+- **Rev 6/7/8 renames are breaking on paper only.** `added_by` → `added_by_actor_type`/`_id`, `merged_by_customer_user_id` → `merged_by_actor_type`/`_id`, and this revision's `token` → `token_hash` and `assortmentScope`-as-body-field → route-edge resolution are all renames of a column or a contract shape that has never shipped. No migration bridges any of them; the Phase 1 migration simply creates the final shape directly.
+- **ADR-1/ADR-2 continuity.** This revision withdraws no architectural decision SPEC-029 v3's cart-as-session model made obsolete; ADR-1 (cart is a module, not a checkout status) and ADR-2 (cart never computes totals) are unaffected by Release 4.
+- **SPEC-055 namespace.** The promotions calls in §6 already assume SPEC-055's current (post-namespace-move) module layout; no bridge is needed because `cart` has never called the old layout.
+- **Generated registries.** `yarn generate` after Phase 1 lands; `apps/mercato/src/modules.ts` gains `cart` and `promotions` only at Step 7.8, kept commented out in the `create-app` template per the D22 precedent (`yarn template:sync:fix`).
 
 ---
 
@@ -822,13 +969,16 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 | Tenant/organization scoping | Every entity and query; cross-tenant token resolution rejected |
 | Optimistic locking | `updated_at` via `enforceCommandOptimisticLock` (§8.1, fixed 2026-08-17 — no `version` counter; the platform's helper is hard-coded to timestamp comparison and cannot accept one), distinguishable re-price bumps via `versionBumpReason` |
 | Command pattern | Every mutation is a registered command (§3.1a, fixed 2026-08-17 — an earlier draft described plain HTTP handlers with no command wiring at all) |
-| Encryption | `email` declared in `cart/encryption.ts`'s `defaultEncryptionMaps` (`entityId: 'cart:cart'`); reads via `findWithDecryption` |
-| Zod validation | All routes; `z.infer` types |
+| Scope/channel/store never caller-supplied | **(rev 9 — F1/F2/D-R4-1/D-R4-2)** Resolved server-side at the route edge via `storeContextService`; public request bodies are `.strict()` and declare no such field (§6a.1a) |
+| Trust boundaries | Public routes resolve `storeContextService` soft-DI at the edge; a missing registration yields no storefront carts, never an unchecked write (§6a.1a) |
+| Bearer credential at rest | Only `token_hash` is persisted; the plaintext token is shown once, at creation (§4.1, §8.3, C13/D-R4-18) |
+| Encryption | `email` and `note` declared in `cart/encryption.ts`'s `defaultEncryptionMaps` (`entityId: 'cart:cart'`); reads via `findWithDecryption`; `configuration` stays plaintext because encrypting it breaks the stored `configuration_hash` generated column |
+| Zod validation | All routes; `.strict()` on every public body (§6a.1a); `z.infer` types |
 | No `any` | Service and payload contracts fully typed |
-| i18n | Warning and error codes translated; no hard-coded user-facing strings |
-| Rate limiting | Per token and per IP on public mutation routes |
-| Queue usage | Sweepers via the `queue` worker contract, not custom timers |
-| Events | `createModuleEvents`; `clientBroadcast` on line and totals events |
+| i18n | Warning and error codes translated (§15a catalogue); no hard-coded user-facing strings |
+| Rate limiting | Per token and per IP on public mutation routes, via the shared `ratelimit` module, env prefix `CART_*` (§15a) |
+| Queue usage | Sweepers via the `queue` worker contract, not custom timers; registered through `schedulerService` in `onTenantCreated` and an Upgrade Action (W6) |
+| Events | `createModuleEvents`; `clientBroadcast` on line and totals events; `cart.line.visibility_rejected` once per request, never `clientBroadcast` (D-R4-23) |
 | Actor attribution | `added_by_actor_type`/`_id` and `merged_by_actor_type`/`_id` written from `ctx.auth`, never from request input; polymorphic across `auth.User` and `customer_accounts.CustomerUser` by FK id, with no ORM relation to either (§4.2, §4.4) |
 | Staff never mutate a buyer's basket | No admin route mutates a line on a cart the principal does not own; content changes are authored as proposals and take effect on acceptance (§10.2), asserted by a route-enumeration test (§14) |
 | Buyer pricing context is not the author's | A proposal cart copies the target's pricing context and re-derives it on every re-price; the author's identity never enters pricing (§7a.2, R14) |
@@ -838,6 +988,72 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 ---
 
 ## 18) Changelog
+
+### 2026-10-24 (re-review M1 — PR #7592)
+
+- **M1**: the #7880 fix below reactivated every `cart.lines.*`/`cart.promotions.*` write path but missed `cart.merge` — a merge against an `abandoned` session or guest basket still 404'd instead of reactivating it, so a buyer whose idle basket had been swept could not recover it by logging in and merging a guest cart. `commands/merge.ts` now calls `recordBasketMutationActivity` on both the session and guest carts, right after the lock check and before the (now `abandoned`-free) status gate, matching §9's "any basket mutation" rule. `cart.mdx` and the merge route's `openApi` 404 text corrected to match.
+
+### 2026-10-23 (QA round 2 — #7880)
+
+- **#7880**: the F15 fix listed `abandoned` among the states that refuse a write with `409 cart_not_active`, contradicting §9's `abandoned → active` (baskets only, any mutation, extends `expires_at`). Every buyer write path (`cart.lines.add`/`.update`/`.bulkAdd`/`.remove`, `cart.promotions.apply`/`.remove`) now reactivates an `abandoned` basket first (`lib/cartActivity.ts`), clearing `resolved_at` and extending `expires_at` by the §9 default TTL. The same writes now also advance `last_activity_at`, which §4.1 says drives abandonment but no mutation updated before — an actively used basket was swept to `abandoned` 24 h after creation. Proposals are unaffected (their write paths never load `kind = 'basket'`). §15a's `cart_not_active` row and `cart.mdx` corrected.
+
+### 2026-10-16 (Phase 8 manual-QA fixes — F14, F12, CONC-05, F10, F15, F13)
+
+Fixes for `cart` findings from the PR's two manual-QA rounds (`#issuecomment-6217199918`, `#issuecomment-6217322094`), tracked step-by-step in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md` Phase 8. Each fix shipped with its own regression test against the live repro from the QA comment.
+
+- **F14 (Step 8.1, commit `d7e9118b44`)**: `fetchLinePriceRows` (`lib/reprice.ts`) matched a line's variant price rows with `{ $or: [{ product }, { variant }] }`, so a variant line could pick up a sibling variant's price row (both carry the same `product_id`). Narrowed to the variant's own rows (`variant_id IS NULL OR variant_id = line.variantId`), shared with `commands/lines.ts`'s identical existing rule rather than duplicating it a third time.
+- **F12 (Step 8.2, commit `c5be747249`)**: `cart.lines.add`/`.update`/`.remove`/`.bulkAdd` only ever touched the one line they mutated and never re-ran promotions or recomputed `Cart.totals` — see §4.1's `Cart` entity note above and `cart/AGENTS.md`'s Key Entities section for the corrected, current behavior (totals are now live after every accepted write, reusing `cart.reprice`'s own promotions-effects + totals phases). Undo handlers for all three now dispatch `cart.reprice` (trigger `'undo'`) so a reversed line mutation restores `Cart.totals` too, not just the line.
+- **CONC-05 (Step 8.3, already landed pre-Phase-8 via commit `dd0747db83`)**: `cart.lines.add`'s merge-by-quantity race (no lock spanning the read-decide-write sequence) is closed by a per-cart `pg_advisory_xact_lock` held for the whole `withAtomicFlush({transaction:true})` block in both `addLineCommand` and `bulkAddLinesCommand`. `TC-CART-CONC-05` is un-skipped and passes against live Postgres (20 concurrent adds → exactly 1 line at quantity 20).
+- **F10 (Step 8.4, commit `30090ba149`)**: `CartView.promotions` was `never[]`/hardcoded `[]`. Implemented §10.1's `AppliedPromotionView[]` from `CartPromotionApplication` rows (promotion id/name, code string if any, scope, `amountNet`/`amountGross`, `cartLineId` for line-scoped effects) — enough for a client to list applied promotions and call `DELETE /current/promotions/{promotionId}` by the listed id.
+- **F15/F13 (Step 8.5, commit `cb1cdd3ab4`)**: a write against a non-active cart (merged/expired/abandoned/converted) returned a generic `404` this spec never documented for that case — now a distinguishable `409 cart_not_active` carrying the cart's real `status` (new §15a row above); `GET` is unaffected (still `200` with the status disclosed). Every storefront-facing `warnings[].message` used to carry a raw `[internal]`-prefixed placeholder — now resolved through `cart.warnings.*` i18n keys (`lib/warningMessages.ts`), five locales, shared across `lib/cartView.ts` and all six `/current/*` route files.
+
+Validation evidence: full `cart`+`promotions` jest suite 466/466 at Checkpoint 4 (up from 419 at the start of Phase 8); live `cart/__integration__/` Playwright re-run recorded in `checkpoint-5-checks.md` under the same run folder.
+
+### 2026-10-16 (Step 8.11 — the 3.4 Part A repoint closed as a permanent exemption, not a deferral)
+
+Closes the open item the 2026-10-15 entry below flagged ("An owner decision... is still open"). Owner decision (`.ai/runs/2026-10-14-ecommerce-release-4-write-side/PLAN.md` Phase 8 intro, 2026-10-16): `ecommerce/lib/storefrontPricing.ts` stays on its own batched `resolveStorefrontPrices` path **permanently** and is not repointed onto `catalogBuyerPricingService.resolveLinePrice` — the repoint was implemented, tested, and found to regress the Storefront Public API's documented O(1)-queries-per-page invariant (measured: listing query-budget tests 15→21, detail 7-11→16-34, the "doesn't grow with variant count" test 9→28; full detail in NOTIFY.md's 2026-10-15T00:30:00Z entry). Documented in both files' own header comments plus a one-line cross-reference in `catalog/AGENTS.md`'s new "Buyer-facing line pricing" note. Guarded by a new equivalence test, `ecommerce/lib/__tests__/storefrontPricingEquivalence.test.ts`, asserting the two pricing paths resolve the SAME unit price for a base/regular row, a sale-kind row, a quantity-tier row, a customer-group row, and the F14 two-variant scenario (each variant resolving its own price, never a sibling's) — all 6 cases confirmed equivalent on this pass; no divergence found.
+
+### 2026-10-15 (Phases 1–3 implemented — PR #15)
+
+Implementation record for rev 9: `cart` Phases 1–3 shipped on `feat/release-4-write-side` (`adeptofvoltron/open-mercato#15`), tracked step-by-step in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md`. Per PLAN.md's own Step 7.7 instruction, this spec stays in `.ai/specs/` (not moved to `implemented/`) — Phase 4 (B2B approvals, bulk lines, the admin cart list, the proposal seam §7a) remains unbuilt. Deviations and findings a future reader should know about without re-reading the run's 56 steps:
+
+- `toPromotionCartContext` (this document's own §6 rename target) shipped as `toPromotionCartLine` + a new `buildPromotionsEffectsPhase`, both in `cart/lib/promotionContext.ts` — confirms the rename this revision already called for.
+- §15a's error-code catalogue is missing two codes the implementation needed and now emits: `cart_merge_scope_mismatch` (400 — `cart.merge` rejecting a cross-store/cross-currency merge, the "same store and currency only" scope qualifier §7.1 names) and `merge_undo_window_expired` (409 — `cart.mergeUndo` past the 15-minute window). Add both to §15a in the next content revision.
+- §6a.2's whole-cart re-visibility pass (named in `lib/visibility.ts`'s own header comment since Phase 1) was never actually built until Step 7.4 of the implementation — closed then, gated on `trigger === 'buyer_context_changed'` and extended to also run on `trigger === 'merge'` (closing an ADOPT-merge gap the implementing agent itself flagged) and `trigger === 'lock'` (wired at Step 7.5). §6a.5's merge-time pass (R13, Critical) shipped the same step as the §6a.2 fix, not earlier.
+- **Open item, not fixed**: `cart.lines.add`'s merge-by-quantity path has no row lock and no unique-violation retry — 20 concurrent adds of the same product either `500` or silently lose quantity, reproduced against real Postgres. Tracked as CONC-05; regression test is `test.skip()` in `cart/__integration__/TC-CART-CONC-01-05-concurrency-idempotency.spec.ts` with the root cause documented inline. A fix needs a pessimistic lock (or a cart-aggregate lock) spanning the read and the command's `withAtomicFlush` phases.
+- **Open item, not fixed**: a real currency/locale change through the storefront route always also changes the buyer digest (`ecommerce/lib/buyerContext.ts`'s digest formula embeds both `currencyCode` and `effectiveLocale`), so `detectCartRepriceTrigger`'s precedence resolves the disclosed reason to `buyer_context_changed`, never `currency_changed`/`locale_changed` — and `applyCartRepriceTriggerFields` then never syncs `Cart.currencyCode`/`Cart.locale`, since it only writes the fields belonging to the specific winning reason. `lib/triggers.ts`'s own doc comment ("identical no matter which reason wins") is contradicted for currency/locale drift specifically. Fix: sync `currencyCode`/`locale` from the fresh context whenever trigger 2 or 3 fires, not only when one is the labeled winner.
+- **Open item, not fixed** (affects this spec's own §3.1/F8 dependency): `catalogBuyerPricingService.resolveLinePrice` (the §3.1 extraction) is built per-line with no shared-cache/batch mode, so `ecommerce/lib/storefrontPricing.ts` was NOT repointed onto it — doing so regressed the Storefront Public API's own documented O(1)-query-budget invariant. `ecommerce` keeps its own, separate pricing resolution for now. An owner decision (extend `catalogBuyerPricingService` with a page-batch mode, or treat `storefrontPricing.ts` as permanently exempt from this repoint) is still open.
+- `priceIsPromotional` is wired into `toPromotionCartLine` but hardcoded `false` — nothing upstream (`catalogBuyerPricingService`/`ResolvedLinePrice`) populates the signal yet, so D-R4-16's field exists on the wire without real data behind it.
+
+Validation evidence at completion: 178 `cart` jest tests; 26 passed / 1 skipped (CONC-05) / 0 failed across the full `cart/__integration__/` Playwright suite; P95 = 1.035ms against the 150ms budget (Step 7.6, "the Release 4 completion gate for `cart`").
+
+### 2026-10-14 (rev 9 — eComm Release 4 decisions applied)
+
+Applies every owner decision in [eComm Release 4 Decisions](./analysis/ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md) D-R4-1…29 (C1–C14 of the cart pre-implementation analysis) ahead of Phases 1–3 implementation. No change to the domain model's core shape; every change below closes a Critical, a missing section, or a cross-spec mismatch the analysis found.
+
+- **F1/F2 (Critical) closed — scope, channel and store are server-derived, never caller-supplied (§6a.1a–c, §6a.4, D-R4-1, D-R4-2).** Replaces rev 8's model where a public route passed `assortmentScope`/`channel`/`store` through as ordinary, nullable request fields. Public request bodies are now `.strict()`; a client cannot send `assortmentScope: null` or `channel: 'api'` to bypass the visibility check or the channel exemption.
+- **F3 (Critical) closed — the release invariant is defined, and the discount mapping is corrected (§3.2, §14, C10, D-R4-9).** `discountAmountBasis: 'line'` with the resolved effect's net total taken as-is (never `|amount| / lineQuantity`), persisted as `CartLine.discount_total_net`. The invariant compares `quote` vs `order` `SalesDocumentAmounts` as 4 dp numerics, built via the existing `sales` commands — there is no `SalesOrder` to compare against in this release's checkout-free scope, so rev 8's "equals the order produced" is replaced with this definition.
+- **F4 (Critical) closed — gift lines are representable (§4.2, C3, D-R4-7).** `CartLine.promotion_id` + `origin` added to the data model and to the unique index (now `UNIQUE NULLS NOT DISTINCT`, W3), so a gift line can never merge into a paid line.
+- **F5 closed — reservation ownership moves to SPEC-055 (C4, D-R4-8).** Recorded here as the cart-side contract (`code_id`/`code_type` on `CartPromotionApplication`, §4.3); the entity change itself ships in the SPEC-055 amendment.
+- **F6 closed — `DELIVERY_DISCOUNT` excluded from cart-stage totals (§6, §3.2, C5, D-R4-14).**
+- **F7 (Critical) closed — the lock/convert surface is specified (§3.1a, §9, §10, C6, D-R4-4).** `cartService.lock/unlock/markConverted`, DI + commands, no public route; `lock` forces a re-price and a fresh re-visibility pass and refuses with `409 cart_has_unavailable_lines`.
+- **F8 closed — sanctioned pricing/scoped-product/quantity-rule services (§3.1, C12, D-R4-3, owner-approved multi-module change).** `catalogBuyerPricingService`, `catalogScopedProductService` (additive, `catalog`), shared quantity-rule derivation (additive, `availability`); `ecommerce` repointed with no behaviour change.
+- **§4.1 `Cart`:** `token` → `token_hash` (C13/D-R4-18); added `locked_at`, `lock_expires_at`, `checkout_session_id` (F7), `resolved_at` (Q6/D-R4-20), `last_price_change_at` (previously referenced in §5.3 but never declared), `customer_ids`, `assortment_scope_hash` (W9).
+- **§4.2 `CartLine`:** added `discount_total_net`, `promotion_id`, `origin`, `flag_state` (D-R4-5 — a flagged line is excluded from totals and promotion evaluation, shown separately), `deleted_at`; removed the persisted `availability_state`/`availability_checked_at` columns (W14/D-R4-19 — computed per response, never persisted, so a read can never bump `updated_at` into a false 409).
+- **§4.3 `CartIdempotencyKey` declared** (previously referenced in §8.2 with no entity).
+- **§6 reconciled with SPEC-055 A.2 (X1, X2, C11, D-R4-21, D-R4-28):** `codes` is an array of `{id, type}`, never a bare string; `buyer` carries `BuyerContext` identity; context enrichment (category, tag, attribute fields) happens promotions-side, in batch, from `productId`/`variantId` — `toPromotionCartContext` (undefined in rev 8) is withdrawn in favour of `toPromotionCartLine`.
+- **§10 moved to header-bound `/api/cart/current/*` (C7/D-R4-6, §16 Q5 closed).** The only credential is `X-Cart-Token`; no route accepts a token in a path or query string.
+- **§15 gates re-cut (W13/D-R4-29):** Phase 1 = line CRUD + the full R1 visibility suite + idempotency + sweepers; Phase 2 = triggers 1–4/7 + totals equivalence without promotions; Phase 3 = triggers 5/6 + promotions + merge + §6a.5 + lock + totals equivalence with promotions + the P95 benchmark. Phase-4-seam columns (D-R4-19) and `resolved_at` (D-R4-20) ship in the Phase 1 migration regardless.
+- **§14 assigned `TC-CART-*` test-case ids** throughout, replacing rev 8's unlabelled acceptance-criteria bullets.
+- **§15a (new) — error-code and rate-limit catalogue**, previously undeclared.
+- **§16a (new) — Migration & Backward Compatibility section**, previously missing; records the module-id exception (C9/D-R4-17) and the contract-freeze/ADDITIVE-ONLY facts for the new `catalog`/`availability` DI keys.
+- Module id stays `cart` (C9/D-R4-17, decided, not reopened).
+
+### 2026-10-12 (the lock's re-price and tax)
+- **§5.2 trigger 5 names the proposal for the lock's re-price when a tax provider is configured:** tax with the shipping address checkout holds, proposed in the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, ADR-3, amendment 6a, §14 Q16; in review as #6918) and not decided here; how the address reaches `cart.lock()` is for a later pointer, after the lock amendment (#7212, whose lock input carries no address) merges.
+
+### 2026-10-11 (availability entry point)
+- **§3.1 points at the real availability entry point.** The availability contract replaced its `availabilityService` DI key with `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) plus the `availability.reserve`/`.release`/`.commit` commands; no such DI key exists, so the `cart → availability` edge now reads `resolveAvailability(query, { moduleConfig, container })`. The `+ quantity rules` annotation is dropped from that edge: the shared result carries no min/max/increment, and how the cart obtains them is tracked with the §5.5 gap. Recorded from the post-merge review of #5384.
 
 ### 2026-09-30 (§8.2 ordering clarified)
 - **§8.2 states that the idempotency lookup runs before the §8.1 optimistic-lock check.** §8.1's "every mutating command starts with" the lock check read, literally, as the opposite order, under which a retried mutation that had already landed gets a `409` instead of its original result. One sentence, no contract change: cart is unimplemented. Requested by [Offline Field Mode](./2026-09-22-offline-field-mode.md) §3.3, whose chunked replay depends on it; the storefront's own double-tap retry (storefront-app §5.2) depends on it too.
