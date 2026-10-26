@@ -13,7 +13,7 @@
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   UserTask,
   WorkflowDefinition,
@@ -1488,6 +1488,28 @@ export async function completeWorkflow(
   }
 
   // Original completion logic (no compensation needed or status is COMPLETED/CANCELLED)
+
+  // A cancelled run has no recovery path, so its open tasks can never become
+  // actionable again: close them in the same flush as the status. CANCELLED
+  // only — a FAILED run parked on a task is retried against that same task.
+  // Loaded before the run is mutated so no read sits between a scalar change
+  // and the flush that persists it.
+  const cancelledTasks =
+    status === 'CANCELLED'
+      ? await findWithDecryption(
+          em as PostgreSqlEntityManager,
+          UserTask,
+          {
+            workflowInstanceId: instance.id,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+            status: { $in: ['PENDING', 'IN_PROGRESS'] },
+          },
+          undefined,
+          { tenantId: instance.tenantId, organizationId: instance.organizationId }
+        )
+      : []
+
   const now = new Date()
   instance.status = status
   instance.updatedAt = now
@@ -1513,25 +1535,12 @@ export async function completeWorkflow(
       break
   }
 
-  // A cancelled run has no recovery path, so its open tasks can never become
-  // actionable again: close them in the same flush as the status. CANCELLED
-  // only — a FAILED run parked on a task is retried against that same task.
-  const cancelledTasks =
-    status === 'CANCELLED'
-      ? await em.find(UserTask, {
-          workflowInstanceId: instance.id,
-          tenantId: instance.tenantId,
-          organizationId: instance.organizationId,
-          status: { $in: ['PENDING', 'IN_PROGRESS'] },
-        })
-      : []
+  await writeRunOutcome(em, instance, status)
 
   for (const task of cancelledTasks) {
     task.status = 'CANCELLED'
     task.updatedAt = now
   }
-
-  await writeRunOutcome(em, instance, status)
 
   await em.flush()
 

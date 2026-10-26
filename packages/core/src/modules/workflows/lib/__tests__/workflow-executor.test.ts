@@ -3,6 +3,7 @@ import { LockMode, type EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import * as workflowExecutor from '../workflow-executor'
 import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 import { UserTask, WorkflowEvent } from '../../data/entities'
 import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
@@ -18,6 +19,16 @@ jest.mock('../compensation-handler', () => ({
 jest.mock('../step-handler', () => ({
   executeStep: jest.fn(),
 }))
+
+jest.mock('@open-mercato/shared/lib/encryption/subscriber', () => {
+  const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/encryption/subscriber')>(
+    '@open-mercato/shared/lib/encryption/subscriber'
+  )
+  return {
+    ...actual,
+    decryptEntitiesWithFallbackScope: jest.fn(actual.decryptEntitiesWithFallbackScope),
+  }
+})
 
 describe('Workflow Executor (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
@@ -1139,10 +1150,25 @@ describe('Workflow Executor (Unit Tests)', () => {
           claimedBy: 'user-1',
         })
         mockEm.findOne.mockResolvedValue(instance)
-        mockEm.find.mockResolvedValue([pendingTask, claimedTask] as never)
+
+        const operations: Array<Record<string, unknown>> = []
+        const snapshot = () => ({
+          instance: instance.status,
+          cancelledAt: instance.cancelledAt ?? null,
+          tasks: [pendingTask.status, claimedTask.status],
+        })
+        mockEm.find.mockImplementation((async () => {
+          operations.push({ op: 'find', ...snapshot() })
+          return [pendingTask, claimedTask]
+        }) as never)
+        mockEm.count.mockImplementation((async () => {
+          operations.push({ op: 'count', ...snapshot() })
+          return 0
+        }) as never)
 
         const statusesAtFlush: Array<Record<string, unknown>> = []
         mockEm.flush.mockImplementation(async () => {
+          operations.push({ op: 'flush', ...snapshot() })
           statusesAtFlush.push({
             instance: instance.status,
             tasks: [pendingTask.status, claimedTask.status],
@@ -1152,13 +1178,33 @@ describe('Workflow Executor (Unit Tests)', () => {
 
         await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
 
+        // The task read runs before the run is dirtied, and no read runs
+        // between the task writes and the flush that persists them.
+        const firstFlush = operations.findIndex((entry) => entry.op === 'flush')
+        expect(operations[0]).toEqual({
+          op: 'find',
+          instance: 'PAUSED',
+          cancelledAt: null,
+          tasks: ['PENDING', 'IN_PROGRESS'],
+        })
+        expect(
+          operations
+            .slice(0, firstFlush)
+            .filter((entry) => entry.op !== 'find')
+            .every((entry) => (entry.tasks as string[]).join() === 'PENDING,IN_PROGRESS')
+        ).toBe(true)
+        expect(operations[firstFlush]).toMatchObject({
+          instance: 'CANCELLED',
+          tasks: ['CANCELLED', 'CANCELLED'],
+        })
+
         expect(mockEm.find).toHaveBeenCalledTimes(1)
         expect(mockEm.find).toHaveBeenCalledWith(UserTask, {
           workflowInstanceId: testInstanceId,
           tenantId: testTenantId,
           organizationId: testOrgId,
           status: { $in: ['PENDING', 'IN_PROGRESS'] },
-        })
+        }, undefined)
 
         expect(pendingTask.status).toBe('CANCELLED')
         expect(claimedTask.status).toBe('CANCELLED')
@@ -1200,6 +1246,29 @@ describe('Workflow Executor (Unit Tests)', () => {
             reason: 'workflow-cancelled',
           },
         })
+      })
+
+      test('CANCELLED decrypts the open tasks in the run scope before logging their names', async () => {
+        const instance = buildInstance('PAUSED')
+        const encryptedTask = buildTask({ taskName: 'enc:v1:cipher' })
+        mockEm.findOne.mockResolvedValue(instance)
+        mockEm.find.mockResolvedValue([encryptedTask] as never)
+        jest.mocked(decryptEntitiesWithFallbackScope).mockImplementationOnce(async (targets) => {
+          for (const target of targets as UserTask[]) target.taskName = 'Review order'
+        })
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
+
+        expect(decryptEntitiesWithFallbackScope).toHaveBeenCalledWith(
+          [encryptedTask],
+          expect.objectContaining({ tenantId: testTenantId, organizationId: testOrgId })
+        )
+        expect(encryptedTask.status).toBe('CANCELLED')
+        expect(loggedEvents()[0]).toMatchObject({
+          eventType: 'USER_TASK_CANCELLED',
+          eventData: { taskId: encryptedTask.id, taskName: 'Review order', reason: 'workflow-cancelled' },
+        })
+        expect(JSON.stringify(loggedEvents())).not.toContain('enc:v1:cipher')
       })
 
       test('CANCELLED on a FORKED run closes a branch-scoped task and leaves the branch alone', async () => {
