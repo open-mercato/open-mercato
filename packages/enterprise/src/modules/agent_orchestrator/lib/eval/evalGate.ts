@@ -2,6 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
+import type { EvalSetSnapshot } from '../../data/validators'
 import { replaySuiteRun } from './evalReplayService'
 import type {
   CompleteEvalRunCommandInput,
@@ -19,6 +20,13 @@ export type EvalGateInput = {
    * dataset a verdict is not reproducible, so it must not read as a gate result.
    */
   evalSetVersion?: string | null
+  /**
+   * Pins a frozen manifest instead of a label: `latest` freezes the current
+   * dataset, `sha256:<hex>` replays a stored one. The suite run's
+   * `evalSetVersion` becomes the manifest hash; cannot be combined with
+   * `evalSetVersion`.
+   */
+  snapshot?: EvalSetSnapshot
   /** Overrides automatic baseline selection (previous completed run for this agent). */
   baselineSuiteRunId?: string | null
   repeatCount?: number
@@ -65,13 +73,15 @@ export async function runEvalGate(
 
   // Only APPROVED cases form the regression set — a draft has not been reviewed,
   // so its expected value cannot serve as a baseline for blocking a release.
-  const cases = await em.find(AgentEvalCase, {
-    ...scope,
-    agentDefinitionId: input.agentDefinitionId,
-    status: 'approved',
-    deletedAt: null,
-  })
-  if (!cases.length) {
+  const cases = input.snapshot
+    ? null
+    : await em.find(AgentEvalCase, {
+        ...scope,
+        agentDefinitionId: input.agentDefinitionId,
+        status: 'approved',
+        deletedAt: null,
+      })
+  if (cases && !cases.length) {
     throw new Error(
       `[internal] no approved eval cases for agent "${input.agentDefinitionId}" — nothing to gate on`,
     )
@@ -92,7 +102,8 @@ export async function runEvalGate(
       input: {
         ...scope,
         agentDefinitionId: input.agentDefinitionId,
-        evalCaseIds: cases.map((entry) => entry.id),
+        ...(cases ? { evalCaseIds: cases.map((entry) => entry.id) } : {}),
+        ...(input.snapshot ? { snapshot: input.snapshot } : {}),
         repeatCount: input.repeatCount ?? 1,
         trigger: 'ci',
         // CI never lets a judge gate — see the doc comment.

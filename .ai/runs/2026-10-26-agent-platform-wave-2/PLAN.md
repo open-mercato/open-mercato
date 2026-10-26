@@ -45,7 +45,7 @@
 | 4 | 4.1 | Add frozen eval-set manifests with deterministic ids | dispatch:capable | done | daa57ccac |
 | 4 | 4.2 | Freeze the manifest on eval run start and merge the summary on complete | dispatch | done | 184efffd8 |
 | 4 | 4.3 | Replay cases and assertions from the frozen manifest | dispatch:capable | done | 1a057cb19 |
-| 4 | 4.4 | Add snapshot pinning to the eval CLI and the eval-runs API | dispatch | todo | — |
+| 4 | 4.4 | Add snapshot pinning to the eval CLI and the eval-runs API | dispatch | done | a51e8ef14 |
 | 4 | 4.5 | Report dataset sameness, drift warnings and the snapshot picker | dispatch | todo | — |
 | 4 | 4.6 | Cover pinned eval replays with an integration test | dispatch | todo | — |
 | 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |

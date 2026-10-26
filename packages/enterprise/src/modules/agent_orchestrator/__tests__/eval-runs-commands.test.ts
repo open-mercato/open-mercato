@@ -1,7 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentEvalAssertion, AgentEvalCase, AgentEvalCaseRun, AgentEvalResult, AgentEvalSuiteRun } from '../data/entities'
 import { cancelEvalRunCommand, completeEvalRunCommand, startEvalRunCommand } from '../commands/evalRuns'
-import { EVAL_SET_SUMMARY_KEY, readEvalSetPointer } from '../lib/eval/manifest'
+import {
+  EVAL_SET_FORMAT,
+  EVAL_SET_FORMAT_VERSION,
+  EVAL_SET_SUMMARY_KEY,
+  hashManifest,
+  readEvalSetPointer,
+  type EvalSetManifest,
+} from '../lib/eval/manifest'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn().mockResolvedValue(undefined),
@@ -394,6 +401,98 @@ describe('evalRuns.start — frozen eval-set manifest', () => {
       if (previous === undefined) delete process.env.OM_AGENT_EVAL_SET_MAX_BYTES
       else process.env.OM_AGENT_EVAL_SET_MAX_BYTES = previous
     }
+  })
+})
+
+describe('evalRuns.start — snapshot pinning', () => {
+  const agentDefinitionId = 'deals.health_check'
+
+  function suiteRunById(rows: Array<Record<string, unknown>>, id: string) {
+    const row = rows.find((entry) => entry.id === id)
+    if (!row) throw new Error('[internal] suite run missing from the fake store')
+    return row
+  }
+
+  it('freezes the current dataset for latest and pins the manifest hash without evalCaseIds', async () => {
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+    const result = await startEvalRunCommand.execute(
+      { ...SCOPE, agentDefinitionId, snapshot: 'latest', repeatCount: 1 },
+      ctxFor(em),
+    )
+
+    expect(result.caseRunCount).toBe(2)
+    const suiteRun = suiteRunById(storeFor(AgentEvalSuiteRun), result.suiteRunId)
+    const pointer = readEvalSetPointer(suiteRun.summary)
+    expect(pointer?.body).toBeDefined()
+    expect(suiteRun.evalSetVersion).toBe(hashManifest(pointer?.body as EvalSetManifest))
+    expect(suiteRun.evalSetVersion).toBe(pointer?.version)
+    expect(new Set(storeFor(AgentEvalCaseRun).map((row) => row.evalCaseId))).toEqual(new Set([CASE_A, CASE_B]))
+  })
+
+  it('replays the frozen cases of a hash pin even after the live dataset changed', async () => {
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+    const first = await startEvalRunCommand.execute(
+      { ...SCOPE, agentDefinitionId, snapshot: 'latest', repeatCount: 1 },
+      ctxFor(em),
+    )
+    const hash = suiteRunById(storeFor(AgentEvalSuiteRun), first.suiteRunId).evalSetVersion as string
+    const liveCase = storeFor(AgentEvalCase).find((row) => row.id === CASE_A)
+    if (liveCase) liveCase.status = 'draft'
+
+    const pinned = await startEvalRunCommand.execute(
+      { ...SCOPE, agentDefinitionId, snapshot: hash, repeatCount: 2 },
+      ctxFor(em),
+    )
+
+    expect(pinned.caseRunCount).toBe(4)
+    const suiteRun = suiteRunById(storeFor(AgentEvalSuiteRun), pinned.suiteRunId)
+    expect(suiteRun.evalSetVersion).toBe(hash)
+    expect(readEvalSetPointer(suiteRun.summary)).toMatchObject({ version: hash, carrierSuiteRunId: first.suiteRunId })
+    expect(readEvalSetPointer(suiteRun.summary)).not.toHaveProperty('body')
+    const pinnedCaseIds = storeFor(AgentEvalCaseRun)
+      .filter((row) => row.suiteRunId === pinned.suiteRunId)
+      .map((row) => row.evalCaseId)
+    expect(new Set(pinnedCaseIds)).toEqual(new Set([CASE_A, CASE_B]))
+  })
+
+  it('narrows the manifest cases when evalCaseIds accompanies a snapshot', async () => {
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+    const result = await startEvalRunCommand.execute(
+      { ...SCOPE, agentDefinitionId, snapshot: 'latest', evalCaseIds: [CASE_B], repeatCount: 1 },
+      ctxFor(em),
+    )
+    expect(result.caseRunCount).toBe(1)
+    expect(storeFor(AgentEvalCaseRun).map((row) => row.evalCaseId)).toEqual([CASE_B])
+  })
+
+  it('answers 404 with eval_set_unresolved for a hash unknown in scope', async () => {
+    const unknownHash = hashManifest({
+      format: EVAL_SET_FORMAT,
+      formatVersion: EVAL_SET_FORMAT_VERSION,
+      agentId: agentDefinitionId,
+      label: 'never-frozen',
+      source: 'db',
+      assertions: [],
+      cases: [],
+    })
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A)] })
+    await expect(
+      startEvalRunCommand.execute({ ...SCOPE, agentDefinitionId, snapshot: unknownHash, repeatCount: 1 }, ctxFor(em)),
+    ).rejects.toMatchObject({ status: 404, body: expect.objectContaining({ code: 'eval_set_unresolved' }) })
+    expect(storeFor(AgentEvalSuiteRun)).toHaveLength(0)
+  })
+
+  it('refuses a snapshot combined with a label pin and a start with neither cases nor snapshot', async () => {
+    const { em } = createFakeEm({ cases: [evalCase(CASE_A)] })
+    await expect(
+      startEvalRunCommand.execute(
+        { ...SCOPE, agentDefinitionId, snapshot: 'latest', evalSetVersion: 'release-1', repeatCount: 1 },
+        ctxFor(em),
+      ),
+    ).rejects.toThrow()
+    await expect(
+      startEvalRunCommand.execute({ ...SCOPE, agentDefinitionId, repeatCount: 1 }, ctxFor(em)),
+    ).rejects.toThrow()
   })
 })
 

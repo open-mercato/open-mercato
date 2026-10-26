@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalAssertion, AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
-import { evalCaseAssertionRefSchema } from '../../data/validators'
+import { EVAL_SET_SNAPSHOT_LATEST, evalCaseAssertionRefSchema, type EvalSetSnapshot } from '../../data/validators'
 import { parseCaseAssertionRefs, resolveEffectiveAssertions } from './assertionResolution'
 import { canonicalInputKey, canonicalJson } from './canonicalInputKey'
 import { judgeRubricSchema, normalizeJudgeRubric, type JudgeRubric } from './judgeRubric'
@@ -89,6 +89,15 @@ export class EvalSetTooLargeError extends Error {
   ) {
     super(`[internal] eval set manifest is ${bytes} bytes, above the ${maxBytes}-byte limit (OM_AGENT_EVAL_SET_MAX_BYTES)`)
     this.name = 'EvalSetTooLargeError'
+  }
+}
+
+export class EvalSetUnresolvedError extends Error {
+  readonly code = EVAL_SET_UNRESOLVED
+
+  constructor(readonly snapshot: string) {
+    super(`[internal] eval set snapshot ${snapshot} is not known for this agent in this organization`)
+    this.name = 'EvalSetUnresolvedError'
   }
 }
 
@@ -230,6 +239,19 @@ export async function freezeManifest(
   })
   assertManifestWithinCap(manifest, options.maxBytes ?? resolveEvalSetMaxBytes())
   return { manifest, version: hashManifest(manifest) }
+}
+
+export async function resolveSnapshotPin(
+  em: EntityManager,
+  scope: ManifestScope,
+  agentId: string,
+  snapshot: EvalSetSnapshot,
+  options: { maxBytes?: number } = {},
+): Promise<{ manifest: EvalSetManifest; version: string }> {
+  if (snapshot === EVAL_SET_SNAPSHOT_LATEST) return freezeManifest(em, scope, { agentId, maxBytes: options.maxBytes })
+  const manifest = await resolveManifest(em, scope, agentId, snapshot)
+  if (!manifest) throw new EvalSetUnresolvedError(snapshot)
+  return { manifest, version: snapshot }
 }
 
 export function readEvalSetPointer(summary: unknown): EvalSetPointer | null {

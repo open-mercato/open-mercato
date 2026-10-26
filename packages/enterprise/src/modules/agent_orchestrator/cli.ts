@@ -16,6 +16,7 @@ import {
   type AgentSpanKind,
 } from './data/entities'
 import { recomputeProcessInstance } from './lib/processes/processProjection'
+import { evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
 import { buildEvalReport } from './lib/eval/report/buildEvalReport'
 import { buildEvalErrorReport, type BuildEvalErrorReportInput } from './lib/eval/report/errorReport'
@@ -543,7 +544,7 @@ const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
   junit: 'junit.xml',
 }
 const EVAL_GATE_USAGE =
-  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]\n' +
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]\n' +
   '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
 
 function isEvalReportFormat(value: string): value is EvalReportFormat {
@@ -602,7 +603,8 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * Regression gate over an agent's approved eval cases.
  *
  *   yarn mercato agent_orchestrator eval --agent <agentId> --tenant <id> --org <id> \
- *     [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] \
+ *     [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest>] \
+ *     [--require-snapshot true] [--baseline <suiteRunId>] \
  *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
  *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]
  *
@@ -616,9 +618,15 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * result — and `--gate true` on an advisory run is refused rather than silently
  * passing.
  *
+ * `--snapshot latest` freezes the current dataset and pins its manifest hash;
+ * `--snapshot sha256:<hex>` replays a stored manifest, so the run (and its
+ * baseline) is tied to the identical dataset. `--require-snapshot true` refuses
+ * label-only pins and unpinned runs with exit 2.
+ *
  * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
  * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
- * 2 usage/environment error, advisory run refused, or report not writable.
+ * 2 usage/environment error, advisory run refused, label pin refused under
+ * `--require-snapshot true`, or report not writable.
  * Report files are written BEFORE the exit code is set; when the run throws, a
  * minimal `report.json` with `status: 'error'` is written instead. The narrowing
  * flags apply only under `--gate true` and can never widen a failure into a pass.
@@ -671,9 +679,36 @@ const evalGate: ModuleCli = {
       return
     }
 
+    const requireSnapshot = parseOptionalBooleanFlag(args['require-snapshot'])
+    if (requireSnapshot === null) {
+      console.error('--require-snapshot takes true or false')
+      process.exitCode = 2
+      return
+    }
+    const rawSnapshot = args.snapshot
+    const parsedSnapshot = rawSnapshot === undefined ? null : evalSetSnapshotSchema.safeParse(rawSnapshot)
+    if (parsedSnapshot && !parsedSnapshot.success) {
+      console.error('--snapshot must be "latest" or sha256:<64 lowercase hex>')
+      process.exitCode = 2
+      return
+    }
+    const snapshot = parsedSnapshot?.success ? parsedSnapshot.data : undefined
+    if (snapshot && args['eval-set-version'] !== undefined) {
+      console.error('--snapshot and --eval-set-version are mutually exclusive: pin either a frozen manifest or a label')
+      process.exitCode = 2
+      return
+    }
+    if (requireSnapshot && !snapshot) {
+      console.error(
+        'Refusing a run without a frozen snapshot under --require-snapshot true: pass --snapshot <sha256:...|latest> instead of a label pin.',
+      )
+      process.exitCode = 2
+      return
+    }
+
     const scope = { tenantId, organizationId }
     const releaseId = args.release ?? null
-    const evalSetVersion = args['eval-set-version'] ?? null
+    const evalSetVersion = snapshot ?? args['eval-set-version'] ?? null
     const errorReportInput = { agentDefinitionId, releaseId, evalSetVersion, repeatCount }
 
     const container = await createRequestContainer()
@@ -682,7 +717,7 @@ const evalGate: ModuleCli = {
       result = await runEvalGate(container, {
         agentDefinitionId,
         releaseId,
-        evalSetVersion,
+        ...(snapshot ? { snapshot } : { evalSetVersion }),
         baselineSuiteRunId: args.baseline ?? null,
         repeatCount,
         scope,
@@ -742,7 +777,7 @@ const evalGate: ModuleCli = {
 
     if (result.outcome === 'advisory') {
       console.error('')
-      console.error('Refusing to gate on an advisory run: pass --eval-set-version to pin the dataset, or drop --gate.')
+      console.error('Refusing to gate on an advisory run: pass --snapshot or --eval-set-version to pin the dataset, or drop --gate.')
       process.exitCode = 2
       return
     }

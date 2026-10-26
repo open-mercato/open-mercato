@@ -5,6 +5,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EvalGateInput, EvalGateResult } from '../lib/eval/evalGate'
 import { buildEvalErrorReport } from '../lib/eval/report/errorReport'
 import { evalReportSchema, type EvalReport } from '../lib/eval/report/reportSchema'
+import { EVAL_SET_FORMAT, EVAL_SET_FORMAT_VERSION, hashManifest } from '../lib/eval/manifest'
 
 const mockRunEvalGate = jest.fn<Promise<EvalGateResult>, [unknown, EvalGateInput]>()
 const mockBuildEvalReport = jest.fn<Promise<EvalReport | null>, unknown[]>()
@@ -78,6 +79,16 @@ async function runEval(argv: string[]): Promise<number | undefined> {
   process.exitCode = undefined
   return code === undefined ? undefined : Number(code)
 }
+
+const SNAPSHOT_HASH = hashManifest({
+  format: EVAL_SET_FORMAT,
+  formatVersion: EVAL_SET_FORMAT_VERSION,
+  agentId: 'invoice_triage',
+  label: null,
+  source: 'db',
+  assertions: [],
+  cases: [],
+})
 
 const scopeArgs = ['--agent', 'invoice_triage', '--tenant', TENANT_ID, '--org', ORG_ID]
 
@@ -234,8 +245,43 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     ['bad --fail-on-flaky', [...scopeArgs, '--fail-on-flaky', 'maybe']],
     ['bad --include-payloads', [...scopeArgs, '--include-payloads', 'sometimes']],
     ['bad --repeat', [...scopeArgs, '--repeat', '0']],
+    ['malformed --snapshot', [...scopeArgs, '--snapshot', 'sha256:not-a-hash']],
+    ['uppercase --snapshot hash', [...scopeArgs, '--snapshot', SNAPSHOT_HASH.toUpperCase()]],
+    ['--snapshot with --eval-set-version', [...scopeArgs, '--snapshot', 'latest', '--eval-set-version', 'v1']],
+    ['bad --require-snapshot', [...scopeArgs, '--require-snapshot', 'perhaps']],
+    ['label pin under --require-snapshot', [...scopeArgs, '--eval-set-version', 'v1', '--require-snapshot', 'true', '--gate', 'true']],
+    ['no pin under --require-snapshot', [...scopeArgs, '--require-snapshot', 'true']],
   ])('exits 2 on a usage error: %s', async (_label, argv) => {
     expect(await runEval(argv)).toBe(2)
     expect(mockRunEvalGate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['latest', 'latest'],
+    ['a manifest hash', SNAPSHOT_HASH],
+  ])('forwards --snapshot %s to the gate without a label pin', async (_label, snapshot) => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    expect(await runEval([...scopeArgs, '--snapshot', snapshot, '--require-snapshot', 'true', '--gate', 'true'])).toBeUndefined()
+    const input = mockRunEvalGate.mock.calls[0]?.[1]
+    expect(input?.snapshot).toBe(snapshot)
+    expect(input).not.toHaveProperty('evalSetVersion')
+  })
+
+  it('keeps the exit-code matrix for snapshot-pinned gates', async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult({ outcome: 'failed' }))
+    expect(await runEval([...scopeArgs, '--snapshot', SNAPSHOT_HASH, '--gate', 'true'])).toBe(1)
+    mockRunEvalGate.mockResolvedValue(gateResult({ passScore: 0.5 }))
+    expect(await runEval([...scopeArgs, '--snapshot', 'latest', '--gate', 'true', '--min-pass-score', '0.6'])).toBe(1)
+    mockRunEvalGate.mockRejectedValue(new Error('eval_set_unresolved'))
+    expect(await runEval([...scopeArgs, '--snapshot', SNAPSHOT_HASH, '--gate', 'true'])).toBe(1)
+    expect(await runEval([...scopeArgs, '--snapshot', SNAPSHOT_HASH])).toBe(2)
+  })
+
+  it('keeps a legacy label pin working without --require-snapshot', async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    expect(await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true', '--require-snapshot', 'false'])).toBeUndefined()
+    const input = mockRunEvalGate.mock.calls[0]?.[1]
+    expect(input?.evalSetVersion).toBe('v1')
+    expect(input).not.toHaveProperty('snapshot')
   })
 })

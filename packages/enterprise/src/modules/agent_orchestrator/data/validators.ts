@@ -1534,9 +1534,24 @@ export const evalCaseAssertionRefSchema = z.object({
 })
 export type EvalCaseAssertionRefInput = z.infer<typeof evalCaseAssertionRefSchema>
 
+export const EVAL_SET_SNAPSHOT_LATEST = 'latest' as const
+export const EVAL_SET_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/
+
+/**
+ * A frozen eval-set pin: `latest` freezes the current approved cases and
+ * assertions, `sha256:<hex>` replays a previously frozen manifest.
+ */
+export const evalSetSnapshotSchema = z.union([
+  z.literal(EVAL_SET_SNAPSHOT_LATEST),
+  z.string().regex(EVAL_SET_HASH_PATTERN, 'snapshot must be "latest" or sha256:<64 lowercase hex>'),
+])
+export type EvalSetSnapshot = z.infer<typeof evalSetSnapshotSchema>
+
 export const evalRunCreateSchema = z.object({
   agentDefinitionId: z.string().min(1).max(100),
-  evalCaseIds: z.array(z.string().uuid()).min(1).max(500),
+  /** Required unless `snapshot` is set; with a snapshot it narrows the manifest's cases. */
+  evalCaseIds: z.array(z.string().uuid()).min(1).max(500).optional(),
+  snapshot: evalSetSnapshotSchema.optional(),
   /** Repeat each case to MEASURE judge/model variance rather than assume it away. */
   repeatCount: z.coerce.number().int().min(1).max(20).default(1),
   /**
@@ -1544,6 +1559,10 @@ export const evalRunCreateSchema = z.object({
    * false: the gate stays deterministic and promotion reproducible.
    */
   judgeMayGate: z.boolean().default(true),
+}).superRefine((value, ctx) => {
+  if (!value.snapshot && !value.evalCaseIds) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalCaseIds'], message: 'evalCaseIds is required without snapshot' })
+  }
 })
 export type EvalRunCreateInput = z.infer<typeof evalRunCreateSchema>
 
