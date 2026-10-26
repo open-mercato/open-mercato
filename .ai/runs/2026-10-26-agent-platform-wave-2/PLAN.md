@@ -24,6 +24,7 @@
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | cdb0d95f3 |
+| 1 | 1.6 | Send the composed system prompt on the tool-loop-agent engine | dispatch | todo | — |
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | c101f38ef |
 | 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 15488bd19 |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | ae2e35868 |
@@ -119,6 +120,9 @@ None (`--skill-url` not passed).
 
 #### 1.5-review-fix Pass explicit comparators to the definition hash sorts
 - Checkpoint 2 found two bare `.sort()` calls in `lib/agent-definition-hash.ts` that fail `packages/core/src/__tests__/explicit-sort-comparators.test.ts`; use a code-point comparator (locale-independent, so the hash stays stable across environments).
+
+#### 1.6 Send the composed system prompt on the tool-loop-agent engine
+- Pre-existing defect found in Step 1.3 (user asked to fix it in this PR): `runAiAgentText` builds `ToolLoopAgent` without `instructions`, so `executionEngine: 'tool-loop-agent'` turns run with no system prompt. Pass the composed system prompt (with all runtime suffixes) as `instructions`; regression test asserting the provider call receives the system prompt on that engine; update the observer test that currently expects `system: undefined` there.
 
 ### Phase 2: Run persistence (chat spec Phase 2)
 

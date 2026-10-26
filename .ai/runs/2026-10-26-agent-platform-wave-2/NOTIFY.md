@@ -52,3 +52,6 @@
 
 ## 2026-10-26T22:40:00Z — checkpoint 4 (Steps 3.2..3.4) + safety stop
 - All unit suites, enterprise tsc, guard suites, `yarn build:app`, lint green. Pausing for user review (~20 Steps since start). Branch not pushed to upstream yet; draft PR not opened.
+
+## 2026-10-26T23:00:00Z — resumed after user review; scope addition
+- User approved continuing and asked to fix the pre-existing `tool-loop-agent` missing-system-prompt defect in this PR → new Step 1.6 (dispatch), run before 3.5. Draft PR #8011 opened and claimed after the user pushed.
