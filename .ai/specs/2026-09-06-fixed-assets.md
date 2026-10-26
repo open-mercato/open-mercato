@@ -320,7 +320,8 @@ currencyId` and `FixedAssetSettings.lowValueThresholdCurrencyId` are
 independent — an asset acquired in EUR must not be compared raw against
 a PLN-denominated threshold. `FixedAsset` gains an `exchangeRate` field
 (nullable, mirroring `ledger.JournalEntry.exchangeRate`) recording the
-rate to the organization's base currency at `acquisitionDate`;
+rate to the organization's base currency for the booking day before
+`acquisitionDate` (Multi-Currency Design decision 9f);
 `acceptFixedAsset` converts `acquisitionValue` to the threshold's
 currency via that rate (resolved from `currencies.ExchangeRate` the same
 way `ledger` resolves rates for `JournalEntry`) before comparing against
