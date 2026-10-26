@@ -23,7 +23,7 @@
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | 5ddef3b2b |
-| 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | todo | — |
+| 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 74db02d12 |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | todo | — |
 | 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | todo | — |
 | 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | todo | — |

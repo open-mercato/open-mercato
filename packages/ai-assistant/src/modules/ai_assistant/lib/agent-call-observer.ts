@@ -346,3 +346,48 @@ export function observeStreamedObjectEnd(
       }),
   )
 }
+
+type ObserverHookName = 'onPromptResolved' | 'onModelCallStart' | 'onModelCallEnd'
+
+async function invokeEachObserver<TEvent>(
+  observers: AiAgentCallObserver[],
+  hook: ObserverHookName,
+  event: TEvent,
+  logContext: { agentId?: string; callId?: string },
+): Promise<void> {
+  for (const observer of observers) {
+    const handler = observer[hook] as ((payload: TEvent) => void | Promise<void>) | undefined
+    if (!handler) continue
+    try {
+      await handler.call(observer, cloneForObserver(event))
+    } catch (err) {
+      logger.error('Composed model-call observer threw; continuing with the next observer', {
+        hook,
+        ...logContext,
+        err,
+      })
+    }
+  }
+}
+
+export function composeCallObservers(
+  ...candidates: Array<AiAgentCallObserver | null | undefined>
+): AiAgentCallObserver | undefined {
+  const observers = candidates.filter((candidate): candidate is AiAgentCallObserver => Boolean(candidate))
+  if (observers.length === 0) return undefined
+  if (observers.length === 1) return observers[0]
+  const composed: AiAgentCallObserver = {}
+  if (observers.some((observer) => observer.onPromptResolved)) {
+    composed.onPromptResolved = (event) =>
+      invokeEachObserver(observers, 'onPromptResolved', event, { agentId: event.agentId })
+  }
+  if (observers.some((observer) => observer.onModelCallStart)) {
+    composed.onModelCallStart = (event) =>
+      invokeEachObserver(observers, 'onModelCallStart', event, { callId: event.callId })
+  }
+  if (observers.some((observer) => observer.onModelCallEnd)) {
+    composed.onModelCallEnd = (event) =>
+      invokeEachObserver(observers, 'onModelCallEnd', event, { callId: event.callId })
+  }
+  return composed
+}
