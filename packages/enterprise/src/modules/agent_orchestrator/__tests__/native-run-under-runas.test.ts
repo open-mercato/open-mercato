@@ -122,9 +122,26 @@ function createFakeOrm() {
       return copy
     }
 
-    function argsFor(row: Row): EventArgs<unknown> {
+    function changedFields(row: Row): Row {
+      const snapshot = managed.get(row)
+      const before: Row = snapshot ? JSON.parse(snapshot) : {}
+      const after: Row = JSON.parse(JSON.stringify(row))
+      const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+      const payload: Row = {}
+      for (const key of keys) {
+        if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) payload[key] = after[key]
+      }
+      return payload
+    }
+
+    function argsFor(row: Row, type: 'create' | 'update'): EventArgs<unknown> {
       const entity = entityOf.get(row)
-      return { entity: row, meta: { className: entity?.name } } as unknown as EventArgs<unknown>
+      const payload = type === 'update' ? changedFields(row) : { ...row }
+      return {
+        entity: row,
+        meta: { className: entity?.name, class: entity },
+        changeSet: { type, payload },
+      } as unknown as EventArgs<unknown>
     }
 
     const em = {
@@ -145,10 +162,10 @@ function createFakeOrm() {
           .filter(([row, snapshot]) => snapshot !== null && JSON.stringify(row) !== snapshot)
           .map(([row]) => row)
         for (const row of creates) {
-          for (const subscriber of subscribers) subscriber.beforeCreate?.(argsFor(row))
+          for (const subscriber of subscribers) subscriber.beforeCreate?.(argsFor(row, 'create'))
         }
         for (const row of updates) {
-          for (const subscriber of subscribers) subscriber.beforeUpdate?.(argsFor(row))
+          for (const subscriber of subscribers) subscriber.beforeUpdate?.(argsFor(row, 'update'))
         }
         pending.length = 0
         for (const row of creates) {

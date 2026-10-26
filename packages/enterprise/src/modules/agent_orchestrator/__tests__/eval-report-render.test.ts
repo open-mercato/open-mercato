@@ -328,6 +328,16 @@ describe('eval report renderers', () => {
       expect(caseRows).toHaveLength(1)
     })
 
+    it('escapes HTML markup in table cells so agent output renders inert', () => {
+      expect(escapeMarkdownCell('a & b <c> &lt;')).toBe('a &amp; b &lt;c&gt; &amp;lt;')
+      const payload = '<img src=x onerror=alert(1)>'
+      const markdown = renderEvalReportMarkdown(
+        singleTrialReport({ caseOverrides: { key: 'inject', name: payload } }),
+      )
+      expect(markdown).not.toContain(payload)
+      expect(markdown).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    })
+
     it('fences evidence containing backticks with a longer fence', () => {
       const markdown = renderEvalReportMarkdown(
         singleTrialReport({

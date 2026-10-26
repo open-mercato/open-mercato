@@ -37,11 +37,20 @@ function fakeEventArgs(entityName = 'SomeEntity'): EventArgs<unknown> {
 
 type EntityClass = abstract new (...args: never[]) => object
 
-function entityEventArgs(entityClass: EntityClass): EventArgs<unknown> {
+function entityEventArgs(entityClass: EntityClass, changedFields?: Record<string, unknown>): EventArgs<unknown> {
   return {
     entity: Object.create(entityClass.prototype),
     meta: { className: entityClass.name, class: entityClass },
+    ...(changedFields ? { changeSet: { payload: changedFields } } : {}),
   } as unknown as EventArgs<unknown>
+}
+
+const TRACE_RUN_UPDATE = {
+  inputTokens: 70,
+  outputTokens: 20,
+  latencyMs: 120,
+  model: 'test-model',
+  updatedAt: new Date(),
 }
 
 const RUNTIME_AUDIT_CLASSES: EntityClass[] = [
@@ -54,6 +63,8 @@ const RUNTIME_AUDIT_CLASSES: EntityClass[] = [
   AgentRunSession,
   AgentRun,
 ]
+
+const NON_RUN_RUNTIME_AUDIT_CLASSES = RUNTIME_AUDIT_CLASSES.filter((entityClass) => entityClass !== AgentRun)
 
 /**
  * Release-gate test (Wave 4 Phase 3, layer B-a) — backstops the no-bypass
@@ -158,13 +169,50 @@ describe('agent no-bypass enforcement (three-layer)', () => {
       expect(isRuntimeAuditEntity(fakeEventArgs('SalesOrder'))).toBe(false)
     })
 
+    it('does not match allowlisted entities by className alone', () => {
+      expect(isRuntimeAuditEntity(fakeEventArgs('AgentSpan'))).toBe(false)
+      expect(isRuntimeAuditEntity(fakeEventArgs('AgentRun'))).toBe(false)
+    })
+
     it('lets allowlisted create/update/delete pass inside the scope under an agent actor', async () => {
       await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
         await withRuntimeAuditWrite(async () => {
-          for (const entityClass of RUNTIME_AUDIT_CLASSES) {
+          for (const entityClass of NON_RUN_RUNTIME_AUDIT_CLASSES) {
             expect(() => subscriber.beforeCreate(entityEventArgs(entityClass))).not.toThrow()
             expect(() => subscriber.beforeUpdate(entityEventArgs(entityClass))).not.toThrow()
             expect(() => subscriber.beforeDelete(entityEventArgs(entityClass))).not.toThrow()
+          }
+        })
+      })
+    })
+
+    it('lets an AgentRun update touching only trace/usage/eval fields pass inside the scope', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))).not.toThrow()
+          const costAndEval = {
+            costMinor: 12,
+            currency: 'USD',
+            evalScore: 1,
+            evalPassed: true,
+            goldenCaseId: null,
+            goldenPassed: null,
+          }
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun, costAndEval))).not.toThrow()
+        })
+      })
+    })
+
+    it('THROWS for an AgentRun create, delete or disposition/output update inside the scope', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          expect(() => subscriber.beforeCreate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeDelete(entityEventArgs(AgentRun))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun))).toThrow(AgentWriteBypassError)
+          for (const field of ['status', 'output', 'proposalId', 'agentId', 'confidence', 'completedAt']) {
+            expect(() =>
+              subscriber.beforeUpdate(entityEventArgs(AgentRun, { ...TRACE_RUN_UPDATE, [field]: 'tampered' })),
+            ).toThrow(AgentWriteBypassError)
           }
         })
       })
@@ -186,7 +234,7 @@ describe('agent no-bypass enforcement (three-layer)', () => {
         await withRuntimeAuditWrite(async () => {
           const flush = () => {
             subscriber.beforeCreate(entityEventArgs(AgentSpan))
-            subscriber.beforeUpdate(entityEventArgs(AgentRun))
+            subscriber.beforeUpdate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))
             subscriber.beforeCreate(fakeEventArgs('SalesOrder'))
           }
           expect(flush).toThrow(AgentWriteBypassError)
@@ -198,7 +246,7 @@ describe('agent no-bypass enforcement (three-layer)', () => {
     it('keeps allowlisted entities failing closed OUTSIDE the scope under an agent actor', async () => {
       await withAgentActor({ agentUserId: AGENT_USER }, async () => {
         expect(() => subscriber.beforeCreate(entityEventArgs(AgentSpan))).toThrow(AgentWriteBypassError)
-        expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun))).toThrow(AgentWriteBypassError)
+        expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))).toThrow(AgentWriteBypassError)
       })
     })
 

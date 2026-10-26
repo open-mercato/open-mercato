@@ -502,3 +502,6 @@ Approved for implementation once Q1–Q7 are answered and Phase 0 lands first.
 ### 2026-10-22
 - Q3 resolved: permanent delegation through `aiAgentRunDispatcher`, no interim `409 agent_runtime_owned`. Phase 1 and Phase 5 ship in the same release. `auditCorrelation` is also used by the MCP spec's approval mode (`pendingActionId`, `requestedByUserId`, `apiKeyId`).
 - Upstream verification on `main` (Phase 0): P8 is worse than stated: the pass/warn `persistVerdict` call throws for principal-bound runs, and context bundles, native traces, artifacts and run sessions are lost silently. The allowlist now names `AgentRun` and `AgentRunSession`; Phase 0 has three steps (test, scope + allowlist, wrapping).
+
+### 2026-10-26
+- Review fix: the runtime-audit allowlist admits `AgentRun` only for an UPDATE whose changed properties are all trace/usage/eval fields (`model`, `inputTokens`, `outputTokens`, `costMinor`, `currency`, `latencyMs`, `evalScore`, `evalPassed`, `goldenCaseId`, `goldenPassed`, `updatedAt`). An `AgentRun` create, delete or any change to status, output, proposal link or identity under `withRuntimeAuditWrite` still throws `AgentWriteBypassError`; those writes stay on the audited Command path. Entity matching uses only `meta.class` or the constructor reference, never `className`.

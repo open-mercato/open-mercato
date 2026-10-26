@@ -306,6 +306,20 @@ describe('post-run trace capture', () => {
     expect(failRunMock).not.toHaveBeenCalled()
   })
 
+  it('surfaces the original settle error when failRun and the trace capture also throw', async () => {
+    registerNativeAgent('native.settle_failure_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    completeRunMock.mockRejectedValue(new Error('[internal] complete run exploded'))
+    failRunMock.mockRejectedValue(new Error('[internal] fail run exploded'))
+    captureNativeRunTraceMock.mockRejectedValue(new Error('[internal] trace store down'))
+
+    const service = makeService()
+    await expect(service.run('native.settle_failure_agent', {}, runCtx)).rejects.toThrow(
+      'complete run exploded',
+    )
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+  })
+
   it('the trace is persisted BEFORE run() resolves, so the disposition cannot race it', async () => {
     registerNativeAgent('native.capture_ordering_agent')
     runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)

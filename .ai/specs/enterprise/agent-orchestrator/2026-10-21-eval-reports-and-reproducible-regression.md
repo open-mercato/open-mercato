@@ -599,3 +599,6 @@ None. One ask-first item (generated descriptor field) is open; the YAML dependen
 
 ### 2026-10-22
 - Q2 resolved: `yaml` approved as a production dependency of `@open-mercato/enterprise`. YAML eval sets ship in Phase 3 (the former Phase 3b is merged into it).
+
+### 2026-10-26
+- Review fix: `escapeMarkdownCell` also escapes `&`, `<` and `>` (in that order, before newlines become `<br>`), so agent output pasted into GitHub job summaries renders as inert text instead of markup.

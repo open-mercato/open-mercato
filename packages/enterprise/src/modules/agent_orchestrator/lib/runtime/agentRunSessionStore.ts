@@ -116,7 +116,7 @@ export class DbAgentRunSessionStore implements AgentRunSessionStore {
 
   async dispose(sessionToken: string): Promise<void> {
     const em = this.em()
-    await withRuntimeAuditWrite(() => em.nativeDelete(AgentRunSession, { sessionToken }))
+    await em.nativeDelete(AgentRunSession, { sessionToken })
   }
 }
 

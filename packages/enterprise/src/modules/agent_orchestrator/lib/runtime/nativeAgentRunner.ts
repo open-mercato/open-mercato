@@ -42,8 +42,18 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
+
+function reportSettleFailure(error: unknown, code: string, runId: string): void {
+  logger.warn('native run failure settlement step failed', {
+    runId,
+    code,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  getTelemetryRuntime()?.reportError(error, { module: 'agent_orchestrator', code, attributes: { runId } })
+}
 
 /**
  * Default token budget for a TDCR context assembly when the caller does not pass
@@ -502,8 +512,16 @@ export class NativeAgentRunner {
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
-      await captureTrace()
+      try {
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+      } catch (failRunError) {
+        reportSettleFailure(failRunError, 'agent_orchestrator.native_fail_run_failed', runId)
+      }
+      try {
+        await captureTrace()
+      } catch (captureError) {
+        reportSettleFailure(captureError, 'agent_orchestrator.native_trace_capture_failed', runId)
+      }
       throw err
     }
 
