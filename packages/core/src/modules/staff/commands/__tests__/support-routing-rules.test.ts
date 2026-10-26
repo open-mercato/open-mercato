@@ -357,6 +357,57 @@ describe('staff.support.routing_rules.update', () => {
     expect(ruleLock).toBeGreaterThan(projectLock)
   })
 
+  it('locks the requested project even when the rule already targets it', async () => {
+    const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
+    const { ctx } = repointWorld()
+    const command = await loadCommand('staff.support.routing_rules.update')
+
+    await command.execute({ id: RULE_ID, timeProjectId: PROJECT_ID }, ctx)
+
+    const transaction = mockTransactionLog.slice(mockTransactionLog.indexOf('begin'))
+    const projectLock = transaction.indexOf(`lock:StaffTimeProject:${String(LockMode.PESSIMISTIC_READ)}`)
+    const ruleLock = transaction.indexOf(`lock:StaffSupportRoutingRule:${String(LockMode.PESSIMISTIC_WRITE)}`)
+    expect(projectLock).toBe(1)
+    expect(ruleLock).toBeGreaterThan(projectLock)
+  })
+
+  it('refuses an update to the current target once that project was deleted after the first read', async () => {
+    const { tables, ctx } = repointWorld()
+    const command = await loadCommand('staff.support.routing_rules.update')
+    const em = ctx.container.resolve('em') as { findOne: jest.Mock }
+    const originalFindOne = em.findOne.getMockImplementation()
+    em.findOne.mockImplementationOnce(async (...args: unknown[]) => {
+      const found = await originalFindOne!(...args)
+      tables.StaffSupportRoutingRule[0].timeProjectId = OTHER_PROJECT_ID
+      tables.StaffTimeProject[0].deletedAt = new Date()
+      return found
+    })
+
+    const error = (await command
+      .execute({ id: RULE_ID, timeProjectId: PROJECT_ID }, ctx)
+      .then(() => null, (err: unknown) => err)) as { status?: number; body?: { code?: string } } | null
+
+    expect(error?.status).toBe(422)
+    expect(error?.body?.code).toBe('support_project_not_found')
+    expect(tables.StaffSupportRoutingRule[0].timeProjectId).toBe(OTHER_PROJECT_ID)
+  })
+
+  it('undo locks the restored project and then the live rule, even when the target is unchanged', async () => {
+    const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
+    const { tables, ctx } = repointWorld()
+    const command = await loadCommand('staff.support.routing_rules.update')
+    const before = { id: RULE_ID, tenantId: TENANT_ID, organizationId: ORG_ID, categoryValue: null, timeProjectId: PROJECT_ID, isActive: true, deletedAt: null }
+
+    await command.undo({ logEntry: { commandPayload: { undo: { before } } }, ctx })
+
+    const transaction = mockTransactionLog.slice(mockTransactionLog.indexOf('begin'))
+    const projectLock = transaction.indexOf(`lock:StaffTimeProject:${String(LockMode.PESSIMISTIC_READ)}`)
+    const ruleLock = transaction.indexOf(`lock:StaffSupportRoutingRule:${String(LockMode.PESSIMISTIC_WRITE)}`)
+    expect(projectLock).toBe(1)
+    expect(ruleLock).toBeGreaterThan(projectLock)
+    expect(tables.StaffSupportRoutingRule[0].timeProjectId).toBe(PROJECT_ID)
+  })
+
   it('refuses to repoint at a project a concurrent undo deleted, leaving the rule untouched', async () => {
     const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
     const { tables, ctx } = repointWorld()

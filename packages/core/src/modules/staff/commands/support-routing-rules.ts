@@ -118,12 +118,14 @@ async function requireRoutableProject(
   timeProjectId: string,
   scope: { tenantId: string; organizationId: string },
   translate: Translate,
+  options: { requireDefaultStatus?: boolean } = {},
 ): Promise<void> {
   const project = await lockLiveProjectForWrite(em, timeProjectId, explicitStaffCommandScope(scope.tenantId, scope.organizationId))
   if (!project) {
     const message = translate('staff.support.errors.projectNotFound', 'The selected project does not exist in this organization.')
     throw new CrudHttpError(422, { code: 'support_project_not_found', error: message, fieldErrors: { timeProjectId: message } })
   }
+  if (options.requireDefaultStatus === false) return
   const defaultStatus = await em.findOne(
     StaffTimeTaskStatus,
     { timeProjectId, tenantId: scope.tenantId, organizationId: scope.organizationId, isDefault: true, deletedAt: null },
@@ -280,8 +282,10 @@ const updateRoutingRuleCommand: CommandHandler<StaffSupportRoutingRuleUpdateInpu
       em,
       [
         async () => {
-          if (parsed.timeProjectId !== undefined && parsed.timeProjectId !== rule.timeProjectId) {
-            await requireRoutableProject(em, parsed.timeProjectId, target, translate)
+          if (parsed.timeProjectId !== undefined) {
+            await requireRoutableProject(em, parsed.timeProjectId, target, translate, {
+              requireDefaultStatus: parsed.timeProjectId !== rule.timeProjectId,
+            })
           }
           const locked = await em.findOne(
             StaffSupportRoutingRule,
@@ -331,9 +335,17 @@ const updateRoutingRuleCommand: CommandHandler<StaffSupportRoutingRuleUpdateInpu
     const rule = await em.findOne(StaffSupportRoutingRule, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!rule) return
     const { translate } = await resolveTranslations()
+    const target = { tenantId: rule.tenantId, organizationId: rule.organizationId }
     await withAtomicFlush(em, [async () => {
-      if (rule.timeProjectId === before.timeProjectId) return
-      await requireRoutableProject(em, before.timeProjectId, { tenantId: rule.tenantId, organizationId: rule.organizationId }, translate)
+      await requireRoutableProject(em, before.timeProjectId, target, translate, {
+        requireDefaultStatus: before.timeProjectId !== rule.timeProjectId,
+      })
+      const locked = await em.findOne(
+        StaffSupportRoutingRule,
+        { id: rule.id, ...target, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      )
+      if (!locked) throw notFoundError(translate)
     }, () => {
       rule.timeProjectId = before.timeProjectId
       rule.isActive = before.isActive

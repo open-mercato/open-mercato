@@ -557,6 +557,33 @@ describeWithPostgres('staff fallback-project undo against concurrent task writer
       })
     }, CASE_TIMEOUT_MS)
 
+    it('refuses an update to the current target once a concurrent repoint and undo removed that target', async () => {
+      const seed = await seedFallback()
+      const gate = createGate({ method: 'findOne', entity: 'StaffSupportRoutingRule' })
+
+      const updating = settle(handler('staff.support.routing_rules.update').execute({ id: seed.ruleId, timeProjectId: seed.projectId }, staffCtx(seed, gate)))
+      await gate.reached.promise
+      const repointed = await settle(handler('staff.support.routing_rules.update').execute(repointInput(seed), staffCtx(seed)))
+      const undone = await settle(handler('staff.support.routing_rules.create_fallback_project').undo({ logEntry: fallbackUndoEntry(seed), ctx: staffCtx(seed) }))
+      gate.release.resolve()
+      const updated = await updating
+
+      expect(repointed.ok).toBe(true)
+      expect(undone.ok).toBe(true)
+      expect(updated.ok).toBe(false)
+      if (!updated.ok) {
+        expect(updated.error.status).toBe(422)
+        expect(updated.error.body?.code).toBe('support_project_not_found')
+      }
+      expect(await readState(seed)).toEqual({
+        projectDeleted: true,
+        ruleDeleted: false,
+        ruleProjectId: seed.otherProjectId,
+        liveTasks: 0,
+        orphanedTasks: 0,
+      })
+    }, CASE_TIMEOUT_MS)
+
     it('undo holding the exclusive project lock commits first and a repoint to that project then refuses', async () => {
       const seed = await seedFallback({ ruleTargetsOtherProject: true })
       const gate = createGate({ method: 'count', entity: 'StaffTimeTask' })
