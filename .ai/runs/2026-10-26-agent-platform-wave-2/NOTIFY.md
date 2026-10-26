@@ -21,3 +21,7 @@
 ## 2026-10-26T19:22:07Z — decision: tool-loop-agent observer wiring (Step 1.3)
 - `ToolLoopAgent.prepareCall` forwards every non-callback construction setting to `streamText`/`generateText`, so `onLanguageModelCallStart/End` pass through construction settings at runtime. Wired via a local typed extension (`ToolLoopAgentSettings & Partial<ModelCallObserverHooks>`), proven by the tool-loop-agent case in `agent-runtime.call-observer.test.ts` (one start + one end per step). No synthesis from step hooks needed.
 - Finding (pre-existing, not changed): the tool-loop-agent branch never passes the composed system prompt (`instructions`) to `ToolLoopAgent`, so those turns run without a system prompt; the observer truthfully reports `system: undefined`. Needs a separate fix.
+
+## 2026-10-26T20:05:00Z — checkpoint 1 (Steps 0.1..1.5)
+- ai-assistant jest 144/144 suites, app typecheck clean, lint 0 errors. No UI touched. Plan SHAs corrected to post-amend values.
+- Subagent delegations so far: one executor per Step (0.1, 1.1–1.5), sequential.

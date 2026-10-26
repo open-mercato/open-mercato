@@ -1,25 +1,26 @@
 # Handoff — 2026-10-26-agent-platform-wave-2
 
-**Last updated:** 2026-10-26T19:30:00Z
+**Last updated:** 2026-10-26T20:05:00Z
 **Branch:** feat/agent-platform-wave-2 (stacked on feat/agent-platform-wave-1, PR #7794)
-**PR:** not yet opened
-**Current phase/step:** Phase 0 Step 0.1
-**Last commit:** run-folder commit — docs(runs): add execution plan for agent-platform-wave-2
+**PR:** not yet opened (waiting for the user to push the branch to upstream)
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** d6051d574 — feat(ai-assistant): compute the agent definition hash at registry load
 
 ## What just happened
-- Plan drafted: 29 Steps across Chat P2 + §6, Observability P0–P1, Eval P2, config/docs.
+- Phase 0 (spikes) and Phase 1 (§6 model-call contract: types, settings forwarding, observer, prompt-override metadata, definition hash) landed; checkpoint 1 green.
 
 ## Next concrete action
-- Step 0.1 — run the observability verification spikes.
+- Step 2.1 — add the agent run entities, encryption entries and migration.
 
 ## Blockers / open questions
-- Agent pushes to open-mercato/open-mercato are blocked; the user pushes with `! git -C <worktree> push upstream feat/agent-platform-wave-2`.
-- #7794 conflicts with `main` and has a failing `test` check (pagination guard) and a CodeQL alert; handled on #7794.
+- Branch not on upstream yet; the user pushes with `! git -C <worktree> push -u upstream feat/agent-platform-wave-2`. Draft PR opens after that.
+- Pre-existing `tool-loop-agent` missing-system-prompt defect: awaiting the user's choice (issue vs separate PR).
 
 ## Environment caveats
-- Dev runtime runnable: unknown
-- Browser / UI checks: AO pages cannot be exercised in the local ephemeral app (AO not registrable); ai-assistant pages can.
+- Dev runtime runnable: unknown (not needed yet)
+- Browser / UI checks: no UI touched so far
 - Database/migration state: clean (no local migrate)
+- Worktree has built packages and generated files (`yarn build:packages && yarn generate`).
 
 ## Worktree
 - Path: .ai/tmp/om-auto-create-pr-loop/agent-platform-wave-2-20261026-200528

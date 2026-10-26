@@ -16,12 +16,12 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 0 | 0.1 | Run the observability verification spikes and record the findings | dispatch | done | 8783ad9f7 |
-| 1 | 1.1 | Add the model-call contract types and settings merge | dispatch | done | db9b80ce9 |
-| 1 | 1.2 | Forward call settings to every model call branch | dispatch:capable | done | bcb09449d |
-| 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | done | 67d2de0d2 |
-| 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | 046e60c30 |
-| 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | db5846031 |
+| 0 | 0.1 | Run the observability verification spikes and record the findings | dispatch | done | 9d5d8802e |
+| 1 | 1.1 | Add the model-call contract types and settings merge | dispatch | done | b724c34af |
+| 1 | 1.2 | Forward call settings to every model call branch | dispatch:capable | done | c57d82c74 |
+| 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | done | 18b9ecad3 |
+| 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
+| 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | todo | — |
 | 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | todo | — |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | todo | — |
