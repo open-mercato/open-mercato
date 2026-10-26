@@ -10,6 +10,8 @@ import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { aiAgentCallSettingsSchema } from '../../../lib/agent-call-contract'
+import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 
 const logger = createLogger('ai_assistant')
 
@@ -43,6 +45,19 @@ const runObjectRequestSchema = z.object({
   attachmentIds: z.array(z.string()).optional(),
   pageContext: pageContextSchema.optional(),
   modelOverride: z.string().optional(),
+  callSettings: aiAgentCallSettingsSchema.optional(),
+})
+
+const runObjectResponseSchema = z.object({
+  runId: z.string().uuid(),
+  object: z.unknown(),
+  finishReason: z.string().optional(),
+  usage: z
+    .object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+    })
+    .optional(),
 })
 
 export type AiRunObjectRequest = z.infer<typeof runObjectRequestSchema>
@@ -63,14 +78,15 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: {
         contentType: 'application/json',
         description:
-          'Object-mode dispatch payload. `agent` and `messages` are required; `attachmentIds`, `pageContext`, and `modelOverride` are optional.',
+          'Object-mode dispatch payload. `agent` and `messages` are required; `attachmentIds`, `pageContext`, `modelOverride`, and `callSettings` are optional. Unknown `callSettings` keys are rejected with 400.',
         schema: runObjectRequestSchema,
       },
       responses: [
         {
           status: 200,
-          description: 'Object-mode run completed; response body contains `{ object, usage?, finishReason? }`.',
+          description: 'Object-mode run completed; response body contains `{ runId, object, usage?, finishReason? }`.',
           mediaType: 'application/json',
+          schema: runObjectResponseSchema,
         },
       ],
       errors: [
@@ -170,6 +186,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
       modelOverride: bodyResult.data.modelOverride,
+      callSettings: bodyResult.data.callSettings,
+      trace: {
+        channel: 'run-object',
+        correlationId: resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER)),
+      },
       authContext: {
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
@@ -189,6 +210,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     return NextResponse.json({
+      runId: result.runId,
       object: result.object,
       finishReason: result.finishReason,
       usage: result.usage,

@@ -25,7 +25,7 @@
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | 5ddef3b2b |
 | 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 74db02d12 |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | 69911bc81 |
-| 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | todo | — |
+| 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | done | ddc6d49d7 |
 | 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | todo | — |
 | 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | todo | — |
 | 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | todo | — |

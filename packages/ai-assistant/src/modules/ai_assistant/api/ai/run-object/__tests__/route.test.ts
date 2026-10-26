@@ -49,10 +49,12 @@ function makeTool(
   }
 }
 
-function buildRequest(body: unknown): Request {
+const RUN_ID = '0b9f8c4e-6f1a-4d55-9a3b-2c7d1e5f4a10'
+
+function buildRequest(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request('http://localhost/api/ai_assistant/ai/run-object', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
 }
@@ -79,6 +81,7 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     })
     runAiAgentObjectMock.mockResolvedValue({
       mode: 'generate',
+      runId: RUN_ID,
       object: { title: 'hello' },
       finishReason: 'stop',
       usage: { inputTokens: 10, outputTokens: 20 },
@@ -208,6 +211,7 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(response.status).toBe(200)
     const json = await response.json()
     expect(json).toEqual({
+      runId: RUN_ID,
       object: { title: 'hello' },
       finishReason: 'stop',
       usage: { inputTokens: 10, outputTokens: 20 },
@@ -224,6 +228,88 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(callArg.authContext.userId).toBe('user-1')
     expect(callArg.authContext.tenantId).toBe('tenant-1')
     expect(callArg.authContext.organizationId).toBe('org-1')
+  })
+
+  it('forwards callSettings, the run-object channel and the request correlation id', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+
+    const response = await POST(
+      buildRequest(
+        {
+          agent: 'catalog.extract',
+          messages: [{ role: 'user', content: 'hi' }],
+          callSettings: { temperature: 0.2, maxOutputTokens: 256 },
+        },
+        { 'x-correlation-id': '  req-123  ' },
+      ) as any,
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.runId).toBe(RUN_ID)
+    const callArg = runAiAgentObjectMock.mock.calls[0][0] as {
+      callSettings?: Record<string, unknown>
+      trace?: { channel?: string; correlationId?: string }
+    }
+    expect(callArg.callSettings).toEqual({ temperature: 0.2, maxOutputTokens: 256 })
+    expect(callArg.trace).toEqual({ channel: 'run-object', correlationId: 'req-123' })
+  })
+
+  it('generates a correlation id when the header is missing or oversized', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+
+    await POST(
+      buildRequest(
+        { agent: 'catalog.extract', messages: [{ role: 'user', content: 'hi' }] },
+        { 'x-correlation-id': 'x'.repeat(129) },
+      ) as any,
+    )
+
+    const callArg = runAiAgentObjectMock.mock.calls[0][0] as {
+      callSettings?: unknown
+      trace?: { channel?: string; correlationId?: string }
+    }
+    expect(callArg.callSettings).toBeUndefined()
+    expect(callArg.trace?.channel).toBe('run-object')
+    expect(callArg.trace?.correlationId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('returns 400 when callSettings contains an unknown key', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+
+    const response = await POST(
+      buildRequest({
+        agent: 'catalog.extract',
+        messages: [{ role: 'user', content: 'hi' }],
+        callSettings: { temperature: 0.2, unknownKnob: true },
+      }) as any,
+    )
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json.code).toBe('validation_error')
+    expect(runAiAgentObjectMock).not.toHaveBeenCalled()
   })
 
   it('returns 422 when the helper resolves to stream mode', async () => {
