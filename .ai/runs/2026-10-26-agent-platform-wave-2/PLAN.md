@@ -16,7 +16,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 0 | 0.1 | Run the observability verification spikes and record the findings | dispatch | todo | — |
+| 0 | 0.1 | Run the observability verification spikes and record the findings | dispatch | done | 8783ad9f7 |
 | 1 | 1.1 | Add the model-call contract types and settings merge | dispatch | todo | — |
 | 1 | 1.2 | Forward call settings to every model call branch | dispatch:capable | todo | — |
 | 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | todo | — |
