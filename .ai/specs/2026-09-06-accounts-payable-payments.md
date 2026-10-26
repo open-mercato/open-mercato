@@ -657,9 +657,10 @@ async seedDefaults({ em, tenantId, organizationId }) {
   from GL's consistency rule), rate `paymentRate`, base amount `amount` ×
   (`paymentRate` − `invoiceRateBooked`) rounded, a credit when `paymentRate`
   is higher (the payment entry debited the liability by more than it was
-  booked at) and a debit when lower, and one line on the module's
-  `gainLossAccountId` carrying the net on the opposite side (a loss when the
-  payment cost more złoty than the invoice was booked at). This is the
+  booked at) and a debit when lower, and on the opposite side the realized
+  accounts: the losses (the payment cost more złoty than the invoice was
+  booked at) summed in one debit line on `realizedFxLossAccountId`, the gains summed in one credit
+  line on `realizedFxGainAccountId`, never netted against each other (⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)). This is the
   sales-side posting with the sides reversed. An invoice whose stored
   `exchangeRate` is `null` (not yet backfilled) rejects the send with `422
   INVOICE_EXCHANGE_RATE_MISSING`, nothing posted. The difference entry's id is
@@ -668,7 +669,7 @@ async seedDefaults({ em, tenantId, organizationId }) {
   not at all. Worked check: invoice EUR 1,000 booked at 4.30 (4,300 PLN), sent
   with `paymentRate` 4.35: payment entry DR liability EUR 1,000 = 4,350, CR
   cash EUR 1,000 = 4,350; difference entry: credit liability 50
-  (`amountCurrency` 0), debit loss 50. **Cash account in another currency (decided by the team 2026-10-23 on the controller's e-mail of the same day, which describes a payment from an account in another currency as one entry with lines in different currencies balancing in the base currency; not yet reviewed by a maintainer).** The cash account (`defaultCashAccountId`) may carry its own currency (`LedgerAccount.currencyId`); the cash line is then posted in that currency, never in the batch's: `amountCurrency` = `cashAmount`, rate `cashRate`, base = `cashAmount` x `cashRate` rounded half up. `cashRate` is the cash currency's rate to the base currency (optional override on send; else the NBP Table A rate of the last day published before `sentOn`; `1` for a base-currency account; equal to `paymentRate` when the cash currency is the batch's currency). `cashAmount` is the amount the bank debits in the cash account's currency (optional input, for when the clerk knows it from the bank's confirmation of the conversion; else the batch total x `paymentRate` / `cashRate`, rounded to the currency's decimals; equal to the batch total when the currencies are the same). The entry balances in the base currency only; when the base total of the liability debits and the base amount of the cash line differ (rounding, or an explicit `cashAmount`), one ordinary base-currency line (rate `1`) on `gainLossAccountId` takes the difference on the side that balances, the conversion difference of two currencies, as in the Cash & Bank spec. Worked check: EUR 1,000 invoice booked at 4.30, sent with `paymentRate` 4.35 from a PLN account (`cashRate` 1, `cashAmount` 4,350): DR liability EUR 1,000 = 4,350, CR cash PLN 4,350, no conversion line; difference entry as above. If the bank in fact debits another amount, the statement line shows `amountMismatch` when matched in Cash & Bank; posting the correction for a cross-currency payment is not done here (a named Phase 1 gap, no posting is invented for it). **Until the lots of the Cash & Bank spec exist, a foreign-currency cash account is credited at `cashRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; with the lots, matching the statement line posts a cost adjustment entry there and this module's entry stays as it is.** The valuation read contract above is unchanged: the difference entry's lines carry `amountCurrency = 0`, so they change no open currency amount. The
+  (`amountCurrency` 0), debit `realizedFxLossAccountId` 50. **Cash account in another currency (decided by the team 2026-10-23 on the controller's e-mail of the same day, which describes a payment from an account in another currency as one entry with lines in different currencies balancing in the base currency; not yet reviewed by a maintainer).** The cash account (`defaultCashAccountId`) may carry its own currency (`LedgerAccount.currencyId`); the cash line is then posted in that currency, never in the batch's: `amountCurrency` = `cashAmount`, rate `cashRate`, base = `cashAmount` x `cashRate` rounded half up. `cashRate` is the cash currency's rate to the base currency (optional override on send; else the NBP Table A rate of the last day published before `sentOn`; `1` for a base-currency account; equal to `paymentRate` when the cash currency is the batch's currency). `cashAmount` is the amount the bank debits in the cash account's currency (optional input, for when the clerk knows it from the bank's confirmation of the conversion; else the batch total x `paymentRate` / `cashRate`, rounded to the currency's decimals; equal to the batch total when the currencies are the same). The entry balances in the base currency only; when the base total of the liability debits and the base amount of the cash line differ (rounding, or an explicit `cashAmount`), one ordinary base-currency line (rate `1`) takes the difference on the side that balances: on `realizedFxGainAccountId` when it is a credit, on `realizedFxLossAccountId` when it is a debit, the conversion difference of two currencies, as in the Cash & Bank spec. Worked check: EUR 1,000 invoice booked at 4.30, sent with `paymentRate` 4.35 from a PLN account (`cashRate` 1, `cashAmount` 4,350): DR liability EUR 1,000 = 4,350, CR cash PLN 4,350, no conversion line; difference entry as above. If the bank in fact debits another amount, the statement line shows `amountMismatch` when matched in Cash & Bank; posting the correction for a cross-currency payment is not done here (a named Phase 1 gap, no posting is invented for it). **Until the lots of the Cash & Bank spec exist, a foreign-currency cash account is credited at `cashRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; with the lots, matching the statement line posts a cost adjustment entry there and this module's entry stays as it is.** The valuation read contract above is unchanged: the difference entry's lines carry `amountCurrency = 0`, so they change no open currency amount. The
   valuation read contract above is unchanged: the difference entry's lines
   carry `amountCurrency = 0`, so they change no open currency amount.
 - `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
@@ -841,12 +842,20 @@ quickly exclude invoices attached to any batch whose status isn't
   code — this is a temporary fallback, to be removed once a real
   bank-account-to-ledger-account mapping exists). Owned by this
   document, set in its config UI.
-- `accounts_payable_payments.gainLossAccountId` (added 2026-10-23) — the
-  account that takes the realized exchange difference of the difference entry
-  (the payables counterpart of the sales side's `gainLossAccountId` in Cash &
-  Bank). Owned by this document, set in its config UI; `markPaymentBatchSent`
-  rejects a foreign-currency send with a readable configuration error while it
-  is unset.
+- `accounts_payable_payments.realizedFxGainAccountId` and
+  `accounts_payable_payments.realizedFxLossAccountId` (2026-10-26, replacing
+  the single netted `gainLossAccountId` of 2026-10-23; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)) — the accounts
+  that take the realized exchange differences: a credit (gain) goes to the gain
+  account (financial income), a debit (loss) to the loss account (financial
+  costs); gains and losses are never netted into one line. The payables
+  counterpart of the same pair in Cash & Bank. Basis: art. 30 ust. 4 UoR
+  (exchange differences, including those arising on payment of receivables and
+  payables, go respectively to financial income or financial costs; checked
+  against the consolidated text, `2026-09-17-multi-currency.md`, changelog
+  2026-10-12) and the controller's answer of 2026-10-23 (separate
+  sub-accounts). Owned by this document, set in its config UI;
+  `markPaymentBatchSent` rejects a foreign-currency send with a readable
+  configuration error while either is unset.
 - **`accounts_payable.liabilityAccountId` — read, not owned.** The
   vendor liability account, used as the DR in `markPaymentBatchSent`.
   Set in the sibling document's config UI; this module reads it
@@ -1061,16 +1070,17 @@ through the module configuration screen.
 - Foreign-currency send (added 2026-10-23): an EUR batch with one invoice
   of EUR 1,000 booked at 4.30 and `paymentRate` 4.35 posts a payment entry
   (DR liability EUR 1,000 = 4,350, CR cash EUR 1,000 = 4,350) and a difference
-  entry (credit liability 50 with `amountCurrency` 0, debit `gainLossAccountId`
+  entry (credit liability 50 with `amountCurrency` 0, debit `realizedFxLossAccountId`
   50); both balance; `fxDifferenceJournalEntryId` and `paymentRate` are stored.
   A lower `paymentRate` swaps the sides. A batch whose invoices were all booked
   at the payment rate posts no difference entry. Two invoices at different
-  booking rates post one difference entry with a liability line each and one
-  net line on `gainLossAccountId`. Without `paymentRate` the rate is read with
+  booking rates, one paid above and one below its booking rate, post one
+  difference entry with a liability line each, one debit line on `realizedFxLossAccountId` and one
+  credit line on `realizedFxGainAccountId` (not netted). Without `paymentRate` the rate is read with
   `source: 'NBP_A'` for the day before `sentOn`; with none available the send
   is `422 EXCHANGE_RATE_REQUIRED` and posts nothing; an invoice with a `null`
   `exchangeRate` is `422 INVOICE_EXCHANGE_RATE_MISSING`; a PLN cash account
-  paying the EUR batch posts a cash line in PLN (`cashAmount` 4,350 at `cashRate` 1) and no conversion line, and an explicit `cashAmount` 4,360 adds a base-currency line of 10 on `gainLossAccountId`; a repeated send is a
+  paying the EUR batch posts a cash line in PLN (`cashAmount` 4,350 at `cashRate` 1) and no conversion line, and an explicit `cashAmount` 4,360 adds a base-currency debit line of 10 on `realizedFxLossAccountId`; a repeated send is a
   no-op and posts neither entry again.
 - Same-day re-check at send (added 2026-10-20), acceptance:
   - confirmed and sent on the same Warsaw calendar day → no second
@@ -1125,7 +1135,7 @@ Added 2026-10-20, for the same-day re-check at `markPaymentBatchSent`
   change the outcome; the registry makes no Ministry call.
 - **Payment rate differs from the booking rate (added 2026-10-23).** The
   payment entry clears the liability at the payment rate and the difference
-  entry moves the remainder to `gainLossAccountId`; a base-currency batch has
+  entry moves the remainder to `realizedFxGainAccountId` (credit) or `realizedFxLossAccountId` (debit); a base-currency batch has
   neither a rate nor a difference entry. The difference entry is posted in the
   same transaction as the payment entry, never alone.
 - **Retry of a send.** A batch already `SENT` returns the existing
@@ -1633,3 +1643,8 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
 ### 2026-10-23 (cont. — controller's answer on the outflow of currency)
 
 - **Decided by the team** (not yet reviewed by a maintainer): the target is FIFO lot cost on the cash line of a foreign-currency account (Cash & Bank, Out of scope); Phase 1 credits it at `cashRate` until then, with the consequence stated in Commands; matching the statement line then posts the cost adjustment in Cash & Bank.
+
+### 2026-10-26 — realized exchange differences on two accounts
+
+- `accounts_payable_payments.gainLossAccountId` is replaced by `realizedFxGainAccountId` (gain, financial income) and `realizedFxLossAccountId` (loss, financial costs). The difference entry posts the losses in one debit line on the loss account and the gains in one credit line on the gain account, never netted; the conversion line of a cash account in another currency goes to the gain account when it is a credit and to the loss account when it is a debit. Updated: `markPaymentBatchSent` (difference entry, worked check, cash account in another currency), configuration, Edge Cases and Testing. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).
+- Basis: art. 30 ust. 4 UoR (differences, also on payment of receivables and payables, go respectively to financial income or financial costs; checked against the consolidated text, `2026-09-17-multi-currency.md`, changelog 2026-10-12); the controller's answer of 2026-10-23 (separate sub-accounts). Same split as Cash & Bank's realized accounts and `fx_revaluation`'s `unrealizedGainAccountId`/`unrealizedLossAccountId`.
