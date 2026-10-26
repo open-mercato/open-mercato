@@ -5,8 +5,8 @@
 ## What you're building, in one paragraph
 
 A module (`ledger`) with three things a developer touches directly: a
-**Chart of Accounts** (a hierarchy of account types, and concrete
-accounts under them), a **posting engine** (`JournalEntry` +
+**Chart of Accounts** (account groups, account types and concrete
+accounts, a flat list in this phase: no parent type, no parent account), a **posting engine** (`JournalEntry` +
 `JournalEntryLine`, always in balanced debit/credit pairs), and
 **fiscal periods** (a date range with an `isLocked` flag that blocks
 posting into it). Nothing else calls into `sales`, invoicing, or any
@@ -19,9 +19,9 @@ later, not built yet.
   with an `isLocked` flag; `postJournalEntry` rejects a post whose `operationDate` falls in a locked one, or in no period at all (never `postedAt`, which is server-set). User-editable, so it carries
   `updatedAt` / optimistic locking.
 - **`LedgerAccountType`** — a category (e.g. "Cash", "Revenue").
-  Hierarchical (`parentAccountTypeId`), carries `normalBalance` (`DEBIT`/`CREDIT`) and `accountGroupId` — both locked once any account of that type has posted entries.
+  Flat (no parent type), identified by its `number`, carries `normalBalance` (`DEBIT`/`CREDIT`) and `accountGroupId` — both locked once any account of that type has posted entries.
 - **`LedgerAccountGroup`** — system reference data (the Polish zespoły 0–8), seeded per organization by `setup.ts` → `seedDefaults` (`lib/seeds.ts`); read-only API, no edit path.
-- **`LedgerAccount`** — a concrete account (e.g. "mBank — main"), belongs to one `LedgerAccountType` (immutable once the account has posted entries); optional `parentAccountId`; optional `currencyId` (set on bank accounts only).
+- **`LedgerAccount`** — a concrete account (e.g. "mBank — main"), identified by its `number`, belongs to one `LedgerAccountType` (immutable once the account has posted entries); no parent account; optional `currencyId` (set on bank accounts only).
 - **`JournalEntry`** — the header of one posted transaction: `operationDate` (required; the business date, and the date the period lock is checked against), `postedAt` (server-set), description, currency, `sequenceNumber` (per-organization, gapless), `type` (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `referenceType`/`referenceId` (empty on everything except a `REVERSAL`, where `reverseJournalEntry` sets them to `'journal_entry'` and the original's id — don't populate them from anywhere else this phase).
 - **`JournalEntryLine`** — one side of one transaction: `accountId`, `debit`, `credit` (exactly one non-zero, base currency), `amountCurrency`, `currencyId` and `exchangeRate` (the line's own currency, rate and original-currency amount).
 - **`JournalEntrySequence`** — the per-`(tenant_id, organization_id)` counter row `postJournalEntry` increments to allocate `sequenceNumber` (see "Don't use a native Postgres `SEQUENCE`" below).
@@ -54,7 +54,7 @@ Posting "paid 500 PLN for internet from company bank account":
    with inverted lines and its own `operationDate` (never the original's, or a reversal could be keyed back into the closed period it exists to get out of), linked back via `referenceType: 'journal_entry'` / `referenceId: <original id>`. A partial unique index allows only one reversal per entry, and a reversal cannot itself be reversed. The original is untouched forever.
 
 That's the whole write path. Everything else in the spec (ACL,
-optimistic locking, hierarchy) supports this, doesn't replace it.
+optimistic locking, account numbering) supports this, doesn't replace it.
 
 ## Build order
 

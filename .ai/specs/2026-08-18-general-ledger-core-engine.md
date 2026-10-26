@@ -81,8 +81,10 @@ what it asked for, just never cross-referenced until now.
 
 A new module (`ledger`) providing:
 
-1. A **Chart of Accounts**: hierarchical account types with a normal
-   balance side, and concrete accounts scoped to tenant/organization.
+1. A **Chart of Accounts**: account groups, account types with a normal
+   balance side, and concrete accounts scoped to tenant/organization, as a
+   flat list (no parent type or parent account in this phase; see Design
+   decisions).
 2. A **posting engine**: `JournalEntry` (header) +
    `JournalEntryLine[]` (debit/credit lines), enforced balanced both
    in application code and at the database level.
@@ -596,10 +598,15 @@ rule and the database enforce the same thing.
 
 **Multi-currency: every line carries its own currency, rate and original-currency amount; the entry balances in the base currency.** *(Changed 2026-10-23. The earlier text fixed one currency per entry through the header.)* A `JournalEntryLine` has `currencyId`, `exchangeRate` and `amountCurrency` next to the base-currency `debit`/`credit`, so one entry can mix currencies, for example an EUR invoice paid from a USD bank account in a PLN-based tenant. Balance validation runs only in the base-currency `debit`/`credit` columns (`SUM(debit) = SUM(credit)`), unchanged. The header's `currencyId`/`exchangeRate` stay as the currency and rate of the source document and are the default for a line that omits its own. `postJournalEntry` resolves that default **when it writes**, so a stored line never has a null currency or rate. A read-time "null means the header" rule would be wrong for a line left unset inside an entry that mixes currencies: it would be silently read as the header's currency. A base-currency line stores the base currency, rate `1` and an `amountCurrency` equal to its `debit` or `credit`. `exchangeRate` is base-currency units per one unit of the line's currency, the same direction as on the header, and is stored as given: a rate with more than 8 decimal places is rejected on posting, not rounded. `amountCurrency` stays an unsigned magnitude; the side is the `debit`/`credit` column.
 
+**How a line's currency, rate and original amount are resolved when posting (2026-10-26, as implemented in #6340, `lib/lineCurrency.ts` `resolveLineCurrency` and `commands/postJournalEntry.ts`).** The base currency is the organization's `currencies.Currency` row with `isBase = true` (not deleted); a post for an organization without one is rejected with 422 (`ledger.errors.baseCurrencyNotConfigured`) before anything is written. For each line: the currency is the line's own `currencyId`, else the header's. The rate is the line's own `exchangeRate` when given; otherwise `1` when the line's currency is the base currency; otherwise the header's `exchangeRate`, but only when the line's currency equals the header's and the header rate is not null. Every other case is rejected with 422 (`ledger.errors.lineExchangeRateMissing`): a line that sets a currency other than the header's without its own rate (no rate of another currency is ever borrowed), and a line in a foreign header currency whose header rate is null. A rate of zero or less is rejected (`lineExchangeRateNotPositive`), and so is a base-currency line with a rate other than `1` (`lineBaseCurrencyRateNotOne`). The original amount is the line's `amountCurrency` when given; for a base-currency line it defaults to its `debit` or `credit`; a foreign-currency line without one is rejected (`lineAmountCurrencyMissing`).
+
 Two consistency rules apply to every line. First, `amountCurrency × exchangeRate` matches the line's `debit` or `credit` within a tolerance. A line with `amountCurrency = 0` is exempt, because an exchange-difference line changes the base value of an open item without changing its foreign amount. Second, a line on an account that has a currency (below) carries that currency. Settlement accounts (receivables and payables) are kept in the base currency in the books but carry no `currencyId`, so lines in any currency can post to them; setting the base currency on one would reject every foreign line (controller's practice, e-mail of 2026-10-23). **Tolerance (decided by the team 2026-10-23; not yet reviewed by a controller
 or maintainer):** half the smallest unit of the base currency, that is one
 rounding of one conversion (art. 106e ust. 11 ustawy o VAT rounds to the full
-grosz, half up). A caller that converts the net, VAT and gross amounts of a
+grosz, half up). Precisely: a line passes when
+`|amountCurrency × exchangeRate − base amount| ≤ 0.5 × 10^−d`, where `d` is the
+base `Currency`'s decimal places capped at 4 (the `numeric(19,4)` scale); a
+difference of exactly half a unit passes (`isLineConsistent` in #6340). A caller that converts the net, VAT and gross amounts of a
 foreign-currency invoice line by line gets base amounts that need not add up.
 It does not widen the tolerance and does not let one line absorb the
 remainder: it adds an ordinary base-currency line for the difference on a
@@ -848,6 +855,7 @@ suite asserts against, not a workflow it walks through.
   - *Lock vs. post.* `postJournalEntry` reads the covering `FiscalPeriod` with `for share` inside the posting transaction, and `lockFiscalPeriod`/`unlockFiscalPeriod` take `for update` on the same row. A post that read `isLocked = false` therefore holds the period row until it commits, a concurrent lock waits for it, and a post that starts after the lock commits sees `isLocked = true`. This is what makes "a locked `FiscalPeriod` rejects a post" true under concurrency.
   - *Overlapping periods.* `createFiscalPeriod` takes a transaction-scoped Postgres advisory lock (`pg_advisory_xact_lock`) keyed on the tenant and organization before it runs the overlap check, so two concurrent creates for one organization serialize. The `btree_gist` exclusion constraint stays a Phase 2 backstop (Out of scope).
   - *Double reversal.* A partial unique index on the reversal link (see Migration) makes "one reversal per entry" a database rule. The read-before-write check remains as the friendly error path; a concurrent second reversal fails at the index and the command translates it into the same readable error.
+  - *Account change or delete vs. post* (added 2026-10-26). `postJournalEntry` takes `for share` on every account it posts to, in id order, and holds it until it commits. `updateLedgerAccount` and `deleteLedgerAccount` take `for update` on the account row, and `updateLedgerAccountType` on the type row and, when it changes `number`, `normalBalance` or `accountGroupId`, on its accounts in id order, before they check for posted entries, so the check sees only committed lines and the change waits for an in-flight post. Covered on a real database for the update half by integration test `TC-GL-006`; delete vs. post is tracked in [#7207](https://github.com/open-mercato/open-mercato/issues/7207).
 
 ## Architecture
 
@@ -1516,12 +1524,14 @@ Queries / API).
   assert they receive different, consecutive `sequenceNumber` values
   with no gap or collision; assert a failed post (e.g. unbalanced)
   does not consume a `sequenceNumber`.
+  *Deferred (2026-10-26)*, for the same reasons as lock vs. post below: `postJournalEntry` has no HTTP route in Phase 1 and the fake `EntityManager` cannot show two transactions contending for one row. Until then the guarantee rests on the database: the number comes from one statement on the per-organization counter row (`insert into journal_entry_sequences … on conflict (organization_id, tenant_id) do update set next_value = next_value + 1 returning …`, unique key `journal_entry_sequences_scope_unique`), run on the posting transaction, so the row stays locked until the post commits and a rollback returns the number; the unique constraint `journal_entries_sequence_unique (tenant_id, organization_id, sequence_number)` is the backstop. The sequential cases (failed post does not consume a number, per-organization series) are covered by unit tests. Tracked in [#7207](https://github.com/open-mercato/open-mercato/issues/7207).
 - Lock vs. post: hold a post open inside its transaction after it read the covering period, start `lockFiscalPeriod` for that period and assert the lock waits for the post to commit; assert a post started after the lock committed is rejected as a locked period.
-  *Deferred (2026-10-11).* `postJournalEntry` has no HTTP route in Phase 1, so a Playwright API test cannot drive it, and this module's Jest suite uses a fake `EntityManager` that cannot show that a row lock makes one transaction wait for another. A real test needs a Jest suite against a real Postgres, which is a new test-infrastructure decision for OM Core and must be on record before it ships. Until then the rule rests on the database (`for share` on the period in the post, `for update` in lock/unlock) and the sequential locked-period rejection is covered by unit tests. Revisit when posting has a caller.
+  *Deferred (2026-10-11).* `postJournalEntry` has no HTTP route in Phase 1, so a Playwright API test cannot drive it, and this module's Jest suite uses a fake `EntityManager` that cannot show that a row lock makes one transaction wait for another. A real test needs a Jest suite against a real Postgres, which is a new test-infrastructure decision for OM Core and must be on record before it ships. Until then the rule rests on the database (`for share` on the period in the post, `for update` in lock/unlock) and the sequential locked-period rejection is covered by unit tests. Revisit when posting has a caller. Tracked in [#7207](https://github.com/open-mercato/open-mercato/issues/7207).
 - Create two overlapping `FiscalPeriod` rows concurrently for one organization and assert exactly one succeeds and the other is rejected as an overlap.
   *Covered by integration test `TC-GL-004`* (two concurrent overlapping `POST /api/ledger/fiscal-periods` against the real database: one `201`, one `409`, repeated over three disjoint ranges), and sequential rejection of identical, contained, enclosing and boundary-sharing ranges by the Jest suite and the same integration test.
 - Reverse the same entry twice concurrently and assert exactly one `REVERSAL` row exists and the second call fails with the readable "already reversed" error.
-  *Deferred (2026-10-11)*, for the same two reasons as lock vs. post: `reverseJournalEntry` has no HTTP route in Phase 1 and the fake `EntityManager` cannot enforce a unique index. The rule rests on the partial unique index `journal_entries_single_reversal_idx`; the sequential "already reversed" path is covered by unit and BDD tests.
+  *Deferred (2026-10-11)*, for the same two reasons as lock vs. post: `reverseJournalEntry` has no HTTP route in Phase 1 and the fake `EntityManager` cannot enforce a unique index. The rule rests on the partial unique index `journal_entries_single_reversal_idx`; the sequential "already reversed" path is covered by unit and BDD tests. Tracked in [#7207](https://github.com/open-mercato/open-mercato/issues/7207).
+- Line currency resolution rejections (added 2026-10-26; one assertion each, nothing written): a line with `currencyId` EUR and no `exchangeRate` under a USD header is rejected (`lineExchangeRateMissing`), and is not given the header's rate; a line that omits its currency under a foreign header whose `exchangeRate` is null is rejected (`lineExchangeRateMissing`); a post for an organization with no base currency is rejected (`baseCurrencyNotConfigured`); a rate of `0` is rejected (`lineExchangeRateNotPositive`); a base-currency line with a rate other than `1` is rejected (`lineBaseCurrencyRateNotOne`); a foreign-currency line without `amountCurrency` is rejected (`lineAmountCurrencyMissing`); a line whose currency differs from its account's `currencyId` is rejected (`lineCurrencyDiffersFromAccount`). Tolerance edge: with a base currency of 2 decimal places, a difference of exactly 0.005 passes and 0.0051 is rejected (`lineAmountInconsistent`).
 - Post entries for two different organizations under the same tenant
   and assert their `sequenceNumber` series are independent — each
   organization starts at 1 and neither organization's postings advance
@@ -2891,7 +2901,12 @@ code. Not yet reviewed by a maintainer.
   once every caller sets them on the lines. Where realized exchange
   differences are booked at settlement: the controller says usually a separate
   entry, while `2026-09-10-cash-bank-management.md` books the gain or loss in the
-  payment's own entry.
+  payment's own entry. *(Updated 2026-10-26: decided in the sibling specs, not
+  here. `2026-09-10-cash-bank-management.md` and
+  `2026-09-06-accounts-payable-payments.md` own it and post realized
+  differences to two accounts, `realizedFxGainAccountId` and
+  `realizedFxLossAccountId` (team decision of 2026-10-26, not yet reviewed by a
+  maintainer); the ledger only accepts the lines they post.)*
 - **Siblings aligned in the same round.** Journal Entry Line Dimension (currency
   is a line column, not a dimension), Posting Rules Engine (copies currency,
   rate and amount from the source line), Multi-Currency, Cash & Bank
@@ -2909,3 +2924,13 @@ code. Not yet reviewed by a maintainer.
 - **Settlement accounts carry no `currencyId`.** Setting the base currency on
   one would reject every foreign line.
 - Not yet reviewed by a maintainer.
+
+### 2026-10-26 — review of 2026-10-26 (@wojciechszyjka) addressed
+
+- **M1.** Implementation guide and Overview describe the flat chart (groups, types, accounts; no `parentAccountTypeId`/`parentAccountId`), as in the code of #6340.
+- **M2.** The concurrent `sequenceNumber` test is marked *Deferred* with the guarantee it rests on (counter-row upsert on the posting transaction, `journal_entry_sequences_scope_unique`, backstop `journal_entries_sequence_unique`).
+- **M3.** Every *Deferred* note links #7207.
+- **N2.** The write-time resolution of a line's currency, rate and original amount is stated as implemented (`resolveLineCurrency`): a rate is borrowed from the header only for a line in the header's currency with a non-null header rate, everything else without a rate is rejected; the base currency is the organization's `Currency` with `isBase = true`, and a post without one is rejected. Rejection tests added to Testing Strategy.
+- **Nits.** Tolerance pinned (`≤ 0.5 × 10^−d`, `d` = base decimal places capped at 4); the serialized-invariants list gains account change/delete vs. post (TC-GL-006, #7207).
+- **Direction question.** Realized exchange differences are owned by Cash & Bank and Accounts Payable payments (two accounts, 2026-10-26); the ledger only accepts the lines.
+- N1 (personal data) is handled in a separate commit.
