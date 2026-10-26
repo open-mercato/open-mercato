@@ -3121,6 +3121,6 @@ design change.
 - **Decided by the team** (not yet reviewed by a maintainer): the capitalization entry of a foreign-currency asset is posted with the asset's currency and booking-day rate on both lines; depreciation, impairment and disposal post in the base currency. A base-currency asset is unchanged.
 - **⚠ Open:** the base-value column and the schedule's currency in the data model are not yet rewritten; the question for the maintainers is whether a foreign-currency asset is in scope for Phase 1 at all.
 
-### 2026-10-26 (cont. — basis of "a fixed asset is not a monetary item")
+### 2026-10-26 — basis of "a fixed asset is not a monetary item"
 
 - The sentence in Design Decisions → Currency of the ledger lines now cites art. 28 ust. 1 pkt 1 UoR (fixed assets at purchase price or production cost, or revalued value, less depreciation and impairment) from the consolidated text Dz.U. 2026 poz. 522 as the basis of the team decision. The ⚠ stays only on what the text does not settle: art. 30 ust. 1 pkt 1 does not say whether an asset carried at cost counts as an asset "wyrażony w walucie obcej", and it does not use the term "aktywa pieniężne" (art. 3 ust. 1 pkt 25). Decided by the team, not yet reviewed by a maintainer.
