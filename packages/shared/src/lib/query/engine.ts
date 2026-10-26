@@ -20,13 +20,16 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { buildContainmentPatterns } from '../search/containment'
 import { fieldNameCandidates } from './encrypted-sort'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
   buildCustomFieldDefinitionIndexFromRows,
+  normalizeDefinitionKey,
   resolveCfDefIndexOrgCandidates,
   type CustomFieldDefinitionRow,
+  type CustomFieldDefinitionSummary,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
 import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
@@ -35,6 +38,13 @@ import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
+import {
+  buildArrayColumnNoOverlapPredicate,
+  buildArrayColumnOverlapPredicate,
+  buildJsonbNoOverlapPredicate,
+  buildJsonbOverlapPredicate,
+  buildScalarOverlapPredicate,
+} from './overlap'
 
 const logger = createLogger('shared').child({ component: 'query' })
 
@@ -60,9 +70,10 @@ export function isEncryptedLikeField(encrypted: ReadonlySet<string>, field: stri
   return fieldNameCandidates(field).some((candidate) => encrypted.has(candidate))
 }
 
-// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` is an UNCACHED
-// `encryption_maps` read. Encryption maps change on deploys, not per request, so a short TTL
-// removes the per-search round-trip without meaningfully delaying a map rollout.
+// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` reads
+// `encryption_maps`. The service caches that aggregate since #5949, but this set is per-search
+// hot and also spans the name-shape expansion below, so a short TTL keeps the whole resolved
+// set out of the request path without meaningfully delaying a map rollout.
 const ENCRYPTED_LIKE_FIELDS_TTL_MS = 60_000
 const ENCRYPTED_LIKE_FIELDS_CACHE_CAP = 500
 const encryptedLikeFieldsCache = new Map<string, { at: number; fields: Set<string> }>()
@@ -292,6 +303,25 @@ function buildFilterableCustomFieldJoins(
   })
 }
 
+/** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
+const NUMERIC_CF_SORT_KINDS = new Set(['integer', 'float'])
+
+/**
+ * Pick the winning `kind` for a `cf:` sort key from an already-resolved
+ * definition list — org-scoped beats tenant-wide beats global, same
+ * precedence as the dedicated sort-kind lookup (#5674 review).
+ */
+function pickCfSortKind(defs: CustomFieldDefinitionSummary[] | undefined): string | null {
+  if (!defs || !defs.length) return null
+  let winner: { kind: string; specificity: number } | null = null
+  for (const def of defs) {
+    if (!def.kind) continue
+    const specificity = def.organizationId != null ? 2 : def.tenantId != null ? 1 : 0
+    if (!winner || specificity >= winner.specificity) winner = { kind: def.kind, specificity }
+  }
+  return winner?.kind ?? null
+}
+
 function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, entityIndex: number) {
   const listVisibleScore = cfg.listVisible === false ? 0 : 1
   const formEditableScore = cfg.formEditable === false ? 0 : 1
@@ -445,9 +475,9 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    // Opt-in via OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false: the pre-existing
-    // rewrite-everything behavior is kept). When enabled, base-column like/ilike is rerouted
-    // through search tokens ONLY for encrypted columns, where
+    // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false per #5383; set it to
+    // true to opt into the #5803 fix ahead of that follow-up). When enabled, base-column
+    // like/ilike is rerouted through search tokens ONLY for encrypted columns, where
     // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
     // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
     // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
@@ -455,10 +485,10 @@ export class BasicQueryEngine implements QueryEngine {
     // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while the
     // KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
     // `organizationId: null` is deliberate, not an omission: the service then unions in every
-    // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
-    // the token path -- a wider set fails safe. Passing the request's org instead would silently
-    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
-    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
+    // organization's map, so a field any org encrypts stays on the token path -- a wider set
+    // fails safe. Passing the request's org instead would silently break encrypted-column search
+    // for orgs without their own map. The service caches that union (#5949), and the TTL cache
+    // above keeps even the cache lookup off the request path. `null` means
     // the encryption service could not answer at all; keep the pre-existing rewrite-everything
     // behavior then, because guessing "plaintext" would turn encrypted-column search into an
     // ILIKE-on-ciphertext that matches nothing.
@@ -616,6 +646,27 @@ export class BasicQueryEngine implements QueryEngine {
           })
         }
       }
+      // A PLAINTEXT base column the gate above kept off the token path: apply the declared
+      // containment once per word so the token subquery's word-order-independent matching survives
+      // the reroute (#5803 / TC-RESO-009). Chained `where`s ARE the AND the token
+      // `having count(distinct)` did. `fieldName` is required, so this never fires for a JOINed
+      // column — `applyJoinFilters` calls `applyFilterOp` without it (below), and that predicate
+      // keeps its pre-existing literal-containment behavior unchanged.
+      if (
+        (op === 'like' || op === 'ilike') &&
+        typeof value === 'string' &&
+        searchActive &&
+        fieldName &&
+        encryptedLikeFields !== null &&
+        !isEncryptedLikeField(encryptedLikeFields, fieldName)
+      ) {
+        const patterns = buildContainmentPatterns(value)
+        if (patterns.length > 1) {
+          let next = builder
+          for (const pattern of patterns) next = this.applyColumnOp(next, column, op, pattern)
+          return next
+        }
+      }
       return this.applyColumnOp(builder, column, op, value)
     }
 
@@ -702,6 +753,7 @@ export class BasicQueryEngine implements QueryEngine {
       hasJoinedAggregates: boolean
       cfJsonAliases: Set<string>
       cfMultiAliasByAlias: Map<string, string>
+      cfSortAliases: string[]
       resolvedCustomFieldDefinitions: ResolvedCustomFieldDefinitions | undefined
     }
 
@@ -993,10 +1045,70 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
+      // A `cf:` sort needs to know the field's declared `kind` so the ORDER BY
+      // expression can cast numeric kinds instead of ordering by jsonb text
+      // (#5674). Org-scoped beats tenant-wide beats global for the same key —
+      // a same-key definition from an unrelated organization in the tenant
+      // never gets to decide the kind (#5674 review).
+      const cfSortKeys = Array.from(new Set(
+        resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
+      ))
+      const cfSortKinds = new Map<string, string>()
+      if (cfSortKeys.length > 0) {
+        // `includeCustomFields === true` already resolved every definition for
+        // these entities into `resolvedCustomFieldDefinitions` above — reuse it
+        // instead of a second `custom_field_defs` round trip (#5674 review).
+        const keysNeedingQuery: string[] = []
+        for (const key of cfSortKeys) {
+          const kind = resolvedCustomFieldDefinitions
+            ? pickCfSortKind(resolvedCustomFieldDefinitions.index.get(normalizeDefinitionKey(key)))
+            : null
+          if (kind) cfSortKinds.set(key, kind)
+          else keysNeedingQuery.push(key)
+        }
+        if (keysNeedingQuery.length > 0) {
+          const sortEntityIds = Array.from(new Set(
+            keysNeedingQuery
+              .map((key) => keySource.get(key)?.entityId)
+              .filter((id): id is EntityId => Boolean(id))
+              .map((id) => String(id))
+          ))
+          if (sortEntityIds.length > 0) {
+            const cfSortOrgCandidates = resolveCfDefIndexOrgCandidates(opts.organizationIds, opts.organizationId ?? null)
+            const kindRows = await db
+              .selectFrom('custom_field_defs' as any)
+              .select(['key' as any, 'kind' as any, 'organization_id' as any, 'tenant_id' as any])
+              .where('entity_id' as any, 'in', sortEntityIds)
+              .where('key' as any, 'in', keysNeedingQuery)
+              .where('is_active' as any, '=', true)
+              .where((eb: any) => eb.or([
+                eb('tenant_id' as any, '=', tenantId),
+                eb('tenant_id' as any, 'is', null),
+              ]))
+              .where((eb: any) => cfSortOrgCandidates.length
+                ? eb.or([
+                    eb('organization_id' as any, 'is', null),
+                    eb('organization_id' as any, 'in', cfSortOrgCandidates),
+                  ])
+                : eb('organization_id' as any, 'is', null))
+              .execute() as Array<{ key: string; kind: string | null; organization_id: string | null; tenant_id: string | null }>
+            const winners = new Map<string, { kind: string; specificity: number }>()
+            for (const row of kindRows) {
+              if (!row.kind) continue
+              const specificity = row.organization_id != null ? 2 : row.tenant_id != null ? 1 : 0
+              const existing = winners.get(row.key)
+              if (!existing || specificity >= existing.specificity) winners.set(row.key, { kind: row.kind, specificity })
+            }
+            for (const [key, entry] of winners) cfSortKinds.set(key, entry.kind)
+          }
+        }
+      }
+
       const cfValueExprByKey: Record<string, RawBuilder<string | null>> = {}
       const cfSelectedAliases: string[] = []
       const cfJsonAliases = new Set<string>()
       const cfMultiAliasByAlias = new Map<string, string>()
+      const cfSortAliases: string[] = []
       for (const key of cfKeys) {
         const source = keySource.get(key)
         if (!source) continue
@@ -1111,7 +1223,11 @@ export class BasicQueryEngine implements QueryEngine {
           })
           continue
         }
-        q = this.applyColumnOp(q, expr, f.op, f.value)
+        q = f.op === 'overlap'
+          ? q.where(buildScalarOverlapPredicate(expr, f.value))
+          : f.op === 'noverlap'
+            ? q.where(sql<boolean>`false`)
+            : this.applyColumnOp(q, expr, f.op, f.value)
       }
 
       // OR groups are applied here, after the cf:* value expressions exist, so a
@@ -1125,6 +1241,12 @@ export class BasicQueryEngine implements QueryEngine {
       // `ilike` through the search-token index the way the ungrouped path does. On a
       // field covered by an encryption map such a leaf therefore compares against
       // ciphertext and will not match.
+      //
+      // This also means the #5803 plaintext-containment split (lib/search/containment) does not
+      // apply here: `buildColumnOpExpression` below keeps a multi-word `like`/`ilike` leaf as one
+      // literal pattern, so an OR-grouped search (e.g. `customers/api/people`'s multi-field
+      // fallback) loses word-order independence on Basic while the Hybrid engine's OR groups
+      // apply the split. Pre-existing divergence between the two engines; not tracked by an issue.
       //
       // The count shape never populates cfValueExprByKey (it joins no cf tables), so
       // its applicability test is key resolution itself — the same condition that
@@ -1152,7 +1274,10 @@ export class BasicQueryEngine implements QueryEngine {
                     value: rf.value,
                   })
                 }
-                return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+                if (rf.op === 'noverlap') return sql<boolean>`false`
+                return rf.op === 'overlap'
+                  ? buildScalarOverlapPredicate(cfValueExprByKey[rf.key], rf.value)
+                  : this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
               }
               return this.buildIndexDocOpExpression(eb, {
                 entity: String(entity),
@@ -1199,29 +1324,56 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Sorting: base fields and cf:* (use aggregated alias for cf)
+      // Sorting: base fields and cf:* (a dedicated scalar alias, never the jsonb
+      // projection alias — ordering by `to_jsonb(...)` compares arrays after every
+      // scalar string regardless of contents, and a numeric kind must cast to
+      // numeric instead of ordering the text CASE expression lexicographically (#5674)).
+      let lastEmittedSortField: string | null = null
       for (const s of isCountProjection ? [] : resolvedSorts) {
         if (s.field.startsWith('cf:')) {
           const key = s.field.slice(3)
-          const alias = sanitize(`cf:${key}`)
-          // Ensure included in projection to sort by
-          if (!cfSelectedAliases.includes(alias)) {
-            const expr = cfValueExprByKey[key]
-            if (expr) {
-              q = q.select(sql<string | null>`max(${expr})`.as(alias))
-              cfSelectedAliases.push(alias)
+          const sortAlias = sanitize(`cf:${key}__sort`)
+          if (!cfSortAliases.includes(sortAlias)) {
+            const source = keySource.get(key)
+            const kind = cfSortKinds.get(key)
+            let sortExpr: RawBuilder<unknown> | null = null
+            if (source && kind && NUMERIC_CF_SORT_KINDS.has(kind)) {
+              const sourceAliasSafe = sanitize(source.alias || 'src')
+              const keyAliasSafe = sanitize(key)
+              const valAlias = `cfv_${sourceAliasSafe}_${keyAliasSafe}`
+              const numericColumn = kind === 'integer' ? 'value_int' : 'value_float'
+              sortExpr = sql<string | null>`max((${sql.ref(`${valAlias}.${numericColumn}`)})::numeric)`
+            } else {
+              const expr = cfValueExprByKey[key]
+              if (expr) sortExpr = sql<string | null>`max(${expr})`
+            }
+            if (sortExpr) {
+              q = q.select(sortExpr.as(sortAlias))
+              cfSortAliases.push(sortAlias)
             }
           }
-          // Only order by an alias the projection actually carries. A key that
-          // resolved to no expression is dropped rather than emitted as an
-          // unselected alias, which is what the base-column branch above already
-          // does when `resolveBaseColumn` returns null.
-          if (!requiresPlaintextSort && cfSelectedAliases.includes(alias)) {
-            q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          // Only order by an alias the query actually selects. A key that resolved
+          // to no expression is dropped rather than emitted as an unselected alias,
+          // which is what the base-column branch below already does when
+          // `resolveBaseColumn` returns null.
+          if (!requiresPlaintextSort && cfSortAliases.includes(sortAlias)) {
+            const direction = sql.raw((s.dir ?? 'asc') === 'desc' ? 'desc' : 'asc')
+            q = q.orderBy(sql`${sql.ref(sortAlias)} ${direction} NULLS LAST`)
+            lastEmittedSortField = s.field
           }
         } else {
-          if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
+          if (!requiresPlaintextSort) {
+            q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
+            lastEmittedSortField = s.field
+          }
         }
+      }
+      // Stable tiebreak so ties (or NULLs) don't reorder arbitrarily across pages
+      // (#5674). Only appended when a sort term actually made it into the ORDER
+      // BY — an entirely unresolved cf sort must stay a no-op, not gain an
+      // incidental `id` ordering the caller never asked for.
+      if (!isCountProjection && lastEmittedSortField !== null && lastEmittedSortField !== 'id') {
+        q = q.orderBy(qualify('id'), 'asc' as any)
       }
 
       // Deduplicate if we joined CFs or extensions by grouping on base id. The count
@@ -1234,7 +1386,7 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.groupBy(`${table}.id`)
       }
 
-      return { builder: q, hasJoinedAggregates, cfJsonAliases, cfMultiAliasByAlias, resolvedCustomFieldDefinitions }
+      return { builder: q, hasJoinedAggregates, cfJsonAliases, cfMultiAliasByAlias, cfSortAliases, resolvedCustomFieldDefinitions }
     }
 
     // Pagination
@@ -1246,6 +1398,7 @@ export class BasicQueryEngine implements QueryEngine {
       hasJoinedAggregates,
       cfJsonAliases,
       cfMultiAliasByAlias,
+      cfSortAliases,
       resolvedCustomFieldDefinitions,
     } = await buildQuery('full')
 
@@ -1329,6 +1482,19 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
+    // The `cf:<key>__sort` alias exists only to give a `cf:` sort's ORDER BY
+    // something to reference (and, for a numeric kind, to host the cast) — it
+    // is never a requested output field. Strip it before rows leave this
+    // function so it doesn't leak into API responses as a phantom custom field
+    // `<key>__sort` (unlike `__is_multi`, which `normalizeCfJsonAliases`
+    // already deletes) (#5674 review).
+    const stripCfSortAliases = (rows: ResultRow[]) => {
+      if (cfSortAliases.length === 0) return
+      for (const row of rows) {
+        for (const alias of cfSortAliases) delete row[alias]
+      }
+    }
+
     let pagedItems: ResultRow[]
     let encryptedSortRowCapWarning: EncryptedSortRowCapWarning | undefined
 
@@ -1371,6 +1537,7 @@ export class BasicQueryEngine implements QueryEngine {
       } else {
         const pageRows = await qFull.where(qualify('id'), 'in', pageIds).execute() as ResultRow[]
         normalizeCfJsonAliases(pageRows)
+        stripCfSortAliases(pageRows)
         const decryptedPageRows = decryptPayload
           ? await mapWithConcurrency(pageRows, DECRYPT_CONCURRENCY, decryptRow)
           : pageRows
@@ -1383,6 +1550,7 @@ export class BasicQueryEngine implements QueryEngine {
       const dataQuery = qFull.limit(pageSize).offset((page - 1) * pageSize)
       const items = await dataQuery.execute() as ResultRow[]
       normalizeCfJsonAliases(items)
+      stripCfSortAliases(items)
       pagedItems = decryptPayload
         ? await mapWithConcurrency(items, DECRYPT_CONCURRENCY, decryptRow)
         : items
@@ -1435,10 +1603,22 @@ export class BasicQueryEngine implements QueryEngine {
         return builder.where(column as any, '<', value as any)
       case 'lte':
         return builder.where(column as any, '<=', value as any)
-      case 'in':
-        return builder.where(column as any, 'in', Array.isArray(value) ? value : [value])
-      case 'nin':
-        return builder.where(column as any, 'not in', Array.isArray(value) ? value : [value])
+      case 'in': {
+        // An empty list ("no id survived validation", #7502) compiles to invalid
+        // SQL (`in ()`) under Kysely/Postgres — short-circuit to a predicate that
+        // never matches instead of letting the driver reject the query.
+        const inValues = Array.isArray(value) ? value : [value]
+        return inValues.length === 0
+          ? builder.where(sql<boolean>`false`)
+          : builder.where(column as any, 'in', inValues)
+      }
+      case 'nin': {
+        // Mirrors 'in' above: empty means "exclude nothing".
+        const ninValues = Array.isArray(value) ? value : [value]
+        return ninValues.length === 0
+          ? builder.where(sql<boolean>`true`)
+          : builder.where(column as any, 'not in', ninValues)
+      }
       case 'like':
         return builder.where(column as any, 'like', value as any)
       case 'ilike':
@@ -1447,6 +1627,10 @@ export class BasicQueryEngine implements QueryEngine {
         return value
           ? builder.where(column as any, 'is not', null)
           : builder.where(column as any, 'is', null)
+      case 'overlap':
+        return builder.where(buildArrayColumnOverlapPredicate(column, value))
+      case 'noverlap':
+        return builder.where(buildArrayColumnNoOverlapPredicate(column, value))
       default:
         return builder
     }
@@ -1580,6 +1764,11 @@ export class BasicQueryEngine implements QueryEngine {
       case 'exists':
         predicate = sql<boolean>`${caseExpr} is not null`
         break
+      case 'overlap':
+        predicate = buildScalarOverlapPredicate(caseExpr, value)
+        break
+      case 'noverlap':
+        return sql<boolean>`false`
       default:
         // Mirrors buildColumnOpExpression's unknown-op fallback: a neutral
         // predicate, so full and count shapes drop the same leaves.
@@ -1597,11 +1786,20 @@ export class BasicQueryEngine implements QueryEngine {
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
       case 'lte': return eb(column, '<=', value)
-      case 'in': return eb(column, 'in', Array.isArray(value) ? value : [value])
-      case 'nin': return eb(column, 'not in', Array.isArray(value) ? value : [value])
+      case 'in': {
+        // Mirrors the guard in applyColumnOp above (#7502).
+        const inValues = Array.isArray(value) ? value : [value]
+        return inValues.length === 0 ? eb.val(false) : eb(column, 'in', inValues)
+      }
+      case 'nin': {
+        const ninValues = Array.isArray(value) ? value : [value]
+        return ninValues.length === 0 ? eb.val(true) : eb(column, 'not in', ninValues)
+      }
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
       case 'exists': return value ? eb(column, 'is not', null) : eb(column, 'is', null)
+      case 'overlap': return buildArrayColumnOverlapPredicate(column, value)
+      case 'noverlap': return buildArrayColumnNoOverlapPredicate(column, value)
       default: return eb.val(true)
     }
   }
@@ -1818,6 +2016,12 @@ export class BasicQueryEngine implements QueryEngine {
           sub = opts.value
             ? sub.where(sql<boolean>`${textExpr} is not null`)
             : sub.where(sql<boolean>`${textExpr} is null`)
+          break
+        case 'overlap':
+          sub = sub.where(buildJsonbOverlapPredicate(`${alias}.doc`, opts.field, opts.value))
+          break
+        case 'noverlap':
+          sub = sub.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, opts.field, opts.value))
           break
         default:
           break

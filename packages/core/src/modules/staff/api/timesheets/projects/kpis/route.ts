@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -15,6 +16,10 @@ import {
   computePmProjectsKpis,
 } from '../../../../lib/timesheets-projects/computeProjectsKpis'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -69,12 +74,21 @@ export async function GET(req: Request) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = scope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
     if (!tenantId || !organizationId) {
       throw new CrudHttpError(400, {
         error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.'),
       })
     }
+
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
 
     const em = container.resolve('em') as EntityManager
     const rbac = container.resolve('rbacService') as RbacService
@@ -98,7 +112,7 @@ export async function GET(req: Request) {
         organizationId,
         callerStaffMemberId: staffMember?.id ?? null,
       })
-      return NextResponse.json(result, { status: 200 })
+      return session.respond(200, result)
     }
 
     if (!staffMember) {
@@ -116,7 +130,7 @@ export async function GET(req: Request) {
       organizationId,
       staffMemberId: staffMember.id,
     })
-    return NextResponse.json(result, { status: 200 })
+    return session.respond(200, result)
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

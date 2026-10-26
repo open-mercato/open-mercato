@@ -2,6 +2,7 @@
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
 import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
+import { isProductionBuildPhase, startModuleRuntimes } from './lib/module-runtimes'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -44,6 +45,7 @@ import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-g
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
+import { buildNextDevArgs } from './lib/next-dev-bundler'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -265,7 +267,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 
     console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
     try {
-      await adminClient.query(`CREATE DATABASE "${dbName.replace(/"/g, '')}"`)
+      await adminClient.query(`CREATE DATABASE ${quotePostgresIdentifier(dbName)}`)
       console.log(`   Database "${dbName}" created successfully.`)
       return true
     } catch (createError: unknown) {
@@ -325,7 +327,11 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
         fs.copyFileSync(examplePath, envPath)
-        console.log(`📋 Copied .env.example → .env (edit ${envPath} to customize)`)
+        console.log('')
+        console.log('⚠️  No .env was found, so one was created from .env.example.')
+        console.log(`   ${envPath}`)
+        console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
+        console.log('')
       }
     }
     if (fs.existsSync(envPath)) {
@@ -788,6 +794,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     generateModuleDi,
     generateModulePackageSources,
     generateOpenApi,
+    generateWebResearchAdapters,
   } = await import('./lib/generators')
   const resolver = createResolver()
   const results = [
@@ -796,6 +803,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     await generateModuleEntities({ resolver, quiet }),
     await generateModuleDi({ resolver, quiet }),
     await generateModulePackageSources({ resolver, quiet }),
+    await generateWebResearchAdapters({ resolver, quiet }),
     await generateOpenApi({ resolver, quiet }),
   ]
   return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
@@ -821,7 +829,7 @@ async function createGenerateWatchRuntime(quiet = false) {
   const [
     { createResolver },
     { calculateGenerateWatchStructureChecksum },
-    { createGenerateWatchChangeSignal },
+    { createGenerateWatchChangeSignal, resolveGenerateWatchTargets },
     { resolveStandaloneSourceMirrorBase },
   ] = await Promise.all([
     import('./lib/resolver'),
@@ -832,10 +840,18 @@ async function createGenerateWatchRuntime(quiet = false) {
 
   const collectWatchState = () => {
     const resolver = createResolver()
-    const moduleRoots = []
+    const moduleRoots: Array<{
+      appBase: string
+      pkgBase: string
+      watchPackageBase: boolean
+    }> = []
+    const watchAppPackageFallbacks = resolver.isMonorepo()
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
-      moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
+      moduleRoots.push({
+        ...roots,
+        watchPackageBase: entry.from !== '@app' || watchAppPackageFallbacks,
+      })
     }
     return {
       modulesFile: resolver.getModulesConfigPath(),
@@ -853,20 +869,11 @@ async function createGenerateWatchRuntime(quiet = false) {
         : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
       getWatchTargets: () => {
         const state = collectWatchState()
-        const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
-          directory: path.dirname(state.modulesFile),
-          recursive: false,
-          fileName: path.basename(state.modulesFile),
-        }]
-        for (const roots of state.moduleRoots) {
-          targets.push({ directory: path.dirname(roots.appBase), recursive: true })
-          targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
-          const sourceMirror = resolveStandaloneSourceMirrorBase(roots.pkgBase)
-          if (sourceMirror) {
-            targets.push({ directory: path.dirname(sourceMirror), recursive: true })
-          }
-        }
-        return targets
+        return resolveGenerateWatchTargets({
+          modulesFile: state.modulesFile,
+          moduleRoots: state.moduleRoots,
+          resolveSourceMirrorBase: resolveStandaloneSourceMirrorBase,
+        })
       },
     }),
   }
@@ -891,14 +898,67 @@ async function buildAllModules(): Promise<Module[]> {
   return all
 }
 
+export function isHelpRequest(args: string[]): boolean {
+  return args.some((arg) => arg === '--help' || arg === '-h')
+}
+
+// Top-level commands that return before the module dispatcher and therefore never reach its
+// generic help branch. Without an entry here, `mercato init --help` runs a full install.
+const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
+  init: [
+    'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
+    'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
+  ],
+  'agentic:init': [
+    'Usage: mercato agentic:init [--force]',
+    'Scaffolds the agentic harness (AGENTS.md, .ai/ config and skills) into this app.',
+  ],
+  'seed:defaults': [
+    'Usage: mercato seed:defaults [--module <moduleId>]',
+    'Runs every enabled module\'s seedDefaults hook, or only the named module\'s.',
+  ],
+  'umes:list': [
+    'Usage: mercato umes:list',
+    'Lists the extension points every enabled module declares.',
+  ],
+  'umes:inspect': [
+    'Usage: mercato umes:inspect --module <moduleId>',
+    'Prints the extension surface a single module declares.',
+  ],
+  'umes:check': [
+    'Usage: mercato umes:check',
+    'Validates declared extension points against the modules that implement them.',
+  ],
+}
+
+// A help invocation must never materialize .env from .env.example — asking what the flags are
+// should not mutate the working tree, least of all with the example's placeholder DATABASE_URL.
+export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: boolean; quiet: boolean } {
+  const first = parts[0]
+  const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
+  const helpRequested = isHelpRequest(parts)
+  return {
+    createIfMissing: !helpRequested && !opaqueEnvCommand,
+    quiet: helpRequested || opaqueEnvCommand,
+  }
+}
+
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  await ensureEnvLoaded({
-    createIfMissing: first !== 'deploy' && first !== 'telemetry',
-    quiet: first === 'deploy' || first === 'telemetry',
-  })
-  
+  // Help must never have side effects: it must not create .env, and must not fall through
+  // to the command it is asking about.
+  const helpRequested = isHelpRequest(parts)
+  await ensureEnvLoaded(resolveEnvBootstrapOptions(parts))
+
+  // Object.hasOwn, not a truthiness check: the map is indexed with raw user input, and an
+  // inherited Object.prototype member (`constructor`, `toString`, …) would otherwise pass the
+  // guard and then fail to iterate instead of reporting the module as not found.
+  if (helpRequested && first && Object.hasOwn(TOP_LEVEL_COMMAND_HELP, first)) {
+    for (const line of TOP_LEVEL_COMMAND_HELP[first]) console.log(`  ${line}`)
+    return 0
+  }
+
   // Handle init command directly
   if (first === 'init') {
     const { execSync } = await import('child_process')
@@ -915,6 +975,7 @@ export async function run(argv = process.argv) {
         delete process.env.OM_INIT_REINSTALL
       }
       const skipExamples = initArgs.includes('--no-examples')
+      const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
       const stressTestLite =
@@ -955,6 +1016,7 @@ export async function run(argv = process.argv) {
       }
       console.log(`🔄 Reinstall mode: ${reinstall ? 'enabled' : 'disabled'}`)
       console.log(`🎨 Example content: ${skipExamples ? 'skipped (--no-examples)' : 'enabled'}`)
+      console.log(`👤 Demo accounts (admin@/employee@): ${skipDemoUsers ? 'skipped (--no-demo-users)' : 'enabled'}`)
       console.log(
         `🏋️ Stress test dataset: ${
           stressTestEnabled
@@ -1087,13 +1149,14 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistries({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
+      await generateWebResearchAdapters({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
@@ -1144,10 +1207,10 @@ export async function run(argv = process.argv) {
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
-      if (adminEmailDerived && derivedSecrets.adminPassword) {
+      if (!skipDemoUsers && adminEmailDerived && derivedSecrets.adminPassword) {
         process.env.OM_INIT_ADMIN_PASSWORD = derivedSecrets.adminPassword
       }
-      if (employeeEmailDerived && derivedSecrets.employeePassword) {
+      if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
@@ -1168,12 +1231,15 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+      ]
+      if (!skipDemoUsers) {
         // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
         // the derived admin@/employee@ demo accounts. Standalone callers of
         // `mercato auth setup` must opt in themselves; without this flag the
         // setup command no longer seeds those accounts by default.
-        '--include-demo-users',
-      ]
+        // `--no-demo-users` opts a caller (e.g. a production `init`) out of them.
+        setupArgs.push('--include-demo-users')
+      }
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
       }
@@ -1327,8 +1393,10 @@ export async function run(argv = process.argv) {
         createdPasswords.set(value.toLowerCase(), passwordValue)
       }
       pushUser('Superadmin', '👑', email, password)
-      pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
-      pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+      if (!skipDemoUsers) {
+        pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
+        pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+      }
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
       console.log('╔══════════════════════════════════════════════════════════════╗')
@@ -1484,7 +1552,7 @@ export async function run(argv = process.argv) {
       const resolver = createResolver()
       const data = await bootstrapFromAppRoot(resolver.getAppDir())
       registerCliModules(data.modules)
-      const allModules = data.modules
+      const allModules = getCliModules()
 
       const modulesToSeed = moduleFilter
         ? allModules.filter((mod) => mod.id === moduleFilter)
@@ -1629,6 +1697,8 @@ export async function run(argv = process.argv) {
     cli: [
       {
         command: 'railway',
+        // Parses --help/-h itself and prints railwayDeployHelp() without deploying.
+        handlesHelp: true,
         run: async (args: string[]) => {
           const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
           await runRailwayDeploy(args)
@@ -1738,6 +1808,25 @@ export async function run(argv = process.argv) {
                 await localScheduler.stop?.()
               })
               console.log('[worker] Local scheduler started in the shared worker process.')
+            }
+
+            // SPEC-072 — module runtimes, once per process. After the queue workers are bound so
+            // a runtime may rely on them, and before the process announces itself as up.
+            //
+            // Only on `--all`: that is the process a deployment runs and the one `server start`
+            // spawns. A single-queue worker is a targeted invocation, and starting every module's
+            // runtime in each of N of them would run N copies of each.
+            //
+            // The build-phase guard is always false here — NEXT_PHASE is set by Next, not by a
+            // worker — and is kept so the check lives with the runner rather than being reinvented
+            // by the Next-side entry, where module code really is evaluated during `next build`.
+            if (!isProductionBuildPhase()) {
+              const runtimes = await startModuleRuntimes({
+                modules: getCliModules(),
+                container: await createRequestContainer(),
+                role: 'worker',
+              })
+              if (runtimes.started.length > 0) registerWorkerShutdownHook(() => runtimes.stop())
             }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')
@@ -1978,6 +2067,7 @@ export async function run(argv = process.argv) {
     cli: [
       {
         command: 'generate',
+        help: 'Generates a migration per module from the current ORM entities and refreshes each\nmodule\'s .snapshot-open-mercato.json. Writes files only — nothing is applied.',
         run: async () => {
           const { createResolver } = await import('./lib/resolver')
           const { dbGenerate } = await import('./lib/db')
@@ -1987,6 +2077,7 @@ export async function run(argv = process.argv) {
       },
       {
         command: 'migrate',
+        help: 'Applies every pending migration to the database DATABASE_URL points at.\nThis mutates the database — check .env before running it.',
         run: async () => {
           const { createResolver } = await import('./lib/resolver')
           const { dbMigrate } = await import('./lib/db')
@@ -1996,6 +2087,7 @@ export async function run(argv = process.argv) {
       },
       {
         command: 'greenfield',
+        help: 'Drops and recreates the schema from scratch, then re-applies every migration.\nDestroys all data. Pass --yes (-y) to skip the confirmation prompt.',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
           const { dbGreenfield } = await import('./lib/db')
@@ -2140,12 +2232,14 @@ export async function run(argv = process.argv) {
               readyResolve = resolve
             })
             const exitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+              const nextDevCommand = buildNextDevArgs(nextBin, runtimeEnv)
+              const bundlerLabel = nextDevCommand.bundler === 'webpack' ? 'Webpack' : 'Turbopack'
               writeDevSplashRuntimeStarting(
                 lastRestartReason
-                  ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
-                  : 'Starting Next.js dev server',
+                  ? `Restarting Next.js dev server (${bundlerLabel}). Reason: ${lastRestartReason}`
+                  : `Starting Next.js dev server (${bundlerLabel})`,
               )
-              const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+              const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,
                 cwd: appDir,
@@ -2664,10 +2758,29 @@ export async function run(argv = process.argv) {
     console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
     return 1
   }
+  // A help flag in the command slot (`mercato db --help`) asks what this module offers.
+  if (isHelpRequest([cmdName])) {
+    console.log(pad(`Usage: ✨ mercato ${modName} <command> [args]`))
+    console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
+    return 0
+  }
   const cmd = mod.cli.find((c) => c.command === cmdName)
   if (!cmd) {
     console.error(`🤔 Unknown command "${cmdName}". Available: ${mod.cli.map((c) => c.command).join(', ')}`)
     return 1
+  }
+
+  // `--help` must describe the command, never run it. Commands that parse the flag themselves
+  // opt out via `handlesHelp` so their own richer usage text still wins.
+  if (isHelpRequest(rest) && !cmd.handlesHelp) {
+    console.log(pad(`Usage: ✨ mercato ${modName} ${cmdName} [args]`))
+    if (cmd.help) {
+      console.log('')
+      for (const line of cmd.help.split('\n')) console.log(pad(line))
+    }
+    console.log('')
+    console.log(pad(`Commands for "${modName}": ${mod.cli.map((c) => c.command).join(', ')}`))
+    return 0
   }
 
   console.log('')
@@ -2677,12 +2790,14 @@ export async function run(argv = process.argv) {
     : rest
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
-    await cmd.run(rest)
+    const commandExitCode = await runWithCapturedExitCode(async () => {
+      await cmd.run(rest)
+    })
     if (modName !== 'deploy' || cmdName !== 'railway') {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }
-    return 0
+    return commandExitCode
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
     return 1

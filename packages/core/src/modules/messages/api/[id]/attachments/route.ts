@@ -6,7 +6,7 @@ import { Message, MessageRecipient } from '../../../data/entities'
 import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../../../data/validators'
 import { getMessageAttachments, linkAttachmentsToMessage } from '../../../lib/attachments'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
-import { resolveMessageContext } from '../../../lib/routeHelpers'
+import { hasChannelThreadReadAccess, resolveMessageContext } from '../../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
 import {
   attachmentIdsPayloadSchema as attachmentIdsOpenApiSchema,
@@ -53,8 +53,17 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     deletedAt: null,
   })
 
-  if (message.senderUserId !== scope.userId && !recipient) {
-    return Response.json({ error: 'Access denied' }, { status: 403 })
+  // Same widening as the detail read (#6354): an operator who may open an
+  // inbound channel message must also see what it carries. Only an explicitly
+  // public message is opened this way, so another operator's internal note on
+  // the same thread stays participant-only.
+  const isParticipant = message.senderUserId === scope.userId || Boolean(recipient)
+  if (!isParticipant) {
+    const mayReadViaChannel = message.visibility === 'public'
+      && await hasChannelThreadReadAccess(ctx, scope, message)
+    if (!mayReadViaChannel) {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
   }
 
   const attachments = await getMessageAttachments(

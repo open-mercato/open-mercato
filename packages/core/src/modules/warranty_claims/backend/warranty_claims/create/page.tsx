@@ -1491,6 +1491,7 @@ export default function CreateWarrantyClaimPage() {
         <div className="rounded-xl border border-border bg-card p-5">
           <CrudForm<ClaimCreateFormValues>
             title={t('warranty_claims.create.title')}
+            titleHeadingLevel={1}
             backHref="/backend/warranty_claims"
             fields={fields}
             groups={groups}

@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 "use client"
 
 import * as React from 'react'
@@ -72,17 +70,47 @@ const emptyDraft: AddressEditorDraft = {
   region: '',
   postalCode: '',
   country: '',
+  taxId: '',
+  taxIdType: '',
+  phone: '',
   isPrimary: false,
 }
 
 const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
 
+/**
+ * The fields the editor owns, typed, plus whatever else the caller's snapshot carried.
+ *
+ * The index signature is what lets an integration's extra keys — anything a future
+ * integration writes — survive the merge-back below, while the named fields stay `string` for callers
+ * that read them. `taxId` and `phone` are NOT among them any more: the editor renders both, so they
+ * are assigned from the draft like every other field. Reading
+ * `normalized.city` off a bare `Record<string, unknown>` yields `unknown`, which is what forced the
+ * `@ts-nocheck` on this file.
+ */
+type NormalizedAddressDraft = {
+  name?: string
+  purpose?: string
+  companyName?: string
+  addressLine1?: string
+  addressLine2?: string
+  buildingNumber?: string
+  flatNumber?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+  taxId?: string
+  phone?: string
+  isPrimary?: boolean
+} & Record<string, unknown>
+
 function normalizeAddressDraft(
   draft?: AddressEditorDraft | null,
   previous?: Record<string, unknown> | null,
-): Record<string, unknown> | null {
+): NormalizedAddressDraft | null {
   if (!draft) return null
-  const normalized: Record<string, unknown> = {}
+  const normalized: NormalizedAddressDraft = {}
   let hasEditableContent = false
   const assign = (key: keyof AddressEditorDraft, target: string) => {
     const value = draft[key]
@@ -103,6 +131,9 @@ function normalizeAddressDraft(
   assign('region', 'region')
   assign('postalCode', 'postalCode')
   assign('country', 'country')
+  assign('taxId', 'taxId')
+  assign('taxIdType', 'taxIdType')
+  assign('phone', 'phone')
   assign('isPrimary', 'isPrimary')
   if (!hasEditableContent) return null
   if (previous) {
@@ -129,6 +160,9 @@ function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEd
     region: typeof record.region === 'string' ? record.region : '',
     postalCode: typeof record.postalCode === 'string' ? record.postalCode : '',
     country: typeof record.country === 'string' ? record.country : '',
+    taxId: typeof record.taxId === 'string' ? record.taxId : '',
+    taxIdType: typeof record.taxIdType === 'string' ? record.taxIdType : '',
+    phone: typeof record.phone === 'string' ? record.phone : '',
     isPrimary: record.isPrimary === true,
   }
 }
@@ -370,7 +404,10 @@ export function SalesDocumentAddressesSection({
               companyName: value.companyName ?? null,
             }
           })
-          .filter((entry): entry is DocumentAddressAssignment => entry !== null)
+          // Narrow to non-null only. Asserting `DocumentAddressAssignment` here was wrong: its
+          // optional fields (`name?`, `purpose?`, …) admit `undefined`, which the mapped literal's
+          // `string | null` does not, so the predicate was not assignable to what it filtered.
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
         setDocumentAddresses(mapped)
       } else {
         setDocumentAddresses([])
@@ -1093,9 +1130,12 @@ export function SalesDocumentAddressesSection({
               <AddressEditor
                 value={shippingDraft}
                 format={addressFormat}
+                showPhoneField
+                showTaxIdField
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
+                disabled={locked}
               />
               <SwitchField
                 label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1160,9 +1200,12 @@ export function SalesDocumentAddressesSection({
                   <AddressEditor
                     value={billingDraft}
                     format={addressFormat}
+                    showPhoneField
+                    showTaxIdField
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
+                    disabled={locked}
                   />
                   <SwitchField
                     label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}

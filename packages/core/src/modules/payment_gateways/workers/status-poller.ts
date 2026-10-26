@@ -44,7 +44,11 @@ export default async function handle(job: QueuedJob<PollerJobPayload>, ctx: Hand
         scopeEntityType: 'payment_transaction',
         scopeEntityId: transaction.id,
         level: 'error',
-        message: 'Payment status polling failed',
+        // The cause belongs in the message, not only in `payload`: the payload is
+        // the durable record and never leaves the database, so an operator paged by
+        // the reported error would otherwise learn only that a gateway failed.
+        message: `Payment status polling failed: ${message}`,
+        code: 'payment_gateways.status_poll_failed',
         payload: {
           transactionId: transaction.id,
           message,

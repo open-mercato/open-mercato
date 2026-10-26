@@ -1251,6 +1251,7 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
 
             <DataTable<InventoryMovementRow>
               title={t('wms.backend.lot.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={movementsQuery.data ?? []}
               disableRowClick

@@ -31,6 +31,7 @@ export default function CreateWarrantyTroubleshootingGuidePage() {
       <PageBody>
         <CrudForm<TroubleshootingGuideFormValues>
           title={t('warranty_claims.troubleshootingGuides.create.title', 'New troubleshooting guide')}
+          titleHeadingLevel={1}
           backHref="/backend/warranty_claims/troubleshooting-guides"
           fields={fields}
           groups={groups}

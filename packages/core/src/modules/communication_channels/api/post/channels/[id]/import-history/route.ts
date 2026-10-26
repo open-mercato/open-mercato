@@ -8,8 +8,8 @@ import type { CrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { CommunicationChannel } from '../../../../../data/entities'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../lib/access-control'
 import {
+  getQueueImportHistorySchema,
   queueImportHistory,
-  queueImportHistorySchema,
 } from '../../../../../commands/queue-import-history'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -48,7 +48,9 @@ type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
 }
 
-const bodySchema = queueImportHistorySchema.omit({ channelId: true })
+function buildBodySchema() {
+  return getQueueImportHistorySchema().omit({ channelId: true })
+}
 
 export async function POST(req: Request, context: RouteContext): Promise<Response> {
   const { id } = await context.params
@@ -70,7 +72,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
-  const parsed = bodySchema.safeParse(rawBody)
+  const parsed = buildBodySchema().safeParse(rawBody)
   if (!parsed.success) {
     const first = parsed.error.issues[0]
     return NextResponse.json(
@@ -189,7 +191,9 @@ export const openApi = {
       requestBody: {
         required: true,
         contentType: 'application/json',
-        schema: bodySchema,
+        get schema() {
+          return buildBodySchema()
+        },
       },
       responses: [
         { status: 202, description: 'Import job queued; returns { progressJobId }' },

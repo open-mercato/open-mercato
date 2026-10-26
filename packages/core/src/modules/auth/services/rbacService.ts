@@ -1,9 +1,10 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
@@ -17,6 +18,27 @@ interface AclData {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+async function resolveRoleOrganizationScopeWithEntityManager(
+  em: EntityManager,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<ReadonlySet<string> | null> {
+  if (!organizationId) return null
+  if (!tenantId) return new Set()
+  const organization = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: organizationId, tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+    { fields: ['id', 'ancestorIds'] },
+    { tenantId, organizationId },
+  )
+  if (!organization) return new Set()
+  const ancestors = Array.isArray(organization.ancestorIds)
+    ? organization.ancestorIds.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : []
+  return new Set([organizationId, ...ancestors])
 }
 
 function isAclData(value: unknown): value is AclData {
@@ -35,6 +57,176 @@ function isRestrictedRoleAcl(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
   return Array.isArray(acl.organizationsJson)
     && acl.organizationsJson.length > 0
     && !acl.organizationsJson.includes('__all__')
+}
+
+type FeatureOrganizationCandidate = {
+  id: string
+  ancestorIds?: readonly string[] | null
+}
+
+type FeatureOrganizationAccess = {
+  unrestricted: boolean
+  filterOrganizationIds: (organizations: readonly FeatureOrganizationCandidate[]) => string[]
+}
+
+type FeatureOrganizationRoleGrant = {
+  isSuperAdmin: boolean
+  featuresJson: string[] | null
+  organizationsJson: string[] | null
+}
+
+type FeatureOrganizationGrants =
+  | { kind: 'none' }
+  | { kind: 'api_key'; organizationId: string | null; roleGrants: FeatureOrganizationRoleGrant[] }
+  | { kind: 'user_acl'; isSuperAdmin: boolean; features: string[]; organizations: string[] | null }
+  | { kind: 'roles'; roleGrants: FeatureOrganizationRoleGrant[] }
+
+function isStringListOrNull(value: unknown): value is string[] | null {
+  return value === null || (Array.isArray(value) && value.every((entry) => typeof entry === 'string'))
+}
+
+function isFeatureOrganizationRoleGrant(value: unknown): value is FeatureOrganizationRoleGrant {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Partial<FeatureOrganizationRoleGrant>
+  return typeof record.isSuperAdmin === 'boolean'
+    && isStringListOrNull(record.featuresJson)
+    && isStringListOrNull(record.organizationsJson)
+}
+
+function isFeatureOrganizationGrants(value: unknown): value is FeatureOrganizationGrants {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  switch (record.kind) {
+    case 'none':
+      return true
+    case 'api_key':
+      return (record.organizationId === null || typeof record.organizationId === 'string')
+        && Array.isArray(record.roleGrants)
+        && record.roleGrants.every(isFeatureOrganizationRoleGrant)
+    case 'user_acl':
+      return typeof record.isSuperAdmin === 'boolean'
+        && Array.isArray(record.features)
+        && record.features.every((feature) => typeof feature === 'string')
+        && isStringListOrNull(record.organizations)
+    case 'roles':
+      return Array.isArray(record.roleGrants) && record.roleGrants.every(isFeatureOrganizationRoleGrant)
+    default:
+      return false
+  }
+}
+
+function toFeatureOrganizationRoleGrant(
+  acl: Pick<RoleAcl, 'isSuperAdmin' | 'featuresJson' | 'organizationsJson'>,
+): FeatureOrganizationRoleGrant {
+  return {
+    isSuperAdmin: acl.isSuperAdmin === true,
+    featuresJson: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,
+    organizationsJson: Array.isArray(acl.organizationsJson) ? [...acl.organizationsJson] : null,
+  }
+}
+
+function normalizeFeatureOrganizationCandidates(
+  organizations: readonly FeatureOrganizationCandidate[],
+): FeatureOrganizationCandidate[] {
+  const normalized = new Map<string, FeatureOrganizationCandidate>()
+  for (const organization of organizations) {
+    const id = typeof organization.id === 'string' ? organization.id.trim() : ''
+    if (!id || normalized.has(id)) continue
+    const ancestorIds = Array.isArray(organization.ancestorIds)
+      ? Array.from(new Set(organization.ancestorIds
+        .map((ancestorId) => typeof ancestorId === 'string' ? ancestorId.trim() : '')
+        .filter(Boolean)))
+      : []
+    normalized.set(id, { id, ancestorIds })
+  }
+  return Array.from(normalized.values())
+}
+
+function buildFeatureOrganizationScope(
+  organization: FeatureOrganizationCandidate,
+): ReadonlySet<string> {
+  return new Set([organization.id, ...(organization.ancestorIds ?? [])])
+}
+
+function roleAclProvidesGlobalFeatureScope(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  return !organizations || organizations.length === 0 || organizations.includes('__all__')
+}
+
+function roleAclProvidesGlobalVisibility(
+  acl: Pick<RoleAcl, 'organizationsJson'>,
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  if (!organizations || organizations.includes('__all__')) return true
+  return emptyOrganizationsAreUnrestricted && organizations.length === 0
+}
+
+function roleAclProvidesOrganizationVisibility(
+  acl: Pick<RoleAcl, 'organizationsJson'>,
+  organizationScope: ReadonlySet<string>,
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+  if (!organizations || organizations.includes('__all__')) return true
+  if (organizations.length === 0) return emptyOrganizationsAreUnrestricted
+  return organizations.some((organizationId) => organizationScope.has(organizationId))
+}
+
+function roleAclsAuthorizeFeatures(
+  roleAcls: readonly FeatureOrganizationRoleGrant[],
+  required: readonly string[],
+  organization: FeatureOrganizationCandidate,
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const organizationScope = buildFeatureOrganizationScope(organization)
+  const grantedFeatures = new Set<string>()
+  let unrestricted = false
+  let scopeAllowed = false
+
+  for (const acl of roleAcls) {
+    if (roleAclProvidesOrganizationVisibility(acl, organizationScope, emptyOrganizationsAreUnrestricted)) {
+      scopeAllowed = true
+    }
+    if (!roleAclAllowsOrganization(acl, organizationScope)) continue
+    unrestricted = unrestricted || acl.isSuperAdmin === true
+    for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+      grantedFeatures.add(feature)
+    }
+  }
+
+  return authorizeFeatures([...required], {
+    grantedFeatures: Array.from(grantedFeatures),
+    unrestricted,
+    scopeAllowed: scopeAllowed || unrestricted,
+  })
+}
+
+function roleAclsAuthorizeFeaturesGlobally(
+  roleAcls: readonly FeatureOrganizationRoleGrant[],
+  required: readonly string[],
+  emptyOrganizationsAreUnrestricted: boolean,
+): boolean {
+  const grantedFeatures = new Set<string>()
+  let unrestricted = false
+  let scopeAllowed = false
+
+  for (const acl of roleAcls) {
+    if (roleAclProvidesGlobalVisibility(acl, emptyOrganizationsAreUnrestricted)) {
+      scopeAllowed = true
+    }
+    if (!roleAclProvidesGlobalFeatureScope(acl)) continue
+    unrestricted = unrestricted || acl.isSuperAdmin === true
+    for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+      grantedFeatures.add(feature)
+    }
+  }
+
+  return authorizeFeatures([...required], {
+    grantedFeatures: Array.from(grantedFeatures),
+    unrestricted,
+    scopeAllowed: scopeAllowed || unrestricted,
+  })
 }
 
 export class RbacService {
@@ -89,6 +281,13 @@ export class RbacService {
   private async setCache(cacheKey: string, data: AclData, userId: string, scope: { tenantId: string | null; organizationId: string | null }): Promise<void> {
     if (!this.cache) return
 
+    await this.cache.set(cacheKey, data, {
+      ttl: this.cacheTtlMs,
+      tags: this.buildCacheTags(userId, scope),
+    })
+  }
+
+  private buildCacheTags(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string[] {
     const tags = [
       this.getUserTag(userId),
       'rbac:all'
@@ -106,10 +305,7 @@ export class RbacService {
       tags.push(this.getOrganizationTag(scope.organizationId))
     }
 
-    await this.cache.set(cacheKey, data, {
-      ttl: this.cacheTtlMs,
-      tags
-    })
+    return tags
   }
 
   /**
@@ -430,6 +626,218 @@ export class RbacService {
   }
 
   /**
+   * Cache-bypassing ACL resolution bound to a caller-supplied EntityManager.
+   * Replay authorization uses this additive seam after taking its canonical
+   * locks so every user, membership, role, ACL, API-key, and organization-scope
+   * read observes the exact transaction that performs the mutation.
+   */
+  async loadAclWithEntityManager(
+    em: EntityManager,
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<AclData> {
+    if (userId.startsWith('api_key:')) {
+      const key = await em.findOne(ApiKey, {
+        id: userId.slice('api_key:'.length),
+        deletedAt: null,
+      })
+      if (!key || (key.expiresAt && key.expiresAt.getTime() < Date.now())) {
+        return { isSuperAdmin: false, features: [], organizations: null }
+      }
+      const tenantId = scope.tenantId || key.tenantId || null
+      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+        ? key.organizationId.trim()
+        : null
+      const evaluatedOrganizationId = scope.organizationId || keyOrganizationId
+      const roleScope = await resolveRoleOrganizationScopeWithEntityManager(
+        em,
+        tenantId,
+        evaluatedOrganizationId,
+      )
+      const roleAcls = tenantId && roleIds.length
+        ? await em.find(RoleAcl, { tenantId, role: { $in: roleIds as never } } as never)
+        : []
+      let isSuperAdmin = false
+      const features: string[] = []
+      let organizations: string[] | null = []
+      let hasApplicableRestrictedRole = false
+      for (const acl of roleAcls) {
+        if (roleAclAllowsOrganization(acl, roleScope)) {
+          isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+          for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+            if (!features.includes(feature)) features.push(feature)
+          }
+          if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
+        }
+        if (organizations !== null) {
+          if (
+            acl.organizationsJson == null
+            || acl.organizationsJson.length === 0
+            || acl.organizationsJson.includes('__all__')
+          ) {
+            organizations = null
+          } else {
+            organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
+          }
+        }
+      }
+      if (
+        organizations !== null
+        && evaluatedOrganizationId
+        && roleScope !== null
+        && roleScope.size > 0
+        && hasApplicableRestrictedRole
+        && !organizations.includes(evaluatedOrganizationId)
+      ) {
+        organizations.push(evaluatedOrganizationId)
+      }
+      if (keyOrganizationId) {
+        const keyScope = await resolveRoleOrganizationScopeWithEntityManager(em, tenantId, keyOrganizationId)
+        organizations = organizations === null
+          || organizations.some((organizationId) => keyScope?.has(organizationId))
+          ? [keyOrganizationId]
+          : []
+      }
+      if (isSuperAdmin && organizations !== null && !features.includes('*')) features.push('*')
+      return { isSuperAdmin: isSuperAdmin && organizations === null, features, organizations }
+    }
+
+    const directGlobalGrant = await em.findOne(
+      UserAcl,
+      { user: userId as never, isSuperAdmin: true } as never,
+    )
+    if (directGlobalGrant?.isSuperAdmin) {
+      return { isSuperAdmin: true, features: ['*'], organizations: null }
+    }
+    const globalLinks = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId as never },
+      { populate: ['role'] },
+      { tenantId: null, organizationId: null },
+    )
+    const globalRoleIds = globalLinks
+      .map((link) => typeof link.role === 'string' ? link.role : link.role?.id ? String(link.role.id) : null)
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    if (globalRoleIds.length) {
+      const globalRoleGrants = await em.find(
+        RoleAcl,
+        {
+          role: { $in: globalRoleIds as never },
+          isSuperAdmin: true,
+        } as never,
+      )
+      if (globalRoleGrants.some((grant) => grant.isSuperAdmin && !isRestrictedRoleAcl(grant))) {
+        return { isSuperAdmin: true, features: ['*'], organizations: null }
+      }
+    }
+
+    const user = await em.findOne(User, { id: userId })
+    if (!user) return { isSuperAdmin: false, features: [], organizations: null }
+    const tenantId = scope.tenantId || user.tenantId || null
+    const organizationId = scope.organizationId || user.organizationId || null
+    if (!tenantId) return { isSuperAdmin: false, features: [], organizations: null }
+
+    const userAcl = await em.findOne(UserAcl, { user: userId as never, tenantId } as never)
+    if (userAcl) {
+      return {
+        isSuperAdmin: userAcl.isSuperAdmin === true,
+        features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
+        organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
+      }
+    }
+
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId as never, role: { tenantId } } as never,
+      { populate: ['role'] },
+      { tenantId, organizationId },
+    )
+    const roleIds = links
+      .map((link) => typeof link.role === 'string' ? link.role : link.role?.id ? String(link.role.id) : null)
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    const roleAcls = roleIds.length
+      ? await em.find(RoleAcl, { tenantId, role: { $in: roleIds as never } } as never)
+      : []
+    const roleScope = await resolveRoleOrganizationScopeWithEntityManager(
+      em,
+      tenantId,
+      scope.organizationId,
+    )
+    let isSuperAdmin = false
+    const features: string[] = []
+    let organizations: string[] | null = []
+    let hasApplicableRestrictedRole = false
+    for (const acl of roleAcls) {
+      if (roleAclAllowsOrganization(acl, roleScope)) {
+        isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+        for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+          if (!features.includes(feature)) features.push(feature)
+        }
+        if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
+      }
+      if (organizations !== null) {
+        if (acl.organizationsJson == null || acl.organizationsJson.includes('__all__')) {
+          organizations = null
+        } else {
+          organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
+        }
+      }
+    }
+    if (
+      organizations !== null
+      && scope.organizationId
+      && roleScope
+      && roleScope.size > 0
+      && hasApplicableRestrictedRole
+      && !organizations.includes(scope.organizationId)
+    ) {
+      organizations.push(scope.organizationId)
+    }
+    return { isSuperAdmin, features, organizations }
+  }
+
+  async userHasAllFeaturesWithEntityManager(
+    em: EntityManager,
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<boolean> {
+    if (!required.length) return true
+    const acl = await this.loadAclWithEntityManager(em, userId, scope)
+    const organizationAllowed = acl.isSuperAdmin
+      || !acl.organizations
+      || !scope.organizationId
+      || acl.organizations.includes(scope.organizationId)
+      || acl.organizations.includes('__all__')
+    return authorizeFeatures(required, {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isSuperAdmin,
+      scopeAllowed: organizationAllowed,
+    })
+  }
+
+  async getGrantedFeaturesWithEntityManager(
+    em: EntityManager,
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<string[]> {
+    const acl = await this.loadAclWithEntityManager(em, userId, scope)
+    if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
+    if (
+      acl.organizations
+      && scope.organizationId
+      && !acl.organizations.includes(scope.organizationId)
+      && !acl.organizations.includes('__all__')
+    ) {
+      return []
+    }
+    return filterGrantsByEnabledModules(acl.features)
+  }
+
+  /**
    * Checks whether any tenant role grants a feature.
    *
    * This supports non-user runtimes such as scheduler workers that execute with
@@ -513,6 +921,170 @@ export class RbacService {
       unrestricted: acl.isSuperAdmin,
       scopeAllowed: organizationAllowed,
     })
+  }
+
+  async resolveFeatureOrganizationAccess(
+    userId: string,
+    required: readonly string[],
+    input: { tenantId: string | null },
+  ): Promise<FeatureOrganizationAccess> {
+    const allowAll = (organizations: readonly FeatureOrganizationCandidate[]) =>
+      normalizeFeatureOrganizationCandidates(organizations).map((organization) => organization.id)
+    const denyAll = () => []
+    if (!required.length) return { unrestricted: true, filterOrganizationIds: allowAll }
+    if (!input.tenantId) return { unrestricted: false, filterOrganizationIds: denyAll }
+    if (
+      !userId.startsWith('api_key:')
+      && await this.isGlobalSuperAdmin(userId)
+      && authorizeFeatures(required, { grantedFeatures: ['*'], unrestricted: true })
+    ) {
+      return { unrestricted: true, filterOrganizationIds: allowAll }
+    }
+
+    const grants = await this.loadFeatureOrganizationGrants(userId, input.tenantId)
+    if (grants.kind === 'none') return { unrestricted: false, filterOrganizationIds: denyAll }
+
+    if (grants.kind === 'api_key') {
+      const keyOrganizationId = grants.organizationId
+      const unrestricted = keyOrganizationId === null
+        && roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, true)
+      if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
+
+      return {
+        unrestricted: false,
+        filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+          .filter((organization) => (
+            (!keyOrganizationId || organization.id === keyOrganizationId)
+            && roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, true)
+          ))
+          .map((organization) => organization.id),
+      }
+    }
+
+    if (grants.kind === 'user_acl') {
+      const grantedFeatures = grants.features
+      const allowedOrganizations = grants.organizations
+      const hasGlobalScope = grants.isSuperAdmin
+        || allowedOrganizations === null
+        || allowedOrganizations.includes('__all__')
+      const unrestricted = authorizeFeatures([...required], {
+        grantedFeatures,
+        unrestricted: grants.isSuperAdmin,
+        scopeAllowed: hasGlobalScope,
+      })
+      if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
+
+      return {
+        unrestricted: false,
+        filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+          .filter((organization) => {
+            const scopeAllowed = grants.isSuperAdmin
+              || allowedOrganizations === null
+              || allowedOrganizations.includes('__all__')
+              || allowedOrganizations.includes(organization.id)
+            return authorizeFeatures([...required], {
+              grantedFeatures,
+              unrestricted: grants.isSuperAdmin,
+              scopeAllowed,
+            })
+          })
+          .map((organization) => organization.id),
+      }
+    }
+
+    if (roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, false)) {
+      return { unrestricted: true, filterOrganizationIds: allowAll }
+    }
+
+    return {
+      unrestricted: false,
+      filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+        .filter((organization) => roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, false))
+        .map((organization) => organization.id),
+    }
+  }
+
+  private async loadFeatureOrganizationGrants(
+    userId: string,
+    tenantId: string,
+  ): Promise<FeatureOrganizationGrants> {
+    const cacheKey = `rbac:feature-organizations:${userId}:${tenantId}`
+    if (this.cache) {
+      const cached = await this.cache.get(cacheKey)
+      if (isFeatureOrganizationGrants(cached)) return cached
+    }
+    const grants = await this.queryFeatureOrganizationGrants(userId, tenantId)
+    if (this.cache) {
+      await this.cache.set(cacheKey, grants, {
+        ttl: this.cacheTtlMs,
+        tags: this.buildCacheTags(userId, { tenantId, organizationId: null }),
+      })
+    }
+    return grants
+  }
+
+  private async queryFeatureOrganizationGrants(
+    userId: string,
+    tenantId: string,
+  ): Promise<FeatureOrganizationGrants> {
+    const em = this.em.fork()
+    if (userId.startsWith('api_key:')) {
+      const apiKeyId = userId.slice('api_key:'.length)
+      const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
+      if (
+        !key
+        || (key.expiresAt && key.expiresAt.getTime() < Date.now())
+        || (key.tenantId && key.tenantId !== tenantId)
+      ) {
+        return { kind: 'none' }
+      }
+
+      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      if (!roleIds.length) return { kind: 'none' }
+      const roleAcls = await em.find(RoleAcl, {
+        tenantId,
+        role: { $in: roleIds },
+      })
+      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+        ? key.organizationId.trim()
+        : null
+      return {
+        kind: 'api_key',
+        organizationId: keyOrganizationId,
+        roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant),
+      }
+    }
+
+    const user = await em.findOne(User, { id: userId })
+    if (!user) return { kind: 'none' }
+
+    const userAcl = await em.findOne(UserAcl, { user: userId, tenantId })
+    if (userAcl) {
+      return {
+        kind: 'user_acl',
+        isSuperAdmin: userAcl.isSuperAdmin === true,
+        features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
+        organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
+      }
+    }
+
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId, role: { tenantId } },
+      { populate: ['role'] },
+      { tenantId, organizationId: null },
+    )
+    const roleIds = Array.from(new Set(links
+      .map((link) => link.role?.id)
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)))
+    if (!roleIds.length) return { kind: 'none' }
+
+    const roleAcls = await em.find(RoleAcl, {
+      tenantId,
+      role: { $in: roleIds },
+    })
+    return { kind: 'roles', roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant) }
   }
 
   /**

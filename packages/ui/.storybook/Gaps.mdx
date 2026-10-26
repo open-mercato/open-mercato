@@ -1,0 +1,56 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+import catalogue from './generated/catalogue.generated.json'
+
+<Meta title="Design system/Coverage and gaps" />
+
+# Coverage and gaps
+
+<p>
+  The live catalogue contains {catalogue.length} component and foundation entries,
+  with {catalogue.reduce((total, entry) => total + entry.variantCount, 0)} variant examples
+  across {new Set(catalogue.map((entry) => entry.family)).size} families.
+  These counts describe working code examples, not a percentage of Figma parity.
+</p>
+
+## Complete source inventory
+
+The read-only audit covers all 90 pages in DS — Open Mercato: 84 non-empty pages and 6 empty
+section pages, 243 component sets and 4695 variants. Every non-empty page has a representative
+design context. Full set names and axes, standalone assets and source node IDs are recorded.
+This is an exhaustive structural inventory, with selected visual comparisons.
+
+[Browse every source page, component set and variant axis](./?path=/story/design-system-figma-library--library)
+
+## Current coverage
+
+| Area | Available now | Remaining work |
+| --- | --- | --- |
+| Foundations and assets | Source colors, type, radii, shadows, motion and grids; 1667 named icons and 1335 original artwork assets | Resolve documented token/font differences and compare every light/dark pairing |
+| Primitives | Working production components, localized examples, input Controls, expanded Avatar, Badge/Tag, ratings, selection cards, dividers and overlays | Combined regression passes; full source-state visual parity remains separately documented |
+| Backend and widgets | Existing charts, filters, sections, notifications, scheduling and message examples; all source widget pages audited | HR, Finance, Marketing, Crypto and AI source component examples pass combined regression; full product screens remain references |
+| Product and landing screens | Every source page inventoried, representative references inspected | Full application and landing-page implementations are not implied by component examples |
+| Code Connect | 32 local declarations across 28 component sets with verified set IDs, no placeholders, local parser and property checks pass | Online validation is unavailable with the connected Figma plan/seat; nothing was published |
+
+## How to read the source library
+
+A related example means that working code exists for that family. It does not mean all
+source axes or visuals are implemented. The differences listed on each page are the
+**audit baseline**, before the follow-up fixes. Individual component stories show the
+newly added capabilities; the baseline remains available as evidence of what the audit found.
+
+The [measured Button/Input comparison](./?path=/docs/design-system-figma-comparison--docs)
+records dimensions, corrected type/radius/spacing and remaining icon/font differences.
+The Inter toolbar option changes the preview font without changing application tokens.
+
+## Validation boundary
+
+Examples use actual production components with local mock data. Browser checks exercise
+keyboard focus, disabled states, portal themes, dismissal, real selection and narrow
+layouts. They do not prove authentication, permissions, server loading or application
+mutations. A full source-variant screenshot comparison remains separate work.
+
+Changes live in the existing repository. No commit, push, Figma write or publication
+has been made. Update the shared gallery registry and regenerate the catalogue to add
+an example; generated Storybook and harness inventories are not edited by hand.
+
+[Browse the working component gallery](./?path=/story/design-system-components--gallery)

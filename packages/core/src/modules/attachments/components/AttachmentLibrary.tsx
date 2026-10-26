@@ -307,6 +307,7 @@ type AttachmentFilesFieldProps = CrudCustomFieldRenderProps & {
     empty: string
   }
   uploading: boolean
+  uploadedFiles: ReadonlySet<File>
 }
 
 function AttachmentFilesField({
@@ -315,8 +316,10 @@ function AttachmentFilesField({
   disabled,
   labels,
   uploading,
+  uploadedFiles,
 }: AttachmentFilesFieldProps) {
   const files = React.useMemo(() => (Array.isArray(value) ? (value as File[]) : []), [value])
+  const pendingFiles = React.useMemo(() => files.filter((file) => !uploadedFiles.has(file)), [files, uploadedFiles])
   const [isDragOver, setDragOver] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -373,12 +376,12 @@ function AttachmentFilesField({
   }, [disabled, uploading])
 
   const renderFileList = () => {
-    if (!files.length) {
+    if (!pendingFiles.length) {
       return <p className="text-xs text-muted-foreground">{labels.empty}</p>
     }
     return (
       <div className="space-y-2">
-        {files.map((candidate) => (
+        {pendingFiles.map((candidate) => (
           <div key={`${candidate.name}-${candidate.size}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
             <div>
               <div className="font-medium">{candidate.name}</div>
@@ -445,6 +448,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
   const t = useT()
   const [isUploading, setIsUploading] = React.useState(false)
   const [uploadProgress, setUploadProgress] = React.useState<{ completed: number; total: number }>({ completed: 0, total: 0 })
+  const [uploadedFiles, setUploadedFiles] = React.useState<ReadonlySet<File>>(() => new Set())
 
   const partitionOptions = React.useMemo(
     () =>
@@ -504,6 +508,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
           <AttachmentFilesField
             {...props}
             uploading={isUploading}
+            uploadedFiles={uploadedFiles}
             labels={{
               dropHint: t('attachments.library.upload.dropHint', 'Drag and drop files here or click to upload.'),
               choose: t('attachments.library.upload.choose', 'Choose files'),
@@ -550,7 +555,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
         ),
       },
     ]
-  }, [assignmentLabels, availableTags, isUploading, partitionOptions, t])
+  }, [assignmentLabels, availableTags, isUploading, partitionOptions, t, uploadedFiles])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     return [
@@ -575,12 +580,13 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
 
   const handleSubmit = React.useCallback(
     async (values: AttachmentUploadFormValues) => {
-      const files = Array.isArray(values.files) ? values.files : []
+      const files = (Array.isArray(values.files) ? values.files : []).filter((file) => !uploadedFiles.has(file))
       if (!files.length) {
         throw new Error(t('attachments.library.upload.fileRequired', 'Select at least one file to upload.'))
       }
       setUploadProgress({ completed: 0, total: files.length })
       setIsUploading(true)
+      const acknowledged: File[] = []
       try {
         const tags = Array.isArray(values.tags)
           ? values.tags
@@ -624,6 +630,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
             const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
             throw new Error(message)
           }
+          acknowledged.push(file)
           completed += 1
           setUploadProgress({ completed, total: files.length })
         }
@@ -633,12 +640,16 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
       } catch (err: any) {
         const message = err?.message || t('attachments.library.upload.failed', 'Upload failed.')
         flash(message, 'error')
+        if (acknowledged.length) {
+          setUploadedFiles((current) => new Set([...current, ...acknowledged]))
+          onUploaded()
+        }
         throw new Error(message)
       } finally {
         setIsUploading(false)
       }
     },
-    [onCancel, onUploaded, t],
+    [onCancel, onUploaded, t, uploadedFiles],
   )
 
   return (
@@ -1061,6 +1072,7 @@ export function AttachmentLibrary() {
       <DataTable<AttachmentRow>
         stickyActionsColumn
         title={t('attachments.library.title', 'Attachments')}
+        titleHeadingLevel={1}
         refreshButton={{
           label: t('attachments.library.actions.refresh', 'Refresh'),
           onRefresh: () => { void refetch() },
