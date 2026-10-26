@@ -34,14 +34,16 @@ import {
  *   1. A second connection plays the posting in flight: it opens a
  *      transaction, locks the accounts `for share`, inserts the entry and its
  *      lines, and keeps the transaction open.
- *   2. The update goes through the real API route and must WAIT (it cannot
- *      finish while the post is uncommitted).
- *   3. The post commits. The update then runs against the committed lines
- *      and is rejected with 409.
- *
- * Before the fix the update read its "no posted entries" answer from a
- * snapshot that did not see the in-flight lines, so it answered 200 at once
- * and changed the number of an account that then had posted lines.
+ *   2. The update goes through the real API route. It cannot finish while
+ *      the post is uncommitted, so it is still pending after a short wait.
+ *      (This only shows that the update is blocked somewhere; the old code
+ *      blocked too, on its final UPDATE of the account row.)
+ *   3. The post commits. The update must then answer 409: it ran its "has
+ *      posted entries" check after the lock was granted and saw the committed
+ *      lines. This is the assertion that separates the protocol from the old
+ *      code, which ran the check before waiting, against a snapshot that did
+ *      not contain the in-flight lines, and so changed the number of an
+ *      account that had posted lines (200).
  *
  * The last test checks the append-only trigger on `journal_entries` and
  * `journal_entry_lines` against the real database.
@@ -163,7 +165,7 @@ async function updateWhilePostIsInFlight(
           () => { settled = true; },
         );
         await new Promise((resolve) => setTimeout(resolve, WAIT_MS));
-        expect(settled, 'the update must wait for the in-flight post instead of answering from a stale snapshot').toBe(false);
+        expect(settled, 'the update is blocked while the post is uncommitted').toBe(false);
       },
     },
   );
