@@ -612,3 +612,19 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/ui-par
 
 ### 2026-10-22
 - Upstream verification on `main`: AO has no `extractStepToolCalls`; its native runner has the same pre-SDK-5 mapping inline in `recordStep`, so the OSS helper is new code that both the chat collector and the AO native runner adopt (Phase 1 step 4 updated). Existing ai-assistant tests use the legacy `args` / `result` shape, so the helper keeps that fallback.
+
+### 2026-10-27
+- Phase 2 and the §6 model-call contract implemented (agent platform wave 2):
+  - `lib/agent-call-contract.ts` defines the contract. `lib/agent-call-observer.ts` adapts AI SDK `onLanguageModelCallStart/End` to the §6 events and synthesizes them on the `generateObject` / `streamObject` / callback branches. `lib/agent-definition-hash.ts` computes the definition hash.
+  - `lib/agent-run-{recorder,capture,reader}.ts` handle recording, capture and reads. The migration is `Migration20261026192929_ai_assistant`, and it includes the encryption-map backfill for the three new entity ids.
+  - Event `ai_assistant.agent_run.completed`, DI `aiAgentRunReader`, worker `ai-agent-run-prune` and CLI `run-agent-run-prune`.
+  - The chat and `run-object` routes return `runId`. AO native runs pass `trace: { persist: false }`.
+- Deviations and clarifications:
+  - Conversation deletes soft-delete their runs in `AiChatConversationRepository.softDelete`, which is the path that actually deletes conversations, not in `conversation-storage`.
+  - Playground turns are labelled channel `playground` from the client-sent `pageContext.source`. It is a label only and is never used for access decisions.
+  - `correlationId` reuses the MCP audit resolver (`[A-Za-z0-9._:-]`, ≤ 128 chars, else a generated UUID).
+  - Text runs record `apiKeyId: null`: the runtime auth context has no API key id.
+  - A budget-triggered abort records `aborted`, with the budget reason in `stop_reason`.
+  - At `metadata` capture, `citations` are dropped with the other content. A JSON payload over the cap is stored as a truncated JSON string.
+  - The `ai_assistant.runs.view` / `.view_all` features ship with the Phase 3 routes that consume them.
+- Pre-existing defect fixed in the same change: the `tool-loop-agent` engine never passed the composed system prompt to `ToolLoopAgent`, so those turns ran without one. It now sends it as `instructions`.

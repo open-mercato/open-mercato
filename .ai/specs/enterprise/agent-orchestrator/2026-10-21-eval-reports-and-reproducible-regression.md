@@ -602,3 +602,16 @@ None. One ask-first item (generated descriptor field) is open; the YAML dependen
 
 ### 2026-10-26
 - Review fix: `escapeMarkdownCell` also escapes `&`, `<` and `>` (in that order, before newlines become `<br>`), so agent output pasted into GitHub job summaries renders as inert text instead of markup.
+
+### 2026-10-27
+- Phase 2 implemented (agent platform wave 2):
+  - `lib/eval/manifest.ts` covers freeze, hash, carrier resolution, deterministic UUIDv5 ids and the `OM_AGENT_EVAL_SET_MAX_BYTES` cap.
+  - `evalRuns.start` freezes the manifest and writes `summary.__evalSet`; `complete` merges into it. `GET /eval-runs/:id` strips the body. The replay reads cases and assertions from the manifest; an unresolved pointer errors the case with `eval_set_unresolved`.
+  - `POST /eval-runs { snapshot }` and CLI `--snapshot` / `--require-snapshot` pin runs to a manifest. The report fills `evalSet` and `baseline.sameDataset` and adds a drift warning. The start drawer has a snapshot picker.
+- Deviations and clarifications:
+  - `rubricRef` does not exist yet, so judge assertions freeze the normalized rubric. Database cases use their id as `key`.
+  - A carrier is any run that still holds the body for that version, including one that is queued, failed or cancelled.
+  - Passing `evalCaseIds` with a snapshot narrows the manifest's cases. A snapshot combined with a label pin is rejected. `--require-snapshot` with no pin exits 2.
+  - `GET /eval-runs` list items gain `eval_set_version` and `manifest_hash` (pointer only).
+  - Pinned reports show the frozen case `name` / `input` / `expected`. An unresolved manifest falls back to live values with an `eval_set_unresolved` warning in `baseline.warnings`.
+  - Editing an approved case demotes it to draft (existing behavior). A pinned replay still uses the frozen content.

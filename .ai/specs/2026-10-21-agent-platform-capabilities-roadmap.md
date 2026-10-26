@@ -286,3 +286,12 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
   - EVAL-Q2: YAML approved.
   - DOC-Q3, OTEL-Q2: recommendations approved.
 - Contract-name list extended with `ai_assistant.pending_actions.approve`, notification `ai_assistant.pending_action.awaiting_approval`, tool `ai_assistant.get_pending_action`, and env `OM_MCP_PENDING_ACTION_TTL_SECONDS`. Delivery-order notes added.
+
+### 2026-10-27
+- Wave 2 implemented on one PR, stacked on wave 1:
+  - Chat P2 + the §6 contract, Observability P0–P1 and Eval P2. Eval P1 already shipped in wave 1.
+  - The optional MCP P4 + Identity P1/P5 bundle stays in wave 3, as the delivery order says (ID-Q3: they ship in one release).
+- Shared pieces now exist for later waves to reuse:
+  - `lib/agent-call-contract.ts` (§6) and `lib/trace/runManifest.ts` (the manifest builder the identity and integrity specs write keys through).
+  - `@open-mercato/shared/lib/ai/run-observation`.
+  - Eval `summary.__evalSet` (the `agent_eval_set_snapshots` re-squash candidate is unchanged).

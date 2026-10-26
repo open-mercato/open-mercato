@@ -472,6 +472,16 @@ Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2
 
 **Audit.** Every MCP `tools/call` and `/tools/execute` call now writes an `access_logs` row of kind `ai_assistant.mcp_tool_call` (argument names only, never values). These rows follow the non-core retention window; add the kind to `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` to keep them longer.
 
+### AI agent runs are now recorded, and `tool-loop-agent` agents receive their system prompt
+
+**Run recording.** ai-assistant now writes one record per agent run to three new encrypted tables: `ai_agent_runs`, `ai_agent_run_steps` and `ai_agent_run_tool_calls`. This covers chat, `run-object` and internal callers of `runAiAgentText` / `runAiAgentObject`. The tables come from migration `Migration20261026192929_ai_assistant`, which `yarn db:migrate` applies.
+
+- **Capture env vars:** `OM_AI_RUN_TRACE_CAPTURE` (`full` by default, or `metadata` / `off`), `OM_AI_RUN_TRACE_CAPTURE_PROMPT` and `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES`.
+- **Retention:** a daily `ai-agent-run-prune` worker deletes runs after `AI_AGENT_RUNS_RETENTION_DAYS` (30). On existing tenants, refresh the structural cache so the schedule registers.
+- **Action for custom runners** that call `runAiAgentText` / `runAiAgentObject` and persist their own trace: pass `trace: { persist: false }`, or each run is recorded twice. The Agent Orchestrator native runner already does this.
+
+**`tool-loop-agent` system prompt.** Agents with `executionEngine: 'tool-loop-agent'` previously ran without their composed system prompt. They now receive it, so their responses can change. Re-check any prompt-level workaround you added to compensate.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
