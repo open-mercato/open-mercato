@@ -15,7 +15,7 @@ import {
   type EvalScope,
   type SuiteAggregate,
 } from '../evalReplayService'
-import { readEvalSetPointer } from '../manifest'
+import { EVAL_SET_UNRESOLVED, readEvalSetPointer, resolveManifest, type EvalSetManifestCase } from '../manifest'
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
 import {
@@ -73,6 +73,10 @@ function pinKindOf(version: string | null): EvalReport['evalSet']['pinKind'] {
 
 function datasetDriftWarning(label: string, baselineHash: string, currentHash: string): string {
   return `dataset_drift: eval set label "${label}" froze manifest ${currentHash} but the baseline ran manifest ${baselineHash}`
+}
+
+function evalSetUnresolvedWarning(version: string): string {
+  return `${EVAL_SET_UNRESOLVED}: the frozen eval set ${version} could not be resolved, so case names, inputs and expected values show the current case definitions`
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
@@ -217,6 +221,14 @@ export async function buildEvalReport(
     : []
   const casesById = new Map(cases.map((entry) => [entry.id, entry]))
 
+  const pointer = readEvalSetPointer(suiteRun.summary)
+  const manifest = pointer
+    ? await resolveManifest(em, scope, suiteRun.agentDefinitionId, pointer.version)
+    : null
+  const frozenCasesById = new Map<string, EvalSetManifestCase>(
+    (manifest?.cases ?? []).map((entry) => [entry.id, entry]),
+  )
+
   const runIds = Array.from(
     new Set(current.caseRuns.map((entry) => entry.agentRunId).filter((id): id is string => typeof id === 'string')),
   )
@@ -303,18 +315,19 @@ export async function buildEvalReport(
 
   const reportCases: EvalReportCase[] = caseIds.map((caseId) => {
     const evalCase = casesById.get(caseId)
+    const frozenCase = frozenCasesById.get(caseId)
     const reportCase: EvalReportCase = {
       id: caseId,
       key: caseId,
-      name: evalCase?.name ?? null,
+      name: frozenCase ? frozenCase.name : evalCase?.name ?? null,
       source: 'db',
       flaky: flaky.flakyCaseIds.has(caseId),
       baselineStatus: baseline ? baselineStatusOf(baselineTrialsByCase.get(caseId) ?? []) : 'absent',
       trials: (trialsByCase.get(caseId) ?? []).map(buildTrial),
     }
     if (includePayloads) {
-      reportCase.input = toJson(evalCase?.input) ?? null
-      reportCase.expected = toJson(evalCase?.expected)
+      reportCase.input = toJson(frozenCase ? frozenCase.input : evalCase?.input) ?? null
+      reportCase.expected = toJson(frozenCase ? frozenCase.expected : evalCase?.expected)
     }
     return reportCase
   })
@@ -359,7 +372,6 @@ export async function buildEvalReport(
     current.caseRuns.filter((entry) => entry.status === target).length
   const evalSetVersion = suiteRun.evalSetVersion ?? null
   const pinKind = pinKindOf(evalSetVersion)
-  const pointer = readEvalSetPointer(suiteRun.summary)
   const manifestHash = pointer?.version ?? null
   const baselineManifestHash = baselineRun ? readEvalSetPointer(baselineRun.summary)?.version ?? null : null
   const sameDataset = manifestHash !== null && baselineManifestHash !== null ? manifestHash === baselineManifestHash : null
@@ -367,6 +379,7 @@ export async function buildEvalReport(
     pinKind === 'label' && evalSetVersion !== null && sameDataset === false && manifestHash !== null && baselineManifestHash !== null
       ? [datasetDriftWarning(evalSetVersion, baselineManifestHash, manifestHash)]
       : []
+  if (pointer && !manifest) baselineWarnings.push(evalSetUnresolvedWarning(pointer.version))
 
   return {
     schema: EVAL_REPORT_SCHEMA,

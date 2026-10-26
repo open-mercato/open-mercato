@@ -19,9 +19,10 @@ import { hasConfiguredLlmProvider } from './helpers/llmProvider'
  * assertions into a manifest whose hash becomes the run's evalSetVersion.
  * Replaying that hash after the live case was edited must replay the FROZEN
  * case: same version, same manifest, the first run as its same-dataset baseline,
- * and the original input handed to the agent. The replay itself does not need a
- * model to complete (a case without one ends errored, not missing), so only the
- * input check through the produced agent run depends on a configured provider.
+ * the original case input shown in its payload report, and the original input
+ * handed to the agent. The replay itself does not need a model to complete (a
+ * case without one ends errored, not missing), so only the input check through
+ * the produced agent run depends on a configured provider.
  * The snapshot validation contract (unknown hash, malformed value) is rejected
  * before any replay and never needs a model.
  */
@@ -40,8 +41,8 @@ type EvalRunDetailBody = {
 
 type EvalReportBody = {
   evalSet?: { version?: string | null; pinKind?: string; manifestHash?: string | null; assertionCount?: number }
-  baseline?: { suiteRunId?: string | null; manifestHash?: string | null; sameDataset?: boolean | null }
-  cases?: Array<{ id?: string; trials?: Array<{ error?: string | null }> }>
+  baseline?: { suiteRunId?: string | null; manifestHash?: string | null; sameDataset?: boolean | null; warnings?: string[] }
+  cases?: Array<{ id?: string; input?: unknown; trials?: Array<{ error?: string | null }> }>
 }
 
 async function startPinnedRun(
@@ -67,11 +68,17 @@ async function readRunDetail(request: APIRequestContext, token: string, suiteRun
   return (await readJsonSafe<EvalRunDetailBody>(response)) ?? {}
 }
 
-async function readReport(request: APIRequestContext, token: string, suiteRunId: string): Promise<EvalReportBody> {
+async function readReport(
+  request: APIRequestContext,
+  token: string,
+  suiteRunId: string,
+  includePayloads = false,
+): Promise<EvalReportBody> {
+  const payloadQuery = includePayloads ? '&includePayloads=true' : ''
   const response = await apiRequest(
     request,
     'GET',
-    `${EVAL_RUNS_PATH}/${encodeURIComponent(suiteRunId)}/report?format=json`,
+    `${EVAL_RUNS_PATH}/${encodeURIComponent(suiteRunId)}/report?format=json${payloadQuery}`,
     { token },
   )
   expect(response.status(), await response.text()).toBe(200)
@@ -158,13 +165,16 @@ test.describe('TC-AGENT-EVAL-SET-002: pinned eval-set replay', () => {
         expect(caseRun.error_message ?? '', 'the frozen case must resolve from the manifest').not.toContain('eval_set_')
       }
 
-      const secondReport = await readReport(request, token, secondRunId)
+      const secondReport = await readReport(request, token, secondRunId, true)
       expect(secondReport.evalSet?.pinKind).toBe('hash')
       expect(secondReport.evalSet?.version).toBe(firstHash)
       expect(secondReport.evalSet?.manifestHash).toBe(firstHash)
       expect(secondReport.baseline?.suiteRunId, 'the previous run of the same pin is the baseline').toBe(firstRunId)
       expect(secondReport.baseline?.manifestHash).toBe(firstHash)
       expect(secondReport.baseline?.sameDataset).toBe(true)
+      expect(secondReport.baseline?.warnings ?? []).not.toContainEqual(expect.stringContaining('eval_set_unresolved'))
+      const reportedCase = (secondReport.cases ?? []).find((entry) => entry.id === evalCaseId)
+      expect(reportedCase?.input, 'the pinned report must show the ORIGINAL frozen input').toEqual(originalInput)
 
       const providerReady = await hasConfiguredLlmProvider(request, token)
       const replayedRunId = secondAgentRunIds[0] ?? null

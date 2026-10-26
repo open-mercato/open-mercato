@@ -9,6 +9,7 @@ import {
 } from '../data/entities'
 import { buildEvalReport, EvalRunNotFinishedError, percentile } from '../lib/eval/report/buildEvalReport'
 import { evalReportSchema } from '../lib/eval/report/reportSchema'
+import { hashManifest, normalizeManifest, type EvalSetManifest } from '../lib/eval/manifest'
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 const OTHER_SCOPE = { tenantId: 'tenant-2', organizationId: 'org-2' }
@@ -391,7 +392,7 @@ describe('buildEvalReport', () => {
     const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
 
     expect(report?.evalSet).toMatchObject({ pinKind: 'label', label: 'release-1', manifestHash: 'sha256:label-run' })
-    expect(report?.baseline).toEqual({ suiteRunId: null, manifestHash: null, sameDataset: null, warnings: [] })
+    expect(report?.baseline).toEqual({ suiteRunId: null, manifestHash: null, sameDataset: null, warnings: [expect.stringContaining('eval_set_unresolved')] })
   })
 
   function seedWithBaseline(currentHash: string | null, baselineHash: string | null, evalSetVersion: string | null) {
@@ -416,7 +417,7 @@ describe('buildEvalReport', () => {
       suiteRunId: 'suite-0',
       manifestHash: 'sha256:same',
       sameDataset: true,
-      warnings: [],
+      warnings: [expect.stringContaining('eval_set_unresolved')],
     })
   })
 
@@ -426,7 +427,7 @@ describe('buildEvalReport', () => {
 
     expect(report?.baseline.sameDataset).toBe(false)
     expect(report?.baseline.manifestHash).toBe('sha256:previous')
-    expect(report?.baseline.warnings).toHaveLength(1)
+    expect(report?.baseline.warnings).toHaveLength(2)
     expect(report?.baseline.warnings[0]).toContain('dataset_drift')
     expect(report?.baseline.warnings[0]).toContain('release-1')
     expect(report?.baseline.warnings[0]).toContain('sha256:previous')
@@ -438,7 +439,7 @@ describe('buildEvalReport', () => {
     const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
 
     expect(report?.baseline.sameDataset).toBe(false)
-    expect(report?.baseline.warnings).toEqual([])
+    expect(report?.baseline.warnings).toEqual([expect.stringContaining('eval_set_unresolved')])
   })
 
   it('leaves sameDataset null when the legacy baseline has no manifest pointer', async () => {
@@ -447,7 +448,104 @@ describe('buildEvalReport', () => {
 
     expect(() => evalReportSchema.parse(report)).not.toThrow()
     expect(report?.evalSet.manifestHash).toBe('sha256:current')
-    expect(report?.baseline).toEqual({ suiteRunId: 'suite-0', manifestHash: null, sameDataset: null, warnings: [] })
+    expect(report?.baseline).toEqual({ suiteRunId: 'suite-0', manifestHash: null, sameDataset: null, warnings: [expect.stringContaining('eval_set_unresolved')] })
+  })
+
+  const FROZEN_CASE_ID = '6f1c2a3e-1111-4b5a-8611-000000000001'
+  const FROZEN_MANIFEST: EvalSetManifest = normalizeManifest({
+    format: 'open-mercato.agent-eval-set',
+    formatVersion: 1,
+    agentId: 'agent-a',
+    label: null,
+    source: 'db',
+    assertions: [],
+    cases: [
+      {
+        id: FROZEN_CASE_ID,
+        key: FROZEN_CASE_ID,
+        name: 'Original name',
+        input: { prompt: 'original input' },
+        expected: { answer: 'original answer' },
+        assertions: null,
+      },
+    ],
+  })
+
+  function seedWithFrozenCase(summary: Row | null): Map<unknown, Row[]> {
+    const version = hashManifest(FROZEN_MANIFEST)
+    return new Map<unknown, Row[]>([
+      [AgentEvalSuiteRun, [suiteRun('suite-1', { evalSetVersion: version, summary })]],
+      [AgentEvalCaseRun, [caseRun('cr-1', 'suite-1', FROZEN_CASE_ID)]],
+      [AgentEvalResult, [result('cr-1', 'a-exact', 'exact', true)]],
+      [AgentEvalAssertion, ASSERTIONS],
+      [
+        AgentEvalCase,
+        [{ id: FROZEN_CASE_ID, ...SCOPE, name: 'Edited name', input: { prompt: 'edited input' }, expected: { answer: 'edited answer' } }],
+      ],
+      [AgentRun, [agentRun('run-cr-1')]],
+    ])
+  }
+
+  function frozenPointer(withBody: boolean): Row {
+    return {
+      __evalSet: {
+        version: hashManifest(FROZEN_MANIFEST),
+        label: null,
+        source: 'db',
+        caseCount: 1,
+        assertionCount: 0,
+        carrierSuiteRunId: 'suite-1',
+        ...(withBody ? { body: FROZEN_MANIFEST } : {}),
+      },
+    }
+  }
+
+  it('shows the frozen case content of a pinned run even after the live case was edited', async () => {
+    const { em } = createFakeEm(seedWithFrozenCase(frozenPointer(true)))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {}, includePayloads: true })
+
+    expect(() => evalReportSchema.parse(report)).not.toThrow()
+    expect(report?.cases[0]).toMatchObject({
+      id: FROZEN_CASE_ID,
+      name: 'Original name',
+      input: { prompt: 'original input' },
+      expected: { answer: 'original answer' },
+    })
+    expect(report?.baseline.warnings).toEqual([])
+  })
+
+  it('keeps frozen payloads opt-in for a pinned run', async () => {
+    const { em } = createFakeEm(seedWithFrozenCase(frozenPointer(true)))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(report?.cases[0].name).toBe('Original name')
+    expect(report?.cases[0]).not.toHaveProperty('input')
+    expect(JSON.stringify(report)).not.toContain('original input')
+  })
+
+  it('falls back to live case content with a warning when the frozen eval set cannot be resolved', async () => {
+    const { em } = createFakeEm(seedWithFrozenCase(frozenPointer(false)))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {}, includePayloads: true })
+
+    expect(() => evalReportSchema.parse(report)).not.toThrow()
+    expect(report?.cases[0]).toMatchObject({
+      name: 'Edited name',
+      input: { prompt: 'edited input' },
+      expected: { answer: 'edited answer' },
+    })
+    expect(report?.baseline.warnings).toEqual([expect.stringContaining('eval_set_unresolved')])
+  })
+
+  it('shows live case content for a legacy run without a frozen eval set', async () => {
+    const { em } = createFakeEm(seedWithFrozenCase(null))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {}, includePayloads: true })
+
+    expect(report?.cases[0]).toMatchObject({
+      name: 'Edited name',
+      input: { prompt: 'edited input' },
+      expected: { answer: 'edited answer' },
+    })
+    expect(report?.baseline.warnings).toEqual([])
   })
 
   it('flags flaky cases and assertions across repeated trials', async () => {
