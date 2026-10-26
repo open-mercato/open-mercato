@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AwilixContainer } from 'awilix'
-import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { updateProgressSchema } from '../../../data/validators'
 import type { ProgressJob } from '../../../data/entities'
@@ -161,7 +160,7 @@ export const openApi = {
   },
   PUT: {
     summary: 'Update progress job',
-    description: 'Updates progress metrics and heartbeat for a running job.',
+    description: 'Updates progress metrics and heartbeat for a running job. Callers can update jobs they started; updating another user\'s job requires progress.manage.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Progress updated' },
@@ -171,7 +170,7 @@ export const openApi = {
   },
   DELETE: {
     summary: 'Cancel progress job',
-    description: 'Requests cancellation of a running or pending job.',
+    description: 'Requests cancellation of a running or pending job. Callers can cancel jobs they started; cancelling another user\'s job requires progress.manage.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Cancellation requested' },
