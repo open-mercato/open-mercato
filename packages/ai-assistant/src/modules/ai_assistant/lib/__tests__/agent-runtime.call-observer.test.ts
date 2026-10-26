@@ -205,7 +205,11 @@ describe('agent runtime model-call observer', () => {
       expect(toolNamesOf(starts[1])).toEqual(['customers__read_person'])
       const firstPrompt = (currentModel.doStreamCalls[0] as unknown as { prompt: Array<{ role: string; content: unknown }> }).prompt
       const sentSystem = firstPrompt.find((message) => message.role === 'system')?.content
+      expect(typeof sentSystem).toBe('string')
+      expect(sentSystem as string).toContain('System prompt base.')
       expect(starts[0].system).toBe(sentSystem)
+      const secondPrompt = (currentModel.doStreamCalls[1] as unknown as { prompt: Array<{ role: string; content: unknown }> }).prompt
+      expect(secondPrompt.find((message) => message.role === 'system')?.content).toBe(sentSystem)
       expect(starts[0].provider).toBe('test-provider')
       expect(starts[0].modelId).toBe('provider-default-model')
       expect(starts[0].callId).toBe(ends[0].callId)
@@ -227,6 +231,26 @@ describe('agent runtime model-call observer', () => {
       expect(ends[0].endedAtMs).toBeGreaterThanOrEqual(starts[0].startedAtMs)
     },
   )
+
+  it('chat: the tool-loop-agent engine sends the same composed system prompt as stream-text', async () => {
+    const sentSystems: Record<string, unknown> = {}
+    for (const executionEngine of ['stream-text', 'tool-loop-agent'] as const) {
+      resetAgentRegistryForTests()
+      toolRegistry.clear()
+      seedToolLoopAgent({ executionEngine })
+      currentModel = buildToolLoopStreamModel()
+      const response = await runAiAgentText({
+        agentId: 'customers.assistant',
+        messages: baseMessages as never,
+        authContext: baseAuth,
+      })
+      await response.text()
+      const firstPrompt = (currentModel.doStreamCalls[0] as unknown as { prompt: Array<{ role: string; content: unknown }> }).prompt
+      sentSystems[executionEngine] = firstPrompt.find((message) => message.role === 'system')?.content
+    }
+    expect(sentSystems['tool-loop-agent']).toEqual(expect.stringContaining('System prompt base.'))
+    expect(sentSystems['tool-loop-agent']).toBe(sentSystems['stream-text'])
+  })
 
   it('chat: a throwing observer (sync and async) never fails the run', async () => {
     seedToolLoopAgent()

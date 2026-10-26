@@ -24,7 +24,7 @@
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | cdb0d95f3 |
-| 1 | 1.6 | Send the composed system prompt on the tool-loop-agent engine | dispatch | todo | — |
+| 1 | 1.6 | Send the composed system prompt on the tool-loop-agent engine | dispatch | done | c59ebcd5c |
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | c101f38ef |
 | 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 15488bd19 |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | ae2e35868 |

@@ -2118,6 +2118,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (agent.executionEngine === 'tool-loop-agent') {
     const agentSettings: ToolLoopAgentSettingsWithModelCallHooks = {
       model,
+      instructions: systemPrompt,
       tools: tools as ToolSet,
       stopWhen: stopConditions,
       prepareStep: wrapperPrepareStep,
