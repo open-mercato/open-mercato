@@ -34,6 +34,7 @@ import type {
   AiAgentCallSettings,
   AiAgentRunTraceOptions,
 } from './agent-call-contract'
+import { mergeCallSettings, toSdkCallSettings } from './agent-call-contract'
 import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
@@ -385,6 +386,12 @@ export interface PreparedAiSdkOptions {
    * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
    */
   providerOptions?: Record<string, unknown>
+  /**
+   * Effective call settings (agent `modelSettings` merged with per-call
+   * `callSettings`). Present only when at least one setting is declared.
+   * `providerOptions` above already carries the merged provider options.
+   */
+  callSettings?: AiAgentCallSettings
 }
 
 /**
@@ -403,6 +410,12 @@ export interface PreparedAiSdkObjectOptions {
   onStepFinish: AiAgentLoopConfig['onStepFinish']
   onStepStart: AiAgentLoopConfig['onStepStart']
   abortSignal: AbortSignal | undefined
+  /**
+   * Effective call settings (agent `modelSettings` merged with per-call
+   * `callSettings`). Present only when at least one setting is declared.
+   * Callers SHOULD spread them into the SDK call.
+   */
+  callSettings?: AiAgentCallSettings
 }
 
 /**
@@ -1708,7 +1721,10 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     resolveEndUserIdentifier(input.authContext),
   )
   const { model } = resolvedModel
-  const modelProviderOptions = resolvedModel.providerOptions
+  const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
+  const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
+  const sdkCallSettings = toSdkCallSettings(effectiveCallSettings, resolvedModel.providerOptions)
+  const { providerOptions: modelProviderOptions, ...sdkCallSettingsWithoutProviderOptions } = sdkCallSettings
   const normalizedMessages = ensureUiMessageShape(input.messages)
 
   // Pre-loop input moderation gate (spec 2026-06-04). Runs before the model
@@ -1856,6 +1872,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         : {}),
       ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
       ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+      ...sdkCallSettingsWithoutProviderOptions,
       ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
     }
     builtToolLoopAgent = new ToolLoopAgent(agentSettings)
@@ -1879,6 +1896,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     abortSignal: abortController.signal,
     finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
     ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
+    ...(hasCallSettings ? { callSettings: effectiveCallSettings } : {}),
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
   }
 
@@ -1953,6 +1971,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     experimental_repairToolCall: effectiveLoop.repairToolCall as never,
     ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
     ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+    ...sdkCallSettingsWithoutProviderOptions,
     ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
     abortSignal: abortController.signal,
   })
@@ -2272,6 +2291,13 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.requestOverride,
     tenantAllowlistSnapshot,
   )
+  const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
+  const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
+  const { providerOptions: objectProviderOptions, ...objectCallSettings } = toSdkCallSettings(effectiveCallSettings)
+  const sdkCallSettings = {
+    ...objectCallSettings,
+    ...(objectProviderOptions !== undefined ? { providerOptions: objectProviderOptions as never } : {}),
+  }
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
@@ -2334,6 +2360,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       prepareStep: toolWrapperPrepareStep as never,
       onStepFinish: toolLoopTrace.onStepFinish as never,
       output: Output.object({ schema: resolvedOutput.schema as never }),
+      ...sdkCallSettings,
       abortSignal: abortController.signal,
     })
     return {
@@ -2364,6 +2391,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     onStepFinish: effectiveLoop.onStepFinish,
     onStepStart: effectiveLoop.onStepStart,
     abortSignal: abortController.signal,
+    ...(hasCallSettings ? { callSettings: effectiveCallSettings } : {}),
   }
 
   if (input.generateObject) {
@@ -2405,6 +2433,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
       onStepFinish: effectiveLoop.onStepFinish,
       onStepStart: effectiveLoop.onStepStart,
+      ...sdkCallSettings,
       abortSignal: abortController.signal,
     } as Parameters<typeof streamObject>[0]
     const result = streamObject(streamArgs) as unknown as {
@@ -2433,6 +2462,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
     onStepFinish: effectiveLoop.onStepFinish,
     onStepStart: effectiveLoop.onStepStart,
+    ...sdkCallSettings,
     abortSignal: abortController.signal,
   } as Parameters<typeof generateObject>[0]
 

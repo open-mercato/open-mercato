@@ -1,6 +1,8 @@
 import {
   aiAgentCallSettingsSchema,
   mergeCallSettings,
+  mergeProviderOptions,
+  toSdkCallSettings,
   type AiAgentCallSettings,
 } from '../agent-call-contract'
 
@@ -85,5 +87,40 @@ describe('aiAgentCallSettingsSchema', () => {
     [{ providerOptions: 'openai' }],
   ])('rejects invalid value %j', (value) => {
     expect(aiAgentCallSettingsSchema.safeParse(value).success).toBe(false)
+  })
+})
+
+describe('mergeProviderOptions', () => {
+  it('returns the base reference untouched when there is no override', () => {
+    const baseOptions = { openai: { safety_identifier: 'user-hash' } }
+    expect(mergeProviderOptions(baseOptions, undefined)).toBe(baseOptions)
+    expect(mergeProviderOptions(undefined, undefined)).toBeUndefined()
+  })
+
+  it('merges shallowly per provider key', () => {
+    expect(
+      mergeProviderOptions(
+        { openai: { safety_identifier: 'user-hash', store: false } },
+        { openai: { store: true, reasoningEffort: 'low' }, anthropic: { thinking: { type: 'enabled' } } },
+      ),
+    ).toEqual({
+      openai: { safety_identifier: 'user-hash', store: true, reasoningEffort: 'low' },
+      anthropic: { thinking: { type: 'enabled' } },
+    })
+  })
+})
+
+describe('toSdkCallSettings', () => {
+  it('returns an empty object when nothing is declared', () => {
+    expect(toSdkCallSettings({})).toEqual({})
+  })
+
+  it('keeps base provider options and merges declared ones over them', () => {
+    expect(
+      toSdkCallSettings(
+        { temperature: 0.4, providerOptions: { openai: { store: true } } },
+        { openai: { safety_identifier: 'user-hash' } },
+      ),
+    ).toEqual({ temperature: 0.4, providerOptions: { openai: { safety_identifier: 'user-hash', store: true } } })
   })
 })

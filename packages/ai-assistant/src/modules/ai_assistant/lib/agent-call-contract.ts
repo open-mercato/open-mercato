@@ -95,3 +95,31 @@ export function mergeCallSettings(
   }
   return merged as AiAgentCallSettings
 }
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function mergeProviderOptions(
+  baseOptions: Record<string, unknown> | undefined,
+  overrideOptions: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!overrideOptions) return baseOptions
+  if (!baseOptions) return overrideOptions
+  const merged: Record<string, unknown> = { ...baseOptions }
+  for (const [providerKey, providerValue] of Object.entries(overrideOptions)) {
+    const existing = merged[providerKey]
+    merged[providerKey] =
+      isPlainRecord(existing) && isPlainRecord(providerValue) ? { ...existing, ...providerValue } : providerValue
+  }
+  return merged
+}
+
+export function toSdkCallSettings(
+  settings: AiAgentCallSettings,
+  baseProviderOptions?: Record<string, unknown>,
+): Omit<AiAgentCallSettings, 'providerOptions'> & { providerOptions?: Record<string, unknown> } {
+  const { providerOptions, ...rest } = settings
+  const mergedProviderOptions = mergeProviderOptions(baseProviderOptions, providerOptions)
+  return mergedProviderOptions !== undefined ? { ...rest, providerOptions: mergedProviderOptions } : rest
+}
