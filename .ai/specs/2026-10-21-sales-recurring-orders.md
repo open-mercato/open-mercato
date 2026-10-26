@@ -13,7 +13,7 @@
 **Key Points:**
 - A sales order can be **recurring**: a **start date**, a **frequency** (weekly, monthly, quarterly, yearly) and either a **number of periods** or no end. The end date is derived, never typed, so every period is whole.
 - A scheduled sales job issues the **invoice for each period** once its **anniversary** arrives, in advance, for the period that starts that day. Customers **pay per invoice**; the order's paid and outstanding amounts are derived from its invoices.
-- A recurring order can be **cancelled** with an effective date (today, past or future). The person cancelling chooses how the period containing that date is settled — **prorate**, **credit or skip it entirely**, or **bill it in full** — pre-set to the organization's default.
+- A recurring order can be **cancelled** with an effective date (today, past or future). The effective date is the first day no longer served. The person cancelling chooses how the partly served period before it is settled — **prorate**, **credit or skip it entirely**, or **bill it in full** — pre-set to the organization's default.
 - **Quotes carry the same recurrence**; a recurring quote cannot be accepted once its start date has passed.
 
 **Scope:** recurrence on quotes and orders; conversion; invoice generation; per-invoice payment model; cancellation with settlement; organization default; UI; events.
@@ -33,7 +33,7 @@ Settled with the maintainer (2026-10-21):
 | R1 | Recurring orders are a sales feature with their own spec; consumers reference it. |
 | R2 | Each invoice is issued once the period's anniversary has arrived and pays for the period that starts that day (in advance). |
 | R3 | The term is a number of periods or open-ended; the end date is calculated and always closes a whole period. |
-| R4 | Cancelling settles the period containing the effective date in one of three ways — prorate by days, credit (or skip) it entirely, or bill it in full — defaulting to the organization's setting and overridable per cancellation. |
+| R4 | Cancelling settles the partly served period before the effective date (the first day no longer served) in one of three ways — prorate by days, credit (or skip) it entirely, or bill it in full — defaulting to the organization's setting and overridable per cancellation. |
 | R5 | Nothing that changes what is billed can be edited after the first invoice; a new recurring order is created instead. |
 | R6 | Monthly and quarterly anniversaries on the 29th–31st fall on the last day of shorter months; a yearly one on 29 Feb falls on 28 Feb in common years. A recurrence may take an explicit anchor day so a follow-on order keeps the original billing day. |
 | R7 | Quotes carry the recurrence; `sales.quotes.convert_to_order` copies it. A recurring quote whose start date has passed cannot be accepted or converted — a new quote is needed. |
@@ -85,7 +85,7 @@ cancel ──▶ sales.orders.recurrence.cancel ──▶ record effective date 
 | `setup.ts` | Registers **one system-scope schedule** with the optional `schedulerService` (`scopeType: 'system'`, `interval` `3600s`, `targetType: 'queue'`, `sourceModule: 'sales'`; precedent: `registerDomainSchedules` in `customer_accounts/setup.ts` `seedDefaults`, the pattern `payment_gateways`, `checkout` and `ai-assistant` follow), from `seedDefaults` and idempotently on every worker start. The schedule is one system row, not per tenant, so no tenant-creation hook registers it; the worker-start registration covers existing deployments and tenants added later without re-running `seedDefaults`. The CLI `mercato sales run-recurring-invoicing` runs the same path. |
 | `services/paymentOrderTotalResolver.ts` | For recurring orders, the amount due is the oldest unpaid invoice's outstanding amount (R8). |
 
-**Time.** Anniversaries are calendar dates; "today" is the deployment's local date (`TZ`). A period is due from 00:00 on its anniversary and is issued at the next hourly run. There is no per-organization timezone: an organization whose local day differs from the deployment's sees its invoices issued, and its cancellation cutoffs applied, on the deployment's day — up to one calendar day early or late near midnight. This is the same documented limitation as in `2026-10-15-property-management.md`; an optional organization timezone can be added later as a nullable `sales_settings` column without migrating stored dates (see Risks).
+**Time.** Anniversaries are calendar dates; "today" is the deployment's local date (`TZ`), computed in Node and passed to SQL as a parameter — never the database's `now()`/`current_date`, which follow the session `TimeZone`. Deployments set `TZ` to the organizations' business timezone (containers default to UTC). A period is due from 00:00 on its anniversary and is issued at the next hourly run. There is no per-organization timezone: an organization whose local day differs from the deployment's sees its invoices issued, and its cancellation cutoffs applied, on the deployment's day — up to one calendar day early or late near midnight. This is the same documented limitation as in `2026-10-15-property-management.md`; an optional organization timezone can be added later as a nullable `sales_settings` column without migrating stored dates (see Risks).
 
 ## 📝 Data Model
 
@@ -135,12 +135,13 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 - Sales analytics and the new-orders widget count a recurring order's **invoiced** amounts, not its per-period grand total.
 
 ### Cancelling (R4)
-`sales.orders.recurrence.cancel { orderId, effectiveOn?, settlement?, idempotencyKey }` — `effectiveOn` defaults to today; `settlement` defaults to `sales_settings.recurring_cancel_settlement`. It locks the recurrence (`SELECT … FOR UPDATE`, waiting for a running worker), then:
+`sales.orders.recurrence.cancel { orderId, effectiveOn?, settlement?, idempotencyKey }` — `effectiveOn` defaults to today; `settlement` defaults to `sales_settings.recurring_cancel_settlement`. `effectiveOn` is the **first day no longer served** (exclusive): a customer who leaves on 14 March has `effectiveOn` = 15 March. It locks the recurrence (`SELECT … FOR UPDATE`, waiting for a running worker), then:
 - **Cutoff:** no period starting on or after `effectiveOn` will be billed. Periods already issued that start on or after it are credited in full.
-- **Settlement of the period containing `effectiveOn`** (the *final period*):
+- **Final period:** the period that contains `effectiveOn` and **starts before it** (days used = from its start to the day before `effectiveOn`). When `effectiveOn` is a period start there is no final period: the period starting that day is cut like any later one, the period before it was fully served, and the settlement has nothing to settle — so `keep` can never bill a period that the cutoff excludes.
+- **Settlement of the final period**:
   - already issued → `prorate`: credit memo for (1 − days used ÷ days in period) of each line; `credit_full`: credit memo for the whole invoice; `keep`: nothing;
   - not yet issued (future effective date) → recorded; when the worker reaches it, `prorate` issues it already prorated (billed factor = days used ÷ days in period), `credit_full` skips it (ledger row, no invoice), `keep` issues it in full.
-- **Status:** `cancelled` when the final period is settled (immediately for today or a past date), otherwise `cancelling` — billing continues up to the cutoff.
+- **Status:** `cancelled` when the final period is settled (immediately for today or a past date), otherwise `cancelling` — billing continues up to the cutoff. With no final period (`effectiveOn` is a period start), it becomes `cancelled` at once when `effectiveOn` ≤ today, and otherwise when the worker reaches `effectiveOn` and finds nothing left to bill.
 - A `cancelling` recurrence can be cancelled again with an **earlier** effective date (re-settles as above); a later date is refused.
 - Credit memos are created with `sales.credit_memos.create` on the cancel's transaction. The result (credit memo ids) is stored on the recurrence with the idempotency key: a repeat call with the same key returns it with `200`; a different key on a cancelled recurrence gets `409 recurring_order_already_cancelled`.
 
@@ -218,7 +219,7 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 4. Events, re-emission, completion. *Integration:* a 3-period order is `completed` after its third period ends; a crash between commit and events re-emits `invoice_issued` once.
 
 ### Phase 3
-1. `sales.orders.recurrence.cancel`. *Integration:* today + prorate → credit memo for the remainder; past date → later issued periods credited in full; **future date** + prorate → billing continues, the final period is issued prorated, then `cancelled`; future + `credit_full` → the final period is not issued; moving a pending cancellation earlier re-settles; a repeat call with the same idempotency key returns the stored result; a stale `scheduleVersion` → `409`; without `sales.credit_memos.manage` → `403`.
+1. `sales.orders.recurrence.cancel`. *Integration:* today + prorate → credit memo for the remainder; past date → later issued periods credited in full; **future date** + prorate → billing continues, the final period is issued prorated, then `cancelled`; future + `credit_full` → the final period is not issued; moving a pending cancellation earlier re-settles; **boundaries** — `effectiveOn` equal to a period start with `keep` issues nothing for that period and no credit for the one before it, and `effectiveOn` the day after a period's last day behaves the same; a repeat call with the same idempotency key returns the stored result; a stale `scheduleVersion` → `409`; without `sales.credit_memos.manage` → `403`.
 2. Settings default (merging number formats) and cancel dialog. *Integration:* `GET`/`PUT /settings/recurring`. *Playwright:* the dialog previews the credit and creates it.
 
 ## Final Compliance Report — 2026-10-21
@@ -242,3 +243,6 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 
 ### 2026-10-22
 - Review of #7765 by `om-auto-review-pr`: the single-deployment `TZ` assumption is documented in Architecture → Time and as a Risks row (mirroring the property-management spec); the system schedule's registration now cites `seedDefaults` (`customer_accounts/setup.ts` `registerDomainSchedules`) plus worker start, with no tenant-creation hook; the recurring-order branch of `resolveOrderAmountDue` is marked as new logic.
+
+### 2026-10-26
+- From the review of #7472: `effectiveOn` is defined as the first day no longer served (decision R4 and the overview reworded to match); the final period is the one containing it that starts before it, so a cancellation at a period start settles nothing and `keep` can never bill a cut-off period (boundary tests added); a cancellation with no final period becomes `cancelled` at the cutoff. "Today" is computed in Node and passed to SQL; deployments set `TZ` to the business timezone.
