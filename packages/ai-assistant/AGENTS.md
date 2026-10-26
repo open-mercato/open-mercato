@@ -879,13 +879,23 @@ yarn mcp:serve
 
 | Worker | Queue | Purpose |
 |--------|-------|---------|
-| `workers/ai-pending-action-cleanup` | `ai-pending-action-cleanup` | Scans every tenant for expired pending mutation approvals (`status = 'pending'` AND `expires_at < now`) and flips them to `expired` via the state-machine guard, emitting `ai.action.expired` per row. Race-safe: rows that concurrently transitioned (e.g., a confirm beat us) throw `AiPendingActionStateError` from the repo and are skipped without emitting. Runs on a 5-minute system-scope interval (registered by `setup.ts`). Manually invoked via `yarn mercato ai_assistant run-pending-action-cleanup`. Concurrency: 1. |
+| `workers/ai-pending-action-cleanup` | `ai-pending-action-cleanup` | Flips expired pending approvals (`status = 'pending'`, `expires_at < now`) to `expired` via the state-machine guard, emitting `ai.action.expired`; rows that concurrently transitioned are skipped. 5-minute system interval (`setup.ts`). Manual: `yarn mercato ai_assistant run-pending-action-cleanup`. Concurrency 1. |
+| `workers/ai-agent-run-prune` | `ai-agent-run-prune` | Daily: deletes runs (with steps/tool calls) older than `AI_AGENT_RUNS_RETENTION_DAYS` (30) or soft-deleted. Manual: `yarn mercato ai_assistant run-agent-run-prune`. |
 
 ## Events
 
-Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.ts` and are emitted via the shared `emitAiAssistantEvent` helper (`createModuleEvents`). The three ids are FROZEN per `BACKWARD_COMPATIBILITY.md` §5 and MUST NOT be renamed; payload fields are additive-only. `ai.action.confirmed` fires from `executePendingActionConfirm` with `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` fires from `executePendingActionCancel` with the same shape plus an optional `reason`; `ai.action.expired` fires from the cancel helper's TTL short-circuit (and the Step 5.12 cleanup worker) with `resolvedByUserId: null` and additional `expiresAt` / `expiredAt` timestamps. All three use `category: 'system'` and `entity: 'ai_pending_action'`.
+Pending-action events (`events.ts`, `emitAiAssistantEvent`) are FROZEN per `BACKWARD_COMPATIBILITY.md` §5; payloads additive-only, `category: 'system'`, `entity: 'ai_pending_action'`. `ai.action.confirmed` (`executePendingActionConfirm`) carries `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` (`executePendingActionCancel`) the same plus `reason?`; `ai.action.expired` (TTL short-circuit and cleanup worker) has `resolvedByUserId: null` plus `expiresAt` / `expiredAt`.
 
 `ai_assistant.moderation_flag.created` (`entity: 'ai_moderation_flag'`) fires best-effort from the input-moderation gate; payload carries flagged category names only, never prompt content.
+
+`ai_assistant.agent_run.completed` fires after a run record commits; payload carries ids only.
+
+## Run tracing
+
+Guide: `agents.mdx` → "Model call settings and run tracing". Envs: `OM_AI_RUN_TRACE_CAPTURE` (`full`/`metadata`/`off`), `OM_AI_RUN_TRACE_CAPTURE_PROMPT`, `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES`.
+
+- The run recorder is best-effort and MUST NEVER throw into the turn.
+- Runners that persist their own trace MUST pass `trace: { persist: false }`.
 
 ## Input moderation & safety identifiers
 

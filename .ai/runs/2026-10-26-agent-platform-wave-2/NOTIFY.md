@@ -32,3 +32,8 @@
 
 ## 2026-10-26T20:55:00Z — checkpoint 2 (Steps 2.1..2.5)
 - ai-assistant jest 148/148, core guard suites 25/25, typecheck + lint clean. Guard failure (bare `.sort()` from 1.5) fixed as `1.5-review-fix` (inline).
+
+## 2026-10-26T21:10:00Z — decision: TC-AI-RUN-TRACE-016 coverage shape (Step 2.8)
+- Existing AI integration specs stub the model at the HTTP layer with `page.route()`, so the server runtime never runs and a stubbed `runId` would prove nothing. The spec instead calls the real server through `apiRequest`: unknown `callSettings` key → 400 `validation_error`; every documented key → accepted (404 `agent_unknown` from the policy gate, not 400); OpenAPI declares a UUID `runId` on the 200 response. A real run asserting a UUID `runId` is included but skips when no LLM provider is configured (CI).
+- `packages/ai-assistant/AGENTS.md` chain is over budget with a ratchet; the new run-tracing rules fit by compressing the pending-action Workers row and Events paragraph (facts kept), net −24 bytes vs baseline.
+- `apps/docs/__tests__/search-index.test.mjs` needs `apps/docs/build/search-index.json` (docs build artifact) and fails without it; unrelated to this Step. The other five docs guards pass.
