@@ -35,6 +35,7 @@ import {
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
+import { assertRecurringOrderStatusAllowed } from '../lib/recurringOrderGuard'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -452,6 +453,12 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       // recalculates the order's fulfilled quantities, so a stale parent must 409
       // before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      if (input.documentStatusEntryId) {
+        const requestedStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
+        if (requestedStatus !== (order.status ?? null)) {
+          await assertRecurringOrderStatusAllowed(tx, order, requestedStatus)
+        }
+      }
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
@@ -732,6 +739,12 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       const resolvedShipmentStatus = input.statusEntryId !== undefined
         ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         : undefined
+      if (input.documentStatusEntryId) {
+        const requestedStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: shipmentEntity.tenantId })
+        if (requestedStatus !== (order.status ?? null)) {
+          await assertRecurringOrderStatusAllowed(tx, order, requestedStatus)
+        }
+      }
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: shipmentEntity.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {

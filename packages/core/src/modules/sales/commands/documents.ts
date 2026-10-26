@@ -138,7 +138,12 @@ import {
   type OrderRecurrenceSnapshot,
   type QuoteRecurrenceSnapshot,
 } from "../lib/recurrenceStore";
-import { assertRecurringQuoteConvertible } from "../lib/recurringOrderGuard";
+import {
+  assertOrderRecurrenceUnlocked,
+  assertRecurringOrderDeletable,
+  assertRecurringOrderStatusAllowed,
+  assertRecurringQuoteConvertible,
+} from "../lib/recurringOrderGuard";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
@@ -711,6 +716,21 @@ export const documentUpdateSchema = z
   );
 
 export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>;
+
+const RECURRING_LOCKED_ORDER_FIELDS = [
+  "currencyCode",
+  "channelId",
+  "customerEntityId",
+  "customerContactId",
+  "customerSnapshot",
+  "shippingMethodId",
+  "shippingMethodCode",
+  "shippingMethodSnapshot",
+  "paymentMethodId",
+  "paymentMethodCode",
+  "paymentMethodSnapshot",
+  "recurrence",
+] as const satisfies ReadonlyArray<keyof DocumentUpdateInput>;
 
 type DocumentLineCreateInput = QuoteLineCreateInput | OrderLineCreateInput;
 type DocumentAdjustmentCreateInput =
@@ -5888,14 +5908,20 @@ const updateOrderCommand: CommandHandler<
       throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    if (RECURRING_LOCKED_ORDER_FIELDS.some((field) => parsed[field] !== undefined)) {
+      await assertOrderRecurrenceUnlocked(em, order);
+    }
     const previousStatus = normalizeStatusValue(order.status);
-    if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
+    if (parsed.statusEntryId) {
       const requestedStatus = normalizeStatusValue(
         await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
           tenantId: order.tenantId,
         }),
       );
-      if (isCancelledOrderStatus(requestedStatus)) {
+      if (requestedStatus !== previousStatus) {
+        await assertRecurringOrderStatusAllowed(em, order, requestedStatus);
+      }
+      if (!isCancelledOrderStatus(previousStatus) && isCancelledOrderStatus(requestedStatus)) {
         await assertOrderCanBeCancelled(em, order);
       }
     }
@@ -6661,6 +6687,7 @@ const deleteOrderCommand: CommandHandler<
       em,
       [
         async () => {
+          await assertRecurringOrderDeletable(em, order);
           if (shipmentIds.length) {
             await em.nativeDelete(SalesShipmentItem, {
               shipment: { $in: shipmentIds },
@@ -7563,6 +7590,7 @@ const orderLineUpsertCommand: CommandHandler<
       throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await assertOrderRecurrenceUnlocked(em, order);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
@@ -7886,6 +7914,7 @@ const orderLineDeleteCommand: CommandHandler<
         ));
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await assertOrderRecurrenceUnlocked(em, order);
     const shipmentCount = await em.count(SalesShipmentItem, {
       orderLine: parsed.id,
       shipment: { deletedAt: null },
@@ -8525,6 +8554,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await assertOrderRecurrenceUnlocked(em, order);
     if (parsed.scope === "line") {
       throw new CrudHttpError(400, {
         error: "Line-scoped adjustments are not supported yet.",
@@ -8816,6 +8846,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
+    await assertOrderRecurrenceUnlocked(em, order);
 
     const [existingLines, adjustments] = await Promise.all([
       em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
