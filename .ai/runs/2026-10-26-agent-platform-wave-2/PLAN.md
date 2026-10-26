@@ -42,7 +42,7 @@
 | 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | done | 463c19827 |
 | 3 | 3.6-review-fix | Translate the manifest card strings left identical to English | inline | done | a35814756 |
 | 3 | 3.7 | Cover the run manifest with an integration test | dispatch | done | 5b80dfd6f |
-| 4 | 4.1 | Add frozen eval-set manifests with deterministic ids | dispatch:capable | todo | — |
+| 4 | 4.1 | Add frozen eval-set manifests with deterministic ids | dispatch:capable | done | daa57ccac |
 | 4 | 4.2 | Freeze the manifest on eval run start and merge the summary on complete | dispatch | todo | — |
 | 4 | 4.3 | Replay cases and assertions from the frozen manifest | dispatch:capable | todo | — |
 | 4 | 4.4 | Add snapshot pinning to the eval CLI and the eval-runs API | dispatch | todo | — |
