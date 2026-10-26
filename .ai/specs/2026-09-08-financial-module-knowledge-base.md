@@ -2703,9 +2703,9 @@ keyed on a link that does not exist. Checked against `sales`' entities on
   of the payment entry; optional input on `markPaymentBatchSent`, default today, not later than today) and a
   "Read contract for other modules" section (AP #5962). Before, the spec did not state the posting date.
 
-### 2026-10-16 (cont. — Deferred Revenue #6193: domain-expert answers, Mateusz Duda)
+### 2026-10-16 (cont. — Deferred Revenue #6193: domain-expert answers, the controller's e-mail of 2026-10-16)
 
-Source: email from Mateusz Duda (Financial Controller, incro) of 2026-10-16, answering the three questions sent on 2026-10-15. Domain-expert statements; no statute was checked for them beyond what is already recorded.
+Source: email from the controller of 2026-10-16, answering the three questions sent on 2026-10-15. Domain-expert statements; no statute was checked for them beyond what is already recorded.
 
 - **Correction or return on an invoice with an active RMP schedule (DD14).** Freeze confirmed. A correction is a new document, so the accountant corrects by hand, and also the schedule when the correction affects it. Release/adjust command stays Phase 2.
 - **Locked month of the invoice (DD15).** The accountant decides. In the year: (a) correct revenue and spread evenly, or (b) correct in an open period with the future-year part as next year's RMP. After year end: unapproved statements → (a); approved → (b) in the new year's open period, or (c) through prior years' result, only for material errors (immaterial → current result). Consistent with the art. 54 reading already recorded (ust. 3); the materiality distinction is the expert's statement, not checked against the statute.
@@ -2832,7 +2832,7 @@ with `422 PAYMENT_BATCH_NOT_ELIGIBLE`.
 ### 2026-10-23 (cont. — currency, rate and original amount on the ledger line: controller's answer, literature and systems checked)
 
 Trigger: the Money/Currency review on #7795 raised how the ledger stores
-foreign amounts. The question went to the controller (Mateusz Duda, incro)
+foreign amounts. The question went to the controller
 as an e-mail; his answer of 2026-10-23 07:03 UTC is the base for the
 decision. Written into GL core engine (Design decisions, 2026-10-23) and
 aligned in JELD, Posting Rules, Multi-Currency, Cash & Bank, Default Chart
@@ -3012,7 +3012,7 @@ re-read in this pass.
 
 ### 2026-10-23 (cont. — controller's answer on valuing the outflow of currency)
 
-- **Source:** e-mail from Mateusz Duda (controller), 2026-10-23, to the questions on outflow valuation and on separating realized and unrealized differences. Practice and policy, not a checked legal text.
+- **Source:** e-mail from the controller, 2026-10-23, to the questions on outflow valuation and on separating realized and unrealized differences. Practice and policy, not a checked legal text.
 - **Outflow valuation is accounting policy.** FIFO is the usual choice (each inflow is a lot with its own rate, an outflow consumes the oldest lot at its rate); weighted average is also permitted; an outflow at the rate of the day books no realized differences and pushes all of it to the valuation. For CIT the realized differences would then have to be computed outside the books.
 - **Mandatory valuation** is only the balance at the balance-sheet date at the NBP average rate; a monthly valuation is the company's choice.
 - **Realized and unrealized differences are kept apart** (separate sub-accounts), because only realized differences enter CIT; the exception is the rarely used accounting-law method in the CIT act (not checked against the act).
