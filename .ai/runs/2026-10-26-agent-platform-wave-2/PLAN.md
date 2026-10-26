@@ -24,7 +24,7 @@
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | cdb0d95f3 |
-| 1 | 1.6 | Send the composed system prompt on the tool-loop-agent engine | dispatch | done | c59ebcd5c |
+| 1 | 1.6 | Send the composed system prompt on the tool-loop-agent engine | dispatch | done | 788d1d1d3 |
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | c101f38ef |
 | 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 15488bd19 |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | ae2e35868 |
@@ -38,10 +38,10 @@
 | 3 | 3.2 | Hash AO agent definitions and stamp agent_version on new runs | dispatch:capable | done | 083b3ec85 |
 | 3 | 3.3 | Add the run manifest builder | dispatch | done | 0636ac240 |
 | 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | done | ac31357da |
-| 3 | 3.5 | Count only llm and tool spans in the trace-completeness gate | dispatch:cheap | done | e058d9a3f |
-| 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | done | 7b3875bf7 |
-| 3 | 3.6-review-fix | Translate the manifest card strings left identical to English | inline | done | pending |
-| 3 | 3.7 | Cover the run manifest with an integration test | dispatch | done | 75d89f3f4 |
+| 3 | 3.5 | Count only llm and tool spans in the trace-completeness gate | dispatch:cheap | done | 0c779e90e |
+| 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | done | 463c19827 |
+| 3 | 3.6-review-fix | Translate the manifest card strings left identical to English | inline | done | a35814756 |
+| 3 | 3.7 | Cover the run manifest with an integration test | dispatch | done | 5b80dfd6f |
 | 4 | 4.1 | Add frozen eval-set manifests with deterministic ids | dispatch:capable | todo | — |
 | 4 | 4.2 | Freeze the manifest on eval run start and merge the summary on complete | dispatch | todo | — |
 | 4 | 4.3 | Replay cases and assertions from the frozen manifest | dispatch:capable | todo | — |

@@ -55,3 +55,6 @@
 
 ## 2026-10-26T23:00:00Z — resumed after user review; scope addition
 - User approved continuing and asked to fix the pre-existing `tool-loop-agent` missing-system-prompt defect in this PR → new Step 1.6 (dispatch), run before 3.5. Draft PR #8011 opened and claimed after the user pushed.
+
+## 2026-10-26T23:45:00Z — checkpoint 5 (Steps 1.6, 3.5..3.7); Phase 3 closed
+- Green after `3.6-review-fix` (AO i18n-coverage ceilings). UI pass skipped: AO trace page not reachable in the local ephemeral app (reason recorded). No scripted LLM provider exists, so AO integration specs need a real provider.
