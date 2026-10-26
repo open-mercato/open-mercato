@@ -1,16 +1,16 @@
 # Handoff — 2026-10-26-agent-platform-wave-2
 
-**Last updated:** 2026-10-26T21:50:00Z
+**Last updated:** 2026-10-26T22:40:00Z
 **Branch:** feat/agent-platform-wave-2 (stacked on feat/agent-platform-wave-1, PR #7794)
 **PR:** not yet opened (waiting for the user to push the branch to upstream)
-**Current phase/step:** Phase 3 Step 3.2
-**Last commit:** 785a79a38 — test(ai-assistant): resolve the OpenAPI path and schema refs in TC-AI-RUN-TRACE-016
+**Current phase/step:** Phase 3 Step 3.5 (paused at safety stop)
+**Last commit:** ac31357da — feat(agent_orchestrator): write the run.manifest span for native and OpenCode runs
 
 ## What just happened
-- Phases 0–2 landed (checkpoints 1–3). Step 3.1 (shared run observation collector) landed. Review fixes 1.3-review-fix (build typing) and 2.8-review-fix (integration spec).
+- Phases 0–2 done; Phase 3 Steps 3.1–3.4 done (collector, definition hash + agent_version, manifest builder, manifest span). Checkpoint 4 green. Run paused at the ~20-Step safety stop for user review.
 
 ## Next concrete action
-- Step 3.2 — hash AO agent definitions and stamp agent_version on new runs.
+- Step 3.5 — count only llm and tool spans in the trace-completeness gate (resume with `om-auto-continue-pr-loop` or continue in-session after review).
 
 ## Blockers / open questions
 - Branch not on upstream yet; the user pushes with `! git -C <worktree> push -u upstream feat/agent-platform-wave-2`. Draft PR opens after that.

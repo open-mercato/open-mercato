@@ -49,3 +49,6 @@
 - OpenCode manifest also omits `om.prompt.system.sha256` and `om.prompt.override` (OpenCode composes its own system prompt; not observable).
 - The `OM_AGENT_TRACE_CAPTURE=off` kill switch now also suppresses the OpenCode manifest span (tool spans on that path are unchanged, as before).
 - Invoker / entry point / channel / correlation id are not on `AgentRunCtx` yet; the builder's `ctx.userId` invoker fallback is used. Tool names are the registry's declared allowlist (own + skill tools + delegate tool for native sub-agent parents), not per-step active tools.
+
+## 2026-10-26T22:40:00Z — checkpoint 4 (Steps 3.2..3.4) + safety stop
+- All unit suites, enterprise tsc, guard suites, `yarn build:app`, lint green. Pausing for user review (~20 Steps since start). Branch not pushed to upstream yet; draft PR not opened.
