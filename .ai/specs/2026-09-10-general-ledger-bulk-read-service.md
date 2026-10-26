@@ -355,7 +355,8 @@ Searched Hay's *Data Model Patterns* and Fowler's *Analysis Patterns*
 full text for ledger/posting/audit-trail material relevant to this
 document's central claim (posted rows are immutable, so a bulk read
 needs no snapshot mechanism). Hay mentions "ledger" only twice, in
-unrelated contexts, and "posting" not once, across 361 pages. Fowler's
+unrelated contexts, and "posting" not once, in the pages available of a
+277-page partial scan. Fowler's
 immutability discussion (pp. 3908–3916, 11301–11306) is about
 identifier/currency value objects, not ledger postings. Kieso's closest
 material — Reversing Entries and Correcting Entries — describes fixing
@@ -443,7 +444,8 @@ architectural relationship.
 *Analysis Patterns* and Hay's *Data Model Patterns* full text for
 "audit" (this pass, 2026-09-16, not superseding the 2026-09-12 pass
 above, which searched for immutability/posting material specifically).
-Hay: zero hits for "audit" anywhere in 361 pages — a genuine absence,
+Hay: zero hits for "audit" in the pages available of a 277-page partial
+scan — a genuine absence,
 consistent with the 2026-09-12 finding for "ledger"/"posting". Fowler:
 three relevant hits, all supporting this document's existing
 immutability claim rather than introducing a new one — §6.2
@@ -922,7 +924,8 @@ financial-spec-writing-process):
 - **Step 2 (literature):** searched Fowler's *Analysis Patterns* and
   Hay's *Data Model Patterns* for "audit" specifically (a fresh pass,
   distinct from the 2026-09-12 immutability/posting search above).
-  Hay: zero hits in 361 pages. Fowler: §6.2 (p.95) and §6.5.2 (p.106)
+  Hay: zero hits in the pages available (277-page partial scan). Fowler:
+  §6.2 (p.95) and §6.5.2 (p.106)
   both support the claim that this document's existing immutable,
   linked-entry design already constitutes the audit mechanism Fowler
   describes needing — Phase 2 only needed to add data egress, not a
