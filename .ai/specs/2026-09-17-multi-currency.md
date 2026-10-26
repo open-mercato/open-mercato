@@ -247,7 +247,7 @@ opposite of the adjusting entry made in the previous period."*
    a receivable line in the invoice's currency and a line for the difference
    from converting both to the base currency. The controller's practice is
    that the difference between the invoice rate and the payment rate is
-   usually booked as its own entry at settlement. Whether #6055 books the gain or loss in the payment's entry or in a separate one was open; **decided 2026-10-23 on the controller's e-mail** (Mateusz Duda, incro): the difference from converting the bank currency and the invoice currency to the base currency goes into the payment's own entry as an exchange-difference line that balances it, and the difference between the invoice rate and the payment rate is usually its own entry at settlement. Example (PLN base): invoice EUR 1,000 at 4.30 (4,300 PLN) paid with USD 1,100 when USD/PLN is 4.00 and EUR/PLN is 4.35. Payment entry: bank USD 1,100 at 4.00 = 4,400; receivable EUR 1,000 at 4.35 = 4,350; exchange difference 50. Settlement entry: receivable from 4.30 to 4.35, 50 PLN on an `amountCurrency = 0` line against exchange differences. Total gain 100 (4,400 − 4,300). The invoice currency's rate on the payment day follows the rule of 2026-10-12 (the rate the bank applied, else the document default). This spec still does not change #6055's posting; the restatement is in `cash-bank-management.md` (its ⚠ (1)).
+   usually booked as its own entry at settlement. Whether #6055 books the gain or loss in the payment's entry or in a separate one was open; **decided 2026-10-23 on the controller's e-mail**: the difference from converting the bank currency and the invoice currency to the base currency goes into the payment's own entry as an exchange-difference line that balances it, and the difference between the invoice rate and the payment rate is usually its own entry at settlement. Example (PLN base): invoice EUR 1,000 at 4.30 (4,300 PLN) paid with USD 1,100 when USD/PLN is 4.00 and EUR/PLN is 4.35. Payment entry: bank USD 1,100 at 4.00 = 4,400; receivable EUR 1,000 at 4.35 = 4,350; exchange difference 50. Settlement entry: receivable from 4.30 to 4.35, 50 PLN on an `amountCurrency = 0` line against exchange differences. Total gain 100 (4,400 − 4,300). The invoice currency's rate on the payment day follows the rule of 2026-10-12 (the rate the bank applied, else the document default). This spec still does not change #6055's posting; the restatement is in `cash-bank-management.md` (its ⚠ (1)).
 
 8. **Legal grounding for base currency, and Art. 30 now Confirmed —
    closed 2026-09-21** (was flagged ⚠ NEEDS HUMAN CONFIRMATION; the
@@ -1221,7 +1221,7 @@ kept under Problem below.
 
 Art. 30 ust. 1 UoR requires foreign-currency assets and liabilities to be
 valued at least as of the balance-sheet date at the NBP average rate (Design
-decision 8). The controller's answer of 2026-10-23 (Mateusz Duda) names this
+decision 8). The controller's answer of 2026-10-23 names this
 valuation of the balance as the only mandatory part: outflow valuation is
 accounting policy, FIFO by default and weighted average permitted; realized and
 unrealized differences are kept apart; a monthly valuation is the company's
@@ -2161,8 +2161,8 @@ Not yet reviewed by a maintainer.
 
 - **Context.** #5663 now gives every `JournalEntryLine` its own `currencyId`,
   `exchangeRate` and `amountCurrency`, and an entry may mix currencies while
-  balancing in the base currency. The controller (Mateusz Duda, incro,
-  e-mail of 2026-10-23) confirmed this, and added that the difference
+  balancing in the base currency. The controller (e-mail of
+  2026-10-23) confirmed this, and added that the difference
   between the invoice rate and the payment rate is usually booked as its own
   entry at settlement.
 - **Changed here.** The description of the ledger fields in the opening
@@ -2211,8 +2211,8 @@ Not yet reviewed by a maintainer.
   account with `amountCurrency = 0` against the unrealized gain and loss
   accounts, reversed on the first day of the next period like decision 12; needs
   the balance in the account's currency from GL balances (named there as a later
-  phase). **Resolved by the controller's answer of 2026-10-23 (Mateusz Duda;
-  was flagged ⚠ NEEDS HUMAN CONFIRMATION):** how the outflow of currency from
+  phase). **Resolved by the controller's answer of 2026-10-23 (was
+  flagged ⚠ NEEDS HUMAN CONFIRMATION):** how the outflow of currency from
   such an account is valued (rate of the day with periodic revaluation, FIFO or
   an average) and whether realized and unrealized differences must be
   separated. Answer: FIFO by default, weighted average permitted; realized and
@@ -2224,7 +2224,7 @@ Not yet reviewed by a maintainer.
 
 ### 2026-10-23 (cont. — controller's answer on the outflow of currency)
 
-- **Decided by the team on Mateusz Duda's answer** (not yet reviewed by a maintainer): FIFO as the default outflow valuation, weighted average permitted, outflow at the rate of the day not offered; realized and unrealized differences on separate accounts; only the balance-sheet-date valuation at the NBP average rate is mandatory, the frequency is the company's choice (consistent with a revaluation run at any period end). Worked example with 100 realized and 50 unrealized in the Out of scope bullet on foreign-currency bank accounts.
+- **Decided by the team on the controller's answer of 2026-10-23** (not yet reviewed by a maintainer): FIFO as the default outflow valuation, weighted average permitted, outflow at the rate of the day not offered; realized and unrealized differences on separate accounts; only the balance-sheet-date valuation at the NBP average rate is mandatory, the frequency is the company's choice (consistent with a revaluation run at any period end). Worked example with 100 realized and 50 unrealized in the Out of scope bullet on foreign-currency bank accounts.
 - **Consequence for this spec.** `fx_revaluation` posts its differences to the unrealized account only; realized differences are posted by the module that books the payment (Cash & Bank, Accounts Payable payments) to the realized account.
 - **Not designed yet:** the lots, the per-account method setting and the posting of an outflow at lot cost (Cash & Bank, Out of scope).
 
