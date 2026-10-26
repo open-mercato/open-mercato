@@ -21,7 +21,7 @@ import {
 } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { assertDocumentCommentCapacity } from '../lib/historyLimits'
-import { resolveUserAccess } from '../lib/permissions'
+import { resolveUserAccess, resolveUserDocumentTier } from '../lib/permissions'
 import { resolveWatcherRecipients } from '../lib/watchers'
 import type { DocumentsProjectionDescriptor } from './projection-types'
 import {
@@ -641,7 +641,7 @@ export const createCommentCommand: CommandHandler<CommentCreateCommandInput, Com
       for (const mentionedUserId of mentionUserIds) {
         const grantIdentity = grantIdentityByUserId.get(mentionedUserId)
         if (!grantIdentity || !canShare) continue
-        const tier = await resolveUserAccess(em, input.documentId, input, mentionedUserId, ctx.container)
+        const tier = await resolveUserDocumentTier(em, input.documentId, input, mentionedUserId, ctx.container)
         if (tier) continue
         await assertUserPrincipal(ctx.container, input, mentionedUserId)
         let share = await loadMentionShare(em, input, mentionedUserId, true)

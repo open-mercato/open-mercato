@@ -4,7 +4,7 @@ import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { Document, DocumentShare, DocumentWatcher } from '../data/entities'
 import type { DocumentsProjectionDescriptor } from '../commands/projection-types'
 import { interceptors } from '../commands/interceptors'
-import { resolveUserAccess } from '../lib/permissions'
+import { resolveUserAccess, resolveUserDocumentTier } from '../lib/permissions'
 import { resolveWatcherRecipients } from '../lib/watchers'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -20,13 +20,15 @@ const commentId = 'comment-1'
 const accessKinds = ['owner', 'direct', 'role', 'manager'] as const
 type AccessKind = typeof accessKinds[number]
 
-function fixture(accessKind: AccessKind = 'direct') {
+function fixture(accessKind: AccessKind = 'direct', sharePermission: 'viewer' | 'editor' = 'viewer') {
   let features = ['documents.view', ...(accessKind === 'manager' ? ['documents.manage'] : [])]
   let organizationAllowed = true
   let missingRbac = false
   let missingDocument = false
+  let inheritedOrganizations: string[] | null = null
+  let expandedOrganizationIds: string[] = []
   const document = { id: documentId, ...scope, ownerUserId: accessKind === 'owner' ? recipientUserId : actorUserId }
-  const share = { permission: 'viewer', principalType: accessKind === 'role' ? 'role' : 'user', principalId: accessKind === 'role' ? 'role-1' : recipientUserId }
+  const share = { permission: sharePermission, principalType: accessKind === 'role' ? 'role' : 'user', principalId: accessKind === 'role' ? 'role-1' : recipientUserId }
   const em = {
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => (
       entity === Document && !missingDocument
@@ -51,6 +53,14 @@ function fixture(accessKind: AccessKind = 'direct') {
     resolve(name: string): unknown {
       if (name === 'em') return em
       if (name === 'rbacService' && !missingRbac) return { userHasAllFeatures }
+      if (name === 'organizationScopeService' && inheritedOrganizations !== null) return {
+        resolve: jest.fn(),
+        resolveForRequest: jest.fn(),
+        resolveFresh: jest.fn(async () => ({
+          acl: { features: [...features], organizations: inheritedOrganizations, isSuperAdmin: false },
+          scope: { ...scope, selectedId: scope.organizationId, allowedIds: expandedOrganizationIds, filterIds: expandedOrganizationIds },
+        })),
+      }
       if (name === 'notificationService') return { create, deleteBySource: jest.fn() }
       if (name === 'authPrincipalService') return {
         principalExists: jest.fn(),
@@ -82,6 +92,11 @@ function fixture(accessKind: AccessKind = 'direct') {
     denyOrganization: () => { organizationAllowed = false },
     removeRbac: () => { missingRbac = true },
     removeDocument: () => { missingDocument = true },
+    grantInheritedOrganization: (grants = ['parent-org'], expanded = ['parent-org', scope.organizationId]) => {
+      organizationAllowed = false
+      inheritedOrganizations = grants
+      expandedOrganizationIds = expanded
+    },
   }
 }
 
@@ -147,6 +162,42 @@ describe('document notification recipient authorization', () => {
     expect(await current.watcherRecipients()).toEqual([])
     await expect(current.project('mention-notification')).resolves.toBeUndefined()
     await expect(current.project('watch-notification')).resolves.toBeUndefined()
+    expect(current.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['direct', 'role'] as const)('keeps the retained %s editor tier separate from effective view access', async (accessKind) => {
+    const current = fixture(accessKind, 'editor')
+    current.setFeatures([])
+    await expect(resolveUserDocumentTier(current.em, documentId, scope, recipientUserId, current.container)).resolves.toBe('editor')
+    await expect(resolveUserAccess(current.em, documentId, scope, recipientUserId, current.container)).resolves.toBeNull()
+  })
+
+  it('preserves inherited parent organization access and still enforces view revocation', async () => {
+    const current = fixture('owner')
+    current.grantInheritedOrganization()
+    expect(await current.watcherRecipients()).toEqual([recipientUserId])
+    await current.project('mention-notification')
+    await current.project('watch-notification')
+    expect(current.create).toHaveBeenCalledTimes(2)
+    current.create.mockClear()
+
+    current.setFeatures([])
+    expect(await current.watcherRecipients()).toEqual([])
+    await current.project('mention-notification')
+    await current.project('watch-notification')
+    expect(current.create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { grants: [], expanded: [scope.organizationId] },
+    { grants: ['parent-org'], expanded: [scope.organizationId] },
+    { grants: ['other-org'], expanded: ['parent-org', scope.organizationId] },
+  ])('rejects empty or unresolved organization grants: $grants', async ({ grants, expanded }) => {
+    const current = fixture('owner')
+    current.grantInheritedOrganization(grants, expanded)
+    expect(await current.watcherRecipients()).toEqual([])
+    await current.project('mention-notification')
+    await current.project('watch-notification')
     expect(current.create).not.toHaveBeenCalled()
   })
 })

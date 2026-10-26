@@ -47,10 +47,10 @@ async function createDocument(request: APIRequestContext, token: string, title: 
   return { id: expectId(body?.id, 'document id'), updatedAt: expectId(body?.updatedAt, 'document updatedAt') }
 }
 
-async function createComment(request: APIRequestContext, token: string, documentId: string, body: string) {
+async function createComment(request: APIRequestContext, token: string, documentId: string, body: string, grantAccessTo?: string[]) {
   const response = await apiRequest(request, 'POST', `/api/documents/${documentId}/comments`, {
     token,
-    data: { body, anchor: null, parentCommentId: null },
+    data: { body, anchor: null, parentCommentId: null, ...(grantAccessTo ? { grantAccessTo } : {}) },
   })
   const payload = await readJsonSafe<Mutation>(response)
   expect(response.status(), 'comment create should return 201').toBe(201)
@@ -105,7 +105,7 @@ test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
         cleanup.push(async () => { await deleteDocumentBestEffort(request, adminToken, document.id) })
         const shareResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/shares`, {
           token: adminToken,
-          data: { principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'viewer' },
+          data: { principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor' },
         })
         expect(shareResponse.status()).toBe(201)
         const watchResponse = await apiRequest(request, 'POST', `/api/documents/${document.id}/watch`, { token: recipientToken })
@@ -129,9 +129,15 @@ test.describe('TC-DOCUMENTS-022 document watch subscriptions', () => {
         })
         expect(renameResponse.status()).toBe(200)
         const plain = await createComment(request, adminToken, document.id, `${RUN_TAG} private update`)
-        const mention = await createComment(request, adminToken, document.id, `${RUN_TAG} private ping @[${userId}]`)
+        const mention = await createComment(request, adminToken, document.id, `${RUN_TAG} private ping @[${userId}]`, [userId])
         expect(await listNotificationsBySource(request, recipientToken, plain.id)).toEqual([])
         expect(await listNotificationsBySource(request, recipientToken, mention.id)).toEqual([])
+        const sharesResponse = await apiRequest(request, 'GET', `/api/documents/${document.id}/shares`, { token: adminToken })
+        const shares = await readJsonSafe<{ items?: Array<{ principalType?: string; principalId?: string; permission?: string }> }>(sharesResponse)
+        expect(sharesResponse.status()).toBe(200)
+        expect(shares?.items).toEqual([expect.objectContaining({
+          principalType, principalId: principalType === 'user' ? userId : roleId, permission: 'editor',
+        })])
       } finally {
         for (const step of cleanup.reverse()) {
           await step().catch(() => undefined)
