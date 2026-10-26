@@ -509,7 +509,6 @@ describe('Action Executor', () => {
         profileOverrides: Partial<ApiKey> = {},
       ) {
         const createdApiKeys: any[] = []
-        const currentRoleIds = ['role-1']
         const apiKeyProfile = {
           id: apiKeyProfileId,
           name: 'Automation profile',
@@ -548,9 +547,6 @@ describe('Action Executor', () => {
           persist: jest.fn(function persist(this: any) { return this }),
           flush: jest.fn(async () => undefined),
           find: jest.fn(async (Entity: any, query: any) => {
-            if (Entity?.name === 'UserRole') {
-              return currentRoleIds.map((roleId) => ({ role: { id: roleId } }))
-            }
             if (Entity?.name === 'ApiKey' && Array.isArray(query?.id?.$in)) {
               return createdApiKeys.filter((record) => query.id.$in.includes(record.id))
             }
@@ -593,7 +589,6 @@ describe('Action Executor', () => {
           em,
           createdApiKeys,
           apiKeyProfile,
-          currentRoleIds,
         }
       }
 
@@ -755,39 +750,43 @@ describe('Action Executor', () => {
       })
 
       it.each([
-        { kind: 'session', sessionUserId: 'user-123', expectedRoles: ['role-1'] },
-        { kind: 'independent', sessionUserId: null, expectedRoles: ['role-1', 'role-revoked'] },
-      ])('mints only currently authorized roles from a $kind profile', async ({ sessionUserId, expectedRoles }) => {
+        { kind: 'session', sessionUserId: 'user-123', expectedSuccess: false },
+        { kind: 'independent', sessionUserId: null, expectedSuccess: true },
+      ])('enforces current profile eligibility for a $kind profile', async ({ sessionUserId, expectedSuccess }) => {
         mockFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }))
-        const { context, createdApiKeys, apiKeyProfile, currentRoleIds } = createOpenMercatoContext({}, undefined, {
+        const { context, createdApiKeys, apiKeyProfile } = createOpenMercatoContext({}, undefined, {
           rolesJson: ['role-1', 'role-revoked'],
           sessionUserId,
         })
-        currentRoleIds.push('role-added-after-issuance')
 
         const result = await executeAction({
           type: 'CALL_OPEN_MERCATO',
           config: { endpoint: '/api/business_rules/rules', method: 'GET', apiKeyId: apiKeyProfileId },
         }, context)
 
-        expect(result.success).toBe(true)
-        expect(createdApiKeys).toHaveLength(1)
-        expect(createdApiKeys[0].rolesJson).toEqual(expectedRoles)
+        expect(result.success).toBe(expectedSuccess)
+        if (expectedSuccess) {
+          expect(createdApiKeys).toHaveLength(1)
+          expect(createdApiKeys[0].rolesJson).toEqual(['role-1', 'role-revoked'])
+        } else {
+          expect(result.error).toContain('active API key profile in scope')
+          expect(createdApiKeys).toHaveLength(0)
+          expect(mockFetch).not.toHaveBeenCalled()
+        }
         expect(apiKeyProfile.rolesJson).toEqual(['role-1', 'role-revoked'])
       })
 
-      it('refuses to mint a one-time key when every session profile role has been revoked', async () => {
+      it('refuses to mint a one-time key for a session profile', async () => {
         mockFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }))
-        const { context, createdApiKeys, currentRoleIds } = createOpenMercatoContext({}, undefined, {
+        const { context, createdApiKeys } = createOpenMercatoContext({}, undefined, {
           sessionUserId: 'user-123',
         })
-        currentRoleIds.splice(0)
 
         const result = await executeAction({
           type: 'CALL_OPEN_MERCATO',
@@ -795,7 +794,7 @@ describe('Action Executor', () => {
         }, context)
 
         expect(result.success).toBe(false)
-        expect(result.error).toContain('at least one role')
+        expect(result.error).toContain('active API key profile in scope')
         expect(createdApiKeys).toHaveLength(0)
         expect(mockFetch).not.toHaveBeenCalled()
       })

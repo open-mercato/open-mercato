@@ -38,8 +38,12 @@ After granting a new role, issue a fresh session key to use it. No stored keys n
 
 **Action for operators:** deploy and restart every application/worker process that authenticates
 or authorizes API keys. Session authorization now reads live memberships instead of reusing
-cross-request grants, which adds database work and secret verification for session requests.
-Ordinary-key caching and last-used write debouncing remain enabled. No migration is required.
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
 
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 

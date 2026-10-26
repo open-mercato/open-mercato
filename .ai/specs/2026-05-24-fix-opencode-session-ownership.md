@@ -74,11 +74,17 @@ The API-key principal service uses it when projecting role IDs for role-based re
 Business-rule API calls resolve the same intersection before minting their temporary child key,
 so a stored session-key profile cannot convert a revoked role into independent access.
 
-Session-derived authentication, ACL, and feature-organization results bypass cross-request caches.
+Verified session-secret identities and expiry use the existing bounded authentication cache;
+cache hits reload the key by ID without bcrypt and still validate its live expiry and owner scope.
+Only the verified identity is cached, never the role names or superadmin projection. Cache hits
+do not renew the verification TTL. Session-derived ACL and feature-organization results bypass
+cross-request caches.
 The optional Directory organization-scope cache also bypasses session-bound keys; request-local
 memoization remains intact. Each worker reads current memberships on its next request, so role
 removal does not depend on process-local invalidation messages reaching other workers. Ordinary
-keys retain their existing cache policy. Existing last-used write debouncing remains enabled.
+keys retain cached authentication and authorization results, with an extra key-row read before
+ACL, feature-organization and enabled organization-scope cache lookups to distinguish session
+credentials. Existing last-used write debouncing remains enabled.
 
 ### Migration & Backward Compatibility
 
@@ -97,8 +103,10 @@ No deprecation bridge is required because no existing public shape or identifier
   prevent session projections from surviving a committed removal.
 - **High — scope drift:** tenant/owner mismatch, deleted memberships, deleted roles, and malformed
   session markers deny grants; test these independently from ordinary API-key policy.
-- **Medium — request cost:** session requests perform live membership queries and repeat secret
-  verification. Keep ordinary-key caches and last-used write debouncing. No new services or events.
+- **Medium — request cost:** session requests perform live membership and identity/scope reads,
+  but verified secret identities keep the existing bounded cache to avoid bcrypt on every call.
+  Ordinary authorization cache hits add a key-row read. Keep last-used write debouncing. No new
+  services or events.
 - **Residual risk:** authorization already evaluated by an in-flight request is not retroactively
   cancelled; the next request revalidates. Staff deactivation and infrastructure-key fallback are
   separate issues (#7223 and #5173). Rolling back reintroduces snapshot-based authorization.
@@ -107,13 +115,17 @@ Coverage: `rbacService.session-role-revocation.test.ts` covers cold/warm authori
 projections, old cached entries, exact-EM isolation, role ceilings, tenant isolation, deleted links
 and roles, malformed owners, and ordinary-key compatibility. `server.apiKeyCache.test.ts` covers
 repeated authentication before/after revocation, removal of the raw superadmin flag, surviving
-roles, and unchanged ordinary-key caching. `organizationScopeCache.test.ts` covers the opt-in
+roles, bounded secret-verification caching, live key expiry/deletion and owner-scope checks on
+cache hits, and unchanged ordinary-key authentication caching. `organizationScopeCache.test.ts` covers the opt-in
 cross-request scope cache. Component integration coverage exercises issuance, authentication,
 and independently warmed RBAC services together; persistence is simulated, not a live database.
 `api_keys/services/__tests__/principalService.test.ts` covers share-role projection after revocation,
-issuance ceilings, and independent keys. Business-rule action tests verify temporary child keys
-receive only still-held issued roles and that an empty intersection stops before any API call.
+issuance ceilings, and independent keys. Business-rule action tests preserve current profile eligibility: session-bound profiles are
+rejected before any temporary key or API call, and independent profiles keep their assigned roles.
 
 ### Changelog
 
 - 2026-10-18: Add live session-key role revalidation and cache-bypass design for #7599.
+
+- 2026-10-26: Retain bounded verified session-secret caching while revalidating live roles and
+  owner scope on every request; document ordinary authorization cache lookup costs.

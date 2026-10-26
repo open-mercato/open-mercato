@@ -191,18 +191,26 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
   const cached = cache.get(secret)
-  if (cached !== undefined) return cached as AuthContext
+  if (cached === null) return null
+  const verifiedSessionKeyId = cached?.sessionBound === true && typeof cached.keyId === 'string'
+    ? cached.keyId
+    : null
+  if (cached !== undefined && !verifiedSessionKeyId) return cached as AuthContext
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
     const { isSessionBoundApiKey, resolveApiKeyRoleIds } = await import('@open-mercato/core/modules/api_keys/services/sessionKeyRoles')
     const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
-    const record = await findApiKeyBySecret(em, secret)
-    if (!record) {
+    const record = verifiedSessionKeyId
+      ? await findOneWithDecryption(em, ApiKey, { id: verifiedSessionKeyId, deletedAt: null })
+      : await findApiKeyBySecret(em, secret)
+    if (!record || (record.expiresAt && record.expiresAt.getTime() <= Date.now())) {
       cache.setMiss(secret)
       return null
     }
@@ -315,6 +323,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     }
     if (!isSessionBoundKey) {
       cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    } else if (!verifiedSessionKeyId) {
+      cache.setSuccess(secret, { keyId: record.id, sessionBound: true }, record.expiresAt ? record.expiresAt.getTime() : null)
     }
     return auth
   } catch (err) {
