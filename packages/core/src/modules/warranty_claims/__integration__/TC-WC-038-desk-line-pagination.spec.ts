@@ -130,7 +130,7 @@ test.describe('TC-WC-038: every accepted line is available in the claims desk', 
         await recoveryAction.press('Enter')
         const recoveryDialog = page.getByRole('dialog', { name: 'Create vendor recovery' })
         await expect(recoveryDialog.getByRole('checkbox', { name: `Line ${lineCount} — ${productName}` })).toBeChecked()
-        await recoveryDialog.getByLabel('Vendor name', { exact: true }).fill(`${stamp} vendor`)
+        await recoveryDialog.locator('[data-crud-field-id="vendorName"]').getByRole('textbox').fill(`${stamp} vendor`)
         const recovered = page.waitForResponse((response) =>
           response.url().endsWith('/api/warranty_claims/vendor-recovery') && response.request().method() === 'POST')
         await recoveryDialog.getByRole('button', { name: 'Create vendor recovery', exact: true }).click()
