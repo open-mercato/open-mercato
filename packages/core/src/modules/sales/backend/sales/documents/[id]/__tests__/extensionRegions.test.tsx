@@ -167,7 +167,7 @@ describe.each(['order', 'quote'] as const)('sales %s detail page extension mount
         record: mockDocument,
         resourceKind: `sales.${kind}`,
         resourceId: mockDocument.id,
-        formId: `sales-document:${kind}:${mockDocument.id}`,
+        formId: `record-lock:sales.${kind}:${mockDocument.id}`,
         retryLastMutation: mockRetry,
         organizationId: mockDocument.organizationId,
         tenantId: mockDocument.tenantId,

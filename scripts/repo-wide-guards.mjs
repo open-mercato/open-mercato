@@ -144,6 +144,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-extension-activations.test.ts',
+        scans: 'live packages/core/src/modules/sales sources — shipped extension activation extraction and response-enricher host bindings (#7784)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
         scans: 'live packages/core/src/modules sources — module-facts local-reference resolution',
       },
