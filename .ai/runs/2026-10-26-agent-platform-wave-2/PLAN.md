@@ -36,7 +36,7 @@
 | 3 | 3.1 | Add the shared run observation collector | dispatch | done | dce125ccd |
 | 3 | 3.2 | Hash AO agent definitions and stamp agent_version on new runs | dispatch:capable | done | 539974724 |
 | 3 | 3.3 | Add the run manifest builder | dispatch | done | 2c1e80e60 |
-| 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | todo | — |
+| 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | done | f5b5bb0af |
 | 3 | 3.5 | Count only llm and tool spans in the trace-completeness gate | dispatch:cheap | todo | — |
 | 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | todo | — |
 | 3 | 3.7 | Cover the run manifest with an integration test | dispatch | todo | — |

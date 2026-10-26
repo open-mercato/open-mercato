@@ -43,3 +43,9 @@
 
 ## 2026-10-26T20:25:06Z — Step 3.2 deviation
 - Step 3.2 deviation: file-agent definition hashes are computed at load time instead of being emitted by the generator (avoids a generated-manifest contract change and 64-hex digests in a committed file); spec changelog to record it in Step 5.2.
+
+## 2026-10-26T20:35:00Z — scope decision: OpenCode run manifest (Step 3.4)
+- OpenCode `run.manifest` omits `om.model.resolved` / `om.provider`: the AO runner's SSE handler does not capture `message.updated` `info.modelID` / `info.providerID` (Phase 0 spike 2). No SSE capture added in this Step; `om.model.declared` comes from the agent definition. Follow-up: Phase 4 OpenCode parity.
+- OpenCode manifest also omits `om.prompt.system.sha256` and `om.prompt.override` (OpenCode composes its own system prompt; not observable).
+- The `OM_AGENT_TRACE_CAPTURE=off` kill switch now also suppresses the OpenCode manifest span (tool spans on that path are unchanged, as before).
+- Invoker / entry point / channel / correlation id are not on `AgentRunCtx` yet; the builder's `ctx.userId` invoker fallback is used. Tool names are the registry's declared allowlist (own + skill tools + delegate tool for native sub-agent parents), not per-step active tools.

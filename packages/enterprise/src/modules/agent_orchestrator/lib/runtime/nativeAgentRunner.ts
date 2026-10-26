@@ -3,9 +3,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
+import type { AiAgentPromptResolvedEvent } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import { bindRunObservation, createRunObservationCollector } from '@open-mercato/shared/lib/ai/run-observation'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
+import type { RunManifestInput } from '../trace/runManifest'
 import {
   type AgentResult,
   type CitableSource,
@@ -226,6 +230,14 @@ export class NativeAgentRunner {
     // AI SDK step as it happens, so partial traces survive even a failed run.
     const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
+    const traceparent = traceEnabled ? captureManifestTraceparent() : null
+    const runObservation = createRunObservationCollector()
+    let promptResolved: AiAgentPromptResolvedEvent | null = null
+    const runObserver = {
+      onPromptResolved(event: AiAgentPromptResolvedEvent): void {
+        promptResolved = event
+      },
+    }
     const recordStep = async (event: unknown): Promise<void> => {
       stepRecords.push(buildNativeStepRecord(event, Date.now()))
     }
@@ -325,6 +337,24 @@ export class NativeAgentRunner {
         ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
       }
     }
+    const buildManifest = (): RunManifestInput | null => {
+      try {
+        return buildAgentRunManifestInput({
+          entry,
+          ctx,
+          runtime: 'native',
+          promptResolved,
+          observation: runObservation.snapshot(),
+          traceparent,
+        })
+      } catch (err) {
+        logger.warn('native run manifest build failed', {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        })
+        return null
+      }
+    }
     const captureTrace = async (): Promise<void> => {
       if (!traceEnabled) return
       // AWAITED, not fire-and-forget. `dispositionService` decides whether a
@@ -349,6 +379,7 @@ export class NativeAgentRunner {
           endedAtMs: Date.now(),
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
+          manifest: buildManifest(),
         },
       ).catch((err: unknown) => {
         logger.warn('native trace capture rejected for run', {
@@ -363,31 +394,36 @@ export class NativeAgentRunner {
       // its nested run for traceability (Phase 4).
       // `ctx.source` rides the async context so a nested `delegate_agent` call
       // inherits the eval tag instead of being recorded as production traffic.
-      const modelExecution = withRunContext(runId, () =>
-        runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-          const objectResult = await runAiAgentObject({
-            agentId,
-            input: typeof input === 'string' ? input : JSON.stringify(input),
-            authContext,
-            container: this.container,
-            output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
-            // Propose-only agents stay read-only: run a read-only tool loop so the
-            // agent can gather data (via its own tools or skill-contributed tools)
-            // before proposing. The runtime auto-falls back to a plain structured
-            // generate when no tools resolve, so toolless agents are unaffected.
-            // Writes never execute directly (read-only policy + proposal → effector).
-            enableTools: true,
-            trace: { persist: false },
-            ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
-          })
-          // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
-          if (objectResult.mode === 'stream') {
-            return await objectResult.object
-          }
-          fallbackUsage = objectResult.usage ?? null
-          return objectResult.object
-        }),
-        ctx.source,
+      const modelExecution = bindRunObservation(runObservation, () =>
+        withRunContext(
+          runId,
+          () =>
+            runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
+              const objectResult = await runAiAgentObject({
+                agentId,
+                input: typeof input === 'string' ? input : JSON.stringify(input),
+                authContext,
+                container: this.container,
+                output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+                // Propose-only agents stay read-only: run a read-only tool loop so the
+                // agent can gather data (via its own tools or skill-contributed tools)
+                // before proposing. The runtime auto-falls back to a plain structured
+                // generate when no tools resolve, so toolless agents are unaffected.
+                // Writes never execute directly (read-only policy + proposal → effector).
+                enableTools: true,
+                trace: { persist: false },
+                ...(traceEnabled ? { observe: runObserver } : {}),
+                ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
+              })
+              // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
+              if (objectResult.mode === 'stream') {
+                return await objectResult.object
+              }
+              fallbackUsage = objectResult.usage ?? null
+              return objectResult.object
+            }),
+          ctx.source,
+        ),
       )
       const raced = await Promise.race([
         modelExecution,

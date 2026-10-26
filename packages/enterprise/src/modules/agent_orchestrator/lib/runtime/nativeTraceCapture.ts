@@ -12,6 +12,8 @@ import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { invalidateAgentRunCache } from '../crudCache'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
+import type { RunManifestInput } from '../trace/runManifest'
+import { buildRunManifestSpan } from '../trace/runManifestEntry'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
@@ -60,6 +62,8 @@ export type NativeTraceInput = {
   fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
+  /** Run manifest facts; when present the payload carries one `run.manifest` system span. */
+  manifest?: RunManifestInput | null
 }
 
 /**
@@ -180,6 +184,17 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
           }
         : {}),
     })
+  }
+
+  if (input.manifest) {
+    spans.push(
+      buildRunManifestSpan({
+        runId: input.runId,
+        manifest: input.manifest,
+        sequence: spans.length,
+        recordedAtMs: input.startedAtMs,
+      }),
+    )
   }
 
   const stepUsage = input.steps.reduce(

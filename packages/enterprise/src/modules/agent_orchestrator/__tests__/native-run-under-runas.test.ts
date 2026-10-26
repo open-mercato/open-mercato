@@ -47,6 +47,7 @@ import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
 import { AgentWriteBypassError, registerAgentKindNoBypassSubscriber } from '../lib/identity/agentNoBypassSubscriber'
 import { withAgentActor } from '../lib/identity/agentWriteScope'
 import { persistVerdict, GUARDRAIL_SET_VERSION } from '../lib/guardrails/guardrailService'
+import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
 import {
   AgentContextBundle,
   AgentEvalAssertion,
@@ -386,7 +387,10 @@ function expectEveryAuditRow(orm: FakeOrm): void {
   expect(bundles[0].capability).toBe(AGENT_ID)
 
   const spans = rowsForRun(orm, AgentSpan, runId)
-  expect(spans.map((span) => span.kind).sort()).toEqual(['llm', 'llm', 'tool'])
+  expect(spans.map((span) => span.kind).sort()).toEqual(['llm', 'llm', 'system', 'tool'])
+  const manifest = spans.find((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+  expect(manifest?.externalSpanId).toBe(`${runId}:manifest`)
+  expect((manifest?.attributes as Record<string, unknown>)['om.agent.id']).toBe(AGENT_ID)
   const toolCalls = rowsForRun(orm, AgentToolCall, runId)
   expect(toolCalls).toHaveLength(1)
   expect(toolCalls[0].toolName).toBe('customers.get_deal')
@@ -458,6 +462,14 @@ describe('native run under runAs (agent principal on behalf of a human)', () => 
 
     expect(result.kind).toBe('research')
     expectEveryAuditRow(orm)
+    const manifest = rowsForRun(orm, AgentSpan, String(onlyRun(orm).id)).find(
+      (span) => span.name === RUN_MANIFEST_SPAN_NAME,
+    )
+    expect((manifest?.attributes as Record<string, unknown>)['om.principal']).toEqual({
+      agentPrincipalId: null,
+      agentUserId: AGENT_USER,
+      onBehalfOfUserId: HUMAN,
+    })
   })
 
   it('completes the run and logs no context-assembly or trace-capture failure', async () => {

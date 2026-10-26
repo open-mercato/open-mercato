@@ -72,7 +72,9 @@ import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
 import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
-import type { NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
+import { buildNativeTracePayload, type NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
+import { RUN_MANIFEST_SPAN_NAME, computeManifestSha256 } from '../lib/trace/runManifest'
+import { reportKnowledgeVersion } from '@open-mercato/shared/lib/ai/run-observation'
 
 function registerNativeAgent(id: string): AgentRegistryEntry {
   const existing = getAgentEntry(id)
@@ -351,6 +353,46 @@ describe('post-run trace capture', () => {
     expect(settled).toBe(true)
   })
 
+  it('hands the prompt metadata and the bound run observation to the manifest', async () => {
+    registerNativeAgent('native.manifest_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const observe = args.observe as { onPromptResolved?: (event: unknown) => void } | undefined
+      observe?.onPromptResolved?.({
+        agentId: 'native.manifest_agent',
+        systemPrompt: 'system prompt body',
+        promptOverride: { id: 'override-7', version: 2 },
+        pageContextHydrated: false,
+        attachmentCount: 0,
+        provider: 'test-provider',
+        modelId: 'test-model',
+      })
+      await Promise.resolve()
+      reportKnowledgeVersion('rules.rule_set', '2026-10-20.3')
+      return VALID_MODEL_OUTPUT
+    })
+
+    await makeService().run('native.manifest_agent', {}, runCtx)
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.manifest).toMatchObject({
+      runtime: 'native',
+      agentId: 'native.manifest_agent',
+      agentSource: 'code',
+      ctx: { userId: 'user-1' },
+      promptOverride: { id: 'override-7', version: 2 },
+      systemPromptSha256: computeManifestSha256('system prompt body'),
+      modelResolved: 'test-model',
+      provider: 'test-provider',
+      observation: { knowledge: { 'rules.rule_set': { version: '2026-10-20.3' } } },
+    })
+    const payload = buildNativeTracePayload(traceInput)
+    const manifestSpans = (payload.spans ?? []).filter((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+    expect(manifestSpans).toHaveLength(1)
+    expect((manifestSpans[0].attributes as Record<string, unknown>)['om.knowledge']).toEqual({
+      'rules.rule_set': '2026-10-20.3',
+    })
+  })
+
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {
     process.env.OM_AGENT_TRACE_CAPTURE = 'off'
     registerNativeAgent('native.capture_off_agent')
@@ -363,6 +405,7 @@ describe('post-run trace capture', () => {
     expect(captureNativeRunTraceMock).not.toHaveBeenCalled()
     const callArgs = runAiAgentObjectMock.mock.calls[0][0]
     expect(callArgs.loop).toBeUndefined()
+    expect(callArgs.observe).toBeUndefined()
   })
 })
 
