@@ -27,6 +27,8 @@ export type Translator = (
 
 export type AddressInput = {
   name?: string
+  recipientName?: string
+  phone?: string
   purpose?: string
   companyName?: string
   addressLine1: string
@@ -65,6 +67,8 @@ type AddressTilesProps<C = unknown> = {
   emptyStateActionLabel?: string
   labelPrefix?: string
   showCoordinateFields?: boolean
+  showRecipientNameField?: boolean
+  showPhoneField?: boolean
   addressTypesAdapter?: AddressTypesAdapter<C>
   addressTypesContext?: C
   loadFormat?: (context?: C) => Promise<AddressFormatStrategy>
@@ -73,6 +77,8 @@ type AddressTilesProps<C = unknown> = {
 
 type DraftAddressState = {
   name: string
+  recipientName: string
+  phone: string
   purpose: string
   companyName: string
   addressLine1: string
@@ -101,6 +107,8 @@ type AddressValidationDetail = {
 
 const defaultDraft: DraftAddressState = {
   name: '',
+  recipientName: '',
+  phone: '',
   purpose: '',
   companyName: '',
   addressLine1: '',
@@ -118,6 +126,8 @@ const defaultDraft: DraftAddressState = {
 
 const serverFieldMap: Record<string, DraftFieldKey> = {
   name: 'name',
+  recipientName: 'recipientName',
+  phone: 'phone',
   purpose: 'purpose',
   companyName: 'companyName',
   addressLine1: 'addressLine1',
@@ -183,6 +193,8 @@ export function AddressTiles<C = unknown>({
   emptyStateActionLabel,
   labelPrefix = 'customers.people.detail.addresses',
   showCoordinateFields = false,
+  showRecipientNameField = false,
+  showPhoneField = false,
   addressTypesAdapter,
   addressTypesContext,
   loadFormat,
@@ -208,6 +220,8 @@ export function AddressTiles<C = unknown>({
   const fieldLabels = React.useMemo(
     () => ({
       name: label('fields.label', 'Label'),
+      recipientName: label('fields.recipientName', 'Recipient name'),
+      phone: label('fields.phone', 'Phone'),
       purpose: label('fields.type', 'Address type'),
       companyName: label('fields.companyName', 'Company name'),
       addressLine1: label('fields.line1', 'Address line 1'),
@@ -282,6 +296,8 @@ export function AddressTiles<C = unknown>({
   const handleEdit = React.useCallback((value: AddressValue) => {
     setDraft({
       name: value.name ?? '',
+      recipientName: value.recipientName ?? '',
+      phone: value.phone ?? '',
       purpose: value.purpose ?? '',
       companyName: value.companyName ?? '',
       addressLine1: value.addressLine1 ?? '',
@@ -332,6 +348,8 @@ export function AddressTiles<C = unknown>({
     try {
       const payload: AddressInput = {
         name: normalizeOptional(draft.name),
+        recipientName: normalizeOptional(draft.recipientName),
+        phone: normalizeOptional(draft.phone),
         purpose: normalizeOptional(draft.purpose),
         companyName: normalizeOptional(draft.companyName),
         addressLine1: draft.addressLine1.trim(),
@@ -458,7 +476,13 @@ export function AddressTiles<C = unknown>({
           <AddressEditor
             value={draft}
             onChange={(next) => {
-              setDraft({ ...next, latitude: next.latitude ?? '', longitude: next.longitude ?? '' })
+              setDraft({
+                ...next,
+                recipientName: next.recipientName ?? '',
+                phone: next.phone ?? '',
+                latitude: next.latitude ?? '',
+                longitude: next.longitude ?? '',
+              })
               if (Object.keys(fieldErrors).length) {
                 const nextErrors = { ...fieldErrors }
                 ;(Object.keys(nextErrors) as DraftFieldKey[]).forEach((key) => {
@@ -476,6 +500,8 @@ export function AddressTiles<C = unknown>({
             errors={fieldErrors}
             showFormatHint={!formatLoading}
             showCoordinateFields={showCoordinateFields}
+            showRecipientNameField={showRecipientNameField}
+            showPhoneField={showPhoneField}
             labelPrefix={labelPrefix}
             addressTypesAdapter={addressTypesAdapter}
             addressTypesContext={addressTypesContext}
@@ -519,6 +545,8 @@ export function AddressTiles<C = unknown>({
       labelPrefix,
       saving,
       showCoordinateFields,
+      showPhoneField,
+      showRecipientNameField,
       t,
     ]
   )
@@ -569,6 +597,14 @@ export function AddressTiles<C = unknown>({
                       </p>
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
+                    {(showRecipientNameField && address.recipientName) || (showPhoneField && address.phone) ? (
+                      <p className="text-xs text-muted-foreground" data-testid="address-contact">
+                        {[
+                          showRecipientNameField ? address.recipientName : null,
+                          showPhoneField ? address.phone : null,
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button

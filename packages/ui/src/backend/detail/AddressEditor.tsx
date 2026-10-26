@@ -42,6 +42,9 @@ export type AddressTypesAdapter<C = unknown> = {
 
 export type AddressEditorDraft = {
   name: string
+  /** Who to call about this address — distinct from `name`, the address's own label. */
+  recipientName?: string
+  phone?: string
   purpose: string
   companyName: string
   addressLine1: string
@@ -59,6 +62,8 @@ export type AddressEditorDraft = {
 
 export type AddressEditorField =
   | 'name'
+  | 'recipientName'
+  | 'phone'
   | 'purpose'
   | 'companyName'
   | 'addressLine1'
@@ -84,6 +89,9 @@ type AddressEditorProps<C = unknown> = {
   hidePrimaryToggle?: boolean
   showFormatHint?: boolean
   showCoordinateFields?: boolean
+  /** Opt-in: only callers whose storage persists the field should render it. */
+  showRecipientNameField?: boolean
+  showPhoneField?: boolean
   addressTypesAdapter?: AddressTypesAdapter<C>
   addressTypesContext?: C
 }
@@ -99,6 +107,8 @@ export function AddressEditor<C = unknown>({
   hidePrimaryToggle = false,
   showFormatHint = true,
   showCoordinateFields = false,
+  showRecipientNameField = false,
+  showPhoneField = false,
   addressTypesAdapter,
   addressTypesContext,
 }: AddressEditorProps<C>) {
@@ -160,6 +170,8 @@ export function AddressEditor<C = unknown>({
 
   const current: AddressEditorDraft = {
     name: value.name ?? '',
+    recipientName: value.recipientName ?? '',
+    phone: value.phone ?? '',
     purpose: value.purpose ?? '',
     companyName: value.companyName ?? '',
     addressLine1: value.addressLine1 ?? '',
@@ -505,6 +517,40 @@ export function AddressEditor<C = unknown>({
           {errors.latitude ? <p className="text-xs text-destructive">{errors.latitude}</p> : null}
           {errors.longitude ? <p className="text-xs text-destructive">{errors.longitude}</p> : null}
         </>
+      ) : null}
+
+      {showRecipientNameField || showPhoneField ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {showRecipientNameField ? (
+            <div className="space-y-1">
+              <Input
+                className={inputClass('recipientName')}
+                placeholder={label('fields.recipientName', 'Recipient name')}
+                aria-label={label('fields.recipientName', 'Recipient name')}
+                value={current.recipientName ?? ''}
+                onChange={(evt) => update('recipientName', evt.target.value)}
+                disabled={disabled}
+                aria-invalid={errors.recipientName ? 'true' : undefined}
+              />
+              {errors.recipientName ? <p className="text-xs text-status-error-text">{errors.recipientName}</p> : null}
+            </div>
+          ) : null}
+          {showPhoneField ? (
+            <div className="space-y-1">
+              <Input
+                className={inputClass('phone')}
+                type="tel"
+                placeholder={label('fields.phone', 'Phone')}
+                aria-label={label('fields.phone', 'Phone')}
+                value={current.phone ?? ''}
+                onChange={(evt) => update('phone', evt.target.value)}
+                disabled={disabled}
+                aria-invalid={errors.phone ? 'true' : undefined}
+              />
+              {errors.phone ? <p className="text-xs text-status-error-text">{errors.phone}</p> : null}
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {showFormatHint ? (

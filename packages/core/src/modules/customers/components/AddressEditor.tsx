@@ -613,7 +613,7 @@ export function AddressEditor({
               disabled={disabled}
               aria-invalid={errors.recipientName ? 'true' : undefined}
             />
-            {errors.recipientName ? <p className="text-xs text-destructive">{errors.recipientName}</p> : null}
+            {errors.recipientName ? <p className="text-xs text-status-error-text">{errors.recipientName}</p> : null}
           </>
         ) : null}
       </div>

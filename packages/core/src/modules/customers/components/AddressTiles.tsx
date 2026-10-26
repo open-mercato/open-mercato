@@ -514,7 +514,13 @@ export function CustomerAddressTiles({
           <AddressEditor
             value={draft}
             onChange={(next) => {
-              setDraft({ ...next, latitude: next.latitude ?? '', longitude: next.longitude ?? '' })
+              setDraft({
+                ...next,
+                recipientName: next.recipientName ?? '',
+                phone: next.phone ?? '',
+                latitude: next.latitude ?? '',
+                longitude: next.longitude ?? '',
+              })
               if (Object.keys(fieldErrors).length) {
                 const nextErrors = { ...fieldErrors }
                 ;(Object.keys(nextErrors) as DraftFieldKey[]).forEach((key) => {
