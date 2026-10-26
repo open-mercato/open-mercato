@@ -97,6 +97,11 @@ export const enabledModules: ModuleEntry[] = [
   // Ecommerce store module (SPEC-029): store, hostname and channel binding,
   // buyer-context resolution and the public storefront read API.
   { id: 'ecommerce', from: '@open-mercato/core' },
+  // Promotions engine (SPEC-055): rule-condition trees, codes, cart effect resolution.
+  { id: 'promotions', from: '@open-mercato/core' },
+  // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
+  // totals, token-bound public access. Requires catalog, sales and customer_groups.
+  { id: 'cart', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -162,6 +167,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sync_xero', from: '@open-mercato/sync-xero' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   // Same-origin OTLP proxy for browser RUM spans; inert unless

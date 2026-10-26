@@ -7,13 +7,13 @@ by reading module-level dependency declarations in __integration__/meta.ts files
 
 Usage:
   # Pipe git diff output
-  git diff --name-only origin/develop...HEAD | python3 find_affected_integration_tests.py --project-root . --layer api-logic
+  git diff --name-only origin/main...HEAD | python3 find_affected_integration_tests.py --project-root . --layer api-logic
 
   # Let the script call git diff internally, including local and untracked files
   python3 find_affected_integration_tests.py --project-root . --base auto --layer ui-component
 
   # Explicit base and head
-  python3 find_affected_integration_tests.py --project-root . --base origin/develop --head HEAD --layer data
+  python3 find_affected_integration_tests.py --project-root . --base origin/main --head HEAD --layer data
 
 Output:
   One relative spec file path per line, e.g.:
@@ -58,7 +58,7 @@ IGNORED_DIRS = frozenset({
 
 META_FILE_NAMES = ("meta.ts", "index.ts")
 DEPENDENCY_KEYS = ("dependsOnModules", "requiredModules", "requiresModules")
-AUTO_BASE_CANDIDATES = ("origin/develop", "develop", "origin/main", "main")
+AUTO_BASE_CANDIDATES = ("origin/main", "main")
 
 
 def run_git_names(args: list[str]) -> list[str]:
@@ -393,7 +393,7 @@ def find_affected_specs(project_root: Path, changed_files: list[str], layer: str
 def main() -> None:
     parser = argparse.ArgumentParser(description="Find Playwright integration tests affected by changed files.")
     parser.add_argument("--project-root", default=".", help="Absolute or relative path to the monorepo root")
-    parser.add_argument("--base", default=None, help="Base git ref (e.g. origin/develop)")
+    parser.add_argument("--base", default=None, help="Base git ref (e.g. origin/main)")
     parser.add_argument("--head", default=None, help="Head git ref (default: HEAD)")
     parser.add_argument(
         "--layer",
