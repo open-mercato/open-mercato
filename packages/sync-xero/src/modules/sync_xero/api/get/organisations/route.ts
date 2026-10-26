@@ -79,7 +79,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         ...xeroRuleOneErrors(),
-        { status: 409, description: 'not_connected; xero.client_misconfigured when Xero rejects the Client ID or Secret; xero.account_unavailable when the grant can no longer be used (reconnect)', schema: xeroErrorSchema },
+        { status: 409, description: 'not_connected; xero.client_misconfigured when Xero rejects the Client ID or Secret; xero.account_unavailable when the grant can no longer be used or Xero rejects its token or access (reconnect)', schema: xeroErrorSchema },
         { status: 503, description: 'xero.unavailable: Xero failed, timed out or rate-limited the single attempt; transient or platform_unavailable when no token could be obtained right now', schema: xeroErrorSchema },
       ],
     },

@@ -306,6 +306,17 @@ describe('GET /api/sync_xero/organisations', () => {
     expect(await json(response)).toMatchObject({ code: 'xero.unavailable' })
     expect(xeroApi.requests.length - before).toBe(1)
   })
+
+  it.each([
+    ['a second 401 after the forced refresh', { status: 401 }],
+    ['an insufficient-scope challenge', { status: 403, headers: { 'www-authenticate': 'Bearer error="insufficient_scope"' } }],
+    ['a 403 without a challenge', { status: 403 }],
+  ] as const)('answers 409 xero.account_unavailable (reconnect), not a retry, for %s', async (_label, stub) => {
+    connectionsHandler = () => ({ ...stub })
+    const response = await getOrganisations(request('/api/sync_xero/organisations'))
+    expect(response.status).toBe(409)
+    expect(await json(response)).toMatchObject({ code: 'xero.account_unavailable' })
+  })
 })
 
 describe('PUT /api/sync_xero/organisation', () => {

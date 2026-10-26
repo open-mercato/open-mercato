@@ -142,7 +142,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 409,
           description:
-            'optimistic_lock_conflict (stale revision); not_connected; xero.client_misconfigured; xero.account_unavailable; xero.organisation_change_confirmation_required with next and previous[] (companyCount); xero.organisation_switch_blocked with previous[] (invoiceCount)',
+            'optimistic_lock_conflict (stale revision); not_connected; xero.client_misconfigured; xero.account_unavailable (also when Xero rejects the token or its access); xero.organisation_change_confirmation_required with next and previous[] (companyCount); xero.organisation_switch_blocked with previous[] (invoiceCount)',
           schema: xeroErrorSchema.extend({ next: previousSchema.optional(), previous: z.array(previousSchema).optional() }),
         },
         { status: 422, description: 'xero.organisation_not_authorised: the Organisation is not part of the grant', schema: xeroErrorSchema },

@@ -57,7 +57,8 @@ export async function xeroErrorResponse(
  * Maps a failure of an interactive Xero call made inside an admin's request (App Spec § 6.5): no
  * grant is not_connected; a rejected client is xero.client_misconfigured, fixed on the Credentials
  * tab, never by a reconnect; a transient or platform failure is a 503 to retry; any other token
- * failure is xero.account_unavailable (reconnect); any Xero API failure is xero.unavailable.
+ * failure is xero.account_unavailable (reconnect). Xero rejecting the token or its access after
+ * the forced refresh is a reconnect too, and any other Xero API failure is xero.unavailable.
  * Returns null for anything else.
  */
 export async function interactiveFailureResponse(error: unknown): Promise<Response | null> {
@@ -68,7 +69,12 @@ export async function interactiveFailureResponse(error: unknown): Promise<Respon
     if (error.code === 'platform_unavailable') return xeroErrorResponse(503, 'platform_unavailable')
     return xeroErrorResponse(409, 'xero.account_unavailable')
   }
-  if (error instanceof XeroApiError) return xeroErrorResponse(503, 'xero.unavailable')
+  if (error instanceof XeroApiError) {
+    if (error.code === 'unauthorized' || error.code === 'scope_insufficient' || error.code === 'forbidden') {
+      return xeroErrorResponse(409, 'xero.account_unavailable')
+    }
+    return xeroErrorResponse(503, 'xero.unavailable')
+  }
   return null
 }
 
