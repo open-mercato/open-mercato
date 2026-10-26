@@ -5,6 +5,11 @@ const mockCreateNotification = jest.fn()
 const mockDeleteNotifications = jest.fn()
 const mockLoggerError = jest.fn()
 
+jest.mock('../lib/permissions', () => ({
+  ...jest.requireActual('../lib/permissions'),
+  resolveUserAccess: jest.fn(async () => 'viewer'),
+}))
+
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => {
     const logger = {
@@ -39,6 +44,7 @@ function context(
       if (token === 'notificationService') {
         return { create: mockCreateNotification, deleteBySource: mockDeleteNotifications }
       }
+      if (token === 'em') return {}
       throw new Error(`Unexpected dependency: ${token}`)
     },
   } as CommandInterceptorContext['container'],

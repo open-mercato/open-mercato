@@ -189,8 +189,10 @@ export async function resolveLoadedDocumentUserAccess(
   userId: string,
   container?: DocumentsServiceContainer | null,
 ): Promise<DocumentTier | null> {
+  const rbacService = resolveDocumentsRbacService(container)
+  if (!rbacService || !await rbacService.userHasAllFeatures(userId, ['documents.view'], scope)) return null
   if (document.ownerUserId === userId) return 'owner'
-  if (await resolveDocumentsRbacService(container)?.userHasAllFeatures(
+  if (await rbacService.userHasAllFeatures(
     userId,
     ['documents.manage'],
     scope,
