@@ -1,232 +1,222 @@
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 import handle from '../autoLinkCrmReverse'
 
-const mockFindOneWithDecryption = jest.fn()
-const mockLoggerError = jest.fn()
+jest.mock('@open-mercato/core/modules/customers/data/entities', () => ({
+  CustomerEntity: class CustomerEntity {},
+  CustomerPersonProfile: class CustomerPersonProfile {},
+}))
 
+jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
+  lookupHashCandidates: (email: string) => [`hash:${email}`],
+}))
+
+const mockFindOneWithDecryption = jest.fn()
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
 }))
 
-jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
-  lookupHashCandidates: (email: string) => [email],
-}))
-
 jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: () => ({ child: () => ({ error: (...args: unknown[]) => mockLoggerError(...args) }) }),
+  createLogger: () => ({ child: () => ({ error: jest.fn() }) }),
 }))
 
-class CustomerEntity {}
-class CustomerPersonProfile {}
+type Row = Record<string, unknown> & { id: string; tenantId: string; organizationId: string }
 
-jest.mock('@open-mercato/core/modules/customers/data/entities', () => ({
-  CustomerEntity,
-  CustomerPersonProfile,
-}))
+const tenantId = 'tenant-a'
+const organizationId = 'organization-a'
+const email = 'fixture@example.test'
 
-const tenantId = '11111111-1111-4111-8111-111111111111'
-const organizationId = '22222222-2222-4222-8222-222222222222'
-const userId = '33333333-3333-4333-8333-333333333333'
-const personEntityId = '44444444-4444-4444-8444-444444444444'
-const companyEntityId = '55555555-5555-4555-8555-555555555555'
-const otherScopeId = '66666666-6666-4666-8666-666666666666'
-const existingCompanyId = '77777777-7777-4777-8777-777777777777'
-
-type Row = Record<string, unknown>
-
-function matches(row: Row, where: Row): boolean {
+function matches(row: Row, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
-    if (value && typeof value === 'object' && '$in' in value && Array.isArray(value.$in)) {
-      return value.$in.includes(row[key])
+    if (typeof value === 'object' && value !== null && '$in' in value) {
+      return (value.$in as unknown[]).includes(row[key])
     }
     return row[key] === value
   })
 }
 
-function createScenario(options: {
-  profile?: Row | null
-  company?: Row
-  user?: Row
-  beforeUpdate?: (user: Row) => void
-} = {}) {
-  const person = {
-    id: personEntityId, tenantId, organizationId, kind: 'person',
-    primaryEmail: ' Person@Example.com ', deletedAt: null,
+function setup() {
+  const user: Row = {
+    id: 'user-a', tenantId, organizationId, emailHash: `hash:${email}`,
+    personEntityId: null, customerEntityId: null, deletedAt: null,
   }
-  const company = {
-    id: companyEntityId, tenantId, organizationId, kind: 'company', deletedAt: null,
-    ...options.company,
+  const person: Row = {
+    id: 'person-a', tenantId, organizationId, kind: 'person', primaryEmail: email, deletedAt: null,
   }
-  const existingCompany = {
-    id: existingCompanyId, tenantId, organizationId, kind: 'company', deletedAt: null,
+  const company: Row = {
+    id: 'company-a', tenantId, organizationId, kind: 'company', deletedAt: null,
   }
-  const profile = options.profile === null ? null : {
-    entity: personEntityId, tenantId, organizationId, company: { id: companyEntityId },
-    ...options.profile,
+  const profile: Row = {
+    id: 'profile-a', tenantId, organizationId, entity: { id: person.id }, company: { id: company.id },
   }
-  const user = {
-    id: userId, tenantId, organizationId, emailHash: 'person@example.com',
-    deletedAt: null, personEntityId: null, customerEntityId: null,
-    ...options.user,
-  }
-  mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Row) => (
-    entity === CustomerEntity ? [person, company, existingCompany].find((row) => matches(row, where)) ?? null : null
-  ))
-  const em = {
-    findOne: jest.fn(async (entity: unknown, where: Row) => {
-      if (entity === CustomerUser) return matches(user, where) ? user : null
-      if (entity === CustomerPersonProfile) return profile && matches(profile, where) ? profile : null
-      throw new Error('[internal] Unexpected entity lookup')
-    }),
-    nativeUpdate: jest.fn(async (_entity: unknown, where: Row, updates: Row) => {
-      options.beforeUpdate?.(user)
-      if (!matches(user, where)) return 0
-      Object.assign(user, updates)
-      return 1
-    }),
-  }
-  const ctx = {
-    resolve: <T = unknown>(name: string): T => {
-      if (name === 'em') return em as unknown as T
-      throw new Error('[internal] Unexpected dependency')
-    },
-  }
-  return { em, ctx, user }
+  const users = [user]
+  const entities = [person, company]
+  const profiles = [profile]
+  let beforeUpdate: (() => void) | undefined
+  const findOne = jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+    const rows = entity === CustomerUser ? users : entity === CustomerPersonProfile ? profiles : entities
+    const row = rows.find((candidate) => matches(
+      entity === CustomerPersonProfile ? { ...candidate, entity: (candidate.entity as { id: string })?.id ?? candidate.entity } : candidate,
+      where,
+    ))
+    return row ? { ...row } : null
+  })
+  const nativeUpdate = jest.fn(async (_entity: unknown, where: Record<string, unknown>, updates: Record<string, unknown>) => {
+    beforeUpdate?.()
+    const row = users.find((candidate) => matches(candidate, where))
+    if (!row) return 0
+    Object.assign(row, updates)
+    return 1
+  })
+  const em = { findOne, nativeUpdate }
+  mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => findOne(entity, where))
+  const ctx = { resolve: <T = unknown>() => em as unknown as T }
+  const payload = { id: person.id, tenantId, organizationId }
+  return { user, person, company, profile, users, entities, profiles, em, ctx, payload, beforeUpdate: (callback: () => void) => { beforeUpdate = callback } }
 }
 
-describe('reverse CRM subscriber with the company ownership resolver (#7861)', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
+describe('reverse CRM auto-link organization isolation (#7852)', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it.each(['person', 'profile'] as const)('leaves a matching-email account in another organization unchanged for a %s ID event', async (idType) => {
+    const fixture = setup()
+    fixture.user.organizationId = 'organization-b'
+    await handle({ ...fixture.payload, id: fixture[idType].id }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.user.customerEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
   })
 
-  afterEach(() => {
-    expect(mockLoggerError).not.toHaveBeenCalled()
+  it('uses the persisted person organization when a legacy event omits it', async () => {
+    const fixture = setup()
+    fixture.user.organizationId = 'organization-b'
+    await handle({ id: fixture.person.id, tenantId }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not link an account from another tenant', async () => {
+    const fixture = setup()
+    fixture.user.tenantId = 'tenant-b'
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('links the same-organization account and the owned company relation', async () => {
+    const fixture = setup()
+    fixture.person.primaryEmail = `  ${email.toUpperCase()}  `
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBe(fixture.company.id)
+    expect(fixture.em.nativeUpdate).toHaveBeenCalledWith(CustomerUser, expect.objectContaining({
+      id: fixture.user.id, tenantId, organizationId, deletedAt: null, personEntityId: null,
+    }), expect.objectContaining({ personEntityId: fixture.person.id, customerEntityId: fixture.company.id }))
+  })
+
+  it('supports the profile ID emitted by the ordinary person-created event', async () => {
+    const fixture = setup()
+    await handle({ ...fixture.payload, id: fixture.profile.id }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBe(fixture.company.id)
+    expect(fixture.em.findOne).toHaveBeenCalledWith(CustomerPersonProfile, expect.objectContaining({
+      id: fixture.profile.id, tenantId, organizationId,
+    }))
+  })
+
+  it.each(['person', 'profile'] as const)('supports a legacy %s ID event without organization metadata', async (idType) => {
+    const fixture = setup()
+    await handle({ id: fixture[idType].id, tenantId }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBe(fixture.company.id)
+  })
+
+  it('supports a legacy profile whose entity reference is a raw ID', async () => {
+    const fixture = setup()
+    fixture.profile.entity = fixture.person.id
+    await handle({ ...fixture.payload, id: fixture.profile.id }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBe(fixture.company.id)
+  })
+
+  it.each(['tenantId', 'organizationId'])('rejects an out-of-scope fallback profile by %s', async (key) => {
+    const fixture = setup()
+    fixture.profile[key] = 'foreign-scope'
+    await handle({ ...fixture.payload, id: fixture.profile.id }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('rejects a fallback profile pointing to a person in another organization', async () => {
+    const fixture = setup()
+    fixture.person.organizationId = 'organization-b'
+    await handle({ ...fixture.payload, id: fixture.profile.id }, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
   })
 
   it.each([
-    ['entity reference', { id: companyEntityId }],
-    ['raw ID', companyEntityId],
-  ])('links the person and company from the %s', async (_label, company) => {
-    const { em, ctx, user } = createScenario({ profile: { company } })
+    ['organizationId', 'organization-b'], ['tenantId', 'tenant-b'], ['kind', 'person'], ['deletedAt', new Date()],
+  ])('does not derive a company with invalid %s', async (key, value) => {
+    const fixture = setup()
+    fixture.company[key as string] = value
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBeNull()
+  })
 
-    await handle({ id: personEntityId, tenantId, organizationId }, ctx)
+  it('does not derive a company from a profile in another organization', async () => {
+    const fixture = setup()
+    fixture.profile.organizationId = 'organization-b'
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBeNull()
+  })
 
-    expect(em.nativeUpdate).toHaveBeenCalledWith(
-      CustomerUser,
-      { id: userId, personEntityId: null, customerEntityId: null },
-      { personEntityId, customerEntityId: companyEntityId },
-    )
-    expect(user).toMatchObject({ personEntityId, customerEntityId: companyEntityId })
-    expect(em.findOne).toHaveBeenCalledWith(CustomerPersonProfile, {
-      entity: personEntityId, tenantId, organizationId,
-    })
-    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
-      CustomerEntity,
-      { id: companyEntityId, tenantId, organizationId, kind: 'company', deletedAt: null },
-      undefined,
-      { tenantId, organizationId },
-    )
+  it('preserves an existing company link', async () => {
+    const fixture = setup()
+    fixture.user.customerEntityId = 'existing-company'
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.user.customerEntityId).toBe('existing-company')
+  })
+
+  it.each(['tenantId', 'organizationId', 'kind', 'deletedAt'])('does not link an invalid person with changed %s', async (key) => {
+    const fixture = setup()
+    fixture.person[key] = key === 'deletedAt' ? new Date() : 'foreign-value'
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('is idempotent on repeated event delivery', async () => {
+    const fixture = setup()
+    await handle(fixture.payload, fixture.ctx)
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(fixture.person.id)
+    expect(fixture.em.nativeUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows only one of two competing person links to win', async () => {
+    const fixture = setup()
+    fixture.entities.push({ ...fixture.person, id: 'person-b' })
+    await Promise.all([
+      handle(fixture.payload, fixture.ctx),
+      handle({ ...fixture.payload, id: 'person-b' }, fixture.ctx),
+    ])
+    const affected = await Promise.all(fixture.em.nativeUpdate.mock.results.map((result) => result.value as Promise<number>))
+    expect(affected.filter((count) => count === 1)).toHaveLength(1)
+    expect(['person-a', 'person-b']).toContain(fixture.user.personEntityId)
   })
 
   it.each([
-    ['absent profile', null],
-    ['absent company', { company: null }],
-    ['profile in another tenant', { tenantId: otherScopeId }],
-    ['profile in another organization', { organizationId: otherScopeId }],
-  ])('links only the person with %s', async (_label, profile) => {
-    const { em, ctx, user } = createScenario({ profile })
-
-    await handle({ id: personEntityId, tenantId, organizationId }, ctx)
-
-    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
-    expect(user).toMatchObject({ personEntityId, customerEntityId: null })
-  })
-
-  it.each([
-    ['another tenant', { tenantId: otherScopeId }],
-    ['another organization', { organizationId: otherScopeId }],
-    ['soft-deleted', { deletedAt: new Date('2026-10-01') }],
-    ['a person', { kind: 'person' }],
-    ['missing', { id: otherScopeId }],
-  ])('rejects a company that is %s', async (_label, company) => {
-    const { em, ctx, user } = createScenario({ company })
-
-    await handle({ id: personEntityId, tenantId, organizationId }, ctx)
-
-    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
-    expect(user).toMatchObject({ personEntityId, customerEntityId: null })
-  })
-
-  it('derives the company lookup scope from the persisted portal account', async () => {
-    const { em, ctx, user } = createScenario()
-
-    await handle({ id: personEntityId, tenantId, organizationId: otherScopeId }, ctx)
-
-    expect(em.findOne).toHaveBeenCalledWith(CustomerPersonProfile, {
-      entity: personEntityId, tenantId, organizationId,
-    })
-    expect(user.customerEntityId).toBe(companyEntityId)
-  })
-
-  it('preserves an existing company link while linking the person', async () => {
-    const { em, ctx, user } = createScenario({ user: { customerEntityId: existingCompanyId } })
-
-    await handle({ id: personEntityId, tenantId, organizationId }, ctx)
-
-    expect(em.nativeUpdate).toHaveBeenCalledWith(
-      CustomerUser,
-      { id: userId, personEntityId: null },
-      { personEntityId },
-    )
-    expect(user.customerEntityId).toBe(existingCompanyId)
-    expect(em.findOne.mock.calls.some(([entity]) => entity === CustomerPersonProfile)).toBe(false)
-  })
-
-  it('preserves a company assigned concurrently and still links the person', async () => {
-    const { em, ctx, user } = createScenario({
-      beforeUpdate: (record) => { record.customerEntityId = existingCompanyId },
-    })
-    const payload = { id: personEntityId, tenantId, organizationId }
-
-    await handle(payload, ctx)
-    await handle(payload, ctx)
-
-    expect(em.nativeUpdate).toHaveBeenCalledTimes(2)
-    expect(em.nativeUpdate).toHaveBeenNthCalledWith(
-      1,
-      CustomerUser,
-      { id: userId, personEntityId: null, customerEntityId: null },
-      { personEntityId, customerEntityId: companyEntityId },
-    )
-    expect(em.nativeUpdate).toHaveBeenNthCalledWith(
-      2,
-      CustomerUser,
-      { id: userId, personEntityId: null },
-      { personEntityId },
-    )
-    expect(user).toMatchObject({ personEntityId, customerEntityId: existingCompanyId })
-  })
-
-  it('does not overwrite a person link assigned by another worker', async () => {
-    const { em, ctx, user } = createScenario({
-      beforeUpdate: (record) => { record.personEntityId = otherScopeId },
-    })
-
-    await handle({ id: personEntityId, tenantId, organizationId }, ctx)
-
-    expect(em.nativeUpdate).toHaveBeenCalledTimes(2)
-    expect(user).toMatchObject({ personEntityId: otherScopeId, customerEntityId: null })
-  })
-
-  it('does not write again when the creation event is replayed', async () => {
-    const { em, ctx, user } = createScenario()
-    const payload = { id: personEntityId, tenantId, organizationId }
-
-    await handle(payload, ctx)
-    await handle(payload, ctx)
-
-    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
-    expect(user).toMatchObject({ personEntityId, customerEntityId: companyEntityId })
+    ['organizationId', 'organization-b'], ['tenantId', 'tenant-b'], ['deletedAt', new Date()],
+    ['personEntityId', 'competing-person'], ['customerEntityId', 'concurrent-company'], ['emailHash', 'hash:changed@example.test'],
+  ])('does not overwrite an account whose %s changed during lookup', async (key, value) => {
+    const fixture = setup()
+    fixture.beforeUpdate(() => { fixture.user[key as string] = value })
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBe(key === 'personEntityId' ? value : null)
+    expect(fixture.user.customerEntityId).toBe(key === 'customerEntityId' ? value : null)
   })
 })
