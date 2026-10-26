@@ -20,7 +20,9 @@ import { withScopedPayload } from '../../utils'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { SalesQuote } from '../../../data/entities'
+import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
+import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
+import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
@@ -176,6 +178,12 @@ export async function POST(req: Request) {
     const email = resolveQuoteEmail(quote)
     if (!email) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
+    }
+
+    const recurrence = await loadQuoteRecurrenceSnapshot(em, quote)
+    if (recurrence) {
+      const lineCount = await em.count(SalesQuoteLine, { quote: quote.id })
+      await assertRecurringQuoteConvertible(recurrence, lineCount)
     }
 
     const now = new Date()

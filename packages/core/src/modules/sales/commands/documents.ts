@@ -58,6 +58,9 @@ import {
   SalesDocumentTag,
   SalesDocumentTagAssignment,
   SalesReturn,
+  SalesQuoteRecurrence,
+  SalesOrderRecurrence,
+  SalesRecurringPeriod,
   type SalesLineKind,
   type SalesAdjustmentKind,
   type SalesSettings,
@@ -91,6 +94,7 @@ import {
   creditMemoCreateSchema,
   creditMemoUpdateSchema,
   customerSnapshotSchema,
+  recurrenceInputSchema,
   type QuoteCreateInput,
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
@@ -123,6 +127,18 @@ import {
   type PaymentSnapshot,
 } from "./payments";
 import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
+import {
+  loadOrderRecurrenceSnapshot,
+  loadQuoteRecurrenceSnapshot,
+  persistNewOrderRecurrence,
+  restoreOrderRecurrence,
+  restoreQuoteRecurrence,
+  writeOrderRecurrence,
+  writeQuoteRecurrence,
+  type OrderRecurrenceSnapshot,
+  type QuoteRecurrenceSnapshot,
+} from "../lib/recurrenceStore";
+import { assertRecurringQuoteConvertible } from "../lib/recurringOrderGuard";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
@@ -280,6 +296,7 @@ type QuoteGraphSnapshot = {
   addresses: DocumentAddressSnapshot[];
   notes: NoteSnapshot[];
   tags: TagAssignmentSnapshot[];
+  recurrence?: QuoteRecurrenceSnapshot | null;
 };
 
 type QuoteLineSnapshot = {
@@ -398,6 +415,7 @@ type OrderGraphSnapshot = {
   tags: TagAssignmentSnapshot[];
   shipments: ShipmentSnapshot[];
   payments: PaymentSnapshot[];
+  recurrence?: OrderRecurrenceSnapshot | null;
 };
 
 type OrderLineSnapshot = {
@@ -652,6 +670,7 @@ export const documentUpdateSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
+    recurrence: recurrenceInputSchema.nullable().optional(),
   })
   .refine(
     (input) =>
@@ -686,7 +705,8 @@ export const documentUpdateSchema = z
       input.paymentMethodSnapshot !== undefined ||
       input.tags !== undefined ||
       input.customFields !== undefined ||
-      input.customFieldSetId !== undefined,
+      input.customFieldSetId !== undefined ||
+      input.recurrence !== undefined,
     { message: "update_payload_empty" },
   );
 
@@ -1812,6 +1832,7 @@ async function loadQuoteSnapshot(
     addresses: addressSnapshots,
     notes: noteSnapshots,
     tags: tagSnapshots,
+    recurrence: await loadQuoteRecurrenceSnapshot(em, quote),
   };
 }
 
@@ -2120,6 +2141,7 @@ async function loadOrderSnapshot(
     tags: tagSnapshots,
     shipments: shipmentSnapshots,
     payments: paymentSnapshots,
+    recurrence: await loadOrderRecurrenceSnapshot(em, order),
   };
 }
 
@@ -4071,6 +4093,14 @@ function applyOrderSnapshot(
   order.lineItemCount = snapshot.lineItemCount;
 }
 
+function sameRecurrence(
+  current: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null | undefined,
+  expected: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null | undefined,
+): boolean {
+  if (expected === undefined) return true;
+  return isDeepStrictEqual(current ?? null, expected ?? null);
+}
+
 async function assertQuoteGraphUndoCurrent(
   em: EntityManager,
   quoteId: string,
@@ -4083,7 +4113,8 @@ async function assertQuoteGraphUndoCurrent(
     sameIds(current.adjustments, expected.adjustments) &&
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
-    sameRecords(current.addresses, expected.addresses);
+    sameRecords(current.addresses, expected.addresses) &&
+    sameRecurrence(current.recurrence, expected.recurrence);
   if (!unchanged) return throwDocumentUndoStale("quote");
 }
 
@@ -4430,6 +4461,11 @@ async function restoreQuoteGraph(
     });
   }
 
+  if (snapshot.recurrence !== undefined) {
+    await em.flush();
+    await restoreQuoteRecurrence(em, quote, snapshot.recurrence);
+  }
+
   return quote;
 }
 
@@ -4538,7 +4574,7 @@ async function assertOrderGraphUndoCurrent(
   const current = await loadOrderSnapshot(em, orderId);
   if (!current) return throwDocumentUndoStale("order");
   const lineIds = current.lines.map((line) => line.id);
-  const [returnCount, invoiceLineCount, creditMemoLineCount] = await Promise.all([
+  const [returnCount, invoiceLineCount, creditMemoLineCount, recurringPeriodCount] = await Promise.all([
     em.count(SalesReturn, { order: orderId }),
     lineIds.length
       ? em.count(SalesInvoiceLine, { orderLine: { $in: lineIds } })
@@ -4546,8 +4582,9 @@ async function assertOrderGraphUndoCurrent(
     lineIds.length
       ? em.count(SalesCreditMemoLine, { orderLine: { $in: lineIds } })
       : Promise.resolve(0),
+    em.count(SalesRecurringPeriod, { order: orderId }),
   ]);
-  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0) {
+  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0 || recurringPeriodCount > 0) {
     return throwDocumentUndoStale("order");
   }
   const unchanged =
@@ -4557,7 +4594,8 @@ async function assertOrderGraphUndoCurrent(
     sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
-    sameRecords(current.addresses, expected.addresses);
+    sameRecords(current.addresses, expected.addresses) &&
+    sameRecurrence(current.recurrence, expected.recurrence);
   if (!unchanged) return throwDocumentUndoStale("order");
 }
 
@@ -4997,6 +5035,11 @@ async function restoreOrderGraph(
     await restorePaymentSnapshot(em, payment);
   }
 
+  if (snapshot.recurrence !== undefined) {
+    await em.flush();
+    await restoreOrderRecurrence(em, order, snapshot.recurrence);
+  }
+
   return order;
 }
 
@@ -5271,6 +5314,9 @@ const createQuoteCommand: CommandHandler<
             customFields: parsed.customFields,
           });
         },
+        async () => {
+          await writeQuoteRecurrence(em, quote, parsed.recurrence);
+        },
       ],
       { transaction: true },
     );
@@ -5387,6 +5433,7 @@ const createQuoteCommand: CommandHandler<
       );
       if (!quote) return;
       await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      await tx.nativeDelete(SalesQuoteRecurrence, { quote: quote.id });
       await tx.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
       await tx.nativeDelete(SalesQuoteLine, { quote: quote.id });
       tx.remove(quote);
@@ -5463,6 +5510,7 @@ const deleteQuoteCommand: CommandHandler<
             documentId: quote.id,
             documentKind: "quote",
           });
+          await em.nativeDelete(SalesQuoteRecurrence, { quote: quote.id });
           await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
           await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
           em.remove(quote);
@@ -5584,6 +5632,9 @@ const updateQuoteCommand: CommandHandler<
               value: "draft",
             });
           }
+        },
+        async () => {
+          await writeQuoteRecurrence(em, quote, parsed.recurrence);
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
         // flush boundary before the recalc reads below run any query on the same
@@ -5871,6 +5922,9 @@ const updateOrderCommand: CommandHandler<
             input: parsed,
             em,
           });
+        },
+        async () => {
+          await writeOrderRecurrence(em, order, parsed.recurrence);
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
         // flush boundary before the recalc reads and the status-change-note
@@ -6381,6 +6435,9 @@ const createOrderCommand: CommandHandler<
             customFields: parsed.customFields,
           });
         },
+        async () => {
+          await writeOrderRecurrence(em, order, parsed.recurrence);
+        },
       ],
       { transaction: true },
     );
@@ -6521,6 +6578,7 @@ const createOrderCommand: CommandHandler<
           },
         );
         if (!order) return;
+        await tx.nativeDelete(SalesOrderRecurrence, { order: order.id });
         await tx.nativeDelete(SalesOrderAdjustment, { order: order.id });
         await tx.nativeDelete(SalesOrderLine, { order: order.id });
         tx.remove(order);
@@ -6623,6 +6681,7 @@ const deleteOrderCommand: CommandHandler<
             documentId: order.id,
             documentKind: "order",
           });
+          await em.nativeDelete(SalesOrderRecurrence, { order: order.id });
           await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
           await em.nativeDelete(SalesOrderLine, { order: order.id });
           em.remove(order);
@@ -6757,6 +6816,7 @@ const convertQuoteToOrderCommand: CommandHandler<
             "sales.documents.detail.error",
             "Document not found or inaccessible.",
           ));
+      await assertRecurringQuoteConvertible(snapshot.recurrence, snapshot.lines.length);
       const orderId = payload.orderId ?? quote.id;
       const existingOrder = await findOneWithDecryption(em, SalesOrder, {
         id: orderId,
@@ -7064,6 +7124,10 @@ const convertQuoteToOrderCommand: CommandHandler<
         }
       }
 
+      if (snapshot.recurrence) {
+        persistNewOrderRecurrence(em, order, snapshot.recurrence);
+        await em.nativeDelete(SalesQuoteRecurrence, { quote: snapshot.quote.id });
+      }
       await em.nativeDelete(SalesQuoteAdjustment, { quote: snapshot.quote.id });
       await em.nativeDelete(SalesQuoteLine, { quote: snapshot.quote.id });
       em.remove(quote);
@@ -7148,6 +7212,7 @@ const convertQuoteToOrderCommand: CommandHandler<
             documentId: orderId,
             documentKind: "order",
           });
+          await em.nativeDelete(SalesOrderRecurrence, { order: orderId });
           await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
           await em.nativeDelete(SalesOrderLine, { order: orderId });
           em.remove(existingOrder);

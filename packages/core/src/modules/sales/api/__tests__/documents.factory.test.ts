@@ -432,7 +432,13 @@ describe('buildDocumentCrudOptions', () => {
 
       expect(payload.items[0].tags).toEqual([{ id: 'tag-1', label: 'Priority', color: '#fff' }])
       expect(payload.items[0].channelName).toBe('Web shop')
-      expect(entitiesSeen).toHaveLength(2)
+      expect(payload.items[0].recurrence).toBeNull()
+      expect(entitiesSeen).toEqual([
+        'SalesDocumentTagAssignment',
+        'SalesChannel',
+        'SalesOrderRecurrence',
+        'SalesRecurringPeriod',
+      ])
     })
 
     it('keeps persisted totals when the response contains exactly one order (#5438)', async () => {

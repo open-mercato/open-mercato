@@ -702,6 +702,7 @@ export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>
 export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 
 export const orderCreateSchema = scoped.extend({
+  recurrence: recurrenceInputSchema.nullable().optional(),
   orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
   customerReference: z.string().trim().max(191).optional(),
@@ -756,6 +757,7 @@ export const orderUpdateSchema = z
   .merge(orderCreateSchema.partial())
 
 export const quoteCreateSchema = scoped.extend({
+  recurrence: recurrenceInputSchema.nullable().optional(),
   quoteNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),
