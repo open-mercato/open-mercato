@@ -1,264 +1,298 @@
-# Extensible Documents Record-Link Registry
+# Documents Record Links via Search and Component Injection
 
-**Status:** Proposed
+**Status:** Proposed — rewritten for fresh review
 **Issue:** [#6730](https://github.com/open-mercato/open-mercato/issues/6730)
-**Related:** [Documents Collaborative Editor](./2026-07-08-documents-collaborative-editor.md), [Module Extension Point Catalog](./2026-08-01-module-extension-point-catalog.md), [Calendar Event Type Extensions in PR #6687](https://github.com/open-mercato/open-mercato/pull/6687)
+**Related:** [Documents Collaborative Editor](./2026-07-08-documents-collaborative-editor.md), [Calendar implementation, PR #6688](https://github.com/open-mercato/open-mercato/pull/6688)
 
 ## TLDR
 
-An enabled module can opt one of its non-global custom entities into Documents' record picker and every existing record-link flow. Documents keeps its eight built-in registry entries and their storage unchanged; module-owned custom entities are aggregated through the existing `GeneratorPlugin` mechanism into one browser-safe generated declaration set, registered on the API server and in the backend client. A nullable generic target pair stores contributed links, while target reads remain caller-authorized and exactly scoped to the document's tenant and organization.
+Documents can link any authorized searchable entity contributed through `search.ts`, without a Documents-specific declaration. A default-on option in **Settings → Documents** replaces the current fixed record picker with unified search. Modules can additionally contribute record-link definitions through ordinary component injection (CI) widgets and a Documents-owned DI registry, following the Customers calendar event-type implementation in #6688. No Documents generator plugin, new auto-discovery convention, or generated record-link registry is introduced.
 
-## Resolved Design Decisions
+## Overview
 
-1. **The spec owns one end-to-end capability.** Registry discovery, generic persistence, picker/search, link CRUD, relation filtering, templates, field insertion, duplication, undo/redo, and redaction are one contract because issue #6730 requires a contributed record to work anywhere an existing record link works. Moving the built-in registry entries is independent cleanup and is excluded.
-2. **Use and extend `GeneratorPlugin`.** Documents owns `generators.ts`; contributors only export data from `document-entities.ts`. Two optional additive `GeneratorPlugin` hooks provide convention validation and client registration. No second scanner or Documents-specific generator pipeline is introduced.
-3. **Keep the built-ins in Documents.** `DOCUMENT_ENTITY_REGISTRY`, its eight type strings, all legacy columns, deep imports, routes, labels, order, mappers, and token behavior stay where they are. The generated registry contains custom-entity contributions only and is overlaid on the static built-ins at runtime.
-4. **Reuse the existing CrudForm host.** The related-documents widget maps to `crud-form:*`, then resolves the normalized `module.entity` context against the effective registry. No new injection spot is added.
-5. **Reject global custom entities in v1.** A document link is tenant- and organization-owned, while `CustomEntitySpec.global` records have nullable tenant/organization scope. Generation rejects a contribution whose matching `ce.ts` declaration has `global: true`; supporting global targets requires a separate security model and spec.
-6. **CLI and worker processes do not load this registry.** Link verification requires an authenticated request and all affected commands/routes run in the API process. Server registration therefore uses the existing API bootstrap path. The implementation must not claim that `dynamicLoader` loads bootstrap registrations; a future worker/CLI consumer must add and test an explicit bootstrap path.
+This revision replaces the generated custom-entity registry proposed earlier in #6731. Search discovery and explicit CI contributions are two sources for the same record-link catalog, verification, persistence, and user interaction. The setting controls automatic discovery; explicit contributions remain available in either mode. Existing documents, links, template slots, and legacy public contracts remain usable.
+
+### Resolved Design Decisions
+
+1. **CI means the existing component/widget injection mechanism.** Follow #6688's headless `widget.ts`, ordinary `widgets/injection-table.ts`, host-owned catalog resolver, and soft-optional module DI registration. Do not use `GeneratorPlugin`, add `document-entities.ts`, or extend generic widget loaders, bootstrap groups, or `CrudForm` with Documents-specific code.
+2. **Automatic linking is default on.** All enabled `search.ts` entities are candidates, including ordinary module entities and custom entities. The feature is not limited to `ce.ts` or a fixed eight-type list. Caller permissions, live record visibility, and document scope still determine which records can be shown or linked.
+3. **One search-first picker replaces the current picker when on.** Do not add another tab alongside the existing fixed tabs. In off mode, retain the built-in picker and add explicit CI definitions. CI definitions can also enrich or add candidates in on mode.
+4. **Preserve historical links independently of discovery.** Disabling automatic discovery prevents new automatic assignments; it never deletes links or suppresses an otherwise authorized historical link. Removing a module or revoking access redacts its links until access returns.
+5. **Keep domain ownership in Documents and Search.** Documents owns link policy, storage, UI, and CI contracts; Search owns its searchable catalog, strategy execution, and result authorization. Contributions carry browser-safe metadata; authoritative record reads and optional adapters stay server-side.
 
 ## Problem Statement
 
-`DOCUMENT_ENTITY_REGISTRY` in `packages/documents/src/modules/documents/lib/entityRegistry.ts` hard-codes eight record types and the Customers, Catalog, and Sales read paths. `documentEntityTypeSchema` accepts only those strings, and `DocumentEntityLink` uses seven nullable target columns plus `customer_kind` to represent the eight types. A module can declare an organization-scoped custom entity in `ce.ts`, but it cannot opt that entity into Documents without editing Documents itself.
+`packages/documents/src/modules/documents/lib/entityRegistry.ts` hard-codes eight types and their Customers, Catalog, and Sales read paths. The legacy `documentEntityTypeSchema` accepts only those strings; `DocumentEntityLink` represents them through seven nullable target columns and `customer_kind`. Adding a searchable entity currently does not make it linkable in Documents.
 
-The picker is client-side while verification, persistence, templates, relation filters, duplication, undo, and redaction run server-side. A server-only DI registration would leave the browser with a different registry; duplicating client and server declarations would create authorization drift. The design needs one module-owned declaration compiled into both runtime registrations.
+The previous proposal required a second entity declaration and new generator-plugin capabilities. That duplicates existing discovery and does not follow the recently implemented calendar extension model. Users need to find a record by its name or business reference in one search box, while module authors need an explicit CI extension path when search discovery alone is insufficient.
 
 ## Proposed Solution
 
-Add the module-root convention `document-entities.ts` with the named export `documentEntityTypes`. Each entry references a custom entity declared by the same module's `ce.ts`. Documents adds a module-owned `generators.ts` plugin that uses the existing generic plugin discovery and output machinery.
+Add `searchableEntityLinksEnabled` in Documents module settings, defaulting to `true`. Combine automatic Search candidates with explicit CI definitions into one effective catalog; use that catalog throughout picker search, `@` insertion, link CRUD, related-record filtering, templates, field insertion, duplication, and undo/redo.
 
-Extend the STABLE `GeneratorPlugin` interface with two optional capabilities:
+| Setting | New assignment UI | Candidate sources |
+|---|---|---|
+| On, including no saved setting | Unified record search, optionally filtered by entity type | Enabled `search.ts` entities plus explicit CI definitions; legacy adapters preserve existing types and token behavior without restoring the fixed-tab UI. |
+| Off | Existing built-in picker, extended by CI | Existing eight built-ins plus explicit CI definitions. Automatic-only types cannot receive new links. |
 
-- `validateContributions(context)` receives each enabled module's source path, module ID, resolved named export, and declared custom-entity metadata. The Documents plugin validates literal IDs, owning-module prefixes, non-global scope, `ce.ts` membership, field allowlists, duplicate IDs, and stable order before output is written. Diagnostics name every conflicting source path. Existing plugins omit the hook and behave byte-for-byte as before.
-- `clientRegistration` parallels `bootstrapRegistration`: it declares an entries export, browser-safe registration imports/call, and one or more named client registry groups. The CLI emits an always-present `client-bootstrap-registrations.generated.ts` dispatcher with empty groups when no plugin contributes. `ClientBootstrap` adds and loads a small `documents` group in backend profiles. Existing plugin output and bootstrap semantics remain unchanged.
-
-The Documents plugin emits one browser-safe `document-entities.generated.ts`. The API bootstrap registration and backend client dispatcher both import that file and replace their Documents-owned custom contribution registry from the same array. Registry state uses a stable `globalThis` key in the publishable package, an immutable version, and change subscribers so late client registration invalidates an earlier empty read. Packages never import `apps/mercato/.mercato/generated/*` directly.
-
-Add nullable `entity_type` and `entity_id` columns to `document_entity_links` for contributed targets. The eight built-in target types continue using their existing columns and static registry. Existing public legacy schemas and type exports retain their current eight-type unions; new registered-type schemas are used by widened runtime routes and commands.
+An enabled searchable entity needs no Documents contribution or additional opt-in. Availability reflects the registered Search configuration rather than hard-coded modules, index contents, or only entity types that happen to have results. Registration does not bypass ACLs or record-level policy. A missing index affects results, not catalog membership.
 
 ### Goals and Non-goals
 
-- **Goal:** An enabled app or package module opts a non-global custom entity into Documents without modifying or importing Documents.
-- **Goal:** The contributed type works in picker search, link create/list/delete, relation filtering, templates, field insertion, duplication, undo/redo, and related-record display.
-- **Goal:** Current target authorization and exact document-organization scope are re-checked before sensitive reads or writes.
-- **Goal:** The eight built-ins and all existing public/storage contracts remain behavior-compatible.
-- **Non-goal:** Move built-in registry ownership to Customers, Catalog, or Sales.
-- **Non-goal:** Support `CustomEntitySpec.global`, expose every custom entity automatically, add portal/public access, or replace the picker.
-- **Non-goal:** Add a new injection spot or make CLI/worker processes load the registry.
+- Support one discover → search → verify → link workflow for all authorized searchable records and explicit CI records.
+- Make the setting reversible without rewriting or deleting existing links.
+- Preserve legacy exports, persisted identifiers, routes, and template behavior through additive bridges.
+- Ship all existing record-link consumers and self-contained API/UI coverage together; a picker-only implementation is incomplete.
+- Exclude portal/public linking, automatic indexing/reindexing, new search strategies, a generator framework, and migration of built-in descriptor ownership into other modules.
 
 ### Alternatives Considered
 
-- **Add Documents metadata to `CustomEntitySpec`:** rejected because it puts a Documents-specific contract in the shared custom-entity DSL and makes future domain integrations accumulate there.
-- **Add a Documents-specific CLI scanner:** rejected because `GeneratorPlugin` already provides module-owned convention aggregation, deterministic output, cleanup when the owner is disabled, and server bootstrap registration.
-- **Move the eight built-ins outward now:** rejected as independently deployable compatibility work with no benefit to custom-entity contributors.
+- **Generator plugin and `document-entities.ts`: rejected.** Search already discovers searchable entities, and CI already discovers module widgets. A third discovery mechanism is unnecessary.
+- **Only explicit CI contributions: rejected.** It would still require extra module work for every already-searchable entity.
+- **Only search results: rejected.** Explicit CI adapters are needed for non-searchable records and specialized display/field integration, and historical links must resolve without a query match.
+- **Global client registry/bootstrap additions: rejected.** A server-owned effective catalog and feature-local widgets avoid browser/server authorization drift and shell bundle growth.
 
 ## Architecture
 
 ```text
-contributor module
-  ce.ts + document-entities.ts
-          │
-          │ generic GeneratorPlugin scan + validation
-          ▼
-document-entities.generated.ts (custom entries only)
-          ├── API bootstrap registration ──► server registry
-          └── backend client group ────────► browser registry
-                                             │
-static built-ins + generated custom overlay ─┤
-                              picker / related widget / server verification
-                                             │
-                                  document_entity_links
-                               legacy columns | generic pair
+existing search.ts registration ──► Search catalog / search service ──┐
+                                                                  │
+ordinary widget.ts + injection-table.ts ──► Documents CI resolver ──┤
+same widget metadata + optional di.ts ────► server adapter registry ┤
+legacy built-in adapters ───────────────────────────────────────────┤
+                                                                  ▼
+                          Documents effective catalog + scoped record verifier
+                                      │                         │
+                             scoped catalog/search API   existing Documents flows
+                                      │                         │
+                           feature-local picker/widgets  legacy columns / generic pair
 ```
 
-### Declaration Contract
+### Reference Mechanism: #6688
 
-`document-entities.ts` exports a readonly `documentEntityTypes` array. The public type and helper live at a dependency-neutral path such as `@open-mercato/shared/modules/documents/entity-links` and contain data only.
+Use these concrete implementation patterns rather than the superseded generator design:
 
-Each v1 entry contains:
+- `packages/core/src/modules/customers/calendar-event-types.ts` defines the domain widget payload and registry.
+- `packages/core/src/modules/customers/lib/calendar/eventTypeResolver.ts` waits for registration, calls `loadInjectionWidgetsForSpot`, and refreshes contributions when `getInjectionRegistryVersion()` changes.
+- `apps/mercato/src/modules/example/widgets/injection/calendar-visit/widget.ts` exports definitions through a normal injection widget.
+- Example's `widgets/injection-table.ts` maps to `calendar:customers.event-types`; its `di.ts` optionally resolves `calendarEventTypeRegistry` and registers the same widget definitions for server execution.
 
-- `entityId`: the exact namespaced `ce.ts` ID, whose prefix equals the declaring module ID;
-- `labelKey`: localized picker-tab label;
-- `order`: finite integer, sorted after the locked built-in order and then by module ID/entity ID;
-- optional `subtitleField` and `tokenFields`, each restricted to readable scalar fields declared by the same `ce.ts` entity;
-- optional `requiredModules` and `requiredFeatures`; the owner, `entities`, and `documents` requirements are implied.
+Documents follows this lifecycle with its own spot and registry. The new Documents spot is additive and does not modify the frozen calendar spot. Generic generators continue discovering normal widgets/search declarations as they already do; this feature adds no generator plugin, scanner, generated output, client bootstrap group, or generator interface change.
 
-The display field is not declared twice. It is the matching `CustomEntitySpec.labelField`; generation fails when it is absent, hidden, encrypted without an authorized read contract, identifier-shaped, or not a readable scalar. `subtitleField` and token fields follow the same field validation. Type IDs are bounded to 191 characters and match `^[a-z0-9_]+:[a-z0-9_]+$`.
+### Documents CI Contract
 
-Generation rejects missing or mismatched `ce.ts` entities, global entities, disabled owners, duplicate IDs, invalid fields, and collisions with the eight reserved built-in strings. The generated file contains enabled modules only and is deterministic. If Documents is disabled, its plugin output is removed and the central client/server dispatchers remain valid no-ops.
+Add a Documents-owned public contract at `@open-mercato/documents/modules/documents/record-link-types` and the headless spot **`documents:record-link-types`**. A typed `DocumentRecordLinkWidget` extends `InjectionWidgetModule` with a readonly `recordLinkTypes` payload. Place contributions in existing `widgets/injection/<name>/widget.ts` files and map them through `widgets/injection-table.ts`. No new module-root convention is needed.
 
-### Runtime Lifecycle
+Each definition contains:
 
-The API path invokes `runBootstrapRegistrations()` before any Documents route or command resolves the registry. CLI commands, queue workers, and the collaboration sidecar do not consume the contributed registry in v1.
+- `entityId`: canonical namespaced Search/data-engine entity ID, bounded to 191 characters; not a second Documents-specific entity identifier;
+- `labelKey` and optional icon for the type, plus finite integer `order`;
+- `requiredModules` and `requiredFeatures`, which can add restrictions but cannot relax the owning entity's policy;
+- optional `adapterKey` naming a server-only Documents adapter for non-searchable entities or specialized verified reads;
+- optional allowlisted `tokenFields`, with localized labels; values are extracted only by the server adapter after authorization.
 
-All backend profiles load the small `documents` client group because the picker appears under Documents while `crud-form:*` hosts may appear on any backend custom-record route. Client registration is replacement-based, not append-based. Hooks subscribe to the registry version so hydration or a late chunk cannot permanently cache an empty result. Failed client loading produces the existing retryable loading/error state and retries on the next bootstrap attempt.
+The widget is browser-safe and contains no ORM, server closures, arbitrary lookup URLs, credentials, or raw record data. A contributor can use a type-only Documents import; it must still load when Documents is disabled. A module `di.ts` registers the same widget payload through soft-optional resolution of **`documentRecordLinkRegistry`**. Non-searchable entities additionally register their server adapter there; an automatic searchable type uses the common Search resolver and needs no adapter contribution. Each CI-only adapter implements both `searchCandidates({ query, cursor, limit, scope, principal })` and `resolveRecord({ recordId, scope, principal })`. Candidate search returns bounded identity/display candidates and an opaque continuation; it applies owner read policy and exact scope before display, and every selected result is still resolved live at mutation time. A definition with neither a registered Search resolver nor a complete adapter is unavailable.
 
-### Registry Resolution
+The registry supports source-owned upsert/removal and immutable versioned snapshots, keyed by owner module and widget ID. Repeat loading replaces that source rather than appending duplicates; disabling a source removes its active definitions. Widget loading and DI registration of the same source are idempotent. Duplicate ownership, malformed declarations, unregistered adapter keys, and attempts to replace another owner's definition produce source-specific diagnostics and disable the offending source. CI overrides of searchable display/token metadata cannot remove Search ACLs, change scope, substitute another target, or override a reserved legacy alias.
 
-`listDocumentEntityRegistryEntries()` and `resolveDocumentEntityRegistryEntry()` merge the unchanged static eight-entry registry with the generated custom overlay. Reserved built-in IDs always win and collisions fail generation. Custom entries derive:
+### Effective Catalog and Runtime Lifecycle
 
-- search/read: `/api/entities/records?entityId=<encoded>`;
-- search field: `searchFields=cf_<labelField>` while the response mapper reads the route's bare `<labelField>` key;
-- exact read: `id=<uuid>&pageSize=1&scopeOrganizationId=<documentOrganizationId>`;
-- canonical detail: `/backend/entities/user/<encoded-entityId>/records/<encoded-recordId>`.
+Documents resolves settings, enabled modules, Search configurations, CI definitions, legacy adapters, and caller ACLs on the server. Reuse `getSearchModuleConfigs()` / the registered Search indexer catalog; do not scan source files or import app-generated paths. Reuse the Search entity-access policy from `@open-mercato/shared/lib/search/entityAccess`, including wildcard grants and the established superadmin behavior. Missing ACL metadata follows Search's fail-closed policy for ordinary callers.
 
-URLs use `URL` and `URLSearchParams`, preserving the fixed `entityId` query during search and pagination. The picker remains bounded to 20 results and all list requests remain at or below 100.
+For searchable CI definitions in off mode, explicit CI membership still permits the existing Search service to find that type; the switch disables automatic inclusion, not Search execution. For non-searchable CI definitions, both modes use the adapter candidate-search contract. In unified mode, merge Search and CI-only candidate batches by canonical identity, using deterministic source priority and source-local rank, then apply the shared result cap and verified continuation policy. Adapter failure produces a visible retry state for that source; never silently present an incomplete set as an exhaustive no-match result.
 
-## Data Model
+Catalog identity is the canonical entity ID. A searchable type also contributed through CI appears once: Search supplies search/authorization and CI supplies permitted presentation, adapter, or token-field enrichment. Built-in aliases map to the same canonical targets. If an owner uses different profile/base record IDs, the legacy adapter resolves that translation through an authorized owner lookup; never assume the IDs are equal or normalize only the type string. Preserve legacy storage/type projection when a canonical target has an existing built-in adapter; never create a second generic representation of that same built-in link.
 
-Add nullable `entity_type varchar(191)` and `entity_id uuid` to `document_entity_links`. Keep every legacy target column, foreign key, type string, index, and row.
+The Documents host waits for ordinary registration, loads only `documents:record-link-types`, and refreshes on injection-registry version changes. Programmatic sources are initialized through normal DI registration. The API returns the effective catalog; the client does not independently reconstruct authorization from widget declarations. Browser state is keyed by tenant, document organization, principal, and catalog/settings revision, and is cleared on scope changes. Do not cache caller ACLs or scoped data in a process-global registry. Recompute Search catalog membership from the current registered configurations per request; do not assume the injection version also versions Search registration. Any response revision must cover effective Search/CI membership and the settings version.
 
-Broaden `document_entity_links_exactly_one_target_chk` so a row contains either exactly one legacy target or the generic pair. `entity_type` and `entity_id` must both be null or both be non-null. Add:
+The API and command path must use this resolver before verification. There is no claim that `dynamicLoader` runs API bootstrap registrations. CLI/worker/sidecar link consumers are not introduced; any future non-request consumer must provide a tested explicit initialization and authorization context. Optional Documents or Search absence must leave unrelated modules bootable. When Search is absent, on mode reports automatic search unavailable and continues offering CI/legacy sources; it does not silently change the saved setting.
 
-- a partial active uniqueness index on `(document_id, entity_type, entity_id)` where `entity_id IS NOT NULL AND deleted_at IS NULL`;
-- a partial reverse index on `(tenant_id, organization_id, entity_type, entity_id)` with the same active predicate.
+### Search and Authoritative Target Verification
 
-The generated migration and Documents snapshot contain only this additive change. No row is backfilled. `down()` refuses to drop the pair while generic rows exist, so rollback preserves data until an operator exports/removes those links or rolls forward.
+Documents-owned search calls DI-resolved `searchService` with caller-authorized entity types, authenticated tenant, and the persisted document's exact organization. Reuse Search strategy availability and its pre-query and post-result entity-access filtering; do not call the Search administration playground or require `search.view`/`search.manage` merely to link a document. No external provider is mandatory; use available configured strategies, including the existing token strategy. Do not change global-search preferences or trigger reindexing.
 
-Generic rows store scalar IDs plus sanitized label/href snapshots, never a cross-module ORM relation. Active reads expose current verified data only. When the contributor is disabled or inaccessible, the row remains recoverable but serializes with `canOpen: false`, `entityId: null`, `href: null`, no values, and a localized restricted label. Documents-authorized unlink remains available without target access.
+Search is candidate discovery, not proof of access or existence. Add a Search-owned, DI-resolved **`searchRecordResolver`** for exact `entityId` + `recordId` reads, reusable by Documents without importing another business module's entities. It resolves registered entity metadata through the existing query engine, enforces Search entity ACLs and the owning entity's applicable read-policy hooks, and uses existing presenter/URL formatting after an authorized, decrypted read. It returns only verified identity, scope, safe display information, and explicitly readable values. It must not infer API paths from an entity ID, trust search-index metadata as live data, or fall back to an unscoped ORM query. This is an additive Search capability, not a new contribution requirement for each `search.ts` entity.
+
+For organization-owned targets, `tenant_id` and `organization_id` must exactly equal the document's persisted scope, including when UUIDs repeat in separate organizations. Descendant visibility never proves equality. Tenant-wide or global searchable targets remain eligible when their existing entity classification and owner policy explicitly authorize them for that document context; nullable scope alone never establishes global visibility. Undeclared scope fails closed. No blanket rejection of custom/global entities based on `ce.ts` is imposed by Documents.
+
+Run exact verification before returning search candidates, creating/reviving links, projecting existing targets, extracting template values, and copying/replaying links. Apply record policy before serializing titles, subtitles, URLs, or totals; unauthorized results must not leak through counts. A stale index hit, deleted record, revoked grant, or wrong scope is omitted. Verify a bounded overfetch batch and cap output at 20; report continuation only when another verified result is available. Check deadlines/cancellation and avoid per-result unbounded loops.
+
+CI-only and legacy adapters expose bounded candidate search as well as the same verified-read contract under the caller's request scope. Legacy candidate search preserves existing owner-route query behavior and uses the canonical normalization/verification layer. Keep the current same-origin/no-redirect protections, 3-second deadline and 1 MB response cap for HTTP-backed adapters. Canonicalize and validate hrefs, render text safely, and reject executable/external URLs. Do not fetch a URL supplied by the browser or a search result.
+
+## Data Models
+
+### Settings
+
+Store the boolean under module `documents`, key `searchable_entity_links_enabled`, using the existing tenant-scoped `ModuleConfigService`. The API exposes `searchableEntityLinksEnabled`. Reads resolve the tenant row, existing instance fallback if present, then `true`; new installs and upgrades with no saved value both default on. Tenant writes never alter global defaults or another tenant. Tenant identity comes from authentication, not request input.
+
+Use the existing configuration row's `updated_at`; expose its effective revision in settings responses. First creation must atomically reject a concurrent first writer, and update must compare the version inside the write transaction before replacing it. The Documents command wraps the service rather than changing its public signature. Audit/undo stores the previous tenant override, including absence; undo of first creation removes that override and restores inheritance. Setting changes invalidate the module-config cache and Documents catalog keys for that tenant after commit. Every new/touched editable entity and form follows default-on optimistic locking.
+
+### Generic Links
+
+Add nullable `entity_type varchar(191)` and `entity_id uuid` to `document_entity_links` for non-legacy targets. Retain every existing target column, FK, index, type string, and row. Broaden `document_entity_links_exactly_one_target_chk` to allow exactly one legacy target or one complete generic pair, never both; retain the self-link prohibition for Documents targets, including canonical aliases.
+
+Add active partial uniqueness on `(document_id, entity_type, entity_id)` and a reverse index on `(tenant_id, organization_id, entity_type, entity_id)`, both where the generic pair is present and `deleted_at IS NULL`. Commands normalize aliases before uniqueness checks so the same target cannot be linked twice through Search and CI or legacy aliases. Generic targets use scalar IDs, never cross-module ORM relations.
+
+No historical rows are backfilled. Include the intended migration and Documents snapshot; do not apply local migrations without approval. `down()` refuses destructive removal while generic rows exist. A feature rollback can turn the setting off while retaining the additive schema and authorized historical links.
+
+Prefer live verified presentation over new stored snapshots. If existing snapshot fields are populated, include sensitive labels/values in Documents' `encryption.ts` `defaultEncryptionMaps` and use `findWithDecryption`/`findOneWithDecryption`; do not copy indexed metadata or raw records into new JSON blobs. No new plaintext PII storage is introduced.
 
 ## API Contracts
 
-### Exact organization qualifier
+New endpoints are Documents-owned and export `metadata`, zod schemas, localized errors, and `openApi`. Reuse the existing Documents context, document tier checks, mutation guards, commands, audit, and error helpers.
 
-Add optional `scopeOrganizationId=<uuid>` to `GET /api/entities/records`. It is a reserved query key and must be added to `listRecordsQuerySchema` and the `qpEntries` exclusion list so it never becomes a record field filter.
+| Endpoint | Contract and authorization |
+|---|---|
+| `GET /api/documents/settings/record-links` | Requires `documents.manage`; returns `{ searchableEntityLinksEnabled, source, updatedAt }`, where `source` is `tenant`, `instance`, or `default`, and `updatedAt` is nullable for the default. |
+| `PUT /api/documents/settings/record-links` | Requires `documents.manage`; strict body `{ searchableEntityLinksEnabled: boolean }`; uses command `documents.record_link_settings.update`, mutation guards, optimistic version and atomic first-write handling; returns the updated settings projection. Tenant/org keys in the body are rejected. |
+| `GET /api/documents/{id}/link-types` | Requires `documents.view` and document read access; returns the effective mode, revision, and readable type metadata, without server adapter details or hidden types. Ordinary linking users do not need settings-management access. |
+| `GET /api/documents/{id}/link-search?q=...&entityType=...&limit=20` | Requires `documents.view` and document read access. Trim/bound `q` to 200 characters; optional type must belong to the effective catalog. No query means no automatic search request. Return verified candidates `{ entityType, entityId, label, subtitle?, href, alreadyLinked }`, revision, and an optional opaque continuation token. Enforce `limit <= 20`, bind continuation to query/principal/scope/revision, and never accept tenant/org from the browser. |
+| `GET /api/documents?entityType=...&entityId=...` | Extend the existing relation filter through canonical target normalization and bound generic predicates; verify target scope and authorization before filtering. Legacy inputs keep their meaning. |
+| `GET /api/documents/{id}/links` | Project legacy/generic targets through current authorization, independently of the automatic-discovery toggle. |
+| `POST /api/documents/{id}/links` | Existing route and body field names; accept a registered namespaced `entityType` alongside legacy types. Require existing edit/tier policy, current document version, effective eligibility, and exact live target verification; create/revive atomically. |
+| `DELETE /api/documents/{id}/links/{linkId}` | Existing document edit/tier policy and link scope; unlink works even when discovery is off or target access is unavailable. Never reveal target data to authorize unlink. |
 
-When present, the route resolves the requested organization under the authenticated caller's tenant and organization ACL, then narrows both `QueryOptions.organizationIds` and custom storage to exactly that organization. Documents passes the persisted document `organizationId`, never the browser selection. Missing, inaccessible, sibling, descendant, or cross-tenant organizations fail without revealing record existence. Unqualified calls preserve current behavior.
+New type/schema exports (`DocumentLinkType`, `documentLinkTypeSchema`, registered-type input/output schemas) widen runtime consumers additively. Legacy exported unions and schemas are not widened in place. Existing HTTP link fields remain: generic targets use namespaced `entityType` and UUID `entityId`; labels/hrefs posted by a client are recomputed or checked, never trusted.
 
-Global custom entities are rejected at generation, so `scopeOrganizationId` never selects an `organization_id IS NULL` record for this feature.
+Malformed input returns `400`; inaccessible document returns the existing masked response; missing/forbidden targets share the existing restricted result; stale document/settings revision returns the existing optimistic-lock `409` body; service failure returns a retryable `503`. Search, cache, and adapter failures cannot cause partial links or a settings write. A client whose automatic candidate became ineligible after a setting change must refresh rather than silently assign it.
 
-### Documents routes and commands
+### Existing Link Consumers
 
-No new mutation route is required. Existing routes accept a new bounded `DocumentLinkType` only after effective-registry membership and availability checks:
+Templates (create/edit/preview/instantiate), field insertion, toolbar/`@` insertion, duplication, undo/redo, and related-document cards must share canonical resolution. Automatic records expose verified presentation tokens only; arbitrary indexed fields or raw record columns are never implicitly available as template tokens. Existing built-in token fields remain intact, and CI adapters may add explicit readable scalar allowlists. Required inaccessible slots fail; optional slots omit values with the existing safe report. Text already inserted into document content is a static snapshot and is not retroactively removed by a setting or permission change.
 
-| Path | Added behavior | Required verification |
-|---|---|---|
-| `GET /api/documents?entityType=...&entityId=...` | Generic reverse predicate by bound type/ID. | Exact target read in the document organization before filtering. |
-| `GET /api/documents/{id}/links` | Generic rows use the unchanged response projection. | Re-fetch and redact inaccessible targets. |
-| `POST /api/documents/{id}/links` | Create or revive a generic link. | Optimistic lock, Documents capability, exact target scope, active uniqueness. |
-| `DELETE /api/documents/{id}/links/{linkId}` | Unlink even when the contributor is unavailable. | Documents edit capability and document/link scope; no target disclosure. |
-| Template create/edit/preview/instantiate and field insertion | Registered type and allowlisted token fields. | Re-fetch before extraction; required inaccessible slot fails and optional slot omits. |
-| `POST /api/documents/{id}/duplicate` and undo/redo | Round-trip generic targets and snapshots. | Re-verify before copy; omit unavailable links with a safe report. |
+Undo/redo rechecks current authorization and new-link eligibility: unlink and read remain possible with discovery off; replay that creates an automatic-only link requires current automatic eligibility. Duplication re-verifies each link and reports omitted unavailable/ineligible links without disclosing restricted targets. Preserve command side effects and parent-document version checks, with a child's own version for child mutations.
 
-Unknown, malformed, disabled, duplicated, or unauthorized types fail before persistence using the current localized error family and no existence oracle. All target lookups retain caller credentials, same-origin URL construction, no redirects, a 3-second timeout, 1 MB response cap, safe label mapping, canonical href validation, and wildcard-aware ACL matching.
+For related-document display, reuse the existing `crud-form:*` host. Normalize its `module.entity` identity to the canonical entity ID through registered metadata, not blind string guessing; create forms or hosts without a record ID remain inert. Preserve existing built-in injection mappings and add no generic `CrudForm` behavior. An eligible automatic or CI entity can use the same related-documents card.
 
-### Existing built-in organization gap
+## Migration & Backward Compatibility
 
-The existing eight built-in lookups can accept records visible through a selected organization's descendant scope because their owner routes do not prove exact equality with the document organization. This PR does not move or rewrite those owner contracts. [Issue #7780](https://github.com/open-mercato/open-mercato/issues/7780) defines exact-organization qualifiers for the affected Customers, Catalog, Sales, and Documents lookup routes with cross-organization tests. #7780 must merge before implementation of this spec begins; the implementation PR must not bundle that independently deployable hardening or claim the custom qualifier fixes legacy lookups.
+Preserve `EntityRegistryEntry`, `DocumentEntityRegistryEntry`, `DOCUMENT_ENTITY_REGISTRY`, `getEntityRegistryEntry`, `getEntityTokenFieldNames`, `DocumentEntityType`, `documentEntityTypeSchema`, and existing exported link/template schemas at their deep-import paths with their current legacy-eight semantics. Add type-level exhaustive-switch/schema compatibility tests. Existing legacy routes and storage remain available in either mode.
 
-## Compatibility
+The default picker change is explicitly requested: no saved setting now means unified search, including on upgrades. Document that change and the off-mode fallback in `UPGRADE_NOTES.md`. Do not hide it behind an opt-in rollout default. New spot IDs, DI keys, public contribution/resolver types, route URLs, setting key, and generic columns are additive contracts and must be recorded in `BACKWARD_COMPATIBILITY.md` when implemented. Any eventual removal follows the one-minor-version deprecation bridge.
 
-Preserve these exports and their current legacy-eight semantics at their existing deep-import paths:
-
-- `EntityRegistryEntry`, `DocumentEntityRegistryEntry`, `DOCUMENT_ENTITY_REGISTRY`;
-- `getEntityRegistryEntry`, `getEntityTokenFieldNames`;
-- `DocumentEntityType`, `documentEntityTypeSchema`;
-- `documentEntityLinkCreateSchema` and every exported template/link schema or inferred type that embeds `DocumentEntityType`.
-
-Introduce `DocumentLinkType`, `documentLinkTypeSchema`, and registered-type input schemas for widened runtime paths. Do not widen a legacy inferred union in place. Add a type-level compatibility test containing an exhaustive switch over the old eight-type union and old schema inputs.
-
-The new convention filename/export, optional `GeneratorPlugin` fields, generated dispatcher/export names, registry accessor imports, request query parameter, database columns/indexes, and `crud-form:*` mapping are additive contract surfaces. Record their final names in `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md` when implemented. Future removal follows the normal deprecation protocol.
+Retain [#7780](https://github.com/open-mercato/open-mercato/issues/7780) as the separate prerequisite for exact organization verification of existing legacy HTTP lookups. Its owner-route hardening must be merged or equivalent implementation evidence provided before this feature ships; the new Search resolver does not fix legacy paths. This spec requires exact-scope tests for both paths and does not bundle unrelated owner-module hardening.
 
 ## UI/UX
 
-The current `documents.entityPicker` retains its built-in tabs, order, keyboard behavior, loading/empty/error states, and page size. A readable contributed type appears after the built-ins using its localized `labelKey`. Missing permissions or a disabled contributor hide it; selecting a result still triggers server verification.
+**Settings → Documents → Record links** contains a localized switch, “Link searchable records”, initially on. Help text explains that on mode searches all entities available to the user and off mode uses built-ins plus module contributions. Saving uses `CrudForm`, displays inherited/default state, handles `409` through `surfaceRecordConflict`, and never changes another tenant's setting. This switch belongs to Documents settings, not Search administration.
 
-Map `documents.injection.related-documents` to the existing `crud-form:*` wildcard. `CrudForm` already derives `crud-form:<module.entity>` from a custom entity ID and supplies record identity/data. `resolveRelatedDocumentContext` replaces its hard-coded type/label branching with registry resolution, normalizes the host ID back to the registered `module:entity`, and remains inert for an unregistered entity or a create form. The existing built-in mappings stay intact. No new FROZEN injection spot is created.
+On mode opens a focused “Link a record” dialog with one search input. Search across eligible types without forcing the user to choose a module first; provide an optional localized type filter when useful. Debounce by 250 ms, cancel superseded requests, and discard stale responses after query, scope, document, or revision changes. Show readable title/business reference, subtitle and entity badge; never make a UUID the display-label fallback. Selecting a row and confirming creates the link, updates the related-record card, and prevents duplicate selection through `alreadyLinked`.
 
-The implementation PR captures browser screenshots of a contributed picker tab and a custom-record related-documents card, and verifies light/dark rendering, keyboard navigation, cold-load shell, retry/error state, mobile viewport, and permission-hidden behavior.
+Support keyboard arrows, Enter to select, Cmd/Ctrl+Enter to confirm, Escape to cancel, focus return, and labeled icon buttons. Before typing, show a localized prompt; distinguish loading, no matches, restricted/unavailable search, and retry states. Search failures do not show misleading empty results. Off mode keeps built-in tabs and makes explicit CI types discoverable. Both modes reuse `LoadingMessage`, `ErrorMessage`, shared dialog/input/button primitives, semantic DS tokens, and light/dark behavior. All copy uses locale keys.
+
+### Frontend Architecture Contract
+
+| Surface | Server boundary / data owner | Client island and reason |
+|---|---|---|
+| Documents settings | Server page and guarded settings API | `RecordLinkSettingsForm.tsx`: switch state, validation, submit and conflict handling. |
+| Document picker, toolbar and `@` insertion | Existing document server root and scoped link APIs | Existing `EntityPicker.tsx` plus small `SearchableRecordPicker.tsx`: query debounce, cancellation, keyboard selection, dialog focus. |
+| Related-documents widget | Existing CrudForm host and scoped related-link APIs | Existing widget client: dialog state and link refresh. No new shell provider. |
+
+The implementation's `"use client"` ledger must enumerate each touched file above with importer, cleanup and hydration checks; no new client page/layout root, no new client file over 300 LOC, and no heavy editor/search SDK at a root. Search execution and contribution adapters stay server-only. Existing injection registration is reused; no Documents client bootstrap group or globally eager widget import is added. Capture `yarn check:client-boundaries`, cold-load hydration and key interactions for settings/document/related-card routes, and a before/after route bundle report showing no added shell dependency. Browser evidence covers light/dark, mobile viewport, errors/retry, toggling modes, and permission-hidden entries.
 
 ## Edge Cases & Failure Scenarios
 
 | Scenario | Behavior |
 |---|---|
-| Duplicate, invalid, wrong-owner, reserved, global, or undeclared contribution | `yarn generate` fails before publishing output and names the source files. |
-| Documents or contributor disabled | Generated custom entry is absent; built-ins and unrelated modules still boot. Stored generic rows remain redacted. |
-| API registry not bootstrapped | Route/command fails closed with a retryable unavailable error. |
-| Client registration arrives after first render | Registry version invalidates the empty read and the UI retries. |
-| Client chunk fails | Picker/widget shows the existing retryable error state; no unverified fallback. |
-| Target missing, forbidden, wrong tenant/org, malformed, redirected, or non-canonical | Deny/redact without an existence oracle; do not write or extract. |
-| Lookup timeout or oversized response | Bounded 503/retry; no partial insert or template mutation. |
-| Duplicate-link race | Partial unique index chooses one winner; command maps the conflict and preserves undo history. |
-| Contributor removed after linking | Row persists, projections redact, unlink works, and re-enable can restore visibility. |
-| Generic rows exist during rollback | `down()` refuses destructive column removal. |
+| Setting missing on a new or upgraded tenant | Effective value is on; default source is shown without creating rows on GET. |
+| Search absent or strategies unavailable | Localized unavailable state; eligible legacy/CI sources remain usable. No saved-setting mutation or automatic reindex. |
+| Entity registered but index empty/stale | Type remains eligible; no-match or verified-hit omission, never an unverified link. |
+| Same entity appears in Search, CI, and a legacy alias | One canonical candidate and one active target link; preserved legacy storage where applicable. |
+| Duplicate CI ownership or missing server adapter | Invalid source is excluded with diagnostics; unrelated sources continue. |
+| Bootstrap incomplete or contribution chunk fails | Retryable state; do not permanently memoize an empty catalog or trust client declarations. |
+| Setting turned off while picker is open | Old candidate is rejected at save, catalog refreshes; existing links survive. |
+| Module disabled, record deleted, or target grant revoked | Preserve stored links; redact target ID, label, href, and values in responses, with `canOpen: false`; Documents-authorized unlink remains available. Re-enable can restore authorized display. |
+| Null organization or repeated UUID | Apply declared entity classification and exact scoped identity; never treat null as blanket global access. |
+| Timeout, unsafe URL, malformed or oversized adapter response | Fail closed within bounds; no partial mutation, value extraction, or leaked content. |
+| Concurrent link/settings edits | Atomic uniqueness/version checks choose a winner; surface the standard conflict UI. |
+| Generic rows present during migration rollback | Refuse destructive column removal; switch off discovery or roll forward. |
 
-Structured logs include owner module, type, phase, and outcome, but exclude record IDs, labels, response content, credentials, and document text. Every catch that records an error also reports it through the repository error-reporting helper.
+Logs use structured owner/type/phase/outcome metadata without record IDs, labels, document text, tokens, or response bodies. A catch that logs an error also uses the repository error-reporting helper.
 
 ## Risks & Impact Review
 
 | Risk | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|
-| Wrong-scope target disclosed | Critical | Entities/Documents APIs | Caller-authorized exact-org read, bound reverse query, redaction, sibling/cross-tenant tests | Legacy built-ins require the separately tracked prerequisite. |
-| Client/server registry divergence | High | Bootstrap/authorization | One generated array, two registrations, versioned replacement, parity and late-registration tests | A bad deployment fails closed until regeneration. |
-| Generator contract regression | High | CLI/create-app | Optional `GeneratorPlugin` fields, unchanged defaults, central empty dispatcher, monorepo and standalone tests | Published apps must regenerate after enabling Documents. |
-| Generic constraint/index affects a large table | Medium | Database deploy | Nullable columns, scoped partial indexes, migration review, rollback guard | Index creation may need an operational window. |
-| Extracted target data persists in document content | Medium | Privacy | Re-authorize before extraction and document static-snapshot semantics | Previously inserted text is not automatically retracted. |
-| Wildcard widget loads on unrelated forms | Low | Backend UI | Registry check returns null before data calls; retain exact built-in mappings | Small registration lookup on backend forms. |
+| Search index exposes a stale or wrong-scope presenter | Critical | Search/Documents | Exact decrypted read, owner/entity ACL policy, pre/post filtering, no unverified counts; cross-tenant/org tests | Legacy HTTP verification also depends on #7780. |
+| CI source weakens Search authorization | High | Catalog/adapters | Source ownership, additive restrictions, server-owned catalog and live recheck | Contributor adapters remain trusted application code and need review. |
+| Default-on upgrade changes assignment workflow | Medium | Documents UX | Explicit upgrade note, simple tenant switch, historical-link preservation | Teams may choose off mode after upgrade. |
+| Settings/cache or browser scope becomes stale | High | Multi-tenant UI/API | Tenant/principal/org/revision keys, post-commit invalidation, eligibility recheck at save | A stale client sees a recoverable refresh/conflict. |
+| Generic indexes affect a large link table | Medium | Database deploy | Additive migration/snapshot, bounded indexes, rollback guard | Deployment may require an operational index window. |
+| Broad catalogs make search expensive | Medium | Search/picker | Available strategies, 20-result cap, bounded overfetch, cancellation and 3-second deadline | Large tenant search requires existing operational monitoring. |
+| Extracted values persist in document text | Medium | Privacy | Explicit token allowlists and static-snapshot semantics | Later revocation cannot retract already inserted text. |
 
 ## Phasing
 
-1. **Contract and registration:** additive `GeneratorPlugin` capabilities, convention validation, generated custom array, API/client registration, and static-built-in overlay.
-2. **Persistence and flows:** generic link schema/migration plus every existing Documents link consumer and exact custom-entity scope.
-3. **UI and standalone proof:** picker/widget integration, create-app parity, integration coverage, docs, compatibility ledger, and harness case.
+1. **Catalog, CI and setting:** establish source composition, tenant configuration and verified Search record resolution without exposing incomplete generic mutations.
+2. **Persistence and all link consumers:** migrate additively and integrate authorization, lifecycle, templates, reverse filters, and historical projections.
+3. **Picker replacement and proof:** turn on the completed default behavior, retain the off-mode fallback, and ship documentation, standalone evidence and integration coverage.
 
-Each phase leaves the application working. Phase 1 keeps custom entries unavailable to mutations until Phase 2 lands behind the registry availability check; Phase 2 exposes the capability only when its migration and all server consumers are present.
+Phases describe implementation order within one capability, not separately released user features. Every step keeps existing flows working; the default-on setting reaches users only with generic persistence, verification and UI fully wired in the same implementation change.
 
 ## Implementation Plan
 
-### Phase 1 — Generator and registry contract
+### Phase 1 — Effective Catalog, CI and Settings
 
-1. Add the type-only contribution contract and `documents/generators.ts`. Extend `GeneratorPlugin` additively with convention validation and client registration; emit always-present empty client/server dispatchers. Test old-plugin compatibility, output cleanup, Documents-disabled generation, duplicate/source diagnostics, global rejection, and source/compiled-package discovery.
-2. Add `globalThis`-backed server/client custom registries, immutable replacement/version notification, and effective accessors that overlay the unchanged static eight entries. Test first read, replacement, HMR, late client registration, collisions, ordering, and built-in parity.
-3. Wire API bootstrap and the backend `documents` client group in both the app and create-app template. Prove the registry is not loaded by CLI/worker `dynamicLoader`, package code does not import app-generated files, and disabled Documents leaves valid empty dispatchers.
+1. Add the Documents-owned CI type, `documents:record-link-types` host and `documentRecordLinkRegistry`; follow #6688's injection-version refresh and soft-optional DI pattern. Test ownership, invalid-source isolation, idempotence, source removal, HMR and Documents-disabled boot. Assert no Documents generator plugin or new discovery convention is introduced.
+2. Add effective Search/CI/legacy catalog resolution and Search-owned `searchRecordResolver`. Test ordinary and custom searchable entities with no Documents declaration, record-policy parity, wildcard ACLs, disabled owners, repeated UUIDs, exact org reads, classified global/tenant-wide targets, and safe presenter/URL mapping.
+3. Add the tenant setting command, GET/PUT API, cache invalidation and settings form. Test no-row default on, upgrade default, tenant isolation, instance fallback, atomic first-write race, stale revision, undo to absence, and post-commit refresh. Keep generic assignment unavailable until Phase 2 is complete.
 
-### Phase 2 — Persistence, authorization, and existing flows
+### Phase 2 — Persistence and Existing Flows
 
-4. Add the generic target pair, check constraint, indexes, generated migration, and snapshot. Extend link target helpers, serializers, visibility, redaction, undo snapshots, and bound reverse predicates. Test legacy rows, both exactly-one strategies, duplicate races, soft-delete/revive, and rollback refusal.
-5. Add registered-type schemas without widening legacy exports. Add `scopeOrganizationId` to the entities-records reserved schema/key list and exact organization resolution. Test unqualified compatibility, `cf_` label search, same UUID in two organizations, sibling/descendant/cross-tenant denial, global rejection, and masked absence.
-6. Update link CRUD, relation filter, template edit/preview/instantiate, field insertion, duplication, and undo/redo to resolve the effective registry and re-verify at the documented boundaries. Test unavailable contributors, token allowlists, canonical hrefs, optimistic locks, omission/redaction, and legacy behavior.
+4. Add generic columns/constraints/indexes, migration and snapshot. Test legacy rows, partial-pair/both-target rejection, self-link aliases, active uniqueness, soft-delete/revive, source deduplication, and safe rollback refusal.
+5. Extend runtime schemas without changing legacy exports; add catalog/search APIs and existing link create/list/delete/relation-filter support. Recheck document access, target scope, eligibility and optimistic lock at command boundaries. Test settings changes during selection, forged labels/hrefs/types, unavailable services, permission revocation and redacted unlink.
+6. Integrate templates, token insertion, duplication and undo/redo through the same resolver. Test allowed presentation tokens, CI scalar allowlists, required/optional slot behavior, historical links in off mode, replay eligibility, partial omission reports and parent/child version handling.
 
-### Phase 3 — UI, documentation, and standalone proof
+### Phase 3 — UI Replacement, Documentation and Standalone Proof
 
-7. Bind picker/toolbar/`@` insertion and template selectors to the versioned client registry. Add the `crud-form:*` related-documents mapping and registry-driven context resolver. Test keyboard/loading/error states, create-form inertness, unregistered forms, late registration, revoked target, and permission-hidden entries.
-8. Add a non-global `ce.ts` entity and matching `document-entities.ts` to the monorepo example and its create-app template mirror. The example remains enabled in `apps/mercato/src/modules.ts` and disabled by default only in the create-app template. Update Documents README, the parent collaborative-editor spec, module-development/auto-discovery docs, generated module facts, `BACKWARD_COMPATIBILITY.md`, and `UPGRADE_NOTES.md`. Mirror app bootstrap changes with `yarn template:sync:fix`.
-9. Run `om-refresh-standalone-harness` and add a failure-first fresh-scaffold case distinct from `OMH-234`. Synchronize knowledge owners/catalogs, source-link/surface inventories, validator counts, release matrix/fixture/oracle, and the knowledge-change manifest.
+7. Replace the picker with unified search when on, reuse it for toolbar/`@` and template record selection, and retain the built-in-plus-CI picker when off. Integrate `crud-form:*` related cards using registered identity metadata. Test keyboard/focus, debounce cancellation, stale responses, bounded continuation, no raw UUID labels, cold loads, scope changes and create-form inertness.
+8. Add an Example searchable record that works without Documents-specific metadata and a separate explicit CI definition/adapter demonstrating off-mode linking. Mirror Example widget/DI changes into the create-app template via `yarn template:sync:fix`; Example is enabled in the monorepo and disabled by default only in the template. Update Documents README, the parent collaborative-editor spec, extension documentation, `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md`.
+9. Refresh the standalone harness through `om-refresh-standalone-harness`, including source/surface inventories, knowledge owners, validators, fixture/oracle and knowledge-change manifest. Prove both search-only authoring and explicit CI authoring in a fresh scaffold, including optional Documents/Search absence. Run the configured validation gate and browser evidence before requesting implementation review.
 
 ## Integration Coverage
 
-All integration tests create their tenant, organization, document, custom entity, record, and grants in setup and delete them in `finally`. They do not rely on seeded/demo data.
+All fixtures are created per test and removed in `finally`/teardown: tenants, organizations, grants, documents, module/custom records, settings overrides and search index entries. Index required records through existing test helpers/queues; do not rely on demo data or live external providers. Reserve unused case IDs at implementation time if the names below have been taken.
 
 | Case | API and key UI path | Assertions |
 |---|---|---|
-| `TC-DOCUMENTS-023` | Picker plus `POST/GET/DELETE /api/documents/{id}/links` | Search by label, durable generic row, reload/href/label, unlink, keyboard, no UUID display label. |
-| `TC-DOCUMENTS-024` | Relation filter, exact entities-records GET, custom-record `CrudForm` card | Correct reverse relation; same UUID in two organizations resolves only the document-org record; sibling/cross-tenant/disabled access is masked. |
-| `TC-DOCUMENTS-025` | Template slot edit/preview/instantiate, field insertion, duplicate, undo/redo | Exact re-verification, allowlisted extraction, generic round-trip, unavailable-target redaction/omission. |
-| `TC-DOCUMENTS-026` | Built-in picker/link/related-panel paths | Eight IDs, URLs, labels/order, legacy columns, features, schemas, and deep imports retain old behavior. |
-| `TC-EXAMPLE-017` | Generator plugin source and compiled-package fixtures | Validation hook, client registration, no-op dispatchers, deterministic output, global/duplicate/invalid rejection. |
-| `OMH-DOCUMENTS-EXT` | Fresh scaffold with `ce.ts` + `document-entities.ts` | Failure-first authoring, generation, focused tests, typecheck/lint/build, and knowledge-change manifest pass. |
+| `TC-DOCUMENTS-023` | Settings GET/PUT and Settings → Documents | Default on with no row, persisted off/on, inheritance, tenant isolation, conflict and undo behavior; no admin Search feature required. |
+| `TC-DOCUMENTS-024` | Link catalog/search and document picker/toolbar/`@` | Multiple ordinary/custom `search.ts` types without Documents declarations; unified search replaces tabs when on; readable labels, type filter, keyboard, cancellation, bounded results and no-match/unavailable distinction. |
+| `TC-DOCUMENTS-025` | CI contributions, off-mode picker, POST/GET/DELETE links | Non-searchable contributed record remains searchable/assignable when off and when Search is absent; adapter query/continuation/failure handling and Search+CI deduplication; save/reload/unlink, version conflicts, disable/re-enable and historical-link preservation. |
+| `TC-DOCUMENTS-026` | Relation filter, live resolver and CrudForm related card | Correct reverse relations; repeated UUIDs, sibling/descendant/cross-tenant denial, classified global targets, missing ACL, wildcard grants and superadmin policy; no sensitive counts/presenters. |
+| `TC-DOCUMENTS-027` | Template create/edit/preview/instantiate, field insertion, duplicate, undo/redo | Verified allowlists, generic round-trip, off-mode historical resolution, required/optional behavior, replay eligibility and safe redaction/omission. |
+| `TC-DOCUMENTS-028` | Legacy built-in picker/link/template/related paths in both modes | Eight legacy IDs, columns, tokens, hrefs, routes, public schemas and deep imports remain compatible; exact-scope prerequisite proven. |
+| `OMH-DOCUMENTS-EXT` | Fresh scaffold with `search.ts` and ordinary CI widget/DI | Search-only entity needs no Documents declaration; explicit CI works off mode; normal generation, focused tests, typecheck/lint/build and optional-module boot pass. |
 
-Add unit/structural coverage for registry versioning, client/server parity, generated dispatchers, reserved query keys, legacy type compatibility, schema constraints/indexes, generic predicates, redaction, and module decoupling. The implementation PR runs the configured validation gate in order, `yarn template:sync`, targeted integration tests, the certified harness lane, and browser QA with screenshots.
+Add unit/structural coverage for catalog precedence, no new generator outputs, registration retry/versioning, settings invalidation, legacy type compatibility, generic predicates/constraints, mutation guards, authorization and source-only/compiled-package parity. The implementation runs the ordered `.ai/agentic.config.json` gate, targeted Search/Documents integration tests, `yarn template:sync`, frontend boundary checks and browser QA with screenshots. Select Docker/local runner using the repository probe rules once per gate. This spec-only revision needs documentation/diff verification, not runtime builds or migrations.
 
 ## Final Compliance Report
 
-| Rule | Verdict | Evidence / implementation gate |
+| Rule source / concern | Design verdict | Evidence / implementation gate |
 |---|---|---|
-| Scope cohesion | Pass in design | Built-in ownership migration, global targets, new spots, and worker/CLI consumers are excluded; all retained flows share the one generic link contract required by #6730. |
-| Canonical mechanisms | Pass in design | Extends `GeneratorPlugin`, API bootstrap registration, ClientBootstrap groups, CrudForm wildcard injection, and existing owner API. |
-| Module isolation | Pass in design | Contributors export data; Documents imports no peer module and stores no cross-module ORM relation. |
-| Contract stability | Pass in design | Static eight registry and legacy schemas/columns/imports remain; all new surfaces are additive and ledgered at implementation. |
-| Tenant/org security | Conditional pass | Custom targets require exact authorized organization scope; legacy built-in exact-scope work is an explicit implementation prerequisite. |
-| Client/server parity | Pass in design | One generated custom array feeds both replacement registries; late registration is observable. |
-| Reversibility | Pass in design | Disable redacts without deletion; unlink remains possible; migration down refuses data loss. |
-| Testability | Pass in design | Every implementation step names executable unit, integration, standalone, or browser evidence. |
+| Scope cohesion | Independently reviewed | Search and CI are cohesive sources for one end-to-end record-link capability. Independent review found a missing CI candidate-search contract; it was added and rechecked with no remaining blocking scope/consistency findings. |
+| Core: widget injection and optional coupling | Designed | Ordinary widget discovery, Documents-owned host/registry and soft-optional DI follow #6688; no generic framework extension. |
+| Shared/Search: ACL and entity discovery | Designed | Existing Search catalog and wildcard-aware policy; authoritative resolver and explicit scope classification. |
+| Root: tenant isolation and data integrity | Conditional | Exact org/tenant reads, optimistic versions, atomic uniqueness and #7780 legacy prerequisite. |
+| Backward compatibility | Designed | Additive schemas/columns/spot/DI/API with legacy union/import bridges and explicit upgrade behavior. |
+| UI/backend/design system | Designed | CrudForm/guarded mutations, shared API/dialog/state primitives, translations, semantic tokens and frontend boundary budgets. |
+| Encryption | Designed | Live decrypted reads; sensitive existing snapshots covered by module encryption maps, no new raw metadata storage. |
+| QA/create-app | Required at implementation | Self-contained API/UI cases, template parity, standalone cases, package discovery and browser evidence. |
+| Reversibility | Designed | Settings undo restores inheritance; off mode preserves history; unavailable links redact; schema rollback guards data. |
 
-**Review verdict:** Ready for re-review. Legacy built-in organization-scope hardening is tracked as the implementation prerequisite in #7780.
+**Internal consistency:** Setting modes, effective catalog sources, generic identity, legacy projection and command eligibility use the same definitions. This PR changes only the specification; no implementation, migration execution, runtime validation, QA approval or merge readiness is claimed. Request fresh review of the rewritten architecture.
 
 ## Changelog
 
-### 2026-10-22 — Review autofix
+### 2026-10-26 — Search and CI rewrite
 
-- Rebased the design on `GeneratorPlugin`, removed the built-in ownership move and new injection spot, rejected global entities in v1, corrected API-only bootstrap claims, reused `ce.ts.labelField`, reserved `scopeOrganizationId`, and made the legacy built-in organization gap explicit.
+- Replaced the generator-plugin proposal with ordinary headless CI widgets, module DI registration and a Documents-owned resolver following #6688.
+- Added the default-on Documents setting, automatic inclusion of all authorized `search.ts` entities, unified search replacement, explicit CI fallback and reversible mode changes.
+- Reworked generic verification, storage/lifecycle, authorization, settings/versioning, legacy bridges, frontend boundaries and integration/standalone coverage for both sources.
+
+### 2026-10-22 — Earlier review revision
+
+- The previous design used generated custom-entity contributions and preserved legacy contracts; its generator/bootstrap/custom-entity-only decisions are superseded by the 2026-10-26 rewrite.
 
 ### 2026-09-29 — Initial proposal
 
-- Defined module-owned declaration, generated client/server handoff, legacy compatibility bridge, generic persistence and rollback, Documents flow coverage, and standalone harness ownership for #6730.
+- Opened the record-link extension design for #6730.
