@@ -601,7 +601,8 @@ compliant*):**
   GL Bulk Read Service Phase 2 (Compliance & Audit).** Full-text search
   of both PDFs for "audit" specifically (a fresh, targeted pass —
   distinct from the 2026-09-12 immutability/posting search recorded
-  elsewhere in this file). Hay: zero hits in 361 pages. Fowler: three
+  elsewhere in this file). Hay: zero hits in the 277-page partial scan.
+  Fowler: three
   hits, two of them directly useful — §6.2 (p.95, "Transactions... add
   a further degree of auditability by linking entries together") and
   §6.5.2 (p.106, "I prefer keeping transactions because they make
@@ -1347,7 +1348,7 @@ heads on 2026-10-09, see that entry):
   flagged as worth a one-line note) was applied as a confirmed "road not
   taken." Also recorded a genuine absence: neither Hay nor Fowler has
   anything on disposal, retirement, or impairment as an accounting
-  pattern.
+  pattern, in the pages available (Hay's copy is partial).
 - Added a real-system comparison (previously only the Overview's own
   GnuCash/Odoo asset-lifecycle-shape callout): ERPNext (upfront schedule
   generation and the identical Depreciation Expense/Accumulated
@@ -1518,7 +1519,8 @@ already-shipped module).
   placement remains an open, paused question — the spec author asked to
   defer deciding it; not resolved by this pass.
 - **Step 2 (literature):** see the new Tier 3 entry in §3 above
-  (Fowler §6.2/§6.5.2, Hay zero hits for "audit").
+  (Fowler §6.2/§6.5.2, Hay zero hits for "audit" in the 277-page partial
+  scan).
 - **Step 3 (real systems):** see the new Tier 4 entry in §3 above
   (ERPNext/Odoo "Audit Trail" is a change-log, not an export path — a
   genuine divergence explained by this project's immutable
@@ -3032,4 +3034,10 @@ re-read in this pass.
 - **Fowler (full text, 361 pages): nothing on revaluation.** Exchange rates appear in the trading chapters and as Conversion Ratio (3.2); no period-end revaluation, unrealized differences or currency lots. **Hay (partial text: 277 PDF pages; printed pages 63, 136–137 and index pages 265–266 are missing from the PDF): Confirmed absence in the pages available (partial text)** — no occurrence of foreign currency, exchange rate, revaluation or unrealized. Fowler's PDF (361 pages) is complete apart from blank pages before chapters and one duplicated page (187).
 - **Systems:** ERPNext Exchange Rate Revaluation (docs.frappe.io) — revalues foreign-currency balance-sheet accounts, account-currency balance unchanged, offset on a company-level Unrealized Exchange Gain/Loss Account separate from the realized one, reversal optional: **Confirmed, comparable**. Odoo, "Manage a bank account in a foreign currency" (odoo.com documentation) — Unrealized Currencies report, Adjustment Entry to chosen expense/income accounts, automatic reversal on a chosen date: **Confirmed, comparable**. Comarch ERP Optima, "Kiedy tworzą się różnice kursowe w magazynie walut" (pomoc.comarch.pl) — withdrawals settled by FIFO against the first free resource of the currency warehouse, realized difference = withdrawal value − deposit value in the system currency: **Confirmed for FIFO; nothing on period-end valuation**. GnuCash — mailing-list posts and a third-party essay only: **not used (no official documentation found)**. Symfonia, enova365: **not publicly checkable** (no vendor documentation in the search results).
 - **Open points carried in the spec:** accounts with foreign-currency lines but no `currencyId` (warn, reject or ignore); a control account with a `currencyId` (proposed 422); parent and child both with a `currencyId` (double counting); a currency not in Table A (art. 30 ust. 3, to be verified); cash desk outflows without FIFO cost.
+
+### 2026-10-26 (cont. — Hay's PDF is partial: every Hay absence means "in the pages available")
+
+- **Hay, *Data Model Patterns*:** our PDF has 277 pages and is incomplete. Missing: printed page 63 (Figure 4.15, "The Subtype Version", present only in the list of figures), pages 136–137 (Figure 7.10 "Depreciation" and the rest of that section; the index gives "depreciation 135-36") and index pages 265–266 (entries from "derived observation" to "party"). All other pages are complete. Every "Hay — Confirmed absence", "no occurrence" or "zero hits" in this knowledge base and in the specs therefore means **in the pages available**; earlier entries that say "361 pages" for Hay mix it up with Fowler.
+- **Fowler, *Analysis Patterns*:** 361 PDF pages, complete apart from blank pages before chapters and one duplicated page (187).
+- Corrected in the specs on 2026-10-26: Fixed Assets (the net-method reading rests on the text of p.135; Figure 7.10 is on p.136), GL Bulk Read Service, Annual Financial Statements, Sales Invoice GL Posting, Multi-Currency (Literature section). Lower-risk Hay absences elsewhere are covered by this note and not edited one by one.
 
