@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { buildQueueStatusSnapshot } from '../../lib/queue-status'
+import { QUEUE_STATUS_ERROR_CODES, reportQueueStatusError } from '../../lib/queue-status-telemetry'
 import type { QueueStatusSnapshot } from '../../lib/queue-status.types'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
@@ -70,6 +71,7 @@ export async function GET(req: Request) {
     return NextResponse.json(snapshot)
   } catch (error) {
     logger.error('failed to build queue status snapshot', { component: 'queues-status', err: error })
+    reportQueueStatusError(error, QUEUE_STATUS_ERROR_CODES.snapshotFailed)
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('configs.queuesStatus.error', 'Failed to load queue status') },

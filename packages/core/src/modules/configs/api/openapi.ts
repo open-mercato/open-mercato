@@ -8,15 +8,15 @@ export const configsTag = 'Configs'
 // stays byte-identical to what the route actually validates/returns rather than drifting.
 export const queueStatusResponseSchema = queueStatusSnapshotSchema
 export const queueStatusQuerySchema = z.object({
-  queue: z.string().optional().describe('Restrict the snapshot to a single registered queue'),
-  type: z.string().optional().describe('Restrict the bounded summaries to a single job type/name'),
+  queue: z.string().max(200).optional().describe('Restrict the snapshot to a single registered queue'),
+  type: z.string().max(200).optional().describe('Restrict the bounded summaries to a single job type'),
 })
 export const jobInspectorQuerySchema = z.object({
-  queue: z.string().describe('The registered queue to inspect'),
+  queue: z.string().min(1).max(200).describe('The registered queue to inspect'),
   state: z.enum(['waiting', 'active', 'completed', 'failed', 'delayed']).optional(),
-  type: z.string().optional().describe('Restrict to a single job type/name'),
+  type: z.string().max(200).optional().describe('Restrict to a single job type'),
   limit: z.coerce.number().int().positive().optional().describe('Last-X jobs to return (server-clamped)'),
-  id: z.string().optional().describe('Fetch a single job by id — the click-through path from a Tier 1 row'),
+  id: z.string().max(200).optional().describe('Fetch a single job by id — the click-through path from a Tier 1 row'),
 })
 export const jobInspectorResponseDocSchema = jobInspectorResponseSchema
 

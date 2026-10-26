@@ -15,8 +15,13 @@ export type QueueFidelity = z.infer<typeof queueFidelitySchema>
 export const failedJobSummarySchema = z.object({
   id: z.string(),
   queue: z.string(),
+  type: z.string().optional(),
   workerId: z.string().optional(),
-  failedReason: z.string().optional(),
+  /**
+   * Stable, safe failure code (e.g. `queue.handler_error`). Raw failure text is NEVER part of
+   * this broadly-granted Tier 1 response — it can echo tenant data or credentials.
+   */
+  errorCode: z.string().optional(),
   attemptsMade: z.number().optional(),
   failedAt: z.number().optional(),
 })
@@ -77,7 +82,11 @@ export const queueStatusEntrySchema = z.object({
   inFlight: z.array(inFlightJobSummarySchema).optional(),
   agedWaiting: z.array(inFlightJobSummarySchema).optional(),
   inFlightUnavailable: z.boolean(),
-  /** Set when this queue's introspection calls threw; the entry still renders with an error state. */
+  /**
+   * Stable error code (`queue_unavailable` | `queue_read_failed`) set when this queue's
+   * introspection calls threw or timed out; the entry still renders with an error state. Never
+   * carries raw exception text.
+   */
   error: z.string().optional(),
 })
 export type QueueStatusEntryDto = z.infer<typeof queueStatusEntrySchema>

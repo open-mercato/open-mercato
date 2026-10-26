@@ -32,7 +32,13 @@ jest.mock('../../../lib/queue-status', () => ({
   buildQueueStatusSnapshot: (...args: unknown[]) => buildQueueStatusSnapshot(...args),
 }))
 
+const reportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError }),
+}))
+
 import { GET } from '../route'
+import { QUEUE_STATUS_ERROR_CODES } from '../../../lib/queue-status-telemetry'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -88,5 +94,19 @@ describe('GET /api/configs/queues-status', () => {
 
     expect(res.status).toBe(200)
     expect(buildQueueStatusSnapshot).toHaveBeenCalledWith(expect.objectContaining({ canInspectPayloads: false }))
+  })
+
+  it('returns 500 and reports the failure with a stable configs code when the snapshot fails', async () => {
+    const failure = new Error('redis exploded')
+    buildQueueStatusSnapshot.mockRejectedValueOnce(failure)
+
+    const res = await GET(new Request('http://localhost/api/configs/queues-status'))
+
+    expect(res.status).toBe(500)
+    expect(JSON.stringify(await res.json())).not.toContain('redis exploded')
+    expect(reportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'configs',
+      code: QUEUE_STATUS_ERROR_CODES.snapshotFailed,
+    }))
   })
 })

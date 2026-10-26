@@ -15,6 +15,7 @@ import {
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import type {
   QueueStatusSnapshot,
   QueueStatusEntryDto,
@@ -25,10 +26,18 @@ import { QueueJobInspector } from './QueueJobInspector'
 
 const API_PATH = '/api/configs/queues-status'
 
+/**
+ * Client-side ceiling for one snapshot request. The server bounds each queue read itself, so this
+ * only matters when the server cannot answer at all — the panel must end in an error, not a spinner.
+ */
+const REQUEST_TIMEOUT_MS = 30_000
+
 const FIDELITY_BADGE_VARIANTS: StatusMap<'exact' | 'partial'> = {
   exact: 'success',
   partial: 'warning',
 }
+
+type TranslateFn = ReturnType<typeof useT>
 
 function isQueueStatusSnapshot(payload: unknown): payload is QueueStatusSnapshot {
   if (!payload || typeof payload !== 'object') return false
@@ -36,7 +45,7 @@ function isQueueStatusSnapshot(payload: unknown): payload is QueueStatusSnapshot
   return Array.isArray(value.queues) && typeof value.generatedAt === 'string'
 }
 
-function formatDurationMs(ms: number | undefined, t: (key: string, fallback?: string, vars?: Record<string, unknown>) => string): string {
+function formatDurationMs(ms: number | undefined, t: TranslateFn): string {
   if (ms === undefined) return t('configs.queuesStatus.value.notAvailable', 'n/a')
   if (ms < 1000) return `${Math.round(ms)}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
@@ -48,6 +57,13 @@ function formatTimestamp(ms: number | undefined): string {
   return new Date(ms).toLocaleString()
 }
 
+/** Enter / Space activate a `role="button"` row exactly like a click (Space must not scroll the page). */
+function activateOnKey(event: React.KeyboardEvent, activate: () => void) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  activate()
+}
+
 type FetchState = {
   loading: boolean
   error: string | null
@@ -56,12 +72,21 @@ type FetchState = {
 
 type InspectorTarget = { queue: string; jobId: string } | null
 
-function FailedJobsTable({ jobs, t }: { jobs: FailedJobSummaryDto[]; t: ReturnType<typeof useT> }) {
+function FailedJobsTable({
+  jobs,
+  t,
+  onInspect,
+}: {
+  jobs: FailedJobSummaryDto[]
+  t: TranslateFn
+  onInspect?: (jobId: string) => void
+}) {
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
           <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.id', 'Job id')}</th>
+          <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.type', 'Type')}</th>
           <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.worker', 'Worker')}</th>
           <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.reason', 'Reason')}</th>
           <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.attempts', 'Attempts')}</th>
@@ -69,15 +94,35 @@ function FailedJobsTable({ jobs, t }: { jobs: FailedJobSummaryDto[]; t: ReturnTy
         </tr>
       </thead>
       <tbody>
-        {jobs.map((job) => (
-          <tr key={job.id} className="border-b last:border-0">
-            <td className="py-1 pr-3 font-mono text-xs">{job.id}</td>
-            <td className="py-1 pr-3">{job.workerId ?? '—'}</td>
-            <td className="py-1 pr-3 max-w-xs truncate" title={job.failedReason}>{job.failedReason ?? '—'}</td>
-            <td className="py-1 pr-3">{job.attemptsMade ?? '—'}</td>
-            <td className="py-1 pr-3">{formatTimestamp(job.failedAt)}</td>
-          </tr>
-        ))}
+        {jobs.map((job) => {
+          const reason = job.errorCode
+            ? t(`configs.queuesStatus.failed.codes.${job.errorCode}`, job.errorCode)
+            : '—'
+          const cells = (
+            <>
+              <td className="py-1 pr-3 font-mono text-xs">{job.id}</td>
+              <td className="py-1 pr-3">{job.type ?? '—'}</td>
+              <td className="py-1 pr-3">{job.workerId ?? '—'}</td>
+              <td className="py-1 pr-3 max-w-xs truncate" title={reason}>{reason}</td>
+              <td className="py-1 pr-3">{job.attemptsMade ?? '—'}</td>
+              <td className="py-1 pr-3">{formatTimestamp(job.failedAt)}</td>
+            </>
+          )
+          if (!onInspect) return <tr key={job.id} className="border-b last:border-0">{cells}</tr>
+          return (
+            <tr
+              key={job.id}
+              data-job-id={job.id}
+              className="border-b last:border-0 cursor-pointer hover:bg-muted"
+              role="button"
+              tabIndex={0}
+              onClick={() => onInspect(job.id)}
+              onKeyDown={(event) => activateOnKey(event, () => onInspect(job.id))}
+            >
+              {cells}
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )
@@ -100,7 +145,7 @@ function InFlightTable({
   durationLabelKey: string
   durationLabelFallback: string
   durationKey: 'runningMs' | 'ageMs'
-  t: ReturnType<typeof useT>
+  t: TranslateFn
   canInspect: boolean
   onInspect?: (queue: string, jobId: string) => void
 }) {
@@ -121,7 +166,7 @@ function InFlightTable({
             <>
               <td className="py-1 pr-3 font-mono text-xs">{row.id}</td>
               <td className="py-1 pr-3">{row.type ?? '—'}</td>
-              <td className={`py-1 pr-3 ${slow ? 'text-status-warning-foreground' : ''}`}>
+              <td className={cn('py-1 pr-3', slow && 'text-status-warning-foreground')}>
                 {formatDurationMs(duration, t)}
               </td>
             </>
@@ -134,9 +179,7 @@ function InFlightTable({
                 onClick={() => onInspect(row.queue, row.id)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') onInspect(row.queue, row.id)
-                }}
+                onKeyDown={(event) => activateOnKey(event, () => onInspect(row.queue, row.id))}
               >
                 {content}
               </tr>
@@ -156,7 +199,7 @@ function QueueCard({
   onInspect,
 }: {
   entry: QueueStatusEntryDto
-  t: ReturnType<typeof useT>
+  t: TranslateFn
   canInspectPayloads: boolean
   onInspect: (queue: string, jobId: string) => void
 }) {
@@ -180,7 +223,12 @@ function QueueCard({
       </div>
 
       {entry.error ? (
-        <ErrorMessage label={entry.error} />
+        <ErrorMessage
+          label={t(
+            `configs.queuesStatus.entryError.${entry.error}`,
+            t('configs.queuesStatus.entryError.queue_read_failed', 'Queue status could not be read.'),
+          )}
+        />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -230,6 +278,12 @@ function QueueCard({
             </div>
           ) : null}
 
+          {entry.inFlightUnavailable ? (
+            <p className="text-xs text-muted-foreground">
+              {t('configs.queuesStatus.inFlight.unavailable', 'In-flight and queued job details are unavailable for this queue.')}
+            </p>
+          ) : null}
+
           {entry.inFlight && entry.inFlight.length > 0 ? (
             <div className="space-y-1">
               <h4 className="text-sm font-semibold">{t('configs.queuesStatus.inFlight.title', 'In flight')}</h4>
@@ -271,18 +325,11 @@ function QueueCard({
                 {t('configs.queuesStatus.failed.unavailable', 'Failed-job details are unavailable for this strategy.')}
               </p>
             ) : entry.failedJobs && entry.failedJobs.length > 0 ? (
-              canInspectPayloads ? (
-                <div
-                  onClick={(event) => {
-                    const row = (event.target as HTMLElement).closest('tr[data-job-id]') as HTMLElement | null
-                    if (row?.dataset.jobId) onInspect(entry.queue, row.dataset.jobId)
-                  }}
-                >
-                  <FailedJobsTableClickable jobs={entry.failedJobs} t={t} />
-                </div>
-              ) : (
-                <FailedJobsTable jobs={entry.failedJobs} t={t} />
-              )
+              <FailedJobsTable
+                jobs={entry.failedJobs}
+                t={t}
+                onInspect={canInspectPayloads ? (jobId) => onInspect(entry.queue, jobId) : undefined}
+              />
             ) : (
               <p className="text-xs text-muted-foreground">
                 {t('configs.queuesStatus.failed.none', 'No recent failures.')}
@@ -292,39 +339,6 @@ function QueueCard({
         </>
       )}
     </article>
-  )
-}
-
-function FailedJobsTableClickable({ jobs, t }: { jobs: FailedJobSummaryDto[]; t: ReturnType<typeof useT> }) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-          <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.id', 'Job id')}</th>
-          <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.worker', 'Worker')}</th>
-          <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.reason', 'Reason')}</th>
-          <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.attempts', 'Attempts')}</th>
-          <th className="py-1 pr-3">{t('configs.queuesStatus.failed.columns.failedAt', 'Failed at')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {jobs.map((job) => (
-          <tr
-            key={job.id}
-            data-job-id={job.id}
-            className="border-b last:border-0 cursor-pointer hover:bg-muted"
-            role="button"
-            tabIndex={0}
-          >
-            <td className="py-1 pr-3 font-mono text-xs">{job.id}</td>
-            <td className="py-1 pr-3">{job.workerId ?? '—'}</td>
-            <td className="py-1 pr-3 max-w-xs truncate" title={job.failedReason}>{job.failedReason ?? '—'}</td>
-            <td className="py-1 pr-3">{job.attemptsMade ?? '—'}</td>
-            <td className="py-1 pr-3">{formatTimestamp(job.failedAt)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   )
 }
 
@@ -338,12 +352,14 @@ export function QueueStatusPanel() {
 
   const loadSnapshot = React.useCallback(async (filters: { queue: string; type: string }) => {
     setState((current) => ({ ...current, loading: true, error: null }))
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
       const params = new URLSearchParams()
       if (filters.queue) params.set('queue', filters.queue)
       if (filters.type) params.set('type', filters.type)
       const query = params.toString()
-      const payload = await readApiResultOrThrow<unknown>(query ? `${API_PATH}?${query}` : API_PATH, undefined, {
+      const payload = await readApiResultOrThrow<unknown>(query ? `${API_PATH}?${query}` : API_PATH, { signal: controller.signal }, {
         errorMessage: t('configs.queuesStatus.error', 'Failed to load queue status'),
       })
       if (!isQueueStatusSnapshot(payload)) {
@@ -361,6 +377,8 @@ export function QueueStatusPanel() {
           ? error.message
           : t('configs.queuesStatus.error', 'Failed to load queue status')
       setState({ loading: false, error: message, snapshot: null })
+    } finally {
+      clearTimeout(timeout)
     }
   }, [t])
 
@@ -373,8 +391,16 @@ export function QueueStatusPanel() {
     setAppliedFilters({ queue: queueFilter, type: typeFilter.trim() })
   }, [queueFilter, typeFilter])
 
+  const inspectorOpenerRef = React.useRef<HTMLElement | null>(null)
+
   const handleInspect = React.useCallback((queue: string, jobId: string) => {
+    // Remember the row that opened the inspector so focus can go back to it on close.
+    inspectorOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setInspectorTarget({ queue, jobId })
+  }, [])
+
+  const handleInspectorClosed = React.useCallback(() => {
+    setInspectorTarget(null)
   }, [])
 
   if (state.loading && !state.snapshot) {
@@ -482,7 +508,8 @@ export function QueueStatusPanel() {
         <QueueJobInspector
           queue={inspectorTarget.queue}
           jobId={inspectorTarget.jobId}
-          onClose={() => setInspectorTarget(null)}
+          onClose={handleInspectorClosed}
+          returnFocusRef={inspectorOpenerRef}
         />
       ) : null}
     </section>

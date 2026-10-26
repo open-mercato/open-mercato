@@ -37,7 +37,13 @@ jest.mock('../../../../lib/queue-status-registry', () => ({
   listRegisteredQueues: () => listRegisteredQueues(),
 }))
 
+const reportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError }),
+}))
+
 import { GET } from '../route'
+import { QUEUE_STATUS_ERROR_CODES } from '../../../../lib/queue-status-telemetry'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -82,7 +88,7 @@ describe('GET /api/configs/queues-status/jobs (Tier 2)', () => {
       state: 'failed',
       limit: 5,
       id: 'job-1',
-      actor: { actorUserId: 'user-1', tenantId: 'tenant-1', isSuperAdmin: true },
+      actor: { actorUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', isSuperAdmin: true },
     }))
   })
 
@@ -90,11 +96,39 @@ describe('GET /api/configs/queues-status/jobs (Tier 2)', () => {
     await GET(request('queue=my-queue'))
 
     expect(inspectRecentJobs).toHaveBeenCalledWith(expect.objectContaining({
-      actor: { actorUserId: 'user-1', tenantId: 'tenant-1', isSuperAdmin: false },
+      actor: { actorUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', isSuperAdmin: false },
     }))
   })
 
-  it('returns 500 when the inspector throws', async () => {
+  it('returns 500 and reports the failure with a stable configs code when the inspector throws', async () => {
+    const failure = new Error('boom')
+    inspectRecentJobs.mockRejectedValueOnce(failure)
+
+    const res = await GET(request('queue=my-queue'))
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load job' })
+    expect(reportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'configs',
+      code: QUEUE_STATUS_ERROR_CODES.inspectFailed,
+      attributes: { queue: 'my-queue' },
+    }))
+  })
+
+  it('returns 503 with the timeout reason code when the queue backend does not answer', async () => {
+    const { withQueueReadTimeout } = jest.requireActual('../../../../lib/queue-status') as typeof import('../../../../lib/queue-status')
+    inspectRecentJobs.mockImplementationOnce(async () => withQueueReadTimeout('my-queue', new Promise<never>(() => {}), 10))
+
+    const res = await GET(request('queue=my-queue'))
+
+    expect(res.status).toBe(503)
+    expect(reportError).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+      code: QUEUE_STATUS_ERROR_CODES.queueReadTimeout,
+    }))
+  })
+
+  it('never lets a failing telemetry bridge change the response', async () => {
+    reportError.mockImplementationOnce(() => { throw new Error('bridge down') })
     inspectRecentJobs.mockRejectedValueOnce(new Error('boom'))
 
     const res = await GET(request('queue=my-queue'))

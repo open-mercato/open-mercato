@@ -40,10 +40,13 @@ export function QueueJobInspector({
   queue,
   jobId,
   onClose,
+  returnFocusRef,
 }: {
   queue: string
   jobId: string
   onClose: () => void
+  /** The element that opened the inspector; focus returns to it when the sheet closes (Escape, overlay, X). */
+  returnFocusRef?: React.RefObject<HTMLElement | null>
 }) {
   const t = useT()
   const [state, setState] = React.useState<FetchState>({ loading: true, error: null, job: null, crossTenant: false })
@@ -79,7 +82,19 @@ export function QueueJobInspector({
 
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose() }}>
-      <SheetContent side="right" className="w-full max-w-xl space-y-4 overflow-y-auto">
+      <SheetContent
+        side="right"
+        className="w-full max-w-xl space-y-4 overflow-y-auto"
+        onCloseAutoFocus={(event) => {
+          // The sheet is opened programmatically (no Radix trigger), so Radix has nowhere to
+          // restore focus to and it would be lost to <body>.
+          const opener = returnFocusRef?.current
+          if (opener && opener.isConnected) {
+            event.preventDefault()
+            opener.focus()
+          }
+        }}
+      >
         <SheetHeader>
           <SheetTitle>{t('configs.queuesStatus.inspector.title', 'Job Inspector')}</SheetTitle>
           <SheetDescription>
@@ -115,6 +130,14 @@ export function QueueJobInspector({
                 </dt>
                 <dd>{state.job.state ?? '—'}</dd>
               </div>
+              {state.job.failedReason ? (
+                <div className="col-span-2">
+                  <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {t('configs.queuesStatus.inspector.fields.failedReason', 'Failure reason (redacted)')}
+                  </dt>
+                  <dd className="break-words font-mono text-xs">{state.job.failedReason}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                   {t('configs.queuesStatus.inspector.fields.tenant', 'Tenant')}

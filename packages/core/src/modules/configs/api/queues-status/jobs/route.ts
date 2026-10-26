@@ -5,7 +5,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { inspectRecentJobs } from '../../../lib/queue-job-inspector'
 import { listRegisteredQueues } from '../../../lib/queue-status-registry'
+import { isQueueReadTimeoutError } from '../../../lib/queue-status'
+import { QUEUE_STATUS_ERROR_CODES, reportQueueStatusError } from '../../../lib/queue-status-telemetry'
 import type { AccessLogService } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
   configsTag,
   jobInspectorResponseDocSchema,
@@ -53,6 +56,15 @@ export async function GET(req: Request) {
   try {
     const container = await createRequestContainer()
     const accessLogService = container.resolve('accessLogService') as AccessLogService
+    // The access-log viewer filters by the organization the user has SELECTED, so the audit row
+    // must carry that same organization or it disappears from the log while an org is selected.
+    let auditOrganizationId: string | null = auth.orgId ?? null
+    try {
+      const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+      auditOrganizationId = featureContext.organizationId ?? null
+    } catch {
+      // Fall back to the token's organization; the audit row is still written.
+    }
 
     const response = await inspectRecentJobs({
       queue: parsedQuery.data.queue,
@@ -63,6 +75,7 @@ export async function GET(req: Request) {
       actor: {
         actorUserId: auth.sub,
         tenantId: auth.tenantId,
+        organizationId: auditOrganizationId,
         isSuperAdmin: auth.isSuperAdmin === true,
       },
       audit: accessLogService,
@@ -70,10 +83,16 @@ export async function GET(req: Request) {
     return NextResponse.json(response)
   } catch (error) {
     logger.error('failed to inspect queue job', { component: 'queues-status-jobs', err: error })
+    const timedOut = isQueueReadTimeoutError(error)
+    reportQueueStatusError(
+      error,
+      timedOut ? QUEUE_STATUS_ERROR_CODES.queueReadTimeout : QUEUE_STATUS_ERROR_CODES.inspectFailed,
+      { queue: parsedQuery.data.queue },
+    )
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('configs.queuesStatus.inspector.error', 'Failed to load job') },
-      { status: 500 },
+      { status: timedOut ? 503 : 500 },
     )
   }
 }
@@ -95,6 +114,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: configErrorSchema },
         { status: 403, description: 'Missing configs.queues_status.inspect_payloads', schema: configErrorSchema },
         { status: 500, description: 'Failed to load job', schema: configErrorSchema },
+        { status: 503, description: 'The queue backend did not answer in time', schema: configErrorSchema },
       ],
     },
   },

@@ -1,7 +1,14 @@
+import { QueueIntrospectionUnavailableError } from '@open-mercato/queue'
 import { buildQueueStatusSnapshot } from '../lib/queue-status'
 import * as registry from '../lib/queue-status-registry'
+import { QUEUE_STATUS_ERROR_CODES } from '../lib/queue-status-telemetry'
 
 jest.mock('../lib/queue-status-registry')
+
+const reportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError }),
+}))
 
 const mockListRegisteredQueues = registry.listRegisteredQueues as jest.Mock
 const mockResolveStatusQueue = registry.resolveStatusQueue as jest.Mock
@@ -67,7 +74,7 @@ describe('buildQueueStatusSnapshot', () => {
     mockListRegisteredQueues.mockReturnValue([{ queue: 'queue-a', workerIds: [], concurrency: null }])
     mockResolveStatusQueue.mockReturnValue(makeQueue({
       getFailedJobsSummary: jest.fn(async () => ([
-        { id: 'f1', queue: 'queue-a', failedReason: 'boom', attemptsMade: 2, failedAt: 123 },
+        { id: 'f1', queue: 'queue-a', errorCode: 'queue.handler_error', attemptsMade: 2, failedAt: 123 },
       ])),
       getProcessingStats: jest.fn(async () => ({ sampleSize: 10, avgProcessingMs: 50, fidelity: 'exact' })),
       getInFlightJobsSummary: jest.fn(async (opts: { state: string }) => {
@@ -105,16 +112,17 @@ describe('buildQueueStatusSnapshot', () => {
     expect(getInFlightJobsSummary).toHaveBeenCalledWith(expect.objectContaining({ type: 'job-type-x', state: 'active' }))
   })
 
-  it('does not fail the whole snapshot when one queue throws — it reports that queue with an error', async () => {
+  it('does not fail the whole snapshot when one queue throws — it reports that queue with a safe code, never the raw text', async () => {
     mockListRegisteredQueues.mockReturnValue([
       { queue: 'ok-queue', workerIds: [], concurrency: null },
       { queue: 'broken-queue', workerIds: [], concurrency: null },
     ])
+    const failure = new Error('connect failed for redis://user:hunter2@redis.internal:6379 (tenant acme)')
     mockResolveStatusQueue.mockImplementation((name: string) => {
       if (name === 'broken-queue') {
         return makeQueue({
           name,
-          getJobCounts: jest.fn(async () => { throw new Error('redis down') }),
+          getJobCounts: jest.fn(async () => { throw failure }),
         })
       }
       return makeQueue({ name })
@@ -124,9 +132,84 @@ describe('buildQueueStatusSnapshot', () => {
 
     expect(snapshot.queues).toHaveLength(2)
     const broken = snapshot.queues.find((q) => q.queue === 'broken-queue')
-    expect(broken?.error).toBe('redis down')
+    expect(broken?.error).toBe('queue_read_failed')
+    expect(JSON.stringify(snapshot)).not.toContain('hunter2')
+    expect(JSON.stringify(snapshot)).not.toContain('acme')
     const ok = snapshot.queues.find((q) => q.queue === 'ok-queue')
     expect(ok?.error).toBeUndefined()
+    expect(reportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'configs',
+      code: QUEUE_STATUS_ERROR_CODES.queueReadFailed,
+      attributes: { queue: 'broken-queue' },
+    }))
+  })
+
+  it('degrades a queue whose backend never answers (Redis down) instead of hanging the snapshot', async () => {
+    process.env.QUEUE_STATUS_READ_TIMEOUT_MS = '20'
+    try {
+      mockListRegisteredQueues.mockReturnValue([
+        { queue: 'ok-queue', workerIds: [], concurrency: null },
+        { queue: 'hung-queue', workerIds: [], concurrency: null },
+      ])
+      mockResolveStatusQueue.mockImplementation((name: string) =>
+        makeQueue(name === 'hung-queue' ? { name, getJobCounts: jest.fn(() => new Promise(() => {})) } : { name }),
+      )
+
+      const snapshot = await buildQueueStatusSnapshot()
+
+      const hung = snapshot.queues.find((q) => q.queue === 'hung-queue')
+      expect(hung?.error).toBe('queue_unavailable')
+      expect(snapshot.queues.find((q) => q.queue === 'ok-queue')?.error).toBeUndefined()
+      expect(reportError).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+        code: QUEUE_STATUS_ERROR_CODES.queueReadTimeout,
+      }))
+    } finally {
+      delete process.env.QUEUE_STATUS_READ_TIMEOUT_MS
+    }
+  })
+
+  it('marks a section unavailable (not empty) when the strategy cannot serve it within its bounds', async () => {
+    mockListRegisteredQueues.mockReturnValue([{ queue: 'queue-a', workerIds: [], concurrency: null }])
+    mockResolveStatusQueue.mockReturnValue(makeQueue({
+      strategy: 'local',
+      getInFlightJobsSummary: jest.fn(async () => { throw new QueueIntrospectionUnavailableError() }),
+    }))
+
+    const snapshot = await buildQueueStatusSnapshot()
+
+    expect(snapshot.queues[0].error).toBeUndefined()
+    expect(snapshot.queues[0].inFlightUnavailable).toBe(true)
+    expect(snapshot.queues[0].inFlight).toBeUndefined()
+    expect(snapshot.queues[0].agedWaiting).toBeUndefined()
+  })
+
+  it('lists a pending job once even when a strategy reports it as both waiting and delayed', async () => {
+    mockListRegisteredQueues.mockReturnValue([{ queue: 'queue-a', workerIds: [], concurrency: null }])
+    mockResolveStatusQueue.mockReturnValue(makeQueue({
+      getInFlightJobsSummary: jest.fn(async (opts: { state: string }) =>
+        opts.state === 'active' ? [] : [{ id: 'p1', queue: 'queue-a', state: opts.state, ageMs: 5 }],
+      ),
+    }))
+
+    const snapshot = await buildQueueStatusSnapshot()
+
+    expect(snapshot.queues[0].agedWaiting?.map((job) => job.id)).toEqual(['p1'])
+  })
+
+  it('attributes the worker from the registry only when exactly one worker consumes the queue', async () => {
+    const summary = jest.fn(async (opts: { state: string }) =>
+      opts.state === 'waiting' ? [{ id: 'w1', queue: 'queue-a', state: 'waiting', ageMs: 1 }] : [],
+    )
+    mockListRegisteredQueues.mockReturnValue([
+      { queue: 'queue-a', workerIds: ['mod:only'], concurrency: 1 },
+      { queue: 'queue-b', workerIds: ['mod:one', 'mod:two'], concurrency: 1 },
+    ])
+    mockResolveStatusQueue.mockImplementation((name: string) => makeQueue({ name, getInFlightJobsSummary: summary }))
+
+    const snapshot = await buildQueueStatusSnapshot()
+
+    expect(snapshot.queues.find((q) => q.queue === 'queue-a')?.agedWaiting?.[0].workerId).toBe('mod:only')
+    expect(snapshot.queues.find((q) => q.queue === 'queue-b')?.agedWaiting?.[0].workerId).toBeUndefined()
   })
 
   it('echoes canInspectPayloads from the caller', async () => {

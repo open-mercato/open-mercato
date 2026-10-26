@@ -194,3 +194,122 @@ describe('inspectRecentJobs — tenant isolation (#3105 R1, critical)', () => {
     expect(result.jobs).toEqual([])
   })
 })
+
+describe('inspectRecentJobs — producer envelopes, redaction and audit scope (#3105)', () => {
+  function queueWith(jobs: unknown[], overrides: Record<string, unknown> = {}) {
+    return { name: 'q', strategy: 'async', getJobCounts: jest.fn(), getRecentJobs: jest.fn(async () => jobs), ...overrides }
+  }
+  const tenantAdmin = { actorUserId: 'user-a', tenantId: 'tenant-a', organizationId: 'org-1', isSuperAdmin: false }
+
+  // The real communication_channels inbound producer shape: tenant lives under `scope`.
+  const inboundJob = {
+    id: 'inbound-1',
+    queue: 'communication-channels-inbound',
+    state: 'waiting',
+    data: {
+      providerKey: 'imap',
+      channelId: 'c1',
+      channelType: 'email',
+      raw: { body: 'hello', apiKey: 'k' },
+      scope: { tenantId: 'tenant-a', organizationId: 'org-1' },
+    },
+  }
+
+  it('normalizes the nested scope envelope: an own-tenant communication_channels job is visible to its tenant admin', async () => {
+    mockResolveStatusQueue.mockReturnValue(queueWith([inboundJob]))
+
+    const result = await inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit: makeAudit() })
+
+    expect(result.jobs).toEqual([
+      expect.objectContaining({ id: 'inbound-1', tenantId: 'tenant-a', organizationId: 'org-1' }),
+    ])
+  })
+
+  it('hides a nested-scope job of another tenant, and labels the tenant for a superadmin instead of "unknown"', async () => {
+    const foreign = { ...inboundJob, id: 'inbound-2', data: { ...inboundJob.data, scope: { tenantId: 'tenant-b', organizationId: null } } }
+    mockResolveStatusQueue.mockReturnValue(queueWith([inboundJob, foreign]))
+
+    const own = await inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit: makeAudit() })
+    const root = await inspectRecentJobs({
+      queue: 'q', limit: 20, actor: { actorUserId: 'root', tenantId: null, isSuperAdmin: true }, audit: makeAudit(),
+    })
+
+    expect(own.jobs.map((job) => job.id)).toEqual(['inbound-1'])
+    expect(root.jobs.map((job) => [job.id, job.tenantId])).toEqual([['inbound-1', 'tenant-a'], ['inbound-2', 'tenant-b']])
+  })
+
+  it('treats conflicting top-level and nested tenants as unowned — a payload cannot pick who sees it', async () => {
+    const conflicting = {
+      id: 'conflict',
+      queue: 'q',
+      data: { tenantId: 'tenant-a', scope: { tenantId: 'tenant-b' }, note: 'x' },
+    }
+    mockResolveStatusQueue.mockReturnValue(queueWith([conflicting]))
+
+    const asA = await inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit: makeAudit() })
+    const asB = await inspectRecentJobs({
+      queue: 'q', limit: 20, actor: { ...tenantAdmin, tenantId: 'tenant-b' }, audit: makeAudit(),
+    })
+    const root = await inspectRecentJobs({
+      queue: 'q', limit: 20, actor: { actorUserId: 'root', tenantId: null, isSuperAdmin: true }, audit: makeAudit(),
+    })
+
+    expect(asA.jobs).toEqual([])
+    expect(asB.jobs).toEqual([])
+    expect(root.jobs[0].tenantId).toBeNull()
+  })
+
+  it('accepts a top-level tenant that agrees with the nested scope', async () => {
+    const agreeing = { id: 'ok', queue: 'q', data: { tenantId: 'tenant-a', scope: { tenantId: 'tenant-a' } } }
+    mockResolveStatusQueue.mockReturnValue(queueWith([agreeing]))
+
+    const result = await inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit: makeAudit() })
+
+    expect(result.jobs.map((job) => job.id)).toEqual(['ok'])
+  })
+
+  it('redacts credentials out of the raw failure text before it leaves the server', async () => {
+    const failed = {
+      id: 'f1',
+      queue: 'q',
+      state: 'failed',
+      failedReason: 'connect postgres://user:hunter2@db.internal/app failed; password=hunter2 Bearer abcdefghijkl',
+      data: { tenantId: 'tenant-a' },
+    }
+    mockResolveStatusQueue.mockReturnValue(queueWith([failed]))
+
+    const result = await inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit: makeAudit() })
+
+    expect(result.jobs[0].failedReason).toBeDefined()
+    expect(result.jobs[0].failedReason).not.toContain('hunter2')
+    expect(result.jobs[0].failedReason).not.toContain('abcdefghijkl')
+  })
+
+  it('does not pass a caller state through on a direct-id read, so the queue resolves the actual state', async () => {
+    const getRecentJobs = jest.fn(async () => [{ id: 'j', queue: 'q', state: 'failed', data: { tenantId: 'tenant-a' } }])
+    mockResolveStatusQueue.mockReturnValue(queueWith([], { getRecentJobs }))
+
+    const result = await inspectRecentJobs({ queue: 'q', id: 'j', state: 'waiting', limit: 1, actor: tenantAdmin, audit: makeAudit() })
+
+    expect(getRecentJobs).toHaveBeenCalledWith({ id: 'j', limit: 1 })
+    expect(result.jobs[0].state).toBe('failed')
+  })
+
+  it('records the actor organization on the access-log row so it stays visible under an org filter', async () => {
+    mockResolveStatusQueue.mockReturnValue(queueWith([]))
+    const audit = makeAudit()
+
+    await inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit })
+
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', organizationId: 'org-1' }))
+  })
+
+  it('fails closed when the access-log write fails: nothing is returned', async () => {
+    mockResolveStatusQueue.mockReturnValue(queueWith([inboundJob]))
+    const audit = { log: jest.fn(async () => { throw new Error('db down') }) }
+
+    await expect(
+      inspectRecentJobs({ queue: 'q', limit: 20, actor: tenantAdmin, audit }),
+    ).rejects.toThrow('db down')
+  })
+})

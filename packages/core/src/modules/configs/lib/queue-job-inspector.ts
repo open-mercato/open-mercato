@@ -1,4 +1,7 @@
+import { redactDevRuntimeText } from '@open-mercato/shared/lib/dev-runtime/redaction'
 import { resolveStatusQueue } from './queue-status-registry'
+import { withQueueReadTimeout } from './queue-status'
+import { QUEUE_STATUS_ERROR_CODES, reportQueueStatusError } from './queue-status-telemetry'
 import type { InspectedJobDto, JobInspectorResponse } from './queue-status.types'
 import type { RecentJob } from '@open-mercato/queue'
 
@@ -9,6 +12,8 @@ const DEFAULT_RECENT_JOBS_LIMIT = 20
 export type InspectorActorScope = {
   actorUserId: string | null
   tenantId: string | null
+  /** The actor's selected organization — recorded on the access-log row so it stays visible under an org filter. */
+  organizationId?: string | null
   isSuperAdmin: boolean
 }
 
@@ -70,14 +75,44 @@ export function redactJobPayload(payload: unknown): unknown {
   return redactValue(payload, 0)
 }
 
+function readScopeId(source: unknown, key: 'tenantId' | 'organizationId'): string | null | undefined {
+  if (!source || typeof source !== 'object') return undefined
+  const value = (source as Record<string, unknown>)[key]
+  if (typeof value === 'string' && value.length > 0) return value
+  if (value === null) return null
+  return undefined
+}
+
+/**
+ * Picks the one value two envelope locations agree on. Absent locations are ignored; two present
+ * locations that disagree make the field ambiguous, which resolves to "unknown" — never to either
+ * candidate — so a conflicting payload cannot choose which tenant it is shown to.
+ */
+function reconcile(candidates: Array<string | null | undefined>): string | null {
+  const present = candidates.filter((candidate): candidate is string | null => candidate !== undefined)
+  const concrete = new Set(present.filter((candidate): candidate is string => candidate !== null))
+  if (concrete.size !== 1) return null
+  // A location that explicitly says "no value" next to one that names a value is a conflict too.
+  if (present.some((candidate) => candidate === null)) return null
+  return [...concrete][0]
+}
+
+/**
+ * Normalizes the supported producer envelopes into one ownership pair: a top-level
+ * `{ tenantId, organizationId }` (most queues) and a nested `{ scope: { tenantId, organizationId } }`
+ * (communication_channels inbound). A job whose owner cannot be established is unowned and is only
+ * ever visible to a superadmin.
+ */
 function extractJobTenant(job: RecentJob): { tenantId: string | null; organizationId: string | null } {
   const data = job.data
   if (!data || typeof data !== 'object') return { tenantId: null, organizationId: null }
-  const envelope = data as { tenantId?: unknown; organizationId?: unknown }
-  return {
-    tenantId: typeof envelope.tenantId === 'string' ? envelope.tenantId : null,
-    organizationId: typeof envelope.organizationId === 'string' ? envelope.organizationId : null,
-  }
+  const nested = (data as { scope?: unknown }).scope
+  const tenantId = reconcile([readScopeId(data, 'tenantId'), readScopeId(nested, 'tenantId')])
+  // An organization only means something inside an established tenant.
+  const organizationId = tenantId
+    ? reconcile([readScopeId(data, 'organizationId'), readScopeId(nested, 'organizationId')])
+    : null
+  return { tenantId, organizationId }
 }
 
 function clamp(value: number | undefined, fallback: number, max: number): number {
@@ -95,7 +130,9 @@ function toInspectedJob(job: RecentJob, tenantId: string | null, organizationId:
     timestamp: job.timestamp,
     processedOn: job.processedOn,
     finishedOn: job.finishedOn,
-    failedReason: job.failedReason,
+    // Raw failure text can echo credentials; it is only reachable here, behind the tenant filter,
+    // and is scrubbed with the same rules the dev-runtime reports use.
+    failedReason: redactDevRuntimeText(job.failedReason, 500),
     tenantId,
     organizationId,
     data: redactJobPayload(job.data),
@@ -115,19 +152,24 @@ export async function inspectRecentJobs(opts: InspectRecentJobsOptions): Promise
 
   let rawJobs: RecentJob[] = []
   if (typeof instance.getRecentJobs === 'function') {
+    // Bounded: with the backend down the strategy's reads can hang rather than fail.
     if (opts.id) {
-      rawJobs = await instance.getRecentJobs({ state: opts.state, id: opts.id, limit: 1 })
+      // No `state` here: for a direct id the queue reports the job's actual state.
+      rawJobs = await withQueueReadTimeout(opts.queue, instance.getRecentJobs({ id: opts.id, limit: 1 }))
     } else {
       // Fetch the server's full bounded window (never the client-requested X) so the
       // tenant filter below has the maximum allowed pool to select from — the spec
       // requires `X` to apply AFTER the tenant filter, not narrow the raw fetch itself.
       // This still never enumerates the whole queue: it is capped at the same hard
       // ceiling the queue package itself enforces.
-      rawJobs = await instance.getRecentJobs({
-        state: opts.state,
-        type: opts.type,
-        limit: MAX_RECENT_JOBS_LIMIT,
-      })
+      rawJobs = await withQueueReadTimeout(
+        opts.queue,
+        instance.getRecentJobs({
+          state: opts.state,
+          type: opts.type,
+          limit: MAX_RECENT_JOBS_LIMIT,
+        }),
+      )
     }
   }
 
@@ -142,22 +184,28 @@ export async function inspectRecentJobs(opts: InspectRecentJobsOptions): Promise
   const crossTenant = opts.actor.isSuperAdmin
 
   // Audited before returning, per call, regardless of outcome (#3105 R5).
-  await opts.audit.log({
-    tenantId: opts.actor.tenantId,
-    organizationId: null,
-    actorUserId: opts.actor.actorUserId,
-    resourceKind: 'queue.job',
-    resourceId: opts.queue,
-    accessType: 'configs.queues_status.inspect_payloads',
-    context: {
-      state: opts.state ?? null,
-      type: opts.type ?? null,
-      id: opts.id ?? null,
-      requestedLimit,
-      returnedCount: jobs.length,
-      crossTenant,
-    },
-  })
+  try {
+    await opts.audit.log({
+      tenantId: opts.actor.tenantId,
+      organizationId: opts.actor.organizationId ?? null,
+      actorUserId: opts.actor.actorUserId,
+      resourceKind: 'queue.job',
+      resourceId: opts.queue,
+      accessType: 'configs.queues_status.inspect_payloads',
+      context: {
+        state: opts.state ?? null,
+        type: opts.type ?? null,
+        id: opts.id ?? null,
+        requestedLimit,
+        returnedCount: jobs.length,
+        crossTenant,
+      },
+    })
+  } catch (auditError) {
+    // Fail closed: payloads never leave without their access-log row. Reported, then rethrown.
+    reportQueueStatusError(auditError, QUEUE_STATUS_ERROR_CODES.auditFailed, { queue: opts.queue })
+    throw auditError
+  }
 
   return { jobs, crossTenant }
 }
