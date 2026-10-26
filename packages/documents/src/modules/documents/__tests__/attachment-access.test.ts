@@ -113,3 +113,17 @@ it('memoizes scoped owner policy within one request but recomputes the action de
   expect(principal.resolveActiveUserRoleIds).toHaveBeenCalledTimes(1)
   expect(findWithDecryption).toHaveBeenCalledTimes(1)
 })
+
+it.each([
+  { sub: `api_key:${keyId}`, isApiKey: true },
+  { sub: `api_key:${otherId}`, keyId, isApiKey: true },
+  { sub: `api_key:${keyId}`, keyId, isApiKey: true, userId: 'malformed' },
+  { sub: 'malformed' },
+])('returns a normal denial for an invalid actor projection: %j', async (auth) => {
+  const value = input({ subject: { ...input().subject, auth } })
+  await expect(resolve(value)).resolves.toEqual({ ok: false, status: 404, reason: 'document_not_found' })
+  expect(findOneWithDecryption).not.toHaveBeenCalled()
+  expect(findWithDecryption).not.toHaveBeenCalled()
+  expect(principal.resolveActiveUserRoleIds).not.toHaveBeenCalled()
+  expect(keyPrincipal.resolveAssignedRoleIds).not.toHaveBeenCalled()
+})

@@ -32,3 +32,8 @@ CRUD error type: access-error handling must wrap storage-error handling so the n
 localized storage response wins. Preserve strict storage's missing-partition delete status
 when integrating both changes, and verify real service boundaries and protected public
 cache-hit responses instead of relying only on route prechecks. Helpers imported by DI\nservices must remain loadable under native Node ESM; standard Web Responses avoid pulling\nNext.js-only module resolution into service startup. Verify the built service entrypoints\nin Node as well as the Next.js build, and update the catalog's declared count with new lessons.
+
+**Denial diagnostics follow-up**: Owner adapters must translate expected actor-validation
+refusals into a normal deny decision before querying owner state. Reserve resolver-failure
+telemetry for unexpected faults; test malformed API-key subjects, missing validated key IDs,
+and invalid backing users without triggering owner or role lookups.

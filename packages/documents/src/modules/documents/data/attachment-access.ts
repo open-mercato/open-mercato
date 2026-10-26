@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { AttachmentAccessInput, AttachmentAccessResolver, ProtectedAttachmentTarget } from '@open-mercato/core/modules/attachments'
 import { resolveActorUserId } from '../lib/actor'
 import { deriveDocumentCapabilities, type DocumentCapabilities } from '../lib/capabilities'
@@ -12,6 +13,13 @@ async function capabilitiesForDocument(input: AttachmentAccessInput, documentId:
   const { subject, container, cache, signal } = input
   const { tenantId, organizationId } = subject
   if (!tenantId || !organizationId || !ownerIdSchema.safeParse(documentId).success || signal.aborted) return null
+  let actorUserId: string
+  try {
+    actorUserId = resolveActorUserId(subject.auth)
+  } catch (error) {
+    if (isCrudHttpError(error) && error.status === 403) return null
+    throw error
+  }
   const principalKey = JSON.stringify([subject.auth.sub, tenantId, organizationId])
   const cacheKey = JSON.stringify(['document', principalKey, documentId])
   const cached = cache.get(cacheKey) as Promise<DocumentCapabilities | null> | undefined
@@ -28,7 +36,7 @@ async function capabilitiesForDocument(input: AttachmentAccessInput, documentId:
     }
     const projectedAuth = {
       ...subject.auth,
-      userId: resolveActorUserId(subject.auth),
+      userId: actorUserId,
       tenantId, orgId: organizationId, organizationId,
       resolvedRoleIds: await roles,
       features: [...subject.userFeatures],
