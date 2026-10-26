@@ -31,7 +31,8 @@ An activity is a discrete unit of work performed by the workflow engine. While s
 | **WAIT** | Pause for a duration or until a timestamp | Cool-off periods, scheduled follow-ups |
 
 > ⚠️ **Calling third-party services**: use **CALL_WEBHOOK**, not CALL_API. `CALL_API` targets this
-> application only — it rejects any endpoint whose host differs from `APP_URL` (SSRF prevention).
+> application only — it rejects any endpoint whose origin (scheme, host and port) differs from
+> `APP_URL` (SSRF prevention).
 
 ## Configuring Activities
 
@@ -123,8 +124,12 @@ When the chosen endpoint declares a **response schema**, that schema becomes the
 The picker is specific to `CALL_API`, because it browses *this* application's endpoints. `CALL_WEBHOOK`'s URL is a free-text field — it points at somebody else's service.
 
 > ⚠️ **Internal endpoints only**: relative paths are resolved against `APP_URL` and must start
-> with `/api/`; an absolute URL must resolve to the same host as `APP_URL`. Anything else fails
-> with an SSRF-prevention error. To reach a third-party service, use **CALL_WEBHOOK**.
+> with `/api/`; an absolute URL must have the same origin (scheme, host and port) as `APP_URL` and
+> a path under its `/api/`. Anything else fails with an SSRF-prevention error before the one-time
+> API key is created. A redirect is followed only when its target passes the same check (at most
+> three hops); any other redirect fails the activity. This includes redirects that an app behind a
+> TLS-terminating proxy builds from its internal or `http://` origin. To reach a third-party
+> service, use **CALL_WEBHOOK**.
 
 **Response Handling:**
 
