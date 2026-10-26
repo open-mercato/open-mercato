@@ -1204,15 +1204,16 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
     const before = undo?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await em.findOne(Message, { id: before.messageId })
-    if (message) {
-      message.deletedAt = toDate(before.messageDeletedAt)
-    }
     if (before.recipientId) {
       const recipient = await em.findOne(MessageRecipient, { id: before.recipientId })
       if (recipient) {
         recipient.status = (before.recipientStatus ?? 'unread') as MessageRecipient['status']
         recipient.deletedAt = toDate(before.recipientDeletedAt)
+      }
+    } else {
+      const message = await em.findOne(Message, { id: before.messageId })
+      if (message) {
+        message.deletedAt = toDate(before.messageDeletedAt)
       }
     }
     await em.flush()
