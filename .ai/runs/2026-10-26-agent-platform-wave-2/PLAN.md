@@ -22,6 +22,7 @@
 | 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | done | 18b9ecad3 |
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
+| 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | 1c1b0e466 |
 | 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | 5ddef3b2b |
 | 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 74db02d12 |
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | 69911bc81 |
@@ -110,6 +111,9 @@ None (`--skill-url` not passed).
 #### 1.5 Compute the agent definition hash at registry load
 - In the agent registry, compute `agentDefinitionHash` = SHA-256 over canonical JSON `{ systemPrompt, allowedTools (sorted), executionMode, output.schemaName, mutationPolicy, defaultProvider, defaultModel, modelSettings, loop (serializable subset) }` once at load; expose a getter for the runtime/recorder. Reuse an existing canonical-JSON helper if one exists in shared.
 - Unit tests: same definition → same hash; key-order independent; prompt change, `modelSettings` change → different hash.
+
+#### 1.5-review-fix Pass explicit comparators to the definition hash sorts
+- Checkpoint 2 found two bare `.sort()` calls in `lib/agent-definition-hash.ts` that fail `packages/core/src/__tests__/explicit-sort-comparators.test.ts`; use a code-point comparator (locale-independent, so the hash stays stable across environments).
 
 ### Phase 2: Run persistence (chat spec Phase 2)
 

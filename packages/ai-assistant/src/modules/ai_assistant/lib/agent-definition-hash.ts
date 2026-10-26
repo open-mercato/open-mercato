@@ -11,6 +11,12 @@ type CanonicalValue =
   | CanonicalValue[]
   | { [key: string]: CanonicalValue }
 
+function compareCodePoints(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false
   const prototype = Object.getPrototypeOf(value)
@@ -37,7 +43,7 @@ function toCanonicalValue(value: unknown, ancestors: Set<object>): CanonicalValu
     if (ancestors.has(value)) return undefined
     ancestors.add(value)
     const result: { [key: string]: CanonicalValue } = {}
-    for (const key of Object.keys(value).sort()) {
+    for (const key of Object.keys(value).sort(compareCodePoints)) {
       const canonicalEntry = toCanonicalValue(value[key], ancestors)
       if (canonicalEntry !== undefined) result[key] = canonicalEntry
     }
@@ -57,7 +63,7 @@ export function buildAgentDefinitionHashInput(
 ): Record<string, unknown> {
   return {
     systemPrompt: agent.systemPrompt,
-    allowedTools: [...agent.allowedTools].sort(),
+    allowedTools: [...agent.allowedTools].sort(compareCodePoints),
     executionMode: agent.executionMode ?? null,
     outputSchemaName: agent.output?.schemaName ?? null,
     mutationPolicy: agent.mutationPolicy ?? null,
