@@ -117,6 +117,33 @@ describe('warranty claim email-to-claim subscriber opt-in gate', () => {
     }))
   })
 
+  test('propagates claim creation failures to persistent delivery', async () => {
+    const failure = new Error('Temporary database failure')
+    createOrGetClaimFromInboundMessageMock.mockRejectedValueOnce(failure)
+
+    await expect(handle(makePayload(), makeContext({ moduleConfigService: makeConfigService(true) })))
+      .rejects.toBe(failure)
+  })
+
+  test('propagates entity manager failures to persistent delivery', async () => {
+    const failure = new Error('Temporary connection failure')
+    const em = makeEntityManager()
+    jest.spyOn(em, 'fork').mockImplementationOnce(() => { throw failure })
+
+    await expect(handle(makePayload(), makeContext({ moduleConfigService: makeConfigService(true), em })))
+      .rejects.toBe(failure)
+    expect(createOrGetClaimFromInboundMessageMock).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    { messageId: null },
+    { senderEmail: '  ' },
+  ])('no-ops for incomplete email input %j', async (overrides) => {
+    await expect(handle(makePayload(overrides), makeContext({ moduleConfigService: makeConfigService(true) })))
+      .resolves.toBeUndefined()
+    expect(createOrGetClaimFromInboundMessageMock).not.toHaveBeenCalled()
+  })
+
   test('fails closed when trusted subscriber scope is absent even if payload carries scope', async () => {
     const moduleConfigService = makeConfigService(true)
 
