@@ -295,7 +295,7 @@ rejects any invoice containing a `discount` or `adjustment` line
 (`adjustment`'s semantics are equally undefined in `sales`) until
 `sales` — or a future revision of this module — can distinguish
 them. Hay's *Data Model Patterns* has nothing on contra accounts or
-sales discounts anywhere in the book (checked directly, full text)
+sales discounts in the pages available (our copy is partial)
 — no pattern to reconcile against.
 
 **Currency resolution: `sales.SalesInvoice.currencyCode` (a string)
@@ -1544,8 +1544,8 @@ account) — and `sales`'s own `SalesLineKind` doesn't distinguish
 which. Fowler's *Analysis Patterns* (§6.4, "Memo Account," p.104)
 confirmed the contra-account pattern itself is legitimate but
 doesn't resolve which of the three applies here. Hay's *Data Model
-Patterns* has nothing on this anywhere in the book (checked
-directly, full text). Since two of the three meanings would be
+Patterns* has nothing on this in the pages available (our copy is
+partial). Since two of the three meanings would be
 wrong to post in this module at all, **M1 (major) — fixed**:
 `postSalesInvoiceToLedger` now rejects any invoice containing a
 `discount` or `adjustment` line (same undefined-semantics problem)
