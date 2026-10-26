@@ -2238,7 +2238,6 @@ export async function authorizeCollabContext(
 export function createCollabHooks(deps: CollabHooksDeps) {
   const materializationWarningRooms = new Set<string>()
   const loadedContentVersions = new WeakMap<Y.Doc, string>()
-  const persistedSnapshots = new WeakMap<Y.Doc, Y.Snapshot>()
   const loadedCollaborationGenerations = new WeakMap<Y.Doc, number>()
   const roomResourceBudgets = new WeakMap<Y.Doc, { bytes: number; revision: number }>()
   const roomScopes = new WeakMap<Y.Doc, CollabScope>()
@@ -2513,7 +2512,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       documentName: string
       document: Y.Doc
       context: CollabContext
-      store: () => Promise<unknown>
+      store: (confirmPersistence: (snapshot: Y.Snapshot) => void) => Promise<unknown>
     }): Promise<boolean> {
       try {
         assertScopedContext(data.context)
@@ -2526,9 +2525,10 @@ export function createCollabHooks(deps: CollabHooksDeps) {
           && !isFinalDrainPending(data.documentName)
         if (!isCurrent() || !(await deps.authorizeContext(data.context)) || !isCurrent()) return false
         const requested = Y.snapshot(data.document)
-        await data.store()
+        const confirmation: { snapshot: Y.Snapshot | null } = { snapshot: null }
+        await data.store((snapshot) => { confirmation.snapshot = snapshot })
         if (!isCurrent() || !(await deps.authorizeContext(data.context)) || !isCurrent()) return false
-        const durable = persistedSnapshots.get(data.document)
+        const durable = confirmation.snapshot
         return Boolean(durable && containsDocumentSnapshot(durable, requested))
       } catch {
         return false
@@ -2776,6 +2776,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       documentName: string
       context: CollabContext
       document: Y.Doc
+      confirmPersistence?: (snapshot: Y.Snapshot) => void
     }): Promise<void> {
       try {
         assertScopedContext(data.context)
@@ -2980,7 +2981,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
             })
           }
           deps.onPersisted?.(data.document, yjsState, collaborationGeneration)
-          if (materialized) persistedSnapshots.set(data.document, storingSnapshot)
+          if (materialized) data.confirmPersistence?.(storingSnapshot)
           if (finalDrainAuthorized) deps.finalDrainRegistry?.complete(data.document)
           return
         }
@@ -3173,6 +3174,7 @@ export async function main(): Promise<void> {
   let server: HocuspocusServer<CollabContext> | null = null
   let redisStoreExtension: DocumentsCollabRedisExtension | null = null
   const savingConnections = new WeakSet<object>()
+  const storeConfirmations = new WeakMap<onStoreDocumentPayload<CollabContext>, (snapshot: Y.Snapshot) => void>()
   const closeRoomConnectionsForContentReset = (documentName: string): void => {
     if (server) closeCollabRoomConnectionsForContentReset(server.hocuspocus, documentName)
   }
@@ -3357,6 +3359,7 @@ export async function main(): Promise<void> {
         documentName: data.documentName,
         context: data.lastContext,
         document: data.document,
+        confirmPersistence: storeConfirmations.get(data),
       })
     },
     async onStateless(data: onStatelessPayload) {
@@ -3381,14 +3384,22 @@ export async function main(): Promise<void> {
           documentName: data.documentName,
           document: data.document,
           context,
-          store: () => runtime.storeDocumentHooks(data.document, {
-            instance: runtime,
-            document: data.document,
-            documentName: data.documentName,
-            clientsCount: data.document.getConnectionsCount(),
-            lastContext: context,
-            lastTransactionOrigin: { source: 'local', context },
-          }, true),
+          store: async (confirmPersistence) => {
+            const payload: onStoreDocumentPayload<CollabContext> = {
+              instance: runtime,
+              document: data.document,
+              documentName: data.documentName,
+              clientsCount: data.document.getConnectionsCount(),
+              lastContext: context,
+              lastTransactionOrigin: { source: 'local', context },
+            }
+            storeConfirmations.set(payload, confirmPersistence)
+            try {
+              await runtime.storeDocumentHooks(data.document, payload, true)
+            } finally {
+              storeConfirmations.delete(payload)
+            }
+          },
         })
         respond(saved)
       } finally {

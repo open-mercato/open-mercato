@@ -135,7 +135,7 @@ This catalog indexes 155 focused lessons. Route the task first, then read only r
 
 ### integration
 
-- [Documents module: collaboration runtime and data exposure](lessons/a-collaboration-sidecar-runs-outside-the-app-runtime.md) — area:integration,backend-ui,module-data; module:documents,search,auth; topic:realtime,access-control,data-scoping
+- [Documents module: collaboration runtime and data exposure](lessons/a-collaboration-sidecar-runs-outside-the-app-runtime.md) — area:integration,backend-ui,module-data; module:documents,search,auth; topic:realtime,access-control,data-scoping,durable-saves
 - [Akeneo base-field imports must not fall back across locales or channels](lessons/akeneo-base-field-imports-must-not-fall-back-across.md) — area:integration,debugging; module:data_sync,catalog; topic:data-import,data-scoping,testing
 - [Akeneo media identifiers can be slash-delimited path params](lessons/akeneo-media-identifiers-can-be-slash-delimited-path.md) — area:integration; module:data_sync,cli; topic:data-import,media
 - [Akeneo variant reuse must be scoped to the current product, not global SKU matches](lessons/akeneo-variant-reuse-must-be-scoped-to-the-current.md) — area:integration,debugging; module:catalog,data_sync; topic:data-import,data-scoping

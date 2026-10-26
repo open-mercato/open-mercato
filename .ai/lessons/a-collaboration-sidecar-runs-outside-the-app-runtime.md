@@ -2,7 +2,7 @@
 title: "Documents module: collaboration runtime and data exposure"
 modules: ["documents","search","auth"]
 areas: ["integration","backend-ui","module-data"]
-topics: ["realtime","access-control","data-scoping"]
+topics: ["realtime","access-control","data-scoping","durable-saves"]
 ---
 
 # Documents module: collaboration runtime and data exposure
@@ -46,3 +46,11 @@ topics: ["realtime","access-control","data-scoping"]
 **Rule**: Resolve names server-side in the GET route (it already imports `User`/`Role` from auth): batch `findWithDecryption(em, User, { id: { $in }, tenantId, $or: [{ organizationId: null }, { organizationId }] })` — email is encrypted, so it must be decrypted — plus `em.find(Role, { id: { $in }, tenantId })`, and return `principalLabel`/`principalSecondary` (the client `normalizeShare` already prefers `principalLabel`). Never surface a bare UUID as a person's identity in UI.
 
 **Applies to**: any picker or list that renders principals. For long values, wrap flex children in `min-w-0 flex-1` with `truncate` and `shrink-0` the trailing controls — an `Input` next to a clear button overflows its grid cell without a `min-w-0 flex-1` wrapper.
+
+## Durable save confirmation belongs to one store attempt
+
+**Context**: Named versions must await persistence of pending editor changes. Hocuspocus can swallow a skipped store, including Redis lock contention, so completion of `storeDocumentHooks` does not itself prove persistence.
+
+**Rule**: Confirm the exact expedited store payload only after successful materialization, persistence, and collaboration-generation checks. A historical durable snapshot can still match the room while an authoritative restore has changed the database and its invalidation event is delayed. An unrelated successful autosave also cannot confirm the requested attempt. Keep confirmation callbacks scoped to the payload and remove them in `finally` so delayed retries cannot supply proof to another request.
+
+**Evidence**: Issue #7839 and `collabServer.test.ts` cover a previous successful save followed by a skipped store and an unrelated autosave followed by a skipped requested store. Both must fail closed.

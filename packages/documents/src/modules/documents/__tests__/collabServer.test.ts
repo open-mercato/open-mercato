@@ -106,15 +106,16 @@ describe('named version durable collaboration barrier', () => {
       _em: unknown, _id: string, _scope: unknown,
       _input: { yjsState: Buffer; contentHtml?: string; contentText?: string },
     ) => ({ updatedAt: '2026-07-10T10:00:01.000Z', collaborationGeneration: 1 }))
+    const loadContent = jest.fn(async () => ({
+      yjsState: null, contentHtml: '',
+      updatedAt: '2026-07-10T10:00:00.000Z', collaborationGeneration: 1,
+    }))
     let invalidated = false
     const hooks = createCollabHooks({
       verifyToken: () => null,
       authorizeContext,
       resolveContainer: async () => ({ resolve: () => ({}) }),
-      loadContent: async () => ({
-        yjsState: null, contentHtml: null,
-        updatedAt: '2026-07-10T10:00:00.000Z', collaborationGeneration: 1,
-      }),
+      loadContent,
       initializeYjsState: async () => null,
       persistContent,
       isRoomInvalidated: () => invalidated,
@@ -125,9 +126,11 @@ describe('named version durable collaboration barrier', () => {
     const paragraph = new Y.XmlElement('paragraph')
     paragraph.insert(0, [text])
     document.getXmlFragment('default').insert(0, [paragraph])
-    const store = () => hooks.onStoreDocument({ documentName: DOCUMENT_ID, context, document })
+    const store = (confirmPersistence?: (snapshot: Y.Snapshot) => void) => hooks.onStoreDocument({
+      documentName: DOCUMENT_ID, context, document, confirmPersistence,
+    })
     const save = () => hooks.saveContent({ documentName: DOCUMENT_ID, context, document, store })
-    return { document, hooks, persistContent, authorizeContext, store, save, invalidate: () => { invalidated = true } }
+    return { document, hooks, loadContent, persistContent, authorizeContext, store, save, invalidate: () => { invalidated = true } }
   }
 
   it('waits for the database write and materializes the latest body before acknowledging', async () => {
@@ -161,11 +164,43 @@ describe('named version durable collaboration barrier', () => {
     test.document.destroy()
   })
 
+  it('rejects a skipped store after a previous save and an authoritative content replacement', async () => {
+    const test = await fixture()
+    try {
+      await expect(test.save()).resolves.toBe(true)
+      test.loadContent.mockResolvedValue({
+        yjsState: null, contentHtml: '<p>Restored content</p>',
+        updatedAt: '2026-07-10T10:00:02.000Z', collaborationGeneration: 2,
+      })
+      const store = jest.fn(async () => undefined)
+      await expect(test.hooks.saveContent({
+        documentName: DOCUMENT_ID, document: test.document, context, store,
+      })).resolves.toBe(false)
+      expect(store).toHaveBeenCalledTimes(1)
+      expect(test.persistContent).toHaveBeenCalledTimes(1)
+    } finally {
+      test.document.destroy()
+    }
+  })
+
+  it('does not borrow an unrelated autosave confirmation when the requested store is skipped', async () => {
+    const test = await fixture()
+    try {
+      await expect(test.hooks.saveContent({
+        documentName: DOCUMENT_ID, document: test.document, context,
+        store: async () => { await test.store() },
+      })).resolves.toBe(false)
+      expect(test.persistContent).toHaveBeenCalledTimes(1)
+    } finally {
+      test.document.destroy()
+    }
+  })
+
   it('accepts a durable superset containing a concurrent collaborator edit', async () => {
     const test = await fixture()
     const saved = await test.hooks.saveContent({
       documentName: DOCUMENT_ID, document: test.document, context,
-      store: async () => {
+      store: async (confirmPersistence) => {
         const collaborator = new Y.Doc()
         Y.applyUpdate(collaborator, Y.encodeStateAsUpdate(test.document))
         const paragraph = new Y.XmlElement('paragraph')
@@ -175,7 +210,7 @@ describe('named version durable collaboration barrier', () => {
         collaborator.getXmlFragment('default').push([paragraph])
         Y.applyUpdate(test.document, Y.encodeStateAsUpdate(collaborator))
         collaborator.destroy()
-        await test.store()
+        await test.store(confirmPersistence)
       },
     })
     expect(saved).toBe(true)
@@ -206,7 +241,7 @@ describe('named version durable collaboration barrier', () => {
     const test = await fixture()
     await expect(test.hooks.saveContent({
       documentName: DOCUMENT_ID, document: test.document, context,
-      store: async () => { await test.store(); test.invalidate() },
+      store: async (confirmPersistence) => { await test.store(confirmPersistence); test.invalidate() },
     })).resolves.toBe(false)
     test.document.destroy()
   })
