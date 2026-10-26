@@ -11,6 +11,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentDefinitionHash } from '../trace/definitionHash'
 import { type AgentResult } from '../../data/validators'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
@@ -184,6 +185,7 @@ export class OpenCodeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
+      definitionHash: resolveAgentDefinitionHash(entry),
     })
 
     if (ctx.onRunPersisted) {

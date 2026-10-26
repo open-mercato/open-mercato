@@ -5,6 +5,7 @@ import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assist
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentDefinitionHash } from '../trace/definitionHash'
 import {
   type AgentResult,
   type CitableSource,
@@ -124,6 +125,7 @@ export class NativeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
+      definitionHash: resolveAgentDefinitionHash(entry),
     })
 
     if (ctx.onRunPersisted) {

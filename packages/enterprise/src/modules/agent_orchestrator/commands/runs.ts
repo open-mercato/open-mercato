@@ -49,6 +49,8 @@ const createAgentRunSchema = z.object({
    * leave the column null.
    */
   agentType: agentTypeSchema.nullable().optional(),
+  /** Display version stamped on the run: an explicit published version or `sha256:<first 16 hex>` of the definition hash. */
+  agentVersion: z.string().min(1).max(50).nullable().optional(),
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
@@ -118,6 +120,7 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
       stepId: input.stepId ?? null,
       invocationId: input.invocationId ?? null,
       agentType: input.agentType ?? null,
+      agentVersion: input.agentVersion ?? null,
     })
     em.persist(run)
     await em.flush()

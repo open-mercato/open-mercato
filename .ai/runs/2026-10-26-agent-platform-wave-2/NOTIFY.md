@@ -40,3 +40,6 @@
 
 ## 2026-10-26T21:50:00Z — checkpoint 3 (Steps 2.6..2.8, 3.1)
 - Phase 2 closed. Unit suites, typechecks, lint green. `yarn build:app` caught an observer typing error missed by the typecheck script → `1.3-review-fix`. Ephemeral Playwright caught an OpenAPI lookup bug in TC-AI-RUN-TRACE-016 → `2.8-review-fix`. TC-AI-CONVERSATIONS-001 cross-org case fails in its direct-DB fixture (FK on tenant) — environment, re-check in CI.
+
+## 2026-10-26T20:25:06Z — Step 3.2 deviation
+- Step 3.2 deviation: file-agent definition hashes are computed at load time instead of being emitted by the generator (avoids a generated-manifest contract change and 64-hex digests in a committed file); spec changelog to record it in Step 5.2.
