@@ -18,7 +18,7 @@ Registry](2026-09-06-contractor-registry.md) (`ContractorBankAccount`
 document's `BankAccount`, which is the tenant's own account — see
 Design decisions), Event Storming record (`Claude
 outputs/eventstormingfinal.md`, workshop 2026-09-05, Iteo Katowice,
-facylitator Mariusz Gil, ekspert domenowy Mateusz Duda) — the
+facylitator Mariusz Gil, ekspert domenowy) — the
 validated scope this document follows, narrower than SPEC-024's own
 "Cash & Bank Management" epic (see TLDR and the Skeleton/Open
 Questions this draft resolves, recorded in the Changelog).
@@ -1609,7 +1609,7 @@ workflow (Step 3), after discovering that SPEC-024's "Cash & Bank
 Management" epic (§4.1–4.4: Bank Account Management, Bank
 Reconciliation, Cash Flow Management, Payment Processing) does not
 match what was actually discussed at the Event Storming workshop
-(2026-09-05, ekspert domenowy Mateusz Duda) — confirmed by a full,
+(2026-09-05, ekspert domenowy) — confirmed by a full,
 three-file re-read (`eventstormingfinal.md`, `eventstormingpodsumowanie.md`,
 `eventstormingwall.html`) finding zero mentions of a bank-account
 subsystem, cash-flow forecasting, or payment processing outside
@@ -1938,7 +1938,7 @@ schema. Not yet reviewed by a maintainer.
 - **Context.** #5663 now gives every `JournalEntryLine` its own `currencyId`,
   `exchangeRate` and `amountCurrency`, a `LedgerAccount` an optional
   `currencyId`, and lets an entry mix currencies while it balances in the base
-  currency. The controller (Mateusz Duda, incro, e-mail of 2026-10-23)
+  currency. The controller (e-mail of 2026-10-23)
   confirmed that each bank account is its own ledger account and that one entry
   may hold lines in different currencies.
 - **Changed.** `BankAccount` is tied to a ledger account of the same currency
