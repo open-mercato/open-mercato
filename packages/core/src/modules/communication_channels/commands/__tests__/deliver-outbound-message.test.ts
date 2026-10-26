@@ -114,9 +114,9 @@ describe('deliverOutboundMessageCommand — idempotency (no double-send)', () =>
     mockFindOne.mockReset()
     mockFindOne
       .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hi', bodyFormat: 'text' } as never) // message
+      .mockResolvedValueOnce({ id: 'link-1', deliveryStatus: 'sent', externalConversationId: 'conv-1' } as never) // existing already-sent link
       .mockResolvedValueOnce({ messageThreadId: 'thread-1', channelId: 'ch-1', externalConversationId: 'conv-1', externalThreadRef: 'ext-1' } as never) // thread mapping
       .mockResolvedValueOnce({ id: 'ch-1', isActive: true, providerKey: 'gmail', channelType: 'email', userId: 'u-1', credentialsRef: null } as never) // channel
-      .mockResolvedValueOnce({ id: 'link-1', deliveryStatus: 'sent' } as never) // existing already-sent link
 
     const sendMessage = jest.fn()
     const result = await deliverOutboundMessageCommand.execute(
@@ -184,6 +184,7 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     mockFindOne.mockReset()
     mockFindOne
       .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
+      .mockResolvedValueOnce(link as never)
       .mockResolvedValueOnce({
         messageThreadId: 'thread-1',
         channelId: 'ch-1',
@@ -191,7 +192,6 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
         externalThreadRef: 'ext-ref-1',
       } as never)
       .mockResolvedValueOnce(channel as never)
-      .mockResolvedValueOnce(link as never)
   }
 
   beforeEach(() => {
@@ -221,6 +221,26 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     // replies to — so inbound JWZ thread-matching + sent-folder dedup can resolve
     // this outbound message.
     expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('ext-1')
+  })
+
+  it('does not persist the adapter rawMessage buffer on the link channel metadata (#7099)', async () => {
+    const link: Record<string, unknown> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
+    const { ctx, channel, adapter } = makeCtx({ sendResult: { status: 'sent', externalMessageId: 'ext-1' } })
+    adapter.convertOutbound.mockResolvedValueOnce({
+      content: { raw: 'x' },
+      metadata: { rawMessage: Buffer.from('MIME-Version: 1.0'), messageId: '<rfc-1@example.com>', to: ['a@example.com'] },
+    } as never)
+    primeFinds(channel, link)
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const sendArgs = adapter.sendMessage.mock.calls[0] as unknown as [{ metadata: Record<string, unknown> }]
+    expect(sendArgs[0].metadata.rawMessage).toBeInstanceOf(Buffer)
+    expect(link.channelMetadata).not.toHaveProperty('rawMessage')
+    expect(link.channelMetadata).toMatchObject({ messageId: 'rfc-1@example.com', to: ['a@example.com'] })
   })
 
   it('carries the provider timestamp on the emitted message.sent payload (#6095)', async () => {
@@ -367,6 +387,13 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         bodyFormat: 'markdown',
       } as never) // the message being delivered
       .mockResolvedValueOnce({
+        id: 'link-1',
+        externalConversationId: 'conv-1',
+        deliveryStatus: 'pending',
+        channelPayload: null,
+        channelMetadata: linkChannelMetadata,
+      } as never) // this message's own link
+      .mockResolvedValueOnce({
         messageThreadId: 'thread-1',
         channelId: 'ch-1',
         externalConversationId: 'conv-1',
@@ -381,12 +408,6 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         credentialsRef: null,
         status: 'connected',
       } as never) // channel
-      .mockResolvedValueOnce({
-        id: 'link-1',
-        deliveryStatus: 'pending',
-        channelPayload: null,
-        channelMetadata: linkChannelMetadata,
-      } as never) // this message's own link
   }
 
   beforeEach(() => {
@@ -472,6 +493,13 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         bodyFormat: 'markdown',
       } as never)
       .mockResolvedValueOnce({
+        id: 'link-1',
+        externalConversationId: 'conv-1',
+        deliveryStatus: 'pending',
+        channelPayload: null,
+        channelMetadata: { replyToExternalId: 'attacker-controlled-snowflake' },
+      } as never)
+      .mockResolvedValueOnce({
         messageThreadId: 'thread-1',
         channelId: 'ch-1',
         externalConversationId: 'conv-1',
@@ -485,13 +513,6 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         userId: 'u-1',
         credentialsRef: null,
         status: 'connected',
-      } as never)
-      .mockResolvedValueOnce({
-        id: 'link-1',
-        deliveryStatus: 'pending',
-        channelPayload: null,
-        // `send-as-user` merges caller-supplied channelMetadata into the link.
-        channelMetadata: { replyToExternalId: 'attacker-controlled-snowflake' },
       } as never)
       .mockResolvedValueOnce({
         id: 'link-parent',
