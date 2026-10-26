@@ -78,9 +78,10 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
       endpoint: props.endpoint,
     })
     if (!result.ok) {
-      // Network / timeout / 4xx / 5xx — surface the envelope and rewind the
-      // card to the preview phase so the operator can read the error,
-      // edit the proposal upstream, or retry.
+      // Network / timeout / 4xx / 5xx — rewind the card to the preview
+      // phase, which renders the envelope inline (e.g. the 412
+      // `stale_version` refusal with the stale rows) so the operator can
+      // read the error, ask for a re-proposal, or retry.
       setConfirmError(result.error)
       setPhase('preview')
       await refresh()
@@ -245,8 +246,6 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         </div>
       )}
 
-      {confirmError && !unavailable ? <ConfirmationErrorAlert error={confirmError} /> : null}
-
       {expanded && hasReviewDetails ? (
         <div className="mt-3 rounded-md border border-border bg-muted/20 p-3" data-ai-mutation-preview-details>
           <FieldDiffCard
@@ -254,6 +253,10 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
             records={action?.records ?? null}
           />
         </div>
+      ) : null}
+
+      {confirmError && !unavailable ? (
+        <ConfirmationErrorAlert error={confirmError} records={action?.records ?? null} />
       ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">
