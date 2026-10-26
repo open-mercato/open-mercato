@@ -160,8 +160,8 @@ independent implementations of the same pattern, not a shared library
    on the unconfirmed assumption), which the review correctly flagged
    as backwards: an implementer would have had to redo commands/API/UI
    if the confirmed answer differed. See Implementation Plan.
-   **Confirmed by the domain expert, 2026-10-16.** Mateusz Duda
-   (Financial Controller, incro), by email: for a cancellation without a
+   **Confirmed by the domain expert, 2026-10-16.** The controller,
+   by email: for a cancellation without a
    refund and with the services stopped, recognizing the rest of the RMP
    balance on the cancellation date is correct. The earlier confirmation
    of 2026-09-25 was given by the spec author, Mikołaj Przybysz; the
@@ -480,7 +480,7 @@ independent implementations of the same pattern, not a shared library
     lets an accountant release the hold — is Phase 2 (Out of scope).
     Until then an accountant posts the correction in the ledger by hand
     and the frozen deferral stays visible with its flag. **Confirmed by the domain expert,
-    2026-10-16** (Mateusz Duda, Financial Controller, incro, by email):
+    2026-10-16** (the controller, by email):
     freezing until the accountant decides is right. The accountant
     corrects by hand because a correction is a new document; and when the
     correction also affects the remaining schedule, the accountant
@@ -554,8 +554,8 @@ independent implementations of the same pattern, not a shared library
       'CURRENT_DATE'`, and the UI shows the two choices in an `Alert`
       with a confirm action. This replaces the first version of this
       round, which fell back to the current date automatically.
-      **Confirmed by the domain expert, 2026-10-16** (Mateusz Duda,
-      Financial Controller, incro, by email): the accountant decides. In
+      **Confirmed by the domain expert, 2026-10-16** (the controller,
+      by email): the accountant decides. In
       the year, (a) correct the revenue and spread it evenly across the
       periods, or (b) correct in an open period, with the part that
       belongs to a future year booked as RMP in that year. After the year
@@ -1574,7 +1574,7 @@ compliant" as requiring every business question to be pre-answered.
 
 ### Re-check — 2026-10-16 (domain-expert answers)
 
-Mateusz Duda (Financial Controller, incro) answered the three open questions
+The controller answered the three open questions
 by email on 2026-10-16: the correction freeze (Design decision 14) is
 confirmed, the locked-month choice stays with the accountant with an added
 manual option (c) (Design decision 15), and the no-refund early stop is
@@ -1734,7 +1734,7 @@ correction freeze with no release command in Phase 1 (Design decision 14) —
 the question for the domain expert is whether to freeze, warn only, or give the
 accountant a release/adjust command.
 
-### 2026-10-16 — Domain-expert answers (Mateusz Duda, Financial Controller, incro)
+### 2026-10-16 — Domain-expert answers (the controller's e-mail of 2026-10-16)
 
 The three questions sent on 2026-10-15 were answered by email:
 
