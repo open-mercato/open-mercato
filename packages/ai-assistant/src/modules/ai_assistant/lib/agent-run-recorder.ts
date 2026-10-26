@@ -5,6 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { AiAgentRun, AiAgentRunStep, AiAgentRunToolCall } from '../data/entities'
+import { emitAiAssistantEvent, type AiAgentRunCompletedPayload } from '../events'
 import type {
   AiAgentCallObserver,
   AiAgentCallSettings,
@@ -360,15 +361,49 @@ function buildToolCallRow(
   }
 }
 
-function reportRecorderError(error: unknown, payload: AgentRunRecordPayload): void {
+function reportRecorderError(
+  error: unknown,
+  payload: AgentRunRecordPayload,
+  code = 'ai_assistant.agent_run_record_failed',
+): void {
   try {
     getTelemetryRuntime()?.reportError(error, {
       module: 'ai_assistant',
-      code: 'ai_assistant.agent_run_record_failed',
+      code,
       attributes: { agentId: payload.agentId, channel: payload.channel, status: payload.status },
     })
   } catch {
     return
+  }
+}
+
+export const AGENT_RUN_COMPLETED_EVENT_ID = 'ai_assistant.agent_run.completed' as const
+
+export function buildAgentRunCompletedPayload(payload: AgentRunRecordPayload): AiAgentRunCompletedPayload {
+  return {
+    runId: payload.runId,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+    agentId: payload.agentId,
+    channel: payload.channel,
+    status: payload.status,
+    conversationId: payload.conversationId,
+  }
+}
+
+async function emitAgentRunCompleted(payload: AgentRunRecordPayload): Promise<void> {
+  try {
+    await emitAiAssistantEvent(AGENT_RUN_COMPLETED_EVENT_ID, { ...buildAgentRunCompletedPayload(payload) }, {
+      persistent: true,
+    })
+  } catch (error) {
+    logger.warn('agent_run.completed emit failed (run persisted)', {
+      agentId: payload.agentId,
+      channel: payload.channel,
+      status: payload.status,
+      err: error,
+    })
+    reportRecorderError(error, payload, 'ai_assistant.agent_run_completed_emit_failed')
   }
 }
 
@@ -377,7 +412,9 @@ function reportRecorderError(error: unknown, payload: AgentRunRecordPayload): vo
  * calls) in a single transaction on a forked EM. MUST NEVER throw: failures
  * are logged and reported, and the agent turn continues unaffected. Rows are
  * created through the EM so the encryption subscriber protects every column
- * declared in `encryption.ts`. Returns true when the run was written.
+ * declared in `encryption.ts`. After the transaction commits it emits
+ * `ai_assistant.agent_run.completed` (ids only, best-effort). Returns true
+ * when the run was written.
  */
 export async function recordAgentRun(
   container: Pick<AwilixContainer, 'resolve'>,
@@ -401,7 +438,6 @@ export async function recordAgentRun(
       }
       await tx.flush()
     })
-    return true
   } catch (error) {
     logger.warn('recordAgentRun failed (turn continues unaffected)', {
       agentId: payload.agentId,
@@ -412,4 +448,6 @@ export async function recordAgentRun(
     reportRecorderError(error, payload)
     return false
   }
+  await emitAgentRunCompleted(payload)
+  return true
 }
