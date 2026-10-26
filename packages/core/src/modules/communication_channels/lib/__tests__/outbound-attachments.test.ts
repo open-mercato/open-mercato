@@ -6,6 +6,7 @@ import {
   OUTBOUND_ATTACHMENTS_MAX_COUNT,
   OUTBOUND_ATTACHMENTS_METADATA_KEY,
   OutboundAttachmentDeliveryError,
+  OutboundAttachmentStorageError,
   loadOutboundAttachments,
   omitOutboundAttachments,
   outboundAttachmentRefsSchema,
@@ -355,6 +356,43 @@ describe('loadOutboundAttachments', () => {
     await expect(
       loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(2), owner }], capabilities: fileSharingCapabilities }),
     ).rejects.toMatchObject({ code: 'attachments_too_large', transient: false })
+  })
+
+  it('retries when the file is still there but its bytes cannot be read from storage', async () => {
+    const { container, readScoped, describeScoped } = createContainer({
+      [uuid(1)]: { fileName: 'order.pdf', mimeType: 'application/pdf', fileSize: 10 },
+    })
+    readScoped.mockRejectedValueOnce(new CrudHttpError(404, { error: 'File not available' }))
+    const outage = loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(1), owner }], capabilities: fileSharingCapabilities })
+    await expect(outage).rejects.toBeInstanceOf(OutboundAttachmentStorageError)
+    await expect(outage).rejects.toMatchObject({ code: 'attachment_storage_unavailable', transient: true })
+    expect(describeScoped).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: uuid(1), expectedOwner: owner }))
+  })
+
+  it('keeps the refusal permanent when the service cannot describe a file', async () => {
+    const readScoped = jest.fn(async () => {
+      throw new CrudHttpError(404, { error: 'File not available' })
+    })
+    const service = { readScoped } as unknown as AttachmentService
+    await expect(
+      loadOutboundAttachments({
+        container: { resolve: (name: string) => (name === 'attachmentService' ? service : undefined) },
+        scope,
+        stored: [{ attachmentId: uuid(1), owner }],
+        capabilities: fileSharingCapabilities,
+      }),
+    ).rejects.toMatchObject({ code: 'attachment_unavailable', transient: false })
+  })
+
+  it('lets a database failure in the storage check through so the delivery is retried', async () => {
+    const { container, readScoped, describeScoped } = createContainer({
+      [uuid(1)]: { fileName: 'order.pdf', mimeType: 'application/pdf', fileSize: 10 },
+    })
+    readScoped.mockRejectedValueOnce(new CrudHttpError(404, { error: 'File not available' }))
+    describeScoped.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
+    await expect(
+      loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(1), owner }], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ code: '40P01' })
   })
 
   it('lets a database failure through so the delivery is retried', async () => {

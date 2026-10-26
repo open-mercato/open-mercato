@@ -138,6 +138,21 @@ export class OutboundAttachmentDeliveryError extends Error {
 }
 
 /**
+ * Raised at delivery time when the attachment row is still readable but its
+ * bytes are not: the attachments service reports a storage read failure as a
+ * missing file, and a storage outage must not fail the message for good.
+ * `transient: true` makes the worker retry the delivery.
+ */
+export class OutboundAttachmentStorageError extends Error {
+  readonly transient = true
+  readonly code = 'attachment_storage_unavailable'
+  constructor() {
+    super('[internal] outbound attachment bytes could not be read from storage (attachment_storage_unavailable)')
+    this.name = 'OutboundAttachmentStorageError'
+  }
+}
+
+/**
  * The attachments service answers 401/403/404 when the actor may not read the
  * file or it is gone; anything else (a database or configuration failure) is
  * not a verdict on the file and must reach the caller unchanged.
@@ -302,8 +317,9 @@ export async function loadOutboundAttachments(input: {
         forceDownload: true,
       })
     } catch (error) {
-      if (isAttachmentRefused(error)) throw new OutboundAttachmentDeliveryError('attachment_unavailable')
-      throw error
+      if (!isAttachmentRefused(error)) throw error
+      if (await isAttachmentStillDescribable(attachmentService, ref, auth)) throw new OutboundAttachmentStorageError()
+      throw new OutboundAttachmentDeliveryError('attachment_unavailable')
     }
     if (!isAllowedMimeType(capabilities, file.mimeType)) {
       throw new OutboundAttachmentDeliveryError('attachment_unavailable')
@@ -322,6 +338,26 @@ export async function loadOutboundAttachments(input: {
     })
   }
   return out
+}
+
+/**
+ * After `readScoped` refused a file, tell a missing or re-parented file apart
+ * from bytes the storage could not return: `describeScoped` runs the same
+ * checks without touching storage. A service without it keeps the refusal.
+ */
+async function isAttachmentStillDescribable(
+  attachmentService: AttachmentService,
+  ref: StoredOutboundAttachment,
+  auth: NonNullable<AuthContext>,
+): Promise<boolean> {
+  if (!attachmentService.describeScoped) return false
+  try {
+    await attachmentService.describeScoped({ attachmentId: ref.attachmentId, auth, expectedOwner: ref.owner })
+    return true
+  } catch (error) {
+    if (isAttachmentRefused(error)) return false
+    throw error
+  }
 }
 
 /**

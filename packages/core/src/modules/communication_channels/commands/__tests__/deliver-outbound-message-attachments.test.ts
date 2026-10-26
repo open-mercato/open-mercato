@@ -35,7 +35,7 @@ const ORG = '550e8400-e29b-41d4-a716-446655440030'
 const ATTACHMENT_ID = '550e8400-e29b-41d4-a716-446655440040'
 const OWNER = { entityId: 'purchase_orders:purchase_order', recordId: 'po-1' }
 
-function makeCtx(options: { fileSharing?: boolean; readScoped?: jest.Mock }) {
+function makeCtx(options: { fileSharing?: boolean; readScoped?: jest.Mock; describeScoped?: jest.Mock }) {
   const em: any = {
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
@@ -64,7 +64,9 @@ function makeCtx(options: { fileSharing?: boolean; readScoped?: jest.Mock }) {
         if (name === 'channelAdapterRegistry') return { get: () => adapter }
         if (name === 'integrationCredentialsService') return { resolve: async () => ({}) }
         if (name === 'integrationLogService') return { error: jest.fn() }
-        if (name === 'attachmentService') return { readScoped }
+        if (name === 'attachmentService') {
+          return options.describeScoped ? { readScoped, describeScoped: options.describeScoped } : { readScoped }
+        }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },
@@ -152,6 +154,31 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
     expect(result).toMatchObject({ status: 'failed', transient: false })
     expect(adapter.sendMessage).not.toHaveBeenCalled()
     expect(link.deliveryStatus).toBe('failed')
+  })
+
+  it('keeps a storage read failure transient when the attachment itself is still there', async () => {
+    const link = pendingLink()
+    const readScoped = jest.fn(async () => {
+      throw new CrudHttpError(404, { error: 'File not available' })
+    })
+    const describeScoped = jest.fn(async () => ({
+      id: ATTACHMENT_ID,
+      fileName: 'order.pdf',
+      mimeType: 'application/pdf',
+      fileSize: 14,
+      partitionCode: 'privateAttachments',
+    }))
+    const { ctx, adapter } = makeCtx({ readScoped, describeScoped })
+    primeFinds(link)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(describeScoped).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: ATTACHMENT_ID, expectedOwner: OWNER }))
+    expect(result).toMatchObject({ status: 'failed', transient: true })
+    expect(adapter.sendMessage).not.toHaveBeenCalled()
   })
 
   it('keeps a database failure while reading an attachment transient so the worker retries', async () => {
