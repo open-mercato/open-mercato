@@ -2083,6 +2083,7 @@
   "staff.timesheets.errors.notAssignee": "Only the current assignee can release this task.",
   "staff.timesheets.errors.notAssigner": "Only active assigners of this project can claim tasks.",
   "staff.timesheets.errors.notOwner": "You can only manage your own time entries.",
+  "staff.timesheets.errors.outsideAssignmentWindow": "This date is outside your assignment to this project.",
   "staff.timesheets.errors.projectCodeDuplicate": "A project with this code already exists.",
   "staff.timesheets.errors.projectCurrencyLocked": "This project has time entries frozen in a closed report. Unlock those reports before changing the currency.",
   "staff.timesheets.errors.projectNotFound": "Time project not found or not accessible.",

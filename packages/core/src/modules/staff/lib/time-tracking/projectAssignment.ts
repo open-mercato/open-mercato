@@ -33,6 +33,19 @@ export function toDayIndex(value: unknown): number | null {
 }
 
 /**
+ * An entry date is a calendar day the client sent as `YYYY-MM-DD`, which
+ * `z.coerce.date()` turns into UTC midnight — so a Date is read through its UTC
+ * fields here, the same way the grid addresses a cell (D-8).
+ */
+export function toEntryDayIndex(value: unknown): number | null {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()) / MS_PER_DAY
+  }
+  return toDayIndex(value)
+}
+
+/**
  * A membership only grants access inside its assignment window: from
  * `assigned_start_date` until `assigned_end_date` plus the tenant's grace days.
  * A null end date is open-ended and never expires.
