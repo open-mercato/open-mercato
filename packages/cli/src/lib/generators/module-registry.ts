@@ -4624,6 +4624,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           importName: moduleRuntimeImportName,
           members: ['default', 'runtime'],
           fallback: identifier('undefined'),
+          castType: "Module['runtime']",
         }),
       })
     }
@@ -5035,6 +5036,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
           importName: moduleRuntimeImportName,
           members: ['default', 'runtime'],
           fallback: identifier('undefined'),
+          castType: "Module['runtime']",
         }),
       })
     }

@@ -265,9 +265,25 @@ export async function seedInboundMessage(
 }
 
 /**
- * Best-effort delete of a seeded channel via the owner-scoped DELETE route.
- * Safe to call with a null id in `finally`.
+ * Best-effort hard delete of the rows one {@link seedInboundMessage} call created
+ * (thread mapping, channel link, conversation and message). Run it before
+ * {@link deleteChannelIfExists}: the purge is authorized against the live channel,
+ * and disconnecting a channel deliberately retains its conversations and messages.
+ * Safe to call with null ids in `finally`.
  */
+export async function purgeSeededInboundMessage(
+  request: APIRequestContext,
+  token: string | null,
+  channelId: string | null,
+  seeded: { channelLinkId: string; messageId: string; conversationId: string } | null,
+): Promise<void> {
+  if (!token || !channelId || !seeded) return;
+  await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'purge-inbound', channelId, ...seeded },
+  }).catch(() => undefined);
+}
+
 /**
  * Ingest an inbound chat message through the REAL `ingest_inbound_message`
  * command: the stub adapter normalizes the frame and the hub composes the
@@ -325,6 +341,53 @@ export async function ingestInboundChatMessage(
   };
 }
 
+export type InspectedMessageLinks = {
+  links: Array<{
+    id: string;
+    direction: string;
+    providerKey: string;
+    channelType: string;
+    deliveryStatus: string;
+    externalConversationId: string | null;
+  }>;
+  threadMappings: Array<{
+    id: string;
+    messageThreadId: string;
+    channelId: string;
+    externalConversationId: string;
+  }>;
+};
+
+/**
+ * Report the `MessageChannelLink` rows and `ChannelThreadMapping` rows a
+ * platform message carries. No product API exposes them, so this is the only way
+ * to assert that a send really was routed through the hub rather than the
+ * platform sender.
+ */
+export async function inspectMessageChannelLinks(
+  request: APIRequestContext,
+  token: string,
+  messageId: string,
+): Promise<InspectedMessageLinks> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'inspect-message-links', messageId },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (inspect-message-links) should return 200',
+  ).toBe(200);
+  const body = await readJsonSafe<InspectedMessageLinks>(response);
+  return {
+    links: Array.isArray(body?.links) ? body.links : [],
+    threadMappings: Array.isArray(body?.threadMappings) ? body.threadMappings : [],
+  };
+}
+
+/**
+ * Best-effort delete of a seeded channel via the owner-scoped DELETE route.
+ * Safe to call with a null id in `finally`.
+ */
 export async function deleteChannelIfExists(
   request: APIRequestContext,
   token: string | null,
