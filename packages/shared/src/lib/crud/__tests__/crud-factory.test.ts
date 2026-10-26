@@ -1258,7 +1258,7 @@ describe('CRUD Factory', () => {
         {
           module: 'crud',
           code: 'crud.unique_violation',
-          attributes: { requestId: 'req-unique-409', errorName: 'Error', constraint: 'customer_interactions_email_dedupe_uq' },
+          attributes: { requestId: 'req-unique-409', errorName: 'UniqueViolation', constraint: 'customer_interactions_email_dedupe_uq' },
         },
       )
     } finally {
