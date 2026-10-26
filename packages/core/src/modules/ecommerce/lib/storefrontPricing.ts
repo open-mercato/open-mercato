@@ -445,6 +445,19 @@ async function fetchPageRows(
 /**
  * Batched storefront price resolution (Storefront Public API rev 4 §6.1, §6.2, §5.1, §5.2; R13).
  *
+ * **Deliberately NOT repointed onto `catalogBuyerPricingService.resolveLinePrice` (3.4 Part A,
+ * owner decision 2026-10-16, permanent exemption).** That service resolves one line at a time
+ * with no shared cache across the multiple products/variants a single storefront page call
+ * resolves; calling it once per target turned this function's page-level deduplicated
+ * tax-rate/tier lookups into N independent ones, regressing the O(1)-queries-per-page invariant
+ * this header describes (measured: listing query-budget tests 15→21, detail 7-11→16-34, the
+ * "doesn't grow with variant count" test 9→28 — see
+ * `.ai/runs/2026-10-14-ecommerce-release-4-write-side/NOTIFY.md`'s 2026-10-15T00:30:00Z entry).
+ * Before re-attempting this repoint, read that entry and the guard test proving the two paths
+ * still resolve the SAME unit price for equivalent rows:
+ * `ecommerce/lib/__tests__/storefrontPricingEquivalence.test.ts`. A page-batch/shared-cache mode
+ * added to `catalogBuyerPricingService` would be a prerequisite, not a given.
+ *
  * One `CatalogProductPrice` query per page, narrowed by `buildPriceRowFilter`, resolved in memory
  * through `catalogPricingService` so registered resolvers apply. Rows of promotional price kinds overlay the
  * buyer's resolved `priceKindId` (pricing-engine amendment D2a), so a promotion wins by `scorePrice` as in admin;
