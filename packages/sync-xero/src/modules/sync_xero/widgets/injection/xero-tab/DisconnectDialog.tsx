@@ -34,7 +34,7 @@ export function DisconnectDialog({ open, onOpenChange, selectedOrganisationId, i
           .filter((organisation) => organisation.xeroOrganisationId !== selectedOrganisationId)
           .map((organisation) => organisation.name),
       )
-    })
+    }).catch(() => undefined)
     return () => {
       cancelled = true
     }

@@ -57,6 +57,8 @@ export function OrganisationPicker({ open, scope, onOpenChange, save, onSaved }:
       } else {
         setLoadError(call.result?.error ?? t('sync_xero.picker.loadFailed'))
       }
+    }).catch(() => {
+      if (!cancelled) setLoadError(t('sync_xero.picker.loadFailed'))
     })
     return () => {
       cancelled = true
@@ -72,7 +74,7 @@ export function OrganisationPicker({ open, scope, onOpenChange, save, onSaved }:
   )
 
   const submit = React.useCallback(async () => {
-    if (!choice || isSaving || step.kind === 'blocked') return
+    if (!view || !choice || isSaving || step.kind === 'blocked') return
     setIsSaving(true)
     try {
       await save({ xeroOrganisationId: choice, confirmChange: step.kind === 'confirm' ? true : undefined })

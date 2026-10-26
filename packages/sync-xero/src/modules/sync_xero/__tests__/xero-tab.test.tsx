@@ -424,6 +424,39 @@ describe('Xero tab', () => {
     expect(await screen.findByText(enDict['sync_xero.picker.loadFailed'])).toBeTruthy()
   })
 
+  it('shows the load error when the connection request throws', async () => {
+    mockApiCall.mockRejectedValue(new Error('Forbidden'))
+    renderTab()
+    expect(await screen.findByText(enDict['sync_xero.tab.loadFailed'])).toBeTruthy()
+  })
+
+  it('shows the picker load error when the Organisations request throws', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/sync_xero/connection') return { ok: true, status: 200, result: connectionView({}, { organisation: null }) }
+      throw new Error('Network down')
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.tab.chooseOrganisation'] }))
+    expect(await screen.findByText(enDict['sync_xero.picker.loadFailed'])).toBeTruthy()
+  })
+
+  it('still disconnects when the Organisations request of the dialog throws', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/sync_xero/connection') return { ok: true, status: 200, result: connectionView() }
+      throw new Error('Network down')
+    })
+    mockApiCallOrThrow.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { erased: true, revocation: 'confirmed', failureReason: null, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' } },
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.done'], 'success'))
+  })
+
   it('closes the picker and reloads the tab on an optimistic-lock conflict', async () => {
     serve(connectionView({}, { organisation: null }))
     mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Record changed'), { status: 409, code: 'optimistic_lock_conflict' }))

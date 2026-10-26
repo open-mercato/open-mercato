@@ -18,10 +18,15 @@ export function useXeroConnection(): XeroConnectionState {
 
   const reload = React.useCallback(async () => {
     setHasError(false)
-    const call = await apiCall<XeroConnectionView>('/api/sync_xero/connection', undefined, { fallback: null })
-    if (call.ok && call.result) setConnection(call.result)
-    else setHasError(true)
-    setIsLoading(false)
+    try {
+      const call = await apiCall<XeroConnectionView>('/api/sync_xero/connection', undefined, { fallback: null })
+      if (call.ok && call.result) setConnection(call.result)
+      else setHasError(true)
+    } catch {
+      setHasError(true)
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
 
   React.useEffect(() => {
