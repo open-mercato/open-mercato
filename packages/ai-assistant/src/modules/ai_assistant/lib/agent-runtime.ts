@@ -40,6 +40,7 @@ import {
   createModelCallObserverHooks,
   createSynthesizedModelCall,
   describeLanguageModel,
+  notifyPromptResolved,
   observeStreamedObjectEnd,
   readSynthesizedResultMetadata,
   type ModelCallObserverHooks,
@@ -1245,21 +1246,79 @@ export async function composeSystemPrompt(
   organizationId: string | null,
   userId?: string | null,
 ): Promise<string> {
-  const baseFromOverride = await resolveBaseSystemPromptWithOverride(
+  const composed = await composeSystemPromptWithMeta(
+    agent,
+    pageContext,
+    container,
+    tenantId,
+    organizationId,
+    userId,
+  )
+  return composed.prompt
+}
+
+export type PromptOverrideReference = { id: string; version: number }
+
+export type AgentRunPromptContext = {
+  systemPrompt: string
+  promptOverride: PromptOverrideReference | null
+  pageContextHydrated: boolean
+  attachmentCount: number
+  provider: string | null
+  modelId: string | null
+}
+
+async function reportPromptResolved(
+  observe: AiAgentCallObserver | undefined,
+  agentId: string,
+  runContext: AgentRunPromptContext,
+): Promise<void> {
+  await notifyPromptResolved(observe, {
+    agentId,
+    systemPrompt: runContext.systemPrompt,
+    promptOverride: runContext.promptOverride,
+    pageContextHydrated: runContext.pageContextHydrated,
+    attachmentCount: runContext.attachmentCount,
+    provider: runContext.provider,
+    modelId: runContext.modelId,
+  })
+}
+
+export type ComposedSystemPromptWithMeta = {
+  prompt: string
+  promptOverride: PromptOverrideReference | null
+  pageContextHydrated: boolean
+}
+
+export async function composeSystemPromptWithMeta(
+  agent: AiAgentDefinition,
+  pageContext: AgentRequestPageContext | undefined,
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+  userId?: string | null,
+): Promise<ComposedSystemPromptWithMeta> {
+  const resolvedBase = await resolveSystemPromptWithOverrideMeta(
     agent,
     container,
     tenantId,
     organizationId,
   )
+  const baseFromOverride = resolvedBase.prompt
+  const unhydrated: ComposedSystemPromptWithMeta = {
+    prompt: baseFromOverride,
+    promptOverride: resolvedBase.override,
+    pageContextHydrated: false,
+  }
   const resolve = agent.resolvePageContext
-  if (!resolve) return baseFromOverride
+  if (!resolve) return unhydrated
   const entityType = pageContext?.entityType
   const recordId = pageContext?.recordId
-  if (typeof entityType !== 'string' || entityType.length === 0) return baseFromOverride
-  if (typeof recordId !== 'string' || recordId.length === 0) return baseFromOverride
+  if (typeof entityType !== 'string' || entityType.length === 0) return unhydrated
+  if (typeof recordId !== 'string' || recordId.length === 0) return unhydrated
   if (!container) {
     logger.warn('Agent declares resolvePageContext but no container was passed to runAiAgentText; skipping hydration', { agentId: agent.id })
-    return baseFromOverride
+    return unhydrated
   }
   const hydrationInput: AiAgentPageContextInput = {
     entityType,
@@ -1272,12 +1331,12 @@ export async function composeSystemPrompt(
   try {
     const hydrated = await resolve(hydrationInput)
     if (typeof hydrated === 'string' && hydrated.trim().length > 0) {
-      return `${baseFromOverride}\n\n${hydrated}`
+      return { ...unhydrated, prompt: `${baseFromOverride}\n\n${hydrated}`, pageContextHydrated: true }
     }
   } catch (error) {
     logger.error('resolvePageContext failed; continuing without hydration', { agentId: agent.id, err: error })
   }
-  return baseFromOverride
+  return unhydrated
 }
 
 /**
@@ -1290,21 +1349,22 @@ export async function composeSystemPrompt(
  * override lookup (per Step 5.3 spec: "If the repo call throws, log and
  * fall back to the built-in prompt — never fail the chat request").
  */
-async function resolveBaseSystemPromptWithOverride(
+export async function resolveSystemPromptWithOverrideMeta(
   agent: AiAgentDefinition,
   container: AwilixContainer | undefined,
   tenantId: string | null,
   organizationId: string | null,
-): Promise<string> {
+): Promise<{ prompt: string; override: PromptOverrideReference | null }> {
   const base = agent.systemPrompt
-  if (!tenantId || !container) return base
+  const fallback = { prompt: base, override: null }
+  if (!tenantId || !container) return fallback
   let em: EntityManager | null = null
   try {
     em = container.resolve<EntityManager>('em')
   } catch {
     em = null
   }
-  if (!em) return base
+  if (!em) return fallback
   try {
     const repo = new AiAgentPromptOverrideRepository(em)
     const latest = await repo.getLatest(agent.id, {
@@ -1312,12 +1372,15 @@ async function resolveBaseSystemPromptWithOverride(
       organizationId: organizationId ?? null,
     })
     if (!latest || !latest.sections || Object.keys(latest.sections).length === 0) {
-      return base
+      return fallback
     }
-    return composeSystemPromptWithOverride(base, { sections: latest.sections })
+    return {
+      prompt: composeSystemPromptWithOverride(base, { sections: latest.sections }),
+      override: { id: latest.id, version: latest.version },
+    }
   } catch (error) {
     logger.warn('Prompt-override lookup failed; falling back to built-in prompt', { agentId: agent.id, err: error })
-    return base
+    return fallback
   }
 }
 
@@ -1713,7 +1776,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     container: input.container,
   })
 
-  const baseSystemPrompt = await composeSystemPrompt(
+  const composedPrompt = await composeSystemPromptWithMeta(
     agent,
     input.pageContext,
     input.container,
@@ -1722,7 +1785,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
-    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(composedPrompt.prompt, resolvedAttachments), agent),
     agent,
     mutationPolicyOverride,
   )
@@ -1739,6 +1802,15 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     resolveEndUserIdentifier(input.authContext),
   )
   const { model } = resolvedModel
+  const runPromptContext: AgentRunPromptContext = {
+    systemPrompt,
+    promptOverride: composedPrompt.promptOverride,
+    pageContextHydrated: composedPrompt.pageContextHydrated,
+    attachmentCount: resolvedAttachments.length,
+    provider: resolvedModel.providerId ?? null,
+    modelId: resolvedModel.modelId ?? null,
+  }
+  await reportPromptResolved(input.observe, agent.id, runPromptContext)
   const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
   const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
   const sdkCallSettings = toSdkCallSettings(effectiveCallSettings, resolvedModel.providerOptions)
@@ -2292,7 +2364,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     container: input.container,
   })
 
-  const baseSystemPrompt = await composeSystemPrompt(
+  const composedPrompt = await composeSystemPromptWithMeta(
     agent,
     input.pageContext,
     input.container,
@@ -2301,7 +2373,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
-    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(composedPrompt.prompt, resolvedAttachments), agent),
     agent,
     runMutationPolicyOverride,
   )
@@ -2317,6 +2389,15 @@ export async function runAiAgentObject<TSchema = unknown>(
     tenantAllowlistSnapshot,
   )
   const { model } = resolvedObjectModel
+  const runPromptContext: AgentRunPromptContext = {
+    systemPrompt,
+    promptOverride: composedPrompt.promptOverride,
+    pageContextHydrated: composedPrompt.pageContextHydrated,
+    attachmentCount: resolvedAttachments.length,
+    provider: resolvedObjectModel.providerId ?? null,
+    modelId: resolvedObjectModel.modelId ?? null,
+  }
+  await reportPromptResolved(input.observe, agent.id, runPromptContext)
   const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
   const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
   const { providerOptions: objectProviderOptions, ...objectCallSettings } = toSdkCallSettings(effectiveCallSettings)

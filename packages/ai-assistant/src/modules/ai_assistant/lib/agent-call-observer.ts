@@ -14,6 +14,7 @@ import type {
   AiAgentModelCallEndEvent,
   AiAgentModelCallStartEvent,
   AiAgentModelCallUsage,
+  AiAgentPromptResolvedEvent,
 } from './agent-call-contract'
 
 const logger = createLogger('ai_assistant').child({ component: 'agent-call-observer' })
@@ -154,15 +155,28 @@ export function toModelCallEndEvent(
 }
 
 export async function notifyModelCallObserver(
-  hook: 'onModelCallStart' | 'onModelCallEnd',
+  hook: 'onPromptResolved' | 'onModelCallStart' | 'onModelCallEnd',
   invoke: () => void | Promise<void>,
-  logContext: { agentId: string; callId: string },
+  logContext: { agentId: string; callId?: string },
 ): Promise<void> {
   try {
     await invoke()
   } catch (err) {
     logger.error('Model-call observer threw; ignoring', { hook, ...logContext, err })
   }
+}
+
+export async function notifyPromptResolved(
+  observe: AiAgentCallObserver | undefined,
+  event: AiAgentPromptResolvedEvent,
+): Promise<void> {
+  const handler = observe?.onPromptResolved
+  if (!observe || !handler) return
+  await notifyModelCallObserver(
+    'onPromptResolved',
+    () => handler.call(observe, cloneForObserver(event)),
+    { agentId: event.agentId },
+  )
 }
 
 function hasModelCallHooks(observe: AiAgentCallObserver | undefined): observe is AiAgentCallObserver {
