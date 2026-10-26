@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -20,6 +21,7 @@ export async function enrichCustomerDetailResponse<T extends Record<string, unkn
   recordKey: DetailRecordKey,
   context: DetailEnrichmentContext,
 ): Promise<T> {
+  if (getEnrichersForEntity(`customers.${recordKey}`).length === 0) return payload
   const clonedPayload = structuredClone(payload)
   const mainRecord = clonedPayload[recordKey]
   if (!context.tenantId || !context.organizationId || !mainRecord || typeof mainRecord !== 'object' || Array.isArray(mainRecord)) {

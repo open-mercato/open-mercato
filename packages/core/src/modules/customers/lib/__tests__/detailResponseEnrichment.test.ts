@@ -65,3 +65,10 @@ describe('scoped customer detail enrichment', () => {
     await expect(enrichCustomerDetailResponse({ deal: { id: 'record' } }, 'deal', context)).rejects.toThrow('[internal] failed')
   })
 })
+
+
+it('returns the original payload without cloning when no detail enricher is registered', async () => {
+  registerResponseEnrichers([])
+  const payload = { person: { id: 'record' }, localValue: () => 'not cloneable' }
+  expect(await enrichCustomerDetailResponse(payload, 'person', context)).toBe(payload)
+})

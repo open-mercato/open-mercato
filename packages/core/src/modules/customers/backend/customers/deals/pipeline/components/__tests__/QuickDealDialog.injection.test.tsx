@@ -7,12 +7,15 @@ import { registerCoreInjectionWidgets, registerCoreInjectionTables, registerEnab
 import { QuickDealDialog } from '../QuickDealDialog'
 
 const mockCreateCrud = jest.fn(async () => ({ result: { id: 'new-deal' } }))
+const mockFetchStructure = jest.fn(async (..._args: unknown[]) => ({ definitions: [], metadata: {} }))
+jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({ ...jest.requireActual('@open-mercato/ui/backend/utils/customFieldForms'), fetchCustomFieldFormStructure: (...args: unknown[]) => mockFetchStructure(...args) }))
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({ createCrud: (...args: unknown[]) => mockCreateCrud(...args) }))
 jest.mock('@open-mercato/ui/backend/fields/registry', () => ({ ...jest.requireActual('@open-mercato/ui/backend/fields/registry'), loadGeneratedFieldRegistrations: async () => {} }))
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }), usePathname: () => '/backend/customers/deals/pipeline', useSearchParams: () => new URLSearchParams() }))
 
 beforeEach(() => {
   mockCreateCrud.mockClear()
+  mockFetchStructure.mockClear()
   registerCoreInjectionWidgets([])
   registerCoreInjectionTables([])
   registerEnabledModuleIds(['customers', 'extension'])
@@ -55,4 +58,5 @@ it('publishes the canonical headless host without an initial record ID and close
   await act(async () => finish())
   await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   expect(onCreated).toHaveBeenCalledTimes(1)
+  expect(mockFetchStructure).toHaveBeenCalledWith(['customers:customer_deal'], undefined, { bareIds: false })
 })

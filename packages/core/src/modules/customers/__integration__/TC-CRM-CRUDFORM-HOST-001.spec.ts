@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { createPipelineFixture, createPipelineStageFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { assertNativePayload, authenticateCrm, captureCrmWrites, cleanupCrmRecord, cleanupCrmPipeline, readCrmOverview, readPriorities, selectPriority, type CrmKind } from './helpers/umesFixtures'
+import { assertNativePayload, authenticateCrm, captureCrmWrites, cleanupCrmRecord, cleanupCrmPipeline, cleanupCrmFixtures, readCrmOverview, readPriorities, selectPriority, type CrmKind } from './helpers/umesFixtures'
 
 export const integrationMeta = { requiredModules: ['customers', 'example'] }
 
@@ -72,9 +72,11 @@ test.describe('TC-CRM-CRUDFORM-HOST-001: Canonical CRM create hosts', () => {
         await page.screenshot({ path: testInfo.outputPath(`${host.replace(' ', '-')}-after-save.png`), fullPage: true })
       } finally {
         captured.stop()
-        await cleanupCrmRecord(request, token, kind, id)
-        await cleanupCrmPipeline(request, token, stageId, pipelineId)
-        await cleanupCrmPipeline(request, token, null, otherPipelineId)
+        await cleanupCrmFixtures([
+          () => cleanupCrmRecord(request, token, kind, id),
+          () => cleanupCrmPipeline(request, token, stageId, pipelineId),
+          () => cleanupCrmPipeline(request, token, null, otherPipelineId),
+        ])
       }
     })
   }

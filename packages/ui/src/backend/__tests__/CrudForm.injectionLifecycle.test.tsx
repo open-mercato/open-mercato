@@ -8,9 +8,10 @@ import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/re
 import { registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { CrudForm, type CrudFormProps } from '../CrudForm'
 
+const mockPush = jest.fn()
 const mockChrome = { grantedFeatures: ['extension.*'] }
 const mockFetchStructure = jest.fn(async (..._args: unknown[]) => ({ definitions: [], metadata: {} }))
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }))
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, refresh: jest.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }))
 jest.mock('../BackendChromeProvider', () => ({ useBackendChrome: () => ({ payload: mockChrome, isReady: true }) }))
 jest.mock('../confirm-dialog', () => ({ useConfirmDialog: () => ({ confirm: async () => true, ConfirmDialogElement: null }) }))
 jest.mock('../fields/registry', () => ({ loadGeneratedFieldRegistrations: async () => {} }))
@@ -51,6 +52,7 @@ function renderForm(props: Partial<CrudFormProps<Values>> = {}) {
 beforeEach(() => {
   mockChrome.grantedFeatures = ['extension.*']
   mockFetchStructure.mockClear()
+  mockPush.mockClear()
   register([], {})
 })
 afterEach(async () => { await act(async () => register([], {})) })
@@ -352,4 +354,44 @@ it('does not replace an intentionally cleared injected text field with reloaded 
   fireEvent.submit(container.querySelector('form')!)
   await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
   expect(onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ '_extension.priority': '', _extension: { priority: '' } }))
+})
+
+
+it('preserves underscore-prefixed host values without a contributing field widget', async () => {
+  const onSubmit = jest.fn()
+  const initialValues = { name: 'Native', _host: { option: true }, '_host.flat': 'value' }
+  const { container } = renderForm({ injectionSpotId: undefined, initialValues, onSubmit })
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(initialValues, undefined))
+})
+
+it('removes contributed namespaces while preserving unrelated host namespaces', async () => {
+  register([fieldWidget()], { [`${SPOT}:fields`]: 'test.priority' })
+  const onSubmit = jest.fn()
+  const { container, getByLabelText } = renderForm({
+    initialValues: { name: 'Native', _extension: { priority: 'high' }, _host: { option: true }, '_host.flat': 'value' },
+    onSubmit,
+  })
+  await waitFor(() => expect(getByLabelText('Priority')).toHaveValue('high'))
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ name: 'Native', _host: { option: true }, '_host.flat': 'value' }, undefined))
+})
+
+it('does not emit a save failure when the post-save success callback throws', async () => {
+  const onSubmit = jest.fn()
+  const onSubmitSuccess = jest.fn(() => { throw new Error('[internal] refresh failed') })
+  const saveError = jest.fn()
+  window.addEventListener('om:crud-save-error', saveError)
+  try {
+    const { container } = renderForm({ onSubmit, onSubmitSuccess, successRedirect: '/saved' })
+    fireEvent.submit(container.querySelector('form')!)
+    await waitFor(() => expect(onSubmitSuccess).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(container.querySelector('button[type="submit"]')).not.toBeDisabled())
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/saved'))
+    expect(saveError).not.toHaveBeenCalled()
+    expect(container.textContent).not.toContain('refresh failed')
+  } finally {
+    window.removeEventListener('om:crud-save-error', saveError)
+  }
 })

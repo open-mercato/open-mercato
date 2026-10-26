@@ -4,7 +4,6 @@ import type {
   InjectionSpotId,
   InjectionWidgetModule,
   InjectionEventParticipant,
-  InjectionContext,
   InjectionWidgetMetadata,
   WidgetInjectionEventHandlers,
   WidgetBeforeDeleteResult,
@@ -56,6 +55,10 @@ type LoadedWidget = {
 }
 
 export type LoadedInjectionSpotWidget = LoadedWidget
+
+type EventWidget = Omit<InjectionEventParticipant, 'module'> & {
+  module: { metadata: InjectionWidgetMetadata; eventHandlers?: object }
+}
 
 function toLoadedWidget(widget: LoadedInjectionWidget): LoadedWidget {
   return {
@@ -297,12 +300,16 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
 /**
  * Hook to trigger injection widget events imperatively
  */
-export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(
+export function useInjectionSpotEvents<
+  TContext = unknown,
+  TData = unknown,
+  TWidget extends EventWidget = LoadedWidget,
+>(
   spotId: InjectionSpotId,
-  prefetchedWidgets?: InjectionEventParticipant<InjectionContext, Record<string, unknown>>[],
+  prefetchedWidgets?: TWidget[],
   options?: { context?: TContext; triggerOnLoad?: boolean },
 ) {
-  const [widgets, setWidgets] = React.useState<InjectionEventParticipant<InjectionContext, Record<string, unknown>>[]>([])
+  const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
   const loadedParticipantIdsRef = React.useRef(new Set<string>())
   const loadContextRef = React.useRef(options?.context)
   const loadQueueRef = React.useRef<Promise<void>>(Promise.resolve())
@@ -321,7 +328,9 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(
       hasBackendChromePayload,
     )
   }, [backendChromeReady, grantedFeatureList, hasBackendChromePayload, prefetchedWidgets])
-  const eventWidgetSource = prefetchedWidgets === undefined ? widgets : prefetchedEventWidgets
+  const eventWidgetSource = prefetchedWidgets === undefined
+    ? widgets as unknown as TWidget[]
+    : prefetchedEventWidgets
   const eventWidgets = React.useMemo(
     () => eventWidgetSource.filter((widget) => widget.module.metadata.enabled !== false),
     [eventWidgetSource],
@@ -350,10 +359,11 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(
         )
         if (!widget || loadedParticipantIdsRef.current.has(widget.widgetId)) continue
         loadedParticipantIdsRef.current.add(widget.widgetId)
-        if (!widget.module.eventHandlers?.onLoad) continue
+        const onLoad = (widget.module.eventHandlers as WidgetInjectionEventHandlers<TContext, TData> | undefined)?.onLoad
+        if (!onLoad) continue
         try {
           const widgetContext = injectSharedStateIntoContext(loadContextRef.current, widget.moduleId)
-          await widget.module.eventHandlers.onLoad(widgetContext as InjectionContext)
+          await onLoad(widgetContext as TContext)
         } catch (err) {
           logger.error('Error in onLoad for widget', { widgetId: widget.widgetId, err })
         }
@@ -371,22 +381,16 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(
 
   React.useEffect(() => {
     if (!backendChromeReady) {
-      setWidgetsIfChanged<InjectionEventParticipant<InjectionContext, Record<string, unknown>>>(setWidgets, [])
+      setWidgetsIfChanged(setWidgets, [])
       return
     }
-    if (prefetchedWidgets !== undefined) {
-      setWidgetsIfChanged<InjectionEventParticipant<InjectionContext, Record<string, unknown>>>(
-        setWidgets,
-        filterWidgetsByGrantedFeatures(prefetchedWidgets, grantedFeatureList, hasBackendChromePayload),
-      )
-      return
-    }
+    if (prefetchedWidgets !== undefined) return
     let mounted = true
     const load = async () => {
       try {
         const loaded = await loadInjectionWidgetsForSpot(spotId)
         if (!mounted) return
-        setWidgetsIfChanged<InjectionEventParticipant<InjectionContext, Record<string, unknown>>>(
+        setWidgetsIfChanged(
           setWidgets,
           filterWidgetsByGrantedFeatures(
             loaded.map(toLoadedWidget),
@@ -488,7 +492,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(
         let pipelineData = data
         let applyToForm = false
         for (const widget of eventWidgets) {
-          const handler = widget.module.eventHandlers?.[event]
+          const handler = (widget.module.eventHandlers as WidgetInjectionEventHandlers<TContext, TData> | undefined)?.[event]
           if (!handler) continue
           try {
             const widgetContext = injectSharedStateIntoContext(context, widget.moduleId)
@@ -526,7 +530,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(
       let fieldMessages: Array<{ text: string; severity: 'info' | 'warning' | 'error' }> | undefined
 
       for (const widget of eventWidgets) {
-        const eventHandlers = widget.module.eventHandlers
+        const eventHandlers = widget.module.eventHandlers as WidgetInjectionEventHandlers<TContext, TData> | undefined
         // Check operation filter — skip widget if current operation is filtered out
         const operationFilter = eventHandlers?.filter?.operations
         if (operationFilter) {

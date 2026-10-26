@@ -14,8 +14,8 @@ jest.mock('../utils/customFieldDefs', () => ({ ...jest.requireActual('../utils/c
 
 const SPOT = 'crud-form:test.resource'
 type Values = Record<string, unknown>
-function register(handlers: InjectionFieldWidget['eventHandlers']) {
-  const widget: InjectionFieldWidget = { metadata: { id: 'test.resource' }, fields: [], eventHandlers: handlers }
+function register(handlers: InjectionFieldWidget['eventHandlers'], fields: InjectionFieldWidget['fields'] = []) {
+  const widget: InjectionFieldWidget = { metadata: { id: 'test.resource' }, fields, eventHandlers: handlers }
   const entries = [{ moduleId: 'test', key: widget.metadata.id, widgetId: widget.metadata.id, source: 'package' as const, loader: async () => widget }]
   registerCoreInjectionWidgets(entries)
   registerCoreInjectionTables([{ moduleId: 'test', table: { [`${SPOT}:fields`]: widget.metadata.id } }], entries)
@@ -87,7 +87,7 @@ it('advances contributor baseline synchronously across native failure and retry 
       setFormValue('_extension', { ...namespace, version: 'v2' })
       expect(typeof context.t).toBe('function')
     },
-  })
+  }, [{ id: '_extension.priority', type: 'text', label: 'Priority' }])
   const native = jest.fn().mockRejectedValueOnce(new Error('Native failure')).mockResolvedValueOnce(undefined)
   const { container } = renderForm({ initialValues: { id: 'existing-1', name: 'Name', _extension: { version: 'v1' } }, onSubmit: native })
   await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1))

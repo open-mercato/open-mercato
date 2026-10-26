@@ -264,3 +264,21 @@ describe('Injection widget feature gating', () => {
     expect(result.current.widgets).toEqual([])
   })
 })
+
+
+it('preserves rendered widget modules and typed custom-context participants in the public event hook', async () => {
+  setGrantedFeatures([])
+  const Widget = () => <div>Full widget</div>
+  const prefetched = [{ widgetId: 'typed', moduleId: 'test', key: 'typed', module: {
+    metadata: { id: 'typed' }, Widget,
+    eventHandlers: { onLoad: (context: { customerId: string }) => { expect(context.customerId).toBe('customer-1') } },
+  } }]
+  const custom = renderHook(() => useInjectionSpotEvents('typed', prefetched, { context: { customerId: 'customer-1' }, triggerOnLoad: true }))
+  expect(custom.result.current.widgets[0].module.Widget).toBe(Widget)
+  const fullWidgets: LoadedInjectionSpotWidget[] = custom.result.current.widgets
+  expect(fullWidgets).toHaveLength(1)
+  const loaded = visualWidget('loaded', undefined, jest.fn())
+  loadInjectionWidgetsForSpotMock.mockResolvedValue([loaded])
+  const discovered = renderHook(() => useInjectionSpotEvents('discovered'))
+  await waitFor(() => expect(discovered.result.current.widgets[0].module.Widget).toBe(loaded.Widget))
+})

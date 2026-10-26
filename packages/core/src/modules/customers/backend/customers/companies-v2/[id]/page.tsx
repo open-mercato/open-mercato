@@ -615,8 +615,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             }
           />
 
-          {/* UMES footer injection */}
           </CustomerDetailSidebar>
+
+          {/* UMES footer injection */}
 
           <InjectionSpot spotId={extensionPoints.hosts.companyFooter.spotId} context={injectionContext} data={data} />
 

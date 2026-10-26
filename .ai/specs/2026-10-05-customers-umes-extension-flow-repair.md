@@ -99,6 +99,10 @@ All fourteen protected surfaces audited: discovery files, public types, signatur
 
 All additions must preserve the fourteen protected categories in `BACKWARD_COMPATIBILITY.md`. No schema, dependency, route, event, ACL feature, generated export, or existing host removal is planned. Canonical create spots must retain the legacy bridge. Explicit form resource identity must not reorder custom-field `entityIds` or couple version-history display to mutation identity.
 
+The public `useInjectionSpotEvents` hook retains full rendered-widget types for legacy consumers and infers custom participant types for headless callers. Native submit projection removes injected field IDs and only the namespaces owned by those fields; unrelated underscore-prefixed host values are preserved. The replacement handle remains stable for the mounted form so late entity discovery retains edits. Errors in `onSubmitSuccess` are reported as post-save callback failures and do not emit save-failure events.
+
+Customer hosts now publish semantic `entityId` values (`customers.person`, `customers.company`, `customers.deal`) in injection context; custom-field `entityIds` keep their colon-delimited IDs and order. Legacy spot aliases remain bridged. Disabled widgets no longer execute lifecycle events. Detail tab hosts accept `kind: 'group'` contributions as tabs; collisions append contributed content below the native tab instead of replacing it. Person-create hosts may discover the portal-account group, but the widget renders no account content until a record ID exists. Human QA must confirm the create layout, sidebar and tab behavior; native/contributed tab ordering is separately tracked in #7020.
+
 ## Phasing
 
 1. Shared lifecycle participation and compatible form identity/replacement.
@@ -117,6 +121,8 @@ All additions must preserve the fourteen protected categories in `BACKWARD_COMPA
 7. Add genuine browser round trips with self-contained fixture cleanup and extend declared create host coverage. Generate registries/catalog, run ordered configured validation, fix independent review findings, open one PR, attach evidence and release the chain lock.
 
 ## Changelog
+
+- 2026-10-26: Addressed the independent review: restored hook type compatibility, scoped submit projection to injected namespaces, isolated post-save callback errors, stabilized form replacement identity, suppressed recordless portal-account content, corrected quick-deal custom-field identity and create keyboard readiness, and made fixture cleanup attempt every step. Documented semantic context and tab/disabled-widget behavior; optional tab ordering remains in #7020.
 
 - 2026-10-25: Reconciled the shared form with current `main`, retaining base field priority/delete safety/group placement and this repair's deduplicated queued lifecycle. Added real-registry deletion and group/alias regressions; native/injected tab ordering remains separately tracked in #7020.
 - 2026-10-05: Initialized the compatibility repair skeleton under `om-auto-fix-issue`; root-cause analysis completed. Independent GPT-6.1 Sol review confirmed cohesion/compatibility; resolved create navigation timing, child-version retry baselines and embedded deal-create lifecycle before production edits.

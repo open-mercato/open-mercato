@@ -189,7 +189,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     <div className="mx-auto max-w-screen-2xl" onKeyDown={(event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
-        document.getElementById(CONTEXT_ID)?.closest('form')?.requestSubmit()
+        if (!isSubmitting && customFieldsLoaded) document.getElementById(CONTEXT_ID)?.closest('form')?.requestSubmit()
       }
     }}>
       <FormHeader backHref={returnTo} backLabel={tr('customers.deals.create.back', 'Back to deals')} />

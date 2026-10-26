@@ -98,25 +98,43 @@ export async function readCrmOverview(request: APIRequestContext, token: string,
   return { envelope, record, priority }
 }
 
+export async function cleanupCrmFixtures(cleanups: Array<() => Promise<void>>): Promise<void> {
+  const failures: unknown[] = []
+  for (const cleanup of cleanups) {
+    try {
+      await cleanup()
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  expect(failures, 'All CRM fixture cleanup steps succeed').toEqual([])
+}
+
 export async function cleanupCrmRecord(request: APIRequestContext, token: string, kind: CrmKind, id: string | null): Promise<void> {
   if (!id) return
-  const children = await readPriorities(request, token, id)
-  for (const child of children) {
-    const response = await apiRequest(request, 'DELETE', '/api/example/customer-priorities', {
-      token, data: { id: child.id }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: child.updatedAt },
-    })
-    expect(response.ok(), 'Priority fixture cleanup succeeds').toBe(true)
-  }
-  const response = await apiRequest(request, 'DELETE', `/api/customers/${kind}?id=${id}`, { token })
-  expect(response.ok(), 'CRM fixture cleanup succeeds').toBe(true)
+  await cleanupCrmFixtures([
+    async () => {
+      const children = await readPriorities(request, token, id)
+      await cleanupCrmFixtures(children.map((child) => async () => {
+        const response = await apiRequest(request, 'DELETE', '/api/example/customer-priorities', {
+          token, data: { id: child.id }, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: child.updatedAt },
+        })
+        expect(response.ok(), 'Priority fixture cleanup succeeds').toBe(true)
+      }))
+    },
+    async () => {
+      const response = await apiRequest(request, 'DELETE', `/api/customers/${kind}?id=${id}`, { token })
+      expect(response.ok(), 'CRM fixture cleanup succeeds').toBe(true)
+    },
+  ])
 }
 
 export async function cleanupCrmPipeline(request: APIRequestContext, token: string, stageId: string | null, pipelineId: string | null): Promise<void> {
-  for (const [path, id] of [['/api/customers/pipeline-stages', stageId], ['/api/customers/pipelines', pipelineId]]) {
-    if (!id) continue
+  await cleanupCrmFixtures([['/api/customers/pipeline-stages', stageId], ['/api/customers/pipelines', pipelineId]].map(([path, id]) => async () => {
+    if (!id) return
     const response = await apiRequest(request, 'DELETE', path as string, { token, data: { id } })
     expect(response.ok(), 'Pipeline fixture cleanup succeeds').toBe(true)
-  }
+  }))
 }
 
 export async function openCrmPriorityForm(page: Page, kind: CrmKind, id: string): Promise<void> {

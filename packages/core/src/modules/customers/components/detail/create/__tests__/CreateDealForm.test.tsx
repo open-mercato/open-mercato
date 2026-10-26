@@ -15,6 +15,7 @@ import { registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnab
 const mockPush = jest.fn()
 const mockCreateCrud = jest.fn()
 const mockGlobalBeforeSave = jest.fn()
+let mockHoldCustomFieldsLoading = false
 let mockCustomDefinitions: Array<{
   key: string
   kind: string
@@ -147,7 +148,7 @@ jest.mock('../DealCustomAttributes', () => {
         required: definition.validation?.some((rule) => rule.rule === 'required') ?? false,
       }))
       ReactForMock.useEffect(() => {
-        if (loadedRef.current) return
+        if (loadedRef.current || mockHoldCustomFieldsLoading) return
         loadedRef.current = true
         onLoaded?.({ fields, definitions: mockCustomDefinitions })
       }, [onLoaded, fields])
@@ -353,4 +354,18 @@ it('surfaces native submission field errors and keeps the create form open', asy
   await screen.findByText('Title rejected')
   expect(mockPush).not.toHaveBeenCalled()
   expect(screen.getByLabelText(/Deal title/)).toHaveAttribute('aria-invalid', 'true')
+})
+
+
+it('does not submit with Ctrl+Enter while custom field definitions are loading', async () => {
+  mockHoldCustomFieldsLoading = true
+  try {
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Initial' }} />)
+    expect(screen.getByRole('button', { name: 'Create deal' })).toBeDisabled()
+    fireEvent.keyDown(screen.getByLabelText(/Deal title/), { key: 'Enter', ctrlKey: true })
+    await act(async () => {})
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+  } finally {
+    mockHoldCustomFieldsLoading = false
+  }
 })

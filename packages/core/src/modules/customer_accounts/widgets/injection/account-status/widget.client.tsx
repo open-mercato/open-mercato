@@ -325,6 +325,8 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     queryClient.invalidateQueries({ queryKey: ['customer-account-pending-invitation', personEntityId] })
   }
 
+  if (!personEntityId) return null
+
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
   }

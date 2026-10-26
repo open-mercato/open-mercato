@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { createCompanyFixture, createDealFixture, createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
-  assertNativePayload, authenticateCrm, captureCrmWrites, cleanupCrmRecord, createPriority,
+  assertNativePayload, authenticateCrm, captureCrmWrites, cleanupCrmRecord, cleanupCrmFixtures, createPriority,
   openCrmPriorityForm, readCrmOverview, readPriorities, selectPriority, updatePriority, type CrmKind,
 } from './helpers/umesFixtures'
 
@@ -75,8 +75,10 @@ test.describe('TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips', (
         }
       } finally {
         captured.stop()
-        await cleanupCrmRecord(request, token, kind as CrmKind, id)
-        await cleanupCrmRecord(request, token, 'people', linkedPersonId)
+        await cleanupCrmFixtures([
+          () => cleanupCrmRecord(request, token, kind as CrmKind, id),
+          () => cleanupCrmRecord(request, token, 'people', linkedPersonId),
+        ])
       }
     })
   }

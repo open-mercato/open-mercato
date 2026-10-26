@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { z } from 'zod'
+import { E } from '#generated/entities.ids.generated'
 import {
   Dialog,
   DialogContent,
@@ -401,6 +402,7 @@ export function QuickDealDialog({
           embedded
           formId={QUICK_DEAL_CONTEXT_ID}
           entityId="customers.deal"
+          entityIds={[E.customers.customer_deal]}
           resourceKind="customers.deal"
           injectionSpotId={extensionPoints.hosts.dealForm.spotId}
           injectionGroupAliases={{ details: 'basic' }}

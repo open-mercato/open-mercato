@@ -51,3 +51,14 @@ it('keeps edited CrudForm state when an unrelated override arrives after bootstr
   await waitFor(() => expect(container.querySelector('[data-crud-field-id="name"] input')).toHaveValue('Typed'))
   expect(container.querySelector('[data-crud-field-id="name"] input')).toBe(input)
 })
+
+
+it('keeps edited form state when entity discovery changes the derived replacement handle', async () => {
+  const initialValues = { name: 'Original' }
+  const renderHost = (entityIds: string[]) => <CrudForm entityIds={entityIds} fields={[{ id: 'name', label: 'Name', type: 'text' }]} initialValues={initialValues} />
+  const { container, rerender } = renderWithProviders(renderHost([]))
+  fireEvent.change(container.querySelector('[data-crud-field-id="name"] input')!, { target: { value: 'Typed' } })
+  rerender(renderHost(['test:person']))
+  await waitFor(() => expect(container.querySelector('[data-crud-field-id="name"] input')).toHaveValue('Typed'))
+  expect(container.querySelectorAll('form')).toHaveLength(1)
+})

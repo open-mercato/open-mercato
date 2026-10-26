@@ -99,6 +99,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { mergeInjectionEventParticipants } from './injection/injectionEventParticipants'
 import { useRegisteredComponent } from './injection/useRegisteredComponent'
@@ -792,8 +793,8 @@ const CrudFormFallback = CrudFormImpl as React.ComponentType<CrudFormProps<Recor
 export function CrudForm<TValues extends Record<string, unknown>>(props: CrudFormProps<TValues>) {
   const entityKey = buildResolvedEntityIdsKey(props.entityId, props.entityIds)
   const primaryEntityId = entityKey.split('\0')[0]
-  const handle = props.replacementHandle
-    ?? ComponentReplacementHandles.crudForm(primaryEntityId ? primaryEntityId.replace(/[:]+/g, '.') : 'unknown')
+  const [handle] = React.useState(() => props.replacementHandle
+    ?? ComponentReplacementHandles.crudForm(primaryEntityId ? primaryEntityId.replace(/[:]+/g, '.') : 'unknown'))
   const Resolved = useRegisteredComponent<CrudFormProps<TValues>>(
     handle,
     CrudFormFallback as unknown as React.ComponentType<CrudFormProps<TValues>>,
@@ -2112,13 +2113,19 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     return projected
   }, [hiddenInjectedFieldIds, injectedFieldDefinitions])
 
+  const injectedNamespaceSet = React.useMemo(() => new Set(
+    Array.from(injectedOnlyFieldIdSet)
+      .map((id) => id.split('.')[0])
+      .filter((namespace) => isResponseEnricherNamespace(namespace) && !hostFieldIdSet.has(namespace)),
+  ), [hostFieldIdSet, injectedOnlyFieldIdSet])
+
   const projectNativeValues = React.useCallback((source: Record<string, unknown>) => {
     const projected = { ...source }
     for (const key of Object.keys(projected)) {
-      if (isResponseEnricherNamespace(key.split('.')[0]) || injectedOnlyFieldIdSet.has(key)) delete projected[key]
+      if (injectedNamespaceSet.has(key.split('.')[0]) || injectedOnlyFieldIdSet.has(key)) delete projected[key]
     }
     return projected
-  }, [injectedOnlyFieldIdSet])
+  }, [injectedNamespaceSet, injectedOnlyFieldIdSet])
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
@@ -3316,7 +3323,12 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
 
       markFormAsClean(valuesRef.current as Record<string, unknown>)
       keepSubmitNavigationBypassAlive()
-      await onSubmitSuccess?.(coreSubmitValues, submitResult)
+      try {
+        await onSubmitSuccess?.(coreSubmitValues, submitResult)
+      } catch (err) {
+        logger.error('Error in onSubmitSuccess', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
+      }
       if (successRedirect) await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
