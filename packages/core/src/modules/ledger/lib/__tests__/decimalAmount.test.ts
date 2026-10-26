@@ -16,7 +16,7 @@ describe('parseAmountUnits', () => {
   it('keeps digits beyond the 2^53 limit of a JS number', () => {
     // 999 999 999 999 999.9999 is the largest value a numeric(19,4) holds.
     expect(parseAmountUnits('999999999999999.9999')).toBe(BigInt('9999999999999999999'))
-    expect(Number('999999999999999.9999') * 10_000).not.toBe(9999999999999999999)
+    expect(BigInt(Number('999999999999999.9999') * 10_000)).not.toBe(BigInt('9999999999999999999'))
   })
 
   it('counts anything that is not a plain decimal as zero', () => {

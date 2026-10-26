@@ -1,5 +1,8 @@
 /** @jest-environment node */
 
+const ORG_ID = '11111111-1111-4111-8111-111111111111'
+const TENANT_ID = '22222222-2222-4222-8222-222222222222'
+
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
 const mockExecute = jest.fn()
@@ -52,11 +55,11 @@ describe('ledger fiscal-periods/generate route — mutation guard payload', () =
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
-      tenantId: 'tenant-1',
-      orgId: 'org-1',
+      tenantId: TENANT_ID,
+      orgId: ORG_ID,
       features: ['ledger.periods.manage'],
     })
-    mockResolveOrganizationScope.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-1', filterIds: ['org-1'] })
+    mockResolveOrganizationScope.mockResolvedValue({ tenantId: TENANT_ID, selectedId: ORG_ID, filterIds: [ORG_ID] })
     mockRunRouteMutationGuards.mockResolvedValue({ ok: true, runAfterSuccess: mockRunAfterSuccess })
     mockExecute.mockResolvedValue({ result: { fiscalPeriodIds: ['p1'] } })
   })
@@ -68,7 +71,7 @@ describe('ledger fiscal-periods/generate route — mutation guard payload', () =
     expect(mockExecute).toHaveBeenCalledWith(
       'ledger.generateFiscalPeriods',
       expect.objectContaining({
-        input: { organizationId: 'org-1', tenantId: 'tenant-1', startDate: '2026-01-01' },
+        input: { organizationId: ORG_ID, tenantId: TENANT_ID, startDate: '2026-01-01' },
       }),
     )
     expect(mockRunAfterSuccess).toHaveBeenCalledTimes(1)
@@ -87,7 +90,7 @@ describe('ledger fiscal-periods/generate route — mutation guard payload', () =
     expect(mockExecute).toHaveBeenCalledWith(
       'ledger.generateFiscalPeriods',
       expect.objectContaining({
-        input: { organizationId: 'org-1', tenantId: 'tenant-1', startDate: '2026-04-01' },
+        input: { organizationId: ORG_ID, tenantId: TENANT_ID, startDate: '2026-04-01' },
       }),
     )
   })
@@ -95,7 +98,7 @@ describe('ledger fiscal-periods/generate route — mutation guard payload', () =
   it('never lets a guard override the server-side organization or tenant', async () => {
     mockRunRouteMutationGuards.mockResolvedValue({
       ok: true,
-      modifiedPayload: { startDate: '2026-04-01', organizationId: 'org-evil', tenantId: 'tenant-evil' },
+      modifiedPayload: { startDate: '2026-04-01', organizationId: '99999999-9999-4999-8999-999999999999', tenantId: '88888888-8888-4888-8888-888888888888' },
       runAfterSuccess: mockRunAfterSuccess,
     })
 
@@ -104,7 +107,7 @@ describe('ledger fiscal-periods/generate route — mutation guard payload', () =
     expect(mockExecute).toHaveBeenCalledWith(
       'ledger.generateFiscalPeriods',
       expect.objectContaining({
-        input: { organizationId: 'org-1', tenantId: 'tenant-1', startDate: '2026-04-01' },
+        input: { organizationId: ORG_ID, tenantId: TENANT_ID, startDate: '2026-04-01' },
       }),
     )
   })
