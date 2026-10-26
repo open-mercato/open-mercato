@@ -1941,9 +1941,14 @@ Not yet reviewed by a maintainer.
   account with `amountCurrency = 0` against the unrealized gain and loss
   accounts, reversed on the first day of the next period like decision 12; needs
   the balance in the account's currency from GL balances (named there as a later
-  phase). **⚠ NEEDS HUMAN CONFIRMATION:** how the outflow of currency from such
-  an account is valued (rate of the day with periodic revaluation, FIFO or an
-  average) and whether realized and unrealized differences must be separated.
+  phase). **Resolved by the controller's answer of 2026-10-23 (Mateusz Duda;
+  was flagged ⚠ NEEDS HUMAN CONFIRMATION):** how the outflow of currency from
+  such an account is valued (rate of the day with periodic revaluation, FIFO or
+  an average) and whether realized and unrealized differences must be
+  separated. Answer: FIFO by default, weighted average permitted; realized and
+  unrealized differences on separate accounts; the valuation at the
+  balance-sheet date at the NBP average rate is mandatory. The team's decision
+  on it is the next entry.
   Comarch ERP XL offers FIFO or LIFO per register, chosen once at creation, with
   no default. Not yet reviewed by a maintainer.
 
