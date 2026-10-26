@@ -35,6 +35,15 @@ import type {
   AiAgentRunTraceOptions,
 } from './agent-call-contract'
 import { mergeCallSettings, toSdkCallSettings } from './agent-call-contract'
+import {
+  buildObjectResponseFormat,
+  createModelCallObserverHooks,
+  createSynthesizedModelCall,
+  describeLanguageModel,
+  observeStreamedObjectEnd,
+  readSynthesizedResultMetadata,
+  type ModelCallObserverHooks,
+} from './agent-call-observer'
 import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
@@ -392,7 +401,16 @@ export interface PreparedAiSdkOptions {
    * `providerOptions` above already carries the merged provider options.
    */
   callSettings?: AiAgentCallSettings
+  /**
+   * AI SDK call-level hooks that feed `input.observe` with one start/end event
+   * per model call. Present only when an observer with model-call handlers is
+   * supplied. Callers SHOULD forward both to the SDK call.
+   */
+  onLanguageModelCallStart?: ModelCallObserverHooks['onLanguageModelCallStart']
+  onLanguageModelCallEnd?: ModelCallObserverHooks['onLanguageModelCallEnd']
 }
+
+type ToolLoopAgentSettingsWithModelCallHooks = ToolLoopAgentSettings<never, ToolSet> & Partial<ModelCallObserverHooks>
 
 /**
  * The fully prepared options bag handed to the `runAiAgentObject({ generateObject })`
@@ -1725,6 +1743,10 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
   const sdkCallSettings = toSdkCallSettings(effectiveCallSettings, resolvedModel.providerOptions)
   const { providerOptions: modelProviderOptions, ...sdkCallSettingsWithoutProviderOptions } = sdkCallSettings
+  const modelCallHooks = createModelCallObserverHooks(input.observe, {
+    agentId: agent.id,
+    providerOptions: modelProviderOptions,
+  })
   const normalizedMessages = ensureUiMessageShape(input.messages)
 
   // Pre-loop input moderation gate (spec 2026-06-04). Runs before the model
@@ -1861,7 +1883,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   //     activeTools/providerOptions (per spec §Phase 5 correction)
   let builtToolLoopAgent: ToolLoopAgent<never, ToolSet> | undefined
   if (agent.executionEngine === 'tool-loop-agent') {
-    const agentSettings: ToolLoopAgentSettings<never, ToolSet> = {
+    const agentSettings: ToolLoopAgentSettingsWithModelCallHooks = {
       model,
       tools: tools as ToolSet,
       stopWhen: stopConditions,
@@ -1874,8 +1896,9 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
       ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
       ...sdkCallSettingsWithoutProviderOptions,
       ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
+      ...(modelCallHooks ?? {}),
     }
-    builtToolLoopAgent = new ToolLoopAgent(agentSettings)
+    builtToolLoopAgent = new ToolLoopAgent<never, ToolSet>(agentSettings)
   }
 
   const preparedOptions: PreparedAiSdkOptions = {
@@ -1898,6 +1921,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
     ...(hasCallSettings ? { callSettings: effectiveCallSettings } : {}),
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
+    ...(modelCallHooks ?? {}),
   }
 
   // Phase 1 of `2026-05-13-ai-chat-visible-task-plan` — every chat-mode
@@ -1973,6 +1997,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
     ...sdkCallSettingsWithoutProviderOptions,
     ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
+    ...(modelCallHooks ?? {}),
     abortSignal: abortController.signal,
   })
   if (wallClockTimer !== undefined) {
@@ -2281,7 +2306,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     runMutationPolicyOverride,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedObjectModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -2291,6 +2316,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.requestOverride,
     tenantAllowlistSnapshot,
   )
+  const { model } = resolvedObjectModel
   const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
   const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
   const { providerOptions: objectProviderOptions, ...objectCallSettings } = toSdkCallSettings(effectiveCallSettings)
@@ -2304,6 +2330,9 @@ export async function runAiAgentObject<TSchema = unknown>(
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
+  const objectResponseFormat = input.observe
+    ? buildObjectResponseFormat(resolvedOutput.schemaName, resolvedOutput.schema)
+    : undefined
 
   // Phase 6.2 — resolve session id and generate per-call turn id for
   // token-usage correlation in object mode.
@@ -2351,6 +2380,11 @@ export async function runAiAgentObject<TSchema = unknown>(
       toolLoopConfig.onStepFinish,
       toolCallTimings,
     )
+    const toolLoopModelCallHooks = createModelCallObserverHooks(input.observe, {
+      agentId: agent.id,
+      providerOptions: objectProviderOptions,
+      responseFormat: objectResponseFormat,
+    })
     const toolResult = await generateText({
       model,
       system: systemPrompt,
@@ -2361,6 +2395,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       onStepFinish: toolLoopTrace.onStepFinish as never,
       output: Output.object({ schema: resolvedOutput.schema as never }),
       ...sdkCallSettings,
+      ...(toolLoopModelCallHooks ?? {}),
       abortSignal: abortController.signal,
     })
     return {
@@ -2394,6 +2429,21 @@ export async function runAiAgentObject<TSchema = unknown>(
     ...(hasCallSettings ? { callSettings: effectiveCallSettings } : {}),
   }
 
+  const modelDescriptor = describeLanguageModel(model, {
+    provider: resolvedObjectModel.providerId,
+    modelId: resolvedObjectModel.modelId,
+  })
+  const synthesizedModelCall = createSynthesizedModelCall(input.observe, {
+    agentId: agent.id,
+    provider: modelDescriptor.provider,
+    modelId: modelDescriptor.modelId,
+    system: systemPrompt,
+    messages: modelMessages,
+    responseFormat: objectResponseFormat,
+    callSettings: effectiveCallSettings,
+  })
+  await synthesizedModelCall?.start()
+
   if (input.generateObject) {
     const callbackResult = await input.generateObject(preparedObjectOptions)
     const typedResult = callbackResult as unknown as Record<string, unknown>
@@ -2405,6 +2455,7 @@ export async function runAiAgentObject<TSchema = unknown>(
         finishReason?: Promise<string | undefined>
         usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
       }
+      observeStreamedObjectEnd(synthesizedModelCall, streamResult)
       return {
         mode: 'stream',
         object: streamResult.object,
@@ -2415,6 +2466,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       }
     }
     const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+    await synthesizedModelCall?.end(readSynthesizedResultMetadata(typedResult))
     return {
       mode: 'generate',
       object: genResult.object as TSchema,
@@ -2443,6 +2495,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       finishReason?: Promise<string | undefined>
       usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
     }
+    observeStreamedObjectEnd(synthesizedModelCall, result)
     return {
       mode: 'stream',
       object: result.object,
@@ -2467,6 +2520,7 @@ export async function runAiAgentObject<TSchema = unknown>(
   } as Parameters<typeof generateObject>[0]
 
   const result = await generateObject(generateArgs)
+  await synthesizedModelCall?.end(readSynthesizedResultMetadata(result))
   return {
     mode: 'generate',
     object: (result as { object: unknown }).object as TSchema,

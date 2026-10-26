@@ -17,3 +17,7 @@
 
 ## 2026-10-26T19:30:00Z — environment: no agent pushes to upstream
 - Executors commit locally without pushing; the user pushes at checkpoints. The per-Step "push" rule is replaced by "local HEAD contains the commit".
+
+## 2026-10-26T19:22:07Z — decision: tool-loop-agent observer wiring (Step 1.3)
+- `ToolLoopAgent.prepareCall` forwards every non-callback construction setting to `streamText`/`generateText`, so `onLanguageModelCallStart/End` pass through construction settings at runtime. Wired via a local typed extension (`ToolLoopAgentSettings & Partial<ModelCallObserverHooks>`), proven by the tool-loop-agent case in `agent-runtime.call-observer.test.ts` (one start + one end per step). No synthesis from step hooks needed.
+- Finding (pre-existing, not changed): the tool-loop-agent branch never passes the composed system prompt (`instructions`) to `ToolLoopAgent`, so those turns run without a system prompt; the observer truthfully reports `system: undefined`. Needs a separate fix.
