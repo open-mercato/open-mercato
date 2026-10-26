@@ -456,6 +456,12 @@ A second interceptor family guards undo against archive state: undoing `document
 
 Hocuspocus over WebSocket at `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`. Not an HTTP route. Auth via the short-lived v2 collab token; `onAuthenticate` enforces scope, origin, and tier; read-only is enforced at the message level. The message protocol is the standard Yjs sync + awareness protocol (opaque binary), bounded by `DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES`.
 
+### Named version save protocol
+
+Named versions first await the active editor's durable-content save barrier. Single-user fallback drains its debounced/in-flight content writes using each returned optimistic-lock token. Collaboration sends a correlated `documents.content.save` stateless message (`requestId`: UUID); the authenticated sidecar expedites the normal store queue, preserving its mutex, CAS merge and Redis fanout. It responds only to that connection with `documents.content.saved` (`requestId`, `saved`: boolean). Success requires a confirmed materialized durable snapshot containing the requested Yjs state vector **and deletions**, even with concurrent collaborator edits. Socket sync or completion of a failed store hook is insufficient. Save failure, unavailable editor, disconnect or a 15-second acknowledgement timeout prevents the versions POST and success notification. Existing HTTP payloads and routes stay compatible; older sidecars time out safely until upgraded.
+
+Regression coverage: `versionRestoreUiLifecycle.test.tsx` holds fallback writes in flight and verifies POST ordering/failure/duplicate/navigation behavior; `collabContentSave.test.ts` covers correlation, disconnect, teardown, timeout and concurrent/deletion containment; `collabServer.test.ts` covers delayed/failed durable stores, collaborators, scope, revocation and invalidation.
+
 ### Version restore protocol
 
 Restore must not be a raw DB overwrite that a live room merges over: `Y.applyUpdate(liveDoc, oldSnapshot)` **merges** rather than reverts, and a live room's final `onStoreDocument` would clobber a DB-only write. Restore is therefore an **epoch reset**:
@@ -711,6 +717,8 @@ Integration fixtures are created and cleaned up by each test and never rely on s
 - The `OMDF1` Redis generation envelope predates the module's first release, so any future wire-version change requires a coordinated, non-overlapping sidecar rollout.
 
 ## Changelog
+
+- **2026-10-26** — Fix #7839: named-version creation awaits fallback persistence or a correlated durable collaboration acknowledgement; failed or unavailable saves cannot create a misleading successful snapshot. Existing HTTP contracts remain unchanged.
 
 - **2026-07-08** — Spec created from the approved design and hardened by a pre-implementation backward-compatibility audit: concrete sidecar auth handshake (collab-token mint and verify), post-connect write enforcement and revocation, document-tier-gated image proxy, `DocumentContentService` search-freshness contract, explicit encryption and search field policy, epoch-reset version-restore protocol, shared editor config, local entity-id constants, re-share upsert, and a real PDF export endpoint. **M1–M4 implemented and verified**: shared-docs core (11 entities across the milestone set, per-document sharing, folders, CRUD APIs, image proxy, TipTap editor), the Hocuspocus realtime sidecar with collab-token handshake and live cursors, comments/@mentions with version history, and docx/PDF export.
 - **2026-07-09** — **M5 implemented and verified**: TipTap keep-verdict recorded with sourced licensing and performance research; naked-GUID elimination via a shared `resolveUserLabels` and out-of-band comment mentions; Google-Docs UX (alignment, highlight, colour, undo/redo, outline, word count, inline rename); the `entityRef` chip node with an `@`-trigger EntityPicker; and `document_templates` with client-side instantiation and seeded defaults.

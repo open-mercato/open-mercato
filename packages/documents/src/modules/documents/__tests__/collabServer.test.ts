@@ -3,6 +3,18 @@ const mockLoggerWarn = jest.fn()
 
 import { EventEmitter } from 'node:events'
 
+jest.mock('happy-dom', () => {
+  const { JSDOM } = jest.requireActual<typeof import('jsdom')>('jsdom')
+  return {
+    Window: class {
+      private readonly dom = new JSDOM('<!doctype html><html><body></body></html>')
+      readonly document = this.dom.window.document
+      readonly DOMParser = this.dom.window.DOMParser
+      readonly happyDOM = { abort: () => undefined, close: () => undefined }
+    },
+  }
+})
+
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => {
     const logger = {
@@ -80,6 +92,133 @@ const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111'
 const USER_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const ORGANIZATION_ID = '44444444-4444-4444-8444-444444444444'
+
+describe('named version durable collaboration barrier', () => {
+  const context = {
+    userId: USER_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+    documentId: DOCUMENT_ID, tier: 'editor' as const, readOnly: false, exp: null,
+  }
+
+  async function fixture() {
+    const document = new Y.Doc()
+    const authorizeContext = jest.fn(async () => true)
+    const persistContent = jest.fn(async (
+      _em: unknown, _id: string, _scope: unknown,
+      _input: { yjsState: Buffer; contentHtml?: string; contentText?: string },
+    ) => ({ updatedAt: '2026-07-10T10:00:01.000Z', collaborationGeneration: 1 }))
+    let invalidated = false
+    const hooks = createCollabHooks({
+      verifyToken: () => null,
+      authorizeContext,
+      resolveContainer: async () => ({ resolve: () => ({}) }),
+      loadContent: async () => ({
+        yjsState: null, contentHtml: null,
+        updatedAt: '2026-07-10T10:00:00.000Z', collaborationGeneration: 1,
+      }),
+      initializeYjsState: async () => null,
+      persistContent,
+      isRoomInvalidated: () => invalidated,
+    })
+    await hooks.onLoadDocument({ documentName: DOCUMENT_ID, context, document })
+    const text = new Y.XmlText()
+    text.insert(0, 'Latest text')
+    const paragraph = new Y.XmlElement('paragraph')
+    paragraph.insert(0, [text])
+    document.getXmlFragment('default').insert(0, [paragraph])
+    const store = () => hooks.onStoreDocument({ documentName: DOCUMENT_ID, context, document })
+    const save = () => hooks.saveContent({ documentName: DOCUMENT_ID, context, document, store })
+    return { document, hooks, persistContent, authorizeContext, store, save, invalidate: () => { invalidated = true } }
+  }
+
+  it('waits for the database write and materializes the latest body before acknowledging', async () => {
+    const test = await fixture()
+    let complete!: () => void
+    let started!: () => void
+    const writing = new Promise<void>((resolve) => { started = resolve })
+    test.persistContent.mockImplementationOnce(async () => {
+      started()
+      await new Promise<void>((resolve) => { complete = resolve })
+      return { updatedAt: '2026-07-10T10:00:01.000Z', collaborationGeneration: 1 }
+    })
+    let acknowledged = false
+    const saving = test.save().then((saved) => { acknowledged = saved; return saved })
+    await writing
+    expect(acknowledged).toBe(false)
+    expect(test.persistContent.mock.calls[0][3]).toMatchObject({ contentHtml: '<p>Latest text</p>' })
+    complete()
+    await expect(saving).resolves.toBe(true)
+    test.document.destroy()
+  })
+
+  it('does not mistake a swallowed store failure for persistence', async () => {
+    const test = await fixture()
+    test.persistContent.mockRejectedValueOnce(new Error('Database unavailable'))
+    const saved = await test.hooks.saveContent({
+      documentName: DOCUMENT_ID, document: test.document, context,
+      store: () => test.store().catch(() => undefined),
+    })
+    expect(saved).toBe(false)
+    test.document.destroy()
+  })
+
+  it('accepts a durable superset containing a concurrent collaborator edit', async () => {
+    const test = await fixture()
+    const saved = await test.hooks.saveContent({
+      documentName: DOCUMENT_ID, document: test.document, context,
+      store: async () => {
+        const collaborator = new Y.Doc()
+        Y.applyUpdate(collaborator, Y.encodeStateAsUpdate(test.document))
+        const paragraph = new Y.XmlElement('paragraph')
+        const text = new Y.XmlText()
+        text.insert(0, 'Collaborator text')
+        paragraph.insert(0, [text])
+        collaborator.getXmlFragment('default').push([paragraph])
+        Y.applyUpdate(test.document, Y.encodeStateAsUpdate(collaborator))
+        collaborator.destroy()
+        await test.store()
+      },
+    })
+    expect(saved).toBe(true)
+    expect(test.persistContent.mock.calls[0][3].contentHtml).toContain('Collaborator text')
+    test.document.destroy()
+  })
+
+  it.each(['scope', 'readOnly', 'revoked', 'invalidated'])('rejects %s without acknowledging stale content', async (reason) => {
+    const test = await fixture()
+    const store = jest.fn(test.store)
+    if (reason === 'revoked') test.authorizeContext.mockResolvedValue(false)
+    if (reason === 'invalidated') test.invalidate()
+    const saved = await test.hooks.saveContent({
+      documentName: DOCUMENT_ID, document: test.document,
+      context: {
+        ...context,
+        ...(reason === 'scope' ? { organizationId: 'different-org' } : {}),
+        ...(reason === 'readOnly' ? { readOnly: true } : {}),
+      },
+      store,
+    })
+    expect(saved).toBe(false)
+    expect(store).not.toHaveBeenCalled()
+    test.document.destroy()
+  })
+
+  it('rejects a room invalidated while its save was pending', async () => {
+    const test = await fixture()
+    await expect(test.hooks.saveContent({
+      documentName: DOCUMENT_ID, document: test.document, context,
+      store: async () => { await test.store(); test.invalidate() },
+    })).resolves.toBe(false)
+    test.document.destroy()
+  })
+
+  it('does not acknowledge a Yjs-only save when HTML materialization failed', async () => {
+    const test = await fixture()
+    test.document.getXmlFragment('default').push([new Y.XmlElement('unsupported-node')])
+    await expect(test.save()).resolves.toBe(false)
+    expect(test.persistContent.mock.calls[0][3].contentHtml).toBeUndefined()
+    test.document.destroy()
+  })
+})
 
 function createRedisFanoutTestExtension(
   publish: jest.Mock<Promise<unknown>, [string, Buffer]>,
