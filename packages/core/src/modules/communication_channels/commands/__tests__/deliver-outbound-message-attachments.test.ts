@@ -76,6 +76,7 @@ function primeFinds(link: Record<string, unknown>, channelUserId: string | null 
   mockFindOne.mockReset()
   mockFindOne
     .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
+    .mockResolvedValueOnce(link as never)
     .mockResolvedValueOnce({
       messageThreadId: 'thread-1',
       channelId: 'ch-1',
@@ -91,12 +92,12 @@ function primeFinds(link: Record<string, unknown>, channelUserId: string | null 
       credentialsRef: null,
       status: 'connected',
     } as never)
-    .mockResolvedValueOnce(link as never)
 }
 
 function pendingLink(): Record<string, unknown> {
   return {
     id: 'link-1',
+    externalConversationId: 'conv-1',
     deliveryStatus: 'pending',
     channelPayload: { text: 'hello' },
     channelMetadata: {
