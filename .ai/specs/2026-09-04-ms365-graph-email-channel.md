@@ -704,6 +704,14 @@ None block implementation; defaults apply unless the maintainer objects in revie
 - Integration specs 002/003 run in a per-test organization/user sandbox and never touch the
   shared organization's credentials.
 
+### 2026-10-26 — Rebase onto `main` after `develop` was retired, 0.10.0 (PR #5898)
+
+- `develop` was merged into `main` and retired (#7772); the PR now targets `main`.
+- Package and integration manifest are now `0.10.0` to match the monorepo version.
+- Conflicts were line-adjacent only: `profile.connect.ms365` sits next to the new
+  `profile.connect.notAvailable` key in the five `communication_channels` locale files, and the
+  CRM starter preset is now 25 modules (`main` added `api_keys` to the empty preset).
+
 ### 2026-10-06 — Second CI run: profile "Connect channel" menu (PR #5898)
 
 - CI on the 2026-10-05 rebase: the create-app harness job and `TC-CHANNEL-MS365-003` pass with
