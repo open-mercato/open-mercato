@@ -40,6 +40,7 @@
 | 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | done | ac31357da |
 | 3 | 3.5 | Count only llm and tool spans in the trace-completeness gate | dispatch:cheap | done | e058d9a3f |
 | 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | done | 7b3875bf7 |
+| 3 | 3.6-review-fix | Translate the manifest card strings left identical to English | inline | done | pending |
 | 3 | 3.7 | Cover the run manifest with an integration test | dispatch | done | 75d89f3f4 |
 | 4 | 4.1 | Add frozen eval-set manifests with deterministic ids | dispatch:capable | todo | — |
 | 4 | 4.2 | Freeze the manifest on eval run start and merge the summary on complete | dispatch | todo | — |
@@ -187,6 +188,9 @@ None (`--skill-url` not passed).
 #### 3.6 Show a Versions and Identity card on the trace page
 - Trace page card reading the `run.manifest` span: definition hash, version, prompt override, model declared/resolved, provider, tools hash/count, knowledge versions, invoker, entry point, channel, correlation id; "not recorded (run predates capture)" when absent. Actions link only when the identity spec's route exists (feature-detected; hidden today).
 - i18n keys in all module locales; DS tokens only. Unit/render test.
+
+#### 3.6-review-fix Translate the manifest card strings left identical to English
+- Checkpoint 5: `i18n-coverage.test.ts` ceilings were exceeded (pl/de/es/ko) by card strings identical to English (`promptOverrideValue`, `truncated`, es `principal`). Translate them (and make the English labels clearer) instead of raising the ceilings.
 
 #### 3.7 Cover the run manifest with an integration test
 - `TC-AGENT-TRACE-004` (AO `__integration__/`, scripted provider, self-contained): run via `POST /agents/:id/run` → trace has a `run.manifest` span with a definition hash, the prompt-override version from a fixture override, and an invoker; disposition still requires an `llm`/`tool` span. (AO cannot be registered in the local ephemeral app — runs in CI; recorded as such.)
