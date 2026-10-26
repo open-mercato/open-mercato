@@ -540,6 +540,37 @@ async function requireCurrentLineUndoState(
   return { claim, line }
 }
 
+async function validateLineRestore(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  state: LineUndoState,
+  before: LineSnapshot,
+): Promise<void> {
+  if (!before.orderLineId || before.deletedAt) return
+  const scope = { tenantId: state.claim.tenantId, organizationId: state.claim.organizationId }
+  try {
+    await validateClaimReferences(ctx, scope, {
+      lineOrderRefs: [{ orderLineId: before.orderLineId, orderId: state.claim.orderId ?? null }],
+    })
+    if (before.lineStatus === 'rejected') return
+    await assertPendingClaimQuantitiesWithinSold(em, scope, new Map([[before.orderLineId, [{
+      id: state.line.id,
+      orderLineId: before.orderLineId,
+      qtyClaimed: before.qtyClaimed,
+    }]]]), { currentClaimId: state.claim.id, excludedLineIds: new Set([state.line.id]) })
+  } catch (error) {
+    if (error instanceof CrudHttpError) {
+      if (error.body.error === 'warranty_claims.errors.qtyExceedsOrdered') {
+        return throwUndoRefusal('warranty_claims.errors.qtyExceedsOrdered', 'Claimed quantity exceeds the quantity sold on the linked order line.')
+      }
+      if (error.body.error === 'warranty_claims.errors.invalidReference') {
+        return throwUndoRefusal('warranty_claims.errors.invalidReference', 'The referenced order, order line, return, or replacement order could not be found.')
+      }
+    }
+    throw error
+  }
+}
+
 async function requireScopedLine(
   em: EntityManager,
   lineId: string,
@@ -807,6 +838,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     await withAtomicFlush(em, [
       async () => {
         state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
+        await validateLineRestore(em, ctx, state, before)
       },
       () => restoreLineFromSnapshot(state.line, before),
       () => recomputeClaimRollups(em, state.claim),
@@ -863,6 +895,7 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
     await withAtomicFlush(em, [
       async () => {
         state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
+        await validateLineRestore(em, ctx, state, before)
       },
       () => {
         restoreLineFromSnapshot(state.line, before)
@@ -964,6 +997,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     await withAtomicFlush(em, [
       async () => {
         state = await requireCurrentLineUndoState(em, payload?.after, receivingParentUndoRule)
+        await validateLineRestore(em, ctx, state, before)
       },
       () => restoreLineFromSnapshot(state.line, before),
       () => recomputeClaimRollups(em, state.claim),
@@ -1028,6 +1062,7 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     await withAtomicFlush(em, [
       async () => {
         state = await requireCurrentLineUndoState(em, payload?.after, receivingParentUndoRule)
+        await validateLineRestore(em, ctx, state, before)
       },
       () => restoreLineFromSnapshot(state.line, before),
       () => recomputeClaimRollups(em, state.claim),
@@ -1091,6 +1126,7 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     await withAtomicFlush(em, [
       async () => {
         state = await requireCurrentLineUndoState(em, payload?.after, mutableParentUndoRule)
+        await validateLineRestore(em, ctx, state, before)
       },
       () => restoreLineFromSnapshot(state.line, before),
       () => recomputeClaimRollups(em, state.claim),
