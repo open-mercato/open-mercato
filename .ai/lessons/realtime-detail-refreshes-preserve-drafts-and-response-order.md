@@ -2,7 +2,7 @@
 title: "Realtime detail refreshes must preserve drafts and reject stale responses"
 modules: ["warranty_claims", "ui", "events"]
 areas: ["backend-ui", "testing"]
-topics: ["events", "realtime", "request-ordering", "testing"]
+topics: ["events", "realtime", "request-ordering", "testing", "telemetry"]
 ---
 
 # Realtime detail refreshes must preserve drafts and reject stale responses
@@ -11,6 +11,6 @@ topics: ["events", "realtime", "request-ordering", "testing"]
 
 **Failure modes**: Reusing the initial loading view during an event refresh removes the comment form from the DOM, interrupting typing and focus. Two rapid events can also finish their requests in reverse order, allowing an older status or timeline snapshot to overwrite the newest result.
 
-**Rule**: Refresh an already displayed detail view in the background while retaining its controlled drafts and mounted inputs. Filter events by the intended audience event ID and current record. Track request generations separately for detail and timeline reads, applying only the newest response and suppressing stale detail errors and loading finalizers.
+**Rule**: Refresh an already displayed detail view in the background while retaining its controlled drafts and mounted inputs. Filter events by the intended audience event ID and current record. Track request generations separately for detail and timeline reads, applying only the newest response and suppressing stale detail errors and loading finalizers. Report caught background transport failures through the optional shared telemetry runtime with a stable code while retaining the translated UI error and editable draft.
 
-**Verification**: Dispatch actual portal DOM events in component tests. Defer responses to check that the draft remains mounted, focused, and editable, then resolve two refreshes newest-first to prove the older response cannot replace the latest state. Cover unrelated events and subscription cleanup as well.
+**Verification**: Dispatch actual portal DOM events in component tests. Defer responses to check that the draft remains mounted, focused, and editable, then resolve two refreshes newest-first to prove the older response cannot replace the latest state. Cover unrelated events and subscription cleanup as well. Reject a timeline refresh with telemetry both enabled and absent; assert the original exception is reported once when enabled and the same draft stays focused and editable in both cases.

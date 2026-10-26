@@ -7,8 +7,14 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { PORTAL_EVENT_DOM_NAME } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 
 const apiCallMock = jest.fn()
+const getTelemetryRuntimeMock = jest.fn()
+const reportErrorMock = jest.fn()
 const routerReplaceMock = jest.fn()
 const mockConfirm = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => getTelemetryRuntimeMock(),
+}))
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: routerReplaceMock, push: jest.fn() }),
@@ -154,6 +160,7 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     apiCallMock.mockReset()
+    getTelemetryRuntimeMock.mockReturnValue(undefined)
     mockConfirm.mockResolvedValue(true)
   })
 
@@ -279,6 +286,41 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(apiCallMock).toHaveBeenCalledWith('/api/warranty_claims/portal/events?claimId=claim-1')
     expect(view.getByPlaceholderText('Write a message to our support team…')).toBe(textarea)
     expect((textarea as HTMLTextAreaElement).value).toBe('Still writing my reply')
+  })
+
+  it.each([true, false])('preserves the draft after a rejected timeline refresh with telemetry enabled: %s', async (telemetryEnabled) => {
+    mockClaimResponses(buildClaim())
+    getTelemetryRuntimeMock.mockReturnValue(telemetryEnabled ? { reportError: reportErrorMock } : undefined)
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    const textarea = await view.findByPlaceholderText('Write a message to our support team…')
+    fireEvent.change(textarea, { target: { value: 'My reply before the timeline refresh failed' } })
+    textarea.focus()
+    const refreshError = new Error('[internal] Timeline transport failed')
+    apiCallMock.mockRejectedValueOnce(refreshError)
+
+    dispatchPortalEvent('warranty_claims.claim.comment_added', 'claim-1')
+
+    expect(await view.findByText('Claim details could not be loaded.')).toBeTruthy()
+    if (telemetryEnabled) {
+      expect(reportErrorMock).toHaveBeenCalledTimes(1)
+      expect(reportErrorMock).toHaveBeenCalledWith(refreshError, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.portal_timeline_refresh_failed',
+        attributes: { claimId: 'claim-1' },
+      })
+    } else {
+      expect(reportErrorMock).not.toHaveBeenCalled()
+    }
+    expect(view.getByText('Please send a photo of the damaged buckle.')).toBeTruthy()
+    expect(view.getByPlaceholderText('Write a message to our support team…')).toBe(textarea)
+    expect((textarea as HTMLTextAreaElement).value).toBe('My reply before the timeline refresh failed')
+    expect(document.activeElement).toBe(textarea)
+    expect((textarea as HTMLTextAreaElement).disabled).toBe(false)
+    fireEvent.change(textarea, { target: { value: 'My reply remains editable' } })
+    expect((textarea as HTMLTextAreaElement).value).toBe('My reply remains editable')
   })
 
   it('keeps the prior claim and usable draft visible when a background refresh fails', async () => {

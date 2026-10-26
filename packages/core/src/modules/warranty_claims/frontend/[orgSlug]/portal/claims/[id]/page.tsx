@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
 import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
 import {
@@ -419,7 +420,12 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
 
   usePortalAppEvent('warranty_claims.claim.comment_added', (event) => {
     if (!user || event.payload.claimId !== params.id) return
-    void refreshEvents(params.id).catch(() => {
+    void refreshEvents(params.id).catch((error) => {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.portal_timeline_refresh_failed',
+        attributes: { claimId: params.id },
+      })
       setError(t('warranty_claims.portal.detail.loadError'))
     })
   })
