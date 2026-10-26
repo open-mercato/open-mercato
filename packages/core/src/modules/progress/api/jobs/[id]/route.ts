@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { AwilixContainer } from 'awilix'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { updateProgressSchema } from '../../../data/validators'
+import type { ProgressJob } from '../../../data/entities'
 import type { ProgressService } from '../../../lib/progressService'
 import {
   hasReadableProgressScope,
@@ -16,6 +20,19 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+async function canMutateProgressJob(
+  container: AwilixContainer,
+  auth: NonNullable<AuthContext>,
+  job: Pick<ProgressJob, 'startedByUserId' | 'organizationId'>,
+): Promise<boolean> {
+  if (job.startedByUserId && job.startedByUserId === auth.sub) return true
+  const rbacService = container.resolve('rbacService') as RbacService
+  return rbacService.userHasAllFeatures(auth.sub, ['progress.manage'], {
+    tenantId: auth.tenantId ?? null,
+    organizationId: job.organizationId ?? null,
+  })
+}
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)
@@ -93,7 +110,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     userId: auth.sub,
   }
   const existing = await progressService.getJob(params.id, progressContext)
-  if (!existing) {
+  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -120,11 +137,10 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  // No existence pre-check here on purpose. `cancelJob` already loads the job
-  // through the SAME scoped filter and throws when it resolves to nothing, so a
-  // job outside the caller's organization scope is rejected exactly like one that
-  // does not exist — and the route keeps its documented answer for an unknown id
-  // (400 "Cannot cancel this job", TC-PROG-009) instead of a 404.
+  const existing = await progressService.getJob(params.id, progressContext)
+  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
+    return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
+  }
   try {
     await progressService.cancelJob(params.id, progressContext)
     return NextResponse.json({ ok: true })

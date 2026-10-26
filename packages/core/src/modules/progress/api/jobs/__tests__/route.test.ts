@@ -11,6 +11,7 @@ const mockCancelJob = jest.fn()
 const mockGetActiveJobs = jest.fn()
 const mockGetRecentlyCompletedJobs = jest.fn()
 const mockMarkStaleJobsFailed = jest.fn()
+const mockUserHasAllFeatures = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
@@ -58,6 +59,7 @@ describe('progress jobs route', () => {
       resolve: (token: string) => {
         if (token === 'em') return { findAndCount: mockFindAndCount }
         if (token === 'organizationScopeService') return { resolveForRequest: mockResolveForRequest }
+        if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
         if (token === 'progressService') {
           return {
             createJob: mockCreateJob,
@@ -86,6 +88,7 @@ describe('progress jobs route', () => {
     mockGetActiveJobs.mockResolvedValue([])
     mockGetRecentlyCompletedJobs.mockResolvedValue([])
     mockMarkStaleJobsFailed.mockResolvedValue(0)
+    mockUserHasAllFeatures.mockResolvedValue(false)
   })
 
   it('requires progress.view for progress read routes', () => {
@@ -402,7 +405,7 @@ describe('progress jobs route', () => {
   })
 
   it('cancels an allowed selected-organization job with the resolved scope', async () => {
-    mockGetJob.mockResolvedValue({ id: 'job-1' })
+    mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'user-1', organizationId: 'org-1' })
 
     const response = await detailDeleteHandler(
       new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' }),
@@ -415,6 +418,104 @@ describe('progress jobs route', () => {
       organizationId: 'org-1',
       organizationIds: ['org-1'],
       userId: 'user-1',
+    })
+  })
+
+  describe('job ownership on update and cancel', () => {
+    const putRequest = () => new Request('http://localhost/api/progress/jobs/job-1', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ processedCount: 5 }),
+    })
+    const deleteRequest = () => new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' })
+
+    it('hides another user\'s job from PUT when the caller lacks progress.manage', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'owner-1', organizationId: 'org-1' })
+
+      const response = await detailPutHandler(putRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(404)
+      await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.manage'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+      expect(mockUpdateProgress).not.toHaveBeenCalled()
+    })
+
+    it('refuses to cancel another user\'s job when the caller lacks progress.manage', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'owner-1', organizationId: 'org-1' })
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.manage'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
+
+    it('treats a job without a recorded starter as not owned by the caller', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: null, organizationId: 'org-1' })
+
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: 'job-1' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(updateResponse.status).toBe(404)
+      expect(deleteResponse.status).toBe(400)
+      expect(mockUpdateProgress).not.toHaveBeenCalled()
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
+
+    it('lets the job owner update and cancel without a progress.manage lookup', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'user-1', organizationId: 'org-1' })
+
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: 'job-1' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(updateResponse.status).toBe(200)
+      expect(deleteResponse.status).toBe(200)
+      expect(mockUpdateProgress).toHaveBeenCalledWith('job-1', { processedCount: 5 }, expect.objectContaining({ userId: 'user-1' }))
+      expect(mockCancelJob).toHaveBeenCalledWith('job-1', expect.objectContaining({ userId: 'user-1' }))
+      expect(mockUserHasAllFeatures).not.toHaveBeenCalled()
+    })
+
+    it('lets a progress.manage holder update and cancel another user\'s job', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'owner-1', organizationId: 'org-1' })
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: 'job-1' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(updateResponse.status).toBe(200)
+      expect(deleteResponse.status).toBe(200)
+      expect(mockUpdateProgress).toHaveBeenCalledTimes(1)
+      expect(mockCancelJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('checks progress.manage against the job organization, including a tenant-level job', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'owner-1', organizationId: null })
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(200)
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.manage'], {
+        tenantId: 'tenant-1',
+        organizationId: null,
+      })
+    })
+
+    it('keeps the documented 400 for cancelling an unknown job id', async () => {
+      mockGetJob.mockResolvedValue(null)
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockCancelJob).not.toHaveBeenCalled()
     })
   })
 
