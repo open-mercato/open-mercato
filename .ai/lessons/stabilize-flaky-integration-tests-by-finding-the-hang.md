@@ -1,8 +1,8 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers"]
 areas: ["integration","testing","backend-ui"]
-topics: ["events","testing","concurrency","hydration","timers","accessibility"]
+topics: ["testing","workers","hydration","component-overrides","concurrency","accessibility"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -11,11 +11,13 @@ topics: ["events","testing","concurrency","hydration","timers","accessibility"]
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
 
-`TC-WC-038` inspected and received the last line of 101/200-line claims, then timed out opening vendor recovery. The failure screenshot showed the Actions menu closed. `ActionsDropdown` opens on hover and toggles on click, so a pointer click can immediately close the menu it just opened. Check `aria-expanded` before keyboard activation, assert the target menu item is visible, and activate it with the keyboard to avoid hover-driven toggles.
+`TC-WC-040` inspected and received the last line of 101/200-line claims, then timed out opening vendor recovery. The failure screenshot showed the Actions menu closed. `ActionsDropdown` opens on hover and toggles on click, so a pointer click can immediately close the menu it just opened. Check `aria-expanded` before keyboard activation, assert the target menu item is visible, and activate it with the keyboard to avoid hover-driven toggles.
 
 The next run opened recovery and confirmed the last line was selected, then hung on a vendor-name label lookup. The recovery form's builtin text field had a visual label without an associated accessible label. Inspect the rendered field before choosing a locator; for this existing CrudForm surface, scope to its stable `data-crud-field-id` wrapper and then the textbox role, following the other integration suites.
 
 Once both recovery flows completed, the 200-line case exceeded its teardown budget on serial API deletes. Gather all pages before mutating, delete distinct fixture lines with bounded concurrency and their own versions, then serialize one final delete so aggregate rollups reflect the fully completed batch before lifecycle cleanup. Keep every response assertion and cleanup dependency instead of extending the timeout or leaving fixtures behind.
+
+`TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, and selected count before any bulk mutation.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 

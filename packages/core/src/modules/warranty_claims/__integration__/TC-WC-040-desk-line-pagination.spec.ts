@@ -53,11 +53,11 @@ async function cleanupClaim(request: APIRequestContext, token: string, claimId: 
   expect(response.status(), 'cleanup should delete the fixture claim').toBe(200)
 }
 
-test.describe('TC-WC-038: every accepted line is available in the claims desk', () => {
+test.describe('TC-WC-040: every accepted line is available in the claims desk', () => {
   for (const lineCount of [101, 200]) {
     test.describe(`${lineCount}-line claim`, () => {
       let token: string
-      const stamp = uniqueLabel(`tc-wc-038-${lineCount}`)
+      const stamp = uniqueLabel(`tc-wc-040-${lineCount}`)
       const productName = `${stamp} last line`
       let claimId: string | null = null
       let recoveryClaimId: string | null = null
@@ -134,7 +134,7 @@ test.describe('TC-WC-038: every accepted line is available in the claims desk', 
         await expect(recoveryAction).toBeVisible()
         await recoveryAction.press('Enter')
         const recoveryDialog = page.getByRole('dialog', { name: 'Create vendor recovery' })
-        await expect(recoveryDialog.getByRole('checkbox', { name: `Line ${lineCount} — ${productName}` })).toBeChecked()
+        await expect(recoveryDialog.getByRole('checkbox', { name: `Line ${lineCount} â€” ${productName}` })).toBeChecked()
         await recoveryDialog.locator('[data-crud-field-id="vendorName"]').getByRole('textbox').fill(`${stamp} vendor`)
         const recovered = page.waitForResponse((response) =>
           response.url().endsWith('/api/warranty_claims/vendor-recovery') && response.request().method() === 'POST')
