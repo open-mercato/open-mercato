@@ -262,7 +262,10 @@ test.describe('TC-SALES-045 recurrence on quotes and orders', () => {
         expect(result.rowCount).toBe(1)
       })
 
-      const accept = await request.post(`${appBaseUrl()}/api/sales/quotes/accept`, { data: { token: publicToken } })
+      const accept = await request.post(`${appBaseUrl()}/api/sales/quotes/accept`, {
+        headers: { 'Content-Type': 'application/json', Origin: appBaseUrl() },
+        data: { token: publicToken },
+      })
       const body = await readJson(accept)
       orderId = typeof body.orderId === 'string' ? body.orderId : null
       expect(accept.status()).toBe(422)
