@@ -241,6 +241,11 @@ export interface LoopTrace {
     | 'abort'
   totalDurationMs: number
   totalUsage: { inputTokens: number; outputTokens: number }
+  /**
+   * Run identifier the turn is persisted under (`ai_agent_runs.id`). Additive;
+   * spec `2026-10-21-chat-run-tracing-and-citations` §2.
+   */
+  runId?: string
 }
 
 export type AiAgentMutationPolicy =
