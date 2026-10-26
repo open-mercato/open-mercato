@@ -1285,10 +1285,15 @@ and its 2026-10-23 changelog entry).
   asOf })`, extended to return, for an account that has a `currencyId`, the
   balance in that currency (the signed `amountCurrency` of its lines, debit
   side positive) next to the base balance. **⚠ This requires a change to
-  `general-ledger-account-balances.md` (#6013), which today returns
-  `currency: null` and only names the balance in the account's currency as a
-  later phase; that spec is not changed here.** Until it is changed, this part
-  of the run cannot be implemented (Phasing).
+  `general-ledger-account-balances.md` (#6013); the change is written there
+  since 2026-10-26 (Design decisions, "Balance in the account's currency",
+  also ⚠ NEEDS HUMAN CONFIRMATION, not yet reviewed by a maintainer).** Until
+  it is accepted and implemented, this part of the run cannot be implemented
+  (Phasing). Two consequences of that design for this run: `balance` there
+  stays normalized to the account's `normalBalance`, so `baseBalance` (debit
+  side positive, R3) is `balance` negated for a `CREDIT`-normal account; and
+  `balanceInAccountCurrency` is `null` for a parent whose subtree mixes
+  currencies.
 - **R5 — Agreement with the bank statement is a property, not a feature. ⚠
   NEEDS HUMAN CONFIRMATION** (decided by the team, not yet reviewed by a
   maintainer). For a bank account managed by Cash & Bank, the balance in the
@@ -1358,7 +1363,10 @@ maintainer; the column names are a proposal).
   `getAccountBalance` includes the children's postings in a parent's balance
   (`general-ledger-account-balances.md`, Testing Strategy), so valuing both
   would double-count. **⚠ NEEDS HUMAN CONFIRMATION — open point:** value only
-  the account's own lines, or only leaf accounts.
+  the account's own lines, or only leaf accounts. #6013's design (R4) returns
+  the currency balance of a parent only when its subtree has one currency and
+  `null` otherwise, which removes the mixed-currency case but not the double
+  count of a same-currency parent and child.
 - **Zero balance in the account's currency but a non-zero base balance**
   (all currency spent, a rounding remainder or an unreversed cost adjustment
   left). R3 gives `0 × rate − baseBalance`, which clears the remainder to the
@@ -2241,3 +2249,13 @@ Not yet reviewed by a maintainer.
   knowledge base.
 - Out of scope (#6013 bullet) and Alternatives considered (#6013 bullet)
   annotated so they do not contradict R4.
+
+### 2026-10-26 (cont. — R4 written in #6013)
+
+- `general-ledger-account-balances.md` (#6013) now designs the balance in the
+  account's currency that R4 reads (Design decisions, "Balance in the account's
+  currency"; ⚠ NEEDS HUMAN CONFIRMATION, decided by the team, not yet reviewed
+  by a maintainer). R4 points there and states the sign conversion and the
+  mixed-currency `null`; the parent/child edge case notes what that design does
+  and does not resolve.
+
