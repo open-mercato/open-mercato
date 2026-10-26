@@ -6,8 +6,8 @@ import { AgentEvalAssertion, AgentEvalCase, AgentEvalSuiteRun } from '../../data
 import { evalCaseAssertionRefSchema } from '../../data/validators'
 import { parseCaseAssertionRefs, resolveEffectiveAssertions } from './assertionResolution'
 import { canonicalInputKey, canonicalJson } from './canonicalInputKey'
-import { judgeRubricSchema, normalizeJudgeRubric } from './judgeRubric'
-import { resolveScorerKey } from './registry'
+import { judgeRubricSchema, normalizeJudgeRubric, type JudgeRubric } from './judgeRubric'
+import { parseScorerConfig, resolveScorerKey } from './registry'
 import type { Json } from './types'
 
 export const EVAL_SET_FORMAT = 'open-mercato.agent-eval-set' as const
@@ -15,6 +15,8 @@ export const EVAL_SET_FORMAT_VERSION = 1 as const
 export const EVAL_SET_SUMMARY_KEY = '__evalSet' as const
 export const EVAL_SET_ID_NAMESPACE = 'bbeef26f-47cc-4b5a-8611-f45015ced67e'
 export const DEFAULT_EVAL_SET_MAX_BYTES = 5242880
+export const EVAL_SET_UNRESOLVED = 'eval_set_unresolved' as const
+export const EVAL_SET_CASE_MISSING = 'eval_set_case_missing' as const
 
 const CARRIER_SCAN_LIMIT = 200
 
@@ -312,8 +314,6 @@ export async function resolveManifest(
   return bodyFromCandidates(em, scope, agentId, version, recent)
 }
 
-const CARRIER_STATUSES = ['queued', 'running', 'completed'] as const
-
 export async function findEvalSetCarrier(
   em: EntityManager,
   scope: ManifestScope,
@@ -323,13 +323,14 @@ export async function findEvalSetCarrier(
   const candidates = await findWithDecryption(
     em,
     AgentEvalSuiteRun,
-    { ...scope, agentDefinitionId: agentId, status: { $in: [...CARRIER_STATUSES] } },
+    { ...scope, agentDefinitionId: agentId },
     { orderBy: { createdAt: 'desc' }, limit: CARRIER_SCAN_LIMIT },
     scope,
   )
   for (const candidate of candidates) {
     const pointer = readEvalSetPointer(candidate.summary)
-    if (pointer?.version === version && pointer.body !== undefined) return candidate.id
+    if (pointer?.version !== version || pointer.body === undefined) continue
+    if (verifiedBody(pointer.body, agentId, version)) return candidate.id
   }
   return null
 }
@@ -372,4 +373,44 @@ export function mergeSuiteSummary(
     : {}
   const reserved = Object.fromEntries(Object.entries(base).filter(([key]) => key.startsWith('__')))
   return { ...base, ...aggregate, ...reserved, ...reservedUpdates }
+}
+
+export type ResolvedManifestAssertion = {
+  assertion: EvalSetManifestAssertion
+  config: unknown
+  rubric: JudgeRubric | null
+  configError?: string[]
+}
+
+function frozenRubric(assertion: EvalSetManifestAssertion, config: unknown, overridden: boolean): JudgeRubric | null {
+  if (assertion.type !== 'llm_judge') return null
+  if (!overridden && assertion.rubric) return assertion.rubric
+  return normalizeJudgeRubric(config, assertion.rubric?.promptTemplate ?? assertion.title)
+}
+
+export function resolveManifestCaseAssertions(
+  manifest: EvalSetManifest,
+  manifestCase: EvalSetManifestCase,
+): ResolvedManifestAssertion[] {
+  const refsById = new Map((manifestCase.assertions ?? []).map((ref) => [ref.assertionId, ref]))
+  const resolved: ResolvedManifestAssertion[] = []
+  for (const assertion of manifest.assertions) {
+    const ref = refsById.get(assertion.id)
+    if (ref?.disabled) continue
+    const stored =
+      assertion.config && typeof assertion.config === 'object' && !Array.isArray(assertion.config)
+        ? (assertion.config as Record<string, unknown>)
+        : {}
+    const override = ref?.configOverride ?? null
+    const config = override ? { ...stored, ...override } : stored
+    if (override) {
+      const parsed = parseScorerConfig(assertion.scorerKey, config)
+      if (!parsed.ok) {
+        resolved.push({ assertion, config, rubric: null, configError: parsed.issues })
+        continue
+      }
+    }
+    resolved.push({ assertion, config, rubric: frozenRubric(assertion, config, Boolean(override)) })
+  }
+  return resolved
 }

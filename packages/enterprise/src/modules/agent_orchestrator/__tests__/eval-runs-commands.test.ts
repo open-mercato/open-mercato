@@ -368,15 +368,15 @@ describe('evalRuns.start — frozen eval-set manifest', () => {
     expect(secondPointer).not.toHaveProperty('body')
   })
 
-  it('does not reuse a cancelled run as the carrier', async () => {
+  it('reuses a cancelled run as the carrier while it still holds the body', async () => {
     const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
     const first = await startEvalRunCommand.execute(startInput, ctxFor(em))
     suiteRunById(storeFor(AgentEvalSuiteRun), first.suiteRunId).status = 'cancelled'
     const second = await startEvalRunCommand.execute(startInput, ctxFor(em))
 
     const secondPointer = readEvalSetPointer(suiteRunById(storeFor(AgentEvalSuiteRun), second.suiteRunId).summary)
-    expect(secondPointer?.carrierSuiteRunId).toBe(second.suiteRunId)
-    expect(secondPointer?.body).toBeDefined()
+    expect(secondPointer?.carrierSuiteRunId).toBe(first.suiteRunId)
+    expect(secondPointer).not.toHaveProperty('body')
   })
 
   it('fails the start with a validation error when the manifest exceeds the size cap', async () => {

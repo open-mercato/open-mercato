@@ -93,13 +93,54 @@ export type GatePolicy = { judgeMayGate: boolean }
  * receives the case's `expected`, and the case's assertion refs decide which judge
  * assertions apply. Absent on the online plane, where behaviour is unchanged.
  */
+export type FrozenJudgeAssertion = {
+  id: string
+  key: string
+  severity: 'gate' | 'warn'
+  rubric: JudgeRubric | null
+}
+
 export type JudgeCaseLinkage = {
   evalCaseRunId: string
   expected?: unknown
   assertions?: ReadonlyArray<EvalCaseAssertionRef>
+  /**
+   * Judge assertions frozen in the suite's eval-set manifest. When present they
+   * replace the live `AgentEvalAssertion` rows, so a replay scores against the
+   * rubrics the dataset was pinned with rather than whatever is stored today.
+   */
+  frozenAssertions?: ReadonlyArray<FrozenJudgeAssertion>
 }
 
-type JudgeTarget = { assertion: AgentEvalAssertion; config: unknown; configError: boolean }
+async function liveJudgeTargets(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  agentId: string,
+  linkage: JudgeCaseLinkage | undefined,
+): Promise<FrozenJudgeAssertion[]> {
+  const assertions = await em.find(AgentEvalAssertion, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    type: 'llm_judge',
+    enabled: true,
+    deletedAt: null,
+    appliesTo: { $in: [agentId, '*'] },
+  })
+  if (!assertions.length) return []
+  const entries = linkage
+    ? resolveEffectiveAssertions(assertions, linkage.assertions ?? []).map((entry) => ({
+        assertion: entry.assertion,
+        config: entry.config,
+        configError: Boolean(entry.configError),
+      }))
+    : assertions.map((assertion) => ({ assertion, config: assertion.config, configError: false }))
+  return entries.map(({ assertion, config, configError }) => ({
+    id: assertion.id,
+    key: assertion.key,
+    severity: assertion.severity,
+    rubric: configError ? null : rubricFor(assertion, config),
+  }))
+}
 
 /**
  * Run the enabled `llm_judge` assertions for a run and append `warn` results.
@@ -125,23 +166,10 @@ export async function runLlmJudgeForRun(
   )
   if (!run) return { judged: 0, skipped: 0 }
 
-  const assertions = await em.find(AgentEvalAssertion, {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    type: 'llm_judge',
-    enabled: true,
-    deletedAt: null,
-    appliesTo: { $in: [run.agentId, '*'] },
-  })
-  if (!assertions.length) return { judged: 0, skipped: 0 }
-
-  const targets: JudgeTarget[] = linkage
-    ? resolveEffectiveAssertions(assertions, linkage.assertions ?? []).map((entry) => ({
-        assertion: entry.assertion,
-        config: entry.config,
-        configError: Boolean(entry.configError),
-      }))
-    : assertions.map((assertion) => ({ assertion, config: assertion.config, configError: false }))
+  const targets = linkage?.frozenAssertions
+    ? [...linkage.frozenAssertions]
+    : await liveJudgeTargets(em, scope, run.agentId, linkage)
+  if (!targets.length) return { judged: 0, skipped: 0 }
   const caseRunLink = linkage ? { evalCaseRunId: linkage.evalCaseRunId } : {}
 
   const existing = await em.find(AgentEvalResult, { agentRunId: run.id, tenantId: scope.tenantId, organizationId: scope.organizationId })
@@ -149,12 +177,12 @@ export async function runLlmJudgeForRun(
 
   let judged = 0
   let skipped = 0
-  for (const { assertion, config, configError } of targets) {
+  for (const assertion of targets) {
     if (alreadyJudged.has(assertion.id)) {
       skipped += 1
       continue
     }
-    const rubric = configError ? null : rubricFor(assertion, config)
+    const rubric = assertion.rubric
     if (!rubric) {
       // An unusable rubric is a config fault, recorded as SKIPPED so it stays
       // visible without ever counting as a failed assertion.
