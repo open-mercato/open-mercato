@@ -81,3 +81,11 @@
 - Validation gate green after Step 8.8-gate-fix (3 guard failures caused by this branch fixed); two Jest worker SIGSEGVs in untouched packages passed on rerun.
 - Full integration: 2700 passed / 10 failed / 4 flaky; all 10 failures reproduced on a clean upstream-main baseline (pre-existing).
 - DS pass: 0 lint findings; one intentional residual (notification renderer classes match existing renderers).
+
+## 2026-10-26T10:57:16Z — review and autofix
+- Merged upstream/main into the branch (user committed the merge; a commit hook flags upstream digests).
+- om-auto-review-pr: changes requested (3 High: stdio call exposure, session requester key, purge on 3 delete paths; several Medium). Fixed in 9.1–9.3; re-review approved. Suites: ai-assistant 1879, core 1294, AO 1538.
+- Decision: Code Mode `execute` refused in approval mode (approved runs would lack API credentials).
+
+## 2026-10-26T10:57:16Z — run complete
+- All Tasks rows done; PR ready for manual QA.

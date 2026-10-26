@@ -1,25 +1,23 @@
 # Handoff — 2026-10-22-agent-platform-wave-1
 
-**Last updated:** 2026-10-23T08:49:20Z
+**Last updated:** 2026-10-26T10:57:16Z
 **Branch:** feat/agent-platform-wave-1
 **PR:** https://github.com/open-mercato/open-mercato/pull/7794
-**Current phase/step:** Phase 8 Step 8.6
-**Last commit:** 5060a3549 — feat(attachments): extract document structure on upload and purge it on delete
+**Current phase/step:** complete (all Tasks rows done)
+**Last commit:** 89ed298fe — fix(agent_orchestrator): address runtime-audit and eval report review findings
 
 ## What just happened
-- Steps 8.1–8.5 (+8.4-review-fix) landed: structure tables + migration + encryption, partition switches (UI), page-scoped OCR, queue + worker, upload enqueue + purge on delete. Checkpoint 9 passed with a UI screenshot.
+- Merged upstream/main (761ab5d4b; conflicts with #7630 and #7292 resolved), om-auto-review-pr found 3 High + Medium findings, autofix batches 9.1–9.3 fixed all of them, re-review approved (only Low/nit follow-ups remain).
 
 ## Next concrete action
-- Step 8.6 — add the document structure service and DI registrations.
+- Manual QA of the Pending AI actions page, attachment partition switches and eval report download menu (needs-qa gate), then merge.
 
 ## Blockers / open questions
-- none (pushes still done by the user)
+- none. Follow-ups: deferred-purge autocommit in the deprecated releaseScoped flush:false path; 23505 handling reports a concurrent failed row as reused; isReusableDocumentExtraction JSDoc; messages module nativeDelete purge; TC-AGENT-EVAL-REPORT-* need an environment with the Agent Orchestrator enabled.
 
 ## Environment caveats
 - Dev runtime runnable: yes (ephemeral)
-- Browser / UI checks: ephemeral app via `OM_MCP_MUTATION_MODE=approval yarn test:integration:ephemeral:start` + `BASE_URL=http://127.0.0.1:5001 PW_CAPTURE_SCREENSHOTS=1 npx playwright test --config .ai/qa/tests/playwright.config.ts <spec>`
-- Database/migration state: clean
-- Package-level `tsc -p` sees no inputs inside this worktree path; run the app typecheck directly (`cd apps/mercato && node ./scripts/typecheck.mjs`); turbo's cache does not re-run it on package changes.
+- Pushes are made by the user (local auto-mode policy blocks agent pushes to upstream)
 
 ## Worktree
 - Path: /Users/pat-lewczuk/projects/open-mercato-demo/.ai/tmp/om-auto-create-pr-loop/agent-platform-wave-1-20261022-130536

@@ -63,9 +63,9 @@
 | 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | done | 5e39d8cba |
 | 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | done | 3293e9e12 |
 | 8 | 8.8-gate-fix | Fix final-gate guard failures: interceptor catch mapping, explicit sort comparators, notification registry docs | dispatch | done | a31c626c3 |
-| 9 | 9.1-review-fix | Fix MCP review findings: stdio call exposure, session requester key, raw reuse, Code Mode execute, coverage | inline | done | ec93b6924 |
-| 9 | 9.2-review-fix | Fix attachments review findings: purge on every delete path, scope, locking, timeout, reuse | inline | done | 586f7e1d7 |
-| 9 | 9.3-review-fix | Fix agent orchestrator review findings: failRun error, Markdown escaping, runtime-audit allowlist | inline | done | 7156d1920 |
+| 9 | 9.1-review-fix | Fix MCP review findings: stdio call exposure, session requester key, raw reuse, Code Mode execute, coverage | inline | done | 210823376 |
+| 9 | 9.2-review-fix | Fix attachments review findings: purge on every delete path, scope, locking, timeout, reuse | inline | done | b0ac5f85b |
+| 9 | 9.3-review-fix | Fix agent orchestrator review findings: failRun error, Markdown escaping, runtime-audit allowlist | inline | done | 89ed298fe |
 
 ## Goal
 
