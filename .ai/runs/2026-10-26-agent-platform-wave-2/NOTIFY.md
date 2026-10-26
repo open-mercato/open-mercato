@@ -37,3 +37,6 @@
 - Existing AI integration specs stub the model at the HTTP layer with `page.route()`, so the server runtime never runs and a stubbed `runId` would prove nothing. The spec instead calls the real server through `apiRequest`: unknown `callSettings` key → 400 `validation_error`; every documented key → accepted (404 `agent_unknown` from the policy gate, not 400); OpenAPI declares a UUID `runId` on the 200 response. A real run asserting a UUID `runId` is included but skips when no LLM provider is configured (CI).
 - `packages/ai-assistant/AGENTS.md` chain is over budget with a ratchet; the new run-tracing rules fit by compressing the pending-action Workers row and Events paragraph (facts kept), net −24 bytes vs baseline.
 - `apps/docs/__tests__/search-index.test.mjs` needs `apps/docs/build/search-index.json` (docs build artifact) and fails without it; unrelated to this Step. The other five docs guards pass.
+
+## 2026-10-26T21:50:00Z — checkpoint 3 (Steps 2.6..2.8, 3.1)
+- Phase 2 closed. Unit suites, typechecks, lint green. `yarn build:app` caught an observer typing error missed by the typecheck script → `1.3-review-fix`. Ephemeral Playwright caught an OpenAPI lookup bug in TC-AI-RUN-TRACE-016 → `2.8-review-fix`. TC-AI-CONVERSATIONS-001 cross-org case fails in its direct-DB fixture (FK on tenant) — environment, re-check in CI.

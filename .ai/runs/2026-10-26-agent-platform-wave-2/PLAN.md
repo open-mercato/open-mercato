@@ -20,7 +20,7 @@
 | 1 | 1.1 | Add the model-call contract types and settings merge | dispatch | done | b724c34af |
 | 1 | 1.2 | Forward call settings to every model call branch | dispatch:capable | done | c57d82c74 |
 | 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | done | 18b9ecad3 |
-| 1 | 1.3-review-fix | Type the model-call end hook generically over the tool set | inline | done | pending |
+| 1 | 1.3-review-fix | Type the model-call end hook generically over the tool set | inline | done | 6b8848718 |
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | cdb0d95f3 |
@@ -29,11 +29,11 @@
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | ae2e35868 |
 | 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | done | 013febce7 |
 | 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | done | a6c1a627e |
-| 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | done | ccfae3158 |
-| 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | done | 9a1bfaca5 |
+| 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | done | 0fc51def6 |
+| 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | done | c7b1f195d |
 | 2 | 2.8 | Document run tracing and add run-object integration coverage | dispatch | done | 5a5dcb0f3 |
-| 2 | 2.8-review-fix | Resolve the OpenAPI path and schema refs in TC-AI-RUN-TRACE-016 | inline | done | pending |
-| 3 | 3.1 | Add the shared run observation collector | dispatch | done | 6daa3ee76 |
+| 2 | 2.8-review-fix | Resolve the OpenAPI path and schema refs in TC-AI-RUN-TRACE-016 | inline | done | 785a79a38 |
+| 3 | 3.1 | Add the shared run observation collector | dispatch | done | dce125ccd |
 | 3 | 3.2 | Hash AO agent definitions and stamp agent_version on new runs | dispatch:capable | todo | — |
 | 3 | 3.3 | Add the run manifest builder | dispatch | todo | — |
 | 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | todo | — |
