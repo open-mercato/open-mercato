@@ -567,9 +567,10 @@ opposite of the adjusting entry made in the previous period."*
     `fx_revaluation.unrealizedGainAccountId` /
     `fx_revaluation.unrealizedLossAccountId` (two accounts, not one,
     since gain and loss are genuinely different P&L line items in
-    Polish statutory presentation, unlike Cash & Bank Management's
-    single netted `gainLossAccountId` for one document's own
-    settlement).
+    Polish statutory presentation; since 2026-10-26 the realized
+    differences of Cash & Bank Management and Accounts Payable payments use
+    the same split, `realizedFxGainAccountId` / `realizedFxLossAccountId`,
+    in place of a single netted `gainLossAccountId`, ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)).
 
 12. **The valuation reverses itself on the first day of the next period,
     in the same transaction — so a settlement in the new period needs no
@@ -1256,7 +1257,7 @@ and its 2026-10-23 changelog entry).
   accounts; there is no second command. The difference is posted only against
   `fx_revaluation.unrealizedGainAccountId` / `unrealizedLossAccountId` (Design
   decision 11), never against Cash & Bank's or AP payments' realized
-  `gainLossAccountId`. The line on the revalued account is a line in the
+  `realizedFxGainAccountId` / `realizedFxLossAccountId`. The line on the revalued account is a line in the
   account's own currency with `amountCurrency = 0`. The valuation is reversed
   on the first day of the next period in the same transaction (Design decision
   12), and a re-run for the same period supersedes the earlier run (Design
@@ -2261,3 +2262,6 @@ Not yet reviewed by a maintainer.
   mixed-currency `null`; the parent/child edge case notes what that design does
   and does not resolve.
 
+### 2026-10-26 (cont. — realized differences on two accounts in Cash & Bank and AP payments)
+
+- `cash-bank-management.md` and `accounts-payable-payments.md` replace the single netted `gainLossAccountId` with `realizedFxGainAccountId` (financial income) and `realizedFxLossAccountId` (financial costs), the same split as this module's `unrealizedGainAccountId`/`unrealizedLossAccountId`; basis art. 30 ust. 4 (changelog 2026-10-12 above) and the controller's answer of 2026-10-23. Design decision 11 and R2 updated to name the new keys. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).
