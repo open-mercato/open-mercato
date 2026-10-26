@@ -551,6 +551,23 @@ const runTokenUsagePrune: ModuleCli = {
   },
 }
 
+const runAgentRunPrune: ModuleCli = {
+  command: 'run-agent-run-prune',
+  async run() {
+    await ensureBootstrap()
+    const container = await createRequestContainer()
+
+    const { runAgentRunPrune: runPrune } = await import(
+      './workers/ai-agent-run-prune'
+    )
+
+    const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+    const summary = await runPrune({ em })
+
+    console.log('[ai-agent-run-prune] Prune complete:', summary)
+  },
+}
+
 export default [
   mcpServe,
   mcpServeHttp,
@@ -560,5 +577,6 @@ export default [
   entityGraph,
   runPendingActionCleanup,
   runTokenUsagePrune,
+  runAgentRunPrune,
   testTools,
 ]

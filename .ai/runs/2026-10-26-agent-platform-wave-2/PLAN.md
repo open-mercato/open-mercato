@@ -28,7 +28,7 @@
 | 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | ae2e35868 |
 | 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | done | 013febce7 |
 | 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | done | a6c1a627e |
-| 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | todo | — |
+| 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | done | ccfae3158 |
 | 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | todo | — |
 | 2 | 2.8 | Document run tracing and add run-object integration coverage | dispatch | todo | — |
 | 3 | 3.1 | Add the shared run observation collector | dispatch | todo | — |

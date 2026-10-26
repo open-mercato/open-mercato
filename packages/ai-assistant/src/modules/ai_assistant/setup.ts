@@ -6,6 +6,7 @@ const logger = createLogger('ai_assistant')
 
 const PENDING_ACTION_CLEANUP_SCHEDULE_KEY = 'ai_assistant:pending-action-cleanup'
 const TOKEN_USAGE_PRUNE_SCHEDULE_KEY = 'ai_assistant:token-usage-prune'
+const AGENT_RUN_PRUNE_SCHEDULE_KEY = 'ai_assistant:agent-run-prune'
 
 function stableScheduleUuid(stableKey: string): string {
   const hex = createHash('sha256').update(stableKey).digest('hex')
@@ -14,6 +15,7 @@ function stableScheduleUuid(stableKey: string): string {
 
 const PENDING_ACTION_CLEANUP_SCHEDULE_ID = stableScheduleUuid(PENDING_ACTION_CLEANUP_SCHEDULE_KEY)
 const TOKEN_USAGE_PRUNE_SCHEDULE_ID = stableScheduleUuid(TOKEN_USAGE_PRUNE_SCHEDULE_KEY)
+const AGENT_RUN_PRUNE_SCHEDULE_ID = stableScheduleUuid(AGENT_RUN_PRUNE_SCHEDULE_KEY)
 
 /**
  * System-scoped recurring schedule: every 5 minutes, enqueue a job to the
@@ -103,6 +105,48 @@ async function ensureTokenUsagePruneSchedule(
   }
 }
 
+/**
+ * System-scoped daily schedule: enqueue a job to the `ai-agent-run-prune`
+ * queue to hard-delete agent runs older than the retention window and runs
+ * soft-deleted together with their conversation.
+ */
+async function ensureAgentRunPruneSchedule(
+  container: import('awilix').AwilixContainer | undefined,
+): Promise<void> {
+  if (!container) return
+  let schedulerService:
+    | {
+        register: (registration: Record<string, unknown>) => Promise<void>
+      }
+    | undefined
+  try {
+    schedulerService = container.resolve('schedulerService')
+  } catch {
+    schedulerService = undefined
+  }
+  if (!schedulerService) return
+  try {
+    await schedulerService.register({
+      id: AGENT_RUN_PRUNE_SCHEDULE_ID,
+      name: 'AI agent-run prune',
+      description:
+        'Delete ai_agent_runs rows (with their steps and tool calls) older than AI_AGENT_RUNS_RETENTION_DAYS (default 30) or soft-deleted with their conversation.',
+      scopeType: 'system',
+      scheduleType: 'interval',
+      scheduleValue: '24h',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: 'ai-agent-run-prune',
+      targetPayload: {},
+      sourceType: 'module',
+      sourceModule: 'ai_assistant',
+      isEnabled: true,
+    })
+  } catch (error) {
+    logger.warn('Failed to register agent-run prune schedule', { err: error })
+  }
+}
+
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: [
@@ -122,6 +166,7 @@ export const setup: ModuleSetupConfig = {
   async seedDefaults({ container }) {
     await ensurePendingActionCleanupSchedule(container)
     await ensureTokenUsagePruneSchedule(container)
+    await ensureAgentRunPruneSchedule(container)
   },
 }
 
