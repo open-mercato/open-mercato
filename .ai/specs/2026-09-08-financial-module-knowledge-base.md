@@ -3041,3 +3041,9 @@ re-read in this pass.
 - **Fowler, *Analysis Patterns*:** 361 PDF pages, complete apart from blank pages before chapters and one duplicated page (187).
 - Corrected in the specs on 2026-10-26: Fixed Assets (the net-method reading rests on the text of p.135; Figure 7.10 is on p.136), GL Bulk Read Service, Annual Financial Statements, Sales Invoice GL Posting, Multi-Currency (Literature section). Lower-risk Hay absences elsewhere are covered by this note and not edited one by one.
 
+### 2026-10-26 (cont. — realized FX on two accounts, basis for not revaluing fixed assets, capitalisation)
+
+- **Realized FX differences on two accounts.** `realizedFxGainAccountId` (financial income) and `realizedFxLossAccountId` (financial costs) replace the single netted `gainLossAccountId`; gains and losses are never netted into one line. Basis: art. 30 ust. 4 UoR (consolidated text, Dz.U. 2026 poz. 522; `2026-09-17-multi-currency.md`, changelog 2026-10-12) and the controller's answer of 2026-10-23 (separate sub-accounts). Decided by the team, not yet reviewed by a maintainer. Specs changed: `cash-bank-management.md`, `accounts-payable-payments.md`, `multi-currency.md`.
+- **Fixed Assets — "a fixed asset is not a monetary item".** Art. 28 ust. 1 pkt 1 UoR: **Confirmed** (fixed assets at purchase price or production cost, or revalued value, less depreciation and impairment write-downs). Art. 30 ust. 1 pkt 1 does not settle whether an asset carried at cost is "wyrażone w walucie obcej"; "aktywa pieniężne" is defined in art. 3 ust. 1 pkt 25, but art. 30 ust. 1 does not use the term. **Unverified:** the provision does not decide it.
+- **Capitalising exchange differences into the purchase price.** Art. 30 ust. 4 allows it in justified cases; Phase 1 does not capitalise (`2026-09-17-multi-currency.md`, changelog 2026-10-12). Articles on infor.pl that describe this practice are a secondary source and are not a basis in any spec.
+
