@@ -1439,8 +1439,10 @@ maintainer; the column names are a proposal).
   appear only in the trading chapters (instruments, forwards, options) and as
   Conversion Ratio (3.2); nothing on period-end revaluation, unrealized
   differences or currency lots.
-- **Hay, *Data Model Patterns* (full text, 277 pages).** No occurrence of
-  foreign currency, exchange rate, revaluation or unrealized.
+- **Hay, *Data Model Patterns* (partial text: 277 PDF pages; printed pages
+  63, 136–137 and index pages 265–266 are missing from the PDF).** Confirmed
+  absence in the pages available (partial text): no occurrence of foreign
+  currency, exchange rate, revaluation or unrealized.
 - **ERPNext, Exchange Rate Revaluation** (docs.frappe.io): revalues
   foreign-currency balance-sheet accounts by changing the company-currency
   carrying value "without changing" the account-currency balance; the offset
