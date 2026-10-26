@@ -3,7 +3,7 @@ import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import { expectId, getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
 
 type Membership = { id: string; entityId: string; createdAt: string }
@@ -147,13 +147,19 @@ test.describe('TC-CRM-7855 tag deletion contention and retry', () => {
       const operation = race.deleted.operation
       await withClient(async (client) => {
         expect(await readMemberships(client, targetTagId, scope)).toEqual([])
-        const log = await client.query<{ snapshot_before: { assignments: Membership[] } }>(
-          'select snapshot_before from action_logs where id = $1 and tenant_id = $2 and organization_id = $3',
-          [operation.logId, scope.tenantId, scope.organizationId],
-        )
-        const captured = log.rows[0]?.snapshot_before.assignments.map(({ id, entityId, createdAt }) => ({ id, entityId, createdAt }))
-        expect(captured?.sort((left, right) => left.entityId.localeCompare(right.entityId))).toEqual(race.expectedMemberships)
       })
+      const auditQuery = new URLSearchParams({
+        resourceKind: 'customers.tag', resourceId: targetTagId, organizationId: scope.organizationId, pageSize: '20',
+      })
+      const auditResponse = await apiRequest(request, 'GET', `/api/audit_logs/audit-logs/actions?${auditQuery}`, { token })
+      expect(auditResponse.status(), await auditResponse.text()).toBe(200)
+      const auditBody = await readJsonSafe<{
+        items?: Array<{ id: string; snapshotBefore?: { assignments?: Membership[] } | null }>
+      }>(auditResponse)
+      const captured = auditBody?.items?.find((entry) => entry.id === operation.logId)?.snapshotBefore?.assignments
+      expect(captured, 'decrypted delete snapshot contains both committed memberships').toHaveLength(race.expectedMemberships.length)
+      expect(captured?.map(({ id, entityId, createdAt }) => ({ id, entityId, createdAt }))
+        .sort((left, right) => left.entityId.localeCompare(right.entityId))).toEqual(race.expectedMemberships)
 
       const rejectedRetry = await apiRequest(request, 'POST', '/api/customers/tags/assign', {
         token, data: { tagId: targetTagId, entityId: personIds[2] }, retryTransport: false,
