@@ -39,7 +39,7 @@
 | 3 | 3.3 | Add the run manifest builder | dispatch | done | 0636ac240 |
 | 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | done | ac31357da |
 | 3 | 3.5 | Count only llm and tool spans in the trace-completeness gate | dispatch:cheap | done | e058d9a3f |
-| 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | todo | — |
+| 3 | 3.6 | Show a Versions and Identity card on the trace page | dispatch | done | 7b3875bf7 |
 | 3 | 3.7 | Cover the run manifest with an integration test | dispatch | todo | — |
 | 4 | 4.1 | Add frozen eval-set manifests with deterministic ids | dispatch:capable | todo | — |
 | 4 | 4.2 | Freeze the manifest on eval run start and merge the summary on complete | dispatch | todo | — |
