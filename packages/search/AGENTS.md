@@ -248,7 +248,7 @@ interface SearchBuildContext {
 }
 ```
 
-`SearchIndexer` leaves custom fields declared `encrypted` out of this context: out of `customFields`, the record's `cf:` / `cf_` keys and every record loaded through `queryEngine` (including fields joined from `customFieldSources`). When the definitions cannot be read, it leaves out every custom field of that entity and reports `search.encrypted_custom_fields_unresolved`. `IndexableRecord.fields` keeps them for the hashed token index, so a missing custom field in source text is expected for encrypted fields, not a bug to work around.
+`SearchIndexer` leaves custom fields declared `encrypted` out of this context: out of `customFields`, the record's `cf:` / `cf_` keys and every record loaded through `queryEngine` (including fields joined from `customFieldSources`). When the definitions cannot be read, it leaves out every custom field of that entity and reports `search.encrypted_custom_fields_unresolved`. `IndexableRecord.fields` keeps them for the hashed token index (the fulltext driver also receives them for an entity without a `fieldPolicy.searchable` list, tracked in #7894), so a missing custom field in source text is expected for encrypted fields, not a bug to work around. A key declared `encrypted` by any tenant is left out for every tenant.
 
 ### Load Related Data via QueryEngine
 
