@@ -639,7 +639,7 @@ base-currency account has no lots, no method and no change in behaviour.
   rate rounded to 8 decimals); the counter-side line is posted at the rate of
   the day (`bankRate`: the bank's, else NBP Table A of the last published day
   before the value date); the difference between the two base totals goes to
-  `gainLossAccountId` (the **realized** account) on the side that balances.
+  the realized accounts on the side that balances: `realizedFxGainAccountId` when the balancing line is a credit (gain), `realizedFxLossAccountId` when it is a debit (loss).
 - **`payment_batch` outflow.** Accounts Payable has already credited the cash
   account at its payment rate when the batch was sent. Matching the line
   consumes the lots and posts one **cost adjustment entry**
@@ -647,9 +647,9 @@ base-currency account has no lots, no method and no change in behaviour.
   a line on the account's ledger account in its currency with
   `amountCurrency = 0` and a base amount of (cost of the consumed lots − the
   base amount of the batch's cash line, read from its payment entry), and the
-  opposite side on `gainLossAccountId`. Spent at 4.20 what cost 4.00: the cash
-  line was credited 2,100, the cost is 2,000, so the adjustment debits the
-  account by 100 and credits the realized gain by 100. It applies only when the
+  opposite side on `realizedFxGainAccountId` (a credit) or `realizedFxLossAccountId` (a debit). Spent at 4.20 what cost
+  4.00: the cash line was credited 2,100, the cost is 2,000, so the adjustment
+  debits the account by 100 and credits `realizedFxGainAccountId` by 100. It applies only when the
   batch's cash account is this account's ledger account; otherwise nothing is
   posted, as before.
 - **Reconciliation property.** The base balance of the ledger account equals the
@@ -657,7 +657,7 @@ base-currency account has no lots, no method and no change in behaviour.
   reversed), and the balance in the account's currency equals the sum of
   `remainingCurrency`. The valuation of `fx_revaluation` (Multi-Currency, Out of
   scope) is then the balance in currency times the valuation rate minus the base
-  balance, posted to the **unrealized** account, never to `gainLossAccountId`.
+  balance, posted to the **unrealized** account, never to `realizedFxGainAccountId` or `realizedFxLossAccountId`.
 - **Not designed:** reversing a matched line restores the lots (the
   `unmatchBankStatementLine` of Out of scope); lines matched out of date order
   consume the lots available at match time, which can differ from a strictly
@@ -832,8 +832,8 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     dependency on `fx_revaluation`. Reads `sales_invoices_gl_posting`'s own
     `receivableAccountId` via a scoped
     `ModuleConfigService.get('sales_invoices_gl_posting', 'receivableAccountId', { tenantId, organizationId })`
-    call (see Cross-module integration) and `gainLossAccountId` from this module's
-    config, and rejects with a readable configuration error if either is unset, rather
+    call (see Cross-module integration) and `realizedFxGainAccountId`/`realizedFxLossAccountId` from this module's
+    config, and rejects with a readable configuration error if any is unset, rather
     than posting to an undetermined account. **Payment entry**, through
     `commandBus.execute('ledger.postJournalEntry', { input, ctx })`: debit the bank
     account's `ledgerAccountId` (always a debit, the line is always incoming; bank
@@ -841,8 +841,8 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     `receivableAccountId` (invoice currency, `amountCurrency` = `settledAmount`, rate
     `invoiceRatePaid`); credit `customerOverpaymentAccountId` (bank currency,
     `overpaymentAmount`, rate `bankRate`) when `overpaymentAmount > 0`; and, when the base
-    amounts differ, one ordinary base-currency line (rate `1`) on `gainLossAccountId` for
-    the difference, on the side that balances. That difference is the effect of converting
+    amounts differ, one ordinary base-currency line (rate `1`) for the difference, on the
+    side that balances: on `realizedFxGainAccountId` when it is a credit, on `realizedFxLossAccountId` when it is a debit. That difference is the effect of converting
     two currencies to the base currency plus rounding. Each base amount is the line's
     original amount times its rate, rounded half up (GL's consistency rule). **Settlement
     entry**, its own journal entry (`referenceType:
@@ -852,12 +852,13 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     `amountCurrency = 0` (exempt from GL's consistency rule), rate `invoiceRatePaid`, base
     amount `settledAmount` × (`invoiceRatePaid` − `invoiceRateBooked`) rounded; a debit
     when `invoiceRatePaid` is higher (the payment entry credited the receivable by more
-    than it was booked at), a credit when lower; the opposite side on `gainLossAccountId`.
+    than it was booked at), a credit when lower; the opposite side on `realizedFxGainAccountId` (credit) or
+    `realizedFxLossAccountId` (debit).
     The size follows `settledAmount`, never the invoice total, so every partial payment
     settles its own share. Purchases (Accounts Payable payments) mirror this with the
     sides reversed. Check: invoice EUR 1,000 booked at 4.30, payment USD 1,100, `bankRate`
-    4.00, `invoiceRatePaid` 4.35: the payment entry is 4,400 against 4,350, 50 to
-    `gainLossAccountId`; the settlement entry is 1,000 × 0.05 = 50; 100 in total. Paid
+    4.00, `invoiceRatePaid` 4.35: the payment entry is 4,400 against 4,350, 50 credited to
+    `realizedFxGainAccountId`; the settlement entry is 1,000 × 0.05 = 50, also credited to `realizedFxGainAccountId`; 100 in total. Paid
     into a PLN account with 4,350 the payment entry has no difference line and the
     settlement entry carries 50. Source of the structure: the controller's answer of
     2026-10-23 (the invoice-versus-payment rate difference is usually its own entry at
@@ -1123,12 +1124,12 @@ BankStatementLine {
 
 ### Module Config
 
-`internalTransferSuspenseAccountId`, `gainLossAccountId`,
+`internalTransferSuspenseAccountId`, `realizedFxGainAccountId`, `realizedFxLossAccountId`,
 `customerOverpaymentAccountId` (all FK-id to `ledger.LedgerAccount`) via
-`ModuleConfigService`, owned by this module. **`gainLossAccountId` is the realized exchange-difference account** (added 2026-10-23: realized and unrealized differences are kept apart, the unrealized one belongs to `fx_revaluation`'s config). Each required before the first
+`ModuleConfigService`, owned by this module. **`realizedFxGainAccountId` (financial income) and `realizedFxLossAccountId` (financial costs) are the realized exchange-difference accounts** (2026-10-26, replacing the single netted `gainLossAccountId` of 2026-10-23; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)): a balancing exchange-difference line that is a credit goes to `realizedFxGainAccountId`, one that is a debit to `realizedFxLossAccountId`, and gains and losses are never netted into one line. Basis: art. 30 ust. 4 UoR (exchange differences, including those arising on payment of receivables and payables, go respectively to financial income or financial costs; checked against the consolidated text, `2026-09-17-multi-currency.md`, changelog 2026-10-12) and the controller's answer of 2026-10-23 (separate sub-accounts). Realized and unrealized differences are kept apart; the unrealized ones belong to `fx_revaluation`'s config (`unrealizedGainAccountId`/`unrealizedLossAccountId`). Each required before the first
 `matchBankStatementLine` call that needs it: `internal_transfer`
 (`internalTransferSuspenseAccountId`), a foreign-currency `sales_invoice`
-match (`gainLossAccountId`), a `sales_invoice` match with an overpayment
+match (`realizedFxGainAccountId` and `realizedFxLossAccountId`), a `sales_invoice` match with an overpayment
 (`customerOverpaymentAccountId`, a liability account). **`bankReconciliationClearingAccountId` is
 dropped** — corrected after review: the shared clearing-account design
 it backed was rejected (see Design decisions, Alternatives Considered);
@@ -1185,7 +1186,7 @@ Three new tables (`bank_account`, `bank_statement`,
 `bank_statement_line`, the last with the `settledAmount`/`overpaymentAmount`/`bankRate`/`invoiceRatePaid`/`fxDifferenceJournalEntryId` columns and the `(tenantId, organizationId, matchedDocumentType,
 matchedDocumentId)` index the remaining-balance check reads), zero changes to any `sales`/`accounts_payable`/
 `ledger` table. No seed data — `internalTransferSuspenseAccountId`/
-`gainLossAccountId`/`customerOverpaymentAccountId` must be configured before first use (see Module
+`realizedFxGainAccountId`/`realizedFxLossAccountId`/`customerOverpaymentAccountId` must be configured before first use (see Module
 Config); `sales_invoices_gl_posting.receivableAccountId` is that
 module's own configuration, not this one's, but must also be set
 before a `sales_invoice` match can complete (see Risks). No backfill:
@@ -1198,7 +1199,7 @@ automatically.
    migration.
 2. `data/validators.ts` for all three commands' inputs.
 3. `ModuleConfigService` registration for the three owned account-id
-   settings (`internalTransferSuspenseAccountId`, `gainLossAccountId`,
+   settings (`internalTransferSuspenseAccountId`, `realizedFxGainAccountId`, `realizedFxLossAccountId`,
    `customerOverpaymentAccountId`)
    + a minimal settings page.
 4. `createBankAccount`, `createBankStatement`, `matchBankStatementLine`
@@ -1233,7 +1234,7 @@ automatically.
 | `commands/createBankAccount.ts` | Create | |
 | `commands/createBankStatement.ts` | Create | |
 | `commands/matchBankStatementLine.ts` | Create | Posts to `ledger` on its `sales_invoice`/`internal_transfer`/`manual_gl_entry` branches; the `payment_batch` branch never posts |
-| `lib/moduleConfig.ts` | Create | Registers the three account settings (`internalTransferSuspenseAccountId`, `gainLossAccountId`, `customerOverpaymentAccountId`) |
+| `lib/moduleConfig.ts` | Create | Registers the four account settings (`internalTransferSuspenseAccountId`, `realizedFxGainAccountId`, `realizedFxLossAccountId`, `customerOverpaymentAccountId`) |
 | `acl.ts` | Create | Two features |
 | `setup.ts` | Create | `defaultRoleFeatures`, no seed data |
 | `events.ts` | Create | `cash_bank_management.statement_line.matched` |
@@ -1259,7 +1260,7 @@ automatically.
   `internalTransferSuspenseAccountId` and credits
   `BankAccount.ledgerAccountId` (the reverse of the incoming case),
   and the posting still balances.
-- Assert a foreign-currency `sales_invoice` match (invoice EUR 1,000 booked at 4.30, statement USD 1,100, `bankRate` 4.00, `invoiceRatePaid` 4.35) posts a payment entry with the bank line (USD 1,100, base 4,400), the receivable credit (EUR 1,000, base 4,350) and a base-currency line of 50 on `gainLossAccountId`, plus a separate settlement entry (`referenceType: 'cash_bank_management:bank_statement_line_fx_difference'`) with an `amountCurrency = 0` receivable line of 1,000 x 0.05 = 50 against `gainLossAccountId`; both entries balance. Assert the same invoice paid into a PLN account (4,350) has no difference line in the payment entry and the same settlement entry, and that an invoice and account in the same foreign currency with the rate moved posts a balanced payment entry with no difference line plus the settlement entry. Include a partial `settledAmount` (below the remaining balance) and assert the settlement entry is sized on `settledAmount`, not on the invoice total (regression for the earlier formula, which cancelled to zero).
+- Assert a foreign-currency `sales_invoice` match (invoice EUR 1,000 booked at 4.30, statement USD 1,100, `bankRate` 4.00, `invoiceRatePaid` 4.35) posts a payment entry with the bank line (USD 1,100, base 4,400), the receivable credit (EUR 1,000, base 4,350) and a base-currency line of 50 credited to `realizedFxGainAccountId`, plus a separate settlement entry (`referenceType: 'cash_bank_management:bank_statement_line_fx_difference'`) with an `amountCurrency = 0` receivable line of 1,000 x 0.05 = 50 against a credit of 50 on `realizedFxGainAccountId`; both entries balance. With `invoiceRatePaid` 4.25 instead, the settlement entry credits the receivable 50 and debits `realizedFxLossAccountId` 50 (⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)). Assert the same invoice paid into a PLN account (4,350) has no difference line in the payment entry and the same settlement entry, and that an invoice and account in the same foreign currency with the rate moved posts a balanced payment entry with no difference line plus the settlement entry. Include a partial `settledAmount` (below the remaining balance) and assert the settlement entry is sized on `settledAmount`, not on the invoice total (regression for the earlier formula, which cancelled to zero).
 - Assert a same-currency match without `settledAmount` and a line within the
   balance defaults it to the line's absolute amount, posts no gain/loss line
   and no overpayment line.
@@ -1283,7 +1284,7 @@ automatically.
   read it.
 - Assert a foreign-currency `sales_invoice` match with **no** rates supplied reads the NBP Table A default (`getRate` called with `source: 'NBP_A'` and the day before the settlement date) and posts with it; assert that when no rate can be resolved it is rejected with `422 EXCHANGE_RATE_REQUIRED` and persists nothing (no line update, no `JournalEntry`); assert an invoice whose stored `exchangeRate` is `null` is rejected with `422 INVOICE_EXCHANGE_RATE_MISSING`.
 - Assert a base-currency invoice paid into a base-currency account with `bankRate` or `invoiceRatePaid` other than `1` supplied is rejected (nothing to convert), and so is an invoice and account in the same foreign currency with two different rates.
-- Lots (added 2026-10-23): a USD account receiving 1,000 at 4.00 creates one lot; spending 500 through a `manual_gl_entry` at a day rate of 4.20 posts one bank credit line (USD 500 at 4.00 = 2,000), the expense at 4.20 (2,100) and 100 on `gainLossAccountId`; the lot's remainder is 500. Two inflows at 4.00 and 4.10 are consumed oldest first. `WEIGHTED_AVERAGE` leaves the average unchanged after an outflow. An outflow above the lots is `409 INSUFFICIENT_LOTS` with nothing posted. A `payment_batch` match on a USD account posts the cost adjustment (cash line credited 2,100 by AP, cost 2,000: debit the account 100, credit `gainLossAccountId` 100) and none on a base-currency account. The base balance of the ledger account equals the sum of remaining lots at their rates after each step.
+- Lots (added 2026-10-23): a USD account receiving 1,000 at 4.00 creates one lot; spending 500 through a `manual_gl_entry` at a day rate of 4.20 posts one bank credit line (USD 500 at 4.00 = 2,000), the expense at 4.20 (2,100) and 100 credited to `realizedFxGainAccountId`; the lot's remainder is 500. Two inflows at 4.00 and 4.10 are consumed oldest first. `WEIGHTED_AVERAGE` leaves the average unchanged after an outflow. An outflow above the lots is `409 INSUFFICIENT_LOTS` with nothing posted. A `payment_batch` match on a USD account posts the cost adjustment (cash line credited 2,100 by AP, cost 2,000: debit the account 100, credit `realizedFxGainAccountId` 100) and none on a base-currency account. The base balance of the ledger account equals the sum of remaining lots at their rates after each step.
 - Assert a `payment_batch` match against a `PaymentBatch` fixture whose
   `total_amount` equals the statement line's amount posts **no**
   `JournalEntry`, sets `amountMismatch: false`, and emits no event.
@@ -1985,3 +1986,8 @@ schema. Not yet reviewed by a maintainer.
 ### 2026-10-23 (cont. — foreign-currency lots designed)
 
 - **Decided by the team** on the controller's answer (not yet reviewed by a maintainer): `BankAccountLot`, `outflowValuationMethod`, lots created by inflows and opening lots, consumption by outflows (one bank line per lot, difference to the realized account), a cost adjustment entry for `payment_batch` outflows, `409 INSUFFICIENT_LOTS`, the realized/unrealized split. Entities, Data Models, Module Config, Commands (`payment_batch`), API Contracts, Testing Strategy and Out of scope updated.
+
+### 2026-10-26 — realized exchange differences on two accounts
+
+- `gainLossAccountId` is replaced by `realizedFxGainAccountId` (gain, financial income) and `realizedFxLossAccountId` (loss, financial costs). A balancing exchange-difference line that is a credit goes to `realizedFxGainAccountId`, a debit to `realizedFxLossAccountId`; gains and losses are never netted into one line. Updated: Foreign-currency lots (own postings, cost adjustment, reconciliation property), `matchBankStatementLine` (payment entry, settlement entry, worked check), Module Config, Migration, Implementation Plan, File Manifest and Testing Strategy. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).
+- Basis: art. 30 ust. 4 UoR (differences, also on payment of receivables and payables, go respectively to financial income or financial costs; checked against the consolidated text, `2026-09-17-multi-currency.md`, changelog 2026-10-12); the controller's answer of 2026-10-23 (separate sub-accounts). Same split as `fx_revaluation`'s `unrealizedGainAccountId`/`unrealizedLossAccountId` and Accounts Payable payments' `realizedFxGainAccountId`/`realizedFxLossAccountId`.
