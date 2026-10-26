@@ -48,6 +48,7 @@
 | 4 | 4.4 | Add snapshot pinning to the eval CLI and the eval-runs API | dispatch | done | 03ba2daa7 |
 | 4 | 4.5 | Report dataset sameness, drift warnings and the snapshot picker | dispatch | done | f4e3e82d0 |
 | 4 | 4.6 | Cover pinned eval replays with an integration test | dispatch | done | 5032e8b84 |
+| 4 | 4.6-review-fix | Show frozen case input and expected values in pinned eval reports | dispatch | todo | — |
 | 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 2 | inline | todo | — |
 
@@ -219,6 +220,9 @@ None (`--skill-url` not passed).
 
 #### 4.6 Cover pinned eval replays with an integration test
 - `TC-AGENT-EVAL-SET-002`: `POST /eval-runs { snapshot: 'latest' }` twice with a case edit in between; the pinned replay of the first hash ignores the edit and the report shows `sameDataset`. Self-contained fixtures via API, cleanup in `finally`. (Runs in CI with AO enabled.)
+
+#### 4.6-review-fix Show frozen case input and expected values in pinned eval reports
+- Found while writing 4.6: for a suite run that carries `summary.__evalSet`, the report (`buildEvalReport`, `includePayloads`) shows the live, edited case input/expected/name instead of the frozen manifest values the run actually replayed. Resolve the manifest once and take case content from it for pinned runs; legacy runs unchanged. Tighten `TC-AGENT-EVAL-SET-002` to assert the original input through the report.
 
 ### Phase 5: Configuration and docs
 
