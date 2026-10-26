@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { buildQueryParams } from '@open-mercato/shared/lib/crud/query-params'
@@ -62,7 +61,7 @@ export async function GET(req: Request, ctx: DocumentStructureRouteContext) {
   const query = documentStructureQuerySchema.safeParse(buildQueryParams(new URL(req.url).searchParams))
   if (!query.success) return validationErrorResponse(query.error)
   try {
-    const container = await createRequestContainer()
+    const { container } = resolved
     const service = container.resolve<AttachmentDocumentStructureService>(ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY)
     const structure = await service.getStructure({
       attachmentId: resolved.attachmentId,
@@ -88,7 +87,7 @@ export async function POST(req: Request, ctx: DocumentStructureRouteContext) {
   if (!parsed.success) return validationErrorResponse(parsed.error)
 
   try {
-    const container = await createRequestContainer()
+    const { container } = resolved
     const guards: MutationGuard[] = [...getAllMutationGuardInstances()]
     const legacyGuard = bridgeLegacyGuard(container)
     if (legacyGuard) guards.push(legacyGuard)

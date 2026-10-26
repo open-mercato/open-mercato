@@ -19,6 +19,7 @@ type AuthFixture = {
   tenantId: string | null
   orgId: string | null
   features?: string[]
+  isSuperAdmin?: boolean
 }
 
 let currentAuth: AuthFixture | null = null
@@ -49,12 +50,27 @@ const service = {
   getStats: jest.fn(),
 }
 const commandBus = { execute: jest.fn() }
+const fakeEm = { name: 'em' }
+
+const mockResolveAttachmentRequestScope = jest.fn(
+  async (_container: unknown, auth: AuthFixture | null) => ({ denied: false, organizationId: auth?.orgId ?? null }),
+)
+jest.mock('../../lib/requestScope', () => ({
+  resolveAttachmentRequestScope: (...args: [unknown, AuthFixture | null]) => mockResolveAttachmentRequestScope(...args),
+}))
+
+const mockFindOneWithDecryption = jest.fn()
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: jest.fn(async () => []),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (name: string) => {
       if (name === 'attachmentDocumentStructureService') return service
       if (name === 'commandBus') return commandBus
+      if (name === 'em') return fakeEm
       throw new Error(`[internal] unexpected resolve ${name}`)
     },
     hasRegistration: () => false,
@@ -67,6 +83,7 @@ import { GET as getSections, metadata as sectionsMetadata } from '../structure/[
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
+const SELECTED_ORG_ID = '66666666-6666-4666-8666-666666666666'
 const USER_ID = '33333333-3333-4333-8333-333333333333'
 const ATTACHMENT_ID = '44444444-4444-4444-8444-444444444444'
 const EXTRACTION_ID = '55555555-5555-4555-8555-555555555555'
@@ -204,6 +221,86 @@ describe('GET /api/attachments/structure/:id/sections', () => {
     const response = await getSections(getRequest(sectionsPath), routeContext())
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ extractionId: null, items: [], nextCursor: null })
+  })
+})
+
+describe('document structure route organization scope', () => {
+  it('uses the organization selected in the switcher instead of the home organization', async () => {
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: SELECTED_ORG_ID })
+    service.getStructure.mockResolvedValue({ attachmentId: ATTACHMENT_ID, extraction: null, outline: [] })
+
+    const response = await getStructure(getRequest(`/api/attachments/structure/${ATTACHMENT_ID}`), routeContext())
+
+    expect(response.status).toBe(200)
+    expect(service.getStructure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: {
+          tenantId: TENANT_ID,
+          organizationId: SELECTED_ORG_ID,
+          auth: expect.objectContaining({ sub: USER_ID, orgId: SELECTED_ORG_ID }),
+        },
+      }),
+    )
+  })
+
+  it('requests extraction within the selected organization', async () => {
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: SELECTED_ORG_ID })
+    commandBus.execute.mockResolvedValue({
+      result: { attachmentId: ATTACHMENT_ID, extractionId: null, status: 'pending', enqueued: true },
+      logEntry: null,
+    })
+
+    const response = await requestStructure(postRequest({}), routeContext())
+
+    expect(response.status).toBe(202)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'attachments.document_structure.request',
+      expect.objectContaining({
+        input: expect.objectContaining({ organizationId: SELECTED_ORG_ID }),
+        ctx: expect.objectContaining({ selectedOrganizationId: SELECTED_ORG_ID, organizationIds: [SELECTED_ORG_ID] }),
+      }),
+    )
+  })
+
+  it('answers 404 when the organization scope resolves to nothing accessible', async () => {
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: true, organizationId: null })
+
+    const response = await getSections(getRequest(`/api/attachments/structure/${ATTACHMENT_ID}/sections`), routeContext())
+
+    expect(response.status).toBe(404)
+    expect(service.listSections).not.toHaveBeenCalled()
+  })
+
+  it('lets a superadmin browsing all organizations reach the attachment in its own organization', async () => {
+    currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: null, isSuperAdmin: true }
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: ATTACHMENT_ID, organizationId: ORG_ID })
+    service.getStructure.mockResolvedValue({ attachmentId: ATTACHMENT_ID, extraction: null, outline: [] })
+
+    const response = await getStructure(getRequest(`/api/attachments/structure/${ATTACHMENT_ID}`), routeContext())
+
+    expect(response.status).toBe(200)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      fakeEm,
+      expect.anything(),
+      { id: ATTACHMENT_ID, tenantId: TENANT_ID },
+      { fields: ['id', 'organizationId'] },
+      { tenantId: TENANT_ID, organizationId: null },
+    )
+    expect(service.getStructure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+      }),
+    )
+  })
+
+  it('answers 404 to a superadmin without a selected organization when the attachment is not in the tenant', async () => {
+    currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: null, isSuperAdmin: true }
+    mockFindOneWithDecryption.mockResolvedValueOnce(null)
+
+    const response = await getStructure(getRequest(`/api/attachments/structure/${ATTACHMENT_ID}`), routeContext())
+
+    expect(response.status).toBe(404)
+    expect(service.getStructure).not.toHaveBeenCalled()
   })
 })
 

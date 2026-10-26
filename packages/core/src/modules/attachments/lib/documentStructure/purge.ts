@@ -1,5 +1,4 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AttachmentDocumentExtraction, AttachmentDocumentSection } from '../../data/entities'
 import { assertAttachmentScopeInvariant } from '../access'
 
@@ -10,6 +9,10 @@ export type PurgeDocumentStructureInput = {
 }
 
 export type PurgeDocumentStructureOptions = {
+  /**
+   * `false` runs the scoped deletes on the passed entity manager so they join the caller's
+   * ambient transaction; otherwise both deletes commit together in their own transaction.
+   */
   flush?: boolean
 }
 
@@ -30,12 +33,11 @@ export async function purgeDocumentStructure(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   }
-  const sections = await findWithDecryption(em, AttachmentDocumentSection, where, { fields: ['id'] }, scope)
-  const extractions = await findWithDecryption(em, AttachmentDocumentExtraction, where, { fields: ['id'] }, scope)
-  for (const section of sections) em.remove(section)
-  for (const extraction of extractions) em.remove(extraction)
-  if (options.flush !== false && (sections.length > 0 || extractions.length > 0)) {
-    await em.flush()
+  const deleteRows = async (target: EntityManager): Promise<PurgeDocumentStructureResult> => {
+    const sectionCount = await target.nativeDelete(AttachmentDocumentSection, where)
+    const extractionCount = await target.nativeDelete(AttachmentDocumentExtraction, where)
+    return { extractionCount, sectionCount }
   }
-  return { extractionCount: extractions.length, sectionCount: sections.length }
+  if (options.flush === false) return deleteRows(em)
+  return em.transactional((tx) => deleteRows(tx))
 }

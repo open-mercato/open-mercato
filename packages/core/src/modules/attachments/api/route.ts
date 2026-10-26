@@ -48,7 +48,6 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AttachmentQuotaService } from '../lib/quota-service'
 import { resolveAttachmentsUploadRateLimitConfig } from '../lib/ocrLimits'
-import { purgeDocumentStructure } from '../lib/documentStructure/purge'
 import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 
@@ -727,19 +726,7 @@ export async function DELETE(req: Request) {
   if (orgId) deleteFilter.organizationId = orgId
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  const removal = await removeAttachmentRecord(em, record, {
-    beforeRemove: async () => {
-      await purgeDocumentStructure(
-        em,
-        {
-          attachmentId: record.id,
-          tenantId: record.tenantId ?? null,
-          organizationId: record.organizationId ?? null,
-        },
-        { flush: false },
-      )
-    },
-  })
+  const removal = await removeAttachmentRecord(em, record)
   if (!removal.removed) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })

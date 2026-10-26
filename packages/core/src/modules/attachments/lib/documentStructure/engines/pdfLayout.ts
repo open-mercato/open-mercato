@@ -11,6 +11,7 @@ import type {
 } from '../types'
 import {
   DocumentStructureFileTooLargeError,
+  throwIfDocumentStructureAborted,
   normalizeExtension,
   normalizeMimeType,
   resolveMaxDocumentStructureBytes,
@@ -578,6 +579,7 @@ export function createPdfLayoutEngine(options: PdfLayoutEngineOptions = {}): Doc
       const stats = await fs.stat(input.filePath)
       if (stats.size > maxBytes) throw new DocumentStructureFileTooLargeError(stats.size, maxBytes)
       const data = new Uint8Array(await fs.readFile(input.filePath))
+      throwIfDocumentStructureAborted(input.signal)
       const source = await loadSource(data)
       try {
         const pageLimit = resolvePageLimit(source.numPages, resolveMaxPages(), input.maxPages)
@@ -586,6 +588,7 @@ export function createPdfLayoutEngine(options: PdfLayoutEngineOptions = {}): Doc
         const pageCharCounts: number[] = []
         const unreadablePages: number[] = []
         for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+          throwIfDocumentStructureAborted(input.signal)
           const page = await source.readPage(pageNumber)
           const charCount = countPageChars(page.runs)
           pageCharCounts.push(charCount)

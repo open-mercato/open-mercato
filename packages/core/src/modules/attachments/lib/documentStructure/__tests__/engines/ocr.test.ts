@@ -12,6 +12,7 @@ import {
   type OcrPdfPagePreparer,
   type OcrSlotRunner,
 } from '../../engines/ocr'
+import { DocumentStructureAbortedError } from '../../engines/text'
 import { structureDocument } from '../../structurer'
 import { documentEngineResultSchema, type DocumentBlock, type DocumentEngineResult } from '../../types'
 import type { OcrImageBufferInput } from '../../../ocrService'
@@ -115,6 +116,35 @@ describe('document structure OCR fallback', () => {
     expect(outcome.result.ocrPageCount).toBe(2)
     expect(outcome.result.unreadablePages).toEqual([])
     expect(documentEngineResultSchema.safeParse(outcome.result).success).toBe(true)
+  })
+
+  it('stops before the next OCR call once the extraction signal is aborted', async () => {
+    const controller = new AbortController()
+    const { processor, calls } = createMockOcr((input) => {
+      controller.abort()
+      return pageTextFromImage(input)
+    })
+
+    await expect(
+      applyOcrFallback(
+        { filePath: '/tmp/doc.pdf', result: pdfResult(), signal: controller.signal },
+        { ocrService: () => processor, preparePdfPages: createMockPreparer(), runInSlot: createSlotSpy().runInSlot, maxPages: () => 50 },
+      ),
+    ).rejects.toBeInstanceOf(DocumentStructureAbortedError)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('does not OCR an image when the extraction signal is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const { processor, calls } = createMockOcr(pageTextFromImage)
+    const engine = createOcrStructureEngine({ ocrService: () => processor, runInSlot: createSlotSpy().runInSlot })
+    const filePath = writeFixture('aborted.png', Buffer.from('png-bytes'))
+
+    await expect(
+      engine.extract({ filePath, mimeType: 'image/png', extension: 'png', signal: controller.signal }),
+    ).rejects.toBeInstanceOf(DocumentStructureAbortedError)
+    expect(calls).toHaveLength(0)
   })
 
   it('merges OCR blocks by page, replacing the sparse text-layer blocks of OCR pages', async () => {

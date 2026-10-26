@@ -284,6 +284,38 @@ describe('attachmentDocumentStructureService access', () => {
     }
   })
 
+  it('allows a tenant-level partition and another-org partition of the same tenant', async () => {
+    const { service, fake } = setup()
+    const partitions = fake.table(AttachmentPartition)
+    partitions.splice(0, partitions.length, {
+      code: 'privateAttachments',
+      isPublic: false,
+      tenantId: TENANT_A,
+      organizationId: null,
+    })
+    expect((await service.getStructure({ attachmentId: ATTACHMENT_ID, scope: scopeA }))?.extraction?.id).toBe(EXTRACTION_ID)
+
+    partitions.splice(0, partitions.length, {
+      code: 'privateAttachments',
+      isPublic: false,
+      tenantId: TENANT_A,
+      organizationId: ORG_B,
+    })
+    expect((await service.getStructure({ attachmentId: ATTACHMENT_ID, scope: scopeA }))?.extraction?.id).toBe(EXTRACTION_ID)
+  })
+
+  it('denies a partition owned by another tenant', async () => {
+    const { service, fake } = setup()
+    const partitions = fake.table(AttachmentPartition)
+    partitions.splice(0, partitions.length, {
+      code: 'privateAttachments',
+      isPublic: false,
+      tenantId: TENANT_B,
+      organizationId: ORG_B,
+    })
+    expect(await service.getStructure({ attachmentId: ATTACHMENT_ID, scope: scopeA })).toBeNull()
+  })
+
   it('allows a same-scope service principal without auth', async () => {
     const { service } = setup()
     const structure = await service.getStructure({
@@ -413,6 +445,27 @@ describe('attachmentDocumentStructureService.requestExtraction', () => {
     const { service, enqueue } = setup()
     const result = await service.requestExtraction({ attachmentId: ATTACHMENT_ID, scope: scopeA })
     expect(result).toEqual({ extractionId: EXTRACTION_ID, status: 'completed', enqueued: false, jobId: null })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it.each(['too_large', 'no_text_layer_ocr_disabled', 'unsupported_type'])(
+    're-enqueues instead of reusing a configuration-dependent %s skip',
+    async (skipReason) => {
+      const { service, enqueue, fake } = setup()
+      const live = fake.table(AttachmentDocumentExtraction).find((row) => row.id === EXTRACTION_ID)
+      Object.assign(live ?? {}, { status: 'skipped', skipReason })
+      const result = await service.requestExtraction({ attachmentId: ATTACHMENT_ID, scope: scopeA, ocr: 'force' })
+      expect(result).toEqual({ extractionId: null, status: 'pending', enqueued: true, jobId: 'job-1' })
+      expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ force: false, ocr: 'force' }))
+    },
+  )
+
+  it('reuses a content-dependent encrypted_pdf skip', async () => {
+    const { service, enqueue, fake } = setup()
+    const live = fake.table(AttachmentDocumentExtraction).find((row) => row.id === EXTRACTION_ID)
+    Object.assign(live ?? {}, { status: 'skipped', skipReason: 'encrypted_pdf' })
+    const result = await service.requestExtraction({ attachmentId: ATTACHMENT_ID, scope: scopeA })
+    expect(result).toEqual({ extractionId: EXTRACTION_ID, status: 'skipped', enqueued: false, jobId: null })
     expect(enqueue).not.toHaveBeenCalled()
   })
 })

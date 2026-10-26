@@ -39,6 +39,31 @@ export const documentExtractionSkipReasons = [
 export const documentExtractionSkipReasonSchema = z.enum(documentExtractionSkipReasons)
 export type ExtractionSkipReason = z.infer<typeof documentExtractionSkipReasonSchema>
 
+const REUSABLE_EXTRACTION_STATUSES: ReadonlySet<ExtractionStatus> = new Set(['completed', 'partial', 'skipped'])
+
+export const configDependentSkipReasons: ReadonlySet<ExtractionSkipReason> = new Set([
+  'unsupported_type',
+  'no_text_layer_ocr_disabled',
+  'too_large',
+])
+
+/**
+ * Whether a live extraction can satisfy a new request without re-running the engine.
+ *
+ * Skips caused by deployment or partition configuration (size cap, OCR switched off,
+ * no engine registered) are never reused, so a later request after a configuration
+ * change — or with `ocr: 'force'` — runs the extraction again.
+ */
+export function isReusableDocumentExtraction(extraction: {
+  status: ExtractionStatus
+  skipReason?: ExtractionSkipReason | null
+}): boolean {
+  if (!REUSABLE_EXTRACTION_STATUSES.has(extraction.status)) return false
+  if (extraction.status !== 'skipped') return true
+  const skipReason = extraction.skipReason ?? null
+  return skipReason === null || !configDependentSkipReasons.has(skipReason)
+}
+
 export const documentStructureEngineNames = ['pdf_layout', 'docx', 'text', 'ocr', 'mixed'] as const
 
 export const documentStructureEngineNameSchema = z.enum(documentStructureEngineNames)
@@ -175,6 +200,7 @@ export type DocumentStructureEngineInput = {
   maxPages?: number
   ocr?: DocumentOcrMode
   ocrModel?: string | null
+  signal?: AbortSignal
 }
 
 export interface DocumentStructureEngine {

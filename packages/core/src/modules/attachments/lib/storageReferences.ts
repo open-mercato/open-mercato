@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { Attachment } from '../data/entities'
+import { purgeDocumentStructure } from './documentStructure/purge'
 
 type AttachmentStorageReferenceRow = {
   id: string
@@ -78,8 +79,10 @@ export function resolveAttachmentStorageRelease(
  * Runs and commits its own transaction, so it refuses an entity manager that is already inside one.
  * Provider bytes must only be deleted after this resolves with `releaseStorage: true`; any other
  * attachment row still referencing the same object keeps it alive. `removed: false` means a
- * concurrent request already deleted the row. `beforeRemove` runs inside the same transaction, only
- * when the row is about to be removed, so dependent rows go in the same unit of work.
+ * concurrent request already deleted the row. When the row is removed, its document structure
+ * (extractions and sections) is purged in the same transaction, so every delete path drops it.
+ * `beforeRemove` runs inside the same transaction, only when the row is about to be removed, for
+ * any extra dependent rows a caller owns.
  */
 export async function removeAttachmentRecord(
   em: EntityManager,
@@ -95,6 +98,15 @@ export async function removeAttachmentRecord(
     const lockedReferenceIds = await lockAttachmentStorageReferences(em, attachment)
     removal = resolveAttachmentStorageRelease(lockedReferenceIds, attachment.id)
     if (!removal.removed) return
+    await purgeDocumentStructure(
+      em,
+      {
+        attachmentId: attachment.id,
+        tenantId: attachment.tenantId ?? null,
+        organizationId: attachment.organizationId ?? null,
+      },
+      { flush: false },
+    )
     if (options.beforeRemove) await options.beforeRemove()
     em.remove(attachment)
   }], { transaction: true, label: 'attachments.attachment.delete' })

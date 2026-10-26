@@ -14,7 +14,7 @@ import {
   type PdfLayoutSource,
   type PdfLayoutTextRun,
 } from '../../engines/pdfLayout'
-import { DocumentStructureFileTooLargeError } from '../../engines/text'
+import { DocumentStructureAbortedError, DocumentStructureFileTooLargeError } from '../../engines/text'
 import { structureDocument } from '../../structurer'
 import { documentEngineResultSchema, type DocumentEngineResult } from '../../types'
 
@@ -433,6 +433,25 @@ describe('pdf layout engine', () => {
     expect(close).toHaveBeenCalledTimes(1)
     const requested = await engine.extract({ filePath: pdfFile(), mimeType: 'application/pdf', maxPages: 2 })
     expect(requested.pageCharCounts).toHaveLength(2)
+  })
+
+  it('stops reading pages once the extraction signal is aborted', async () => {
+    const pages = [1, 2, 3].map((pageNumber) =>
+      page([run(`Page body number ${pageNumber} with enough characters to be readable`, 72, 100)], pageNumber),
+    )
+    const controller = new AbortController()
+    const readPage = jest.fn(async (pageNumber: number) => {
+      if (pageNumber === 1) controller.abort()
+      return pages[pageNumber - 1]
+    })
+    const close = jest.fn(async () => undefined)
+    const engine = createPdfLayoutEngine({ loadSource: async () => fakeSource(pages, { readPage, close }) })
+
+    await expect(
+      engine.extract({ filePath: pdfFile(), mimeType: 'application/pdf', signal: controller.signal }),
+    ).rejects.toBeInstanceOf(DocumentStructureAbortedError)
+    expect(readPage).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('marks pages under the OCR threshold as unreadable candidates', async () => {

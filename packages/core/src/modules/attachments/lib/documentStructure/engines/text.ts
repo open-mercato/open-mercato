@@ -21,6 +21,19 @@ const FENCE = /^ {0,3}(```+|~~~+)/
 const LIST_ITEM = /^([ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+(.*)$/
 const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
 
+export class DocumentStructureAbortedError extends Error {
+  readonly code = 'aborted'
+
+  constructor() {
+    super('[internal] document structure extraction was aborted')
+    this.name = 'DocumentStructureAbortedError'
+  }
+}
+
+export function throwIfDocumentStructureAborted(signal: AbortSignal | null | undefined): void {
+  if (signal?.aborted) throw new DocumentStructureAbortedError()
+}
+
 export class DocumentStructureFileTooLargeError extends Error {
   readonly code = 'too_large'
 

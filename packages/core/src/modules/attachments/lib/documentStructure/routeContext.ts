@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { Attachment } from '../../data/entities'
+import { isSuperAdminAuth } from '../access'
+import { resolveAttachmentRequestScope } from '../requestScope'
 import type { DocumentStructureAccessScope } from './service'
 
 export type DocumentStructureRouteParams = { id: string }
@@ -11,6 +18,7 @@ export type DocumentStructureRouteContext = { params: Promise<DocumentStructureR
 type AuthenticatedAuth = NonNullable<AuthContext>
 
 export type DocumentStructureRouteScope = {
+  container: AwilixContainer
   auth: AuthenticatedAuth
   tenantId: string
   organizationId: string
@@ -46,16 +54,43 @@ export async function resolveDocumentStructureRouteScope(
   if (!auth || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  if (!auth.orgId) return organizationScopeRequiredResponse()
   const attachmentId = await readAttachmentId(ctx)
+  const container = await createRequestContainer()
+  const requestScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (requestScope.denied) return documentStructureNotFoundResponse()
+  const tenantId = auth.tenantId
+  let organizationId = requestScope.organizationId
+  if (!organizationId && !isSuperAdminAuth(auth)) return organizationScopeRequiredResponse()
   if (!attachmentId) return documentStructureNotFoundResponse()
-  return {
-    auth,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    attachmentId,
-    scope: { tenantId: auth.tenantId, organizationId: auth.orgId, auth },
+  if (!organizationId) {
+    organizationId = await resolveAttachmentOrganizationForSuperAdmin(container, tenantId, attachmentId)
+    if (!organizationId) return documentStructureNotFoundResponse()
   }
+  const scopedAuth: AuthenticatedAuth = { ...auth, orgId: organizationId }
+  return {
+    container,
+    auth: scopedAuth,
+    tenantId,
+    organizationId,
+    attachmentId,
+    scope: { tenantId, organizationId, auth: scopedAuth },
+  }
+}
+
+async function resolveAttachmentOrganizationForSuperAdmin(
+  container: AwilixContainer,
+  tenantId: string,
+  attachmentId: string,
+): Promise<string | null> {
+  const em = container.resolve<EntityManager>('em')
+  const attachment = await findOneWithDecryption(
+    em,
+    Attachment,
+    { id: attachmentId, tenantId },
+    { fields: ['id', 'organizationId'] },
+    { tenantId, organizationId: null },
+  )
+  return attachment?.organizationId ?? null
 }
 
 export async function validationErrorResponse(error: z.ZodError): Promise<NextResponse> {

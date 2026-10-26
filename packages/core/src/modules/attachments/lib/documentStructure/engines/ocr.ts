@@ -13,6 +13,7 @@ import type {
 } from '../types'
 import {
   DocumentStructureFileTooLargeError,
+  throwIfDocumentStructureAborted,
   normalizeExtension,
   normalizeMimeType,
   normalizeTextDocument,
@@ -61,6 +62,7 @@ export type ApplyOcrFallbackInput = {
   result: DocumentEngineResult
   ocr?: DocumentOcrMode
   ocrModel?: string | null
+  signal?: AbortSignal
 }
 
 export type OcrFallbackOutcome = {
@@ -179,6 +181,7 @@ export async function applyOcrFallback(
   const failedPages: number[] = []
 
   if (selectedPages.length > 0) {
+    throwIfDocumentStructureAborted(input.signal)
     let prepared: PdfOcrPreparationResult | null = null
     try {
       prepared = await preparePdfPages(input.filePath, { pageNumbers: selectedPages, alwaysRender: true })
@@ -192,6 +195,7 @@ export async function applyOcrFallback(
         failedPages.push(pageNumber)
         continue
       }
+      throwIfDocumentStructureAborted(input.signal)
       try {
         const text = await runInSlot(() =>
           processor.processImageBuffer({ imageBuffer, mediaType: PDF_RENDER_MEDIA_TYPE, model }),
@@ -253,6 +257,7 @@ export function createOcrStructureEngine(options: OcrStructureOptions = {}): Doc
       const processor = await resolveOcrProcessor(options)
       if (!processor) throw new DocumentStructureOcrUnavailableError()
       const imageBuffer = await fs.readFile(input.filePath)
+      throwIfDocumentStructureAborted(input.signal)
       const runInSlot = options.runInSlot ?? defaultRunInSlot
       const baseResult: DocumentEngineResult = {
         blocks: [],

@@ -435,7 +435,7 @@ No data backfill is required. Existing attachments get an extraction only when a
 - `TC-ATT-STRUCT-001`: upload the synthetic rulebook PDF to a partition with `extractDocumentStructure` on, poll `GET /structure/:id` until `completed`, and assert the outline contains chapter `8` with clause `§8.12` on the expected page.
 - `TC-ATT-STRUCT-002`: `GET /structure/:id/sections?numberLabel=8.12` returns text with a correct locator and citation; keyset paging via `afterOrdinal`; `limit > 100` → 400.
 - `TC-ATT-STRUCT-003`: `POST /structure/:id` → 202 for a user with `attachments.manage`, 403 without it; a second call without `force` → 200 with the current extraction; a user of another organization → 404 on all three routes.
-- `TC-ATT-STRUCT-004`: delete the attachment, then the structure routes return 404 and no section rows remain (checked through the API).
+- `TC-ATT-STRUCT-004`: delete the attachment, then the structure routes return 404 and no extraction or section rows remain (checked through the API and with a direct database count).
 - `TC-ATT-STRUCT-005`: the public-domain eCFR fixture extracts with `§`-numbered sections (golden subset).
 - `TC-ATT-STRUCT-006` (Phase 4): with `indexDocumentSections` on, a fulltext search for a phrase unique to `§8.12` returns that section's citation; with it off, it returns no section hit.
 - `TC-ATT-STRUCT-007` (UI): the attachment drawer shows the structure panel, expands chapter 8, and the "Re-extract" button is visible only with `attachments.manage`.
@@ -548,6 +548,10 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
 ### Verdict
 **Phases 1–3 approved for implementation** once Q1, Q2 and Q4 are confirmed. **Phase 4 is unblocked**: Q3 was approved on 2026-10-22 as a per-partition opt-in with the plaintext-egress warning.
 
+## Future Work
+
+- **`messages` attachment deletes bypass the purge.** `messages/commands/{messages,shared,attachments}.ts` remove attachment rows with `em.nativeDelete(Attachment, …)` instead of `removeAttachmentRecord`, so a structured message attachment leaves its extraction and section rows behind. Those paths are out of scope for this spec; route them through `removeAttachmentRecord` (or call `purgeDocumentStructure` in the same transaction) in a follow-up.
+
 ## Changelog
 
 ### 2026-10-21
@@ -578,3 +582,15 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - `GET /structure/:id/sections` returns `extractionId: null` with no items when the attachment has not been extracted.
   - Organization context is required on every structure route.
   - CLI `structure extract|backfill|dump` takes explicit `--tenant`/`--org` scope flags, backfill gains `--dry-run` and `--org`, and dump gains `--format outline|json` and opt-in `--with-text`. Settings are documented in `apps/mercato/.env.example`, the create-app template and the attachments API docs page.
+
+### 2026-10-26
+- Review fixes (PR #7794):
+  - `removeAttachmentRecord` purges the document structure itself, in its transaction and only when the row is actually removed, so every delete path (`DELETE /api/attachments`, `DELETE /api/attachments/library/:id`, `mercato attachments delete`, the warranty-claims portal DELETE, `releaseScoped`) drops extractions and sections. `beforeRemove` stays for extra caller work.
+  - `purgeDocumentStructure` deletes with scoped `nativeDelete` (tenant and organization) instead of loading every section; `flush: false` runs on the passed EM inside the ambient transaction.
+  - The worker re-reads the attachment with a shared row lock (`FOR SHARE`) inside its write transaction, so a concurrent delete serializes with it.
+  - The extraction timeout aborts the work: an `AbortSignal` reaches `engine.extract` and `applyOcrFallback`, is checked between `pdf_layout` pages and before every OCR call, and aborted work is recorded as the timeout failure.
+  - A concurrent job that hits `attachment_document_extractions_live_unique` returns `reused` with the live extraction instead of failing.
+  - Configuration-dependent skips (`too_large`, `no_text_layer_ocr_disabled`, `unsupported_type`) are never reused by the worker, the service or the command, so a later request (for example `ocr: 'force'`) runs again.
+  - Structure routes resolve the organization with `resolveAttachmentRequestScope` (organization switcher); a superadmin with no selected organization reaches the attachment in its own organization.
+  - Partition access in the structure service is tenant-wide (global or same-tenant partitions, any organization), matching `GET /api/attachments/partitions`.
+  - `TC-ATT-STRUCT-004` asserts the purge at the database level; the encryption-map test checks that `heading_path` restores as an array.

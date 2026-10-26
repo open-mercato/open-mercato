@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,10 +10,13 @@ import {
   AttachmentDocumentSection,
   AttachmentPartition,
 } from '../../../data/entities'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { runDocumentStructureExtraction, type DocumentStructureWorkerDeps } from '../../../workers/document-structure'
 import { DocumentStructurePdfEncryptedError } from '../engines/pdfLayout'
 import type { OcrStructureOptions } from '../engines/ocr'
+import { throwIfDocumentStructureAborted } from '../engines/text'
 import type { DocumentEngineResult, DocumentStructureEngine } from '../types'
 import { DOCUMENT_STRUCTURE_QUEUE_DI_KEY, enqueueDocumentStructureExtraction } from '../queue'
 
@@ -451,6 +455,170 @@ describe('document structure worker', () => {
     expect(live).toHaveLength(1)
     expect(live[0]).toEqual(
       expect.objectContaining({ id: first.kind === 'persisted' ? first.extractionId : null, status: 'completed' }),
+    )
+  })
+
+  it('re-reads the attachment under a shared row lock before writing so a concurrent delete serializes', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-lock.txt', 'rules lock')
+    jest.mocked(findOneWithDecryption).mockClear()
+
+    await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+
+    const lockedReads = jest
+      .mocked(findOneWithDecryption)
+      .mock.calls.filter(([, entity, , options]) => entity === Attachment && options?.lockMode === LockMode.PESSIMISTIC_READ)
+    expect(lockedReads).toHaveLength(1)
+    expect(lockedReads[0][2]).toEqual({ id: ATTACHMENT_ID, tenantId: TENANT_A, organizationId: ORG_A })
+  })
+
+  it('reuses the extraction a concurrent job committed when the live unique index rejects the insert', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const content = 'rules race'
+    const filePath = await writeFile('rules-race.txt', content)
+    const concurrentId = '99999999-9999-4999-8999-999999999999'
+    fake.em.flush = async () => {
+      fake.table(AttachmentDocumentExtraction).push({
+        id: concurrentId,
+        attachmentId: ATTACHMENT_ID,
+        tenantId: TENANT_A,
+        organizationId: ORG_A,
+        contentSha256: createHash('sha256').update(content).digest('hex'),
+        engineVersion: 1,
+        status: 'completed',
+        skipReason: null,
+        deletedAt: null,
+      })
+      throw Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'attachment_document_extractions_live_unique',
+      })
+    }
+
+    const outcome = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+
+    expect(outcome).toEqual({ kind: 'reused', extractionId: concurrentId })
+    expect(liveExtractions(fake).map((row) => row.id)).toEqual([concurrentId])
+  })
+
+  it('rethrows other write failures', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-write-fail.txt', 'rules write fail')
+    fake.em.flush = async () => {
+      throw Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'some_other_unique' })
+    }
+
+    await expect(runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))).rejects.toThrow('duplicate key')
+  })
+
+  it.each<[string, Partial<DocumentStructureWorkerDeps>]>([
+    ['too_large', { maxBytes: 16 }],
+    ['unsupported_type', { registry: { resolve: () => null } }],
+  ])('re-runs instead of reusing a configuration-dependent %s skip', async (skipReason, firstOverrides) => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile(`rules-config-${skipReason}.txt`, 'x'.repeat(64))
+    const engine = textEngine()
+
+    const first = await runDocumentStructureExtraction(
+      job,
+      buildDeps(fake, filePath, [engine], firstOverrides),
+    )
+    const second = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [engine]))
+
+    expect(first).toEqual(expect.objectContaining({ kind: 'persisted', status: 'skipped' }))
+    expect(fake.table(AttachmentDocumentExtraction).find((row) => row.status === 'skipped')?.skipReason).toBe(skipReason)
+    expect(second).toEqual(expect.objectContaining({ kind: 'persisted', status: 'completed' }))
+    expect(engine.extract).toHaveBeenCalledTimes(1)
+    expect(liveExtractions(fake)).toHaveLength(1)
+  })
+
+  it('re-runs with OCR forced instead of reusing a no_text_layer_ocr_disabled skip', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'scan.pdf', mimeType: 'application/pdf', requiresOcr: true })
+    const filePath = await writeFile('scan-reuse.pdf', '%PDF scan reuse')
+    const pdfEngine = fakeEngine('pdf_layout', 1, async () => ({
+      blocks: [],
+      pageCount: 1,
+      pageCharCounts: [0],
+      outline: [],
+      ocrPageCount: 0,
+      unreadablePages: [1],
+    }), (mimeType) => mimeType === 'application/pdf')
+    const processImageBuffer = jest.fn(async () => '1. Scope\n\nRecovered page text for the rules')
+    const ocrOptions: OcrStructureOptions = {
+      ocrService: () => ({ available: true, processImageBuffer }),
+      preparePdfPages: async (_filePath, options) => ({
+        pages: (options.pageNumbers ?? []).map((pageNumber) => ({ pageNumber, imageBuffer: Buffer.from('png') })),
+      }) as unknown as Awaited<ReturnType<NonNullable<OcrStructureOptions['preparePdfPages']>>>,
+      runInSlot: async (run) => run(),
+      maxPages: () => 5,
+    }
+
+    await runDocumentStructureExtraction({ ...job, ocr: 'never' }, buildDeps(fake, filePath, [pdfEngine], { ocrOptions }))
+    expect(liveExtractions(fake)[0]).toEqual(expect.objectContaining({ skipReason: 'no_text_layer_ocr_disabled' }))
+    const forced = await runDocumentStructureExtraction({ ...job, ocr: 'force' }, buildDeps(fake, filePath, [pdfEngine], { ocrOptions }))
+
+    expect(forced).toEqual(expect.objectContaining({ kind: 'persisted' }))
+    expect(processImageBuffer).toHaveBeenCalledTimes(1)
+    expect(liveExtractions(fake)[0]).toEqual(expect.objectContaining({ engine: 'ocr', skipReason: null }))
+  })
+
+  it('aborts the running engine through its signal when the time budget runs out', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-abort.txt', 'rules abort')
+    const observedSignals: AbortSignal[] = []
+    const engine = fakeEngine('text', 1, async (input) => {
+      const signal = input.signal
+      if (signal) observedSignals.push(signal)
+      await new Promise<void>((resolve) => signal?.addEventListener('abort', () => resolve(), { once: true }))
+      throwIfDocumentStructureAborted(signal)
+      return textResult('never reached')
+    }, (mimeType) => mimeType === 'text/plain')
+
+    await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [engine], { timeoutMs: 20 }))
+
+    expect(observedSignals).toHaveLength(1)
+    expect(observedSignals[0].aborted).toBe(true)
+    expect(liveExtractions(fake)[0]).toEqual(
+      expect.objectContaining({ status: 'failed', failureReason: '[internal] document structure extraction timed out' }),
+    )
+  })
+
+  it('stops OCR between pages when the time budget runs out', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'scan.pdf', mimeType: 'application/pdf', requiresOcr: true })
+    const filePath = await writeFile('scan-timeout.pdf', '%PDF scan timeout')
+    const pdfEngine = fakeEngine('pdf_layout', 1, async () => ({
+      blocks: [],
+      pageCount: 3,
+      pageCharCounts: [0, 0, 0],
+      outline: [],
+      ocrPageCount: 0,
+      unreadablePages: [1, 2, 3],
+    }), (mimeType) => mimeType === 'application/pdf')
+    const processImageBuffer = jest.fn(
+      () => new Promise<string>((resolve) => setTimeout(() => resolve('Recovered page text'), 60)),
+    )
+    const ocrOptions: OcrStructureOptions = {
+      ocrService: () => ({ available: true, processImageBuffer }),
+      preparePdfPages: async (_filePath, options) => ({
+        pages: (options.pageNumbers ?? []).map((pageNumber) => ({ pageNumber, imageBuffer: Buffer.from('png') })),
+      }) as unknown as Awaited<ReturnType<NonNullable<OcrStructureOptions['preparePdfPages']>>>,
+      runInSlot: async (run) => run(),
+      maxPages: () => 5,
+    }
+
+    await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [pdfEngine], { ocrOptions, timeoutMs: 20 }))
+    await new Promise((resolve) => setTimeout(resolve, 120))
+
+    expect(processImageBuffer).toHaveBeenCalledTimes(1)
+    expect(liveExtractions(fake)[0]).toEqual(
+      expect.objectContaining({ status: 'failed', failureReason: '[internal] document structure extraction timed out' }),
     )
   })
 

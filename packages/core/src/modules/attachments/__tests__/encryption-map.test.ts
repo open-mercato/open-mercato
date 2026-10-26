@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { MetadataStorage } from '@mikro-orm/core'
 import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import type { KmsService } from '@open-mercato/shared/lib/encryption/kms'
-import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  parseDecryptedFieldValue,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { defaultEncryptionMaps } from '../encryption'
 import * as attachmentEntities from '../data/entities'
 
@@ -106,7 +109,7 @@ describe('attachments encryption maps applied by the tenant encryption service',
     return new TenantDataEncryptionService(em as never, { kms })
   }
 
-  it('stores section content as ciphertext and leaves locator columns readable', async () => {
+  it('stores section content as ciphertext, leaves locator columns readable and restores heading_path as an array', async () => {
     const service = createService()
     const tenantId = randomUUID()
     const organizationId = randomUUID()
@@ -132,6 +135,9 @@ describe('attachments encryption maps applied by the tenant encryption service',
     const decrypted = await service.decryptEntityPayload('attachments:attachment_document_section', encrypted, tenantId, organizationId)
     expect(decrypted.text).toBe(section.text)
     expect(decrypted.heading).toBe(section.heading)
+    const restoredHeadingPath = parseDecryptedFieldValue(String(decrypted.heading_path))
+    expect(Array.isArray(restoredHeadingPath)).toBe(true)
+    expect(restoredHeadingPath).toEqual(section.heading_path)
   })
 
   it('stores the extraction normalized text as ciphertext', async () => {

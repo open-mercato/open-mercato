@@ -162,6 +162,19 @@ describe('attachments.document_structure.request command', () => {
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('re-checks the file and re-requests when the live extraction is a configuration-dependent skip', async () => {
+    const { service, ctx } = setup()
+    service.getStructure.mockResolvedValueOnce({
+      attachmentId: ATTACHMENT_ID,
+      extraction: { id: EXTRACTION_ID, status: 'skipped', skipReason: 'no_text_layer_ocr_disabled' },
+      outline: [],
+    } as never)
+    const result = await requestDocumentStructureCommand.execute({ ...input, ocr: 'force' }, ctx)
+    expect(result).toEqual({ attachmentId: ATTACHMENT_ID, extractionId: null, status: 'pending', enqueued: true })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(service.requestExtraction).toHaveBeenCalledWith(expect.objectContaining({ force: false, ocr: 'force' }))
+  })
+
   it('builds an audit log entry for the attachment', async () => {
     const { ctx } = setup()
     const log = await requestDocumentStructureCommand.buildLog?.({

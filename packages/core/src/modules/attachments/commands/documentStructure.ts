@@ -16,11 +16,10 @@ import {
   type AttachmentDocumentStructureService,
   type DocumentStructureAccessScope,
 } from '../lib/documentStructure/service'
-import type { DocumentOcrMode, ExtractionStatus } from '../lib/documentStructure/types'
+import { isReusableDocumentExtraction, type DocumentOcrMode, type ExtractionStatus } from '../lib/documentStructure/types'
 
 export const REQUEST_DOCUMENT_STRUCTURE_COMMAND_ID = 'attachments.document_structure.request'
 
-const CURRENT_EXTRACTION_STATUSES: ReadonlySet<ExtractionStatus> = new Set(['completed', 'partial', 'skipped'])
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type RequestDocumentStructureCommandInput = {
@@ -104,7 +103,7 @@ export const requestDocumentStructureCommand: CommandHandler<
     if (!structure) throw notFound(translate('attachments.structure.errors.notFound', 'Attachment not found'))
     const extraction = structure.extraction
     const hasCurrentExtraction =
-      input.force !== true && extraction !== null && CURRENT_EXTRACTION_STATUSES.has(extraction.status)
+      input.force !== true && extraction !== null && isReusableDocumentExtraction(extraction)
     if (!hasCurrentExtraction) await assertExtractable(input, ctx, translate)
     const result = await service.requestExtraction({
       attachmentId: input.attachmentId,

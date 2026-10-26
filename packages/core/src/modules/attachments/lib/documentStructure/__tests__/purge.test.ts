@@ -6,13 +6,6 @@ import { purgeDocumentStructure } from '../purge'
 
 type Row = { id: string; attachmentId: string; tenantId: string | null; organizationId: string | null }
 
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(
-    async (em: { __find: (entity: unknown, where: Record<string, unknown>) => Row[] }, entity: unknown, where: Record<string, unknown>) =>
-      em.__find(entity, where),
-  ),
-}))
-
 const TENANT_A = '11111111-1111-4111-8111-111111111111'
 const ORG_A = '22222222-2222-4222-8222-222222222222'
 const TENANT_B = '33333333-3333-4333-8333-333333333333'
@@ -28,21 +21,22 @@ function createEm(seed: { extractions: Row[]; sections: Row[] }) {
     [AttachmentDocumentExtraction, [...seed.extractions]],
     [AttachmentDocumentSection, [...seed.sections]],
   ])
-  const pendingRemovals: Row[] = []
+  const deleteOrder: unknown[] = []
+  const nativeDelete = jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+    deleteOrder.push(entity)
+    const rows = tables.get(entity) ?? []
+    const kept = rows.filter((row) => !matches(row, where))
+    tables.set(entity, kept)
+    return rows.length - kept.length
+  })
   const em = {
-    __find: (entity: unknown, where: Record<string, unknown>) =>
-      (tables.get(entity) ?? []).filter((row) => matches(row, where)),
-    remove: jest.fn((row: Row) => {
-      pendingRemovals.push(row)
-      return em
-    }),
-    flush: jest.fn(async () => {
-      for (const [entity, rows] of tables) {
-        tables.set(entity, rows.filter((row) => !pendingRemovals.includes(row)))
-      }
-      pendingRemovals.length = 0
-    }),
+    nativeDelete,
+    transactional: jest.fn(async <T>(work: (tx: { nativeDelete: typeof nativeDelete }) => Promise<T>) => work({ nativeDelete })),
+    find: jest.fn(),
+    remove: jest.fn(),
+    flush: jest.fn(),
     rows: (entity: unknown) => tables.get(entity) ?? [],
+    deleteOrder,
   }
   return em
 }
@@ -54,7 +48,7 @@ function row(id: string, overrides: Partial<Row> = {}): Row {
 describe('purgeDocumentStructure', () => {
   const scope = { attachmentId: ATTACHMENT_ID, tenantId: TENANT_A, organizationId: ORG_A }
 
-  it('removes every extraction and section of the attachment within its scope', async () => {
+  it('deletes every extraction and section of the attachment within its scope in one transaction', async () => {
     const em = createEm({
       extractions: [row('ext-live'), row('ext-superseded'), row('ext-other-tenant', { tenantId: TENANT_B, organizationId: ORG_B })],
       sections: [row('sec-1'), row('sec-2'), row('sec-other-attachment', { attachmentId: 'other' })],
@@ -63,7 +57,15 @@ describe('purgeDocumentStructure', () => {
     const result = await purgeDocumentStructure(em as unknown as EntityManager, scope)
 
     expect(result).toEqual({ extractionCount: 2, sectionCount: 2 })
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(em.nativeDelete).toHaveBeenCalledWith(AttachmentDocumentSection, {
+      attachmentId: ATTACHMENT_ID,
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+    })
+    expect(em.deleteOrder).toEqual([AttachmentDocumentSection, AttachmentDocumentExtraction])
+    expect(em.find).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
     expect(em.rows(AttachmentDocumentExtraction).map((entry) => entry.id)).toEqual(['ext-other-tenant'])
     expect(em.rows(AttachmentDocumentSection).map((entry) => entry.id)).toEqual(['sec-other-attachment'])
   })
@@ -75,19 +77,17 @@ describe('purgeDocumentStructure', () => {
     const second = await purgeDocumentStructure(em as unknown as EntityManager, scope)
 
     expect(second).toEqual({ extractionCount: 0, sectionCount: 0 })
-    expect(em.flush).toHaveBeenCalledTimes(1)
     expect(em.rows(AttachmentDocumentExtraction)).toEqual([])
   })
 
-  it('leaves the removal to the caller unit of work when flush is false', async () => {
+  it('runs on the passed entity manager so it joins the ambient transaction when flush is false', async () => {
     const em = createEm({ extractions: [row('ext-live')], sections: [row('sec-1')] })
 
-    await purgeDocumentStructure(em as unknown as EntityManager, scope, { flush: false })
+    const result = await purgeDocumentStructure(em as unknown as EntityManager, scope, { flush: false })
 
-    expect(em.remove).toHaveBeenCalledTimes(2)
+    expect(result).toEqual({ extractionCount: 1, sectionCount: 1 })
+    expect(em.transactional).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
-    expect(em.rows(AttachmentDocumentExtraction)).toHaveLength(1)
-    await em.flush()
     expect(em.rows(AttachmentDocumentExtraction)).toEqual([])
     expect(em.rows(AttachmentDocumentSection)).toEqual([])
   })
@@ -98,6 +98,6 @@ describe('purgeDocumentStructure', () => {
     await expect(
       purgeDocumentStructure(em as unknown as EntityManager, { attachmentId: ATTACHMENT_ID, tenantId: TENANT_A, organizationId: null }),
     ).rejects.toThrow('[internal]')
-    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
   })
 })

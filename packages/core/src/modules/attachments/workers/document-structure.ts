@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import path from 'node:path'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { countTokens } from '@open-mercato/shared/lib/ai/token-count'
@@ -28,6 +29,7 @@ import {
 } from '../lib/documentStructure/engines/ocr'
 import { DocumentStructurePdfEncryptedError } from '../lib/documentStructure/engines/pdfLayout'
 import {
+  DocumentStructureAbortedError,
   DocumentStructureFileTooLargeError,
   resolveMaxDocumentStructureBytes,
 } from '../lib/documentStructure/engines/text'
@@ -39,12 +41,13 @@ import {
   type DocumentStructureJob,
 } from '../lib/documentStructure/queue'
 import { structureDocument } from '../lib/documentStructure/structurer'
-import type {
-  DocumentStructureEngine,
-  DocumentStructureEngineName,
-  DocumentStructureExtractionResult,
-  ExtractionSkipReason,
-  ExtractionStatus,
+import {
+  isReusableDocumentExtraction,
+  type DocumentStructureEngine,
+  type DocumentStructureEngineName,
+  type DocumentStructureExtractionResult,
+  type ExtractionSkipReason,
+  type ExtractionStatus,
 } from '../lib/documentStructure/types'
 
 export const metadata: WorkerMeta = {
@@ -57,6 +60,8 @@ const DEFAULT_TIMEOUT_MS = 180_000
 const REUSABLE_STATUSES: ReadonlySet<ExtractionStatus> = new Set(['completed', 'partial', 'skipped'])
 const UNSUPPORTED_ENGINE: { id: DocumentStructureEngineName; version: number } = { id: 'mixed', version: 1 }
 const PDF_ENGINE_ID: DocumentStructureEngineName = 'pdf_layout'
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+const LIVE_EXTRACTION_UNIQUE_CONSTRAINT = 'attachment_document_extractions_live_unique'
 
 const logger = createLogger('attachments').child({ component: 'document-structure-worker' })
 
@@ -109,7 +114,9 @@ export function resolveDocumentStructureTimeoutMs(): number {
 }
 
 export function sanitizeDocumentStructureFailure(error: unknown): string {
-  if (error instanceof DocumentStructureTimeoutError) return '[internal] document structure extraction timed out'
+  if (error instanceof DocumentStructureTimeoutError || error instanceof DocumentStructureAbortedError) {
+    return '[internal] document structure extraction timed out'
+  }
   return '[internal] document structure extraction failed'
 }
 
@@ -135,11 +142,27 @@ function sha256Text(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
-async function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+function isLiveExtractionUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as Record<string, unknown>
+  if (candidate.code !== POSTGRES_UNIQUE_VIOLATION) return false
+  const constraintName = typeof candidate.constraint === 'string' ? candidate.constraint : ''
+  const detail = typeof candidate.detail === 'string' ? candidate.detail : ''
+  const message = typeof candidate.message === 'string' ? candidate.message : ''
+  return [constraintName, detail, message].some((value) => value.includes(LIVE_EXTRACTION_UNIQUE_CONSTRAINT))
+}
+
+async function withTimeout<T>(run: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<T> {
+  const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | null = null
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new DocumentStructureTimeoutError(timeoutMs)), timeoutMs)
+    timer = setTimeout(() => {
+      const timeoutError = new DocumentStructureTimeoutError(timeoutMs)
+      controller.abort(timeoutError)
+      reject(timeoutError)
+    }, timeoutMs)
   })
+  const work = run(controller.signal)
   work.catch(() => undefined)
   try {
     return await Promise.race([work, timeout])
@@ -180,6 +203,7 @@ async function runEngine(
     ocrModel: string | null
   },
   ocrOptions: OcrStructureOptions | undefined,
+  signal: AbortSignal,
 ): Promise<ExtractionDraft> {
   const startedAt = Date.now()
   const engineResult = await engine.extract({
@@ -188,6 +212,7 @@ async function runEngine(
     extension: input.extension,
     ocr: input.ocrMode,
     ocrModel: input.ocrModel,
+    signal,
   })
   let finalResult = engineResult
   let engineName: DocumentStructureEngineName = engine.id
@@ -196,7 +221,7 @@ async function runEngine(
   let ocrSkipped = false
   if (engine.id === PDF_ENGINE_ID) {
     const outcome = await applyOcrFallback(
-      { filePath: input.filePath, result: engineResult, ocr: input.ocrMode, ocrModel: input.ocrModel },
+      { filePath: input.filePath, result: engineResult, ocr: input.ocrMode, ocrModel: input.ocrModel, signal },
       ocrOptions,
     )
     finalResult = outcome.result
@@ -280,72 +305,134 @@ async function persistDraft(
     organizationId: attachment.organizationId ?? null,
   }
   assertAttachmentScopeInvariant(scope)
-  return em.transactional(async (tx) => {
-    const stillExists = await findOneWithDecryption(
-      tx,
-      Attachment,
-      { id: attachment.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      undefined,
-      scope,
-    )
-    if (!stillExists) return { kind: 'aborted' } satisfies DocumentStructureRunOutcome
-    const now = new Date()
-    const liveFilter = {
-      attachmentId: attachment.id,
+  try {
+    return await em.transactional((tx) => writeDraft(tx, attachment, draft, contentSha256, requestedByUserId, scope))
+  } catch (error) {
+    if (!isLiveExtractionUniqueViolation(error)) throw error
+    const concurrent = await findLiveExtractionForContent(em, attachment.id, scope, contentSha256, draft.engineVersion)
+    if (!concurrent) throw error
+    return { kind: 'reused', extractionId: concurrent.id }
+  }
+}
+
+async function findLiveExtractionsForContent(
+  em: EntityManager,
+  attachmentId: string,
+  scope: ScopePair,
+  contentSha256: string,
+  engineVersion: number,
+): Promise<AttachmentDocumentExtraction[]> {
+  const liveExtractions = await findWithDecryption(
+    em,
+    AttachmentDocumentExtraction,
+    {
+      attachmentId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
-    }
-    const previousGood =
-      draft.status === 'failed'
-        ? (await findWithDecryption(tx, AttachmentDocumentExtraction, liveFilter, undefined, scope)).find(
-            (extraction) => REUSABLE_STATUSES.has(extraction.status),
-          ) ?? null
-        : null
-    if (!previousGood) {
-      await tx.nativeUpdate(AttachmentDocumentExtraction, liveFilter, { deletedAt: now, updatedAt: now })
-    }
-    const extractionId = randomUUID()
-    const result = draft.result
-    const extraction = tx.create(AttachmentDocumentExtraction, {
-      id: extractionId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      attachmentId: attachment.id,
-      partitionCode: attachment.partitionCode,
-      contentSha256,
-      engine: draft.engine,
-      engineVersion: draft.engineVersion,
-      status: draft.status,
-      skipReason: draft.skipReason,
-      pageCount: result?.pageCount ?? null,
-      sectionCount: result?.sectionCount ?? null,
-      charCount: result?.charCount ?? null,
-      ocrPageCount: result?.ocrPageCount ?? null,
-      normalizedText: result?.normalizedText ?? null,
-      failureReason: draft.failureReason,
-      stats: draft.stats,
-      requestedByUserId,
-      completedAt: now,
-      deletedAt: previousGood ? now : null,
-    })
-    const sections = result
-      ? buildSectionRows(result, extractionId, attachment.id, scope).map((row) =>
-          tx.create(AttachmentDocumentSection, row),
-        )
-      : []
-    tx.persist(extraction)
-    for (const section of sections) tx.persist(section)
-    await tx.flush()
-    if (previousGood) {
-      return {
-        kind: 'failed_previous_kept',
-        extractionId,
-        previousExtractionId: previousGood.id,
-      } satisfies DocumentStructureRunOutcome
-    }
-    return { kind: 'persisted', extractionId, status: draft.status } satisfies DocumentStructureRunOutcome
+    },
+    undefined,
+    scope,
+  )
+  return liveExtractions.filter(
+    (extraction) => extraction.contentSha256 === contentSha256 && extraction.engineVersion === engineVersion,
+  )
+}
+
+async function findLiveExtractionForContent(
+  em: EntityManager,
+  attachmentId: string,
+  scope: ScopePair,
+  contentSha256: string,
+  engineVersion: number,
+): Promise<AttachmentDocumentExtraction | null> {
+  const extractions = await findLiveExtractionsForContent(em, attachmentId, scope, contentSha256, engineVersion)
+  return extractions[0] ?? null
+}
+
+async function findReusableLiveExtraction(
+  em: EntityManager,
+  attachmentId: string,
+  scope: ScopePair,
+  contentSha256: string,
+  engineVersion: number,
+): Promise<AttachmentDocumentExtraction | null> {
+  const extractions = await findLiveExtractionsForContent(em, attachmentId, scope, contentSha256, engineVersion)
+  return extractions.find((extraction) => isReusableDocumentExtraction(extraction)) ?? null
+}
+
+async function writeDraft(
+  tx: EntityManager,
+  attachment: Attachment,
+  draft: ExtractionDraft,
+  contentSha256: string,
+  requestedByUserId: string | null,
+  scope: ScopePair,
+): Promise<DocumentStructureRunOutcome> {
+  const stillExists = await findOneWithDecryption(
+    tx,
+    Attachment,
+    { id: attachment.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_READ },
+    scope,
+  )
+  if (!stillExists) return { kind: 'aborted' } satisfies DocumentStructureRunOutcome
+  const now = new Date()
+  const liveFilter = {
+    attachmentId: attachment.id,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  }
+  const previousGood =
+    draft.status === 'failed'
+      ? (await findWithDecryption(tx, AttachmentDocumentExtraction, liveFilter, undefined, scope)).find(
+          (extraction) => REUSABLE_STATUSES.has(extraction.status),
+        ) ?? null
+      : null
+  if (!previousGood) {
+    await tx.nativeUpdate(AttachmentDocumentExtraction, liveFilter, { deletedAt: now, updatedAt: now })
+  }
+  const extractionId = randomUUID()
+  const result = draft.result
+  const extraction = tx.create(AttachmentDocumentExtraction, {
+    id: extractionId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    attachmentId: attachment.id,
+    partitionCode: attachment.partitionCode,
+    contentSha256,
+    engine: draft.engine,
+    engineVersion: draft.engineVersion,
+    status: draft.status,
+    skipReason: draft.skipReason,
+    pageCount: result?.pageCount ?? null,
+    sectionCount: result?.sectionCount ?? null,
+    charCount: result?.charCount ?? null,
+    ocrPageCount: result?.ocrPageCount ?? null,
+    normalizedText: result?.normalizedText ?? null,
+    failureReason: draft.failureReason,
+    stats: draft.stats,
+    requestedByUserId,
+    completedAt: now,
+    deletedAt: previousGood ? now : null,
   })
+  const sections = result
+    ? buildSectionRows(result, extractionId, attachment.id, scope).map((row) =>
+        tx.create(AttachmentDocumentSection, row),
+      )
+    : []
+  tx.persist(extraction)
+  for (const section of sections) tx.persist(section)
+  await tx.flush()
+  if (previousGood) {
+    return {
+      kind: 'failed_previous_kept',
+      extractionId,
+      previousExtractionId: previousGood.id,
+    } satisfies DocumentStructureRunOutcome
+  }
+  return { kind: 'persisted', extractionId, status: draft.status } satisfies DocumentStructureRunOutcome
 }
 
 export async function runDocumentStructureExtraction(
@@ -392,24 +479,7 @@ export async function runDocumentStructureExtraction(
   try {
     const { sha256: contentSha256, sizeBytes } = await hashFile(filePath)
     if (!payload.force) {
-      const liveExtractions = await findWithDecryption(
-        em,
-        AttachmentDocumentExtraction,
-        {
-          attachmentId: attachment.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          deletedAt: null,
-        },
-        undefined,
-        scope,
-      )
-      const current = liveExtractions.find(
-        (extraction) =>
-          extraction.contentSha256 === contentSha256 &&
-          extraction.engineVersion === engineIdentity.version &&
-          REUSABLE_STATUSES.has(extraction.status),
-      )
+      const current = await findReusableLiveExtraction(em, attachment.id, scope, contentSha256, engineIdentity.version)
       if (current) return { kind: 'reused', extractionId: current.id }
     }
 
@@ -423,7 +493,7 @@ export async function runDocumentStructureExtraction(
       const ocrMode = resolveEffectiveOcrMode(payload.ocr, partition.requiresOcr)
       try {
         draft = await withTimeout(
-          runEngine(
+          (signal) => runEngine(
             engine,
             {
               filePath,
@@ -434,6 +504,7 @@ export async function runDocumentStructureExtraction(
               ocrModel: partition.ocrModel ?? null,
             },
             deps.ocrOptions,
+            signal,
           ),
           deps.timeoutMs ?? resolveDocumentStructureTimeoutMs(),
         )

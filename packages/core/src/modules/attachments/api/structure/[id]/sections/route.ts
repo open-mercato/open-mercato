@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildQueryParams } from '@open-mercato/shared/lib/crud/query-params'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -34,7 +33,7 @@ export async function GET(req: Request, ctx: DocumentStructureRouteContext) {
   const query = documentSectionsQuerySchema.safeParse(buildQueryParams(new URL(req.url).searchParams))
   if (!query.success) return validationErrorResponse(query.error)
   try {
-    const container = await createRequestContainer()
+    const { container } = resolved
     const service = container.resolve<AttachmentDocumentStructureService>(ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY)
     const sections = await service.listSections({
       attachmentId: resolved.attachmentId,

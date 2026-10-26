@@ -484,22 +484,21 @@ export class DefaultAttachmentService implements AttachmentService {
 
     const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
     const deleteProviderBytes = () => driver.delete(attachment.partitionCode, attachment.storagePath)
-    const purgeStructure = () => purgeDocumentStructure(
-      em,
-      { attachmentId: attachment.id, tenantId: input.tenantId, organizationId: input.organizationId },
-      { flush: false },
-    ).then(() => undefined)
     if (options.flush === false) {
       const referenceIds = deferredOutsideTransaction
         ? await listAttachmentStorageReferences(em, attachment)
         : await lockAttachmentStorageReferences(em, attachment)
       const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
       if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
-      await purgeStructure()
+      await purgeDocumentStructure(
+        em,
+        { attachmentId: attachment.id, tenantId: input.tenantId, organizationId: input.organizationId },
+        { flush: false },
+      )
       em.remove(attachment)
       return removal.releaseStorage ? deleteProviderBytes : undefined
     }
-    const removal = await removeAttachmentRecord(em, attachment, { beforeRemove: purgeStructure })
+    const removal = await removeAttachmentRecord(em, attachment)
     if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
     if (removal.releaseStorage) await deleteProviderBytes()
   }

@@ -21,13 +21,14 @@ import {
   type DocumentStructureQueueContainer,
   type EnqueueDocumentStructureInput,
 } from './queue'
-import type {
-  DocumentOcrMode,
-  DocumentSectionKind,
-  DocumentSectionSource,
-  DocumentStructureEngineName,
-  ExtractionSkipReason,
-  ExtractionStatus,
+import {
+  isReusableDocumentExtraction,
+  type DocumentOcrMode,
+  type DocumentSectionKind,
+  type DocumentSectionSource,
+  type DocumentStructureEngineName,
+  type ExtractionSkipReason,
+  type ExtractionStatus,
 } from './types'
 
 export const ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY = 'attachmentDocumentStructureService'
@@ -42,7 +43,6 @@ export const DOCUMENT_NORMALIZED_TEXT_MAX_RANGE = 64 * 1024
 
 const SERVICE_PRINCIPAL = 'attachments:document-structure-service'
 const OUTLINE_EXCLUDED_KINDS: ReadonlySet<DocumentSectionKind> = new Set(['paragraph', 'list_item', 'table'])
-const REUSABLE_STATUSES: ReadonlySet<ExtractionStatus> = new Set(['completed', 'partial', 'skipped'])
 const SECTION_METADATA_FIELDS = [
   'id',
   'parentId',
@@ -259,10 +259,7 @@ function clampInteger(value: number | undefined, min: number, max: number, fallb
 
 function partitionMatchesScope(partition: AttachmentPartition, scope: NormalizedScope): boolean {
   const partitionTenantId = partition.tenantId ?? null
-  const partitionOrganizationId = partition.organizationId ?? null
-  if (partitionTenantId === null && partitionOrganizationId === null) return true
-  if (partitionTenantId === null || partitionOrganizationId === null) return false
-  return partitionTenantId === scope.tenantId && partitionOrganizationId === scope.organizationId
+  return partitionTenantId === null || partitionTenantId === scope.tenantId
 }
 
 function resolvePrincipal(scope: DocumentStructureAccessScope, normalized: NormalizedScope): AuthContext {
@@ -594,8 +591,8 @@ export function createAttachmentDocumentStructureService(
       const grant = await authorize(input.attachmentId, input.scope)
       if (!grant) return null
       if (!input.force) {
-        const live = await findLiveExtraction(grant, ['id', 'status'])
-        if (live && REUSABLE_STATUSES.has(live.status)) {
+        const live = await findLiveExtraction(grant, ['id', 'status', 'skipReason'])
+        if (live && isReusableDocumentExtraction(live)) {
           return { extractionId: live.id, status: live.status, enqueued: false, jobId: null }
         }
       }
