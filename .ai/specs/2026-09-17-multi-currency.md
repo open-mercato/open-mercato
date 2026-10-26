@@ -1178,6 +1178,10 @@ line detail.
   detail (currency, rate, amount) that an account-level balance
   aggregate can't provide anyway (a mixed-currency account's balance
   isn't meaningfully "one currency").
+  (2026-10-26: this rejection concerns AP/AR exposure on mixed-currency control
+  accounts. The balance in the account's currency of an account with a
+  `currencyId` is a different figure and is required by R4 of "Revaluation of
+  foreign-currency ledger accounts (bank, cash)".)
 - **Deferring unrealized FX to Other Comprehensive Income / equity**
   (an IFRS/US-GAAP pattern for certain long-term or hedged items) —
   noted as a real alternative treatment in general accounting practice;
@@ -1203,6 +1207,263 @@ line detail.
   whatever rate existed" pass would silently manufacture historical
   rates for documents where the party never actually saw that rate.
 
+## Revaluation of foreign-currency ledger accounts (bank, cash)
+
+**Status (added 2026-10-26).** Decided by the team, not yet reviewed by a
+maintainer; every decision below (R1–R5) is marked **⚠ NEEDS HUMAN
+CONFIRMATION**. This section replaces the former Out of scope bullet
+"Revaluation of foreign-currency bank accounts (cash) … not designed here";
+its content (the controller's answer of 2026-10-23 and the worked example) is
+kept under Problem below.
+
+### Problem
+
+Art. 30 ust. 1 UoR requires foreign-currency assets and liabilities to be
+valued at least as of the balance-sheet date at the NBP average rate (Design
+decision 8). The controller's answer of 2026-10-23 (Mateusz Duda) names this
+valuation of the balance as the only mandatory part: outflow valuation is
+accounting policy, FIFO by default and weighted average permitted; realized and
+unrealized differences are kept apart; a monthly valuation is the company's
+choice. Worked example from that answer: USD 1,000 received at 4.00, USD 500
+paid when the rate of the day is 4.20, NBP at the end of the month 4.10: FIFO
+books 500 × (4.20 − 4.00) = 100 realized at payment and 500 × (4.10 − 4.00) =
+50 unrealized at valuation, 150 in total.
+
+Before this section, `fx_revaluation` revalued open AP/AR documents only. A
+bank account kept in a foreign currency (`LedgerAccount.currencyId`, GL core
+engine, #5663) and a foreign-currency cash desk had no valuation. Cash & Bank
+Management designs the lots and the realized side
+(`cash-bank-management.md`, Architecture → Foreign-currency lots) and names the
+valuation itself as Multi-Currency's ("Remaining out of scope: … the
+revaluation run itself (Multi-Currency)"). GL Account Balances names the
+balance in the account's currency as a later phase and says that
+`fx_revaluation` reads it (`general-ledger-account-balances.md`, Out of scope,
+and its 2026-10-23 changelog entry).
+
+### Solution
+
+- **R1 — Owner and scope. ⚠ NEEDS HUMAN CONFIRMATION** (decided by the team,
+  not yet reviewed by a maintainer). `fx_revaluation` values every
+  `LedgerAccount` whose `currencyId` is set and differs from the tenant's base
+  currency, chosen by that property of the account alone, whether or not Cash
+  & Bank manages the account. A foreign-currency cash desk is therefore covered
+  as soon as its ledger account carries a `currencyId`, although no module owns
+  a cash desk (Cash & Bank models bank accounts only, its changelog of
+  2026-10-12).
+- **R2 — One run, unrealized only, reversed next period. ⚠ NEEDS HUMAN
+  CONFIRMATION** (decided by the team, not yet reviewed by a maintainer). The
+  same `revalueOpenBalances` run that values open AP/AR documents values these
+  accounts; there is no second command. The difference is posted only against
+  `fx_revaluation.unrealizedGainAccountId` / `unrealizedLossAccountId` (Design
+  decision 11), never against Cash & Bank's or AP payments' realized
+  `gainLossAccountId`. The line on the revalued account is a line in the
+  account's own currency with `amountCurrency = 0`. The valuation is reversed
+  on the first day of the next period in the same transaction (Design decision
+  12), and a re-run for the same period supersedes the earlier run (Design
+  decision 6).
+- **R3 — The amount. ⚠ NEEDS HUMAN CONFIRMATION** (decided by the team, not
+  yet reviewed by a maintainer). For each account:
+  `difference = balanceInAccountCurrency × valuationRate − baseBalance`, where
+  both balances are signed with the debit side positive and taken as of
+  `valuationDate`, and `valuationRate` is the NBP Table A average rate for the
+  account's currency against the base currency, resolved as in Design decision
+  9 (`ratePriority` defaulting to `['NBP_A']`, 9c; date rule 9f). A positive
+  difference debits the account and credits the unrealized gain account; a
+  negative one credits the account and debits the unrealized loss account. The
+  signed formula needs no document-type sign (Design decision 11's factor
+  applies to AP/AR documents only), so an overdrawn account (credit balance)
+  is handled by the same formula. Cash & Bank's FIFO lots are not touched: the
+  valuation writes no lot and changes no lot rate. After the reversing entry
+  the account's base balance equals the sum of its remaining lots at their lot
+  rates again, which is Cash & Bank's reconciliation property ("the base
+  balance … equals the sum of `remainingCurrency` × lot rate (plus any
+  unrealized valuation not yet reversed)").
+- **R4 — Where the balance in the account's currency comes from. ⚠ NEEDS HUMAN
+  CONFIRMATION** (decided by the team, not yet reviewed by a maintainer).
+  `balanceInAccountCurrency` and `baseBalance` are read from GL Account
+  Balances' `getAccountBalance(em, { accountId, tenantId, organizationId,
+  asOf })`, extended to return, for an account that has a `currencyId`, the
+  balance in that currency (the signed `amountCurrency` of its lines, debit
+  side positive) next to the base balance. **⚠ This requires a change to
+  `general-ledger-account-balances.md` (#6013), which today returns
+  `currency: null` and only names the balance in the account's currency as a
+  later phase; that spec is not changed here.** Until it is changed, this part
+  of the run cannot be implemented (Phasing).
+- **R5 — Agreement with the bank statement is a property, not a feature. ⚠
+  NEEDS HUMAN CONFIRMATION** (decided by the team, not yet reviewed by a
+  maintainer). For a bank account managed by Cash & Bank, the balance in the
+  account's currency, the sum of the remaining lots and the bank statement
+  agree (`cash-bank-management.md`, Foreign-currency lots, Reconciliation
+  property; `general-ledger-account-balances.md`, Out of scope). The valuation
+  relies on that agreement and adds no check, report or endpoint for it.
+
+**Why the account line is in the account's currency.** Design decision 5
+posts the AP/AR valuation as base-currency lines (rate `1`, `amountCurrency`
+equal to the base amount). That cannot be reused here: the GL core engine
+rejects a line on an account with a `currencyId` unless the line carries that
+currency (`postJournalEntry.ts`, `resolvePostingLines`: `422
+ledger.errors.lineCurrencyDiffersFromAccount`, on `feat/general-ledger-core-engine`
+at `c47359dd1`). A line with `amountCurrency = 0` is exempt from the
+amount-times-rate consistency rule (`lineCurrency.ts`, `isLineConsistent`), so
+the account line carries the account's currency, `amountCurrency = 0`, the
+valuation rate as its `exchangeRate` (a rate must be positive) and the
+difference as its base amount. The balance in the account's currency is
+therefore unchanged by the valuation and by its reversal. The unrealized
+gain/loss lines stay base-currency lines, as in Design decision 5.
+
+### Data model and configuration
+
+**⚠ NEEDS HUMAN CONFIRMATION** (decided by the team, not yet reviewed by a
+maintainer; the column names are a proposal).
+
+- `FxRevaluationLine.documentType` gains the value `'ledger_account'`;
+  `documentId` is then the `LedgerAccount.id` (FK-id, no ORM relation) and
+  `currencyId` the account's currency.
+- For a `ledger_account` line, `outstandingAmountInDocumentCurrency` holds
+  `balanceInAccountCurrency` (signed), a new nullable
+  `baseBalance numeric(19,4)` holds the base balance read before the
+  valuation, `bookedExchangeRate` is `null` (an account has no single booked
+  rate), and `unrealizedGainLoss` is the R3 difference (no document-type
+  sign). `valuationExchangeRate`, `valuationRateSource` and `valuationRateDate`
+  keep their meaning (Design decision 9e).
+- No new Module Config key: the unrealized gain and loss accounts of Design
+  decision 11 are reused. No change to `LedgerAccount`, `BankAccount` or
+  `BankAccountLot`.
+- `POST /runs` and `GET /runs/preview` keep their routes and bodies; their
+  line list may contain `ledger_account` lines. `lineCount` and
+  `totalUnrealizedGainLoss` include them.
+
+### Edge cases
+
+- **Line currency differs from the account's currency.** Not possible through
+  the API: `postJournalEntry` (the only code path that writes
+  `JournalEntryLine`; reversals go through the same `runPostJournalEntry`)
+  rejects it with 422, and `LedgerAccount.currencyId` cannot change once the
+  account has posted lines (`ledgerAccounts.ts`, `updateLedgerAccount`, 409
+  `accountCurrencyImmutableAfterPosting`). Rows written outside the commands
+  (SQL, test fixtures) are not guarded; the run does not re-check them.
+- **An account holds foreign-currency lines but has no `currencyId`.** It is
+  not revalued by R1, because the selection is by the account's property. The
+  balance of such an account is not one currency (lines of several currencies
+  may be mixed), so R3 has no meaning for it. **⚠ NEEDS HUMAN CONFIRMATION —
+  open point, behaviour not decided:** whether the run should list such
+  accounts as a warning, reject the run, or ignore them.
+- **A control account configured for AP/AR has a `currencyId`.** Settlement
+  accounts are kept in the base currency (GL core engine, Account currency;
+  controller's answer of 2026-10-23), so this is a configuration error; valuing
+  it both as a document balance and as an account would count it twice.
+  **⚠ NEEDS HUMAN CONFIRMATION — open point:** reject the run (proposed: 422
+  `CONTROL_ACCOUNT_HAS_CURRENCY`) or skip the account.
+- **A parent (syntetyk) account and its child both have a `currencyId`.**
+  `getAccountBalance` includes the children's postings in a parent's balance
+  (`general-ledger-account-balances.md`, Testing Strategy), so valuing both
+  would double-count. **⚠ NEEDS HUMAN CONFIRMATION — open point:** value only
+  the account's own lines, or only leaf accounts.
+- **Zero balance in the account's currency but a non-zero base balance**
+  (all currency spent, a rounding remainder or an unreversed cost adjustment
+  left). R3 gives `0 × rate − baseBalance`, which clears the remainder to the
+  unrealized account. Intended by the formula; listed because it is the one
+  case where a "currency-free" account produces a line.
+- **No Table A rate for the account's currency** (a currency NBP does not
+  publish in Table A). The run fails with 422 `EXCHANGE_RATE_UNAVAILABLE`, as
+  for documents (Design decision 9c); art. 30 ust. 3 (rate via a reference
+  currency) is not designed here and is **to be verified** against the act
+  before it is.
+- **Lines dated on or before `valuationDate` posted after the run** (an
+  unlocked period). The posted valuation does not include them; the next run
+  for that period supersedes it (Design decision 6). Same as for documents.
+- **A cash desk.** Covered when its ledger account has a `currencyId` (R1).
+  Its outflows have no lots and no realized difference, because no module
+  posts them at lot cost; the unrealized difference of the valuation then
+  includes what FIFO would have booked as realized. Not designed here.
+
+### Risks
+
+- **Dependency on #6013 (R4). Severity: Medium.** The run cannot read the
+  balance in the account's currency until GL Account Balances is extended;
+  until then Phase 2 is blocked. No wrong posting can result, because the
+  ledger-account part is not implemented before the read exists.
+- **Accounts without `currencyId` are silently out of scope. Severity:
+  Medium.** A foreign-currency bank or cash account created without a
+  currency is never revalued and nothing reports it (open point in Edge
+  cases).
+- **Cash desk outflows are booked without FIFO cost. Severity: Low to
+  Medium.** The controller's FIFO policy is designed for bank accounts in
+  Cash & Bank only; for a cash desk the realized/unrealized split is not
+  maintained.
+- **Tax treatment not verified.** The controller's statement that unrealized
+  differences are tax-neutral under the CIT act (except under the
+  accounting-law method) was not checked against the act; it does not change
+  the posting design.
+
+### Phasing
+
+- **Phase 1** (this spec as before): open AP/AR documents.
+- **Phase 2** (this section): foreign-currency ledger accounts, in the same
+  run. Gate: the R4 change to `general-ledger-account-balances.md` is accepted
+  and implemented, and `LedgerAccount.currencyId` with the line-currency rules
+  has shipped (#6340).
+
+### Implementation plan (Phase 2)
+
+1. Agree the R4 extension of `getAccountBalance` in #6013 (separate change to
+   that spec; not part of this document).
+2. Add `'ledger_account'` to `FxRevaluationLine.documentType` and the nullable
+   `baseBalance` column (generated migration, snapshot).
+3. In `revalueOpenBalances`, before the transaction, add the account
+   currencies to the rate resolution of Design decision 10a; inside the
+   transaction, select the accounts of R1, read both balances as of
+   `valuationDate` (R4), compute R3, and add the account lines and the
+   aggregated unrealized gain/loss lines to the same valuation entry and its
+   reversing entry.
+4. Implement the open points of Edge cases once they are decided.
+5. Tests: the controller's worked example (USD lot at 4.00, outflow at 4.20,
+   valuation at 4.10: 50 unrealized, account line `amountCurrency = 0`), an
+   overdrawn account, an account with zero currency balance and a base
+   remainder, a re-run for the same period, the reversal restoring the base
+   balance to the sum of lots, and the 422 for a line whose currency differs
+   from its account.
+
+### Prior art (checked 2026-10-26)
+
+- **Kieso, *Intermediate Accounting* (full text, 1,584 pages, extracted and
+  searched).** Confirmed: Ch. 7, Appendix 7A, p. 7-31, Global View — "Multinational
+  corporations often have cash accounts in more than one currency. For
+  financial statement purposes, these corporations typically translate these
+  currencies into U.S. dollars, using the exchange rate in effect at the
+  balance sheet date." Ch. 7, p. 7-28, Global View — holding receivables in a
+  foreign currency "represents risk that the exchange rate may move against
+  the company". Kieso's FIFO and weighted average are inventory cost-flow
+  methods (Ch. 8 and 9 pages); nothing on lots of foreign currency.
+- **Fowler, *Analysis Patterns* (full text, 361 pages).** Exchange rates
+  appear only in the trading chapters (instruments, forwards, options) and as
+  Conversion Ratio (3.2); nothing on period-end revaluation, unrealized
+  differences or currency lots.
+- **Hay, *Data Model Patterns* (full text, 277 pages).** No occurrence of
+  foreign currency, exchange rate, revaluation or unrealized.
+- **ERPNext, Exchange Rate Revaluation** (docs.frappe.io): revalues
+  foreign-currency balance-sheet accounts by changing the company-currency
+  carrying value "without changing" the account-currency balance; the offset
+  goes to the company's "Unrealized Exchange Gain/Loss Account", separate from
+  the realized Exchange Gain/Loss account; reversal entries are optional
+  ("depends on your accounting policy"). Comparable to R2/R3; our reversal is
+  mandatory (Design decision 12).
+- **Odoo, Manage a bank account in a foreign currency** (odoo.com
+  documentation): the Unrealized Currencies report lists open foreign-currency
+  amounts on the balance sheet; the Adjustment Entry posts to a chosen expense
+  and income account and is reversed automatically on a chosen Reversal Date.
+  Comparable to R2.
+- **Comarch ERP Optima, magazyn walut** (pomoc.comarch.pl): withdrawals are
+  settled "wg metody FIFO z pierwszym wolnym zasobem na magazynie walut" and the
+  realized difference is the difference of the withdrawal and deposit values in
+  the system currency. Comparable to Cash & Bank's lots; the article says
+  nothing about period-end valuation.
+- **GnuCash:** only mailing-list posts and a third-party essay were found
+  (unrealized gains handled through trading accounts or reports); no official
+  documentation — not used as a source.
+- **Symfonia, enova365:** no vendor documentation found — not publicly
+  checkable.
+
 ## Out of scope
 
 - Rebuilding, replacing, or extending the `currencies` module's rate
@@ -1211,7 +1472,10 @@ line detail.
   Management (#6055); this spec only makes its `bookedExchangeRate`
   input defaultable (Design decision 7).
 - Multi-currency-aware GL account balance / trial balance reporting
-  (`#6013`'s API stays `currency: null`).
+  (`#6013`'s API stays `currency: null`) — except the balance in the account's currency
+  of an account that has a `currencyId`, which Phase 2 of "Revaluation of
+  foreign-currency ledger accounts (bank, cash)" needs (R4, ⚠ requires a change
+  to #6013).
 - Foreign-subsidiary consolidation / functional-currency translation
   (IAS 21-style CTA) — Kieso itself scopes true FX-hedging/translation
   accounting out of its own text (Ch. 17, footnote 25); this project
@@ -1224,13 +1488,6 @@ line detail.
   same "reversal not undo" discipline as GL core engine).
 - Point-in-time reconstruction of AP/AR balances beyond the dated filter of Design decision 13 — a change that leaves no dated trace (a document cancelled or re-priced after the valuation date) is not reconstructed; revaluation must run within `valuationGraceDays` of the period it values.
 - Automatic bulk backfill of `exchangeRate` on documents that predate this feature (Design decision 15) — the explicit, per-document `backfill` command of the owning module (`sales`, `accounts_payable`) is the supported path.
-- Revaluation of foreign-currency bank accounts (cash) at the balance-sheet
-  date by their balance in the account's currency (art. 30 ust. 1). **Controller's answer of 2026-10-23 (Mateusz Duda), decided by the team, not yet reviewed by a maintainer.** Outflow valuation is accounting policy, not law. In practice FIFO: every inflow of currency is a lot with its own rate, and an outflow consumes the oldest lot at that lot's rate; the difference to the rate of the day is the realized difference. Weighted average is also permitted. An outflow at the rate of the day is simpler to book but the books then show no realized differences (all of it appears at the next valuation), and for CIT the realized differences would have to be computed outside the books, which is why FIFO is chosen in practice. Only the valuation of the balance at the balance-sheet date, at the NBP average rate, is mandatory; a monthly valuation is the company's choice. Realized and unrealized differences must be kept apart, normally on separate sub-accounts of the exchange-difference accounts, because only realized differences enter CIT and unrealized ones from valuation are tax-neutral (the exception is the rarely used accounting-law method in the CIT act, where book differences are also tax differences; not checked against the act). Worked example: USD 1,000 received at 4.00, USD 500 paid when the rate of the day is 4.20, NBP at the end of the month 4.10: FIFO books 500 x (4.20 - 4.00) = 100 realized at payment and 500 x (4.10 - 4.00) = 50 unrealized at valuation, 150 in total; the rate of the day books all 150 at valuation. Proposed design for the follow-up: a per-account setting `outflowValuationMethod` (`FIFO`, the default, or `WEIGHTED_AVERAGE`), chosen when the account first posts and fixed afterwards (Comarch ERP XL also fixes it once per register); lots kept by Cash & Bank; separate `realizedFxGainLossAccountId` and `unrealizedFxGainLossAccountId` in module config; the valuation of this bullet posts only to the unrealized account. Outflow at the rate of the day is not offered. The
-  controller works from the account's currency balance, which agrees with the
-  bank statement (e-mail of 2026-10-23). This spec revalues open AP/AR
-  documents only. With `LedgerAccount.currencyId` and `amountCurrency` on every
-  line the balance per account can be read from the ledger; a follow-up spec
-  or a later phase of this one, not designed here.
 - Preventing (rather than detecting after the fact) a tenant's base
   currency from changing once foreign-currency documents exist
   (Design decision 16) — that guard belongs to the `currencies`
@@ -1961,3 +2218,24 @@ Not yet reviewed by a maintainer.
 ### 2026-10-23 (cont. — lots designed in Cash & Bank)
 
 - The lots, the per-account method and the cost adjustment entry for outflows are now designed in `cash-bank-management.md` (Architecture → Foreign-currency lots). For `fx_revaluation`: the base balance of a foreign-currency bank account equals the sum of its remaining lots at their rates, so the valuation of that account is the balance in the account's currency times the valuation rate minus the base balance, posted to the unrealized account. Not yet reviewed by a maintainer.
+
+### 2026-10-26 — revaluation of foreign-currency ledger accounts designed
+
+- New section "Revaluation of foreign-currency ledger accounts (bank, cash)",
+  replacing the Out of scope bullet on bank accounts. Decisions R1–R5 (owner by
+  `LedgerAccount.currencyId`, one run with AP/AR, unrealized account only with an
+  `amountCurrency = 0` line in the account's currency, balance × NBP Table A −
+  base balance, FIFO lots untouched, balance from an extended
+  `getAccountBalance`, statement agreement as a property) are decided by the
+  team, not yet reviewed by a maintainer, each marked ⚠ NEEDS HUMAN
+  CONFIRMATION. R4 needs a change to #6013 that is not made here.
+- Checked in the GL core engine (`c47359dd1`): a line on an account with a
+  `currencyId` must carry that currency (`postJournalEntry.ts`,
+  `resolvePostingLines`, 422), so the account line cannot be the base-currency
+  line of Design decision 5.
+- Literature (full-text search of Kieso, Fowler and Hay) and system comparison
+  (ERPNext, Odoo, Comarch ERP Optima; GnuCash, Symfonia and enova365 not
+  publicly checkable) are recorded in the section's Prior art and in the
+  knowledge base.
+- Out of scope (#6013 bullet) and Alternatives considered (#6013 bullet)
+  annotated so they do not contradict R4.
