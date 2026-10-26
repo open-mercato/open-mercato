@@ -886,6 +886,7 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
 const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: string; claimId: string }> = {
   id: 'warranty_claims.claim_line.receive',
   isUndoable: true,
+  redo: ({ input, ctx }) => receiveClaimLineCommand.execute({ ...input, updatedAt: undefined }, ctx),
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(claimLineReceiveSchema, rawInput)
     const scope = resolveScope(ctx, input)
@@ -984,6 +985,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
 const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuarantineInput, { lineId: string; claimId: string }> = {
   id: 'warranty_claims.claim_line.release_quarantine',
   isUndoable: true,
+  redo: ({ input, ctx }) => releaseClaimLineQuarantineCommand.execute({ ...input, updatedAt: undefined }, ctx),
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(claimLineReleaseQuarantineSchema, rawInput)
     const scope = resolveScope(ctx, input)
@@ -1048,6 +1050,7 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
 const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { lineId: string; claimId: string }> = {
   id: 'warranty_claims.claim_line.set_assessment',
   isUndoable: true,
+  redo: ({ input, ctx }) => setClaimLineAssessmentCommand.execute({ ...input, updatedAt: undefined }, ctx),
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(lineSetAssessmentSchema, rawInput)
     const scope = resolveScope(ctx, input)
