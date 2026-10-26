@@ -49,7 +49,7 @@
 | 4 | 4.5 | Report dataset sameness, drift warnings and the snapshot picker | dispatch | done | f4e3e82d0 |
 | 4 | 4.6 | Cover pinned eval replays with an integration test | dispatch | done | 5032e8b84 |
 | 4 | 4.6-review-fix | Show frozen case input and expected values in pinned eval reports | dispatch | done | 4ed562aab |
-| 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |
+| 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | a59310dc3 |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 2 | inline | todo | — |
 
 ## Goal
