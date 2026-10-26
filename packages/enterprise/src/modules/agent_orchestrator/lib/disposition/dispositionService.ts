@@ -144,7 +144,7 @@ export class DispositionServiceImpl implements DispositionService {
     try {
       const [blocked, spanCount] = await Promise.all([
         em.count(AgentGuardrailCheck, { ...scope, agentRunId: proposal.runId, result: 'block' }),
-        em.count(AgentSpan, { ...scope, agentRunId: proposal.runId }),
+        em.count(AgentSpan, { ...scope, agentRunId: proposal.runId, kind: { $in: ['llm', 'tool'] } }),
       ])
       guardrailsPassed = blocked === 0
       // A run that left no trace at all cannot be audited after the fact, and an

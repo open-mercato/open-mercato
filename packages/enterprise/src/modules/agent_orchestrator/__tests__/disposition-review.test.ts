@@ -58,7 +58,10 @@ function makeProposal(overrides: Partial<AgentProposal> = {}): AgentProposal {
   } as AgentProposal
 }
 
-function makeService(execute = jest.fn<(...args: unknown[]) => Promise<unknown>>()) {
+function makeService(
+  execute = jest.fn<(...args: unknown[]) => Promise<unknown>>(),
+  spanKinds: string[] | null = null,
+) {
   const nativeUpdate = jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1)
   const container = {
     resolve: (token: string) => {
@@ -70,8 +73,12 @@ function makeService(execute = jest.fn<(...args: unknown[]) => Promise<unknown>>
         return {
           fork: () => ({
             nativeUpdate,
-            count: async (entity: unknown) =>
-              ((entity as { name?: string })?.name ?? '') === 'AgentGuardrailCheck' ? 0 : 1,
+            count: async (entity: unknown, where?: { kind?: { $in?: string[] } }) => {
+              if (((entity as { name?: string })?.name ?? '') === 'AgentGuardrailCheck') return 0
+              if (spanKinds === null) return 1
+              const allowed = where?.kind?.$in
+              return spanKinds.filter((kind) => !allowed || allowed.includes(kind)).length
+            },
           }),
         }
       }
@@ -219,5 +226,29 @@ describe('DispositionService — the human arm is routable', () => {
       proposalId: 'proposal-1',
     })
     expect(execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('DispositionService — the trace-completeness gate counts only llm and tool spans', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    createAgentDispositionTask.mockResolvedValue({ userTaskId: 'task-1' })
+  })
+
+  test('a run with only a manifest system span is not traced and goes to a human', async () => {
+    const { service, execute } = makeService(undefined, ['system'])
+
+    const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(outcome.kind).toBe('user_task')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  test.each([['llm'], ['tool']])('a run with a manifest and an %s span passes the gate', async (kind) => {
+    const { service } = makeService(undefined, ['system', kind])
+
+    const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(outcome.kind).toBe('auto_approved')
   })
 })
