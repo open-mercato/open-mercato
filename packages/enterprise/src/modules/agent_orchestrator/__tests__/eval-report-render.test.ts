@@ -376,11 +376,36 @@ describe('eval report renderers', () => {
       expect(markdown).toContain('- Same dataset: no')
       expect(markdown).toContain('### Warnings\n\n- dataset drift: label regression')
     })
+
+    it('renders the eval set pin, counts and baseline dataset fields', () => {
+      const markdown = renderEvalReportMarkdown(baseReport())
+      expect(markdown).toContain('| Pin | hash |')
+      expect(markdown).toContain('| Manifest hash | sha256:abc123 |')
+      expect(markdown).toContain('| Eval set cases | 2 |')
+      expect(markdown).toContain('| Eval set assertions | 2 |')
+      expect(markdown).toContain('- Baseline manifest hash: sha256:abc123')
+      expect(markdown).toContain('- Same dataset: yes')
+    })
   })
 
   describe('renderEvalReportJunit', () => {
     it('matches the golden JUnit file', () => {
       expect(renderEvalReportJunit(baseReport())).toBe(readFixture('eval-report.golden.xml'))
+    })
+
+    it('exposes the eval set and baseline dataset fields as suite properties', () => {
+      const xml = renderEvalReportJunit(baseReport())
+      expect(xml).toContain('<property name="evalSetPinKind" value="hash"/>')
+      expect(xml).toContain('<property name="manifestHash" value="sha256:abc123"/>')
+      expect(xml).toContain('<property name="evalSetCaseCount" value="2"/>')
+      expect(xml).toContain('<property name="baselineManifestHash" value="sha256:abc123"/>')
+      expect(xml).toContain('<property name="sameDataset" value="true"/>')
+      const legacy = renderEvalReportJunit({
+        ...baseReport(),
+        baseline: { suiteRunId: null, manifestHash: null, sameDataset: null, warnings: [] },
+      })
+      expect(legacy).not.toContain('name="sameDataset"')
+      expect(legacy).not.toContain('name="baselineManifestHash"')
     })
 
     it('produces well-formed XML with the JUnit element structure', () => {

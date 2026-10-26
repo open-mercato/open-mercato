@@ -8,9 +8,11 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalSuiteRun } from '../../data/entities'
 import { evalRunCreateSchema, evalRunListQuerySchema } from '../../data/validators'
 import { replaySuiteRun } from '../../lib/eval/evalReplayService'
+import { readEvalSetPointer } from '../../lib/eval/manifest'
 import { AGENT_ORCHESTRATOR_EVAL_SUITE_QUEUE, getAgentOrchestratorQueue } from '../../lib/queue'
 import type {
   CompleteEvalRunCommandInput,
@@ -56,15 +58,22 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  const where: Record<string, unknown> = toScope(auth)
+  const scope = toScope(auth)
+  const where: Record<string, unknown> = { ...scope }
   if (query.agentDefinitionId) where.agentDefinitionId = query.agentDefinitionId
   if (query.status) where.status = query.status
 
-  const [items, total] = await em.findAndCount(AgentEvalSuiteRun, where, {
-    orderBy: { createdAt: 'DESC' },
-    limit: query.pageSize,
-    offset: (query.page - 1) * query.pageSize,
-  })
+  const [items, total] = await findAndCountWithDecryption(
+    em,
+    AgentEvalSuiteRun,
+    where,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: query.pageSize,
+      offset: (query.page - 1) * query.pageSize,
+    },
+    scope,
+  )
 
   return NextResponse.json({
     items: items.map((run) => ({
@@ -79,6 +88,8 @@ export async function GET(req: Request) {
       score_variance: run.scoreVariance ?? null,
       repeat_count: run.repeatCount,
       judge_may_gate: run.judgeMayGate,
+      eval_set_version: run.evalSetVersion ?? null,
+      manifest_hash: readEvalSetPointer(run.summary)?.version ?? null,
       triggered_by: run.triggeredBy ?? null,
       started_at: run.startedAt?.toISOString() ?? null,
       finished_at: run.finishedAt?.toISOString() ?? null,
@@ -177,7 +188,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Paginated history of evaluation runs for the organization',
       description:
-        'Suite-run history, newest first. Filterable by agentDefinitionId and status. pageSize is capped at 100. Gated by agent_orchestrator.eval.manage.',
+        'Suite-run history, newest first. Filterable by agentDefinitionId and status. pageSize is capped at 100. Each item carries eval_set_version (the pin column) and manifest_hash (the frozen eval-set manifest hash from the summary pointer, null for runs that predate manifests). Gated by agent_orchestrator.eval.manage.',
       responses: [{ status: 200, description: 'Paged suite runs' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },

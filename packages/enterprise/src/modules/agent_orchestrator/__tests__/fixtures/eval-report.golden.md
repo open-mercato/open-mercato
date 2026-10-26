@@ -11,6 +11,8 @@
 | Pin | hash |
 | Manifest hash | sha256:abc123 |
 | Eval set source | file |
+| Eval set cases | 2 |
+| Eval set assertions | 2 |
 | Baseline run | suite-0 |
 | Release | — |
 | Repeat count | 2 |

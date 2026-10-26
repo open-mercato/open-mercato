@@ -15,6 +15,7 @@ import {
   type EvalScope,
   type SuiteAggregate,
 } from '../evalReplayService'
+import { readEvalSetPointer } from '../manifest'
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
 import {
@@ -68,6 +69,10 @@ function reportStatus(status: AgentEvalSuiteRun['status']): EvalReportStatus {
 function pinKindOf(version: string | null): EvalReport['evalSet']['pinKind'] {
   if (!version) return 'none'
   return version.startsWith(HASH_PIN_PREFIX) ? 'hash' : 'label'
+}
+
+function datasetDriftWarning(label: string, baselineHash: string, currentHash: string): string {
+  return `dataset_drift: eval set label "${label}" froze manifest ${currentHash} but the baseline ran manifest ${baselineHash}`
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
@@ -354,6 +359,14 @@ export async function buildEvalReport(
     current.caseRuns.filter((entry) => entry.status === target).length
   const evalSetVersion = suiteRun.evalSetVersion ?? null
   const pinKind = pinKindOf(evalSetVersion)
+  const pointer = readEvalSetPointer(suiteRun.summary)
+  const manifestHash = pointer?.version ?? null
+  const baselineManifestHash = baselineRun ? readEvalSetPointer(baselineRun.summary)?.version ?? null : null
+  const sameDataset = manifestHash !== null && baselineManifestHash !== null ? manifestHash === baselineManifestHash : null
+  const baselineWarnings =
+    pinKind === 'label' && evalSetVersion !== null && sameDataset === false && manifestHash !== null && baselineManifestHash !== null
+      ? [datasetDriftWarning(evalSetVersion, baselineManifestHash, manifestHash)]
+      : []
 
   return {
     schema: EVAL_REPORT_SCHEMA,
@@ -376,17 +389,17 @@ export async function buildEvalReport(
     evalSet: {
       version: evalSetVersion,
       pinKind,
-      manifestHash: null,
-      label: pinKind === 'label' ? evalSetVersion : null,
-      source: 'db',
-      caseCount: caseIds.length,
-      assertionCount: Object.keys(currentBuckets).length,
+      manifestHash,
+      label: pointer?.label ?? (pinKind === 'label' ? evalSetVersion : null),
+      source: pointer?.source ?? 'db',
+      caseCount: pointer?.caseCount ?? caseIds.length,
+      assertionCount: pointer?.assertionCount ?? Object.keys(currentBuckets).length,
     },
     baseline: {
       suiteRunId: baselineRun?.id ?? null,
-      manifestHash: null,
-      sameDataset: null,
-      warnings: [],
+      manifestHash: baselineManifestHash,
+      sameDataset,
+      warnings: baselineWarnings,
     },
     environment: {
       models,

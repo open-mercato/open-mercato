@@ -13,8 +13,14 @@
       <property name="judgeMayGate" value="false"/>
       <property name="evalSetVersion" value="sha256:abc123"/>
       <property name="evalSetLabel" value="regression"/>
+      <property name="evalSetPinKind" value="hash"/>
       <property name="manifestHash" value="sha256:abc123"/>
+      <property name="evalSetSource" value="file"/>
+      <property name="evalSetCaseCount" value="2"/>
+      <property name="evalSetAssertionCount" value="2"/>
       <property name="baselineSuiteRunId" value="suite-0"/>
+      <property name="baselineManifestHash" value="sha256:abc123"/>
+      <property name="sameDataset" value="true"/>
       <property name="flakyCases" value="1"/>
       <property name="models" value="openai/gpt-5-mini"/>
       <property name="toolMode" value="replay"/>

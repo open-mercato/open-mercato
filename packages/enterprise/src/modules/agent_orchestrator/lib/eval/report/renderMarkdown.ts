@@ -86,6 +86,8 @@ function renderHeader(report: EvalReport): string[] {
     ['Pin', evalSet.pinKind],
     ['Manifest hash', evalSet.manifestHash],
     ['Eval set source', evalSet.source],
+    ['Eval set cases', evalSet.caseCount],
+    ['Eval set assertions', evalSet.assertionCount],
     ['Baseline run', baseline.suiteRunId],
     ['Release', suiteRun.releaseId],
     ['Repeat count', suiteRun.repeatCount],

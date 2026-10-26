@@ -351,6 +351,105 @@ describe('buildEvalReport', () => {
     }
   })
 
+  it('fills the eval set from the frozen manifest pointer without the body', async () => {
+    const seed = baseSeed()
+    const suite = (seed.get(AgentEvalSuiteRun) as Row[])[0]
+    suite.evalSetVersion = 'sha256:frozen-one'
+    suite.summary = {
+      __evalSet: {
+        version: 'sha256:frozen-one',
+        label: null,
+        source: 'file',
+        caseCount: 7,
+        assertionCount: 3,
+        carrierSuiteRunId: 'suite-1',
+        body: { cases: ['secret manifest body'] },
+      },
+    }
+    const { em } = createFakeEm(seed)
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(() => evalReportSchema.parse(report)).not.toThrow()
+    expect(report?.evalSet).toEqual({
+      version: 'sha256:frozen-one',
+      pinKind: 'hash',
+      manifestHash: 'sha256:frozen-one',
+      label: null,
+      source: 'file',
+      caseCount: 7,
+      assertionCount: 3,
+    })
+    expect(JSON.stringify(report)).not.toContain('secret manifest body')
+  })
+
+  it('reports a label pin hash from the pointer and keeps the label', async () => {
+    const seed = baseSeed()
+    ;(seed.get(AgentEvalSuiteRun) as Row[])[0].summary = {
+      __evalSet: { version: 'sha256:label-run', label: 'release-1', source: 'db', caseCount: 2, assertionCount: 2, carrierSuiteRunId: null },
+    }
+    const { em } = createFakeEm(seed)
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(report?.evalSet).toMatchObject({ pinKind: 'label', label: 'release-1', manifestHash: 'sha256:label-run' })
+    expect(report?.baseline).toEqual({ suiteRunId: null, manifestHash: null, sameDataset: null, warnings: [] })
+  })
+
+  function seedWithBaseline(currentHash: string | null, baselineHash: string | null, evalSetVersion: string | null) {
+    const seed = baseSeed()
+    const pointerSummary = (hash: string | null) =>
+      hash
+        ? { __evalSet: { version: hash, label: null, source: 'db', caseCount: 2, assertionCount: 2, carrierSuiteRunId: null } }
+        : null
+    const runs = seed.get(AgentEvalSuiteRun) as Row[]
+    runs[0].evalSetVersion = evalSetVersion
+    runs[0].baselineSuiteRunId = 'suite-0'
+    runs[0].summary = pointerSummary(currentHash)
+    runs.push(suiteRun('suite-0', { evalSetVersion, summary: pointerSummary(baselineHash) }))
+    return seed
+  }
+
+  it('marks the same dataset when the baseline froze the identical manifest', async () => {
+    const { em } = createFakeEm(seedWithBaseline('sha256:same', 'sha256:same', 'release-1'))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(report?.baseline).toEqual({
+      suiteRunId: 'suite-0',
+      manifestHash: 'sha256:same',
+      sameDataset: true,
+      warnings: [],
+    })
+  })
+
+  it('warns about dataset drift when a label pin froze different manifests', async () => {
+    const { em } = createFakeEm(seedWithBaseline('sha256:current', 'sha256:previous', 'release-1'))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(report?.baseline.sameDataset).toBe(false)
+    expect(report?.baseline.manifestHash).toBe('sha256:previous')
+    expect(report?.baseline.warnings).toHaveLength(1)
+    expect(report?.baseline.warnings[0]).toContain('dataset_drift')
+    expect(report?.baseline.warnings[0]).toContain('release-1')
+    expect(report?.baseline.warnings[0]).toContain('sha256:previous')
+    expect(report?.baseline.warnings[0]).toContain('sha256:current')
+  })
+
+  it('does not warn about drift when the pin is not a label', async () => {
+    const { em } = createFakeEm(seedWithBaseline('sha256:current', 'sha256:previous', null))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(report?.baseline.sameDataset).toBe(false)
+    expect(report?.baseline.warnings).toEqual([])
+  })
+
+  it('leaves sameDataset null when the legacy baseline has no manifest pointer', async () => {
+    const { em } = createFakeEm(seedWithBaseline('sha256:current', null, 'release-1'))
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { env: {} })
+
+    expect(() => evalReportSchema.parse(report)).not.toThrow()
+    expect(report?.evalSet.manifestHash).toBe('sha256:current')
+    expect(report?.baseline).toEqual({ suiteRunId: 'suite-0', manifestHash: null, sameDataset: null, warnings: [] })
+  })
+
   it('flags flaky cases and assertions across repeated trials', async () => {
     const seed = baseSeed()
     ;(seed.get(AgentEvalSuiteRun) as Row[])[0].repeatCount = 2
