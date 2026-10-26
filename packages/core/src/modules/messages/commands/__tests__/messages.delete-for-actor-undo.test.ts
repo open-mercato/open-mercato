@@ -1,4 +1,5 @@
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type RegisteredCommand = {
   id: string
@@ -47,6 +48,11 @@ function buildUndoContext(message: { deletedAt: Date | null }, recipient: { stat
     }),
     flush: jest.fn(async () => {}),
   }
+  const findOneWithDecryptionMock = findOneWithDecryption as jest.Mock
+  findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
+    if (entity === Message) return message
+    return null
+  })
   const container = {
     resolve: jest.fn((name: string) => {
       if (name === 'em') return { fork: () => emFork }
@@ -96,6 +102,7 @@ describe('messages.messages.delete_for_actor undo', () => {
     expect(recipient.status).toBe('read')
     expect(recipient.deletedAt).toBeNull()
     expect(emFork.findOne).not.toHaveBeenCalledWith(Message, expect.anything())
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
     expect(emFork.flush).toHaveBeenCalledTimes(1)
   })
 
@@ -121,9 +128,16 @@ describe('messages.messages.delete_for_actor undo', () => {
     const message = { deletedAt: new Date('2026-01-02T00:00:00.000Z') as Date | null }
     const { emFork, ctx } = buildUndoContext(message, null)
 
-    await command!.undo!({ logEntry: {}, ctx })
+    await command!.undo!({ logEntry: { tenantId: 'tenant-1', organizationId: 'org-1' }, ctx })
 
     expect(message.deletedAt).toBeNull()
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      emFork,
+      Message,
+      { id: messageId },
+      undefined,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
     expect(emFork.findOne).not.toHaveBeenCalledWith(MessageRecipient, expect.anything())
     expect(emFork.flush).toHaveBeenCalledTimes(1)
   })
