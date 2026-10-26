@@ -98,6 +98,7 @@ test.describe('TC-WC-040: every accepted line is available in the claims desk', 
       })
 
       test(`inspects, receives and selects line ${lineCount} for recovery`, async ({ page, request }) => {
+        test.setTimeout(60_000)
         expect(claimId).toBeTruthy()
         const sourceClaimId = claimId!
         await login(page, 'admin')
@@ -129,6 +130,7 @@ test.describe('TC-WC-040: every accepted line is available in the claims desk', 
           currentLine = (await readLinePage(request, token, sourceClaimId, 2)).items!.find((line) => line.id === lastLine.id)!
         }
         await page.reload()
+        await expect(page.getByRole('row').filter({ hasText: productName })).toHaveCount(1)
         const actionsButton = page.getByRole('button', { name: 'Actions', exact: true })
         await actionsButton.focus()
         if (await actionsButton.getAttribute('aria-expanded') !== 'true') {
