@@ -342,7 +342,7 @@ opposite of the adjusting entry made in the previous period."*
       is written for the PLN-base case this spec treats as the working
       assumption (Design decision 8).
 
-      **Checked against `currencies` on `develop` (2026-10-15).** The Table
+      **Checked against `currencies` on `main` (2026-10-15; re-checked 2026-10-26 at `fc5f8d04c`).** The Table
       A provider fits the module as it is; what the code allows and what it
       does not:
       - *A public extension point exists.* `RateFetchingService` takes any
@@ -418,7 +418,7 @@ opposite of the adjusting entry made in the previous period."*
           validator use. ⚠ The existing `NBPProvider` stores Warsaw
           midnight (`fromZonedTime`), which is not UTC midnight; whether its
           rows are found by the exact-date lookup is not shown by any test
-          on `develop`. The implementation PR proves the `NBP_A` round trip
+          on `main`. The implementation PR proves the `NBP_A` round trip
           (store, then `getRate`) with a test, and reports the `NBP` result
           to OM Core without changing `NBPProvider` in that PR.
         - *Precision:* NBP publishes four decimals; stored in
@@ -427,17 +427,18 @@ opposite of the adjusting entry made in the previous period."*
           unit for currencies the printed table quotes per 100 (JPY, HUF)
           has not been checked against a real response here. The provider's
           contract test must assert it before the provider is relied on.
-        - *Existing consumers (checked on `develop`).* The only consumer of
-          `ExchangeRateService` outside `currencies` is the customers deals
-          aggregate (`api/deals/aggregate/route.ts`), which reads
-          `autoFetch: false` and takes `rates[0]` ("sources are equivalent
-          for display purposes"). `findExactRates` has no ordering, and an
-          `XXX → PLN` pair will now have an `NBP` (Table C bid) row and an
-          `NBP_A` (mid) row, so that display total may use either; the
-          difference is small and display-only, the same situation Raiffeisen
-          rows already create. The implementation PR notes it in
+        - *Existing consumers (checked on `main`).* The consumers of
+          `ExchangeRateService` outside `currencies` are the customers deals
+          aggregate (`api/deals/aggregate/route.ts`) and the deals summary
+          (`api/deals/summary/route.ts`, via `lib/dealsMetrics.ts`). Both read
+          with `autoFetch: false` and take `rates[0]` for display ("sources
+          are equivalent for display purposes"). `findExactRates` has no
+          ordering, and an `XXX → PLN` pair will now have an `NBP` (Table C
+          bid) row and an `NBP_A` (mid) row, so those display totals may use
+          either; the difference is small and display-only, the same situation
+          Raiffeisen rows already create. The implementation PR notes it in
           `services/README.md` ("Choosing Between Multiple Providers") and
-          does not change the consumer.
+          does not change either consumer.
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
@@ -1108,7 +1109,7 @@ line detail.
   fetcher (out of this document's own module boundary, Design decision
   1). **Severity: High** — this is a correctness gap in the amounts
   the module posts, not a cosmetic one, though it is caught before any
-  implementation exists. **Mitigation**: Implementation Plan Step 0 is a concrete, scoped task (add a Table A provider to `currencies` under its own `source: 'NBP_A'`, so the unique key and `currencies`' schema stay as they are — checked against the code on `develop`, Design decision 9c; it can also be registered from `fx_revaluation` through the public provider registry if OM Core prefers); `fx_revaluation` refuses to post (422 `EXCHANGE_RATE_UNAVAILABLE`) until a Table A row is resolvable, instead of falling back to Table C, so the gap can delay the module but cannot produce a wrong posting. **Detection**: none
+  implementation exists. **Mitigation**: Implementation Plan Step 0 is a concrete, scoped task (add a Table A provider to `currencies` under its own `source: 'NBP_A'`, so the unique key and `currencies`' schema stay as they are — checked against the code on `main`, Design decision 9c; it can also be registered from `fx_revaluation` through the public provider registry if OM Core prefers); `fx_revaluation` refuses to post (422 `EXCHANGE_RATE_UNAVAILABLE`) until a Table A row is resolvable, instead of falling back to Table C, so the gap can delay the module but cannot produce a wrong posting. **Detection**: none
   needed pre-implementation; once built, a valuation run using Table C
   instead of Table A would be caught by comparing posted rates against
   NBP's own published Table A for the same date — a reconciliation
