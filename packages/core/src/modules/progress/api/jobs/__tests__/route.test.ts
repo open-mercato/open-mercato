@@ -508,6 +508,17 @@ describe('progress jobs route', () => {
       })
     })
 
+    it('keeps the documented 400 when the owner\'s job cannot be cancelled', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'user-1', organizationId: 'org-1' })
+      mockCancelJob.mockRejectedValueOnce(new Error('[internal] Job job-1 is not cancellable'))
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockCancelJob).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the documented 400 for cancelling an unknown job id', async () => {
       mockGetJob.mockResolvedValue(null)
 
