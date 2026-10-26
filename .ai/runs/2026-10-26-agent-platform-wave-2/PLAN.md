@@ -20,6 +20,7 @@
 | 1 | 1.1 | Add the model-call contract types and settings merge | dispatch | done | b724c34af |
 | 1 | 1.2 | Forward call settings to every model call branch | dispatch:capable | done | c57d82c74 |
 | 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | done | 18b9ecad3 |
+| 1 | 1.3-review-fix | Type the model-call end hook generically over the tool set | inline | done | pending |
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
 | 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | cdb0d95f3 |
@@ -103,6 +104,9 @@ None (`--skill-url` not passed).
 - Wire `observe.onModelCallStart` / `onModelCallEnd` from AI SDK 7 `onLanguageModelCallStart/End` on `generateText` / `streamText` branches (one event per model call; `callSettings` = settings as sent, `tools` = the step's exposed set after `prepareStep`).
 - Branches without call-level hooks (`generateObject`, `streamObject`, caller-supplied `generateObject`) synthesize `onModelCallStart` from `system` / `messages` / schema with `stepNumber = 0`, and `onModelCallEnd` from the result.
 - Every observer call is wrapped in try/catch: a throwing observer is logged (structured logger) and ignored, never fails the run, and never sees or alters the `prepareStep` result. Unit tests: one start/end per step in a tool loop; throwing observer does not fail the run.
+
+#### 1.3-review-fix Type the model-call end hook generically over the tool set
+- Checkpoint 3's `yarn build:app` (Next type check) rejected the `onLanguageModelCallEnd` hook typed against the default `ToolSet` at `generateText` / `streamText` call sites whose tools infer as `Record<string, Tool<unknown, unknown>>`; the app typecheck script did not catch it. Make the hook (and `toModelCallEndEvent`) generic over `TOOLS extends ToolSet`.
 
 #### 1.4 Resolve prompt override metadata and report onPromptResolved
 - Add internal `resolveSystemPromptWithOverrideMeta` returning `{ prompt, override: { id, version } | null }` from the override repo lookup that prompt composition already does; the exported string-returning composition function keeps its signature (BC category 3) and delegates to it.

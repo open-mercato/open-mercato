@@ -3,8 +3,8 @@ import type {
   LanguageModel,
   LanguageModelCallEndEvent,
   LanguageModelCallStartEvent,
-  OnLanguageModelCallEndCallback,
   OnLanguageModelCallStartCallback,
+  ToolSet,
 } from 'ai'
 import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -32,7 +32,7 @@ const forwardedCallSettingKeys = [
 
 export type ModelCallObserverHooks = {
   onLanguageModelCallStart: OnLanguageModelCallStartCallback
-  onLanguageModelCallEnd: OnLanguageModelCallEndCallback
+  onLanguageModelCallEnd: <TOOLS extends ToolSet>(event: LanguageModelCallEndEvent<TOOLS>) => Promise<void>
 }
 
 export type ModelCallObserverContext = {
@@ -135,8 +135,8 @@ export function toModelCallStartEvent(
   }
 }
 
-export function toModelCallEndEvent(
-  event: LanguageModelCallEndEvent,
+export function toModelCallEndEvent<TOOLS extends ToolSet>(
+  event: LanguageModelCallEndEvent<TOOLS>,
   context: { endedAtMs: number },
 ): AiAgentModelCallEndEvent {
   return {
@@ -211,7 +211,7 @@ export function createModelCallObserverHooks(
         { agentId: context.agentId, callId: event.callId },
       )
     },
-    onLanguageModelCallEnd: async (event) => {
+    onLanguageModelCallEnd: async <TOOLS extends ToolSet>(event: LanguageModelCallEndEvent<TOOLS>) => {
       const handler = observe.onModelCallEnd
       if (!handler) return
       await notifyModelCallObserver(
