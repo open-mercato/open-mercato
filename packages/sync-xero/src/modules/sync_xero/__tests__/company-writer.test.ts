@@ -129,6 +129,10 @@ const commandBus = {
       addresses.set(String(addressId), { ...addresses.get(String(addressId))!, ...(values as Partial<StoredAddress>) })
       return { result: { addressId } as TResult, logEntry: null }
     }
+    if (id === 'customers.addresses.delete') {
+      addresses.delete(String(input.id))
+      return { result: { addressId: input.id } as TResult, logEntry: null }
+    }
     if (id === 'customers.companies.delete') {
       if (refuseDelete) throw new CrudHttpError(422, { error: 'Company has dependents', code: 'COMPANY_HAS_DEPENDENTS' })
       companies.delete(String(input.id))
@@ -448,6 +452,19 @@ describe('createXeroContactWriter', () => {
     expect(item).toMatchObject({ action: 'create', data: { localId: 'e-2' } })
   })
 
+  it('keeps a created Company that another Contact mapped meanwhile, and creates a new one', async () => {
+    mockClaim.mockImplementationOnce(async () => ({ outcome: 'lost', winnerEntityId: null }))
+
+    const [item] = await writePage(createWriter(), [record('c1')])
+
+    const creates = commands.filter((command) => command.id === 'customers.companies.create')
+    expect(creates).toHaveLength(2)
+    expect(commands.some((command) => command.id === 'customers.companies.delete')).toBe(false)
+    expect(companies.has('e-1')).toBe(true)
+    expect(item).toMatchObject({ action: 'create', data: { localId: 'e-3' } })
+    expect(mappings.get(externalIdOf('c1'))).toBe('e-3')
+  })
+
   it('fails a Contact without a name or one the customers validators reject, and rethrows other errors', async () => {
     const writer = createWriter()
     const [nameless] = await writePage(writer, [record('c1', { Name: ' ' })])
@@ -609,6 +626,20 @@ describe('createXeroContactWriter', () => {
       expect(logWrites).toEqual([
         expect.objectContaining({ code: 'xero.address_country_unrecognised', payload: { sourceIdentifier: `${externalIdOf('c1')}:POBOX`, entityIds: ['e-1'], field: 'country' } }),
       ])
+    })
+
+    it('removes a created address again when its mapping cannot be stored, so a resumed run does not duplicate it', async () => {
+      const entityId = mappedCompany('c1')
+      const failure = new Error('connection reset')
+      mockStoreMapping.mockRejectedValueOnce(failure)
+
+      await expect(writePage(createWriter(), [record('c1', { Addresses: [street] })])).rejects.toBe(failure)
+
+      const [created] = commands.filter((command) => command.id === 'customers.addresses.create')
+      expect(created.input).toMatchObject({ entityId, purpose: 'office' })
+      expect(commands.at(-1)).toEqual({ id: 'customers.addresses.delete', input: { id: expect.stringMatching(/^a-/) } })
+      expect(addresses.size).toBe(0)
+      expect(addressMappings.size).toBe(0)
     })
 
     it('updates a mapped row only where a Xero value differs and reports the item as updated', async () => {

@@ -8,8 +8,10 @@ export type XeroOrphanedCompany = { entityId: string; marker: string; mappedEnti
 /**
  * App Spec § 6.1 residual (2): a marked Company that its marker's Contact does not map to — the
  * Contact maps to another Company or to none — after a crash between a create and its claim, a lost
- * claim whose cleanup was refused or undone. Companies created within the last minute are skipped,
- * since a concurrent writer may be about to claim them. The report never deletes anything.
+ * claim whose cleanup was refused or undone, or a created Company kept because another Contact
+ * mapped it first (its marker stays, so it is reported on every pass). Companies created within
+ * the last minute are skipped, since a concurrent writer may be about to claim them. The report
+ * never deletes anything.
  */
 export function findXeroOrphanedCompanies(sources: XeroCompanyIndexSources, runIndex: Pick<XeroRunIndex, 'lookup'>, now: Date): XeroOrphanedCompany[] {
   const createdAt = new Map(sources.companies.map((company) => [company.entityId, company.createdAt.getTime()]))

@@ -177,13 +177,18 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
           isPrimary: false,
           ...address.values,
         })
-        await createExternalIdMappingService(deps.em.fork()).storeExternalIdMapping(
-          XERO_INTEGRATION_ID,
-          XERO_ADDRESS_MAPPING_TYPE,
-          created.addressId,
-          addressExternalId,
-          scope,
-        )
+        try {
+          await createExternalIdMappingService(deps.em.fork()).storeExternalIdMapping(
+            XERO_INTEGRATION_ID,
+            XERO_ADDRESS_MAPPING_TYPE,
+            created.addressId,
+            addressExternalId,
+            scope,
+          )
+        } catch (error) {
+          await deleteUnmappedAddress(created.addressId)
+          throw error
+        }
         pageAddresses.addressIdByExternalId.set(addressExternalId, created.addressId)
         pageAddresses.addresses.set(created.addressId, { id: created.addressId, entityId, ...address.values })
       }
@@ -259,6 +264,15 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     }
   }
 
+  /** A created Xero address whose mapping failed would count as the user's from then on, so it is removed again. */
+  async function deleteUnmappedAddress(addressId: string): Promise<void> {
+    try {
+      await execute('customers.addresses.delete', { id: addressId })
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.address_cleanup_failed' })
+    }
+  }
+
   async function writeFirstSync(company: MappedXeroCompany, contact: XeroContact, externalId: string): Promise<ImportItem> {
     const indexes = await deps.indexes()
     const contactId = contact.ContactID
@@ -276,7 +290,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
       if (!candidate) {
         for (const key of [taxKey, registrationKey]) {
           if (!key) continue
-          const candidates = indexes.findByTaxNumber(key)
+          const candidates = indexes.findByTaxNumber(key, externalId)
           if (candidates.length === 0) continue
           if (candidates.length > 1 && !ambiguityReported) {
             ambiguityReported = true
@@ -317,7 +331,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
       }
 
       indexes.markClaimed(candidate)
-      if (created) await deleteCreatedCompany(candidate, externalId)
+      if (created && claim.winnerEntityId) await deleteCreatedCompany(candidate, externalId)
       if (claim.winnerEntityId) {
         deps.runIndex.add(externalId, claim.winnerEntityId)
         if (claim.winnerDeleted) return refuseDeleted(externalId, claim.winnerEntityId)

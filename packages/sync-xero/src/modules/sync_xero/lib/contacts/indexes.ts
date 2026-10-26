@@ -4,6 +4,7 @@ import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entit
 import { decryptCustomFieldValue, resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { XERO_COMPANY_FIELDS_ENTITY_ID, XERO_CONTACT_MARKER_FIELD, XERO_TAX_NUMBER_FIELD } from '../field-definitions'
+import { readOrganisationIdFromExternalId } from '../external-ids'
 import type { XeroScope } from '../owner'
 
 export const XERO_INDEX_CHUNK_SIZE = 500
@@ -19,7 +20,7 @@ export type XeroCompanyIndexSources = {
 
 export type XeroCompanyIndexes = {
   findMarked(marker: string): string | null
-  findByTaxNumber(normalizedTaxNumber: string): string[]
+  findByTaxNumber(normalizedTaxNumber: string, contactExternalId: string): string[]
   findByName(name: string): string[]
   markClaimed(entityId: string): void
   recordTaxNumberClaim(normalizedTaxNumber: string, contactId: string): void
@@ -65,7 +66,7 @@ async function loadCompanies(em: EntityManager, scope: XeroScope): Promise<XeroI
         deletedAt: null,
         ...(afterId ? { id: { $gt: afterId } } : {}),
       },
-      { orderBy: { id: 'asc' }, limit: XERO_INDEX_CHUNK_SIZE },
+      { orderBy: { id: 'asc' }, limit: XERO_INDEX_CHUNK_SIZE, fields: ['id', 'createdAt', 'displayName'] },
       scope,
     )
     for (const row of rows) companies.push({ entityId: row.id, createdAt: row.createdAt, displayName: row.displayName ?? null })
@@ -92,47 +93,52 @@ async function loadProfileEntityIds(em: EntityManager, scope: XeroScope, profile
 /**
  * Reads what the marker, tax-number and name indexes need: every Company of the organization that
  * is not deleted (chunks of 500, names decrypted), and the organization's `xero_contact_id` and
- * `xero_tax_number` values resolved from their profile to the Company. Each chunk reads through a
+ * `xero_tax_number` values (chunks of 500) resolved from their profile to the Company. Each chunk reads through a
  * fresh fork, so only the normalized values stay in memory, never the entities. The tax number is
  * an encrypted field, so its values are decrypted; a value that is not ciphertext comes back as is.
  */
 export async function loadXeroCompanyIndexSources(em: EntityManager, scope: XeroScope): Promise<XeroCompanyIndexSources> {
   const companies = await loadCompanies(em, scope)
   const liveCompanyIds = new Set(companies.map((company) => company.entityId))
-  const valueRows = await findWithDecryption(
-    em.fork({ clear: true }),
-    CustomFieldValue,
-    {
-      entityId: XERO_COMPANY_FIELDS_ENTITY_ID,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      fieldKey: { $in: [XERO_CONTACT_MARKER_FIELD, XERO_TAX_NUMBER_FIELD] },
-      deletedAt: null,
-    },
-    {},
-    scope,
-  )
-  const entityByProfile = await loadProfileEntityIds(em, scope, [...new Set(valueRows.map((row) => row.recordId))])
   const encryptionService = resolveTenantEncryptionService(em)
   const keyCache = new Map<string | null, string | null>()
-
   const markers: XeroIndexValue[] = []
-  const storedTaxNumbers: XeroIndexValue[] = []
-  for (const row of valueRows) {
-    const entityId = entityByProfile.get(row.recordId)
-    const stored = storedText(row)
-    if (!entityId || !liveCompanyIds.has(entityId) || stored === null) continue
-    if (row.fieldKey === XERO_CONTACT_MARKER_FIELD) markers.push({ entityId, value: stored })
-    else storedTaxNumbers.push({ entityId, value: stored })
+  const taxNumbers: XeroIndexValue[] = []
+  let afterId: string | null = null
+  for (;;) {
+    const valueRows: CustomFieldValue[] = await findWithDecryption(
+      em.fork({ clear: true }),
+      CustomFieldValue,
+      {
+        entityId: XERO_COMPANY_FIELDS_ENTITY_ID,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        fieldKey: { $in: [XERO_CONTACT_MARKER_FIELD, XERO_TAX_NUMBER_FIELD] },
+        deletedAt: null,
+        ...(afterId ? { id: { $gt: afterId } } : {}),
+      },
+      { orderBy: { id: 'asc' }, limit: XERO_INDEX_CHUNK_SIZE },
+      scope,
+    )
+    const entityByProfile = await loadProfileEntityIds(em, scope, [...new Set(valueRows.map((row) => row.recordId))])
+    const storedTaxNumbers: XeroIndexValue[] = []
+    for (const row of valueRows) {
+      const entityId = entityByProfile.get(row.recordId)
+      const stored = storedText(row)
+      if (!entityId || !liveCompanyIds.has(entityId) || stored === null) continue
+      if (row.fieldKey === XERO_CONTACT_MARKER_FIELD) markers.push({ entityId, value: stored })
+      else storedTaxNumbers.push({ entityId, value: stored })
+    }
+    const decrypted = await Promise.all(
+      storedTaxNumbers.map(async ({ entityId, value }) => ({
+        entityId,
+        value: await decryptCustomFieldValue(value, scope.tenantId, encryptionService, keyCache, { kind: 'text' }),
+      })),
+    )
+    for (const { entityId, value } of decrypted) if (typeof value === 'string') taxNumbers.push({ entityId, value })
+    if (valueRows.length < XERO_INDEX_CHUNK_SIZE) return { companies, markers, taxNumbers }
+    afterId = valueRows[valueRows.length - 1].id
   }
-  const decrypted = await Promise.all(
-    storedTaxNumbers.map(async ({ entityId, value }) => ({
-      entityId,
-      value: await decryptCustomFieldValue(value, scope.tenantId, encryptionService, keyCache, { kind: 'text' }),
-    })),
-  )
-  const taxNumbers = decrypted.flatMap(({ entityId, value }) => (typeof value === 'string' ? [{ entityId, value }] : []))
-  return { companies, markers, taxNumbers }
 }
 
 function byAge(createdAtById: Map<string, number>) {
@@ -162,7 +168,17 @@ export function buildXeroCompanyIndexes(sources: XeroCompanyIndexSources, isMapp
   const eligible = (entityId: string) => !claimed.has(entityId) && !isMapped(entityId)
 
   const markerIndex = new Map<string, string[]>()
-  for (const marker of sources.markers) addToIndex(markerIndex, marker.value.trim(), marker.entityId)
+  const markersByCompany = new Map<string, string[]>()
+  for (const marker of sources.markers) {
+    addToIndex(markerIndex, marker.value.trim(), marker.entityId)
+    addToIndex(markersByCompany, marker.entityId, marker.value.trim())
+  }
+  const markedForAnotherContact = (entityId: string, contactExternalId: string) => {
+    const xeroOrganisationId = readOrganisationIdFromExternalId(contactExternalId)
+    return (markersByCompany.get(entityId) ?? []).some(
+      (marker) => marker !== contactExternalId && readOrganisationIdFromExternalId(marker) === xeroOrganisationId,
+    )
+  }
   const taxIndex = new Map<string, string[]>()
   for (const taxNumber of sources.taxNumbers) {
     const normalized = normalizeTaxNumber(taxNumber.value)
@@ -180,8 +196,10 @@ export function buildXeroCompanyIndexes(sources: XeroCompanyIndexSources, isMapp
     findMarked(marker) {
       return (markerIndex.get(marker.trim()) ?? []).find(eligible) ?? null
     },
-    findByTaxNumber(normalizedTaxNumber) {
-      return (taxIndex.get(normalizedTaxNumber) ?? []).filter(eligible)
+    findByTaxNumber(normalizedTaxNumber, contactExternalId) {
+      return (taxIndex.get(normalizedTaxNumber) ?? []).filter(
+        (entityId) => eligible(entityId) && !markedForAnotherContact(entityId, contactExternalId),
+      )
     },
     findByName(name) {
       const normalized = normalizeCompanyName(name)

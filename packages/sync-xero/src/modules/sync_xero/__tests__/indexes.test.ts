@@ -100,11 +100,33 @@ describe('buildXeroCompanyIndexes', () => {
       (id) => mapped.has(id),
     )
 
-    expect(indexes.findByTaxNumber('GB123')).toEqual([entityId(2), entityId(1)])
+    expect(indexes.findByTaxNumber('GB123', `${ORG}:contact-1`)).toEqual([entityId(2), entityId(1)])
     indexes.markClaimed(entityId(2))
-    expect(indexes.findByTaxNumber('GB123')).toEqual([entityId(1)])
-    expect(indexes.findByTaxNumber('GB999')).toEqual([entityId(3)])
-    expect(indexes.findByTaxNumber('NOPE')).toEqual([])
+    expect(indexes.findByTaxNumber('GB123', `${ORG}:contact-1`)).toEqual([entityId(1)])
+    expect(indexes.findByTaxNumber('GB999', `${ORG}:contact-1`)).toEqual([entityId(3)])
+    expect(indexes.findByTaxNumber('NOPE', `${ORG}:contact-1`)).toEqual([])
+  })
+
+  it('skips a Company marked for another Contact of the same Xero Organisation, but not one marked by an earlier Organisation', () => {
+    const indexes = buildXeroCompanyIndexes(
+      sources({
+        companies: [company(1, 'A', 1), company(2, 'B', 2), company(3, 'C', 3)],
+        markers: [
+          { entityId: entityId(1), value: `${ORG}:contact-2` },
+          { entityId: entityId(2), value: `${OTHER_ORG}:contact-9` },
+          { entityId: entityId(3), value: `${ORG}:contact-1` },
+        ],
+        taxNumbers: [
+          { entityId: entityId(1), value: 'GB123' },
+          { entityId: entityId(2), value: 'GB123' },
+          { entityId: entityId(3), value: 'GB123' },
+        ],
+      }),
+      () => false,
+    )
+
+    expect(indexes.findByTaxNumber('GB123', `${ORG}:contact-1`)).toEqual([entityId(2), entityId(3)])
+    expect(indexes.findByTaxNumber('GB123', `${ORG}:contact-2`)).toEqual([entityId(1), entityId(2)])
   })
 
   it('remembers the first Contact that claimed a tax number', () => {
@@ -163,10 +185,10 @@ describe('loadXeroCompanyIndexSources', () => {
       { recordId: 'profile-1', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-1`, valueMultiline: null },
       { recordId: 'profile-2', fieldKey: 'xero_tax_number', valueText: 'ciphertext', valueMultiline: null },
       { recordId: 'profile-3', fieldKey: 'xero_tax_number', valueText: 'GB 777', valueMultiline: null },
+      ...profileIds.slice(3, 599).map((recordId) => ({ recordId, fieldKey: 'xero_tax_number', valueText: null, valueMultiline: null })),
       { recordId: 'profile-600', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-9`, valueMultiline: null },
       { recordId: 'profile-deleted', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-x`, valueMultiline: null },
-      ...profileIds.slice(3, 599).map((recordId) => ({ recordId, fieldKey: 'xero_tax_number', valueText: null, valueMultiline: null })),
-    ]
+    ].map((row, index) => ({ id: entityId(10_000 + index), ...row }))
     const entityByProfile: Record<string, string> = {
       'profile-1': entityId(1),
       'profile-2': entityId(2),
@@ -186,7 +208,10 @@ describe('loadXeroCompanyIndexSources', () => {
       }
       if (entity === CustomFieldValue) {
         expect(where).toMatchObject({ entityId: 'customers:customer_company_profile', deletedAt: null, fieldKey: { $in: ['xero_contact_id', 'xero_tax_number'] } })
-        return valueRows
+        expect(options).toMatchObject({ orderBy: { id: 'asc' }, limit: XERO_INDEX_CHUNK_SIZE })
+        const afterId = (where.id as { $gt: string } | undefined)?.$gt
+        const start = afterId ? valueRows.findIndex((row) => row.id === afterId) + 1 : 0
+        return valueRows.slice(start, start + XERO_INDEX_CHUNK_SIZE)
       }
       if (entity === CustomerCompanyProfile) {
         const ids = (where.id as { $in: string[] }).$in
@@ -201,6 +226,7 @@ describe('loadXeroCompanyIndexSources', () => {
 
     const calls = mockFindWithDecryption.mock.calls.map((call) => call[1])
     expect(calls.filter((entity) => entity === CustomerEntity)).toHaveLength(3)
+    expect(calls.filter((entity) => entity === CustomFieldValue)).toHaveLength(2)
     expect(calls.filter((entity) => entity === CustomerCompanyProfile)).toHaveLength(2)
     expect(loaded.companies).toHaveLength(XERO_INDEX_CHUNK_SIZE * 2 + 1)
     expect(loaded.companies[0]).toEqual({ entityId: entityId(1), createdAt: new Date(0), displayName: 'Company 1' })
