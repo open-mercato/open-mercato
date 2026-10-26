@@ -273,13 +273,12 @@ async function requireValidPostingReferences(
   }
 
   const accountIds = [...new Set(input.lines.map((line) => line.accountId))]
-  // `for share` on the referenced account rows closes a race with a
-  // concurrent delete (`ledgerAccounts.ts`'s
-  // `deleteLedgerAccountCommand`, which takes `for update` on the same
-  // row) — without a lock here, a delete's `accountHasPostedEntries`
-  // check and this posting's own existence check could both read a
-  // pre-write snapshot and both succeed, leaving posted lines on an
-  // account that gets soft-deleted moments later.
+  // `for share` on the referenced account rows, in id order. Every command
+  // that checks "has posted entries" before changing an account (delete,
+  // update, and the account-type update that cascades to its accounts) takes
+  // `for update` on the same rows first, so a check and a post cannot both
+  // act on a stale snapshot. The id order matches the order those commands
+  // lock a type's accounts in, so they cannot deadlock on a shared set.
   const accounts = await em.find(
     LedgerAccount,
     {
@@ -288,7 +287,7 @@ async function requireValidPostingReferences(
       tenantId: scope.tenantId,
       deletedAt: null,
     },
-    { lockMode: LockMode.PESSIMISTIC_READ },
+    { lockMode: LockMode.PESSIMISTIC_READ, orderBy: { id: 'asc' } },
   )
   const foundIds = new Set(accounts.map((account) => account.id))
   const missing = accountIds.filter((id) => !foundIds.has(id))

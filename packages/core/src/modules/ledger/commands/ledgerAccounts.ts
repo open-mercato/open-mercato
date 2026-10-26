@@ -10,10 +10,10 @@ import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/er
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
-import { E } from '#generated/entities.ids.generated'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
 import { accountNumberFitsType } from '../lib/accountNumbering'
+import { LEDGER_ACCOUNT_ENTITY_ID, ledgerAccountCrudEvents, ledgerAccountCrudIndexer } from '../lib/ledgerAccountCrud'
 import {
   ledgerAccountCreateSchema,
   ledgerAccountUpdateSchema,
@@ -23,27 +23,7 @@ import {
   type LedgerAccountDeleteInput,
 } from '../data/validators'
 
-// Plain string, matching this module's own `encryption.ts` entityId
-// convention (`'<module>:<table_name>'`) — not yet backed by a generated
-// `E.ledger.ledger_account` entry until `yarn generate` runs.
-const LEDGER_ACCOUNT_ENTITY_ID = 'ledger:ledger_account'
-
 type Scope = { organizationId: string; tenantId: string }
-
-const ledgerAccountCrudEvents: CrudEventsConfig<LedgerAccount> = {
-  module: 'ledger',
-  entity: 'ledger_account',
-  persistent: true,
-  buildPayload: (ctx) => ({
-    id: ctx.identifiers.id,
-    organizationId: ctx.identifiers.organizationId,
-    tenantId: ctx.identifiers.tenantId,
-  }),
-}
-
-const ledgerAccountCrudIndexer: CrudIndexerConfig<LedgerAccount> = {
-  entityType: E.ledger.ledger_account,
-}
 
 /**
  * Whether `accountId` has any posted `JournalEntryLine` — the invariant
@@ -216,92 +196,116 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
   id: 'ledger.updateLedgerAccount',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(ledgerAccountUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-
-    const record = await em.findOne(LedgerAccount, { id: parsed.id, deletedAt: null })
+    const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
-    if (!record) throw notFound(translate('ledger.errors.ledgerAccountNotFound', 'Ledger account not found.'))
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (parsed.number !== undefined && parsed.number !== record.number) {
-      const existing = await em.findOne(LedgerAccount, {
-        number: parsed.number,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-        id: { $ne: record.id },
-      })
-      if (existing) throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
-    }
-
-    const changesNumber = parsed.number !== undefined && parsed.number !== record.number
-    const changesType = parsed.accountTypeId !== undefined && parsed.accountTypeId !== record.accountTypeId
-
-    // Posted history and JPK output are keyed by the number, so it is frozen
-    // together with `accountTypeId`. The description stays editable.
-    if (changesNumber && (await accountHasPostedEntries(em, record.id, scope))) {
-      throw conflict(
-        translate(
-          'ledger.errors.accountNumberImmutableAfterPosting',
-          'The account number cannot be changed once this account has posted entries.',
-        ),
+    // Lock protocol shared with `postJournalEntry` (see its
+    // `requireValidPostingReferences`): posting holds `for share` on every
+    // account it touches until it commits, so taking `for update` on the
+    // account row *before* the posted-entries checks makes this update wait
+    // for an in-flight post and makes any later post wait for this update.
+    // The checks then see committed lines only, and the write follows in the
+    // same transaction. Lock order is account type -> account everywhere
+    // (the type command takes the type first, then its accounts), so the two
+    // never wait on each other in a cycle.
+    const record = await rootEm.transactional(async (em) => {
+      if (parsed.accountTypeId !== undefined) {
+        await em.findOne(
+          LedgerAccountType,
+          { id: parsed.accountTypeId, deletedAt: null },
+          { lockMode: LockMode.PESSIMISTIC_READ },
+        )
+      }
+      const record = await em.findOne(
+        LedgerAccount,
+        { id: parsed.id, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-    }
+      if (!record) throw notFound(translate('ledger.errors.ledgerAccountNotFound', 'Ledger account not found.'))
+      ensureTenantScope(ctx, record.tenantId)
+      ensureOrganizationScope(ctx, record.organizationId)
+      const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (changesType) {
-      if (await accountHasPostedEntries(em, record.id, scope)) {
+      if (parsed.number !== undefined && parsed.number !== record.number) {
+        const existing = await em.findOne(LedgerAccount, {
+          number: parsed.number,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+          id: { $ne: record.id },
+        })
+        if (existing) throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
+      }
+
+      const changesNumber = parsed.number !== undefined && parsed.number !== record.number
+      const changesType = parsed.accountTypeId !== undefined && parsed.accountTypeId !== record.accountTypeId
+
+      // Posted history and JPK output are keyed by the number, so it is frozen
+      // together with `accountTypeId`. The description stays editable.
+      if (changesNumber && (await accountHasPostedEntries(em, record.id, scope))) {
         throw conflict(
-          translate('ledger.errors.accountTypeImmutableAfterPosting', 'accountTypeId cannot be changed once this account has posted entries.'),
+          translate(
+            'ledger.errors.accountNumberImmutableAfterPosting',
+            'The account number cannot be changed once this account has posted entries.',
+          ),
         )
       }
-    }
 
-    if (parsed.currencyId !== undefined && (parsed.currencyId ?? null) !== (record.currencyId ?? null)) {
-      if (await accountHasPostedEntries(em, record.id, scope)) {
-        throw conflict(
-          translate('ledger.errors.accountCurrencyImmutableAfterPosting', 'currencyId cannot be changed once this account has posted entries.'),
-        )
+      if (changesType) {
+        if (await accountHasPostedEntries(em, record.id, scope)) {
+          throw conflict(
+            translate('ledger.errors.accountTypeImmutableAfterPosting', 'accountTypeId cannot be changed once this account has posted entries.'),
+          )
+        }
       }
-      if (parsed.currencyId) await requireExistingCurrency(em, parsed.currencyId, scope, translate)
-    }
 
-    // The rule is checked against the resulting (number, type) pair whenever
-    // either side changes.
-    if (changesNumber || changesType) {
-      const accountType = await requireExistingAccountType(
+      if (parsed.currencyId !== undefined && (parsed.currencyId ?? null) !== (record.currencyId ?? null)) {
+        if (await accountHasPostedEntries(em, record.id, scope)) {
+          throw conflict(
+            translate('ledger.errors.accountCurrencyImmutableAfterPosting', 'currencyId cannot be changed once this account has posted entries.'),
+          )
+        }
+        if (parsed.currencyId) await requireExistingCurrency(em, parsed.currencyId, scope, translate)
+      }
+
+      // The rule is checked against the resulting (number, type) pair whenever
+      // either side changes.
+      if (changesNumber || changesType) {
+        const accountType = await requireExistingAccountType(
+          em,
+          parsed.accountTypeId ?? record.accountTypeId,
+          scope,
+          translate,
+        )
+        await requireAccountNumberMatchesType(em, parsed.number ?? record.number, accountType, scope, translate)
+      }
+
+      await runCrudCommandWrite({
+        ctx,
         em,
-        parsed.accountTypeId ?? record.accountTypeId,
+        entityId: LEDGER_ACCOUNT_ENTITY_ID,
+        action: 'updated',
         scope,
-        translate,
-      )
-      await requireAccountNumberMatchesType(em, parsed.number ?? record.number, accountType, scope, translate)
-    }
+        customFields: custom,
+        events: ledgerAccountCrudEvents,
+        indexer: ledgerAccountCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+        }),
+        phases: [
+          () => {
+            if (parsed.number !== undefined) record.number = parsed.number
+            if (parsed.accountTypeId !== undefined) record.accountTypeId = parsed.accountTypeId
+            if (parsed.currencyId !== undefined) record.currencyId = parsed.currencyId ?? null
+            if (parsed.description !== undefined) record.description = parsed.description ?? null
+            record.updatedAt = new Date()
+            em.persist(record)
+          },
+        ],
+      })
 
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: LEDGER_ACCOUNT_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: ledgerAccountCrudEvents,
-      indexer: ledgerAccountCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          if (parsed.number !== undefined) record.number = parsed.number
-          if (parsed.accountTypeId !== undefined) record.accountTypeId = parsed.accountTypeId
-          if (parsed.currencyId !== undefined) record.currencyId = parsed.currencyId ?? null
-          if (parsed.description !== undefined) record.description = parsed.description ?? null
-          record.updatedAt = new Date()
-          em.persist(record)
-        },
-      ],
+      return record
     })
 
     return { ledgerAccountId: record.id }

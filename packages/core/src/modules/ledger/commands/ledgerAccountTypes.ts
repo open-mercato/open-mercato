@@ -1,17 +1,20 @@
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
 import { checkTypeNumber, planAccountRenumber } from '../lib/accountNumbering'
+import { ledgerAccountCrudEvents, ledgerAccountCrudIndexer } from '../lib/ledgerAccountCrud'
 import {
   ledgerAccountTypeCreateSchema,
   ledgerAccountTypeUpdateSchema,
@@ -239,128 +242,170 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
   id: 'ledger.updateLedgerAccountType',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(ledgerAccountTypeUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-
-    const record = await em.findOne(LedgerAccountType, { id: parsed.id, deletedAt: null })
+    const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
-    if (!record) throw notFound(translate('ledger.errors.accountTypeNotFound', 'Ledger account type not found.'))
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (parsed.number !== undefined && parsed.number !== record.number) {
-      const existing = await em.findOne(LedgerAccountType, {
-        number: parsed.number,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-        id: { $ne: record.id },
-      })
-      if (existing) throw conflict(translate('ledger.errors.accountTypeNumberTaken', 'An account type with this number already exists for this organization.'))
-    }
-
-    let renumberedAccounts: Array<{ account: LedgerAccount; to: string }> = []
-    const changesNumber = parsed.number !== undefined && parsed.number !== record.number
-    const changesNormalBalance = parsed.normalBalance !== undefined && parsed.normalBalance !== record.normalBalance
-    const changesAccountGroup =
-      parsed.accountGroupId !== undefined && (parsed.accountGroupId ?? null) !== (record.accountGroupId ?? null)
-
-    // Posted history and JPK output are keyed by the number, so it is frozen
-    // together with `normalBalance` and `accountGroupId`. The name stays
-    // editable.
-    if (changesNumber && (await accountTypeHasPostedEntries(em, record.id, scope))) {
-      throw conflict(
-        translate(
-          'ledger.errors.accountTypeNumberImmutableAfterPosting',
-          'The type number cannot be changed once an account of this type has posted entries.',
-        ),
+    const record = await rootEm.transactional(async (em) => {
+      const record = await em.findOne(
+        LedgerAccountType,
+        { id: parsed.id, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-    }
+      if (!record) throw notFound(translate('ledger.errors.accountTypeNotFound', 'Ledger account type not found.'))
+      ensureTenantScope(ctx, record.tenantId)
+      ensureOrganizationScope(ctx, record.organizationId)
+      const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (changesNormalBalance || changesAccountGroup) {
-      if (await accountTypeHasPostedEntries(em, record.id, scope)) {
-        throw conflict(
-          translate(
-            'ledger.errors.accountTypeAttributesImmutableAfterPosting',
-            'normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.',
-          ),
-        )
+      if (parsed.number !== undefined && parsed.number !== record.number) {
+        const existing = await em.findOne(LedgerAccountType, {
+          number: parsed.number,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+          id: { $ne: record.id },
+        })
+        if (existing) throw conflict(translate('ledger.errors.accountTypeNumberTaken', 'An account type with this number already exists for this organization.'))
       }
-    }
 
-    // The rule is checked against the resulting (number, group) pair whenever
-    // either side changes, so moving a type to another group cannot leave a
-    // number with the wrong first digit.
-    if (changesNumber || changesAccountGroup) {
-      const nextNumber = parsed.number ?? record.number
-      const nextGroupId = parsed.accountGroupId !== undefined ? parsed.accountGroupId : (record.accountGroupId ?? null)
-      const nextGroup = nextGroupId ? await requireExistingAccountGroup(em, nextGroupId, scope, translate) : null
-      requireTypeNumberMatchesGroup(nextNumber, nextGroup, translate)
-      if (changesNumber && nextGroup && checkTypeNumber(nextNumber, nextGroup) === null) {
-        // The accounts follow their type: their prefix is swapped together
-        // with the type number. A type with posted lines is frozen above, so
-        // none of these accounts has posted lines.
-        const planned = await planTypeAccountRenumber(em, record.id, record.number, nextNumber, scope)
-        if (planned.plan.unfixable.length) {
-          throw conflict(
-            translate(
-              'ledger.errors.accountTypeNumberAccountsPrefix',
-              'The type number cannot change while accounts of this type have numbers that do not start with it.',
-            ),
-          )
-        }
-        if (planned.plan.renames.length) {
-          const taken = await em.count(LedgerAccount, {
-            number: { $in: planned.plan.renames.map((rename) => rename.to) },
+      // Lock protocol shared with `postJournalEntry`: posting holds `for share`
+      // on each account it touches until it commits. Taking `for update` on the
+      // type row and then on every account of the type (id order, matching the
+      // order posting locks in) makes this update wait for an in-flight post
+      // and makes any later post wait for this update, so the posted-entries
+      // checks below see committed lines only and the write follows in the same
+      // transaction. Order is type -> accounts, as in `updateLedgerAccount`.
+      if (parsed.number !== undefined || parsed.normalBalance !== undefined || parsed.accountGroupId !== undefined) {
+        await em.find(
+          LedgerAccount,
+          {
+            accountTypeId: record.id,
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             deletedAt: null,
-            id: { $nin: planned.plan.renames.map((rename) => rename.id) },
-          })
-          if (taken > 0) {
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
+        )
+      }
+
+      let renumberedAccounts: Array<{ account: LedgerAccount; to: string }> = []
+      const changesNumber = parsed.number !== undefined && parsed.number !== record.number
+      const changesNormalBalance = parsed.normalBalance !== undefined && parsed.normalBalance !== record.normalBalance
+      const changesAccountGroup =
+        parsed.accountGroupId !== undefined && (parsed.accountGroupId ?? null) !== (record.accountGroupId ?? null)
+
+      // Posted history and JPK output are keyed by the number, so it is frozen
+      // together with `normalBalance` and `accountGroupId`. The name stays
+      // editable.
+      if (changesNumber && (await accountTypeHasPostedEntries(em, record.id, scope))) {
+        throw conflict(
+          translate(
+            'ledger.errors.accountTypeNumberImmutableAfterPosting',
+            'The type number cannot be changed once an account of this type has posted entries.',
+          ),
+        )
+      }
+
+      if (changesNormalBalance || changesAccountGroup) {
+        if (await accountTypeHasPostedEntries(em, record.id, scope)) {
+          throw conflict(
+            translate(
+              'ledger.errors.accountTypeAttributesImmutableAfterPosting',
+              'normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.',
+            ),
+          )
+        }
+      }
+
+      // The rule is checked against the resulting (number, group) pair whenever
+      // either side changes, so moving a type to another group cannot leave a
+      // number with the wrong first digit.
+      if (changesNumber || changesAccountGroup) {
+        const nextNumber = parsed.number ?? record.number
+        const nextGroupId = parsed.accountGroupId !== undefined ? parsed.accountGroupId : (record.accountGroupId ?? null)
+        const nextGroup = nextGroupId ? await requireExistingAccountGroup(em, nextGroupId, scope, translate) : null
+        requireTypeNumberMatchesGroup(nextNumber, nextGroup, translate)
+        if (changesNumber && nextGroup && checkTypeNumber(nextNumber, nextGroup) === null) {
+          // The accounts follow their type: their prefix is swapped together
+          // with the type number. A type with posted lines is frozen above, so
+          // none of these accounts has posted lines.
+          const planned = await planTypeAccountRenumber(em, record.id, record.number, nextNumber, scope)
+          if (planned.plan.unfixable.length) {
             throw conflict(
               translate(
-                'ledger.errors.accountTypeRenumberCollision',
-                'Renumbering the type would give an account a number that is already taken in this organization.',
+                'ledger.errors.accountTypeNumberAccountsPrefix',
+                'The type number cannot change while accounts of this type have numbers that do not start with it.',
               ),
             )
           }
-          renumberedAccounts = planned.accounts.flatMap((account) => {
-            const rename = planned.plan.renames.find((entry) => entry.id === account.id)
-            return rename ? [{ account, to: rename.to }] : []
-          })
+          if (planned.plan.renames.length) {
+            const taken = await em.count(LedgerAccount, {
+              number: { $in: planned.plan.renames.map((rename) => rename.to) },
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              deletedAt: null,
+              id: { $nin: planned.plan.renames.map((rename) => rename.id) },
+            })
+            if (taken > 0) {
+              throw conflict(
+                translate(
+                  'ledger.errors.accountTypeRenumberCollision',
+                  'Renumbering the type would give an account a number that is already taken in this organization.',
+                ),
+              )
+            }
+            renumberedAccounts = planned.accounts.flatMap((account) => {
+              const rename = planned.plan.renames.find((entry) => entry.id === account.id)
+              return rename ? [{ account, to: rename.to }] : []
+            })
+          }
         }
       }
-    }
 
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: ledgerAccountTypeCrudEvents,
-      indexer: ledgerAccountTypeCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          if (parsed.number !== undefined) record.number = parsed.number
-          if (parsed.name !== undefined) record.name = parsed.name
-          if (parsed.normalBalance !== undefined) record.normalBalance = parsed.normalBalance
-          if (parsed.accountGroupId !== undefined) record.accountGroupId = parsed.accountGroupId ?? null
-          record.updatedAt = new Date()
-          em.persist(record)
-          for (const { account, to } of renumberedAccounts) {
-            account.number = to
-            account.updatedAt = new Date()
-            em.persist(account)
-          }
-        },
-      ],
+      await runCrudCommandWrite({
+        ctx,
+        em,
+        entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
+        action: 'updated',
+        scope,
+        customFields: custom,
+        events: ledgerAccountTypeCrudEvents,
+        indexer: ledgerAccountTypeCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+        }),
+        phases: [
+          () => {
+            if (parsed.number !== undefined) record.number = parsed.number
+            if (parsed.name !== undefined) record.name = parsed.name
+            if (parsed.normalBalance !== undefined) record.normalBalance = parsed.normalBalance
+            if (parsed.accountGroupId !== undefined) record.accountGroupId = parsed.accountGroupId ?? null
+            record.updatedAt = new Date()
+            em.persist(record)
+            for (const { account, to } of renumberedAccounts) {
+              account.number = to
+              account.updatedAt = new Date()
+              em.persist(account)
+            }
+          },
+        ],
+      })
+
+      // Accounts renumbered by the cascade are updates in their own right:
+      // announce them so subscribers and the search index follow.
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      for (const { account } of renumberedAccounts) {
+        await emitCrudSideEffects({
+          dataEngine,
+          action: 'updated',
+          entity: account,
+          identifiers: { id: account.id, organizationId: account.organizationId, tenantId: account.tenantId },
+          events: ledgerAccountCrudEvents,
+          indexer: ledgerAccountCrudIndexer,
+        })
+      }
+
+      return record
     })
 
     return { ledgerAccountTypeId: record.id }

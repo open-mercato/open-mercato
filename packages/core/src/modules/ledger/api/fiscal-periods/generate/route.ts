@@ -21,6 +21,7 @@ import { badRequest, isCrudHttpError } from '@open-mercato/shared/lib/crud/error
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { generateFiscalPeriodsSchema } from '../../../data/validators'
 
 const logger = createLogger('ledger').child({ component: 'api/fiscal-periods/generate' })
@@ -58,14 +59,13 @@ export async function POST(req: Request) {
     }
     const tenantId = auth.tenantId
 
-    const input = { organizationId, tenantId, startDate: body.data.startDate }
-    const parsed = generateFiscalPeriodsSchema.safeParse(input)
-    if (!parsed.success) {
-      return NextResponse.json(
+    const startDateNotFirstOfMonth = () =>
+      NextResponse.json(
         { error: translate('ledger.errors.fiscalPeriodStartNotFirstOfMonth', 'startDate must be the first day of a month.') },
         { status: 400 },
       )
-    }
+    const requested = generateFiscalPeriodsSchema.safeParse({ organizationId, tenantId, startDate: body.data.startDate })
+    if (!requested.success) return startDateNotFirstOfMonth()
 
     const guardResult = await runRouteMutationGuards({
       container,
@@ -79,6 +79,19 @@ export async function POST(req: Request) {
       },
     })
     if (!guardResult.ok) return guardResult.response
+
+    // A guard may rewrite the payload. Only `startDate` can be rewritten: the
+    // organization and tenant always come from the server-side scope, and the
+    // rewritten value goes through the same validation as the original.
+    let startDate = body.data.startDate
+    if (guardResult.modifiedPayload && 'startDate' in guardResult.modifiedPayload) {
+      const modified = guardResult.modifiedPayload.startDate
+      if (typeof modified !== 'string') return startDateNotFirstOfMonth()
+      const revalidated = generateFiscalPeriodsSchema.safeParse({ organizationId, tenantId, startDate: modified })
+      if (!revalidated.success) return startDateNotFirstOfMonth()
+      startDate = modified
+    }
+    const input = { organizationId, tenantId, startDate }
 
     const ctx: CommandRuntimeContext = {
       container,
@@ -107,6 +120,10 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('ledger.fiscal_periods.generate failed', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'ledger',
+      attributes: { route: 'fiscal-periods.generate', errorName: err instanceof Error ? err.name : undefined },
+    })
     return NextResponse.json({ error: translate('ledger.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }
