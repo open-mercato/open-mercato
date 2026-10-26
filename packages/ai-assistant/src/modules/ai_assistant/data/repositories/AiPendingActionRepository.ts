@@ -7,6 +7,7 @@ import {
 import { AiPendingAction } from '../entities'
 import {
   AI_PENDING_ACTION_ALLOWED_TRANSITIONS,
+  AI_RAW_TOOL_AGENT_ID,
   AiPendingActionStateError,
   resolveAiPendingActionTtlSeconds,
   type AiPendingActionChannel,
@@ -199,8 +200,11 @@ export class AiPendingActionRepository {
       // of the same arguments later on would otherwise be refused forever,
       // and a process that died mid-execution would leave every retry
       // stuck reading a dead `executing` row.
+      const isRawToolRow =
+        (input.channel ?? 'agent') !== 'agent' && input.agentId === AI_RAW_TOOL_AGENT_ID
       if (
         existing &&
+        !isRawToolRow &&
         (existing.status === 'confirmed' || existing.status === 'executing') &&
         now.getTime() < existing.expiresAt.getTime()
       ) {

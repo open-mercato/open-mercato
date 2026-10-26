@@ -566,7 +566,7 @@ function resolveRequesterUserId(candidate: string | null): string {
 }
 
 /**
- * Hashes `(tenantId, orgId, channel, requester, toolName, normalizedInput)` so
+ * Hashes `(tenantId, orgId, channel, requester, apiKeyId, toolName, normalizedInput)` so
  * repeating the identical raw tool call while its pending row is still
  * `pending` collapses onto that row instead of queueing a duplicate.
  */
@@ -575,6 +575,7 @@ export function computeRawToolIdempotencyKey(input: {
   organizationId: string | null
   channel: RawToolMutationChannel
   requesterUserId: string
+  apiKeyId: string | null
   toolName: string
   normalizedInput: Record<string, unknown>
 }): string {
@@ -584,6 +585,7 @@ export function computeRawToolIdempotencyKey(input: {
     agent: AI_RAW_TOOL_AGENT_ID,
     channel: input.channel,
     requester: input.requesterUserId,
+    apiKey: input.apiKeyId ?? null,
     tool: input.toolName,
     input: input.normalizedInput ?? {},
   })
@@ -622,6 +624,7 @@ export async function prepareRawToolMutation(
     organizationId,
     channel: input.channel,
     requesterUserId,
+    apiKeyId: input.apiKeyId ?? null,
     toolName: tool.name,
     normalizedInput,
   })

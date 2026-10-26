@@ -185,6 +185,14 @@ describe('isToolExposed', () => {
     expect(isToolExposed(mutation, { ...baseConfig, mutationMode: 'approval' })).toBe(true)
   })
 
+  it('hides tools marked approvalMode refuse only in approval mutation mode', () => {
+    const refused = tool('execute', { isMutation: true, mcp: { approvalMode: 'refuse' } })
+    const queued = tool('customers.update_person', { isMutation: true, mcp: { approvalMode: 'queue' } })
+    expect(isToolExposed(refused, { ...baseConfig, mutationMode: 'approval' })).toBe(false)
+    expect(isToolExposed(refused, { ...baseConfig, mutationMode: 'direct' })).toBe(true)
+    expect(isToolExposed(queued, { ...baseConfig, mutationMode: 'approval' })).toBe(true)
+  })
+
   it('hides agent tools when includeAgentTools is false', () => {
     const agentTool = tool('agent.customers.account_assistant', {
       agentRef: { agentId: 'customers.account_assistant', engine: 'ai-assistant' },

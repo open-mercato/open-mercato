@@ -740,6 +740,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 ## Future Work
 - Tenant / per-API-key exposure policy table (`ai_mcp_tool_policies`) with settings UI.
 - Propagate MCP `correlationId` into `action_logs.context_json.correlation` for raw tool writes, reusing the identity spec's `auditCorrelation` key.
+- Link approved raw-tool writes to `action_logs`: today `McpToolContext.auditCorrelation` (`correlationId`, `apiKeyId`, `pendingActionId`, `requestedByUserId`) reaches only the tool handler; a command-audit hook must copy it into `action_logs.context_json.correlation`.
 
 ## Changelog
 ### 2026-10-21
@@ -761,3 +762,14 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
   - Notifications for a decided or expired row are cleared with `notificationService.deleteBySource`.
   - The ACL feature title lives in the auth catalog key `auth.acl.features.ai_assistant.pending_actions.approve`.
   - Operator docs (`apps/docs/docs/framework/ai-assistant/mcp.mdx`), `UPGRADE_NOTES.md` and the `OM_MCP_*` `.env.example` entries landed with the Phase 3 integration tests.
+
+### 2026-10-26
+- Review fixes (PR #7794):
+  - The stdio server's `tools/call` now rejects tools that are missing or not exposed by the exposure config with `NOT_FOUND` (audit outcome `denied`); the HTTP and dev servers already register only exposed tools.
+  - MCP HTTP calls made with a session token record the session user as the requester and `apiKeyId: null`; only API-key principals carry `apiKeyId` (the session key id stays in the audit row).
+  - Raw-tool pending rows reuse only a `pending` row with the same key; after the row was confirmed, executed, failed, cancelled or expired, an identical call re-keys the old row (`:superseded:<id>`) and queues a new one. Chat rows keep the `confirmed`/`executing` reuse window.
+  - The raw-tool idempotency key also hashes `apiKeyId`.
+  - Code Mode `execute` is refused in `approval` mode (`MUTATION_REQUIRES_APPROVAL`) and hidden from `tools/list`, through the new optional tool flag `mcp.approvalMode: 'refuse'` (`AiToolMcpOptions`, additive). An approved execution has no API credentials to replay its `api.request()` calls.
+  - Linking approved writes to `action_logs` through `auditCorrelation` is Future Work; docs no longer imply it.
+  - `mcp.mdx` states that `/tools/execute` is outside the MCP allow/deny lists while the mutation mode still applies.
+  - Integration coverage: `TC-AI-MCP-APPROVAL-017` (list visibility for non-approvers and approvers, cross-organization 404, `requester_revoked` after deleting the API key).

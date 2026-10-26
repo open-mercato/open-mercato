@@ -15,6 +15,7 @@ import {
   buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   filterToolsForCaller,
+  isToolExposed,
   resolveMcpExposureConfig,
 } from './mcp-exposure'
 import {
@@ -195,6 +196,23 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
         correlationId,
         args: toolArgs,
       })
+
+    const registeredTool = getToolRegistry().getTool(name)
+    if (!registeredTool || !isToolExposed(registeredTool, exposureConfig)) {
+      await audit('denied', 'NOT_FOUND')
+      return attachCorrelationMeta(
+        {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ error: `Tool "${name}" not found`, code: 'NOT_FOUND' }),
+            },
+          ],
+          isError: true,
+        },
+        correlationId
+      )
+    }
 
     let result: Awaited<ReturnType<typeof executeTool>>
     try {

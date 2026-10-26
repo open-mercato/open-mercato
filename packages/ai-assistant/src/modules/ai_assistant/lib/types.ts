@@ -190,6 +190,13 @@ export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
 export interface AiToolMcpOptions {
   /** Set to `false` to hide the tool from MCP servers. Defaults to exposed. */
   expose?: boolean
+  /**
+   * How a mutation tool behaves when `OM_MCP_MUTATION_MODE=approval`.
+   * `'queue'` (default) queues a pending action for approval; `'refuse'` hides
+   * the tool from `tools/list` and rejects calls on the mcp/tools-api channels
+   * because an approved execution could not reproduce it meaningfully.
+   */
+  approvalMode?: 'queue' | 'refuse'
   /** Optional output schema advertised as MCP `outputSchema`. */
   outputSchema?: z.ZodTypeAny
 }

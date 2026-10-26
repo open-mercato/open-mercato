@@ -63,6 +63,9 @@
 | 8 | 8.7 | Add document structure API routes, command and integration tests | dispatch | done | 5e39d8cba |
 | 8 | 8.8 | Add the structure CLI and env documentation | dispatch:cheap | done | 3293e9e12 |
 | 8 | 8.8-gate-fix | Fix final-gate guard failures: interceptor catch mapping, explicit sort comparators, notification registry docs | dispatch | done | a31c626c3 |
+| 9 | 9.1-review-fix | Fix MCP review findings: stdio call exposure, session requester key, raw reuse, Code Mode execute, coverage | inline | done | ec93b6924 |
+| 9 | 9.2-review-fix | Fix attachments review findings: purge on every delete path, scope, locking, timeout, reuse | inline | todo | — |
+| 9 | 9.3-review-fix | Fix agent orchestrator review findings: failRun error, Markdown escaping, runtime-audit allowlist | inline | todo | — |
 
 ## Goal
 
@@ -235,3 +238,10 @@ None.
 - `command-interceptor-http-coverage.test.ts`: map interceptor rejections in the catch chain of `attachments/api/structure/[id]/route.ts`.
 - `explicit-sort-comparators.test.ts`: add explicit comparators at `useRequesterLabels.ts:27`, `mcp-exposure.ts:167`, `buildEvalReport.ts:352`.
 - `apps/docs/__tests__/notification-registry.test.mjs`: list `ai_assistant.pending_action.awaiting_approval` in `notification-delivery.mdx` and update the registry count.
+
+### Phase 9 — Review fixes (om-auto-review-pr, review 5650621327)
+
+#### Step 9.1-review-fix — Fix MCP review findings: stdio call exposure, session requester key, raw reuse, Code Mode execute, coverage
+#### Step 9.2-review-fix — Fix attachments review findings: purge on every delete path, scope, locking, timeout, reuse
+#### Step 9.3-review-fix — Fix agent orchestrator review findings: failRun error, Markdown escaping, runtime-audit allowlist
+- Finding numbers refer to the posted review.

@@ -115,11 +115,16 @@ function matchesAnyPattern(toolName: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesToolPattern(toolName, pattern))
 }
 
+export function isRefusedInApprovalMode(tool: McpExposableTool, mutationMode: McpMutationMode): boolean {
+  return mutationMode === 'approval' && tool.isMutation === true && tool.mcp?.approvalMode === 'refuse'
+}
+
 export function isToolExposed(tool: McpExposableTool, config: McpExposureConfig): boolean {
   if (tool.mcp?.expose === false) return false
   if (config.allow !== null && !matchesAnyPattern(tool.name, config.allow)) return false
   if (matchesAnyPattern(tool.name, config.deny)) return false
   if (config.mutationMode === 'deny' && tool.isMutation === true) return false
+  if (isRefusedInApprovalMode(tool, config.mutationMode)) return false
   if (!config.includeAgentTools && tool.agentRef) return false
   return true
 }

@@ -260,6 +260,29 @@ describe('MCP HTTP server — tools/call audit', () => {
     expect(JSON.stringify(accessLogEntries[0])).not.toContain(SESSION_TOKEN)
   })
 
+  it('queues session-principal mutations for the session user without the server api key id', async () => {
+    aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.*'], isSuperAdmin: false })
+    mockExecuteTool.mockResolvedValue({
+      success: true,
+      pendingApproval: { pendingActionId: 'pa-session', expiresAt: '2026-10-23T00:00:00.000Z' },
+      result: { status: 'pending_approval', pendingActionId: 'pa-session' },
+    })
+    const baseUrl = await startHandler()
+
+    await callTool(baseUrl, 'customers.update_person', { id: 'p-1', _sessionToken: SESSION_TOKEN })
+
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+    expect(mockExecuteTool.mock.calls[0][3]).toMatchObject({
+      requester: { userId: 'user-2', apiKeyId: null },
+    })
+    expect(accessLogEntries[0].context).toMatchObject({
+      principal: 'session',
+      sessionKeyId: SESSION_KEY_ID,
+      apiKeyId: SERVER_KEY_ID,
+      pendingActionIds: ['pa-session'],
+    })
+  })
+
   it('records denied for the per-call ACL rejection without executing the tool', async () => {
     const baseUrl = await startHandler()
 

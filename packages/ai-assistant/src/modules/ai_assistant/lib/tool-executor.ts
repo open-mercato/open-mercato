@@ -5,7 +5,7 @@ import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { isMutationTool } from './mcp-audit'
-import type { McpMutationMode } from './mcp-exposure'
+import { isRefusedInApprovalMode, type McpMutationMode } from './mcp-exposure'
 import { AiMutationPreparationError, prepareRawToolMutation } from './prepare-mutation'
 
 const logger = createLogger('ai_assistant')
@@ -44,6 +44,14 @@ function buildMutationRequiresApprovalResult(toolName: string): ToolExecutionRes
   return {
     success: false,
     error: `Tool "${toolName}" is a mutation and cannot run directly on this channel (mutation mode requires approval or denies mutations)`,
+    errorCode: 'MUTATION_REQUIRES_APPROVAL',
+  }
+}
+
+function buildRefusedInApprovalModeResult(toolName: string): ToolExecutionResult {
+  return {
+    success: false,
+    error: `Tool "${toolName}" is not available in approval mode: an approved execution cannot reproduce it, so it is refused on this channel while OM_MCP_MUTATION_MODE=approval`,
     errorCode: 'MUTATION_REQUIRES_APPROVAL',
   }
 }
@@ -120,6 +128,7 @@ async function resolveMutationGate(
   const mutationMode = options.mutationMode ?? 'direct'
   if (mutationMode === 'direct') return null
   if (mutationMode === 'approval') {
+    if (isRefusedInApprovalMode(tool, mutationMode)) return buildRefusedInApprovalModeResult(tool.name)
     return queueMutationForApproval(tool, parsedInput, context, channel, options)
   }
   return buildMutationRequiresApprovalResult(tool.name)

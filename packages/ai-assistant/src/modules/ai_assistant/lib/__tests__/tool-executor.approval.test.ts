@@ -223,6 +223,43 @@ describe('executeTool approval mode', () => {
     expect(mockStoredRows.map((row) => row.channel)).toEqual(['mcp', 'tools-api'])
   })
 
+  it('keys calls from different API keys separately', async () => {
+    await executeTool(MUTATION_TOOL, { id: 'p-1' }, buildContext(), approvalOptions())
+    await executeTool(
+      MUTATION_TOOL,
+      { id: 'p-1' },
+      buildContext(),
+      approvalOptions({ requester: { userId: REQUESTER_ID, apiKeyId: null } }),
+    )
+
+    expect(mockStoredRows).toHaveLength(2)
+    expect(mockCreateCalls[0].input.idempotencyKey).not.toBe(mockCreateCalls[1].input.idempotencyKey)
+    expect(mockStoredRows.map((row) => row.apiKeyId)).toEqual([API_KEY_ID, null])
+  })
+
+  it.each<['mcp' | 'tools-api']>([['mcp'], ['tools-api']])(
+    'refuses a tool marked approvalMode refuse on the %s channel without queueing it',
+    async (channel) => {
+      const executeHandler = jest.fn(async () => ({ ran: true }))
+      mockRegisteredTools.set('execute', {
+        name: 'execute',
+        description: 'Run code',
+        inputSchema: z.object({ code: z.string() }),
+        isMutation: true,
+        mcp: { approvalMode: 'refuse' },
+        handler: executeHandler,
+      } as unknown as AiToolDefinition)
+
+      const result = await executeTool('execute', { code: 'async () => 1' }, buildContext(), approvalOptions({ channel }))
+
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe('MUTATION_REQUIRES_APPROVAL')
+      expect(result.error).toContain('"execute" is not available in approval mode')
+      expect(mockCreateCalls).toHaveLength(0)
+      expect(executeHandler).not.toHaveBeenCalled()
+    },
+  )
+
   it('fails validation without creating a row', async () => {
     const result = await executeTool(MUTATION_TOOL, { id: 42 }, buildContext(), approvalOptions())
 

@@ -197,7 +197,7 @@ You can still **see** the agent catalog from within MCP: `meta.list_agents` enum
 
 ## Exposure, audit and mutation modes
 
-These controls apply to all three MCP servers (`mcp:dev`, `mcp:serve-http`, stdio `mcp:serve`). The mutation mode also applies to `POST /api/ai_assistant/tools/execute`, which is the same kind of channel: a raw tool call with no agent in between.
+These controls apply to all three MCP servers (`mcp:dev`, `mcp:serve-http`, stdio `mcp:serve`). The mutation mode also applies to `POST /api/ai_assistant/tools/execute`, which is the same kind of channel: a raw tool call with no agent in between. The allowlist, denylist and agent-tool switch do **not** apply to `/tools/execute`: it can call any registered tool the caller's features allow, but the mutation mode still decides whether a mutation tool runs, is refused, or is queued for approval.
 
 ### Exposure config {#exposure-config}
 
@@ -218,7 +218,10 @@ A tool is exposed when all of these hold:
 2. it matches the allowlist (when one is set);
 3. it does not match the denylist (the denylist wins over the allowlist);
 4. it is not a mutation tool while the mode is `deny` (in `deny` mode mutation tools are hidden from `tools/list`);
-5. it is not an agent-wrapping tool while agent tools are disabled.
+5. it is not an agent-wrapping tool while agent tools are disabled;
+6. it is not the Code Mode `execute` tool while the mode is `approval` (see below).
+
+A `tools/call` for a tool that is not exposed is rejected as `NOT_FOUND` on every server, even when the client already knows the tool name.
 
 ```bash
 # Only CRM read tools plus search, writes blocked
@@ -294,7 +297,10 @@ In `approval` mode:
 - An MCP `tools/call` returns a normal (non-error) result whose structured content is `{ status: "pending_approval", pendingActionId, expiresAt, approvalPath, ... }`.
 - `POST /api/ai_assistant/tools/execute` returns `202 { success: true, status: "pending_approval", pendingActionId, expiresAt }`.
 - When no requesting user can be resolved (for example an API key with neither a session user nor a creator), the call is refused with `MUTATION_REQUESTER_UNRESOLVED` (`403` on `/tools/execute`).
+- The requester is the session user when the call carries a session token (`_sessionToken`); such rows store no API key, so the approval re-check follows that user's ACL. Only API-key principals record `apiKeyId`, and deleting or expiring that key fails the approval with `requester_revoked`.
+- Repeating an identical call while its row is still `pending` returns the same row. Once the row was approved, rejected, failed or expired, the same call queues a new row.
 - Pending rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`, 24 hours). Chat-created rows keep `AI_PENDING_ACTION_TTL_SECONDS`.
+- The Code Mode `execute` tool is **not available** in `approval` mode. Its code runs arbitrary `api.request()` calls with the caller's credentials, which an approved execution does not have, so it cannot be queued meaningfully. It is hidden from `tools/list`, and a call on MCP or `/tools/execute` returns `MUTATION_REQUIRES_APPROVAL` with the message that `execute` is not available in approval mode. Tool authors mark such tools with `mcp: { approvalMode: 'refuse' }`. Use typed module tools (which queue normally) for writes, or `search` plus a read-only flow.
 - Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode (their writes are queued the same way and the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
 
 ### Approving pending actions
@@ -304,7 +310,7 @@ Pending MCP and `/tools/execute` actions are approved on the **Pending AI action
 - **Who can act.** The requester, and any user in the same tenant and organization with the `ai_assistant.pending_actions.approve` feature (granted to `admin` by default). Everyone else gets `404`. Chat-created rows stay owner-only.
 - **Notifications.** A new row notifies the requester and every approver in the backoffice (`ai_assistant.pending_action.awaiting_approval`); the notifications are removed when the row is approved, rejected, or expires.
 - **Re-checks at approval.** Before running, the server re-checks that the tool is still exposed as a mutation tool (`tool_not_exposed`), that the approver holds the tool's `requiredFeatures` (`approver_features_denied`), and that the requester still exists and still holds them (`requester_revoked`, `requester_features_denied`). Record-version and schema-drift checks run as for chat approvals.
-- **Execution identity.** An approved write runs under the **approver's** identity and ACL, so the command's audit trail names the human who approved it.
+- **Execution identity.** An approved write runs under the **approver's** identity and ACL, so the command's audit trail names the human who approved it. The MCP call's `correlationId`, API key and pending-action id are passed to the tool handler only; they are not yet copied into the `action_logs` row, so link the write back to the MCP call through the pending action (`resolvedByUserId`, `correlationId`) and the `access_logs` row.
 - **APIs.** `GET /api/ai_assistant/ai/actions` lists rows visible to the caller (filters `status`, `channel`, `toolName`, `mine`; `pageSize` ≤ 100) and returns `channel` and `requester: { userId, apiKeyId }` per row. `GET /api/ai_assistant/ai/actions/:id`, `POST …/:id/confirm` and `POST …/:id/cancel` (body `{ reason? }`) act on one row.
 - **Status from MCP.** The read-only tool `ai_assistant.get_pending_action` returns the status of a pending action the caller can see, so an MCP client can poll the outcome of a queued write.
 

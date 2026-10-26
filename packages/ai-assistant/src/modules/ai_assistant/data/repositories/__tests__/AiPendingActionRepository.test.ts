@@ -546,6 +546,71 @@ describe('AiPendingActionRepository', () => {
     expect(em.__store).toHaveLength(1)
   })
 
+  it.each<[AiPendingActionStatus[]]>([
+    [['confirmed']],
+    [['confirmed', 'executing']],
+    [['confirmed', 'executing', 'failed']],
+    [['cancelled']],
+  ])(
+    'raw-tool rows reuse only pending rows: a repeat after %j mints a fresh pending row within the TTL',
+    async (transitions) => {
+      const em = mockEm()
+      const repo = new AiPendingActionRepository(em)
+      const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+      const rawInput = baseInput({
+        idempotencyKey: 'raw-repeat',
+        agentId: 'ai_assistant.raw_tool',
+        channel: 'mcp',
+        apiKeyId: 'key-1',
+      })
+
+      const { row: first } = await repo.create(rawInput, ctx)
+      for (const status of transitions) {
+        await repo.setStatus(first.id, status, ctx, { resolvedByUserId: 'u-2' })
+      }
+
+      const { row: second, reused } = await repo.create(rawInput, ctx)
+
+      expect(reused).toBe(false)
+      expect(second.id).not.toBe(first.id)
+      expect(second.status).toBe('pending')
+      expect(second.idempotencyKey).toBe('raw-repeat')
+      expect(em.__store).toHaveLength(2)
+      const superseded = em.__store.find((candidate) => candidate.id === first.id)
+      expect(superseded!.idempotencyKey).toBe(`raw-repeat:superseded:${first.id}`)
+      expect(superseded!.status).toBe(transitions[transitions.length - 1])
+    },
+  )
+
+  it('raw-tool rows still collapse onto a pending row with the same key', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+    const rawInput = baseInput({ idempotencyKey: 'raw-pending', agentId: 'ai_assistant.raw_tool', channel: 'tools-api' })
+
+    const { row: first } = await repo.create(rawInput, ctx)
+    const { row: second, reused } = await repo.create(rawInput, ctx)
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
+  it('chat rows on the agent channel keep reusing a confirmed row within the TTL', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+    const chatInput = baseInput({ idempotencyKey: 'chat-confirmed', channel: 'agent' })
+
+    const { row: first } = await repo.create(chatInput, ctx)
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: 'u-1' })
+    const { row: second, reused } = await repo.create(chatInput, ctx)
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
   describe('caller visibility', () => {
     const scope = { tenantId: tenantAlpha, organizationId: 'org-1' }
 

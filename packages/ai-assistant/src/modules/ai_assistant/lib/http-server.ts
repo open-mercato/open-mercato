@@ -488,7 +488,7 @@ async function createMcpServerForRequest(
                   apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
                   apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
                 }),
-                apiKeyId: apiKeyRecord.id,
+                apiKeyId: principal === 'session' ? null : apiKeyRecord.id,
               },
               correlationId,
             })

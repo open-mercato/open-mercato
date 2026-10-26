@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createMcpServer } from '../mcp-server'
 import { createDevMcpServer } from '../mcp-dev-server'
-import { DEFAULT_MCP_EXPOSURE_CONFIG } from '../mcp-exposure'
+import { DEFAULT_MCP_EXPOSURE_CONFIG, type McpExposureConfig } from '../mcp-exposure'
 import type { McpAuditAccessLogInput } from '../mcp-audit'
 import type { AiToolDefinition, McpServerOptions, McpToolContext, McpToolDefinition } from '../types'
 
@@ -93,11 +93,16 @@ type ToolResult = {
   _meta?: { correlationId?: string }
 }
 
-async function callStdioTool(name: string, toolArgs: Record<string, unknown>): Promise<ToolResult> {
+async function callStdioTool(
+  name: string,
+  toolArgs: Record<string, unknown>,
+  exposureConfig?: McpExposureConfig,
+): Promise<ToolResult> {
   await createMcpServer({
     config: { name: 'test-mcp', version: '0.0.0' },
     container: makeContainer(),
     context: { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' },
+    exposureConfig,
   })
   const handler = mockCapturedHandlers.get(CallToolRequestSchema)
   if (!handler) throw new Error('[internal] tools/call handler was not registered')
@@ -251,6 +256,51 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
       errorCode: null,
       pendingActionIds: ['pa-1'],
       correlationId: result._meta?.correlationId,
+    })
+  })
+
+  describe('stdio tools/call exposure enforcement', () => {
+    beforeEach(() => {
+      registerTool({ name: 'hidden.tool', mcp: { expose: false } })
+      registerTool({
+        name: 'agents.run_helper',
+        agentRef: { agentId: 'helper.agent', engine: 'ai-assistant' },
+      })
+      registerTool({ name: 'execute', isMutation: true, mcp: { approvalMode: 'refuse' } })
+    })
+
+    it.each<[string, string, Partial<McpExposureConfig>]>([
+      ['a denylisted tool', 'customers.list_people', { deny: ['customers.list_people'] }],
+      ['a tool outside the allowlist', 'customers.list_people', { allow: ['customers.update_*'] }],
+      ['a tool with mcp.expose false', 'hidden.tool', {}],
+      ['an agent tool when agent tools are excluded', 'agents.run_helper', { includeAgentTools: false }],
+      ['a mutation tool in deny mode', 'customers.update_person', { mutationMode: 'deny' }],
+      ['a refused tool in approval mode', 'execute', { mutationMode: 'approval' }],
+      ['an unknown tool', 'missing.tool', {}],
+    ])('rejects %s without executing it', async (_label, toolName, overrides) => {
+      const result = await callStdioTool(toolName, { id: 'p-1' }, { ...DEFAULT_MCP_EXPOSURE_CONFIG, ...overrides })
+
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toEqual({ error: `Tool "${toolName}" not found`, code: 'NOT_FOUND' })
+      expect(result._meta?.correlationId).toEqual(expect.any(String))
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({ outcome: 'denied', errorCode: 'NOT_FOUND' })
+    })
+
+    it('still runs an exposed tool under a restrictive config', async () => {
+      mockExecuteTool.mockResolvedValue({ success: true, result: { ok: true } })
+
+      const result = await callStdioTool('customers.list_people', { id: 'p-1' }, {
+        ...DEFAULT_MCP_EXPOSURE_CONFIG,
+        allow: ['customers.*'],
+        deny: ['customers.update_person'],
+        includeAgentTools: false,
+      })
+
+      expect(result.isError).toBeUndefined()
+      expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+      expect(accessLogEntries[0].context).toMatchObject({ outcome: 'ok' })
     })
   })
 })
