@@ -366,6 +366,18 @@ describe('post-run trace capture', () => {
   })
 })
 
+describe('run record ownership', () => {
+  it('disables the OSS run recorder for native runs', async () => {
+    registerNativeAgent('native.no_oss_record_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.no_oss_record_agent', {}, runCtx)
+
+    expect(runAiAgentObjectMock.mock.calls[0][0].trace).toEqual({ persist: false })
+  })
+})
+
 describe('provider budget wiring', () => {
   it('a saturated provider budget queues the second run until the first releases', async () => {
     process.env.OM_AGENT_PROVIDER_MAX_CONCURRENT = '1'

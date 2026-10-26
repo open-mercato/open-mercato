@@ -375,6 +375,7 @@ export class NativeAgentRunner {
             // generate when no tools resolve, so toolless agents are unaffected.
             // Writes never execute directly (read-only policy + proposal → effector).
             enableTools: true,
+            trace: { persist: false },
             ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
           })
           // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
