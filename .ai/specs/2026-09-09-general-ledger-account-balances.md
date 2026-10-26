@@ -370,6 +370,38 @@ stated across a 1996 data-modeling text, a 1997 analysis-patterns
 text, and the current edition of the standard intermediate-accounting
 textbook.
 
+**Balance in the account's currency (added 2026-10-26). ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).**
+Required by Multi-Currency, "Revaluation of foreign-currency ledger accounts
+(bank, cash)", decision R4 (`2026-09-17-multi-currency.md`), which reads both
+balances from `getAccountBalance`.
+- *Rule. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).* For an account whose `LedgerAccount.currencyId` is set,
+  `getAccountBalance` also returns `balanceInAccountCurrency`: the signed sum of
+  `amountCurrency` over the same lines and the same `asOf` boundary as
+  `balance`, debit side positive (a line with `debit > 0` adds its
+  `amountCurrency`, a line with `credit > 0` subtracts it). A line with
+  `amountCurrency = 0` (an exchange-difference or valuation line) changes
+  `balance` and leaves `balanceInAccountCurrency` unchanged. For an account
+  without a `currencyId` nothing changes: `balanceInAccountCurrency` and
+  `currency` are `null`.
+- *Sign convention. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).* `balance` stays normalized to the account's
+  `normalBalance` (the decision above); `balanceInAccountCurrency` is debit
+  side positive, as Multi-Currency R4 specifies, whatever the
+  `normalBalance`. The two figures in one response therefore follow
+  different sign conventions for a `CREDIT`-normal account; a caller that
+  needs both debit side positive (Multi-Currency R3) negates `balance` for a
+  `CREDIT`-normal account.
+- *Parent and child. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).* The rollup sums a syntetyk account's subtree
+  (the `WITH RECURSIVE` walk above), and amounts in different currencies
+  cannot be added. `balanceInAccountCurrency` is returned only when the
+  account has a `currencyId` and either is a leaf or every account in its
+  subtree has the same `currencyId`; otherwise it is `null` (and so is
+  `currency`), while `balance` is returned as before.
+- *Why the sum is well defined.* The GL core engine rejects a line on an
+  account with a `currencyId` unless the line carries that currency
+  (`postJournalEntry`, 422 `lineCurrencyDiffersFromAccount`) and freezes the
+  account's currency once it has posted lines (#5663, #6340), so every line
+  summed here is in the account's currency.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -588,7 +620,11 @@ wiring):
   scoped by tenant/organization, filtered to `posted_at < asOf + 1
   day` (UTC — Design decisions, "Every date boundary here... is an
   inclusive whole calendar day"), returns a single signed balance
-  (already normalized to the account's `normalBalance` side).
+  (already normalized to the account's `normalBalance` side). Since
+  2026-10-26 it also returns `balanceInAccountCurrency` and `currency` for
+  an account with a `currencyId` (Design decisions, "Balance in the
+  account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not
+  yet reviewed by a maintainer)); for any other account both are `null`.
 - `getTrialBalance(em, { tenantId, organizationId, periodId, page?, pageSize? })`
   — resolves the named `FiscalPeriod`'s `startDate`/`endDate` and the
   fiscal year containing it (the earliest `FiscalPeriod` in that
@@ -705,11 +741,15 @@ year.
   a zod schema (`z.object({ asOf: z.string().date().optional() })`)
   before the query runs; an unparseable `asOf` is a 400, not passed
   through to the CTE.
-- **Response 200**: `{ accountId, asOf, balance, currency: null }` —
-  `currency` is explicitly `null` in Phase 1 (no multi-currency
-  balance conversion; see Out of scope) rather than omitted, so a
-  client can't mistake its absence for "same as the tenant's base
-  currency" by accident.
+- **Response 200**: `{ accountId, asOf, balance, currency,
+  balanceInAccountCurrency }`. `balance` is the base-currency balance,
+  normalized to `normalBalance`, as before. `currency` and
+  `balanceInAccountCurrency` (added 2026-10-26, ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)) are the account's
+  `currencyId` and its balance in that currency, debit side positive, when
+  the account has a `currencyId` and is a leaf or has a single-currency
+  subtree (Design decisions, "Balance in the account's currency"); otherwise
+  both are explicitly `null` rather than omitted, so a client can't mistake
+  their absence for "same as the tenant's base currency" by accident.
 - **Response 400**: `asOf` fails zod validation (not a valid date).
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `LedgerAccount` with that id in the caller's
@@ -823,6 +863,11 @@ top of the live query.
   the live query doesn't hold up at production volumes.
 - Bilans / P&L (4xx, 5xx) / Cash Flow / tax reporting — separate,
   larger future documents.
+- Balance in the account's currency (designed 2026-10-26, Design
+  decisions, "Balance in the account's currency"; ⚠ NEEDS HUMAN
+  CONFIRMATION (decided by the team, not yet reviewed by a maintainer)):
+  needed by Multi-Currency R4 before its Phase 2 (revaluation of
+  foreign-currency ledger accounts) can be implemented.
 
 ### File Manifest
 
@@ -852,6 +897,25 @@ top of the live query.
 - Assert `getAccountBalance(accountId, asOf)` for a date before any
   entry exists returns zero, and that entries posted after `asOf` are
   excluded.
+- Balance in the account's currency (Design decisions, "Balance in the
+  account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)):
+  - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
+    EUR 30 return `balanceInAccountCurrency = 70` and `currency` = EUR, and
+    `balance` is the base-currency figure as before;
+  - a base-currency account and an account without a `currencyId` return
+    `balanceInAccountCurrency: null` and `currency: null`, with `balance`
+    unchanged from the pre-2026-10-26 behaviour;
+  - an account with `amountCurrency = 0` lines (an exchange-difference line
+    of 50 base units) changes `balance` by 50 and leaves
+    `balanceInAccountCurrency` unchanged;
+  - an overdrawn account (credits in the account's currency exceed the
+    debits) returns a negative `balanceInAccountCurrency`;
+  - a parent and child with the same `currencyId` return the summed
+    currency balance on the parent; a parent whose subtree mixes currencies
+    returns `balanceInAccountCurrency: null` and `currency: null`, while its
+    `balance` is still returned;
+  - lines after `asOf` are excluded from `balanceInAccountCurrency` exactly
+    as from `balance`.
 - Generate a ZSiO for a period with a known set of postings and assert
   every row's `openingBalance + periodDebit - periodCredit ==
   closingBalance` for `DEBIT`-normal accounts (sides swapped for
@@ -1026,17 +1090,20 @@ existing, already-migrated tables.
   accounts are added to the chart of accounts in a future phase, this
   document's `zeroSumCheck` will need to exclude them — tracked here
   as a known future adjustment, not solved now.
-- **Multi-currency balance conversion** — `getAccountBalance` sums
+- **Multi-currency balance conversion** — `getAccountBalance`'s `balance` sums
   base-currency `debit`/`credit` only, matching #5663's own posting
   logic ("balance validation runs only in the base-currency
   debit/credit columns"); a foreign-currency-denominated balance view
   is a Multi-Currency-spec concern, same boundary #5663 already drew
   for FX revaluation. Since 2026-10-23 every ledger line carries its own
   currency and `amountCurrency`, and a bank account is its own ledger account
-  with an optional `currencyId`, so a later phase can add the balance in the
-  account's currency (the signed `amountCurrency` of its lines, debit side
-  positive) next to the base-currency balance, with `currency` then carrying
-  that currency. Cash & Bank needs it, because the controller requires the
+  with an optional `currencyId`. The balance in the account's currency (the
+  signed `amountCurrency` of its lines, debit side positive) next to the
+  base-currency balance, with `currency` carrying that currency, is designed
+  since 2026-10-26 in Design decisions, "Balance in the account's currency"
+  (⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a
+  maintainer); required by Multi-Currency R4); what stays out of scope is
+  converting balances between currencies. Cash & Bank needs it, because the controller requires the
   balance in the account's currency to agree with the bank statement. Phase 1
   is unchanged. The lots Cash & Bank keeps for a foreign-currency account (its own table, FIFO) never replace this balance: the balance in the account's currency from the ledger is the figure that must equal the sum of the remaining lots and the bank statement, and the valuation of `fx_revaluation` reads it.
 
@@ -1345,4 +1412,19 @@ Not yet re-reviewed by `om-auto-review-pr`.
   stays. The Out of scope bullet on multi-currency balances names the balance
   in the account's currency for accounts that have a `currencyId` as the
   follow-up, with Cash & Bank as its consumer. Not yet reviewed by a
-  maintainer.
+  maintainer. (Designed 2026-10-26, see the next entry.)
+
+### 2026-10-26 — balance in the account's currency designed (Multi-Currency R4)
+
+- New Design decision "Balance in the account's currency": for an account with
+  a `currencyId`, `getAccountBalance` also returns `balanceInAccountCurrency`
+  (signed sum of `amountCurrency`, debit side positive) and `currency`; for any
+  other account both are `null`. A parent returns it only when it is a leaf or
+  its whole subtree has the same `currencyId`. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).
+- Queries, API Contracts (`GET /api/ledger/accounts/:id/balance`), Phase 2 list,
+  Testing Strategy and the Out of scope bullet on multi-currency balances
+  updated accordingly.
+- Cross-reference: `2026-09-17-multi-currency.md`, "Revaluation of
+  foreign-currency ledger accounts (bank, cash)", decision R4, which reads both
+  balances from this function.
+
