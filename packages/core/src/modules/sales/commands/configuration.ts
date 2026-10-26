@@ -590,6 +590,35 @@ async function deactivateOtherDefaultTaxRates(em: EntityManager, record: SalesTa
   )
 }
 
+async function restoreTaxRateFromSnapshot(
+  em: EntityManager,
+  before: TaxRateSnapshot,
+  options: { keepCurrentIsDefault: boolean },
+) {
+  await em.transactional(async (tx) => {
+    let record = await findOneWithDecryption(
+      tx,
+      SalesTaxRate,
+      { id: before.id },
+      {},
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
+    if (!record) {
+      record = tx.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
+      tx.persist(record)
+    }
+    const currentIsDefault = record.isDefault
+    applyTaxRateSnapshot(record, before)
+    if (options.keepCurrentIsDefault) {
+      record.isDefault = currentIsDefault
+    }
+    await tx.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(tx, record)
+    }
+  })
+}
+
 const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
   id: 'sales.channels.create',
   async execute(rawInput, ctx) {
@@ -2059,23 +2088,12 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(SalesTaxRate, { id: before.id })
-    if (!record) {
-      record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
-      em.persist(record)
-    }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    const currentIsDefault = record.isDefault
-    applyTaxRateSnapshot(record, before)
-    if (payload?.after && payload.after.isDefault === before.isDefault) {
-      record.isDefault = currentIsDefault
-    }
-    await em.flush()
-    if (record.isDefault) {
-      await deactivateOtherDefaultTaxRates(em, record)
-    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreTaxRateFromSnapshot(em, before, {
+      keepCurrentIsDefault: Boolean(payload?.after && payload.after.isDefault === before.isDefault),
+    })
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -2152,19 +2170,10 @@ const deleteTaxRateCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(SalesTaxRate, { id: before.id })
-    if (!record) {
-      record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
-      em.persist(record)
-    }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyTaxRateSnapshot(record, before)
-    await em.flush()
-    if (record.isDefault) {
-      await deactivateOtherDefaultTaxRates(em, record)
-    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreTaxRateFromSnapshot(em, before, { keepCurrentIsDefault: false })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

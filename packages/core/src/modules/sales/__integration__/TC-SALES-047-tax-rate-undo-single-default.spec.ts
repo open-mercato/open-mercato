@@ -1,7 +1,13 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
+import {
+  expectOperation,
+  skipIfUndoTestsDisabled,
+  undoByToken,
+  undoOk,
+} from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-SALES-047: undoing a tax-rate update or delete keeps a single default tax rate per scope.
@@ -9,11 +15,13 @@ import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/
  * Create, update and create-redo demote every other default tax rate when a rate becomes the
  * default. Update undo and delete undo restored `isDefault=true` from the snapshot without that
  * step, leaving two defaults; update undo also resurrected a stale `isDefault=true` when the
- * undone update never changed it.
+ * undone update never changed it. Restoring the rate and demoting the other defaults commit in one
+ * transaction, so a failed demotion leaves the scope unchanged and the same undo can be retried.
  */
 type TaxRateRow = { id: string; name: string; isDefault: boolean; organizationId: string | null }
 
 const COLLECTION = '/api/sales/tax-rates'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 async function listTaxRates(request: APIRequestContext, token: string): Promise<TaxRateRow[]> {
   const rows: TaxRateRow[] = []
@@ -91,6 +99,35 @@ async function withDefaultRestored(
   }
 }
 
+async function withFailingDemotion(rateId: string, stamp: string, run: () => Promise<void>) {
+  if (!UUID_RE.test(rateId)) throw new Error('[internal] Tax rate fixture id is not a UUID')
+  const functionName = `om_test_fail_tax_demotion_${stamp}`
+  const triggerName = `om_test_fail_tax_demotion_trigger_${stamp}`
+  try {
+    await withClient(async (client) => {
+      await client.query(
+        `create function "${functionName}"() returns trigger language plpgsql as $$
+         begin
+           raise exception 'injected tax rate demotion failure';
+         end
+         $$`,
+      )
+      await client.query(
+        `create trigger "${triggerName}"
+         before update on sales_tax_rates
+         for each row when (old.id = '${rateId}'::uuid and old.is_default and not new.is_default)
+         execute function "${functionName}"()`,
+      )
+    })
+    await run()
+  } finally {
+    await withClient(async (client) => {
+      await client.query(`drop trigger if exists "${triggerName}" on sales_tax_rates`)
+      await client.query(`drop function if exists "${functionName}"()`)
+    })
+  }
+}
+
 test.describe('TC-SALES-047: tax-rate undo keeps a single default', () => {
   test.beforeAll(() => {
     skipIfUndoTestsDisabled()
@@ -156,6 +193,56 @@ test.describe('TC-SALES-047: tax-rate undo keeps a single default', () => {
       const rows = await listTaxRates(request, token)
       expect(rows.find((row) => row.id === rateA)?.name, 'rename undone').toBe(`QA Default Undo a ${stamp}`)
       await expectSingleDefault(request, token, rateB, [rateA])
+    })
+  })
+
+  test('a failed demotion rolls back the restored default and the update undo can be retried', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}`
+    await withDefaultRestored(request, token, async (created) => {
+      const rateA = await createTaxRate(request, token, stamp, 'a', true)
+      created.push(rateA)
+      const rateB = await createTaxRate(request, token, stamp, 'b', false)
+      created.push(rateB)
+
+      const clearA = expectOperation(await updateTaxRate(request, token, { id: rateA, isDefault: false }), 'clear default A')
+      await updateTaxRate(request, token, { id: rateB, isDefault: true })
+
+      await withFailingDemotion(rateB, stamp, async () => {
+        const failed = await undoByToken(request, token, clearA.undoToken)
+        expect(failed.ok(), 'injected demotion failure rejects the undo').toBe(false)
+        await expectSingleDefault(request, token, rateB, [rateA])
+      })
+
+      await undoOk(request, token, clearA.undoToken, 'retry undo clear default A')
+      await expectSingleDefault(request, token, rateA, [rateB])
+    })
+  })
+
+  test('a failed demotion rolls back the recreated default and the delete undo can be retried', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}`
+    await withDefaultRestored(request, token, async (created) => {
+      const rateA = await createTaxRate(request, token, stamp, 'a', true)
+      created.push(rateA)
+      const rateB = await createTaxRate(request, token, stamp, 'b', false)
+      created.push(rateB)
+
+      const deleteRes = await apiRequest(request, 'DELETE', `${COLLECTION}?id=${encodeURIComponent(rateA)}`, { token })
+      expect(deleteRes.status(), 'delete A').toBe(200)
+      const deleteA = expectOperation(deleteRes, 'delete A')
+      await updateTaxRate(request, token, { id: rateB, isDefault: true })
+
+      await withFailingDemotion(rateB, stamp, async () => {
+        const failed = await undoByToken(request, token, deleteA.undoToken)
+        expect(failed.ok(), 'injected demotion failure rejects the undo').toBe(false)
+        const rows = await listTaxRates(request, token)
+        expect(rows.some((row) => row.id === rateA), 'A stays deleted').toBe(false)
+        expect(rows.find((row) => row.id === rateB)?.isDefault, 'B stays the default').toBe(true)
+      })
+
+      await undoOk(request, token, deleteA.undoToken, 'retry undo delete A')
+      await expectSingleDefault(request, token, rateA, [rateB])
     })
   })
 })

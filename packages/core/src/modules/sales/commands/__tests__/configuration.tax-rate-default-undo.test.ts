@@ -13,7 +13,9 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn().mockResolvedValue(null),
+  findOneWithDecryption: jest.fn((em: { findOne: (entity: unknown, where: unknown) => unknown }, entity: unknown, where: unknown) =>
+    em.findOne(entity, where),
+  ),
   findWithDecryption: jest.fn().mockResolvedValue([]),
 }))
 
@@ -56,14 +58,44 @@ function taxRateSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 function buildEm(existing: Record<string, unknown> | null) {
-  return {
-    findOne: jest.fn().mockResolvedValue(existing),
-    create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
-    persist: jest.fn(),
-    remove: jest.fn(),
-    flush: jest.fn().mockResolvedValue(undefined),
-    nativeUpdate: jest.fn().mockResolvedValue(1),
+  const committed: { record: Record<string, unknown> | null; othersDemoted: boolean } = {
+    record: existing ? { ...existing } : null,
+    othersDemoted: false,
   }
+  let staged: typeof committed | null = null
+  let managed: Record<string, unknown> | null = null
+  const em = {
+    committed,
+    findOne: jest.fn(async () => {
+      managed = committed.record ? { ...committed.record } : null
+      return managed
+    }),
+    create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+    persist: jest.fn((record: Record<string, unknown>) => {
+      managed = record
+    }),
+    remove: jest.fn(),
+    flush: jest.fn(async () => {
+      expect(staged).not.toBeNull()
+      staged!.record = managed ? { ...managed } : null
+    }),
+    nativeUpdate: jest.fn(async () => {
+      expect(staged).not.toBeNull()
+      staged!.othersDemoted = true
+      return 1
+    }),
+    transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+      staged = { ...committed }
+      try {
+        const result = await callback(em)
+        Object.assign(committed, staged)
+        return result
+      } finally {
+        staged = null
+      }
+    }),
+  }
+  return em
 }
 
 function buildCtx(em: ReturnType<typeof buildEm>) {
@@ -100,8 +132,7 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
   })
 
   it('demotes other defaults when update undo restores isDefault=true', async () => {
-    const record: Record<string, unknown> = { ...taxRateSnapshot({ isDefault: false }) }
-    const em = buildEm(record)
+    const em = buildEm({ ...taxRateSnapshot({ isDefault: false }) })
 
     await runUndo(
       'sales.tax-rates.update',
@@ -109,7 +140,7 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
       em,
     )
 
-    expect(record.isDefault).toBe(true)
+    expect(em.committed.record?.isDefault).toBe(true)
     expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     expect(em.nativeUpdate).toHaveBeenCalledWith(...expectedDemotion)
     expect(em.nativeUpdate.mock.invocationCallOrder[0]).toBeGreaterThan(em.flush.mock.invocationCallOrder[0])
@@ -127,8 +158,7 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
   })
 
   it('keeps the current isDefault when the undone update did not change it', async () => {
-    const record: Record<string, unknown> = { ...taxRateSnapshot({ name: 'Renamed VAT', isDefault: false }) }
-    const em = buildEm(record)
+    const em = buildEm({ ...taxRateSnapshot({ name: 'Renamed VAT', isDefault: false }) })
 
     await runUndo(
       'sales.tax-rates.update',
@@ -136,8 +166,8 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
       em,
     )
 
-    expect(record.name).toBe('Standard VAT')
-    expect(record.isDefault).toBe(false)
+    expect(em.committed.record?.name).toBe('Standard VAT')
+    expect(em.committed.record?.isDefault).toBe(false)
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
@@ -156,8 +186,7 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
   })
 
   it('still demotes other defaults when the kept isDefault is true', async () => {
-    const record: Record<string, unknown> = { ...taxRateSnapshot({ name: 'Renamed VAT', isDefault: true }) }
-    const em = buildEm(record)
+    const em = buildEm({ ...taxRateSnapshot({ name: 'Renamed VAT', isDefault: true }) })
 
     await runUndo(
       'sales.tax-rates.update',
@@ -165,8 +194,43 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
       em,
     )
 
-    expect(record.isDefault).toBe(true)
+    expect(em.committed.record?.isDefault).toBe(true)
     expect(em.nativeUpdate).toHaveBeenCalledWith(...expectedDemotion)
+  })
+
+  it('rolls back the restored default when demoting other defaults fails, and a retry commits both writes', async () => {
+    const em = buildEm({ ...taxRateSnapshot({ isDefault: false }) })
+    const undoPayload = { before: taxRateSnapshot({ isDefault: true }), after: taxRateSnapshot({ isDefault: false }) }
+    em.nativeUpdate.mockRejectedValueOnce(new Error('[internal] demotion failed'))
+
+    await expect(runUndo('sales.tax-rates.update', undoPayload, em)).rejects.toThrow('[internal] demotion failed')
+
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.committed.record?.isDefault).toBe(false)
+    expect(em.committed.othersDemoted).toBe(false)
+
+    await runUndo('sales.tax-rates.update', undoPayload, em)
+
+    expect(em.transactional).toHaveBeenCalledTimes(2)
+    expect(em.committed.record?.isDefault).toBe(true)
+    expect(em.committed.othersDemoted).toBe(true)
+  })
+
+  it('rolls back the recreated default when demoting other defaults fails on delete undo, and a retry commits both writes', async () => {
+    const em = buildEm(null)
+    const undoPayload = { before: taxRateSnapshot({ isDefault: true }) }
+    em.nativeUpdate.mockRejectedValueOnce(new Error('[internal] demotion failed'))
+
+    await expect(runUndo('sales.tax-rates.delete', undoPayload, em)).rejects.toThrow('[internal] demotion failed')
+
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.committed.record).toBeNull()
+    expect(em.committed.othersDemoted).toBe(false)
+
+    await runUndo('sales.tax-rates.delete', undoPayload, em)
+
+    expect(em.committed.record).toMatchObject({ id: RATE_ID, isDefault: true })
+    expect(em.committed.othersDemoted).toBe(true)
   })
 
   it('leaves other tax rates untouched when the restored snapshot is not the default', async () => {
