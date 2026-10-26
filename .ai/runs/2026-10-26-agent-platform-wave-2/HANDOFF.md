@@ -1,16 +1,16 @@
 # Handoff — 2026-10-26-agent-platform-wave-2
 
-**Last updated:** 2026-10-26T20:05:00Z
+**Last updated:** 2026-10-26T20:55:00Z
 **Branch:** feat/agent-platform-wave-2 (stacked on feat/agent-platform-wave-1, PR #7794)
 **PR:** not yet opened (waiting for the user to push the branch to upstream)
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** d6051d574 — feat(ai-assistant): compute the agent definition hash at registry load
+**Current phase/step:** Phase 2 Step 2.6
+**Last commit:** cdb0d95f3 — fix(ai-assistant): pass explicit comparators to the definition hash sorts
 
 ## What just happened
-- Phase 0 (spikes) and Phase 1 (§6 model-call contract: types, settings forwarding, observer, prompt-override metadata, definition hash) landed; checkpoint 1 green.
+- Phases 0–1 landed (checkpoint 1). Phase 2 Steps 2.1–2.5 landed: run tables + migration, recorder, runtime recording, route run ids, completed event + reader (checkpoint 2 green after 1.5-review-fix).
 
 ## Next concrete action
-- Step 2.1 — add the agent run entities, encryption entries and migration.
+- Step 2.6 — prune expired agent runs and soft-delete them with conversations.
 
 ## Blockers / open questions
 - Branch not on upstream yet; the user pushes with `! git -C <worktree> push -u upstream feat/agent-platform-wave-2`. Draft PR opens after that.

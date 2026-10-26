@@ -22,12 +22,12 @@
 | 1 | 1.3 | Invoke the call observer on every model call branch | dispatch:capable | done | 18b9ecad3 |
 | 1 | 1.4 | Resolve prompt override metadata and report onPromptResolved | dispatch | done | eb24a57f9 |
 | 1 | 1.5 | Compute the agent definition hash at registry load | dispatch | done | d6051d574 |
-| 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | 1c1b0e466 |
-| 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | 5ddef3b2b |
-| 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 74db02d12 |
-| 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | 69911bc81 |
-| 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | done | ddc6d49d7 |
-| 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | done | 358ebd2dc |
+| 1 | 1.5-review-fix | Pass explicit comparators to the definition hash sorts | inline | done | cdb0d95f3 |
+| 2 | 2.1 | Add the agent run entities, encryption entries and migration | dispatch:capable | done | c101f38ef |
+| 2 | 2.2 | Add the best-effort agent run recorder with capture levels | dispatch:capable | done | 15488bd19 |
+| 2 | 2.3 | Record text and object runs from the agent runtime | dispatch:capable | done | ae2e35868 |
+| 2 | 2.4 | Return run ids from the chat and run-object routes | dispatch | done | 013febce7 |
+| 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | done | a6c1a627e |
 | 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | todo | — |
 | 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | todo | — |
 | 2 | 2.8 | Document run tracing and add run-object integration coverage | dispatch | todo | — |
