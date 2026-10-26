@@ -31,10 +31,15 @@ async function cleanupClaim(request: APIRequestContext, token: string, claimId: 
     for (let page = 2; page <= (firstPage.totalPages ?? 1); page += 1) {
       lines.push(...((await readLinePage(request, token, claimId, page)).items ?? []))
     }
-    for (const line of lines) {
+    const deleteLine = async (line: ClaimLineItem) => {
       const response = await requestJson(request, 'DELETE', `/api/warranty_claims/lines?id=${line.id}`, token, undefined, line.updatedAt)
       expect(response.status(), 'cleanup should delete each fixture line').toBe(200)
     }
+    const finalLine = lines.pop()
+    for (let offset = 0; offset < lines.length; offset += 4) {
+      await Promise.all(lines.slice(offset, offset + 4).map(deleteLine))
+    }
+    if (finalLine) await deleteLine(finalLine)
     if (claim.status === 'received') claim = await transitionAndExpect(request, token, claim, 'inspecting')
     claim = await transitionAndExpect(request, token, claim, 'resolved')
   }

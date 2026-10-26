@@ -2,7 +2,7 @@
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims"]
 areas: ["integration","testing","backend-ui"]
-topics: ["events","testing","workers","hydration","timers","accessibility"]
+topics: ["events","testing","concurrency","hydration","timers","accessibility"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -14,6 +14,8 @@ topics: ["events","testing","workers","hydration","timers","accessibility"]
 `TC-WC-038` inspected and received the last line of 101/200-line claims, then timed out opening vendor recovery. The failure screenshot showed the Actions menu closed. `ActionsDropdown` opens on hover and toggles on click, so a pointer click can immediately close the menu it just opened. Check `aria-expanded` before keyboard activation, assert the target menu item is visible, and activate it with the keyboard to avoid hover-driven toggles.
 
 The next run opened recovery and confirmed the last line was selected, then hung on a vendor-name label lookup. The recovery form's builtin text field had a visual label without an associated accessible label. Inspect the rendered field before choosing a locator; for this existing CrudForm surface, scope to its stable `data-crud-field-id` wrapper and then the textbox role, following the other integration suites.
+
+Once both recovery flows completed, the 200-line case exceeded its teardown budget on serial API deletes. Gather all pages before mutating, delete distinct fixture lines with bounded concurrency and their own versions, then serialize one final delete so aggregate rollups reflect the fully completed batch before lifecycle cleanup. Keep every response assertion and cleanup dependency instead of extending the timeout or leaving fixtures behind.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 
