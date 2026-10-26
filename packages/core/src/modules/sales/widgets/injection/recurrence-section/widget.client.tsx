@@ -128,7 +128,10 @@ export default function RecurrenceSectionWidget({
   if (!data?.id) return null
 
   return (
-    <div className="space-y-3" data-testid="sales-recurrence-section">
+    <div className="space-y-3 rounded-lg border bg-card p-4 shadow-sm" data-testid="sales-recurrence-section">
+      <div className="text-sm font-semibold text-foreground">
+        {t('sales.recurring.section.title', 'Recurring billing')}
+      </div>
       {recurrence ? (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">

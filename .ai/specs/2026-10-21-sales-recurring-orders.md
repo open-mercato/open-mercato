@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft — for review with the sales maintainers |
+| **Status** | In progress — Phase 1 implemented (recurrence on quotes and orders); Phases 2–3 pending |
 | **Created** | 2026-10-21 |
 | **Module** | `sales` (`packages/core/src/modules/sales`) — additive change |
 | **Touches** | `scheduler` (one module-registered system schedule, optional peer) |
@@ -89,7 +89,7 @@ cancel ──▶ sales.orders.recurrence.cancel ──▶ record effective date 
 
 ## 📝 Data Model
 
-All new tables carry `organization_id`, `tenant_id`, `created_at`, `updated_at`; existing tables gain only one additive `sales_settings` column.
+All new tables carry `organization_id`, `tenant_id`, `created_at`, `updated_at`; existing tables gain only one additive `sales_settings` column. The new tables have no `deleted_at`: recurrences are owned child rows deleted with (or kept by) their document, and the period ledger is append-only.
 
 ### SalesQuoteRecurrence (`sales_quote_recurrences`)
 `quote_id` (unique, `on delete cascade`), `frequency` (`weekly|monthly|quarterly|yearly`), `starts_on` (date), `anchor_day` (int 1–31, nullable = day of `starts_on`), `period_count` (int ≥ 1, null = open-ended). Removed inside `convert_to_order`'s transaction when the quote is deleted.
@@ -246,3 +246,15 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 
 ### 2026-10-26
 - From the review of #7472: `effectiveOn` is defined as the first day no longer served (decision R4 and the overview reworded to match); the final period is the one containing it that starts before it, so a cancellation at a period start settles nothing and `keep` can never bill a cut-off period (boundary tests added); a cancellation with no final period becomes `cancelled` at the cutoff. "Today" is computed in Node and passed to SQL; deployments set `TZ` to the business timezone.
+- Phase 1 implemented (`feat/sales-recurring-orders-phase1`):
+  - The migration creates all three tables with their full columns now, so Phases 2 and 3 need no further schema change. Only test fixtures write ledger rows until the worker ships.
+  - `recurrence` is accepted on quote and order create and update (`null` removes it) and carried through `convert_to_order`. Undo snapshots, restores and staleness checks include it, and a restored `scheduleVersion` never moves backwards.
+  - Converting, publicly accepting or sending a recurring quote is refused once its start date has passed (`422 recurring_quote_started`) or when it has no lines (`422 recurring_quote_no_lines`).
+  - The locks (`recurring_order_locked`), status guard (`recurring_order_use_cancel`, including status changes made through payment and shipment commands) and delete guard (`recurring_order_invoiced`, under the recurrence row lock) are in place.
+  - List and detail responses carry `recurrence`, including a `locked` flag. The PUT response does not include it: the UI refetches the document instead.
+  - UI: the create form has a recurrence section with a live date preview; quote and order details have a *Recurring billing* section (spot `sales.document.detail.{kind}:details`) with an edit dialog until the first invoice; the public quote page and quote email show the schedule line.
+  - Proration uses exact integer day arithmetic, because the shared decimal toolkit (#7324) is not on `main` yet.
+  - Deferred to Phase 2: `GET /api/sales/orders/{id}/recurrence`, the orders-list *Recurring* column and filter, and the missing-scheduler banner.
+  - Until Phase 3, an unbilled recurring order cannot be set to canceled or on hold; the way out is removing its recurrence or deleting the order.
+  - Line references in this spec to `documents.ts` are approximate: `convert_to_order` handles `ctx.transactionalEm` at `const callerEm = ctx.transactionalEm` (~6814) and `return runConversion(callerEm)` (~7168) as of this phase.
+  - Integration coverage: TC-SALES-045 (create, update, convert and the start-date guards), TC-SALES-046 (locks and status guards), TC-SALES-047 (UI).
