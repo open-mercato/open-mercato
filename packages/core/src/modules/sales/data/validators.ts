@@ -4,6 +4,7 @@ import {
   updateDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { getPaymentProvider, getShippingProvider } from '../lib/providers'
+import { SALES_RECURRENCE_FREQUENCIES, isAnchorDayValid, isIsoDate } from '../lib/recurrence'
 import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
@@ -681,6 +682,22 @@ const quoteTotalsSchema = z.object({
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
+
+export const SALES_RECURRENCE_MAX_PERIOD_COUNT = 1200
+
+export const recurrenceInputSchema = z
+  .object({
+    frequency: z.enum(SALES_RECURRENCE_FREQUENCIES),
+    startsOn: z.string().trim().refine(isIsoDate, { message: 'sales.recurring.errors.invalidStartsOn' }),
+    anchorDay: z.coerce.number().int().min(1).max(31).nullable().optional(),
+    periodCount: z.coerce.number().int().min(1).max(SALES_RECURRENCE_MAX_PERIOD_COUNT).nullable().optional(),
+  })
+  .refine((value) => !isIsoDate(value.startsOn) || isAnchorDayValid(value), {
+    message: 'sales.recurring.errors.invalidAnchorDay',
+    path: ['anchorDay'],
+  })
+
+export type RecurrenceInput = z.infer<typeof recurrenceInputSchema>
 
 export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 

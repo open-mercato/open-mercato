@@ -3,6 +3,11 @@ import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } fro
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT, type SalesDocumentNumberKind } from '../lib/documentNumberTokens'
 import type { ShipmentItemSnapshot } from '../lib/shipments/types'
 import type { SalesLineUomSnapshot } from '../lib/types'
+import type {
+  SalesOrderRecurrenceStatus,
+  SalesRecurrenceFrequency,
+  SalesRecurringCancelSettlement,
+} from '../lib/recurrence'
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
@@ -1992,6 +1997,163 @@ export class SalesDocumentTagAssignment {
 
   @ManyToOne(() => SalesQuote, { fieldName: 'quote_id', nullable: true })
   quote?: SalesQuote | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_quote_recurrences' })
+@Index({ name: 'sales_quote_recurrences_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'sales_quote_recurrences_quote_unique', properties: ['quote'] })
+export class SalesQuoteRecurrence {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => SalesQuote, { fieldName: 'quote_id', deleteRule: 'cascade' })
+  quote!: SalesQuote
+
+  @Property({ name: 'frequency', type: 'text' })
+  frequency!: SalesRecurrenceFrequency
+
+  @Property({ name: 'starts_on', type: 'date' })
+  startsOn!: string
+
+  @Property({ name: 'anchor_day', type: 'integer', nullable: true })
+  anchorDay?: number | null
+
+  @Property({ name: 'period_count', type: 'integer', nullable: true })
+  periodCount?: number | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_order_recurrences' })
+@Index({ name: 'sales_order_recurrences_org_status_idx', properties: ['organizationId', 'status'] })
+@Index({ name: 'sales_order_recurrences_due_idx', properties: ['status', 'nextInvoiceOn'] })
+@Unique({ name: 'sales_order_recurrences_order_unique', properties: ['order'] })
+export class SalesOrderRecurrence {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'nextPeriodIndex' | 'status' | 'scheduleVersion'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id', deleteRule: 'cascade' })
+  order!: SalesOrder
+
+  @Property({ name: 'frequency', type: 'text' })
+  frequency!: SalesRecurrenceFrequency
+
+  @Property({ name: 'starts_on', type: 'date' })
+  startsOn!: string
+
+  @Property({ name: 'anchor_day', type: 'integer', nullable: true })
+  anchorDay?: number | null
+
+  @Property({ name: 'period_count', type: 'integer', nullable: true })
+  periodCount?: number | null
+
+  @Property({ name: 'ends_on', type: 'date', nullable: true })
+  endsOn?: string | null
+
+  @Property({ name: 'next_period_index', type: 'integer', default: 0 })
+  nextPeriodIndex: number = 0
+
+  @Property({ name: 'next_invoice_on', type: 'date' })
+  nextInvoiceOn!: string
+
+  @Property({ name: 'status', type: 'text', default: 'scheduled' })
+  status: SalesOrderRecurrenceStatus = 'scheduled'
+
+  @Property({ name: 'schedule_version', type: 'integer', default: 1 })
+  scheduleVersion: number = 1
+
+  @Property({ name: 'cancel_requested_at', type: Date, nullable: true })
+  cancelRequestedAt?: Date | null
+
+  @Property({ name: 'cancel_effective_on', type: 'date', nullable: true })
+  cancelEffectiveOn?: string | null
+
+  @Property({ name: 'cancel_settlement', type: 'text', nullable: true })
+  cancelSettlement?: SalesRecurringCancelSettlement | null
+
+  @Property({ name: 'cancelled_by_user_id', type: 'uuid', nullable: true })
+  cancelledByUserId?: string | null
+
+  @Property({ name: 'cancel_idempotency_key', type: 'text', nullable: true })
+  cancelIdempotencyKey?: string | null
+
+  @Property({ name: 'cancel_result', type: 'jsonb', nullable: true })
+  cancelResult?: { creditMemoIds: string[] } | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_recurring_periods' })
+@Index({ name: 'sales_recurring_periods_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'sales_recurring_periods_order_period_unique', properties: ['order', 'periodIndex'] })
+export class SalesRecurringPeriod {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'billedFactor'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id' })
+  order!: SalesOrder
+
+  @Property({ name: 'period_index', type: 'integer' })
+  periodIndex!: number
+
+  @Property({ name: 'period_start', type: 'date' })
+  periodStart!: string
+
+  @Property({ name: 'period_end', type: 'date' })
+  periodEnd!: string
+
+  @ManyToOne(() => SalesInvoice, { fieldName: 'invoice_id', nullable: true })
+  invoice?: SalesInvoice | null
+
+  @Property({ name: 'billed_factor', type: 'numeric', precision: 5, scale: 4, default: 1 })
+  billedFactor: string = '1'
+
+  @ManyToOne(() => SalesCreditMemo, { fieldName: 'credit_memo_id', nullable: true })
+  creditMemo?: SalesCreditMemo | null
+
+  @Property({ name: 'credited_factor', type: 'numeric', precision: 5, scale: 4, nullable: true })
+  creditedFactor?: string | null
+
+  @Property({ name: 'events_emitted_at', type: Date, nullable: true })
+  eventsEmittedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
