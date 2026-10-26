@@ -8,6 +8,7 @@ import {
   getCurrentOpenMercatoEndpointOptions,
   listOpenMercatoApiKeyOptions,
 } from '../../lib/openmercato-call-options'
+import type { RbacService } from '../../../auth/services/rbacService'
 
 const roleOptionSchema = z.object({
   id: z.string(),
@@ -63,6 +64,9 @@ export async function GET(req: Request) {
     listOpenMercatoApiKeyOptions(em, {
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
+    }, {
+      rbacService: container.resolve('rbacService') as RbacService,
+      actorId: auth.sub ?? null,
     }),
   ])
 
@@ -76,7 +80,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List OpenMercato call action options',
       description:
-        'Returns executable Open Mercato API endpoint options and safe API key profile metadata for business-rule actions.',
+        'Returns executable Open Mercato API endpoint options and safe API key profile metadata for business-rule actions. Only API keys whose roles the caller can grant are listed; session and one-time keys are never listed.',
       responses: [
         {
           status: 200,
