@@ -1574,7 +1574,8 @@ Ed.).**
   statement," or "financial statement" beyond incidental mentions;
   consistent with the knowledge base's existing recorded finding that
   Hay has no income-tax/financial-reporting content. Recorded as an
-  explicit absence, not a gap in this research.
+  explicit absence in the pages available (parts of Hay's index, E–O, are
+  missing in our copy), not a gap in this research.
 
 **Step 3 — Real-system comparison.**
 - **ERPNext** (`frappe/erpnext`, `chart_of_accounts.py`, `develop`
@@ -1704,7 +1705,8 @@ None outstanding. (One was found and fixed during this report's own preparation 
   after the full five-step `financial-spec-writing-process`: cross-spec
   read of #5663, #6013, #6015, #6137, and `2026-09-16-tax-management.md`;
   literature grounding in Kieso (three Confirmed citations) plus Fowler
-  (Confirmed-but-limited) and an explicit Hay absence; real-system
+  (Confirmed-but-limited) and an explicit Hay absence in the pages available
+  (parts of Hay's index, E–O, are missing in our copy); real-system
   comparison against ERPNext (primary source, GitHub) and Odoo
   (documentation), with Polish ERPs and GnuCash marked Unverified/not
   comparable rather than assumed.
