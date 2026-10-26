@@ -95,6 +95,7 @@ describe('messages.messages.delete_for_actor undo', () => {
     expect(message.deletedAt).toEqual(globalDeletedAt)
     expect(recipient.status).toBe('read')
     expect(recipient.deletedAt).toBeNull()
+    expect(emFork.findOne).not.toHaveBeenCalledWith(Message, expect.anything())
     expect(emFork.flush).toHaveBeenCalledTimes(1)
   })
 

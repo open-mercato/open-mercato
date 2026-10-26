@@ -87,7 +87,7 @@ test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global del
       });
       expect(persisted.message?.deleted_at, 'messages.deleted_at stays set after the recipient undo').not.toBeNull();
       expect(persisted.recipient?.deleted_at, 'the recipient row itself is restored').toBeNull();
-      expect(persisted.recipient?.status).not.toBe('deleted');
+      expect(persisted.recipient?.status).toBe('unread');
     } finally {
       await deleteMessageIfExists(request, senderToken, messageId);
     }
