@@ -31,7 +31,7 @@
 | 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | done | ccfae3158 |
 | 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | done | 9a1bfaca5 |
 | 2 | 2.8 | Document run tracing and add run-object integration coverage | dispatch | done | 2db4e64f8 |
-| 3 | 3.1 | Add the shared run observation collector | dispatch | todo | — |
+| 3 | 3.1 | Add the shared run observation collector | dispatch | done | 6daa3ee76 |
 | 3 | 3.2 | Hash AO agent definitions and stamp agent_version on new runs | dispatch:capable | todo | — |
 | 3 | 3.3 | Add the run manifest builder | dispatch | todo | — |
 | 3 | 3.4 | Write the run.manifest span for native and OpenCode runs | dispatch:capable | todo | — |
