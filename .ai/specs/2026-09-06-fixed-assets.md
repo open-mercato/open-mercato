@@ -764,10 +764,15 @@ never written into this document. All citations verified against full
 extracted text; see `financial-module-knowledge-base.md` §3 for the
 verification method.
 
-**The depreciation posting itself matches Hay's own Figure 7.10 — with
-one precise refinement: Hay's illustration uses the net method, this
-document (like Kieso) uses the gross method.** Hay, *Data Model
-Patterns*, ch.7 "Accounting," "Depreciation" section, p.135: "a
+**The depreciation posting itself matches Hay's description of
+depreciation — with one precise refinement: Hay's text describes the net
+method, this document (like Kieso) uses the gross method.** The reading rests
+on the text of p.135 (DEPRECIATION EXPENSE = debits to the expense account +
+ASSET CREDITS on the depreciated asset's own account, e.g. MACHINE A); Figure
+7.10 itself is on p.136, which our copy of Hay does not contain (partial
+scan). Hay, *Data Model
+Patterns*, ch.7 "Accounting," "Depreciation" section, p.135 (description of
+Figure 7.10, p.136): "a
 DEPRECIATION EXPENSE must be composed of one or more EQUITY (EXPENSE)
 DEBITS, each of which is a decrement in an EQUITY ACCOUNT of ACCOUNT
 TYPE DEPRECIATION EXPENSE... Each DEPRECIATION EXPENSE must also be
