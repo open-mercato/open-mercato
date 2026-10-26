@@ -37,3 +37,7 @@ cache-hit responses instead of relying only on route prechecks. Helpers imported
 refusals into a normal deny decision before querying owner state. Reserve resolver-failure
 telemetry for unexpected faults; test malformed API-key subjects, missing validated key IDs,
 and invalid backing users without triggering owner or role lookups.
+
+**Upgrade-note reconciliation**: After resolving an appended upgrade-note conflict, verify
+the nearest preceding release heading for the entire moved subsection. The presence of an
+unreleased heading elsewhere in the file does not place a new migration warning under it.
