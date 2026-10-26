@@ -11,6 +11,7 @@ import type {
   ToolChoice,
   ToolSet,
 } from 'ai'
+import type { AiAgentCallSettings } from './agent-call-contract'
 
 export type AiAgentExecutionMode = 'chat' | 'object'
 
@@ -436,6 +437,21 @@ export interface AiAgentDefinition {
   keywords?: string[]
   domain?: string
   dataCapabilities?: AiAgentDataCapabilities
+  /**
+   * Optional author-declared agent version, recorded on run traces so a past
+   * answer can be tied to the definition that produced it.
+   *
+   * Spec `2026-10-21-chat-run-tracing-and-citations` §6.
+   */
+  version?: string
+  /**
+   * Agent-level default model call settings (temperature, topP, ...).
+   * Call-time `callSettings` win key by key; provider defaults apply to
+   * anything left unset.
+   *
+   * Spec `2026-10-21-chat-run-tracing-and-citations` §6.
+   */
+  modelSettings?: AiAgentCallSettings
 }
 
 export interface AiAgentExtension {

@@ -45,6 +45,19 @@ export {
   type AiAgentDataCapabilities,
 } from './modules/ai_assistant/lib/ai-agent-definition'
 
+export {
+  mergeCallSettings,
+  aiAgentCallSettingsSchema,
+  type AiAgentCallSettings,
+  type AiAgentRunChannel,
+  type AiAgentRunTraceOptions,
+  type AiAgentCallObserver,
+  type AiAgentPromptResolvedEvent,
+  type AiAgentModelCallStartEvent,
+  type AiAgentModelCallEndEvent,
+  type AiAgentModelCallUsage,
+} from './modules/ai_assistant/lib/agent-call-contract'
+
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
 

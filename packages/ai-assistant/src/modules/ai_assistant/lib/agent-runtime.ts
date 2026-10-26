@@ -29,6 +29,11 @@ import {
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
+import type {
+  AiAgentCallObserver,
+  AiAgentCallSettings,
+  AiAgentRunTraceOptions,
+} from './agent-call-contract'
 import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
@@ -215,6 +220,16 @@ export interface RunAiAgentTextInput {
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   emitLoopTrace?: boolean
+  /**
+   * Model-call contract fields (spec `2026-10-21-chat-run-tracing-and-citations` §6).
+   * `runId` pins the run identifier, `trace` controls run persistence and
+   * channel attribution, `callSettings` are merged over the agent's
+   * `modelSettings` key by key, and `observe` receives per-call events.
+   */
+  runId?: string
+  trace?: AiAgentRunTraceOptions
+  callSettings?: AiAgentCallSettings
+  observe?: AiAgentCallObserver
 }
 
 /**
@@ -2081,6 +2096,16 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   mutationMode?: McpMutationMode
   apiKeyId?: string | null
   correlationId?: string | null
+  /**
+   * Model-call contract fields (spec `2026-10-21-chat-run-tracing-and-citations` §6).
+   * `runId` pins the run identifier, `trace` controls run persistence and
+   * channel attribution, `callSettings` are merged over the agent's
+   * `modelSettings` key by key, and `observe` receives per-call events.
+   */
+  runId?: string
+  trace?: AiAgentRunTraceOptions
+  callSettings?: AiAgentCallSettings
+  observe?: AiAgentCallObserver
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
