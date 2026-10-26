@@ -334,5 +334,20 @@ export function resolveOutboundAttachmentBytes(attachment: NormalizedAttachment)
   const match = /^data:[^,]*?(;base64)?,(.*)$/s.exec(attachment.url ?? '')
   if (!match) throw new Error('[internal] outbound attachment has no content and no data: URL')
   const [, base64Flag, payload] = match
-  return base64Flag ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf-8')
+  return base64Flag ? Buffer.from(payload, 'base64') : decodePercentEncodedBytes(payload)
+}
+
+/**
+ * RFC 2397 percent escapes stand for bytes, not UTF-8 text, so `%FF` decodes
+ * to the byte 0xFF instead of failing or being re-encoded.
+ */
+function decodePercentEncodedBytes(payload: string): Buffer {
+  if (/%(?![0-9a-f]{2})/i.test(payload)) {
+    throw new Error('[internal] outbound attachment data: URL has a malformed percent escape')
+  }
+  return Buffer.concat(
+    payload
+      .split(/(%[0-9a-f]{2})/i)
+      .map((part) => (part.startsWith('%') ? Buffer.of(Number.parseInt(part.slice(1), 16)) : Buffer.from(part, 'utf-8'))),
+  )
 }

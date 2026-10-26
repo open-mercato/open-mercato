@@ -82,6 +82,22 @@ describe('FetchGmailApiClient.sendRawMessage', () => {
     expect(body.subarray(rawStart, rawEnd).equals(raw)).toBe(true)
   })
 
+  it('uploads the message bytes it is given instead of decoding the base64url copy', async () => {
+    stubFetch(() => jsonResponse(200, { id: 'm5', threadId: 't5' }))
+    const rawMessage = Buffer.concat([Buffer.from('Subject: bytes\r\n\r\n'), Buffer.alloc(GMAIL_SIMPLE_SEND_MAX_RAW_CHARS, 0x42)])
+    const decoyBase64Url = encodeBase64Url(Buffer.alloc(rawMessage.byteLength, 0x43))
+
+    await getGmailApiClient().sendRawMessage({ accessToken: 'token' }, { rawBase64Url: decoyBase64Url, rawMessage })
+
+    const headers = calls[0].init.headers as Record<string, string>
+    const boundary = /^multipart\/related; boundary=(.+)$/.exec(headers['Content-Type'])?.[1]
+    const body = Buffer.from(calls[0].init.body as Uint8Array)
+    const text = body.toString('latin1')
+    const rawStart = text.indexOf('Content-Type: message/rfc822\r\n\r\n') + 'Content-Type: message/rfc822\r\n\r\n'.length
+    const rawEnd = text.lastIndexOf(`\r\n--${boundary}--`)
+    expect(body.subarray(rawStart, rawEnd).equals(rawMessage)).toBe(true)
+  })
+
   it('gives a media upload more time than a simple send', async () => {
     stubFetch(() => jsonResponse(200, { id: 'm4', threadId: 't4' }))
     const client = getGmailApiClient()

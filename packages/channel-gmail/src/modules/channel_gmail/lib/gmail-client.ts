@@ -48,7 +48,7 @@ function buildMultipartSendBody(input: GmailSendRawInput): { body: Uint8Array; c
   )
   const tail = Buffer.from(`\r\n--${boundary}--`, 'utf-8')
   return {
-    body: Buffer.concat([head, decodeBase64Url(input.rawBase64Url), tail]),
+    body: Buffer.concat([head, input.rawMessage ?? decodeBase64Url(input.rawBase64Url), tail]),
     contentType: `multipart/related; boundary=${boundary}`,
   }
 }
@@ -112,6 +112,11 @@ export interface GmailGetMessageRawResponse {
 export interface GmailSendRawInput {
   /** Base64URL-encoded RFC2822 message body. */
   rawBase64Url: string
+  /**
+   * The same message as bytes. A media upload sends them as is instead of
+   * decoding `rawBase64Url` into another copy of a message up to 35 MB.
+   */
+  rawMessage?: Uint8Array
   /** Optional thread to attach to. */
   threadId?: string
 }

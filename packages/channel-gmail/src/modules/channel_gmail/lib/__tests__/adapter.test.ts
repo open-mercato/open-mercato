@@ -235,13 +235,13 @@ describe('GmailChannelAdapter.deleteMessage', () => {
 
 describe('GmailChannelAdapter.sendMessage', () => {
   it('encodes RFC2822 + threadId and posts to gmail.users.messages.send', async () => {
-    const sent: Array<{ rawBase64Url: string; threadId?: string }> = []
+    const sent: Array<{ rawBase64Url: string; rawMessage?: Uint8Array; threadId?: string }> = []
     const api: GmailApiClient = {
       listHistory: async () => ({ historyId: '0' }),
       listMessages: async () => ({}),
       getMessageRaw: async () => ({ id: '', threadId: '', raw: '' }),
       sendRawMessage: async (_auth, input) => {
-        sent.push({ rawBase64Url: input.rawBase64Url, threadId: input.threadId })
+        sent.push({ rawBase64Url: input.rawBase64Url, rawMessage: input.rawMessage, threadId: input.threadId })
         return { id: 'gm-out-1', threadId: 'gm-thread-out', labelIds: ['SENT'] }
       },
       getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '1' }),
@@ -268,6 +268,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
     ).toString('utf-8')
     expect(decoded).toContain('To: bob@example.com')
     expect(decoded).toContain('<p>hi</p>')
+    expect(Buffer.from(sent[0].rawMessage!).toString('utf-8')).toBe(decoded)
   })
 
   it('returns failed when send returns 401 (token expired)', async () => {

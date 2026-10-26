@@ -374,4 +374,19 @@ describe('resolveOutboundAttachmentBytes', () => {
     expect(Buffer.from(resolveOutboundAttachmentBytes({ url: 'data:text/plain,a%20b', mimeType: 'text/plain', fileName: 'a' })).toString()).toBe('a b')
     expect(() => resolveOutboundAttachmentBytes({ url: 'https://evil.example/x', mimeType: 'text/plain', fileName: 'a' })).toThrow()
   })
+
+  it('decodes percent escapes in a data URL as bytes, not UTF-8 text', () => {
+    const bytes = resolveOutboundAttachmentBytes({
+      url: 'data:application/octet-stream,%FF%00%c3%A9a b',
+      mimeType: 'application/octet-stream',
+      fileName: 'a.bin',
+    })
+    expect([...bytes]).toEqual([0xff, 0x00, 0xc3, 0xa9, 0x61, 0x20, 0x62])
+  })
+
+  it('refuses a data URL with a malformed percent escape', () => {
+    for (const url of ['data:text/plain,50%', 'data:text/plain,%zz', 'data:text/plain,%4']) {
+      expect(() => resolveOutboundAttachmentBytes({ url, mimeType: 'text/plain', fileName: 'a' })).toThrow('malformed percent escape')
+    }
+  })
 })
