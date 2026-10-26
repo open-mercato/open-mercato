@@ -96,7 +96,10 @@ describe('sales quote update cache + snapshot refresh', () => {
     }
 
     const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-    container.register({ em: asValue(em) })
+    container.register({
+      em: asValue(em),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+    })
 
     const ctx: any = {
       container,

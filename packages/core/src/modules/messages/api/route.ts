@@ -16,18 +16,30 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
-import { composeMessageSchema, listMessagesSchema, type ListMessagesInput } from '../data/validators'
+import { composeMessageSchema, listMessagesSchema, type ComposeMessageInput, type ListMessagesInput } from '../data/validators'
 import {
   composeRequiresChannelTypeResolution,
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
+import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
+import {
+  EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
+  resolveMessageChannelThreadAccess,
+} from '../lib/channelThreadAccess'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
-import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import {
+  canPostToChannelThread,
+  canUseChannelThreadFallback,
+  resolveReplyParentMessage,
+  canUseMessageEmailFeature,
+  resolveMessageContext,
+} from '../lib/routeHelpers'
 import { applyMessageParticipantScope } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
@@ -35,6 +47,7 @@ import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageRequestSchema as composeSchema,
   composeResponseSchema,
+  errorResponseSchema,
   listMessagesSchema as listSchema,
   messageListItemSchema,
 } from './openapi'
@@ -131,7 +144,19 @@ export async function GET(req: Request) {
   const { ctx, scope } = await resolveMessageContext(req)
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
-  const input = listMessagesSchema.parse(params)
+  let input: ListMessagesInput
+  try {
+    input = listMessagesSchema.parse(params)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        { error: translate('messages.errors.invalidListQuery', 'Invalid request parameters'), details: err.issues },
+        { status: 400 },
+      )
+    }
+    throw err
+  }
 
   const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
@@ -470,12 +495,33 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  const { sourceChannelType: _clientSuppliedChannelType, ...clientBody } =
-    (body ?? {}) as Record<string, unknown>
-  const input = composeMessageSchema.parse({
-    ...clientBody,
-    ...(sourceChannelType ? { sourceChannelType } : {}),
-  })
+  // `inboundFromChannel` and `sentAt` are likewise server-only (#6093, #6095):
+  // channel ingest sets them so an inbound message can be addressed to the
+  // conversation's assignee and stamped with the provider's receive time, but
+  // a request body must not be able to waive the recipients rule or backdate
+  // a message with them.
+  const {
+    sourceChannelType: _clientSuppliedChannelType,
+    inboundFromChannel: _clientSuppliedInboundFlag,
+    sentAt: _clientSuppliedSentAt,
+    ...clientBody
+  } = (body ?? {}) as Record<string, unknown>
+  let input: ComposeMessageInput
+  try {
+    input = composeMessageSchema.parse({
+      ...clientBody,
+      ...(sourceChannelType ? { sourceChannelType } : {}),
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        { error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'), details: err.issues },
+        { status: 400 },
+      )
+    }
+    throw err
+  }
 
   const isPublicVisibility = input.visibility === 'public'
   const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
@@ -487,6 +533,93 @@ export async function POST(req: Request) {
     const objectValidationError = validateMessageObjectsForType(input.type, input.objects)
     if (objectValidationError) {
       return Response.json({ error: objectValidationError }, { status: 400 })
+    }
+  }
+
+  // A parent decides which conversation the new message joins, so it is held to
+  // the same rule as reading it: knowing a message id is not enough to thread
+  // onto someone else's conversation. Checked on the parent the client sent, for
+  // drafts and every visibility, before any guard, delegation or write runs.
+  let replyParent: Message | null = null
+  if (input.parentMessageId) {
+    const resolution = await resolveReplyParentMessage(
+      ctx,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null, userId: scope.userId },
+      input.parentMessageId,
+    )
+    if (resolution.status === 'not_found') {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        {
+          error: translate(
+            'messages.errors.parentMessageNotFound',
+            'The message you are replying to was not found',
+          ),
+        },
+        { status: 404 },
+      )
+    }
+    if (resolution.status === 'forbidden') {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+    replyParent = resolution.message
+  }
+
+  // #5535: composing on a channel conversation without naming a parent message
+  // used to open a brand-new thread. A fresh thread has no `ChannelThreadMapping`,
+  // so the outbound bridge had nothing to route on and the operator got a 201 for
+  // a message that was never delivered — a silent failure worse than a refusal.
+  // Attach the message to the conversation's existing thread instead, and refuse
+  // outright when there is no such thread to attach it to. Only messages meant to
+  // leave the platform are affected: a draft, or an internal note filed against
+  // the same conversation, is never delivered anyway and stays untouched.
+  let composeParentMessageId = input.parentMessageId
+  if (
+    isPublicVisibility &&
+    !input.isDraft &&
+    !input.parentMessageId &&
+    input.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE &&
+    input.sourceEntityId
+  ) {
+    const channelThread = await resolveMessageChannelThreadAccess(
+      ctx.container,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      { externalConversationId: input.sourceEntityId },
+      { userId: scope.userId, features: resolveUserFeatures(ctx.auth) },
+    )
+    if (!channelThread) {
+      const { translate } = await resolveTranslations()
+      return Response.json(
+        {
+          error: translate(
+            'messages.errors.conversationHasNoChannelThread',
+            'Conversation has no channel thread to deliver into',
+          ),
+        },
+        { status: 409 },
+      )
+    }
+    if (!channelThread.canAccess || !(await canUseChannelThreadFallback(ctx, scope))) {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
+    }
+    composeParentMessageId = channelThread.messageThreadId
+  }
+
+  // #5645 review: the gate above only runs when the client omits a parent. A
+  // caller-supplied `parentMessageId` reaches `messages.messages.compose`, which
+  // derives the thread from that parent alone — so a public, non-draft message
+  // could be threaded onto a channel-linked conversation and delivered to the
+  // external correspondent without any channel-access check. A tenant-wide
+  // channel accepts delivery from any sender, so reading a message is not
+  // enough to post onto its thread. Apply the same check to the thread the
+  // command will actually derive. An internal thread and an absent hub resolve
+  // to `null` and keep the pre-existing rule.
+  // Both channel branches also require `messages.view`, like reply and forward:
+  // the hub grants every shared channel regardless of features (#6432).
+  if (isPublicVisibility && !input.isDraft && replyParent) {
+    const parentThreadId = replyParent.threadId ?? replyParent.id
+    if (!(await canPostToChannelThread(ctx, scope, parentThreadId))) {
+      return Response.json({ error: 'Access denied' }, { status: 403 })
     }
   }
 
@@ -512,9 +645,48 @@ export async function POST(req: Request) {
     )
   }
 
+  // #6258: an explicitly chosen mailbox routes the whole send through the
+  // communication-channels facade, which writes the conversation, thread mapping
+  // and outbound channel link the inbound thread matcher needs. Without the
+  // field this stays the platform-sender path, unchanged.
+  if (requiresSenderDelegation(input)) {
+    const delegated = await delegateComposeToSender(
+      ctx.container,
+      {
+        userId: scope.userId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        auth: ctx.auth ?? null,
+      },
+      { ...input, parentMessageId: composeParentMessageId },
+    )
+    if (!delegated.ok) {
+      return Response.json(
+        { error: delegated.error, fieldErrors: delegated.fieldErrors },
+        { status: delegated.status },
+      )
+    }
+    const delegatedResponse = Response.json(
+      { id: delegated.messageId, threadId: delegated.threadId },
+      { status: 201 },
+    )
+    await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: delegated.messageId,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+    })
+    return delegatedResponse
+  }
+
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
     input: {
       ...input,
+      parentMessageId: composeParentMessageId,
       sendViaEmail,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -568,6 +740,9 @@ export const openApi: OpenApiRouteDoc = {
           }),
         },
       ],
+      errors: [
+        { status: 400, description: 'Query parameters failed validation', schema: errorResponseSchema },
+      ],
     },
     POST: {
       summary: 'Compose a message',
@@ -580,6 +755,11 @@ export const openApi: OpenApiRouteDoc = {
           description: 'Message created',
           schema: composeResponseSchema,
         },
+      ],
+      errors: [
+        { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
+        { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
       ],
     },
   },

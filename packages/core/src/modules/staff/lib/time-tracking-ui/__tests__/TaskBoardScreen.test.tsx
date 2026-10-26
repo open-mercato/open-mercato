@@ -66,7 +66,10 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/i18n/context')
+  return { ...actual, useT: () => mockTranslate, useLocale: () => 'en' }
+})
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,

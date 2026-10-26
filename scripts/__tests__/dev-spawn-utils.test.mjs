@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { resolveProjectBinary, resolveSpawnCommand } from '../dev-spawn-utils.mjs'
+import { resolveMercatoInvocation, resolveProjectBinary, resolveSpawnCommand } from '../dev-spawn-utils.mjs'
 
 test('resolveProjectBinary prefers node_modules/.bin executables in the current project', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-project-binary-'))
@@ -32,6 +32,58 @@ test('resolveProjectBinary leaves commands unchanged when no local executable ex
       resolveProjectBinary('mercato', { cwd: root, platform: 'linux' }),
       'mercato',
     )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveMercatoInvocation runs the CLI entry with the current Node executable', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-mercato-invocation-'))
+  const entryPath = path.join(root, 'node_modules', '@open-mercato', 'cli', 'bin', 'mercato')
+
+  try {
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true })
+    fs.writeFileSync(entryPath, '')
+
+    const invocation = resolveMercatoInvocation({ cwd: root, platform: 'win32' })
+
+    assert.equal(invocation.command, process.execPath)
+    assert.deepEqual(invocation.args, [entryPath])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveMercatoInvocation walks up to an ancestor install (monorepo app workspace)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-mercato-ancestor-'))
+  const appDir = path.join(root, 'apps', 'mercato')
+  const entryPath = path.join(root, 'node_modules', '@open-mercato', 'cli', 'bin', 'mercato')
+
+  try {
+    fs.mkdirSync(appDir, { recursive: true })
+    fs.mkdirSync(path.dirname(entryPath), { recursive: true })
+    fs.writeFileSync(entryPath, '')
+
+    const invocation = resolveMercatoInvocation({ cwd: appDir, platform: 'win32' })
+
+    assert.equal(invocation.command, process.execPath)
+    assert.deepEqual(invocation.args, [entryPath])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('resolveMercatoInvocation falls back to the platform binary when no CLI entry exists', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-mercato-fallback-'))
+
+  try {
+    const windowsInvocation = resolveMercatoInvocation({ cwd: root, platform: 'win32' })
+    assert.equal(windowsInvocation.command, 'mercato.cmd')
+    assert.deepEqual(windowsInvocation.args, [])
+
+    const posixInvocation = resolveMercatoInvocation({ cwd: root, platform: 'linux' })
+    assert.equal(posixInvocation.command, 'mercato')
+    assert.deepEqual(posixInvocation.args, [])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }

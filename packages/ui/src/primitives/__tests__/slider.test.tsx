@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { Slider } from '../slider'
 
 describe('Slider', () => {
@@ -82,5 +82,29 @@ describe('Slider', () => {
     render(<Slider ref={ref} value={[10]} onValueChange={() => {}} />)
     expect(ref.current).not.toBeNull()
     expect(ref.current?.getAttribute('data-slot')).toBe('slider-root')
+  })
+})
+
+describe('Slider accessible names and keyboard', () => {
+  it('forwards the shared label and description to a single thumb', () => {
+    render(<><span id="slider-label">Volume</span><span id="slider-description">From zero to one hundred</span><Slider defaultValue={[25]} aria-labelledby="slider-label" aria-describedby="slider-description" /></>)
+    expect(screen.getByRole('slider', { name: 'Volume' })).toHaveAccessibleDescription('From zero to one hundred')
+  })
+
+  it('names both range thumbs independently and preserves their bounds', () => {
+    render(<Slider defaultValue={[25, 75]} aria-label="Price" thumbLabels={['Minimum price', 'Maximum price']} />)
+    expect(screen.getByRole('slider', { name: 'Minimum price' })).toHaveAttribute('aria-valuenow', '25')
+    expect(screen.getByRole('slider', { name: 'Maximum price' })).toHaveAttribute('aria-valuenow', '75')
+  })
+
+  it('updates from keyboard input and clamps Home and End to the bounds', () => {
+    render(<Slider defaultValue={[25]} aria-label="Volume" min={0} max={100} />)
+    const slider = screen.getByRole('slider', { name: 'Volume' })
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(slider).toHaveAttribute('aria-valuenow', '26')
+    fireEvent.keyDown(slider, { key: 'End' })
+    expect(slider).toHaveAttribute('aria-valuenow', '100')
+    fireEvent.keyDown(slider, { key: 'Home' })
+    expect(slider).toHaveAttribute('aria-valuenow', '0')
   })
 })

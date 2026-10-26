@@ -15,8 +15,8 @@ issues Let's Encrypt certificates on demand via TLS-ALPN-01.
 | `dynamic.example.yml` | Reference dynamic config for non-Docker deployments. Replace placeholders before mounting at `/etc/traefik/dynamic.yml`. |
 
 The bundled Traefik service and the routers/services/middlewares it reads
-live in **`docker-compose.fullapp.traefik.yml`** — an **opt-in overlay**.
-The base compose files (`docker-compose.fullapp.yml` / `…dev.yml`) ship
+live in **`starters/docker/compose.fullapp.traefik.yml`** — an **opt-in overlay**.
+The base compose files (`starters/docker/compose.fullapp.yml` / `…dev.yml`) ship
 without Traefik so the stack runs cleanly behind an external reverse proxy
 (Dokploy, Caddy, nginx, Cloudflare Tunnel, ELB, …) without port or label
 conflicts. Skip the overlay when something upstream already terminates TLS
@@ -35,17 +35,19 @@ and replicate the routers + ForwardAuth middleware in *that* proxy's config.
 
 ```bash
 # Production:
-docker compose -f docker-compose.fullapp.yml \
-  -f docker-compose.fullapp.traefik.yml up -d
+docker compose --project-directory . \
+  -f starters/docker/compose.fullapp.yml \
+  -f starters/docker/compose.fullapp.traefik.yml up -d
 
 # Dev (layer the dev overlay so ACME defaults to LE staging):
-docker compose -f docker-compose.fullapp.dev.yml \
-  -f docker-compose.fullapp.traefik.yml \
-  -f docker-compose.fullapp.traefik.dev.yml up --build
+docker compose --project-directory . \
+  -f starters/docker/compose.fullapp.dev.yml \
+  -f starters/docker/compose.fullapp.traefik.yml \
+  -f starters/docker/compose.fullapp.traefik.dev.yml up --build
 ```
 
-`docker-compose.fullapp.traefik.yml` defaults `TRAEFIK_CA_SERVER` to LE
-production. `docker-compose.fullapp.traefik.dev.yml` is a tiny dev-only overlay
+`starters/docker/compose.fullapp.traefik.yml` defaults `TRAEFIK_CA_SERVER` to LE
+production. `starters/docker/compose.fullapp.traefik.dev.yml` is a tiny dev-only overlay
 that flips that default to LE staging so iteration doesn't burn the production
 rate limits. Drop the dev overlay from the `-f` chain (or export
 `TRAEFIK_CA_SERVER` explicitly) to opt back into the production directory.
@@ -63,9 +65,9 @@ inside the overlay so compose-level `${ENV}` substitution can inject
 | `DOMAIN_RESOLVE_SECRET` | App | Mandatory shared secret for the middleware's `domain-resolve` calls. |
 | `PLATFORM_PRIMARY_HOST` | Compose labels | Primary platform host (e.g., `openmercato.com`); excluded from the `domain-check` middleware. |
 | `INTERNAL_APP_ORIGIN` | App middleware | Defaults to `http://app:3000` inside the docker network. |
-| `TRAEFIK_CA_SERVER` | Traefik | The base Traefik overlay defaults to LE **production**. Layer `docker-compose.fullapp.traefik.dev.yml` (or export the variable) to flip to LE **staging** for safe dev iteration. |
+| `TRAEFIK_CA_SERVER` | Traefik | The base Traefik overlay defaults to LE **production**. Layer `starters/docker/compose.fullapp.traefik.dev.yml` (or export the variable) to flip to LE **staging** for safe dev iteration. |
 | `TRAEFIK_HTTP_PORT` / `TRAEFIK_HTTPS_PORT` | Compose | Host port mapping; defaults to `80`/`443`. |
-| `TRAEFIK_DASHBOARD_PORT` | Compose | Exposes Traefik's `8080` API port locally. **NOT published by default** — uncomment the `ports` entry inside `docker-compose.fullapp.traefik.yml` and set this variable only when you also restrict access via firewall/VPN. |
+| `TRAEFIK_DASHBOARD_PORT` | Compose | Exposes Traefik's `8080` API port locally. **NOT published by default** — uncomment the `ports` entry inside `starters/docker/compose.fullapp.traefik.yml` and set this variable only when you also restrict access via firewall/VPN. |
 
 ## Request flow
 
@@ -118,14 +120,14 @@ middleware entirely.
 
   The `DOMAIN_CHECK_SECRET` ensures the verification endpoint itself cannot
   be probed, but it does not stop ACME issuance attempts.
-- **Dev vs prod CA.** The base Traefik overlay (`docker-compose.fullapp.traefik.yml`)
+- **Dev vs prod CA.** The base Traefik overlay (`starters/docker/compose.fullapp.traefik.yml`)
   defaults `TRAEFIK_CA_SERVER` to LE production so prod invocations issue real
-  certs. Dev workflows layer `docker-compose.fullapp.traefik.dev.yml` on top to
+  certs. Dev workflows layer `starters/docker/compose.fullapp.traefik.dev.yml` on top to
   flip the default to LE **staging** (untrusted certs, much higher rate limits)
   so iteration does not consume the production quota. Drop the dev overlay from
   the `-f` chain to opt back into LE production.
 - **Dashboard.** The Traefik dashboard exposes routers/services/cert
-  metadata. The Traefik overlay (`docker-compose.fullapp.traefik.yml`) does
+  metadata. The Traefik overlay (`starters/docker/compose.fullapp.traefik.yml`) does
   **NOT** publish the dashboard port by default in either prod or dev mode —
   uncomment the `- "${TRAEFIK_DASHBOARD_PORT}:8080"` entry inside that file
   only when you have firewall/VPN restrictions in place.

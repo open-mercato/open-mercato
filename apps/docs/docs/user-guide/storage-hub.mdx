@@ -161,7 +161,7 @@ Exit code semantics:
 For local development and integration testing you can run a local S3 stub using **LocalStack**. Start it alongside the other infrastructure services by enabling the `storage-s3` compose profile:
 
 ```bash
-docker compose --profile storage-s3 up -d
+docker compose --project-directory . -f starters/docker/compose.infra.yml --profile storage-s3 up -d
 ```
 
 Then configure your local `.env`:
@@ -183,7 +183,7 @@ aws --endpoint-url=http://localhost:4566 s3api create-bucket --bucket mercato-de
 ```
 
 :::note
-LocalStack is **not** included in the default `docker compose up`. It only starts when the `storage-s3` profile is active to keep the default dev loop lightweight.
+LocalStack is **not** included in the default `yarn infra:up`. It only starts when the `storage-s3` profile is active to keep the default dev loop lightweight.
 :::
 
 ## Standalone S3 API
