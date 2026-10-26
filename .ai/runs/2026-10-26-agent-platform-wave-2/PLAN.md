@@ -47,7 +47,7 @@
 | 4 | 4.3 | Replay cases and assertions from the frozen manifest | dispatch:capable | done | 252363a3c |
 | 4 | 4.4 | Add snapshot pinning to the eval CLI and the eval-runs API | dispatch | done | 03ba2daa7 |
 | 4 | 4.5 | Report dataset sameness, drift warnings and the snapshot picker | dispatch | done | f4e3e82d0 |
-| 4 | 4.6 | Cover pinned eval replays with an integration test | dispatch | todo | — |
+| 4 | 4.6 | Cover pinned eval replays with an integration test | dispatch | done | 5032e8b84 |
 | 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 2 | inline | todo | — |
 
