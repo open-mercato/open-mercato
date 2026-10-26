@@ -58,3 +58,6 @@
 
 ## 2026-10-26T23:45:00Z — checkpoint 5 (Steps 1.6, 3.5..3.7); Phase 3 closed
 - Green after `3.6-review-fix` (AO i18n-coverage ceilings). UI pass skipped: AO trace page not reachable in the local ephemeral app (reason recorded). No scripted LLM provider exists, so AO integration specs need a real provider.
+
+## 2026-10-27T00:40:00Z — checkpoint 6 (Steps 4.1..4.5)
+- Eval manifests, freeze-on-start + merge, pinned replay, snapshot pinning (API + CLI), report sameness/drift + start-dialog picker. AO jest 1638/1638, guards, build:app --force, i18n, lint green. UI pass skipped (AO not registrable locally).

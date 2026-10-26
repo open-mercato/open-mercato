@@ -1,16 +1,16 @@
 # Handoff — 2026-10-26-agent-platform-wave-2
 
-**Last updated:** 2026-10-26T23:45:00Z
+**Last updated:** 2026-10-27T00:40:00Z
 **Branch:** feat/agent-platform-wave-2 (stacked on feat/agent-platform-wave-1, PR #7794)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8011 (draft, claimed)
-**Current phase/step:** Phase 4 Step 4.1
-**Last commit:** a35814756 — fix(agent_orchestrator): translate the manifest card strings left identical to English
+**Current phase/step:** Phase 4 Step 4.6
+**Last commit:** f4e3e82d0 — feat(agent_orchestrator): report dataset sameness and drift, and pick a snapshot when starting an eval run
 
 ## What just happened
-- Phases 0–3 done (checkpoints 1–5), incl. Step 1.6 (tool-loop-agent system prompt fix, requested by the user). Draft PR #8011 open.
+- Phases 0–3 done; Phase 4 Steps 4.1–4.5 done (checkpoint 6 green).
 
 ## Next concrete action
-- Step 4.1 — add frozen eval-set manifests with deterministic ids.
+- Step 4.6 — cover pinned eval replays with an integration test.
 
 ## Blockers / open questions
 - Agent pushes to upstream are blocked; the user pushes with `! git -C <worktree> push upstream feat/agent-platform-wave-2` at checkpoints.
