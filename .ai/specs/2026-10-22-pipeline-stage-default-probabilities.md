@@ -112,6 +112,20 @@ All changes are additive. Field names are optional on write and always present o
 5. `PUT {id, pipelineStageId: A, probability: 45}` keeps 45 (explicit value wins).
 6. With the pipeline flag disabled, a stage move keeps the deal's probability unchanged.
 
+`__integration__/TC-CRM-STAGE-PROB-002-stage-default-probabilities-ui.spec.ts` (UI, self-contained fixtures: an opted-in pipeline with stage defaults 20 / 60 / none / 0 and an opted-out pipeline with defaults set):
+
+1. Deal edit form: picking a stage without a default leaves Probability unchanged; picking the 60% stage fills 60.
+2. A manual override (42) saved from the deal header persists together with the new stage (verified through the API).
+3. Deal edit form on an opted-out pipeline: changing the stage leaves Probability unchanged.
+4. Create-deal page: picking the pipeline and the 60% stage fills 60.
+5. Kanban quick-add on the 0% lane prefills 0, and the created deal stores 0.
+6. Kanban quick-add on a lane without a default keeps the historic 25.
+
+Migration round-trip:
+
+- `migrations/__tests__/Migration20261022120000_customers.test.ts` (always runs): asserts the exact `up()` / `down()` SQL.
+- `migrations/__tests__/Migration20261022120000_customers.integration.test.ts` (real Postgres 16 via testcontainers, part of `yarn workspace @open-mercato/core test:pg-integration`, which CI runs): `up()` backfills existing rows with `false` / `null`, `down()` drops only the two columns and keeps existing rows, and `up()` re-applies cleanly.
+
 Unit tests:
 
 - `commands/__tests__/deals.stage-default-probability.test.ts`: the command rule (10 cases). It covers enabled/disabled, forward and backward moves, explicit override, no stage change, a null default, won-closure terminal stage, and the create seed.
@@ -151,3 +165,6 @@ Browser verification: the settings UI, Kanban drag, the deal detail stepper, and
   - Unit, validator, and component suites pass. The full customers suite is green, except the encryption-env-dependent `listSearchAndDates` test, which passes with `TENANT_DATA_ENCRYPTION=false`.
   - `TC-CRM-STAGE-PROB-001` passes.
   - Browser checks passed: both settings surfaces, Kanban drag (10% → 50%), deal header stage switch (→ 75%), and edit-form prefill (30%) with a manual override (42%) persisting.
+- 2026-10-26: Review follow-up (PR #7792).
+  - Added `TC-CRM-STAGE-PROB-002` for the deal edit form, create page, and Kanban quick-add prefill paths.
+  - Added migration SQL and real-Postgres round-trip tests. The core `test:pg-integration` script now also covers `customers/migrations`.
