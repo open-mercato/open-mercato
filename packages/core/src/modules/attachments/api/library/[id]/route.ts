@@ -12,6 +12,7 @@ import {
   readAttachmentMetadata,
 } from '../../../lib/metadata'
 import type { StorageDriverFactory } from '../../../lib/drivers'
+import { removeAttachmentRecord } from '../../../lib/storageReferences'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -252,8 +253,13 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   // failed commit cannot leave a dangling record whose backing file is already gone.
   const recordPartitionCode = record.partitionCode
   const recordStoragePath = record.storagePath
-  await em.remove(record).flush()
-  await deleteDriver.delete(recordPartitionCode, recordStoragePath)
+  const removal = await removeAttachmentRecord(em, record)
+  if (!removal.removed) {
+    return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+  }
+  if (removal.releaseStorage) {
+    await deleteDriver.delete(recordPartitionCode, recordStoragePath)
+  }
 
   if (dataEngine) {
     await emitCrudSideEffects({
