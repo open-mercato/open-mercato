@@ -137,6 +137,14 @@ export async function loadActivityForScope(
   return legacy && isInScope(legacy, ctx, tenantId) ? legacyActivity(legacy) : null
 }
 
+function compareActivities(left: ActivityRecord, right: ActivityRecord): number {
+  const leftOccurredAt = left.occurredAt?.getTime() ?? Number.NEGATIVE_INFINITY
+  const rightOccurredAt = right.occurredAt?.getTime() ?? Number.NEGATIVE_INFINITY
+  if (leftOccurredAt !== rightOccurredAt) return rightOccurredAt - leftOccurredAt
+  const createdAtDifference = right.createdAt.getTime() - left.createdAt.getTime()
+  return createdAtDifference || right.id.localeCompare(left.id)
+}
+
 export async function listActivitiesForScope(
   em: EntityManager,
   ctx: CustomersToolContext,
@@ -159,43 +167,62 @@ export async function listActivitiesForScope(
     ...(input.dealId ? { dealId: input.dealId } : {}),
     ...(includeLegacy ? { source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } : {}),
   }
-  const options = { limit: input.offset + input.limit, orderBy: activityOrder, refresh: true }
-  const [canonicalRows, canonicalTotal] = input.activityType === 'task'
-    ? [[], 0] as const
-    : await Promise.all([
-      findWithDecryption(em, CustomerInteraction, canonicalWhere, options, scope),
-      em.count(CustomerInteraction, canonicalWhere),
-    ])
-  const canonicalItems = canonicalRows
-    .filter((row) => isInScope(row, ctx, tenantId))
-    .map(canonicalActivity)
-  let legacyItems: ActivityRecord[] = []
-  let legacyTotal = 0
-  if (includeLegacy) {
-    const canonicalIds = em.createQueryBuilder(CustomerInteraction).select('id').where(scope)
-    const legacyWhere: FilterQuery<CustomerActivity> = {
-      ...scope,
-      id: { $nin: canonicalIds },
-      ...(entityId ? { entity: entityId } : {}),
-      ...(input.dealId ? { deal: input.dealId } : {}),
-      ...(input.activityType ? { activityType: input.activityType } : {}),
-    }
-    const [legacyRows, total] = await Promise.all([
-      findWithDecryption(em, CustomerActivity, legacyWhere, options, scope),
-      em.count(CustomerActivity, legacyWhere),
-    ])
-    legacyItems = legacyRows.filter((row) => isInScope(row, ctx, tenantId)).map(legacyActivity)
-    legacyTotal = total
+  const loadCanonical = async (offset: number, limit: number): Promise<ActivityRecord[]> => {
+    if (input.activityType === 'task') return []
+    const rows = await findWithDecryption(
+      em, CustomerInteraction, canonicalWhere, { limit, offset, orderBy: activityOrder, refresh: true }, scope,
+    )
+    return rows.filter((row) => isInScope(row, ctx, tenantId)).map(canonicalActivity)
   }
-  const items = [...canonicalItems, ...legacyItems].sort((left, right) => {
-    const leftOccurredAt = left.occurredAt?.getTime() ?? Number.NEGATIVE_INFINITY
-    const rightOccurredAt = right.occurredAt?.getTime() ?? Number.NEGATIVE_INFINITY
-    if (leftOccurredAt !== rightOccurredAt) return rightOccurredAt - leftOccurredAt
-    const createdAtDifference = right.createdAt.getTime() - left.createdAt.getTime()
-    return createdAtDifference || right.id.localeCompare(left.id)
-  })
+  const countCanonical = () => input.activityType === 'task' ? Promise.resolve(0) : em.count(CustomerInteraction, canonicalWhere)
+  if (!includeLegacy) {
+    const [items, total] = await Promise.all([
+      loadCanonical(input.offset, input.limit),
+      countCanonical(),
+    ])
+    return { items, total }
+  }
+  const canonicalIds = em.createQueryBuilder(CustomerInteraction).select('id').where(scope)
+  const legacyWhere: FilterQuery<CustomerActivity> = {
+    ...scope,
+    id: { $nin: canonicalIds },
+    ...(entityId ? { entity: entityId } : {}),
+    ...(input.dealId ? { deal: input.dealId } : {}),
+    ...(input.activityType ? { activityType: input.activityType } : {}),
+  }
+  const loadLegacy = async (offset: number, limit: number): Promise<ActivityRecord[]> => {
+    const rows = await findWithDecryption(
+      em, CustomerActivity, legacyWhere, { limit, offset, orderBy: activityOrder, refresh: true }, scope,
+    )
+    return rows.filter((row) => isInScope(row, ctx, tenantId)).map(legacyActivity)
+  }
+  const [canonicalTotal, legacyTotal] = await Promise.all([
+    countCanonical(),
+    em.count(CustomerActivity, legacyWhere),
+  ])
+  const total = canonicalTotal + legacyTotal
+  if (input.offset >= total) return { items: [], total }
+  let lowerCanonicalOffset = Math.max(0, input.offset - legacyTotal)
+  let upperCanonicalOffset = Math.min(input.offset, canonicalTotal)
+  while (lowerCanonicalOffset < upperCanonicalOffset) {
+    const canonicalOffset = Math.floor((lowerCanonicalOffset + upperCanonicalOffset) / 2)
+    const legacyOffset = input.offset - canonicalOffset
+    const [canonicalNext, legacyPrevious] = await Promise.all([
+      loadCanonical(canonicalOffset, 1),
+      loadLegacy(legacyOffset - 1, 1),
+    ])
+    if (canonicalNext[0] && legacyPrevious[0] && compareActivities(canonicalNext[0], legacyPrevious[0]) < 0) {
+      lowerCanonicalOffset = canonicalOffset + 1
+    } else {
+      upperCanonicalOffset = canonicalOffset
+    }
+  }
+  const [canonicalItems, legacyItems] = await Promise.all([
+    loadCanonical(lowerCanonicalOffset, input.limit),
+    loadLegacy(input.offset - lowerCanonicalOffset, input.limit),
+  ])
   return {
-    items: items.slice(input.offset, input.offset + input.limit),
-    total: canonicalTotal + legacyTotal,
+    items: [...canonicalItems, ...legacyItems].sort(compareActivities).slice(0, input.limit),
+    total,
   }
 }

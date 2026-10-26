@@ -17,6 +17,7 @@ type CrudConfiguration = { actions: { create: CrudAction; update: CrudAction; de
 
 const mockRunnerContexts: RunnerContext[] = []
 const mockOperations: ApiOperation[] = []
+const mockActivityReads: QueryOptions[] = []
 let mockDispatch: (operation: ApiOperation) => Promise<Response>
 let mockExecute: (id: string, input: unknown, request?: Request) => Promise<{ result: unknown }>
 let mockRead: (entity: unknown, where: Row, options?: QueryOptions) => unknown[]
@@ -25,8 +26,10 @@ let mockCommandContext: CommandRuntimeContext
 let mockFlags = { unified: false, legacyAdapters: true, externalSync: false }
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: async (_em: unknown, entity: unknown, where: Row, options?: QueryOptions) =>
-    mockRead(entity, where, options),
+  findWithDecryption: async (_em: unknown, entity: unknown, where: Row, options?: QueryOptions) => {
+    mockActivityReads.push(options ?? {})
+    return mockRead(entity, where, options)
+  },
   findOneWithDecryption: async (_em: unknown, entity: unknown, where: Row) => mockRead(entity, where)[0] ?? null,
 }))
 
@@ -332,6 +335,7 @@ beforeEach(() => {
   mockFlags = { unified: false, legacyAdapters: true, externalSync: false }
   mockOperations.length = 0
   mockRunnerContexts.length = 0
+  mockActivityReads.length = 0
 })
 
 describe.each([false, true])('activity tools with unified=%s', (unified) => {
@@ -415,6 +419,77 @@ describe('canonical activity dispatch when compatibility adapters are disabled',
     expect(mockRunnerContexts[0].userFeatures).toBe(harness.ctx.userFeatures)
     expect(mockRunnerContexts[0].tool?.requiredFeatures).toEqual(['customers.interactions.manage'])
   })
+})
+
+describe('bounded activity pagination', () => {
+  it.each([
+    { unified: true, legacyAdapters: true },
+    { unified: false, legacyAdapters: false },
+    { unified: false, legacyAdapters: true },
+  ])('bounds hydration at a million-row offset with flags %j', async (flags) => {
+    mockFlags = { ...mockFlags, ...flags }
+    const harness = makeHarness()
+    const originalRead = mockRead
+    const sourceTotal = 1_000_010
+    const offset = 1_000_001
+    const includeLegacy = !flags.unified && flags.legacyAdapters
+    harness.em.count.mockImplementation(async () => sourceTotal)
+    mockRead = (entity, where, options = {}) => {
+      if (entity !== CustomerInteraction && entity !== CustomerActivity) return originalRead(entity, where, options)
+      expect(options.limit).toBeLessThanOrEqual(1)
+      const index = options.offset ?? 0
+      if (index >= sourceTotal) return []
+      const legacy = entity === CustomerActivity
+      return [Object.assign(legacy ? new CustomerActivity() : new CustomerInteraction(), {
+        id: `88888888-8888-4888-8888-${String(index).padStart(12, '0')}`,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        interactionType: 'call',
+        activityType: 'call',
+        title: `Canonical ${index}`,
+        subject: `Legacy ${index}`,
+        occurredAt: new Date(INITIAL_DATE.getTime() - (index * 2 + Number(legacy)) * 1000),
+        createdAt: INITIAL_DATE,
+        updatedAt: INITIAL_DATE,
+      })]
+    }
+    const page = asRecord(await findTool('customers.list_activities').handler({ offset, limit: 1 }, harness.ctx))
+    expect(page.total).toBe(sourceTotal * (includeLegacy ? 2 : 1))
+    expect(page.items).toEqual([expect.objectContaining({
+      subject: includeLegacy ? 'Legacy 500000' : `Canonical ${offset}`,
+    })])
+    expect(mockActivityReads.length).toBeLessThanOrEqual(2 * Math.ceil(Math.log2(offset + 1)) + 2)
+    if (!includeLegacy) expect(mockActivityReads).toEqual([expect.objectContaining({ offset, limit: 1 })])
+  })
+
+  it.each(['CCCCLLLL', 'LLLLCCCC', 'CLCLCLCL', 'LCCLLCLC', 'CLLLLLLL', 'CCCCCCCL', 'CCCCCCCC', 'LLLLLLLL'])(
+    'preserves merged page boundaries for timeline %s', async (sources) => {
+      const harness = makeHarness()
+      const expectedIds: string[] = []
+      for (const [index, source] of [...sources].entries()) {
+        const id = `99999999-9999-4999-8999-${String(sources.length - index).padStart(12, '0')}`
+        const occurredAt = index < 4 ? INITIAL_DATE : null
+        const createdAt = index < 6 ? INITIAL_DATE : new Date(INITIAL_DATE.getTime() - 1000)
+        if (source === 'L') {
+          seedLegacy(harness, { id, occurredAt, createdAt })
+        } else {
+          harness.interactions.set(id, Object.assign(new CustomerInteraction(), {
+            id, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+            entity: harness.person, interactionType: 'call', source: 'adapter:activity',
+            title: `Canonical ${index}`, occurredAt, createdAt, updatedAt: INITIAL_DATE, deletedAt: null,
+          }))
+        }
+        expectedIds.push(id)
+      }
+      const list = findTool('customers.list_activities')
+      for (const offset of [0, 1, 2, 3, 4, 5, 6, 7, 8, 1000000]) {
+        const page = asRecord(await list.handler({ offset, limit: 2 }, harness.ctx))
+        expect(page.total).toBe(sources.length)
+        expect((page.items as Row[]).map((item) => item.id)).toEqual(expectedIds.slice(offset, offset + 2))
+      }
+      expect(mockActivityReads.every((options) => (options.limit ?? 0) <= 2)).toBe(true)
+    },
+  )
 })
 
 describe('historical activities and canonical authority', () => {
