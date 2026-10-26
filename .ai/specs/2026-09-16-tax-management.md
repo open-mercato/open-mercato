@@ -61,7 +61,7 @@ logic — a future country plugin registers against the same
 ## Problem Statement
 
 The 2026-09-05 Event Storming session (facylitator Mariusz Gil, ekspert
-domenowy Mateusz Duda) named a "ścieżka podatkowa" as part of period
+domenowy) named a "ścieżka podatkowa" as part of period
 close, distinct from anything AP/AR/GL account balances/Posting Rules
 Engine cover. Two of its six steps already have a home (JPK_KR_PD is
 the JPK_KR_PD spec); the remaining four — calculate the tax, post it as a journal
