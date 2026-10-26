@@ -45,7 +45,12 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() })
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({ useBackendChrome: jest.fn() }))
 
-const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+const mockAfterSave = jest.fn()
+const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => {
+  const result = await operation()
+  mockAfterSave()
+  return result
+})
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
@@ -90,8 +95,20 @@ const putBodies: unknown[] = []
 
 let putGate: Promise<void> | null = null
 
+let putOutcome: 'saved' | 'tenantScopeChanged' = 'saved'
+
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
+}
+
+function tenantScopeChanged() {
+  return {
+    ok: false,
+    status: 409,
+    result: { error: 'The selected tenant changed before the request was processed.', code: 'tenant_scope_changed' },
+    response: {} as Response,
+    cacheStatus: null,
+  }
 }
 
 function installRouter() {
@@ -103,6 +120,7 @@ function installRouter() {
       if (init?.method === 'PUT') {
         putBodies.push(JSON.parse(String(init.body)))
         if (putGate) await putGate
+        if (putOutcome === 'tenantScopeChanged') return tenantScopeChanged() as never
         return ok(JSON.parse(String(init.body))) as never
       }
       return ok(settings) as never
@@ -122,6 +140,7 @@ beforeEach(() => {
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] })
   putBodies.length = 0
   putGate = null
+  putOutcome = 'saved'
   mockScopeVersion = 1
   mockScope = { tenantId: null, organizationId: null }
   settings = {
@@ -344,13 +363,7 @@ describe('time tracking settings page', () => {
     await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
 
-    mockApiCall.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 409,
-      result: { error: 'The selected tenant changed before the request was processed.', code: 'tenant_scope_changed' },
-      response: {} as Response,
-      cacheStatus: null,
-    }) as never)
+    putOutcome = 'tenantScopeChanged'
     fireEvent.click(screen.getByTestId('save-settings'))
 
     await waitFor(() =>
@@ -359,8 +372,30 @@ describe('time tracking settings page', () => {
         'warning',
       ),
     )
+    expect(putBodies).toHaveLength(1)
     expect(mockFlash).not.toHaveBeenCalledWith('Settings saved.', 'success')
     expect(mockFlash).not.toHaveBeenCalledWith('Failed to save the settings.', 'error')
+    expect(mockAfterSave).not.toHaveBeenCalled()
+  })
+
+  it('discards the edit and shows the reloaded tenant as saved after the server refused a save before the scope event arrived', async () => {
+    mockScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+
+    settings = { ...settings, targets: { dailyHours: 5 } }
+    putOutcome = 'tenantScopeChanged'
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => {
+      const settingsGets = mockApiCall.mock.calls.filter(([url, init]) =>
+        String(url).endsWith('/timesheets/settings') && init?.method !== 'PUT')
+      expect(settingsGets).toHaveLength(2)
+    })
+    await waitFor(() => expect(screen.getByLabelText('Daily hours target')).toHaveValue('5'))
+    expect(screen.getByTestId('save-settings')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
   })
 
   it('re-seeds a pristine form when the organization scope changes', async () => {

@@ -77,7 +77,7 @@ const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
 
 class TenantScopeChangedError extends Error {
   constructor() {
-    super('[internal] tenant scope changed before the settings save was sent')
+    super('[internal] tenant scope changed before the settings save was applied')
     this.name = 'TenantScopeChangedError'
   }
 }
@@ -143,7 +143,7 @@ export default function TimeTrackingSettingsPage() {
     blockedMessage: t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'),
   })
 
-  const loadSettings = React.useCallback(async () => {
+  const loadSettings = React.useCallback(async (options?: { discardDraft?: boolean }) => {
     const requestId = latestLoadRef.current + 1
     latestLoadRef.current = requestId
     const requestScope = { tenantId: scopeRef.current.tenantId, organizationId: scopeRef.current.organizationId }
@@ -165,9 +165,10 @@ export default function TimeTrackingSettingsPage() {
         && loadedScope.tenantId === requestScope.tenantId
         && loadedScope.organizationId === requestScope.organizationId
       const hasUnsavedEdit = pending !== null && previous !== null && isSettingsDraftDirty(pending, previous)
+      const keepDraft = options?.discardDraft !== true && hasUnsavedEdit && (scopeUnresolved || scopeUnchanged)
       loadedScopeRef.current = requestScope
       setBaseline(next)
-      if (!(hasUnsavedEdit && (scopeUnresolved || scopeUnchanged))) setDraft(next)
+      if (!keepDraft) setDraft(next)
     } catch (err) {
       if (requestId !== latestLoadRef.current) return
       logger.error('time tracking settings load failed', { err })
@@ -274,7 +275,7 @@ export default function TimeTrackingSettingsPage() {
         ),
         'warning',
       )
-      void loadSettings()
+      void loadSettings({ discardDraft: true })
     }
     setIsSaving(true)
     try {
@@ -283,11 +284,15 @@ export default function TimeTrackingSettingsPage() {
           if (saveTenantId !== null && scopeRef.current.tenantId !== saveTenantId) {
             throw new TenantScopeChangedError()
           }
-          return apiCall<TimeTrackingSettings>(saveUrl, {
+          const response = await apiCall<TimeTrackingSettings>(saveUrl, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
           })
+          if (isTenantScopeChangedResponse(response.status, response.result)) {
+            throw new TenantScopeChangedError()
+          }
+          return response
         },
         context: {
           formId: MUTATION_CONTEXT_ID,
@@ -297,10 +302,6 @@ export default function TimeTrackingSettingsPage() {
         },
         mutationPayload: body as unknown as Record<string, unknown>,
       })
-      if (isTenantScopeChangedResponse(call.status, call.result)) {
-        reportTenantScopeChanged()
-        return
-      }
       if (!call.ok || !call.result) {
         flash(t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'), 'error')
         return
