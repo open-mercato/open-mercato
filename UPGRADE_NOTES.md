@@ -24,6 +24,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### QueryEngine rejects empty OR and unsupported filter operators (#7831)
+
+`BasicQueryEngine` and `HybridQueryEngine` now throw `TypeError` for `{ $or: [] }`
+(including nested occurrences) and unsupported field operators in object or array
+filters. These predicates previously could be discarded, returning every otherwise
+visible row. Objects mixing supported and unsupported operators are rejected too.
+
+Module authors: omit an optional OR condition when no restriction is intended;
+use `{ id: { $in: [] } }` to match nothing. Replace unsupported operators with
+supported `FilterOp` values. Absent filters, `{}`, `[]`, and `{ $and: [] }` retain
+their existing unconstrained meaning. Operators: audit custom modules and saved
+filter presets before upgrading. No database migration or configuration change
+is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
+
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
 The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.

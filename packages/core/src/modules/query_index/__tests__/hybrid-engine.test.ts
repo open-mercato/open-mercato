@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { HybridQueryEngine, coerceSortDirection, clearBaseTableExistsCache } from '../../query_index/lib/engine'
 import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
-import { SortDir } from '@open-mercato/shared/lib/query/types'
+import { SortDir, type Filter } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
 import { encryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
 
@@ -312,6 +312,31 @@ describe('HybridQueryEngine', () => {
     if (originalCoverageOptimization === undefined) delete process.env.OPTIMIZE_INDEX_COVERAGE_STATS
     else process.env.OPTIMIZE_INDEX_COVERAGE_STATS = originalCoverageOptimization
     jest.clearAllMocks()
+  })
+
+  test.each([
+    { $or: [] },
+    { $and: [{ status: 'open' }, { $or: [] }] },
+    { status: { $unsupported: 'open' } },
+    [{ field: 'status', op: 'unsupported', value: 'open' }] as unknown as Filter[],
+  ])('rejects invalid filters in indexed, fallback and custom storage: %j', async (filters) => {
+    for (const mode of ['indexed', 'fallback', 'custom']) {
+      const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 1, indexCount: 1 })
+      const em = buildEm(db)
+      const fallback = new BasicQueryEngine(em, () => db)
+      const fallbackQuery = jest.spyOn(fallback, 'query')
+      const engine = new HybridQueryEngine(em, fallback)
+
+      await expect(engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        forceCustomEntityStorage: mode === 'custom',
+        omitAutomaticTenantOrgScope: mode === 'fallback',
+        filters,
+      })).rejects.toBeInstanceOf(TypeError)
+      if (mode === 'fallback') expect(fallbackQuery).toHaveBeenCalled()
+      else expect(fallbackQuery).not.toHaveBeenCalled()
+    }
   })
 
   test('serves fresh coverage snapshots without recomputing coverage counts', async () => {
@@ -2078,11 +2103,8 @@ describe('HybridQueryEngine cf filter operator coverage (#5039)', () => {
     expect(predicates.length).toBeGreaterThan(0)
   })
 
-  test('an operator the builder does not compile emits no custom-field predicate at all', async () => {
-    // `cfFilterHasPredicate` must agree with the switch: an unsupported operator has to
-    // drop out entirely rather than reach SQL as a half-built or always-true clause.
-    const predicates = await cfPredicatesFor('regex', 'high')
-    expect(predicates).toHaveLength(0)
+  test('rejects an unsupported custom-field operator before building a predicate', async () => {
+    await expect(cfPredicatesFor('regex', 'high')).rejects.toBeInstanceOf(TypeError)
   })
 })
 

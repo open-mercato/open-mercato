@@ -11,6 +11,13 @@ const VALID_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'i
 
 const normalizeField = (key: string) => (key.startsWith('cf_') ? `cf:${key.slice(3)}` : key)
 
+function validateFilterOp(op: string): FilterOp {
+  if (!VALID_OPS.some((supportedOp) => supportedOp === op)) {
+    throw new TypeError(`[internal] QueryEngine: unsupported filter operator ${op}`)
+  }
+  return op as FilterOp
+}
+
 type LeafClause = { field: string; op: FilterOp; value?: unknown }
 
 /**
@@ -57,6 +64,9 @@ function compileToDnf(filter: unknown): LeafClause[][] {
       continue
     }
     if (rawKey === '$or' && Array.isArray(rawVal)) {
+      if (rawVal.length === 0) {
+        throw new TypeError('[internal] QueryEngine: $or requires at least one alternative')
+      }
       const expanded = (rawVal as unknown[]).flatMap(compileToDnf)
       if (expanded.length > MAX_DNF_DISJUNCTS) {
         throw new AdvancedFilterComplexityError(expanded.length)
@@ -68,10 +78,8 @@ function compileToDnf(filter: unknown): LeafClause[][] {
     if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
       const clauses: LeafClause[] = []
       for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
-        const op = (opKey.startsWith('$') ? opKey.slice(1) : opKey) as FilterOp
-        if (VALID_OPS.includes(op as (typeof VALID_OPS)[number])) {
-          clauses.push({ field, op, value: opVal })
-        }
+        const op = validateFilterOp(opKey.startsWith('$') ? opKey.slice(1) : opKey)
+        clauses.push({ field, op, value: opVal })
       }
       if (clauses.length > 0) partialDnfs.push([clauses])
     } else {
@@ -148,9 +156,10 @@ function liftCommonClauses(dnf: LeafClause[][]): { common: LeafClause[]; remaini
 export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedFilter[] {
   if (!filters) return []
   if (Array.isArray(filters)) {
-    return (filters as any[]).map((f) => ({
-      ...f,
-      field: normalizeField(String((f as any).field)),
+    return filters.map((filter) => ({
+      ...filter,
+      field: normalizeField(String(filter.field)),
+      op: validateFilterOp(filter.op),
     }))
   }
   const dnf = compileToDnf(filters)

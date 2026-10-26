@@ -343,6 +343,36 @@ type ColumnChooserField = {
 
 ## Backward Compatibility
 
+### Migration & Backward Compatibility
+
+The shared filter normalizer rejects an empty `$or`, including one nested in an
+`$and` or another `$or`, with a `TypeError`. It also rejects unsupported field
+operators in object and array syntax, including mixed supported/unsupported
+operator objects. BasicQueryEngine and HybridQueryEngine (indexed, fallback and
+custom-entity storage) propagate this rejection before executing a row query.
+This corrects predicates previously discarded as though no constraint existed.
+
+Absent filters, `{}`, `[]`, and `{ $and: [] }` retain their unconstrained meaning.
+Supported operators, custom-field aliases, and array filter metadata retain their
+existing behavior. No exported signature, operator union, API route, schema, or
+tenant/organization scope changes. No compatibility mode preserves discarded
+predicates: the issue explicitly requires rejection or an explicit false predicate.
+
+Module authors must omit optional OR conditions when no restriction is intended,
+and use an explicit impossible predicate such as `{ id: { $in: [] } }` when no
+records may match. Correct unsupported operators in module code or saved presets.
+Operators should audit custom module presets before upgrading; no migration or
+new configuration is required. See `UPGRADE_NOTES.md`.
+
+Regression coverage checks empty and nested OR, unsupported object/array
+operators, mixed operators, unconstrained empty filters, and propagation through
+both engines and Hybrid storage/fallback modes. The storefront assortment
+deny-all helper already uses an empty overlap predicate. Reviewed callers in
+entity-record search, scheduler visibility, WMS search, and staff time-entry
+access add a guaranteed branch or guard the empty case.
+
+### Existing UI compatibility
+
 All features are opt-in via new props. Existing pages that don't pass these props see zero behavior change.
 
 | Feature | Opt-in mechanism | Default |
@@ -615,6 +645,7 @@ No other new dependencies. All other features built on existing TanStack React T
 
 | Date | Change |
 |------|--------|
+| 2026-10-26 | #7831: Reject empty OR and unsupported QueryEngine field operators; preserve absent-filter semantics and document module/preset migration. |
 | 2026-04-03 | Initial skeleton with open questions |
 | 2026-04-03 | Full spec after Q&A — 4 phases, 8 features, UX designer notes incorporated |
 | 2026-04-03 | Added F8 — virtual scrolling via `@tanstack/react-virtual` (row + column virtualization) |
