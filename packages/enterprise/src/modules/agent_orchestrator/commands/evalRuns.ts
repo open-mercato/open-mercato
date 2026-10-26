@@ -5,8 +5,17 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalCase, AgentEvalCaseRun, AgentEvalSuiteRun } from '../data/entities'
 import { aggregateSuiteRun, compareToBaseline, resolveBaselineSuiteRun } from '../lib/eval/evalReplayService'
+import {
+  EVAL_SET_SUMMARY_KEY,
+  EvalSetTooLargeError,
+  buildEvalSetPointer,
+  findEvalSetCarrier,
+  freezeManifest,
+  mergeSuiteSummary,
+} from '../lib/eval/manifest'
 import { emitAgentOrchestratorEvent } from '../events'
 
 /**
@@ -32,6 +41,27 @@ const startEvalRunCommandSchema = z.object({
 })
 export type StartEvalRunCommandInput = z.infer<typeof startEvalRunCommandSchema>
 export type StartEvalRunCommandResult = { suiteRunId: string; caseRunCount: number }
+
+async function freezeEvalSet(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  agentId: string,
+  label: string | null,
+) {
+  try {
+    return await freezeManifest(em, scope, { agentId, label })
+  } catch (error) {
+    if (error instanceof EvalSetTooLargeError) {
+      throw new CrudHttpError(422, {
+        error: '[internal] eval set manifest exceeds the size limit',
+        code: error.code,
+        bytes: error.bytes,
+        maxBytes: error.maxBytes,
+      })
+    }
+    throw error
+  }
+}
 
 /**
  * Creates the suite run plus one PENDING case run per (case × trial). The pending
@@ -67,6 +97,9 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
       })
     }
 
+    const frozen = await freezeEvalSet(em, scope, input.agentDefinitionId, input.evalSetVersion ?? null)
+    const carrierSuiteRunId = await findEvalSetCarrier(em, scope, input.agentDefinitionId, frozen.version)
+
     // Pre-generate the PK. `id` is `defaultRaw: gen_random_uuid()`, so Postgres
     // assigns it at INSERT and it does NOT exist on the entity before flush —
     // while `withAtomicFlush` defers the flush to the end of the callback. Reading
@@ -85,6 +118,14 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
       caseCount: caseRunCount,
       evalSetVersion: input.evalSetVersion ?? null,
       triggeredBy: input.triggeredBy ?? null,
+      summary: {
+        [EVAL_SET_SUMMARY_KEY]: buildEvalSetPointer({
+          manifest: frozen.manifest,
+          version: frozen.version,
+          suiteRunId,
+          carrierSuiteRunId,
+        }),
+      },
     })
 
     await withAtomicFlush(
@@ -151,7 +192,13 @@ const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, Comple
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
-    const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: input.suiteRunId, ...scope })
+    const suiteRun = await findOneWithDecryption(
+      em,
+      AgentEvalSuiteRun,
+      { id: input.suiteRunId, ...scope },
+      undefined,
+      scope,
+    )
     if (!suiteRun) throw new CrudHttpError(404, { error: '[internal] eval suite run not found' })
 
     // Idempotent: completing an already-terminal run is a no-op — but it must
@@ -193,7 +240,9 @@ const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, Comple
           suiteRun.errorCount = aggregate.errorCount
           suiteRun.passScore = aggregate.passScore
           suiteRun.scoreVariance = aggregate.scoreVariance
-          suiteRun.summary = { ...aggregate.summary, __judgeDeltas: comparison.judgeDeltas }
+          suiteRun.summary = mergeSuiteSummary(suiteRun.summary, aggregate.summary, {
+            __judgeDeltas: comparison.judgeDeltas,
+          })
           suiteRun.baselineSuiteRunId = comparison.baselineSuiteRunId
           suiteRun.safetyRegressions = comparison.safetyRegressions.length ? comparison.safetyRegressions : null
           suiteRun.finishedAt = new Date()

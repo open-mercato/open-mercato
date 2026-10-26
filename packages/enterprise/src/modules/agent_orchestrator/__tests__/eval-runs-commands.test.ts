@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentEvalAssertion, AgentEvalCase, AgentEvalCaseRun, AgentEvalResult, AgentEvalSuiteRun } from '../data/entities'
 import { cancelEvalRunCommand, completeEvalRunCommand, startEvalRunCommand } from '../commands/evalRuns'
+import { EVAL_SET_SUMMARY_KEY, readEvalSetPointer } from '../lib/eval/manifest'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn().mockResolvedValue(undefined),
@@ -326,5 +327,101 @@ describe('evalRuns.complete — baseline and safety regressions', () => {
     const result = await completeEvalRunCommand.execute({ ...SCOPE, suiteRunId: CASE_A }, ctxFor(em))
     expect(result.safetyRegressions).toEqual(['no_pii'])
     expect(result.baselineSuiteRunId).toBe(BASE)
+  })
+})
+
+describe('evalRuns.start — frozen eval-set manifest', () => {
+  const startInput = { ...SCOPE, agentDefinitionId: 'deals.health_check', evalCaseIds: [CASE_A, CASE_B], repeatCount: 1 }
+
+  function suiteRunById(rows: Array<Record<string, unknown>>, id: string) {
+    const row = rows.find((entry) => entry.id === id)
+    if (!row) throw new Error('[internal] suite run missing from the fake store')
+    return row
+  }
+
+  it('makes the first run the carrier of the manifest body', async () => {
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+    const result = await startEvalRunCommand.execute({ ...startInput, evalSetVersion: 'release-1' }, ctxFor(em))
+
+    const pointer = readEvalSetPointer(suiteRunById(storeFor(AgentEvalSuiteRun), result.suiteRunId).summary)
+    expect(pointer).toMatchObject({
+      label: 'release-1',
+      source: 'db',
+      caseCount: 2,
+      assertionCount: 0,
+      carrierSuiteRunId: result.suiteRunId,
+    })
+    expect(pointer?.version).toMatch(/^sha256:[0-9a-f]+$/)
+    expect(pointer?.body).toMatchObject({ agentId: 'deals.health_check', cases: expect.any(Array) })
+    expect(suiteRunById(storeFor(AgentEvalSuiteRun), result.suiteRunId).evalSetVersion).toBe('release-1')
+  })
+
+  it('writes no body on a second run of the same dataset and points at the first carrier', async () => {
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+    const first = await startEvalRunCommand.execute(startInput, ctxFor(em))
+    const second = await startEvalRunCommand.execute(startInput, ctxFor(em))
+
+    const firstPointer = readEvalSetPointer(suiteRunById(storeFor(AgentEvalSuiteRun), first.suiteRunId).summary)
+    const secondPointer = readEvalSetPointer(suiteRunById(storeFor(AgentEvalSuiteRun), second.suiteRunId).summary)
+    expect(secondPointer?.version).toBe(firstPointer?.version)
+    expect(secondPointer?.carrierSuiteRunId).toBe(first.suiteRunId)
+    expect(secondPointer).not.toHaveProperty('body')
+  })
+
+  it('does not reuse a cancelled run as the carrier', async () => {
+    const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+    const first = await startEvalRunCommand.execute(startInput, ctxFor(em))
+    suiteRunById(storeFor(AgentEvalSuiteRun), first.suiteRunId).status = 'cancelled'
+    const second = await startEvalRunCommand.execute(startInput, ctxFor(em))
+
+    const secondPointer = readEvalSetPointer(suiteRunById(storeFor(AgentEvalSuiteRun), second.suiteRunId).summary)
+    expect(secondPointer?.carrierSuiteRunId).toBe(second.suiteRunId)
+    expect(secondPointer?.body).toBeDefined()
+  })
+
+  it('fails the start with a validation error when the manifest exceeds the size cap', async () => {
+    const previous = process.env.OM_AGENT_EVAL_SET_MAX_BYTES
+    process.env.OM_AGENT_EVAL_SET_MAX_BYTES = '16'
+    try {
+      const { em, storeFor } = createFakeEm({ cases: [evalCase(CASE_A), evalCase(CASE_B)] })
+      await expect(startEvalRunCommand.execute(startInput, ctxFor(em))).rejects.toMatchObject({
+        status: 422,
+        body: expect.objectContaining({ code: 'eval_set_too_large', maxBytes: 16 }),
+      })
+      expect(storeFor(AgentEvalSuiteRun)).toHaveLength(0)
+      expect(storeFor(AgentEvalCaseRun)).toHaveLength(0)
+    } finally {
+      if (previous === undefined) delete process.env.OM_AGENT_EVAL_SET_MAX_BYTES
+      else process.env.OM_AGENT_EVAL_SET_MAX_BYTES = previous
+    }
+  })
+})
+
+describe('evalRuns.complete — summary merge', () => {
+  it('keeps the frozen eval-set pointer and other reserved keys next to the fresh aggregate', async () => {
+    const evalSet = { version: 'sha256:abc', label: null, source: 'db', caseCount: 1, assertionCount: 1, carrierSuiteRunId: CASE_A, body: { cases: [] } }
+    const { em, storeFor } = createFakeEm({
+      suiteRuns: [{
+        id: CASE_A,
+        ...SCOPE,
+        agentDefinitionId: 'deals.health_check',
+        status: 'running',
+        evalSetVersion: null,
+        summary: { [EVAL_SET_SUMMARY_KEY]: evalSet, __custom: { kept: true } },
+      }],
+      caseRuns: [{ id: 'cr-1', suiteRunId: CASE_A, ...SCOPE, status: 'passed', score: 1 }],
+      results: [
+        { id: 'r-1', evalCaseRunId: 'cr-1', ...SCOPE, assertionId: 'a-1', assertionKey: 'no_pii', passed: true, severity: 'gate' },
+      ],
+      assertions: [{ id: 'a-1', ...SCOPE, type: 'deterministic' }],
+    })
+
+    await completeEvalRunCommand.execute({ ...SCOPE, suiteRunId: CASE_A }, ctxFor(em))
+
+    const summary = storeFor(AgentEvalSuiteRun)[0].summary as Record<string, unknown>
+    expect(summary[EVAL_SET_SUMMARY_KEY]).toEqual(evalSet)
+    expect(summary.__custom).toEqual({ kept: true })
+    expect(summary).toHaveProperty('__judgeDeltas')
+    expect(summary).toHaveProperty('no_pii')
   })
 })

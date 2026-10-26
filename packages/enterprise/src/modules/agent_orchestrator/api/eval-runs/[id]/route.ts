@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalCaseRun, AgentEvalSuiteRun } from '../../../data/entities'
 import { evalCaseRunListQuerySchema } from '../../../data/validators'
+import { stripEvalSetBody } from '../../../lib/eval/manifest'
 import { agentOrchestratorTag } from '../../openapi'
 
 /**
@@ -91,7 +92,7 @@ export async function GET(req: Request, ctx: RouteContext) {
       // The run this one was compared against. Without it the UI can show THAT a
       // regression happened but not what it regressed from.
       baseline_suite_run_id: suiteRun.baselineSuiteRunId ?? null,
-      summary: suiteRun.summary ?? null,
+      summary: stripEvalSetBody(suiteRun.summary ?? null),
       triggered_by: suiteRun.triggeredBy ?? null,
       started_at: suiteRun.startedAt?.toISOString() ?? null,
       finished_at: suiteRun.finishedAt?.toISOString() ?? null,
@@ -121,7 +122,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Suite run detail plus a keyset page of its case runs',
       description:
-        'Returns the suite run and up to `pageSize` (max 100) case runs ordered by created_at, with `nextCursor` for the next page. Assertion results are NOT inlined — fetch them per case run from /eval-runs/:id/case-runs/:caseRunId/results. Cross-tenant ids return 404. Gated by agent_orchestrator.eval.manage.',
+        'Returns the suite run and up to `pageSize` (max 100) case runs ordered by created_at, with `nextCursor` for the next page. `summary.__evalSet` carries only the frozen eval-set pointer; the manifest body is never returned. Assertion results are NOT inlined — fetch them per case run from /eval-runs/:id/case-runs/:caseRunId/results. Cross-tenant ids return 404. Gated by agent_orchestrator.eval.manage.',
       responses: [{ status: 200, description: 'Suite run + paged case runs' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },

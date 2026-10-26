@@ -311,3 +311,65 @@ export async function resolveManifest(
   )
   return bodyFromCandidates(em, scope, agentId, version, recent)
 }
+
+const CARRIER_STATUSES = ['queued', 'running', 'completed'] as const
+
+export async function findEvalSetCarrier(
+  em: EntityManager,
+  scope: ManifestScope,
+  agentId: string,
+  version: string,
+): Promise<string | null> {
+  const candidates = await findWithDecryption(
+    em,
+    AgentEvalSuiteRun,
+    { ...scope, agentDefinitionId: agentId, status: { $in: [...CARRIER_STATUSES] } },
+    { orderBy: { createdAt: 'desc' }, limit: CARRIER_SCAN_LIMIT },
+    scope,
+  )
+  for (const candidate of candidates) {
+    const pointer = readEvalSetPointer(candidate.summary)
+    if (pointer?.version === version && pointer.body !== undefined) return candidate.id
+  }
+  return null
+}
+
+export function buildEvalSetPointer(options: {
+  manifest: EvalSetManifest
+  version: string
+  suiteRunId: string
+  carrierSuiteRunId: string | null
+}): EvalSetPointer {
+  const { manifest, version, suiteRunId, carrierSuiteRunId } = options
+  const pointer: EvalSetPointer = {
+    version,
+    label: manifest.label,
+    source: manifest.source,
+    caseCount: manifest.cases.length,
+    assertionCount: manifest.assertions.length,
+    carrierSuiteRunId: carrierSuiteRunId ?? suiteRunId,
+  }
+  return carrierSuiteRunId ? pointer : { ...pointer, body: manifest }
+}
+
+export function stripEvalSetBody(summary: unknown): unknown {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return summary
+  const record = summary as Record<string, unknown>
+  const entry = record[EVAL_SET_SUMMARY_KEY]
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry) || !('body' in entry)) return summary
+  const pointer = { ...(entry as Record<string, unknown>) }
+  delete pointer.body
+  return { ...record, [EVAL_SET_SUMMARY_KEY]: pointer }
+}
+
+export function mergeSuiteSummary(
+  existing: unknown,
+  aggregate: Record<string, unknown>,
+  reservedUpdates: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const base = existing && typeof existing === 'object' && !Array.isArray(existing)
+    ? (existing as Record<string, unknown>)
+    : {}
+  const reserved = Object.fromEntries(Object.entries(base).filter(([key]) => key.startsWith('__')))
+  return { ...base, ...aggregate, ...reserved, ...reservedUpdates }
+}
