@@ -128,6 +128,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core attachments generator plugin — installed-package and monorepo owner-policy discovery/bootstrap (#6726)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-subset.test.ts',
+        scans: 'live Catalog and Entities dependency metadata across packages/core and all three module-generator variants — standalone dependency closure (#6517)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-facts.bc-guard.test.ts',
         scans: 'every package module source — generator BC resolve guard',
       },
