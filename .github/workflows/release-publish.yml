@@ -1,0 +1,167 @@
+name: Release publish
+
+# Publishes ONE tagged version of a release line (CONTRIBUTING.md § Releasing). Started by the
+# `vX.Y.Z` tag the Release workflow creates as the release app, so this run's commit — the one
+# npm provenance attests — is exactly the tagged commit it builds and publishes.
+#
+# `scripts/release-line.mts verify` refuses a tag that does not name the committed version or does
+# not sit on its `release/vX.Y.x` line, skips a version whose GitHub Release already exists, and
+# resolves the dist-tag here, right before publishing: only the newest line moves `latest` (judged
+# across every published package); an older line publishes under `latest-X.Y`.
+#
+# A version is done once its GitHub Release exists, and that Release is created last, after the
+# changelog PR to main. A run that fails part-way is finished with "Re-run jobs" (or a dispatch
+# from the same tag): it rebuilds the same commit, publish-packages.sh skips packages already on
+# npm and re-points the dist-tag at them, and existing PRs and Releases are reused.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # required for npm provenance attestation
+
+# One publish at a time across every line: each run reads npm's `latest` before publishing, so two
+# lines published together could both resolve `latest` and move it backwards.
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_name }}
+    # GitHub-hosted on purpose — do NOT move this job to a Blacksmith runner.
+    # `scripts/publish-packages.sh` publishes with `npm publish --provenance`, and
+    # npm's sigstore verification only accepts `github-hosted` runners; a
+    # `self-hosted` runner (which is how Blacksmith registers) fails the publish
+    # with a 422.
+    # Guarded by scripts/__tests__/npm-provenance-runners.test.mjs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: startsWith(github.ref, 'refs/tags/v')
+    # Requires approval from the 'production' environment — prevents a single
+    # compromised account from publishing unilaterally. Configure reviewers and allow `v*` tags at:
+    # Settings → Environments → production
+    environment: production
+    env:
+      HUSKY: '0'
+      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      # No `ref:` on purpose: the run's own commit is the tagged one, and provenance attests it.
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the release lines and tags verify checks the tag against
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Configure npm authentication
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
+          echo "access=public" >> .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Mint the release token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # Fails closed: a tag off its line, a version mismatch or an unreadable registry stops here.
+      - name: Verify the tag and resolve the dist-tag
+        id: verify
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: node scripts/release-line.mts verify
+
+      - name: Install dependencies
+        if: steps.verify.outputs.released != 'true'
+        run: yarn install --immutable
+
+      - name: Verify version alignment
+        if: steps.verify.outputs.released != 'true'
+        run: ./scripts/check-version-alignment.sh --reference package.json
+
+      - name: Build packages
+        if: steps.verify.outputs.released != 'true'
+        # `shell: bash` adds `-o pipefail`, so a failure upstream of `tee` still fails the step
+        shell: bash
+        run: |
+          {
+            yarn build:packages
+            yarn generate
+            yarn build:packages
+          } 2>&1 | tee "$RUNNER_TEMP/release-output.txt"
+
+      - name: Publish packages to npm
+        id: publish
+        if: steps.verify.outputs.released != 'true'
+        shell: bash
+        env:
+          DIST_TAG: ${{ steps.verify.outputs.distTag }}
+        run: |
+          ./scripts/publish-packages.sh --tag "$DIST_TAG" --reconcile-tag 2>&1 | tee -a "$RUNNER_TEMP/release-output.txt"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-log
+          path: ${{ runner.temp }}/release-output.txt
+          if-no-files-found: ignore
+
+      # App tokens live one hour and the build can take most of that, so mint a fresh one.
+      - name: Mint a fresh release token
+        id: announce-token
+        if: steps.publish.outputs.published == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # The changelog PR first, the GitHub Release last: the Release marks the version done.
+      - name: Changelog PR and GitHub Release
+        id: announce
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ steps.announce-token.outputs.token }}
+          VERSION: ${{ steps.verify.outputs.version }}
+          DIST_TAG: ${{ steps.verify.outputs.distTag }}
+        run: node scripts/release-line.mts announce --version "$VERSION" --sha "$GITHUB_SHA" --dist-tag "$DIST_TAG"
+
+      - name: Write workflow summary
+        if: always() && steps.verify.outputs.version != ''
+        env:
+          VERSION: ${{ steps.verify.outputs.version }}
+          DIST_TAG: ${{ steps.verify.outputs.distTag }}
+          RELEASED: ${{ steps.verify.outputs.released }}
+          PUBLISHED: ${{ steps.publish.outputs.published }}
+          CHANGELOG_PR: ${{ steps.announce.outputs.changelogPr }}
+        run: |
+          {
+            echo "## 🚀 Release ${VERSION}"
+            echo ""
+            if [ "$RELEASED" = "true" ]; then
+              echo "\`v${VERSION}\` already has a GitHub Release — nothing to do."
+            elif [ "$PUBLISHED" = "true" ]; then
+              echo "Published \`${VERSION}\` under \`${DIST_TAG}\` from \`${GITHUB_SHA}\`."
+              if [ -n "$CHANGELOG_PR" ]; then
+                echo ""
+                echo "Merge the changelog PR on main: ${CHANGELOG_PR}"
+              fi
+            else
+              echo "⚠️ \`v${VERSION}\` is not finished. Re-run this run — it rebuilds the same commit and skips packages already on npm."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

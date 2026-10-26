@@ -1224,24 +1224,46 @@ describe('CRUD Factory', () => {
   })
 
   it('returns a correlated 409 without leaking the constraint name when a handler hits a unique violation (#6467)', async () => {
-    setRecordCustomFields.mockImplementationOnce(async () => {
-      // Same MikroORM wrapping shape as the FK case — pg fields on `previous`.
-      throw Object.assign(
-        new Error('duplicate key value violates unique constraint "customer_interactions_email_dedupe_uq"'),
-        { previous: { code: '23505', constraint: 'customer_interactions_email_dedupe_uq' } },
+    const reportError = jest.fn()
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      recordHttpDuration: () => {},
+      reportError,
+      shutdown: async () => {},
+    } satisfies TelemetryRuntime)
+    try {
+      setRecordCustomFields.mockImplementationOnce(async () => {
+        // Same MikroORM wrapping shape as the FK case — pg fields on `previous`.
+        throw Object.assign(
+          new Error('duplicate key value violates unique constraint "customer_interactions_email_dedupe_uq"'),
+          { previous: { code: '23505', constraint: 'customer_interactions_email_dedupe_uq' } },
+        )
+      })
+      const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Dup email', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json', 'x-request-id': 'req-unique-409' } }))
+      expect(res.status).toBe(409)
+      const body = await res.json()
+      expect(body.code).toBe('UNIQUE_VIOLATION')
+      expect(body.error).toBe('A record with the same unique values already exists')
+      expect(body.constraint).toBeUndefined()
+      expect(JSON.stringify(body)).not.toContain('customer_interactions_email_dedupe_uq')
+      expect(body.requestId).toBe('req-unique-409')
+      expect(res.headers.get('x-request-id')).toBe(body.requestId)
+      expect(Object.values(db)).toHaveLength(0)
+      expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        {
+          module: 'crud',
+          code: 'crud.unique_violation',
+          attributes: { requestId: 'req-unique-409', errorName: 'Error', constraint: 'customer_interactions_email_dedupe_uq' },
+        },
       )
-    })
-    const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Dup email', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
-    expect(res.status).toBe(409)
-    const body = await res.json()
-    expect(body.code).toBe('UNIQUE_VIOLATION')
-    expect(body.error).toBe('A record with the same unique values already exists')
-    expect(body.constraint).toBeUndefined()
-    expect(JSON.stringify(body)).not.toContain('customer_interactions_email_dedupe_uq')
-    expect(typeof body.requestId).toBe('string')
-    expect(res.headers.get('x-request-id')).toBe(body.requestId)
-    expect(Object.values(db)).toHaveLength(0)
-    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+    } finally {
+      resetTelemetryRuntime()
+    }
   })
 
   it('POST surfaces CRUD side-effect failures after custom field writes', async () => {

@@ -690,6 +690,7 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
     })
     getTelemetryRuntime()?.reportError(err, {
       module: 'crud',
+      code: 'crud.foreign_key_violation',
       attributes: { requestId, errorName: 'ForeignKeyViolation', constraint: constraint ?? undefined },
     })
     return json(
@@ -717,6 +718,7 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
     })
     getTelemetryRuntime()?.reportError(err, {
       module: 'crud',
+      code: 'crud.unique_violation',
       attributes: { requestId, errorName: 'UniqueViolation', constraint: constraint ?? undefined },
     })
     const { translate } = await resolveTranslations()

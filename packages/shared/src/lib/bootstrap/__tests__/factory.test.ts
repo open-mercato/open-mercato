@@ -62,7 +62,8 @@ describe('partitioned bootstrap registration', () => {
   })
 
   it('keeps API-only bootstrap from replacing core injection widgets', async () => {
-    const apiBootstrap = createBootstrap(emptyBootstrapData, {
+    const entry = { moduleId: 'example', key: 'example:widget', source: 'app' as const, loader: async () => ({}) as never }
+    const apiBootstrap = createBootstrap({ ...emptyBootstrapData, injectionWidgetEntries: [entry] }, {
       registrationKey: 'api-only',
       skipUiRegistries: true,
       skipCoreInjectionWidgets: true,
@@ -71,11 +72,22 @@ describe('partitioned bootstrap registration', () => {
     apiBootstrap()
     await waitForAsyncRegistration()
 
-    expect(registerCoreInjectionWidgetsMock).not.toHaveBeenCalled()
-    // The raw widget entries still travel with the tables so a `key`-spelled injection
-    // override resolves to the `widgetId` the slots reference (#5152), even though this
-    // bootstrap deliberately skips registering the widgets themselves.
-    expect(registerCoreInjectionTablesMock).toHaveBeenCalledWith([], [])
+    // The API partition still contributes its entries — module API routes resolve widget
+    // contributions on the request path — but in `merge` mode, so it can never shrink a
+    // registry the full page bootstrap already published in the same process.
+    expect(registerCoreInjectionWidgetsMock).toHaveBeenCalledWith([entry], { mode: 'merge' })
+    // The raw widget entries also travel with the tables so a `key`-spelled injection
+    // override resolves to the `widgetId` the slots reference (#5152).
+    expect(registerCoreInjectionTablesMock).toHaveBeenCalledWith([], [entry])
     expect(registerEnabledModuleIdsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets the full bootstrap replace the registry outright', async () => {
+    const fullBootstrap = createBootstrap(emptyBootstrapData, { registrationKey: 'full-only' })
+
+    fullBootstrap()
+    await waitForAsyncRegistration()
+
+    expect(registerCoreInjectionWidgetsMock).toHaveBeenCalledWith([], undefined)
   })
 })
