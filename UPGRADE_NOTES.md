@@ -24,6 +24,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
 The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
@@ -183,6 +189,36 @@ does for draft attachments. Built-in display-only lists (the attachment form fie
 variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
+
+### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
+
+This release adds the `cart` module (guest/customer cart lifecycle, line pricing, merge/undo,
+promotion application) and the `promotions` module (rule-tree evaluation, benefits, discount
+codes), plus enforces buyer-scoped catalog visibility inside the cart write path so a product
+hidden from browsing cannot be bought through the cart API either.
+
+**Action for operators — existing tenants need two commands.** `setup.ts` `defaultRoleFeatures`
+for both modules (`cart.carts.view`/`.manage`/`.settings.manage`/`.proposals.*`/`.channel.*` and
+`promotions.view`/`.create`/`.update`/`.delete`/`.codes.manage`/`.evaluate`/`.codes.redeem`/
+`.usage.manage`) is merged into seeded staff roles during *tenant setup* only — new tenants get
+the grants automatically, **existing tenants receive nothing until you run:**
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It is idempotent, additive (never revokes a hand-added feature) and wildcard-aware (a role
+holding `cart.*`/`promotions.*` gains nothing redundant). Until this runs, staff on existing
+tenants see the new cart/promotions admin UI but every call answers `403`. On a running
+instance the new grants take effect once the permission cache expires (`CACHE_TTL`, about 5
+minutes by default), and the "Promotions" menu group appears after
+`yarn mercato configs cache structural --all-tenants`.
+
+Both modules also register queue-backed sweeper schedules (cart lock/reservation cleanup,
+dynamic-code generation, promotion code-reservation expiry) through the `configs` upgrade-action
+mechanism, gated at version `0.9.1` — the version this release ships as. An existing tenant sees
+these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
+action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
 
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
@@ -457,12 +493,6 @@ different scheme (for example `http://` while `APP_URL` is `https://`) or a non-
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
-
-### Warranty claim line numbers must be unique within each live claim (#7306)
-
-Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
-
-An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
 
@@ -775,6 +805,18 @@ unaffected.
 **Action for workflow authors:** make each child satisfy its declared output-port contract, or
 remove or relax (`required: false`, a broader type) any port declaration that is not actually
 part of the child's contract.
+
+### Catalog validates its required modules during generation (#6517)
+
+Standalone apps enabling `catalog` must also enable `attachments`, `currencies`,
+`dictionaries`, `entities` and the latter's `query_index` dependency in `src/modules.ts`.
+Run `yarn generate` after updating the selection, then use the normal initialization
+and migration workflow. Incomplete selections now fail generation instead of failing
+later during Catalog setup or CRUD. Default module sets already include these modules.
+
+`sales` remains optional. Catalog's commerce demo dataset is skipped when Sales is
+disabled; Catalog defaults and ordinary product CRUD remain available. Enable Sales
+when that demo dataset is desired. See the [dependency specification](.ai/specs/2026-10-01-catalog-runtime-module-dependencies.md).
 
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 

@@ -287,7 +287,7 @@
   "warranty_claims.errors.deleteNotAllowed": "Only draft or cancelled claims can be deleted.",
   "warranty_claims.errors.dispositionGradeConflict": "Restock is only allowed for grade A or B items.",
   "warranty_claims.errors.dispositionTypeConflict": "This disposition is not available for this claim type.",
-  "warranty_claims.errors.duplicateLineNo": "Another line on this claim already uses that line number. Remove the line using that number or change its number through the API, then retry.",
+  "warranty_claims.errors.duplicateLineNo": "Another line on this claim already uses that line number. Remove the line that uses this number, then retry.",
   "warranty_claims.errors.duplicateSerial": "A registration with this serial number already exists.",
   "warranty_claims.errors.fieldLocked": "This field can't be edited in the current claim status.",
   "warranty_claims.errors.invalidAssignee": "The selected assignee could not be found.",

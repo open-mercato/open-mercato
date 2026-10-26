@@ -488,7 +488,7 @@ Fully compliant — implemented and verified against the full validation gate.
 
 Live line numbers must be unique within a claim. Initial claim creation, explicit line creation/renumbering, and undo restoration reject collisions with HTTP 409, a localized `error`, and `code: warranty_claims.errors.duplicateLineNo`. Existing request/response fields, routes, database schema, events, and ACL identifiers remain unchanged. Automatic creation still uses the highest live number plus one; a delete undo refuses if that number was reused. Remove the occupying line or move it to a free number through the API, then retry the undo. Historical duplicate numbers are not repaired automatically; unrelated edits to those records remain possible.
 
-Number allocation, explicit renumbering, and line undo validation serialize on the tenant/org-scoped claim lock before checking live siblings or changing lines. Aggregate undo validates its projected live numbers before restoring any fields. The TC-WC-038 integration scenario covers delete/add/undo refusal and retry, explicit/batch duplicate input, and concurrent creates. Command tests also cover snapshot restoration, nonconflicting operations, and scope isolation.
+Number allocation, explicit renumbering, and line undo validation serialize on the tenant/org-scoped claim lock before checking live siblings or changing lines. Aggregate undo validates its projected live numbers before restoring any fields. The TC-WC-040 integration scenario covers delete/add/undo refusal and retry, explicit/batch duplicate input, and concurrent creates. Command tests also cover snapshot restoration, nonconflicting operations, and scope isolation.
 
 ## Changelog
 

@@ -55,3 +55,14 @@ CI prepare failed on `1c0276d7b` with TS18048 at claims.ts:684–685. The async 
 - [ ] 3.2 Publish the follow-up evidence and re-request human review
 
 Follow-up validation: the real TypeScript 6.0.3 compiler reproduced all six TS18048 diagnostics on the previous source, then returned no options, syntactic, or semantic diagnostics for the actual `claims.ts`, `claim-lines.ts`, and `shared.ts` source using current app compiler options. The scoped compiler script and before/after logs live in the temporary review handoff directory. Command regressions now pass 90/90, focused ESLint passes, and the lessons checker plus its five tests pass. No broad unrelated unit rerun was performed. Current-head CI and manual/live QA remain external gates.
+
+
+## 2026-10-26 — Human review remediation
+
+Merged current main `c3cfc9211cbd0bdf0c59643e5df7859aa4c95b94`. The line-update merge retains the unconditional parent-first lock and numbering check together with main's parent refresh, mutability check, and order-reference validation. Two command regressions cover a sibling taking the target number and a parent closing while the update waits for its lock. The catalog retains all 156 lessons, with the async-undo lesson placed under P.
+
+Moved the #7306 upgrade note into the unreleased 0.9.1 upgrade window. Conflict feedback in all five locales now gives the UI remedy of deleting the occupying line and retrying; API renumbering remains documented in the upgrade note. The uniqueness scenario is now TC-WC-040 because main also introduced an order-reference TC-WC-038 and receiving-redo TC-WC-039. Historical TC-WC-038 results above refer to the earlier filename.
+
+Current-head CI, independent human reassessment, and fresh live/manual QA remain required. No self-approval or QA approval is implied.
+
+Validation for the merged tree: runner local (Docker Desktop could not start). All 141 warranty command regressions pass, including both new lock-wait merge regressions. Focused ESLint passes (only the existing root pages-directory warning), all 69 modules pass translation synchronization, template parity passes, and the lessons checker plus all five checker tests pass. No broad local gate was substituted for the required new-head GitHub CI. Fresh live API/browser QA is still pending.

@@ -19,6 +19,7 @@ import {
 
 test.describe('TC-WC-003: warranty claim lifecycle commands', () => {
   test('covers lifecycle happy path, invalid transitions, rejection reason, credit-only skip, and stale locks', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-003')
 

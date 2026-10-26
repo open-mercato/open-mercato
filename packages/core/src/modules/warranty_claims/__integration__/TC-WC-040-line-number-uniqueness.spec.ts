@@ -36,7 +36,7 @@ async function readClaimState(request: APIRequestContext, token: string, claimId
   }
 }
 
-test.describe('TC-WC-038: live claim line number uniqueness', () => {
+test.describe('TC-WC-040: live claim line number uniqueness', () => {
   test('rejects delete undo while its number is occupied and retries the same token after renumbering', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let claimId: string | null = null
@@ -44,7 +44,7 @@ test.describe('TC-WC-038: live claim line number uniqueness', () => {
     try {
       const claim = await createClaimFixture(request, token, {
         claimType: 'warranty',
-        customerName: uniqueLabel('tc-wc-038-delete-undo'),
+        customerName: uniqueLabel('tc-wc-040-delete-undo'),
         currencyCode: 'USD',
         lines: [
           { lineNo: 1, productName: 'Retained part', qtyClaimed: 1, creditAmount: 10 },
@@ -98,7 +98,7 @@ test.describe('TC-WC-038: live claim line number uniqueness', () => {
     try {
       const claim = await createClaimFixture(request, token, {
         claimType: 'warranty',
-        customerName: uniqueLabel('tc-wc-038-explicit'),
+        customerName: uniqueLabel('tc-wc-040-explicit'),
         currencyCode: 'USD',
         lines: [
           { lineNo: 1, productName: 'First part', qtyClaimed: 1, creditAmount: 10 },
@@ -143,7 +143,7 @@ test.describe('TC-WC-038: live claim line number uniqueness', () => {
   ]) {
     test(`rejects initial claim batches with ${scenario.name} atomically`, async ({ request }) => {
       const token = await getAuthToken(request, 'admin')
-      const customerName = uniqueLabel('tc-wc-038-batch')
+      const customerName = uniqueLabel('tc-wc-040-batch')
       const query = `search=${encodeURIComponent(customerName)}&pageSize=100`
       let createdClaimId: string | null = null
 
@@ -183,7 +183,7 @@ test.describe('TC-WC-038: live claim line number uniqueness', () => {
     try {
       const claim = await createClaimFixture(request, token, {
         claimType: 'warranty',
-        customerName: uniqueLabel('tc-wc-038-concurrent'),
+        customerName: uniqueLabel('tc-wc-040-concurrent'),
         currencyCode: 'USD',
       })
       claimId = expectId(claim.id, 'claim fixture should have an id')
@@ -225,7 +225,7 @@ test.describe('TC-WC-038: live claim line number uniqueness', () => {
     try {
       const claim = await createClaimFixture(request, token, {
         claimType: 'warranty',
-        customerName: uniqueLabel('tc-wc-038-lock-order'),
+        customerName: uniqueLabel('tc-wc-040-lock-order'),
         currencyCode: 'USD',
         lines: [{ lineNo: 1, productName: 'Original part', qtyClaimed: 1, creditAmount: 10 }],
       })

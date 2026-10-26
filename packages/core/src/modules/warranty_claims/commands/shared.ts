@@ -109,7 +109,7 @@ export async function assertUniqueClaimLineNumbers(lineNumbers: Iterable<number>
       const { translate } = await resolveTranslations()
       const code = 'warranty_claims.errors.duplicateLineNo'
       throw new CrudHttpError(409, {
-        error: translate(code, 'Another line on this claim already uses that line number. Remove the line using that number or change its number through the API, then retry.'),
+        error: translate(code, 'Another line on this claim already uses that line number. Remove the line that uses this number, then retry.'),
         code,
       })
     }
