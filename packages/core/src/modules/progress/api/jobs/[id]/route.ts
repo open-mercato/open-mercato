@@ -137,15 +137,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     userId: auth.sub,
   }
   const existing = await progressService.getJob(params.id, progressContext)
-  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
-    return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
-  }
-  try {
-    await progressService.cancelJob(params.id, progressContext)
-    return NextResponse.json({ ok: true })
-  } catch {
-    return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
-  }
+  const cancelled = existing && (await canMutateProgressJob(container, auth, existing))
+    ? await progressService.cancelJob(params.id, progressContext).then(() => true, () => false)
+    : false
+  if (cancelled) return NextResponse.json({ ok: true })
+  return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
 }
 
 export const openApi = {
