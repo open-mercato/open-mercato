@@ -6,7 +6,7 @@ import * as React from 'react'
 import { act, renderHook, waitFor } from '@testing-library/react'
 
 jest.mock('../../../backend/utils/apiCall', () => ({
-  apiCallOrThrow: jest.fn(),
+  apiCall: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -22,7 +22,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { apiCallOrThrow } from '../../../backend/utils/apiCall'
+import { apiCall } from '../../../backend/utils/apiCall'
 import { useAiPendingActionPolling } from '../useAiPendingActionPolling'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from '../types'
 
@@ -51,8 +51,8 @@ function makeAction(
   }
 }
 
-function mockResponse(action: AiPendingActionCardAction) {
-  ;(apiCallOrThrow as jest.Mock).mockImplementation(async () => ({
+function mockOkResponse(action: AiPendingActionCardAction) {
+  ;(apiCall as jest.Mock).mockImplementation(async () => ({
     ok: true,
     status: 200,
     result: { pendingAction: action },
@@ -61,17 +61,35 @@ function mockResponse(action: AiPendingActionCardAction) {
   }))
 }
 
+function mockStatusResponse(status: number) {
+  return {
+    ok: false,
+    status,
+    result: null,
+    response: {},
+    cacheStatus: null,
+  }
+}
+
+function setDocumentVisibility(state: 'visible' | 'hidden') {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => state,
+  })
+}
+
 const loggerError = createLogger('ui').error as jest.Mock
 
 describe('useAiPendingActionPolling', () => {
   beforeEach(() => {
-    ;(apiCallOrThrow as jest.Mock).mockReset()
+    ;(apiCall as jest.Mock).mockReset()
     loggerError.mockClear()
+    setDocumentVisibility('visible')
   })
 
   it('fetches on mount and continues polling while status is pending', async () => {
     let status: AiPendingActionCardStatus = 'pending'
-    ;(apiCallOrThrow as jest.Mock).mockImplementation(async () => ({
+    ;(apiCall as jest.Mock).mockImplementation(async () => ({
       ok: true,
       status: 200,
       result: { pendingAction: makeAction({ status }) },
@@ -90,7 +108,7 @@ describe('useAiPendingActionPolling', () => {
         await Promise.resolve()
         await Promise.resolve()
       })
-      expect(apiCallOrThrow).toHaveBeenCalledTimes(1)
+      expect(apiCall).toHaveBeenCalledTimes(1)
       expect(result.current.status).toBe('pending')
 
       await act(async () => {
@@ -98,7 +116,7 @@ describe('useAiPendingActionPolling', () => {
         await Promise.resolve()
         await Promise.resolve()
       })
-      expect((apiCallOrThrow as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2)
+      expect((apiCall as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(2)
 
       status = 'confirmed'
       await act(async () => {
@@ -107,13 +125,13 @@ describe('useAiPendingActionPolling', () => {
         await Promise.resolve()
       })
       expect(result.current.status).toBe('confirmed')
-      const callsAfterTerminal = (apiCallOrThrow as jest.Mock).mock.calls.length
+      const callsAfterTerminal = (apiCall as jest.Mock).mock.calls.length
 
       await act(async () => {
         jest.advanceTimersByTime(5000)
         await Promise.resolve()
       })
-      expect((apiCallOrThrow as jest.Mock).mock.calls.length).toBe(callsAfterTerminal)
+      expect((apiCall as jest.Mock).mock.calls.length).toBe(callsAfterTerminal)
       expect(result.current.isPolling).toBe(false)
 
       unmount()
@@ -123,14 +141,14 @@ describe('useAiPendingActionPolling', () => {
   })
 
   it('refresh() force-fetches and updates state', async () => {
-    mockResponse(makeAction({ status: 'pending' }))
+    mockOkResponse(makeAction({ status: 'pending' }))
     const { result } = renderHook(() =>
       useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 99999 }),
     )
 
     await waitFor(() => expect(result.current.action?.status).toBe('pending'))
 
-    ;(apiCallOrThrow as jest.Mock).mockImplementationOnce(async () => ({
+    ;(apiCall as jest.Mock).mockImplementationOnce(async () => ({
       ok: true,
       status: 200,
       result: { pendingAction: makeAction({ status: 'confirmed' }) },
@@ -148,26 +166,26 @@ describe('useAiPendingActionPolling', () => {
   it('clears outstanding timers when unmounted mid-poll', async () => {
     jest.useFakeTimers()
     try {
-      mockResponse(makeAction({ status: 'pending' }))
+      mockOkResponse(makeAction({ status: 'pending' }))
       const { unmount } = renderHook(() =>
         useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 1000 }),
       )
-      await waitFor(() => expect(apiCallOrThrow).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
       unmount()
-      const callsAtUnmount = (apiCallOrThrow as jest.Mock).mock.calls.length
+      const callsAtUnmount = (apiCall as jest.Mock).mock.calls.length
       // Advance well past several intervals — no more calls must be fired.
       await act(async () => {
         jest.advanceTimersByTime(10_000)
       })
-      expect((apiCallOrThrow as jest.Mock).mock.calls.length).toBe(callsAtUnmount)
+      expect((apiCall as jest.Mock).mock.calls.length).toBe(callsAtUnmount)
     } finally {
       jest.useRealTimers()
     }
   })
 
-  it('logs a failed fetch and keeps polling until it recovers', async () => {
+  it('logs a failed fetch and keeps polling (with backoff) until it recovers', async () => {
     const failure = new Error('[internal] pending action endpoint unreachable')
-    ;(apiCallOrThrow as jest.Mock)
+    ;(apiCall as jest.Mock)
       .mockImplementationOnce(async () => {
         throw failure
       })
@@ -196,13 +214,162 @@ describe('useAiPendingActionPolling', () => {
       expect(result.current.error?.message).toBe(failure.message)
       expect(result.current.action).toBeNull()
 
+      // First retry after a failure backs off to intervalMs * 2.
       await act(async () => {
-        jest.advanceTimersByTime(1000)
+        jest.advanceTimersByTime(2000)
         await Promise.resolve()
         await Promise.resolve()
       })
       expect(result.current.action?.status).toBe('pending')
       expect(result.current.error).toBeNull()
+
+      unmount()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('stops polling on a 404 and reports error.code=not_found', async () => {
+    ;(apiCall as jest.Mock).mockImplementation(async () => mockStatusResponse(404))
+
+    jest.useFakeTimers()
+    try {
+      const { result, unmount } = renderHook(() =>
+        useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 1000 }),
+      )
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(result.current.error?.code).toBe('not_found')
+      expect(result.current.isPolling).toBe(false)
+      const callsAfterNotFound = (apiCall as jest.Mock).mock.calls.length
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000)
+        await Promise.resolve()
+      })
+      expect((apiCall as jest.Mock).mock.calls.length).toBe(callsAfterNotFound)
+
+      unmount()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('backs off exponentially on repeated 500s and stops after 5 consecutive failures', async () => {
+    ;(apiCall as jest.Mock).mockImplementation(async () => mockStatusResponse(500))
+
+    jest.useFakeTimers()
+    try {
+      const { result, unmount } = renderHook(() =>
+        useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 1000 }),
+      )
+
+      // Initial fetch (failure #1), then drive through failures #2-#5 by
+      // advancing past each capped backoff delay.
+      for (let i = 0; i < 5; i += 1) {
+        await act(async () => {
+          jest.advanceTimersByTime(60_000)
+          await Promise.resolve()
+          await Promise.resolve()
+        })
+      }
+
+      expect(result.current.isPolling).toBe(false)
+      const callsAfterStop = (apiCall as jest.Mock).mock.calls.length
+      expect(callsAfterStop).toBeGreaterThanOrEqual(5)
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000)
+        await Promise.resolve()
+      })
+      expect((apiCall as jest.Mock).mock.calls.length).toBe(callsAfterStop)
+
+      unmount()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('refresh() restarts a stopped loop', async () => {
+    ;(apiCall as jest.Mock).mockImplementation(async () => mockStatusResponse(500))
+
+    jest.useFakeTimers()
+    try {
+      const { result, unmount } = renderHook(() =>
+        useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 1000 }),
+      )
+
+      for (let i = 0; i < 5; i += 1) {
+        await act(async () => {
+          jest.advanceTimersByTime(60_000)
+          await Promise.resolve()
+          await Promise.resolve()
+        })
+      }
+      expect(result.current.isPolling).toBe(false)
+
+      ;(apiCall as jest.Mock).mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        result: { pendingAction: makeAction({ status: 'pending' }) },
+        response: {},
+        cacheStatus: null,
+      }))
+
+      await act(async () => {
+        await result.current.refresh()
+      })
+      expect(result.current.action?.status).toBe('pending')
+      expect(result.current.isPolling).toBe(true)
+
+      const callsAfterRestart = (apiCall as jest.Mock).mock.calls.length
+      await act(async () => {
+        jest.advanceTimersByTime(1000)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect((apiCall as jest.Mock).mock.calls.length).toBeGreaterThan(callsAfterRestart)
+
+      unmount()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('pauses polling while the tab is hidden and resumes on visibilitychange', async () => {
+    mockOkResponse(makeAction({ status: 'pending' }))
+
+    jest.useFakeTimers()
+    try {
+      const { unmount } = renderHook(() =>
+        useAiPendingActionPolling({ pendingActionId: 'pa-1', intervalMs: 1000 }),
+      )
+
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      const callsBeforeHidden = (apiCall as jest.Mock).mock.calls.length
+
+      setDocumentVisibility('hidden')
+      document.dispatchEvent(new Event('visibilitychange'))
+
+      await act(async () => {
+        jest.advanceTimersByTime(10_000)
+        await Promise.resolve()
+      })
+      expect((apiCall as jest.Mock).mock.calls.length).toBe(callsBeforeHidden)
+
+      setDocumentVisibility('visible')
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect((apiCall as jest.Mock).mock.calls.length).toBeGreaterThan(callsBeforeHidden)
 
       unmount()
     } finally {
