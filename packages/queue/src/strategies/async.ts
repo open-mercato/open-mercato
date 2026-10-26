@@ -15,6 +15,15 @@ import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-me
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import {
+  MAX_RAW_FAILED_REASON_LENGTH,
+  MAX_TYPE_FILTER_CANDIDATES,
+  buildCompletedRetentionEnvelope,
+  classifyFailureReason,
+  resolveJobType,
+  resolveOffset,
+  resolveWindowSize,
+} from '../introspection'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const packageLogger = createLogger('queue')
@@ -47,6 +56,8 @@ interface BullJobIntrospectionFields<T> {
   finishedOn?: number
   remove: () => Promise<void>
   updateData?: (data: T) => Promise<void>
+  /** Resolves the job's actual BullMQ state (`'waiting' | 'active' | ... | 'unknown'`). */
+  getState?: () => Promise<string>
 }
 
 interface BullQueueInterface<T> {
@@ -54,7 +65,7 @@ interface BullQueueInterface<T> {
     name: string,
     data: T,
     opts?: {
-      removeOnComplete?: boolean
+      removeOnComplete?: boolean | { count: number }
       removeOnFail?: number
       delay?: number
       attempts?: number
@@ -64,7 +75,13 @@ interface BullQueueInterface<T> {
   obliterate: (opts?: { force?: boolean }) => Promise<void>
   close: () => Promise<void>
   getJobCounts: (...states: string[]) => Promise<Record<string, number>>
-  getJobs: (types: string[], start?: number, end?: number) => Promise<Array<BullJobIntrospectionFields<T>>>
+  getJobs: (
+    types: string[],
+    start?: number,
+    end?: number,
+    /** BullMQ defaults to newest-first; `true` requests oldest / next-to-run first. */
+    asc?: boolean,
+  ) => Promise<Array<BullJobIntrospectionFields<T>>>
   /** Resolves a single job by id, or `undefined` when it does not exist. */
   getJob?: (id: string) => Promise<BullJobIntrospectionFields<T> | undefined>
 }
@@ -91,6 +108,9 @@ interface BullMQModule {
 
 /** The `bullmq-otel` package (optional). Loaded only when an OTLP backend is active. */
 type BullMQOtelModule = { BullMQOtel: new (tracerName: string) => object }
+
+/** How many completed jobs BullMQ keeps per queue (payload-scrubbed) to sample processing times from. */
+export const COMPLETED_RETENTION_COUNT = 100
 
 const REMOVABLE_JOB_STATES = ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children']
 
@@ -267,6 +287,25 @@ export function createAsyncQueue<T = unknown>(
     opts?: { attempts?: number }
   }
 
+  // Retained completed jobs exist only so processing-time metrics have a sample, so their payload is
+  // reduced to ownership + type the moment they complete. Idempotent; a failure leaves the (bounded,
+  // 100-per-queue) record with its payload until BullMQ evicts it, which is reported, not hidden.
+  const pendingScrubs = new Set<Promise<void>>()
+  function trackScrub(scrub: Promise<void>): void {
+    pendingScrubs.add(scrub)
+    void scrub.then(() => pendingScrubs.delete(scrub))
+  }
+
+  async function scrubCompletedJob(job: AbandonedJobRecord): Promise<void> {
+    if (!job.data || typeof job.updateData !== 'function') return
+    try {
+      await job.updateData(buildCompletedRetentionEnvelope(job.data) as QueuedJob<T>)
+    } catch (scrubError) {
+      logger.warn('Failed to scrub a completed job payload', { jobId: job.id, err: scrubError as Error })
+      reportQueueError(scrubError as Error, 'queue.completed_scrub_failed', { jobId: job.id })
+    }
+  }
+
   // The acknowledgement that makes delivery at-least-once: written only after the callback returns,
   // so a callback that threw or a process that died mid-report leaves the job unmarked and a later
   // sweep retries it. Requires the driver to expose `updateData`; without it the report simply stays
@@ -411,7 +450,11 @@ export function createAsyncQueue<T = unknown>(
     const queue = await getQueue()
     // When bullmq-otel handles propagation, don't also attach our carrier.
     const telemetry = await getQueueTelemetry()
-    const metadata = telemetry ? undefined : attachTraceMetadata(undefined)
+    const traceMetadata = telemetry ? undefined : attachTraceMetadata(undefined)
+    // Payload-free job type, so the status dashboard can filter without reading business data.
+    // The BullMQ job *name* stays the random job id (existing contract), so it cannot carry this.
+    const jobType = resolveJobType({ payload: data, metadata: { jobType: options?.jobType } })
+    const metadata = jobType ? { ...(traceMetadata ?? {}), jobType } : traceMetadata
     const jobData: QueuedJob<T> = {
       id: crypto.randomUUID(),
       payload: data,
@@ -421,7 +464,11 @@ export function createAsyncQueue<T = unknown>(
 
     const job = await queue.add(jobData.id, jobData, {
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
-      removeOnComplete: true,
+      // Bounded completed-job retention: the dashboard's processing-time metrics need a recent
+      // sample, and `removeOnComplete: true` leaves none. The worker's `completed` listener
+      // immediately reduces each retained job's payload to ownership + type (see
+      // `scrubCompletedJob`), so no handler payload outlives its run.
+      removeOnComplete: { count: COMPLETED_RETENTION_COUNT },
       removeOnFail: 1000,
       attempts,
       backoff: { type: 'exponential', delay: 1000 },
@@ -464,8 +511,9 @@ export function createAsyncQueue<T = unknown>(
 
     // Set up event handlers
     bullWorker.on('completed', (job) => {
-      const jobWithId = job as { id?: string }
-      logger.info('Job completed', { jobId: jobWithId.id })
+      const completedJob = job as AbandonedJobRecord
+      logger.info('Job completed', { jobId: completedJob.id })
+      trackScrub(scrubCompletedJob(completedJob))
     })
 
     bullWorker.on('failed', (job, err) => {
@@ -598,6 +646,16 @@ export function createAsyncQueue<T = unknown>(
         })
       }
     }
+    if (pendingScrubs.size) {
+      // Bounded for the same reason as the abandoned reports above.
+      await Promise.race([
+        Promise.allSettled([...pendingScrubs]),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 2000)
+          ;(timer as unknown as { unref?: () => void }).unref?.()
+        }),
+      ])
+    }
     if (bullQueue) {
       await bullQueue.close()
       bullQueue = null
@@ -628,46 +686,50 @@ export function createAsyncQueue<T = unknown>(
   const DEFAULT_PROCESSING_SAMPLE_SIZE = 50
   const MAX_IN_FLIGHT_LIMIT = 50
   const DEFAULT_IN_FLIGHT_LIMIT = 20
-  /** Server-side truncation so a huge stack/context blob in failedReason cannot leave the server. */
-  const MAX_FAILED_REASON_LENGTH = 500
 
-  function clamp(value: number | undefined, fallback: number, max: number): number {
-    const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
-    return Math.max(0, Math.min(n, max))
+  type IntrospectedJob = BullJobIntrospectionFields<QueuedJob<T>>
+
+  function matchesType(job: IntrospectedJob, type: string | undefined): boolean {
+    return !type || resolveJobType(job.data) === type
   }
 
-  /**
-   * Best-effort worker id for a job: `WorkerMeta.id` is not carried on the BullMQ
-   * job itself, so this reports the job's declared `name` (set to the queue name
-   * for jobs enqueued through this package's `enqueue()`) as the closest
-   * available signal. Left `undefined` rather than guessed when absent.
-   */
-  function deriveWorkerId(job: BullJobIntrospectionFields<QueuedJob<T>>): string | undefined {
-    return typeof job.name === 'string' && job.name.length > 0 ? job.name : undefined
-  }
-
-  async function getFailedJobsSummary(limit: number, offset = 0): Promise<FailedJobSummary[]> {
+  async function getFailedJobsSummary(
+    limit: number,
+    offset = 0,
+    opts?: { type?: string },
+  ): Promise<FailedJobSummary[]> {
+    const cappedLimit = resolveWindowSize(limit, DEFAULT_FAILED_SUMMARY_LIMIT, MAX_FAILED_SUMMARY_LIMIT)
+    // BullMQ reads range 0..-1 as "everything", so a zero window must never reach it.
+    if (cappedLimit === 0) return []
     const queue = await getQueue()
-    const cappedLimit = clamp(limit, DEFAULT_FAILED_SUMMARY_LIMIT, MAX_FAILED_SUMMARY_LIMIT)
-    const boundedOffset = Math.max(0, Math.floor(offset))
-    const jobs = await queue.getJobs(['failed'], boundedOffset, boundedOffset + cappedLimit - 1)
-    // Allow-list map — `job.data` (the raw payload) is never read into the response.
-    return jobs.map((job) => ({
-      id: job.id ?? '',
-      queue: name,
-      workerId: deriveWorkerId(job),
-      failedReason: job.failedReason?.slice(0, MAX_FAILED_REASON_LENGTH),
-      attemptsMade: job.attemptsMade,
-      failedAt: job.finishedOn,
-    }))
+    const boundedOffset = resolveOffset(offset)
+    const fetchCount = opts?.type ? Math.max(cappedLimit, MAX_TYPE_FILTER_CANDIDATES) : cappedLimit
+    const jobs = await queue.getJobs(['failed'], boundedOffset, boundedOffset + fetchCount - 1)
+    // Allow-list map — neither `job.data` (the raw payload) nor the raw `failedReason` text is
+    // forwarded: a handler's exception message can echo tenant data or credentials, and this is
+    // the broadly-granted Tier 1 surface. Only a stable error code leaves here.
+    return jobs
+      .filter((job) => matchesType(job, opts?.type))
+      .slice(0, cappedLimit)
+      .map((job) => ({
+        id: job.id ?? '',
+        queue: name,
+        type: resolveJobType(job.data),
+        errorCode: classifyFailureReason(job.failedReason),
+        attemptsMade: job.attemptsMade,
+        failedAt: job.finishedOn,
+      }))
   }
 
   async function getProcessingStats(opts?: { type?: string; sampleSize?: number }): Promise<QueueProcessingStats> {
+    const sampleSize = resolveWindowSize(opts?.sampleSize, DEFAULT_PROCESSING_SAMPLE_SIZE, MAX_PROCESSING_SAMPLE_SIZE)
+    if (sampleSize === 0) return { sampleSize: 0, fidelity: 'exact' }
     const queue = await getQueue()
-    const sampleSize = clamp(opts?.sampleSize, DEFAULT_PROCESSING_SAMPLE_SIZE, MAX_PROCESSING_SAMPLE_SIZE)
-    // Newest-first bounded window — never a full scan, regardless of queue size.
-    const jobs = await queue.getJobs(['completed'], 0, sampleSize - 1)
-    const sample = opts?.type ? jobs.filter((job) => job.name === opts.type) : jobs
+    const fetchCount = opts?.type ? Math.max(sampleSize, MAX_TYPE_FILTER_CANDIDATES) : sampleSize
+    // Newest-first bounded window — never a full scan, regardless of queue size. Completed jobs
+    // are retained (payload-scrubbed) for exactly this purpose; see `COMPLETED_RETENTION_COUNT`.
+    const jobs = await queue.getJobs(['completed'], 0, fetchCount - 1)
+    const sample = jobs.filter((job) => matchesType(job, opts?.type)).slice(0, sampleSize)
 
     const processingDurations: number[] = []
     const waitDurations: number[] = []
@@ -715,14 +777,16 @@ export function createAsyncQueue<T = unknown>(
     type?: string
     limit: number
   }): Promise<InFlightJobSummary[]> {
-    const queue = await getQueue()
     const state = opts.state ?? 'active'
-    const cappedLimit = clamp(opts.limit, DEFAULT_IN_FLIGHT_LIMIT, MAX_IN_FLIGHT_LIMIT)
-    // For waiting/delayed this bounded window is the HEAD of the queue (oldest /
-    // next-to-run) — exactly the jobs that look stuck. For active it's the
-    // in-progress set. Never a full scan.
-    const jobs = await queue.getJobs([state], 0, cappedLimit - 1)
-    const filtered = opts.type ? jobs.filter((job) => job.name === opts.type) : jobs
+    const cappedLimit = resolveWindowSize(opts.limit, DEFAULT_IN_FLIGHT_LIMIT, MAX_IN_FLIGHT_LIMIT)
+    if (cappedLimit === 0) return []
+    const queue = await getQueue()
+    const fetchCount = opts.type ? Math.max(cappedLimit, MAX_TYPE_FILTER_CANDIDATES) : cappedLimit
+    // `asc: true` is what makes this the HEAD of the queue: BullMQ's default is newest-first, which
+    // would sample fresh arrivals and could hide the oldest stuck job entirely. Oldest / next-to-run
+    // first for waiting & delayed, longest-running first for active. Never a full scan.
+    const jobs = await queue.getJobs([state], 0, fetchCount - 1, true)
+    const filtered = jobs.filter((job) => matchesType(job, opts.type)).slice(0, cappedLimit)
     const now = Date.now()
 
     return filtered.map((job) => {
@@ -731,8 +795,7 @@ export function createAsyncQueue<T = unknown>(
       return {
         id: job.id ?? '',
         queue: name,
-        type: job.name,
-        workerId: deriveWorkerId(job),
+        type: resolveJobType(job.data),
         state,
         enqueuedAt,
         startedAt,
@@ -745,26 +808,42 @@ export function createAsyncQueue<T = unknown>(
 
   const MAX_RECENT_JOBS_LIMIT = 100
   const DEFAULT_RECENT_JOBS_LIMIT = 20
-  const ALL_JOB_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const
+  const ALL_JOB_STATES = ['waiting', 'active', 'delayed', 'failed', 'completed'] as const
+  type RecentJobState = (typeof ALL_JOB_STATES)[number]
+
+  /** The timestamp that orders a job inside its own state — "when did this last happen". */
+  function recencyOf(job: IntrospectedJob, state: string): number {
+    if (state === 'failed' || state === 'completed') return job.finishedOn ?? job.processedOn ?? job.timestamp ?? 0
+    if (state === 'active') return job.processedOn ?? job.timestamp ?? 0
+    return job.timestamp ?? 0
+  }
 
   /**
    * Tier 2 (privileged) ONLY. Unwraps this package's own `QueuedJob<T>` envelope
    * so `data` carries the caller's actual payload (what an operator means by
    * "the job's payload"), not the `{id, payload, createdAt, metadata}` wrapper.
+   * `failedReason` stays raw here — the caller redacts it behind the tenant filter.
    */
-  function toRecentJob(job: BullJobIntrospectionFields<QueuedJob<T>>, state?: string): RecentJob {
+  function toRecentJob(job: IntrospectedJob, state: string | undefined): RecentJob {
     return {
       id: job.id ?? job.data?.id ?? '',
       queue: name,
       state,
-      type: job.name,
+      type: resolveJobType(job.data),
       attemptsMade: job.attemptsMade,
       timestamp: job.timestamp,
       processedOn: job.processedOn,
       finishedOn: job.finishedOn,
-      failedReason: job.failedReason?.slice(0, MAX_FAILED_REASON_LENGTH),
+      failedReason: job.failedReason?.slice(0, MAX_RAW_FAILED_REASON_LENGTH),
       data: job.data?.payload,
     }
+  }
+
+  async function resolveActualState(job: IntrospectedJob): Promise<string | undefined> {
+    if (typeof job.getState !== 'function') return undefined
+    const actual = await job.getState()
+    if (!actual || actual === 'unknown') return undefined
+    return actual === 'prioritized' ? 'waiting' : actual
   }
 
   async function getRecentJobs(opts: {
@@ -774,24 +853,42 @@ export function createAsyncQueue<T = unknown>(
     limit: number
     offset?: number
   }): Promise<RecentJob[]> {
-    const queue = await getQueue()
-
     if (opts.id) {
       // Single-job path: bounded to exactly one job, regardless of `limit`.
+      const queue = await getQueue()
       if (typeof queue.getJob !== 'function') return []
       const job = await queue.getJob(opts.id)
       if (!job) return []
-      return [toRecentJob(job as BullJobIntrospectionFields<QueuedJob<T>>, opts.state)]
+      // The caller's `state` is a query, not a fact — report what BullMQ says the job is.
+      return [toRecentJob(job as IntrospectedJob, await resolveActualState(job as IntrospectedJob))]
     }
 
-    const cappedLimit = clamp(opts.limit, DEFAULT_RECENT_JOBS_LIMIT, MAX_RECENT_JOBS_LIMIT)
-    const boundedOffset = Math.max(0, Math.floor(opts.offset ?? 0))
-    const states = opts.state ? [opts.state] : [...ALL_JOB_STATES]
-    const jobs = await queue.getJobs(states, boundedOffset, boundedOffset + cappedLimit - 1)
-    const filtered = opts.type ? jobs.filter((job) => job.name === opts.type) : jobs
-    return filtered
-      .slice(0, cappedLimit)
-      .map((job) => toRecentJob(job as BullJobIntrospectionFields<QueuedJob<T>>, opts.state))
+    const cappedLimit = resolveWindowSize(opts.limit, DEFAULT_RECENT_JOBS_LIMIT, MAX_RECENT_JOBS_LIMIT)
+    if (cappedLimit === 0) return []
+    const queue = await getQueue()
+    const boundedOffset = resolveOffset(opts.offset)
+    const wanted = boundedOffset + cappedLimit
+    const perStateFetch = opts.type ? Math.max(wanted, MAX_TYPE_FILTER_CANDIDATES) : wanted
+    const states: readonly RecentJobState[] = opts.state ? [opts.state] : ALL_JOB_STATES
+
+    // One bounded read per state (so each job keeps its real state), then ONE global ordering by
+    // recency before the window is cut. Reading `getJobs(allStates, ...)` instead concatenates the
+    // states in request order, so a backlog of waiting jobs would fill the window and push newer
+    // failures out of it.
+    const perState = await Promise.all(
+      states.map(async (state) => {
+        const jobs = await queue.getJobs([state], 0, perStateFetch - 1)
+        return jobs
+          .filter((job) => matchesType(job, opts.type))
+          .map((job) => ({ job, state, recency: recencyOf(job, state) }))
+      }),
+    )
+
+    return perState
+      .flat()
+      .sort((a, b) => b.recency - a.recency)
+      .slice(boundedOffset, wanted)
+      .map(({ job, state }) => toRecentJob(job, state))
   }
 
   return {

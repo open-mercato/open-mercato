@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createQueue } from '../factory'
 import type { QueuedJob } from '../types'
+import { QueueIntrospectionUnavailableError } from '../introspection'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -1091,6 +1092,116 @@ describe('Queue - local strategy - introspection (#3105)', () => {
 
     await expect(queue.getRecentJobs!({ id: 'missing', limit: 10 })).resolves.toEqual([])
 
+    await queue.close()
+  })
+})
+
+describe('Queue - local strategy - introspection state, type and bounds (#3105)', () => {
+  const origCwd = process.cwd()
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'queue-test-'))
+    process.chdir(tmp)
+  })
+
+  afterEach(() => {
+    process.chdir(origCwd)
+    try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
+  })
+
+  test('waiting and delayed partition the pending jobs — no job is listed under both', async () => {
+    const queue = createQueue<{ n: number }>('test-queue', 'local')
+    const waitingId = await queue.enqueue({ n: 1 })
+    const delayedId = await queue.enqueue({ n: 2 }, { delayMs: 60_000 })
+
+    const waiting = await queue.getInFlightJobsSummary!({ state: 'waiting', limit: 10 })
+    const delayed = await queue.getInFlightJobsSummary!({ state: 'delayed', limit: 10 })
+
+    expect(waiting.map((job) => job.id)).toEqual([waitingId])
+    expect(delayed.map((job) => job.id)).toEqual([delayedId])
+    expect(delayed[0].state).toBe('delayed')
+
+    await queue.close()
+  })
+
+  test('getRecentJobs reports each pending job under its real state and returns nothing for unretained states', async () => {
+    const queue = createQueue<{ n: number }>('test-queue', 'local')
+    const waitingId = await queue.enqueue({ n: 1 })
+    const delayedId = await queue.enqueue({ n: 2 }, { delayMs: 60_000 })
+
+    const all = await queue.getRecentJobs!({ limit: 10 })
+    expect(all.map((job) => [job.id, job.state])).toEqual([[delayedId, 'delayed'], [waitingId, 'waiting']])
+    await expect(queue.getRecentJobs!({ state: 'waiting', limit: 10 })).resolves.toEqual([
+      expect.objectContaining({ id: waitingId, state: 'waiting' }),
+    ])
+    await expect(queue.getRecentJobs!({ state: 'delayed', limit: 10 })).resolves.toEqual([
+      expect.objectContaining({ id: delayedId, state: 'delayed' }),
+    ])
+    for (const state of ['failed', 'completed', 'active'] as const) {
+      await expect(queue.getRecentJobs!({ state, limit: 10 })).resolves.toEqual([])
+    }
+    // A direct id reports the actual state with no state query.
+    await expect(queue.getRecentJobs!({ id: delayedId, limit: 1 })).resolves.toEqual([
+      expect.objectContaining({ id: delayedId, state: 'delayed' }),
+    ])
+
+    await queue.close()
+  })
+
+  test('filters by the payload-free job type', async () => {
+    const queue = createQueue<{ jobType: string }>('test-queue', 'local')
+    await queue.enqueue({ jobType: 'index' })
+    const purgeId = await queue.enqueue({ jobType: 'purge' })
+
+    const waiting = await queue.getInFlightJobsSummary!({ state: 'waiting', type: 'purge', limit: 10 })
+    const recent = await queue.getRecentJobs!({ type: 'purge', limit: 10 })
+
+    expect(waiting.map((job) => [job.id, job.type])).toEqual([[purgeId, 'purge']])
+    expect(recent.map((job) => job.id)).toEqual([purgeId])
+
+    await queue.close()
+  })
+
+  test('zero and negative windows return empty without reading the queue file', async () => {
+    const queue = createQueue<{ n: number }>('test-queue', 'local')
+    await queue.enqueue({ n: 1 })
+    const readSpy = jest.spyOn(fs.promises, 'readFile')
+
+    await expect(queue.getInFlightJobsSummary!({ state: 'waiting', limit: 0 })).resolves.toEqual([])
+    await expect(queue.getInFlightJobsSummary!({ state: 'waiting', limit: -5 })).resolves.toEqual([])
+    await expect(queue.getRecentJobs!({ limit: 0 })).resolves.toEqual([])
+
+    expect(readSpy).not.toHaveBeenCalled()
+    readSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('refuses to scan a backlog above the bounded-work ceiling instead of reading it all', async () => {
+    const queue = createQueue<{ n: number }>('test-queue', 'local')
+    await queue.enqueue({ n: 1 })
+    const queueFile = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+    // Pad the file past the 8 MiB introspection ceiling without a valid-JSON scan being needed.
+    fs.writeFileSync(queueFile, JSON.stringify([{ id: 'big', payload: { pad: 'x'.repeat(9 * 1024 * 1024) }, createdAt: new Date().toISOString() }]))
+    const readSpy = jest.spyOn(fs.promises, 'readFile')
+
+    await expect(queue.getInFlightJobsSummary!({ state: 'waiting', limit: 5 })).rejects.toBeInstanceOf(QueueIntrospectionUnavailableError)
+    await expect(queue.getRecentJobs!({ limit: 5 })).rejects.toBeInstanceOf(QueueIntrospectionUnavailableError)
+
+    expect(readSpy).not.toHaveBeenCalled()
+    readSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('does not take the worker file lock while introspecting', async () => {
+    const queue = createQueue<{ n: number }>('test-queue', 'local')
+    await queue.enqueue({ n: 1 })
+    const lockDir = path.join('.mercato', 'queue', 'test-queue', 'queue.lock')
+    fs.mkdirSync(lockDir) // simulate a worker holding the lock
+
+    await expect(queue.getInFlightJobsSummary!({ state: 'waiting', limit: 5 })).resolves.toHaveLength(1)
+
+    fs.rmSync(lockDir, { recursive: true, force: true })
     await queue.close()
   })
 })

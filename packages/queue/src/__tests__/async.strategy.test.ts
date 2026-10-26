@@ -137,7 +137,7 @@ describe('Queue - async strategy', () => {
       expect.objectContaining({
         attempts: 3,
         backoff: { type: 'exponential', delay: 1000 },
-        removeOnComplete: true,
+        removeOnComplete: { count: 100 },
         removeOnFail: 1000,
       }),
     )
@@ -273,7 +273,7 @@ describe('Queue - async strategy - introspection (#3105)', () => {
         id: 'job-1',
         name: 'test-queue',
         data: { id: 'job-1', payload: { tenantId: 'tenant-1', secret: 'do-not-leak' }, createdAt: '2026-01-01T00:00:00.000Z' },
-        failedReason: 'x'.repeat(600),
+        failedReason: `x${'y'.repeat(600)} password=do-not-leak`,
         attemptsMade: 3,
         finishedOn: 1_700_000_000_000,
       },
@@ -288,11 +288,11 @@ describe('Queue - async strategy - introspection (#3105)', () => {
     expect(summary[0]).toMatchObject({
       id: 'job-1',
       queue: 'test-queue',
-      workerId: 'test-queue',
+      errorCode: 'queue.handler_error',
       attemptsMade: 3,
       failedAt: 1_700_000_000_000,
     })
-    expect(summary[0].failedReason?.length).toBe(500)
+    expect(summary[0]).not.toHaveProperty('failedReason')
     expect(JSON.stringify(summary[0])).not.toContain('do-not-leak')
     expect(summary[0]).not.toHaveProperty('data')
   })
@@ -321,8 +321,8 @@ describe('Queue - async strategy - introspection (#3105)', () => {
 
   it('getProcessingStats filters the sample by job type', async () => {
     queueGetJobs.mockResolvedValueOnce([
-      { id: 'a', name: 'type-a', timestamp: 0, processedOn: 10, finishedOn: 20 },
-      { id: 'b', name: 'type-b', timestamp: 0, processedOn: 100, finishedOn: 200 },
+      { id: 'a', name: 'uuid-a', data: { payload: { jobType: 'type-a' } }, timestamp: 0, processedOn: 10, finishedOn: 20 },
+      { id: 'b', name: 'uuid-b', data: { payload: { jobType: 'type-b' } }, timestamp: 0, processedOn: 100, finishedOn: 200 },
     ])
     const queue = createQueue('test-queue', 'async')
 
@@ -352,7 +352,7 @@ describe('Queue - async strategy - introspection (#3105)', () => {
 
     const inFlight = await queue.getInFlightJobsSummary!({ state: 'active', limit: 500 })
 
-    expect(queueGetJobs).toHaveBeenCalledWith(['active'], 0, 49) // clamped to 50
+    expect(queueGetJobs).toHaveBeenCalledWith(['active'], 0, 49, true) // clamped to 50, oldest first
     expect(inFlight).toEqual([
       expect.objectContaining({ id: 'active-1', state: 'active', startedAt: now - 4000, runningMs: 4000 }),
     ])
@@ -364,8 +364,8 @@ describe('Queue - async strategy - introspection (#3105)', () => {
     const now = 1_700_000_010_000
     jest.spyOn(Date, 'now').mockReturnValue(now)
     queueGetJobs.mockResolvedValueOnce([
-      { id: 'w-1', name: 'match', timestamp: now - 9000 },
-      { id: 'w-2', name: 'other', timestamp: now - 1000 },
+      { id: 'w-1', name: 'uuid-1', data: { payload: { jobType: 'match' } }, timestamp: now - 9000 },
+      { id: 'w-2', name: 'uuid-2', data: { payload: { jobType: 'other' } }, timestamp: now - 1000 },
     ])
     const queue = createQueue('test-queue', 'async')
 
@@ -378,18 +378,20 @@ describe('Queue - async strategy - introspection (#3105)', () => {
   })
 
   it('getRecentJobs unwraps the QueuedJob envelope so data is the caller payload, newest-first, bounded', async () => {
-    queueGetJobs.mockResolvedValueOnce([
-      { id: 'job-2', name: 'test-queue', data: { id: 'job-2', payload: { secret: 'second' }, createdAt: '2026-01-02T00:00:00.000Z' } },
-    ])
+    queueGetJobs.mockImplementation(async (types: string[]) =>
+      types[0] === 'waiting'
+        ? [{ id: 'job-2', name: 'test-queue', data: { id: 'job-2', payload: { secret: 'second' }, createdAt: '2026-01-02T00:00:00.000Z' } }]
+        : [],
+    )
     const queue = createQueue<{ secret: string }>('test-queue', 'async')
 
     const jobs = await queue.getRecentJobs!({ limit: 500 })
+    queueGetJobs.mockImplementation(async () => [])
 
-    expect(queueGetJobs).toHaveBeenCalledWith(
-      ['waiting', 'active', 'completed', 'failed', 'delayed'],
-      0,
-      99, // clamped to the server cap (100)
-    )
+    // One bounded read per state (clamped to the server cap of 100), merged by recency afterwards.
+    for (const state of ['waiting', 'active', 'delayed', 'failed', 'completed']) {
+      expect(queueGetJobs).toHaveBeenCalledWith([state], 0, 99)
+    }
     expect(jobs).toEqual([
       expect.objectContaining({ id: 'job-2', queue: 'test-queue', data: { secret: 'second' } }),
     ])

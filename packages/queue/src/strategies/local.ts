@@ -17,6 +17,12 @@ import type {
   RecentJob,
 } from '../types'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import {
+  QueueIntrospectionUnavailableError,
+  resolveJobType,
+  resolveOffset,
+  resolveWindowSize,
+} from '../introspection'
 
 const packageLogger = createLogger('queue')
 
@@ -460,7 +466,10 @@ export function createLocalQueue<T = unknown>(
     const availableAt = options?.delayMs && options.delayMs > 0
       ? new Date(Date.now() + options.delayMs).toISOString()
       : undefined
-    const metadata = attachTraceMetadata(undefined)
+    const traceMetadata = attachTraceMetadata(undefined)
+    // Payload-free job type for the status dashboard (same contract as the async strategy).
+    const jobType = resolveJobType({ payload: data, metadata: { jobType: options?.jobType } })
+    const metadata = jobType ? { ...(traceMetadata ?? {}), jobType } : traceMetadata
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
@@ -792,15 +801,68 @@ export function createLocalQueue<T = unknown>(
   const DEFAULT_IN_FLIGHT_LIMIT = 20
   const MAX_RECENT_JOBS_LIMIT = 100
   const DEFAULT_RECENT_JOBS_LIMIT = 20
-
-  function clamp(value: number | undefined, fallback: number, max: number): number {
-    const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
-    return Math.max(0, Math.min(n, max))
-  }
+  /**
+   * Largest `queue.json` the introspection reads will parse. The local strategy stores payloads
+   * inline in one JSON document, so there is no index to window over: a read costs a full parse of
+   * the file. Past this size the optional summaries report "unavailable" instead of scanning — the
+   * (existing) counts stay available, and the `async` strategy is the one meant for real backlogs.
+   */
+  const MAX_INTROSPECTION_FILE_BYTES = 8 * 1024 * 1024
+  /** One dashboard refresh issues several introspection calls; they share a single parse of an unchanged file. */
+  const INTROSPECTION_CACHE_TTL_MS = 2000
+  let introspectionCache: { key: string; at: number; jobs: StoredJob<T>[] } | null = null
 
   function jobEnqueuedAtMs(job: StoredJob<T>): number | undefined {
     const parsed = Date.parse(job.createdAt)
     return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  /**
+   * A pending job is `delayed` while its `availableAt` (a delayed enqueue or a retry backoff) is in
+   * the future, `waiting` otherwise. Every introspection method classifies through here, so a job
+   * is never reported as both.
+   */
+  function classifyPending(job: StoredJob<T>, now: number): 'waiting' | 'delayed' {
+    if (!job.availableAt) return 'waiting'
+    const availableAt = Date.parse(job.availableAt)
+    return Number.isFinite(availableAt) && availableAt > now ? 'delayed' : 'waiting'
+  }
+
+  /**
+   * Reads `queue.json` for introspection WITHOUT the worker file lock: every persist is an atomic
+   * rename, so a reader always sees one complete document, and an admin dashboard must not stall
+   * the worker's read-modify-write segments. Never quarantines a corrupt file (that is the worker
+   * path's job) — it just reports the section unavailable.
+   */
+  async function readIntrospectionSnapshot(): Promise<StoredJob<T>[]> {
+    let stats: fs.Stats
+    try {
+      stats = await fsp.stat(queueFile)
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw new QueueIntrospectionUnavailableError('Local queue file is not readable')
+    }
+    if (stats.size > MAX_INTROSPECTION_FILE_BYTES) {
+      throw new QueueIntrospectionUnavailableError('Local queue backlog is too large to introspect')
+    }
+
+    const key = `${stats.ino}:${stats.size}:${stats.mtimeMs}`
+    const now = Date.now()
+    if (introspectionCache && introspectionCache.key === key && now - introspectionCache.at < INTROSPECTION_CACHE_TTL_MS) {
+      return introspectionCache.jobs
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await fsp.readFile(queueFile, 'utf8'))
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw new QueueIntrospectionUnavailableError('Local queue file could not be parsed')
+    }
+    if (!Array.isArray(parsed)) throw new QueueIntrospectionUnavailableError('Local queue file is malformed')
+
+    introspectionCache = { key, at: now, jobs: parsed as StoredJob<T>[] }
+    return introspectionCache.jobs
   }
 
   /**
@@ -818,8 +880,7 @@ export function createLocalQueue<T = unknown>(
    * meaning here — a worker's `inFlightJobIds` is private, in-memory state in
    * whichever process is actually polling, invisible to this call from an
    * admin-surface process — so it always reports empty for that state.
-   * waiting/delayed both read from the same pending-job list (this strategy
-   * does not distinguish "delayed" from "available later").
+   * `waiting` and `delayed` partition the pending jobs (see `classifyPending`).
    */
   async function getInFlightJobsSummary(opts: {
     state?: 'active' | 'waiting' | 'delayed'
@@ -828,19 +889,26 @@ export function createLocalQueue<T = unknown>(
   }): Promise<InFlightJobSummary[]> {
     const state = opts.state ?? 'active'
     if (state === 'active') return []
+    const cappedLimit = resolveWindowSize(opts.limit, DEFAULT_IN_FLIGHT_LIMIT, MAX_IN_FLIGHT_LIMIT)
+    if (cappedLimit === 0) return []
 
-    const jobs = await withFileLock(() => readQueue())
-    const cappedLimit = clamp(opts.limit, DEFAULT_IN_FLIGHT_LIMIT, MAX_IN_FLIGHT_LIMIT)
+    const jobs = await readIntrospectionSnapshot()
     const now = Date.now()
-    // Oldest-first (the head of the queue) — the jobs that look stuck.
-    const sorted = [...jobs].sort((a, b) => (jobEnqueuedAtMs(a) ?? 0) - (jobEnqueuedAtMs(b) ?? 0))
-    const bounded = sorted.slice(0, cappedLimit)
+    // `queue.json` is append-ordered, so file order IS oldest-first (the head of the queue — the
+    // jobs that look stuck). Delayed jobs are ordered by when they become available instead.
+    const matching = jobs.filter(
+      (job) => classifyPending(job, now) === state && (!opts.type || resolveJobType(job) === opts.type),
+    )
+    const head = state === 'delayed'
+      ? matching.sort((a, b) => (Date.parse(a.availableAt ?? '') || 0) - (Date.parse(b.availableAt ?? '') || 0))
+      : matching
 
-    return bounded.map((job) => {
+    return head.slice(0, cappedLimit).map((job) => {
       const enqueuedAt = jobEnqueuedAtMs(job)
       return {
         id: job.id,
         queue: name,
+        type: resolveJobType(job),
         state,
         enqueuedAt,
         ageMs: enqueuedAt !== undefined ? now - enqueuedAt : undefined,
@@ -849,10 +917,23 @@ export function createLocalQueue<T = unknown>(
     })
   }
 
+  function toRecentJob(job: StoredJob<T>, state: 'waiting' | 'delayed'): RecentJob {
+    return {
+      id: job.id,
+      queue: name,
+      state,
+      type: resolveJobType(job),
+      timestamp: jobEnqueuedAtMs(job),
+      attemptsMade: job.attemptCount,
+      data: job.payload,
+    }
+  }
+
   /**
-   * Tier 2 (privileged) ONLY. Bounded read of the pending-job file — this
-   * strategy keeps no retained completed/failed store, so only currently
-   * pending jobs can ever be returned.
+   * Tier 2 (privileged) ONLY. This strategy keeps no retained completed/failed
+   * store and cannot see active jobs, so only the pending `waiting` / `delayed`
+   * states exist; every other requested state is an honest empty result rather
+   * than pending jobs relabelled.
    */
   async function getRecentJobs(opts: {
     state?: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed'
@@ -861,32 +942,34 @@ export function createLocalQueue<T = unknown>(
     limit: number
     offset?: number
   }): Promise<RecentJob[]> {
-    const jobs = await withFileLock(() => readQueue())
-
     if (opts.id) {
+      const jobs = await readIntrospectionSnapshot()
       const job = jobs.find((candidate) => candidate.id === opts.id)
-      if (!job) return []
-      return [{
-        id: job.id,
-        queue: name,
-        timestamp: jobEnqueuedAtMs(job),
-        attemptsMade: job.attemptCount,
-        data: job.payload,
-      }]
+      return job ? [toRecentJob(job, classifyPending(job, Date.now()))] : []
     }
 
-    const cappedLimit = clamp(opts.limit, DEFAULT_RECENT_JOBS_LIMIT, MAX_RECENT_JOBS_LIMIT)
-    const boundedOffset = Math.max(0, Math.floor(opts.offset ?? 0))
-    // Newest-first, mirroring the async strategy's ordering contract.
-    const sorted = [...jobs].sort((a, b) => (jobEnqueuedAtMs(b) ?? 0) - (jobEnqueuedAtMs(a) ?? 0))
-    const windowed = sorted.slice(boundedOffset, boundedOffset + cappedLimit)
-    return windowed.map((job) => ({
-      id: job.id,
-      queue: name,
-      timestamp: jobEnqueuedAtMs(job),
-      attemptsMade: job.attemptCount,
-      data: job.payload,
-    }))
+    if (opts.state && opts.state !== 'waiting' && opts.state !== 'delayed') return []
+    const cappedLimit = resolveWindowSize(opts.limit, DEFAULT_RECENT_JOBS_LIMIT, MAX_RECENT_JOBS_LIMIT)
+    if (cappedLimit === 0) return []
+    const boundedOffset = resolveOffset(opts.offset)
+
+    const jobs = await readIntrospectionSnapshot()
+    const now = Date.now()
+    const result: RecentJob[] = []
+    let skipped = 0
+    // Newest-first, mirroring the async strategy's ordering contract: walk the append-ordered file backwards.
+    for (let index = jobs.length - 1; index >= 0 && result.length < cappedLimit; index--) {
+      const job = jobs[index]
+      const state = classifyPending(job, now)
+      if (opts.state && state !== opts.state) continue
+      if (opts.type && resolveJobType(job) !== opts.type) continue
+      if (skipped < boundedOffset) {
+        skipped++
+        continue
+      }
+      result.push(toRecentJob(job, state))
+    }
+    return result
   }
 
   return {
