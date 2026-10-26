@@ -24,6 +24,23 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function resolveSchemaRefs(value: unknown, document: JsonRecord, depth = 0): unknown {
+  if (depth > 8) return value;
+  if (Array.isArray(value)) return value.map((entry) => resolveSchemaRefs(entry, document, depth + 1));
+  if (!isRecord(value)) return value;
+  const ref = value.$ref;
+  if (typeof ref === 'string' && ref.startsWith('#/')) {
+    const target = ref
+      .slice(2)
+      .split('/')
+      .reduce<unknown>((node, segment) => (isRecord(node) ? node[segment] : undefined), document);
+    return resolveSchemaRefs(target, document, depth + 1);
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, resolveSchemaRefs(entry, document, depth + 1)]),
+  );
+}
+
 async function readJson(response: { text(): Promise<string> }): Promise<JsonRecord> {
   const raw = await response.text();
   try {
@@ -82,10 +99,12 @@ test.describe('TC-AI-RUN-TRACE-016: run-object run id and call settings', () => 
     expect(response.ok()).toBeTruthy();
     const document = await readJson(response);
     const paths = isRecord(document.paths) ? document.paths : {};
-    const operation = isRecord(paths[RUN_OBJECT_PATH]) ? paths[RUN_OBJECT_PATH] : {};
+    const documentPath = RUN_OBJECT_PATH.replace(/^\/api/, '');
+    const pathEntry = paths[RUN_OBJECT_PATH] ?? paths[documentPath];
+    const operation = isRecord(pathEntry) ? pathEntry : {};
     const post = isRecord(operation.post) ? operation.post : {};
     const responses = isRecord(post.responses) ? post.responses : {};
-    const serialized = JSON.stringify(responses['200'] ?? null);
+    const serialized = JSON.stringify(resolveSchemaRefs(responses['200'] ?? null, document));
     expect(serialized).toContain('"runId"');
     expect(serialized).toContain('uuid');
   });

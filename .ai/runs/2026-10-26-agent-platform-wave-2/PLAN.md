@@ -31,7 +31,8 @@
 | 2 | 2.5 | Emit the agent run completed event and register the run reader | dispatch | done | a6c1a627e |
 | 2 | 2.6 | Prune expired agent runs and soft-delete them with conversations | dispatch | done | ccfae3158 |
 | 2 | 2.7 | Stop AO native runs from writing a second run record | dispatch:cheap | done | 9a1bfaca5 |
-| 2 | 2.8 | Document run tracing and add run-object integration coverage | dispatch | done | 2db4e64f8 |
+| 2 | 2.8 | Document run tracing and add run-object integration coverage | dispatch | done | 5a5dcb0f3 |
+| 2 | 2.8-review-fix | Resolve the OpenAPI path and schema refs in TC-AI-RUN-TRACE-016 | inline | done | pending |
 | 3 | 3.1 | Add the shared run observation collector | dispatch | done | 6daa3ee76 |
 | 3 | 3.2 | Hash AO agent definitions and stamp agent_version on new runs | dispatch:capable | todo | — |
 | 3 | 3.3 | Add the run manifest builder | dispatch | todo | — |
@@ -154,6 +155,9 @@ None (`--skill-url` not passed).
 #### 2.8 Document run tracing and add run-object integration coverage
 - Docs: `apps/docs/docs/framework/ai-assistant/agents.mdx` (`version`, `modelSettings`, `callSettings`, `observe`, run tracing env), `packages/ai-assistant/AGENTS.md` (recorder rules, capture env). Event registry docs if a guard test requires it.
 - Integration test `TC-AI-RUN-TRACE-016` (`ai_assistant/__integration__/`, scripted/stub provider as in existing loop tests, self-contained): `run-object` returns a UUID `runId`; invalid `callSettings` key → 400. (Run list/detail assertions arrive with Chat Phase 3.)
+
+#### 2.8-review-fix Resolve the OpenAPI path and schema refs in TC-AI-RUN-TRACE-016
+- Checkpoint 3's ephemeral run failed the OpenAPI case: the document keys the path without the `/api` prefix and the 200 schema is a `$ref`. Look the path up with and without the prefix and resolve `$ref`s before asserting.
 
 ### Phase 3: Run manifest (observability P1)
 
