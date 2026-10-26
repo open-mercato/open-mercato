@@ -17,6 +17,7 @@ const LINE_TWO_ID = '66666666-6666-4666-8666-666666666666'
 const USER_ID = '77777777-7777-4777-8777-777777777777'
 const PORTAL_USER_ID = '88888888-8888-4888-8888-888888888888'
 const ORDER_ID = '99999999-9999-4999-8999-999999999999'
+const OTHER_ORDER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const ORDER_LINE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SALES_RETURN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
@@ -42,6 +43,7 @@ let mockClaims: WarrantyClaim[] = []
 let mockLines: WarrantyClaimLine[] = []
 let mockEvents: WarrantyClaimEvent[] = []
 let mockFindOneCalls: Array<{ entity: string; where: Record<string, unknown>; options: Record<string, unknown> }> = []
+let mockBeforeClaimLock: (() => void) | null = null
 
 const enforceWithGuardsMock = jest.fn<Promise<void>, [unknown, Record<string, unknown>]>()
 const emitWarrantyClaimsEventMock = jest.fn<Promise<void>, [string, unknown, unknown?]>()
@@ -244,6 +246,11 @@ function mockFindMany(entity: unknown, where: unknown, scope: unknown): unknown[
 
 async function mockFindOne(entity: unknown, where: unknown, scope: unknown, options?: unknown): Promise<unknown> {
   mockFindOneCalls.push({ entity: entityName(entity), where: asRecord(where), options: asRecord(options) })
+  if (entityName(entity) === 'WarrantyClaim' && asRecord(options).lockMode === LockMode.PESSIMISTIC_WRITE) {
+    const beforeLock = mockBeforeClaimLock
+    mockBeforeClaimLock = null
+    beforeLock?.()
+  }
   return mockFindMany(entity, where, scope)[0] ?? null
 }
 
@@ -286,10 +293,15 @@ function makeUsersKysely() {
           return customerWhere && customerWhere[2] === CUSTOMER_ID ? [{ id: PORTAL_USER_ID }] : []
         }
         if (table === 'sales_orders') {
-          return idWhere && idWhere[2] === ORDER_ID ? [{ id: ORDER_ID, order_number: 'SO-1042' }] : []
+          return idWhere && (idWhere[2] === ORDER_ID || idWhere[2] === OTHER_ORDER_ID)
+            ? [{ id: idWhere[2], order_number: 'SO-1042', customer_entity_id: CUSTOMER_ID }]
+            : []
         }
         if (table === 'sales_order_lines') {
-          return idWhere && idWhere[2] === ORDER_LINE_ID ? [{ id: ORDER_LINE_ID, order_id: ORDER_ID }] : []
+          const requestedIds = idWhere?.[1] === 'in' ? idWhere[2] : [idWhere?.[2]]
+          return Array.isArray(requestedIds) && requestedIds.includes(ORDER_LINE_ID)
+            ? [{ id: ORDER_LINE_ID, order_id: ORDER_ID }]
+            : []
         }
         if (table === 'sales_returns') {
           return idWhere && idWhere[2] === SALES_RETURN_ID ? [{ id: SALES_RETURN_ID }] : []
@@ -303,6 +315,7 @@ function makeUsersKysely() {
           return builder
         },
         limit: () => builder,
+        forUpdate: () => builder,
         execute: async () => rowsFor(),
         executeTakeFirst: async () => rowsFor()[0],
       }
@@ -457,6 +470,7 @@ beforeEach(() => {
   mockLines = []
   mockEvents = []
   mockFindOneCalls = []
+  mockBeforeClaimLock = null
   enforceWithGuardsMock.mockReset()
   enforceWithGuardsMock.mockResolvedValue(undefined)
   emitWarrantyClaimsEventMock.mockReset()
@@ -1287,6 +1301,163 @@ describe('warranty claim commands', () => {
     } as ClaimUpdateInput, ctx)
     expect(claim.orderId).toBeNull()
     expect(claim.orderNumber).toBeNull()
+  })
+
+  test.each([OTHER_ORDER_ID, null])('rejects changing order to %s while retaining a linked line without partial writes', async (orderId) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID, orderNumber: 'SO-original', notes: 'Original notes' })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const beforeClaim = { ...claim }
+    const beforeLine = { ...line }
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId, notes: 'Must not persist' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+
+    expect(claim).toEqual(beforeClaim)
+    expect(line).toEqual(beforeLine)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(emitWarrantyClaimsEventMock).not.toHaveBeenCalled()
+  })
+
+  test.each([ORDER_ID, OTHER_ORDER_ID])('validates retained lines when linking an unlinked header to %s', async (orderId) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim, { orderLineId: ORDER_LINE_ID }))
+
+    const update = updateClaimCommand.execute({ id: CLAIM_ID, orderId }, ctx)
+    if (orderId === ORDER_ID) {
+      await expect(update).resolves.toEqual({ claimId: CLAIM_ID })
+      expect(claim.orderId).toBe(ORDER_ID)
+    } else {
+      await expect(update).rejects.toMatchObject({ status: 400 })
+      expect(claim.orderId).toBeNull()
+    }
+  })
+
+  test('checks every retained line, including a reference after an unlinked line', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim), makeLine(claim, { id: LINE_TWO_ID, orderLineId: ORDER_LINE_ID }))
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: OTHER_ORDER_ID }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(claim.orderId).toBe(ORDER_ID)
+  })
+
+  test('ignores deleted, other-claim, and other-scope lines when changing an order', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const otherClaim = makeClaim('draft', { id: LINE_TWO_ID, orderId: ORDER_ID })
+    mockClaims.push(claim, otherClaim)
+    mockLines.push(
+      makeLine(claim, { orderLineId: ORDER_LINE_ID, deletedAt: new Date() }),
+      makeLine(otherClaim, { id: LINE_TWO_ID, orderLineId: ORDER_LINE_ID }),
+      { ...makeLine(claim, { orderLineId: ORDER_LINE_ID }), tenantId: LINE_TWO_ID },
+      { ...makeLine(claim, { orderLineId: ORDER_LINE_ID }), organizationId: LINE_TWO_ID },
+      makeLine(claim),
+    )
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: OTHER_ORDER_ID }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: null }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    expect(claim.orderId).toBeNull()
+  })
+
+  test('preserves ordinary header edits with historical missing references', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim, { orderLineId: LINE_TWO_ID }))
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: ORDER_ID, notes: 'Updated notes' }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    expect(claim.notes).toBe('Updated notes')
+  })
+
+  test.each([undefined, ORDER_LINE_ID])('rejects a retained mismatched reference on a line save with orderLineId %s', async (orderLineId) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { orderId: OTHER_ORDER_ID })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const beforeClaim = { ...claim }
+    const beforeLine = { ...line }
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, ...(orderLineId ? { orderLineId } : {}), faultDescription: 'Must not persist' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+    expect(claim).toEqual(beforeClaim)
+    expect(line).toEqual(beforeLine)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('allows line saves with matching references and explicit detachment of a mismatched line', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Updated fault' }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID, lineId: LINE_ID })
+    claim.orderId = OTHER_ORDER_ID
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, orderLineId: null }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID, lineId: LINE_ID })
+    expect(line.orderLineId).toBeNull()
+  })
+
+  test('preserves line edits with an unchanged historical missing reference', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const line = makeLine(claim, { orderLineId: LINE_TWO_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Updated fault' }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID, lineId: LINE_ID })
+    expect(line.orderLineId).toBe(LINE_TWO_ID)
+    expect(line.faultDescription).toBe('Updated fault')
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, orderLineId: SALES_RETURN_ID }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+  })
+
+  test('validates retained lines after acquiring the header lock', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    mockClaims.push(claim)
+    mockBeforeClaimLock = () => mockLines.push(makeLine(claim, { orderLineId: ORDER_LINE_ID }))
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: OTHER_ORDER_ID }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(claim.orderId).toBe(ORDER_ID)
+    expect(mockFindOneCalls).toContainEqual(expect.objectContaining({
+      entity: 'WarrantyClaim',
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    }))
+  })
+
+  test.each(['create', 'update'])('validates the refreshed parent order under the lock on line %s', async (operation) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    if (operation === 'update') mockLines.push(line)
+    mockBeforeClaimLock = () => { claim.orderId = OTHER_ORDER_ID }
+
+    const result = operation === 'create'
+      ? createClaimLineCommand.execute({ claimId: CLAIM_ID, orderLineId: ORDER_LINE_ID, qtyClaimed: 1 }, ctx)
+      : updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Must not persist' }, ctx)
+
+    await expect(result).rejects.toMatchObject({ status: 400 })
+    expect(mockLines).toHaveLength(operation === 'create' ? 0 : 1)
+    expect(line.faultDescription).toBeNull()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 
   test('customer replies raise the awaiting-staff-reply flag and staff actions clear it', async () => {

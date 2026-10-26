@@ -664,16 +664,17 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
     await enforceWarrantyClaimOptimisticLock(ctx, claim)
     assertParentMutable(claim)
-    if (input.orderLineId) {
-      await validateClaimReferences(ctx, scope, {
-        lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
-      })
-    }
     let line!: WarrantyClaimLine
     let nextLineNo = input.lineNo ?? 1
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        assertParentMutable(claim)
+        if (input.orderLineId) {
+          await validateClaimReferences(ctx, scope, {
+            lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
+          })
+        }
         const existingLines = await findWithDecryption(
           em,
           WarrantyClaimLine,
@@ -751,11 +752,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     }
     assertParentMutable(claim)
     await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
-    if (hasOwn(input, 'orderLineId') && input.orderLineId && (input.orderLineId ?? null) !== (line.orderLineId ?? null)) {
-      await validateClaimReferences(ctx, scope, {
-        lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
-      })
-    }
+    const effectiveOrderLineId = hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null)
     if (hasOwn(input, 'disposition')) {
       assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
       assertDispositionAllowedForGrade(toConditionGrade(line.conditionGrade), input.disposition ?? null)
@@ -763,8 +760,19 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     const guardsClaimedQty = hasOwn(input, 'qtyClaimed') || hasOwn(input, 'orderLineId')
     await withAtomicFlush(em, [
       async () => {
+        if (!guardsClaimedQty && !effectiveOrderLineId) return
+        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        assertParentMutable(claim)
+        if (effectiveOrderLineId && (claim.orderId || effectiveOrderLineId !== (line.orderLineId ?? null))) {
+          await validateClaimReferences(ctx, scope, {
+            lineOrderRefs: [{
+              orderLineId: effectiveOrderLineId,
+              orderId: claim.orderId ?? null,
+              allowMissing: effectiveOrderLineId === (line.orderLineId ?? null),
+            }],
+          })
+        }
         if (!guardsClaimedQty) return
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
         const orderLineId = hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null)
         if (orderLineId) {
           await assertPendingClaimQuantitiesWithinSold(
