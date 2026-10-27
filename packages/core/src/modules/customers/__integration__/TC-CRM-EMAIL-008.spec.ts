@@ -400,6 +400,10 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
           () => hasProjectedEmailInteraction(channelReplyMessageId as string, replyPersonId),
           "User B's accepted reply through the shared mailbox on the Person",
         )
+        await drainUntil(
+          async () => (await readWriteFootprint(writerId, writerChannelId)).interactions > footprintAfterShare.interactions,
+          "User B's accepted reply through the shared mailbox",
+        )
 
         expect(await setChannelVisibility(request, userAToken, channelAId, 'private')).toBe(200)
         const footprintAfterChannel = await readWriteFootprint(userBId, channelBId)
