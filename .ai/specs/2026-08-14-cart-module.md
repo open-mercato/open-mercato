@@ -989,6 +989,12 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 
 ## 18) Changelog
 
+### 2026-10-27 — cart line lock contention releases pooled connections
+
+- `cart.lines.add` and `cart.lines.bulkAdd` retain their existing per-cart transaction lock, phase flushes, and post-commit side effects. A contended first-phase try-lock now rolls back its empty transaction before bounded backoff, preserving pooled connections for the lock holder's pricing and promotion queries. No mutation phase runs until the lock is acquired; a mutation failure is never replayed. Calls that join an ambient transaction retain its lock and commit/rollback ownership.
+- Risk addressed: 20 blocking same-cart transactions can occupy the default 20-connection pool while the lock holder needs another connection, causing an acquisition timeout and a raw 500. No API, entity, command input, lock key, or arithmetic contract changes.
+- Validation: all 220 cart unit tests pass, including four contention/rollback regressions. A native PostgreSQL probe with 20 parallel adds and a nested query per add produces exactly one line at quantity 20 and a cart total of 20 with both 20-connection and 2-connection pools; the former blocking-lock pattern reproduces a connection acquisition timeout. `TC-CART-CONC-05` keeps its existing live API assertions for the full application CI gate.
+
 ### 2026-10-24 (re-review M1 — PR #7592)
 
 - **M1**: the #7880 fix below reactivated every `cart.lines.*`/`cart.promotions.*` write path but missed `cart.merge` — a merge against an `abandoned` session or guest basket still 404'd instead of reactivating it, so a buyer whose idle basket had been swept could not recover it by logging in and merging a guest cart. `commands/merge.ts` now calls `recordBasketMutationActivity` on both the session and guest carts, right after the lock check and before the (now `abandoned`-free) status gate, matching §9's "any basket mutation" rule. `cart.mdx` and the merge route's `openApi` 404 text corrected to match.
