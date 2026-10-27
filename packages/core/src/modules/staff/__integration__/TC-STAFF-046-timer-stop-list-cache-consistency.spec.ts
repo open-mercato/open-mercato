@@ -71,7 +71,7 @@ async function stopActiveEntries(
 }
 
 /**
- * TC-STAFF-029: Timer stop is visible in the cached time-entries list (#2609)
+ * TC-STAFF-046: Timer stop is visible in the cached time-entries list (#2609)
  *
  * The point of this test is the ORDERING, not the assertion. Step 5 issues the
  * filtered list GET *before* the stop, which warms the opt-in CRUD list cache
@@ -88,7 +88,7 @@ async function stopActiveEntries(
  *
  * Self-contained: creates project + entry via the API, cleans up in `finally`.
  */
-test.describe('TC-STAFF-029: Timer stop is visible in the cached time-entries list', () => {
+test.describe('TC-STAFF-046: Timer stop is visible in the cached time-entries list', () => {
   test('should return the stopped entry from a list cache key warmed before the stop', async ({ request }) => {
     const stamp = Date.now()
     const today = new Date().toISOString().slice(0, 10)

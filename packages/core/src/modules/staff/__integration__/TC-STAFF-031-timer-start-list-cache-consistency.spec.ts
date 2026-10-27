@@ -73,7 +73,7 @@ async function stopActiveEntries(
 /**
  * TC-STAFF-031: Timer start is visible in the cached time-entries list
  *
- * The mirror of TC-STAFF-029 for the start side, and — as there — the ORDERING is
+ * The mirror of TC-STAFF-046 for the start side, and — as there — the ORDERING is
  * the point. Step 5 issues the filtered list GET *before* the start, warming the
  * opt-in CRUD list cache key with the not-yet-started projection. Before the fix,
  * `[id]/timer-start` wrote `started_at` and `source` straight through the ORM and

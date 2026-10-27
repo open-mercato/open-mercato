@@ -182,7 +182,7 @@ Two details are load-bearing and must not be dropped during implementation:
 | `packages/core/src/modules/staff/commands/timesheets-entries.ts` | Add `stopTimerCommand` (`prepare` + `execute` + `buildLog` + `undo`); `registerCommand(stopTimerCommand)` next to the existing four registrations. Add `cacheAliases: ['staff.timesheet']` to `timeEntryCrudIndexer`. |
 | `packages/core/src/modules/staff/api/timesheets/time-entries/[id]/timer-stop/route.ts` | Replace the inline mutation with `commandBus.execute`, following `start-timer/route.ts`. Keep the mutation-guard wiring. |
 | `packages/core/src/modules/staff/api/timesheets/time-entries/__tests__/timer-segment-atomic-write.test.ts` | Rework — relocate the #2416 lock assertions to a command-level test (§ Rework). |
-| `packages/core/src/modules/staff/__integration__/TC-STAFF-029-timer-stop-list-cache-consistency.spec.ts` | New regression test with the pre-stop list GET. |
+| `packages/core/src/modules/staff/__integration__/TC-STAFF-046-timer-stop-list-cache-consistency.spec.ts` | New regression test with the pre-stop list GET. |
 | `packages/core/src/modules/staff/__integration__/TC-STAFF-011.spec.ts` | Add a pre-stop list GET. |
 | `packages/core/src/modules/staff/i18n/*.json` | Any new audit-label key (`staff.audit.timesheets.time_entries.stopTimer`). |
 
@@ -363,7 +363,7 @@ on its own: its own route, its own command, its own regression test.
    the response/status contract.
 4. Add the audit label translation key.
 5. Rework the unit coverage per § Testing (route-delegation test + command test).
-6. Add `TC-STAFF-029` (below). Confirm it fails before step 3 and passes after.
+6. Add `TC-STAFF-046` (below). Confirm it fails before step 3 and passes after.
 
 ### Follow-ups
 
@@ -374,7 +374,7 @@ invalidated, so a list cached before a start kept showing the entry as not start
 This was originally deferred to its own spec on the grounds that proving the cache fix needs its own
 regression test (a pre-*start* list GET) that this spec's test plan did not provide. That reason
 expired once the deferral was empirically confirmed (§ Separate defect found during manual QA) and
-`stopTimerCommand` plus `TC-STAFF-029` existed as templates: the remaining work was a mirror of an
+`stopTimerCommand` plus `TC-STAFF-046` existed as templates: the remaining work was a mirror of an
 already-reviewed conversion, and `TC-STAFF-031` supplies the missing pre-start gate. The two `409`
 invariants — the already-started check and the single-active-timer check (#2855) — moved into the
 command with the rest of the logic.
@@ -424,7 +424,7 @@ so they can be filed as follow-ups):
 
 ## Testing
 
-### New: `TC-STAFF-029-timer-stop-list-cache-consistency.spec.ts`
+### New: `TC-STAFF-046-timer-stop-list-cache-consistency.spec.ts`
 
 The point of the test is the ordering, not the assertion — it must warm the cache first.
 
@@ -446,7 +446,7 @@ The point of the test is the ordering, not the assertion — it must warm the ca
 Requirements from `.ai/qa/AGENTS.md`: self-contained, creates its own fixtures via the API, cleans up
 in `finally`, no reliance on seeded data. Reuse the helpers in
 `@open-mercato/core/helpers/integration/timesheetFixtures` as
-`TC-STAFF-028-timer-note-edits-persist.spec.ts` does.
+`TC-STAFF-045-timer-note-edits-persist.spec.ts` does.
 
 The test only has teeth with `ENABLE_CRUD_API_CACHE=true`, which every `yarn test:integration*`
 script and the ephemeral runner already set. Do not add a cache-disabled variant — it would pass
@@ -480,7 +480,7 @@ provenance is not lost.
 `TC-STAFF-011.spec.ts` — add a pre-stop list GET so the existing timer test stops being blind to this
 failure mode. Keep its current post-stop assertions.
 
-Integration coverage (TC-STAFF-029) remains the cache-regression gate; the unit tests above cover
+Integration coverage (TC-STAFF-046) remains the cache-regression gate; the unit tests above cover
 delegation, locking and undo, not caching.
 
 ### Manual verification
@@ -509,7 +509,7 @@ Plus the integration run for the two staff specs.
 
 | Risk | Severity | Affected area | Mitigation | Residual |
 |---|---|---|---|---|
-| Command omits `buildLog`, or it returns `null` → no `resourceKind` → cache never invalidated and the bug survives the refactor | **High** | `stopTimerCommand` | Explicitly asserted in § How invalidation will reach the right tags; TC-STAFF-029 fails if invalidation does not happen | Low — the test is the gate |
+| Command omits `buildLog`, or it returns `null` → no `resourceKind` → cache never invalidated and the bug survives the refactor | **High** | `stopTimerCommand` | Explicitly asserted in § How invalidation will reach the right tags; TC-STAFF-046 fails if invalidation does not happen | Low — the test is the gate |
 | Command id prefix changed → `deriveResourceFromCommandId` yields a different alias → tags never match | High | Cache invalidation | Keep the `staff.timesheets.time_entries.*` prefix | Low |
 | **Authorization widening**: adopting the sibling commands' `callerHasManageAll` pattern would let `manage_all` holders stop a colleague's timer — an ability the endpoint does not grant today | **High** | RBAC | Owner-only check ported verbatim, called out in § stopTimerCommand shape with a code comment explaining the deliberate divergence; add a case asserting a `manage_all` holder still gets 403 on someone else's entry | Low once tested |
 | Concurrency regression: losing the `PESSIMISTIC_WRITE` lock or the transaction boundary reintroduces #2416, **and** the existing unit gate stops covering it once the route no longer touches the ORM | **High** | Timer correctness | Move the transaction body verbatim; relocate the lock assertions from `timer-segment-atomic-write.test.ts` to a command-level test (§ Rework) rather than patching the route test green | Low once relocated |
@@ -548,7 +548,7 @@ reference the control run — it explains why TC-STAFF-011 was never going to ca
 | 3 — Delegating `timer-stop` route | Done | 2026-07-29 | Guards kept in the route, around `commandBus.execute` |
 | 4 — Audit label translation | Done | 2026-07-29 | `staff.audit.timesheets.time_entries.stopTimer` in en/de/es/pl |
 | 5 — Unit coverage rework | Done | 2026-07-29 | Route-delegation + command lock/undo tests; #2416 gate relocated |
-| 6 — `TC-STAFF-029` + `TC-STAFF-011` pre-stop GET | Done | 2026-07-29 | Both fail pre-fix, pass post-fix on the ephemeral env |
+| 6 — `TC-STAFF-046` + `TC-STAFF-011` pre-stop GET | Done | 2026-07-29 | Both fail pre-fix, pass post-fix on the ephemeral env |
 | 7 — `[id]/timer-start` conversion (was deferred) | Done | 2026-08-08 | `start_timer_existing` command + delegating route + `TC-STAFF-031`; unit + build gate green, integration confirmed fail-before / pass-after |
 
 ### Deliberate implementation decisions
@@ -593,7 +593,7 @@ hand-rolled route.
 
 | Spec | Result against pre-fix code |
 |---|---|
-| `TC-STAFF-029` | **FAIL** — `ended_at` is `null` in the list served from the cache key warmed before the stop |
+| `TC-STAFF-046` | **FAIL** — `ended_at` is `null` in the list served from the cache key warmed before the stop |
 | `TC-STAFF-011` (with the new pre-stop GET) | **FAIL** — same assertion, at its own step 7 |
 
 This satisfies § Implementation steps 6 ("Confirm it fails before step 3") and independently
@@ -609,7 +609,7 @@ confirming the new command is the code under test.
 
 | Spec | Pre-fix build | Post-fix build |
 |---|---|---|
-| `TC-STAFF-029` | FAIL | **PASS** |
+| `TC-STAFF-046` | FAIL | **PASS** |
 | `TC-STAFF-011` (with the pre-stop GET) | FAIL | **PASS** |
 
 Same specs, same assertions, same warmed cache key — only the route implementation changed. That is
@@ -626,20 +626,20 @@ cache held 1217). After `npx playwright install chromium`, the full folder ran w
 |---|---|
 | `TC-STAFF-014` | Flake — failed under full-suite load, **passes** in isolation and did not recur |
 | `TC-STAFF-027` | Pre-existing failure, unrelated to this change |
-| `TC-STAFF-028` | Pre-existing failure, unrelated to this change |
+| `TC-STAFF-045` | Pre-existing failure, unrelated to this change |
 
 Final suite state after the separate `running=true` fix (below): **45 passed, 2 failed** —
-`TC-STAFF-027` and `TC-STAFF-028` only.
+`TC-STAFF-027` and `TC-STAFF-045` only.
 
 The two reproducible failures are inherited from the timesheets-UX work that landed immediately
 before this branch, not regressions here. The handoff doc committed with them
 ([`.ai/analysis/2026-07-27-timesheets-ux-handoff.md`](../analysis/2026-07-27-timesheets-ux-handoff.md)
-§ Verification status) states plainly: *"No integration tests were executed. `TC-STAFF-028` has not
-been run."* — and its next-steps list names `TC-STAFF-027` and `TC-STAFF-028` as specs still to be
+§ Verification status) states plainly: *"No integration tests were executed. `TC-STAFF-045` has not
+been run."* — and its next-steps list names `TC-STAFF-027` and `TC-STAFF-045` as specs still to be
 run and confirmed. Neither has ever been observed passing on this branch.
 
 Their failure modes are also outside this change's blast radius: `TC-STAFF-027` waits on a
-grid save-confirmation dialog that never renders, and `TC-STAFF-028`'s note edit goes through
+grid save-confirmation dialog that never renders, and `TC-STAFF-045`'s note edit goes through
 `PUT /api/staff/timesheets/time-entries` (the CRUD factory, which invalidates directly) — neither
 touches `timer-stop`. This change modifies **no `.tsx` file at all**.
 
@@ -649,11 +649,11 @@ creates, and they should not gate it.
 #### Integration: `TC-STAFF-031` proven non-vacuous
 
 The `[id]/timer-start` conversion shipped with the same fail-before/pass-after standard applied to
-`TC-STAFF-029`, because a new regression gate that has only ever been observed passing proves
+`TC-STAFF-046`, because a new regression gate that has only ever been observed passing proves
 nothing — that is precisely how `TC-STAFF-011` masked #2609 for two months.
 
 Post-fix, on a fresh ephemeral env (isolated port 58146, `ENABLE_CRUD_API_CACHE=true`):
-`TC-STAFF-011`, `TC-STAFF-029`, `TC-STAFF-030` and `TC-STAFF-031` all **pass** — so the three
+`TC-STAFF-011`, `TC-STAFF-046`, `TC-STAFF-030` and `TC-STAFF-031` all **pass** — so the three
 pre-existing specs that `POST` to `timer-start` did not regress. Those four are the complete affected
 surface; no other spec in `staff/__integration__` touches that endpoint.
 
@@ -723,7 +723,7 @@ Two things this investigation established that matter beyond the fix:
   `/start-timer` route (#3311); only the legacy per-entry route was.
 
 A predicted knock-on did **not** materialise: changing the filter did not recover
-`TC-STAFF-028`, which fails identically afterwards. Its cause is still unidentified.
+`TC-STAFF-045`, which fails identically afterwards. Its cause is still unidentified.
 
 ## Changelog
 
@@ -731,10 +731,10 @@ A predicted knock-on did **not** materialise: changing the filter did not recove
 |---|---|
 | 2026-10-23 | Review fixes after merging `main` (`om-auto-fix-pr`): `main` gained #7515 (the fix for #7507), which refuses every time-entry undo on an entry a closed report has locked. The create and `start_timer` undos now run that lock check first, then the segment cascade, then the entry soft-delete. The `stop_timer` and `start_timer_existing` undos call `assertTimeEntryUnlocked` under the row lock before any write, so they answer `409 time_entry_locked` like every other time-entry undo; one command-level test per command pins it. |
 | 2026-08-10 | Review fixes (`om-auto-fix-pr`): (1) **corrected the `running=true` root cause** — the query engine's base-column dispatchers (`applyColumnOp` / `buildColumnOpExpression`) null-guard `eq`/`ne` into `IS NULL` / `IS NOT NULL`, so the pre-fix predicate compiled to the same SQL as `$exists` and the "matches zero rows" claim only holds on the `applyIndexDocFilter` path, which these real columns do not take; `$exists` is retained as null-safe-on-both-paths hardening, and the open question of what actually gates `TC-STAFF-030` is recorded as a follow-up; (2) recorded that `CrudIndexerConfig.cacheAliases` has **no runtime reader** — the declaration is kept for the `packages/core/AGENTS.md` convention with a comment saying so, and the platform gap is a follow-up; (3) documented the tenant-resolution narrowing (auth-tenant-only via `ensureTenantScope`) alongside the guard-ordering and non-UUID-`{id}` deltas in § API contracts; (4) added the four missing `staff.timesheets.my.*` keys across all four locales so `yarn i18n:check-usage` exits clean on this branch; (5) corrected the `nullSemanticsOf` unit-test helper to model the index-doc dispatcher and fixed its wrong engine path reference. |
-| 2026-08-08 | Third commit: converted the deferred `[id]/timer-start` to `staff.timesheets.time_entries.start_timer_existing`, with `TC-STAFF-031` as the pre-start cache gate and the route's #2416/#2855 assertions relocated to a command-level test. Full unit suite green (7929 passed); the only failure is the pre-existing `explicit-sort-comparators` one, which flags `scripts/check-agents-md-budget.mjs:93` — a file untouched here. Integration: `TC-STAFF-011`, `TC-STAFF-029`, `TC-STAFF-030` and `TC-STAFF-031` all pass post-fix, and `TC-STAFF-031` was confirmed failing pre-fix (§ Integration: `TC-STAFF-031` proven non-vacuous). |
+| 2026-08-08 | Third commit: converted the deferred `[id]/timer-start` to `staff.timesheets.time_entries.start_timer_existing`, with `TC-STAFF-031` as the pre-start cache gate and the route's #2416/#2855 assertions relocated to a command-level test. Full unit suite green (7929 passed); the only failure is the pre-existing `explicit-sort-comparators` one, which flags `scripts/check-agents-md-budget.mjs:93` — a file untouched here. Integration: `TC-STAFF-011`, `TC-STAFF-046`, `TC-STAFF-030` and `TC-STAFF-031` all pass post-fix, and `TC-STAFF-031` was confirmed failing pre-fix (§ Integration: `TC-STAFF-031` proven non-vacuous). |
 | 2026-07-29 | Separate commit: fixed the `running=true` filter (`$exists` instead of null equality), added `TC-STAFF-030` as the execution-level gate, and empirically confirmed the deferred `[id]/timer-start` cache-staleness follow-up. Suite now 45 passed / 2 failed. |
-| 2026-07-29 | Full staff integration suite run with browsers installed: 43 passed, 3 failed. `TC-STAFF-014` is a load flake (passes in isolation); `TC-STAFF-027` and `TC-STAFF-028` are pre-existing failures inherited from the preceding timesheets-UX commit, whose own handoff doc records them as never executed. |
-| 2026-07-29 | Integration verified end to end: `TC-STAFF-029` and the amended `TC-STAFF-011` both FAIL against a pre-fix build and PASS against the rebuilt one. |
+| 2026-07-29 | Full staff integration suite run with browsers installed: 43 passed, 3 failed. `TC-STAFF-014` is a load flake (passes in isolation); `TC-STAFF-027` and `TC-STAFF-045` are pre-existing failures inherited from the preceding timesheets-UX commit, whose own handoff doc records them as never executed. |
+| 2026-07-29 | Integration verified end to end: `TC-STAFF-046` and the amended `TC-STAFF-011` both FAIL against a pre-fix build and PASS against the rebuilt one. |
 | 2026-07-29 | Implemented steps 1-6. Undo's before-state moved from `prepare` into `execute` under the lock (see § Deliberate implementation decisions); everything else follows the spec as written. |
 | 2026-07-29 | Spec created. Root cause verified live on the ephemeral env (repro + control). Scope narrowed from four routes to two after confirming the segment routes do not mutate the parent entry. |
 | 2026-07-29 | Second review pass: (1) clarified that the undo `409` is internal only — the shared undo endpoint returns a fixed `400`, and changing it is out of scope; (2) dropped the "document `x-om-operation` in `openApi`" requirement — `OpenApiResponseDoc` has no response-header field, the header stays additive and undocumented as `start-timer`'s already is; (3) added `cacheAliases: ['staff.timesheet']` to `timeEntryCrudIndexer` for command-side-effect compliance, with its shared blast radius noted. |

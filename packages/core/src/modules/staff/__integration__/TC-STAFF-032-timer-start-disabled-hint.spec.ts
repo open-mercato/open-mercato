@@ -86,7 +86,7 @@ test.describe('TC-STAFF-032: disabled Start button states its reason', () => {
       await stopActiveEntries(request, employeeToken, staffMemberId)
 
       // The picker also seeds from the saved "last started" project. A timer start
-      // earlier in the run (TC-STAFF-028) leaves one behind, which would preselect
+      // earlier in the run (TC-STAFF-045) leaves one behind, which would preselect
       // it, enable Start and remove the very hint this spec asserts.
       const resetPreferenceResponse = await apiRequest(
         request,

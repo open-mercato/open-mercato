@@ -63,13 +63,13 @@ async function stopActiveEntries(
 }
 
 /**
- * TC-STAFF-028: Running Timer Note Edits Persist
+ * TC-STAFF-045: Running Timer Note Edits Persist
  * Verifies employees can update the timer note while the timer is running and
  * the updated note persists on the active entry.
  * Covers the TimerBar "editable description while running" UX improvement.
  * Self-contained: creates project + assigns employee in setup, cleans up in teardown.
  */
-test.describe('TC-STAFF-028: Running Timer Note Edits Persist', () => {
+test.describe('TC-STAFF-045: Running Timer Note Edits Persist', () => {
   test('should persist note edits made while a timer is running', async ({ page, request }) => {
     const stamp = Date.now()
     const today = new Date().toISOString().slice(0, 10)
