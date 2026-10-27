@@ -12,7 +12,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
 }))
 
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -777,7 +777,7 @@ describe('CRUD Factory', () => {
     // Regression test for #7806 — the ORM-fallback counterpart of the query-engine
     // case covered elsewhere in this file: a full export must not drop the route's
     // own scope just because it owns visibility itself via omitAutomaticTenantOrgScope.
-    const scopedBuildFilters = jest.fn((_query: any, ctx: any) => ({
+    const scopedBuildFilters = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
       organizationId: ctx.auth?.orgId ?? null,
     }))
     const fallbackRoute = makeCrudRoute({
@@ -909,7 +909,7 @@ describe('CRUD Factory', () => {
     // scope via omitAutomaticTenantOrgScope, neither the query engine nor the ORM
     // fallback add a tenant/org predicate of their own, so that leaked every
     // tenant's rows on `exportScope=full`.
-    const scopedBuildFilters = jest.fn((_query: any, ctx: any) => ({
+    const scopedBuildFilters = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
       tenant_id: { $eq: ctx.auth?.tenantId ?? null },
     }))
     const scopedRoute = makeCrudRoute({
@@ -923,7 +923,7 @@ describe('CRUD Factory', () => {
         sortFieldMap: { id: 'id' },
         omitAutomaticTenantOrgScope: true,
         buildFilters: scopedBuildFilters,
-        transformItem: (i: any) => ({ id: i.id, title: i.title }),
+        transformItem: (item: Record<string, unknown>) => ({ id: item.id, title: item.title }),
       },
     })
 

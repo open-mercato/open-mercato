@@ -45,6 +45,14 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 
 import { GET } from '../route'
 
+type MockQueryOptions = {
+  filters?: Record<string, unknown>
+  page?: {
+    page?: number
+    pageSize?: number
+  }
+}
+
 // Minimal matcher for the `{ $or, $eq, $in }` filter shapes buildSchedulerJobsFilters
 // produces, so the mocked query engine below genuinely enforces the filters the route
 // passes it instead of always returning every row regardless of scope.
@@ -135,7 +143,7 @@ describe('scheduler jobs route organization scope', () => {
     ]
 
     const makeQueryEngine = () => ({
-      query: jest.fn(async (_entityId: unknown, opts: any) => {
+      query: jest.fn(async (_entityId: unknown, opts: MockQueryOptions) => {
         const filtered = jobs.filter((job) => matchesFilter(job, opts.filters))
         const page = opts.page?.page ?? 1
         const pageSize = typeof opts.page?.pageSize === 'number' ? opts.page.pageSize : filtered.length
