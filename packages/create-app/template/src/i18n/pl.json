@@ -639,7 +639,7 @@
   "ui.advancedFilter.empty.addCondition": "Dodaj warunek",
   "ui.advancedFilter.empty.clearAll": "Wyczyść wszystkie filtry",
   "ui.advancedFilter.empty.clearSearchAndFilters": "Wyczyść wyszukiwanie i filtry",
-  "ui.advancedFilter.empty.noMatches": "Żaden {entity} nie spełnia tych filtrów",
+  "ui.advancedFilter.empty.noMatches": "Brak {entity} spełniających te filtry",
   "ui.advancedFilter.empty.noMatchesSearchFilters": "Brak {entity} pasujących do wyszukiwania i filtrów",
   "ui.advancedFilter.empty.removeLast": "Usuń ostatni filtr",
   "ui.advancedFilter.empty.subtitle": "Dodaj warunek, aby zawęzić listę, lub opisz w języku naturalnym, czego szukasz.",
