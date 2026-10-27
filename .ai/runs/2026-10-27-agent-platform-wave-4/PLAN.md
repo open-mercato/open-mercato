@@ -28,7 +28,7 @@
 | 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | done | c993656a0 |
 | 3 | 3.2 | Normalize gen_ai attributes on ingested llm spans | dispatch | done | 0ae12afcd |
 | 3 | 3.3 | Cover step metadata and capture settings with integration tests | dispatch | done | 1092be826 |
-| 4 | 4.1 | Add deterministic OTel ids and the OTLP JSON encoder | dispatch | todo | — |
+| 4 | 4.1 | Add deterministic OTel ids and the OTLP JSON encoder | dispatch | done | pending |
 | 4 | 4.2 | Add string redaction for exported attributes | dispatch:cheap | todo | — |
 | 4 | 4.3 | Load a run export bundle with tenant scoping | dispatch | todo | — |
 | 4 | 4.4 | Map an agent run to OTLP resource spans | dispatch:capable | todo | — |
