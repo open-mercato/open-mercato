@@ -524,6 +524,18 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
       expect(dispatcher.runObject).not.toHaveBeenCalled()
     })
 
+    it('checks the agent feature policy before reporting an unsupported dispatch option', async () => {
+      seedNativeAoAgent(['ops.triage.run'])
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+
+      const response = await postAgent(undefined, { modelOverride: 'openai/gpt-5-mini' })
+
+      expect(response.status).toBe(403)
+      expect((await response.json()).code).toBe('agent_features_denied')
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
+
     it('dispatches when attachmentIds is an empty array', async () => {
       seedNativeAoAgent()
       const dispatcher = makeDispatcher()

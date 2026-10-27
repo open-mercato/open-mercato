@@ -54,8 +54,9 @@
 | 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | 1fe4d70ea |
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | done | fbccb7647 |
 | 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | 3695a39e2 |
-| 7 | 7.3-review-fix | Fix the agent-tool review findings in ai-assistant and the attachment dialog | inline | done | pending |
-| 7 | 7.3-review-fix-2 | Fix the agent_orchestrator review findings | inline | done | pending |
+| 7 | 7.3-review-fix | Fix the agent-tool review findings in ai-assistant and the attachment dialog | inline | done | ad435a969 |
+| 7 | 7.3-review-fix-2 | Fix the agent_orchestrator review findings | inline | done | d0a08f52b |
+| 7 | 7.3-review-fix-3 | Check the agent policy before rejecting unsupported dispatch options | inline | done | pending |
 
 ## Goal
 
@@ -294,6 +295,9 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
   - `GET /agents` returns `requiredFeatures` to `agents.manage` holders only (optional in the schema) and loads the ACL for the organization resolved by `resolveOrganizationScopeForRequest`.
   - `defineAgent` rejects a `tool_consulted` rule enforced at `prepare_step` whose `tools` miss the agent's effective tools (`a__b` ≡ `a.b`).
   - Custom checkers receive a `structuredClone` of the tool calls; the output pipeline throwing fails the run and captures the trace; `findQuote` segments the source once and stops at the second distinct match without a hint.
+
+#### 7.3-review-fix-3 Check the agent policy before rejecting unsupported dispatch options
+- Re-review nit: `run-object` returned `422 dispatch_option_unsupported` before the policy and availability checks, so an unauthorized caller could learn that an agent is dispatcher-owned. The option check now runs after both.
 
 ## Risks
 

@@ -196,9 +196,6 @@ async function dispatchRunObject(params: {
   correlationId: string
 }): Promise<NextResponse> {
   const { dispatcher, agentId, body, auth, acl, knownLocally, correlationId } = params
-  if (hasUnsupportedDispatchOption(body)) {
-    return jsonError(422, 'This agent does not support the requested options.', 'dispatch_option_unsupported')
-  }
   if (knownLocally) {
     const decision = checkAgentPolicy({
       agentId,
@@ -212,6 +209,9 @@ async function dispatchRunObject(params: {
   }
   if (!(await dispatcher.isAvailable(agentId))) {
     return jsonError(404, `Agent "${agentId}" is not registered.`, 'agent_unknown')
+  }
+  if (hasUnsupportedDispatchOption(body)) {
+    return jsonError(422, 'This agent does not support the requested options.', 'dispatch_option_unsupported')
   }
   const caller = buildDispatchCaller(auth, acl)
   if (!caller) return principalMissingResponse()
