@@ -56,6 +56,10 @@ A `ready.implementationPr` is valid only when `ready.implementationReview` resol
 
 The referenced adopter spec must exist in the static manifest and the PR must change or explicitly name it. A sibling alternative cannot inherit readiness.
 
+Readiness additionally requires provider-backed green implementation checks at the exact reviewed implementation source-head SHA, for both current and merged implementation PRs. Synthetic merge refs and another SHA's green checks cannot substitute. Use the descriptor's `get-pr-checks` and `get-required-checks`, plus exact-ref check/status reads when needed, and deduplicate reads per repository/SHA. Inspect the latest applicable attempt of every required context; if required-context discovery is unavailable, retain every reported applicable check/status instead of silently treating the required set as empty. Missing expected contexts, no check/status signal, queued/pending/in-progress, failed/cancelled/timed-out/action-required results, and unreadable provider evidence fail closed. `success` is accepted; `skipped`/`neutral` are accepted only when a provider-backed applicable path condition explicitly makes that context non-required for this implementation, and are recorded as skipped rather than passed. A merged PR accepted by an administrative override does not waive these checks.
+
+For current-PR evidence, exclude only this verifier's own `crud-form-section-adoption-links` check at the same validation head, so it does not wait on itself. Do not exclude other in-flight checks or any implementation check on a different referenced PR. Derive live statuses, selected validation SHA and check URLs only into the ephemeral report; no remote status is written into committed declarations. This check-outcome requirement does not resolve the separate current-head approval/evidence-commit cycle, which remains a blocking design decision before implementation.
+
 Design approval and implementation approval are distinct evidence. `designReview` remains pinned to the spec/design PR head; `implementationReview` is pinned to the implementation PR head and cannot reuse the design review URL or reviewer record unless the provider independently reports a second approval on the implementation PR. For core-team owner lanes, the verifier checks eligibility of the spec PR author/design reviewer while `planned`, and additionally the implementation PR author/implementation reviewer before `ready`.
 
 ### Planned spec PR
@@ -186,7 +190,7 @@ This is additive tooling. It consumes schema-versioned static artifacts without 
 
 - Design review: eligible non-author approved/requested/dismissed review, invalid self-review/comment/external-run attestation, exact/stale/missing head, and unavailable provider.
 - Core-team ownership: eligible/ineligible implementation author and reviewer, immutable team-id and explicit-allowlist adapters, missing eligibility resolver, provider outage, and proof that repository permission or comment text cannot substitute for membership.
-- Implementation PR: provider-native eligible non-author implementation approval at exact head; current exact event head, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker; design-review reuse rejection.
+- Implementation PR: provider-native eligible non-author implementation approval at exact head; current exact event head, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker; design-review reuse rejection. Verify exact-ref success, documented non-applicable skipped/neutral, failed, cancelled, timed-out, pending, missing-context/no-signal and unavailable-provider fixtures; wrong-SHA green and administratively merged red PRs fail. The own current verifier check is excluded, while another pending check or a referenced implementation PR's verifier remains blocking.
 - Planned PR: open approved design, merged, draft/unapproved, closed unmerged, wrong spec or marker.
 - Deferred issue: open/closed, assigned/unassigned/wrong owner, exact/missing ids, valid/expired date at UTC boundary.
 - External reference: correct/wrong repository and owner, accessible/missing spec or issue, no source/topology capture.
@@ -197,7 +201,7 @@ This is additive tooling. It consumes schema-versioned static artifacts without 
 
 1. Every non-compatibility work unit and external coordination reference receives one fail-closed provider-backed result.
 2. Exact-head design approval is a provider-native approving review from an eligible non-author; self-review, comments, external run ids, stale reviews, dismissed reviews, and spec prose never satisfy it.
-3. Ready implementation evidence proves an independent provider-native non-author implementation approval, exact work-unit marker, and current-PR or merged-to-base ancestry contract.
+3. Ready implementation evidence proves an independent provider-native non-author implementation approval, exact work-unit marker, current-PR or merged-to-base ancestry contract, and provider-backed applicable green checks/statuses at the exact reviewed implementation source head; administrative merge overrides do not waive validation.
 4. Planned and deferred evidence enforce exact spec/work-unit/owner/state/date semantics.
 5. Provider unavailability is distinct from invalid evidence but both fail the required job after bounded retries.
 6. No credential, response body, optional source topology, current SHA, validation time, or check URL enters committed artifacts.
@@ -246,6 +250,10 @@ None.
 - **Fully compliant**: Approved — independently deployable after the static inventory capability.
 
 ## Changelog
+
+### 2026-10-27 — Mechanical re-review corrections
+
+- Require exact reviewed-head applicable implementation check/status success with fail-closed missing/pending/error cases, documented skip semantics and an own-verifier-only exclusion. The separate current-head approval/evidence cycle remains blocking.
 
 - **2026-10-27:** Split planned design approval from ready implementation-PR approval and made core-team author/reviewer eligibility state-specific.
 - **2026-10-27:** Removed unverifiable same-identity comment attestation; required provider-native non-author approval and provider-backed core-team eligibility for owner lanes that declare that governance rule.

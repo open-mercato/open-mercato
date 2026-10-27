@@ -69,12 +69,13 @@ The standard header and `optimistic_lock_conflict` response remain exactly those
 | `OM_OPTIMISTIC_LOCK` mode | Supplied expected token |
 |---|---|
 | unset/default-on | enforce for `security.sudo_config` |
-| `on` | enforce |
+| `all` | enforce |
+| `on` | existing parser treats this as the literal resource allow-list `{on}`; does not enable `security.sudo_config` |
 | `off` | parse/pass but guard is a no-op |
 | allow-list excluding resource kind | parse/pass but guard is a no-op |
 | allow-list including resource kind | enforce |
 
-A malformed supplied token returns the shared validation error. A stale token or scoped record deleted after authorization returns the exact standard 409. Missing headers remain additive no-ops only on the legacy routes; a later adopter may require a token on its new façade without altering this compatibility contract.
+A malformed supplied token returns the shared validation error. A stale token or scoped record deleted after authorization returns the exact standard 409. Missing headers remain additive no-ops only on the legacy routes; a later adopter may require a token on its new façade without altering this compatibility contract. Do not introduce an `on` alias or change the shared parser in this prerequisite; cover unset, `all`, `on`, `off`, excluded and included resource tokens against the actual shared parser.
 
 The legacy routes retain their existing auth/feature `metadata`, strict params/body validation, and `openApi`; the implementation updates the PUT success schema to include required ISO `updatedAt` and documents the standard `409 optimistic_lock_conflict` on PUT/DELETE. The shared optimistic-lock parser owns header bounds and malformed-token mapping; route code does not hand-parse the version.
 
@@ -192,6 +193,10 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+### 2026-10-27 — Mechanical re-review corrections
+
+- Correct the explicit all-resources mode to `all`; document that existing `on` is a literal non-matching resource token, and require actual shared-parser matrix coverage without adding an alias.
 
 - **2026-10-27:** Defined a module-private non-enumerable command carrier so transaction-locked snapshots reach `buildLog` without changing or leaking through legacy/facade JSON results.
 - **2026-10-27:** Moved sudo update/delete before/after audit and undo snapshots inside the transaction-held row lock, including headerless/gate-off contender proof.

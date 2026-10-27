@@ -103,7 +103,7 @@ No migration or record-shape change. The existing command creates the authoritat
 
 The existing `POST /api/security/sudo/configs` remains unchanged for the no-policy path. The additive policy façade accepts at most 16 KiB JSON and uses `sudoConfigSchema.strict()` plus the active-section and complete-state validators. It requires framework protected headers and `x-sudo-token: z.string().min(3).max(4096).regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)`; any optimistic-lock header is a 400.
 
-It exports `metadata = { POST: { requireAuth: true, requireFeatures: ['security.sudo.manage'] } }` and OpenAPI with exact `201 { id }` plus `400/401/403/404/409/413/422/500`. HTTP 409 is only `extension_policy_mismatch`; 422 is `{ error: 'mutation_guard_rejected', code: 'mutation_guard_rejected', details?: unknown }`. Runtime guard statuses do not alter this static matrix.
+It exports `metadata = { POST: { requireAuth: true, requireFeatures: ['security.sudo.manage'] } }` and OpenAPI with exact `201 { id }` plus `400/401/403/404/409/413/422/500`. HTTP 409 includes both `extension_policy_mismatch` and the existing localized domain-conflict body for a duplicate target/tenant/organization configuration, preserved through the security route error mapper without relabeling it as a policy or optimistic-lock conflict. HTTP 422 is `{ error: 'mutation_guard_rejected', code: 'mutation_guard_rejected', details?: unknown }`. Runtime guard statuses do not alter this static matrix. Add duplicate-create API/OpenAPI-parity coverage proving the existing domain 409, no new row, and no success callbacks, audit success or events.
 
 ## UI/UX
 
@@ -233,6 +233,10 @@ None.
 - **Fully compliant**: Approved — ready after the framework runtime and inventory governance prerequisites land.
 
 ## Changelog
+
+### 2026-10-27 — Mechanical re-review corrections
+
+- Preserve the existing localized duplicate-configuration domain 409 alongside policy conflicts, with duplicate-create API/OpenAPI parity and zero-success-side-effect coverage.
 
 - **2026-10-27:** Added the exact create route/client-island/data-owner map and file-level client-boundary ledger.
 - **2026-10-27:** Split sudo-config create from independently deployable edit/delete adoption; pinned framework-only runtime behavior plus inventory governance, create defaults/replacement rules, guard/sudo/OpenAPI behavior, and exact persisted callback identity.
