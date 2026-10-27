@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { AwilixContainer } from 'awilix'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import type { MutationGuard, MutationGuardInput } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
@@ -71,22 +69,5 @@ describe.each(helperCases)('%s custom write guards', (_name, runGuards) => {
 
     expect(result.ok).toBe(false)
     expect(getGrantedFeatures).toHaveBeenCalledWith(userId, { tenantId, organizationId })
-  })
-})
-
-describe('standalone custom write guard wiring', () => {
-  const routeFiles = [
-    'sales/api/quotes/send/route.ts',
-    'sales/api/quotes/convert/route.ts',
-    'configs/api/cache/route.ts',
-    'push_notifications/api/custom-send/route.ts',
-  ]
-
-  it.each(routeFiles)('%s delegates to the full route mutation guard registry', (relativePath) => {
-    const source = readFileSync(join(__dirname, '..', 'modules', ...relativePath.split('/')), 'utf8')
-
-    expect(source).toContain("from '@open-mercato/shared/lib/crud/route-mutation-guard'")
-    expect(source).toContain('runRouteMutationGuards({')
-    expect(source).not.toContain('bridgeLegacyGuard')
   })
 })

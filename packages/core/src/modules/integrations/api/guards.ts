@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('integrations')
 
@@ -54,6 +55,10 @@ export async function runIntegrationMutationGuards(
     }) ?? []
   } catch (err) {
     logger.error('Failed to resolve mutation guard feature grants', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'integrations',
+      code: 'integrations.mutation_guard_feature_resolution_failed',
+    })
   }
 
   const userFeatures = Array.from(new Set([...grantedFeatures, ...extraFeatures]))
@@ -82,6 +87,11 @@ export async function runIntegrationMutationGuardAfterSuccess(
       })
     } catch (err) {
       logger.error('Mutation guard afterSuccess failed', { guardId: callback.guard.id, err })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'integrations',
+        code: 'integrations.mutation_guard_after_success_failed',
+        attributes: { guardId: callback.guard.id },
+      })
     }
   }
 }
