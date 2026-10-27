@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -34,6 +34,7 @@
     "@napi-rs/canvas": "^1.0.8",
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
+    "@open-mercato/carrier-inpost": "workspace:*",
     "@open-mercato/channel-apns": "workspace:*",
     "@open-mercato/channel-discord": "workspace:*",
     "@open-mercato/channel-expo": "workspace:*",
@@ -50,6 +51,7 @@
     "@open-mercato/enterprise": "workspace:*",
     "@open-mercato/events": "workspace:*",
     "@open-mercato/gateway-stripe": "workspace:*",
+    "@open-mercato/gateway-tpay": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/scheduler": "workspace:*",
