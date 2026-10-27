@@ -184,14 +184,14 @@ Returns the user's dashboard layout with widgets filtered by their features.
 
 **GET/PUT** `/api/dashboards/users/widgets` (feature `dashboards.admin.assign-widgets`)
 
-A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.tenantId, target.organizationId)`, taken from the target `User` row loaded on the server. This is the scope `GET /api/dashboards/layout` reads for that user (`resolveAllowedWidgetIds` with the target's own `auth.tenantId`/`auth.orgId`). The caller's session scope and request parameters never choose the key. The GET `organizationId` query parameter is deprecated and ignored; `tenantId` only selects the tenant a superadmin looks the user up in.
+A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.tenantId, target.organizationId)`, taken from the target `User` row loaded on the server. This is the scope `GET /api/dashboards/layout` reads for that user (`resolveAllowedWidgetIds` with the target's own `auth.tenantId`/`auth.orgId`). The caller's session scope and request parameters never choose the key. The GET `organizationId` query parameter is deprecated and ignored; On `GET`, `tenantId` only selects the tenant a superadmin looks the user up in.
 
 | Caller | Target | Result |
 |---|---|---|
 | Any non-superadmin | Other tenant, or unknown id | `404` |
 | Non-superadmin, unrestricted organization visibility | Same tenant | Allowed |
 | Non-superadmin, restricted organization visibility | Organization outside the visible set, or no organization | `403` |
-| Superadmin | User of the `tenantId` query tenant, else of the superadmin's own tenant (any tenant when they have none) | Allowed, no organization check |
+| Superadmin | User of the session tenant (`GET` also accepts a `tenantId` query); any tenant when the session has none | Allowed, no organization check |
 
 The organization check matches `assertActorCanAccessUserTarget` in the auth module, which answers `403` for the same users on the user ACL routes.
 

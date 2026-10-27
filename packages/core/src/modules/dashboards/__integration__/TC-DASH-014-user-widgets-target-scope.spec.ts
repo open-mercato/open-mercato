@@ -11,7 +11,12 @@ import {
   setRoleAclFeatures,
   setUserAclVisibility,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  deleteGeneralEntityIfExists,
+  expectId,
+  getTokenScope,
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
  * TC-DASH-014 — a user's dashboard widget override is stored under that user's own tenant and
@@ -21,7 +26,8 @@ import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integrat
  * an admin edited a same-tenant user who belongs to another organization the call answered 200,
  * but the row landed under the admin's organization, so the target's own dashboard never saw it.
  * Keying the row by the target also means organization visibility must gate the assignment: an
- * assigner restricted to some organizations gets 403 for users outside them.
+ * assigner restricted to some organizations gets 403 for users outside them, and users of another
+ * tenant stay hidden behind 404.
  */
 
 type DashboardLayoutState = {
@@ -239,6 +245,74 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
       await cleanupActor(request, superadminToken, assigner)
       await cleanupActor(request, superadminToken, target)
       await deleteOrganizationIfExists(request, superadminToken, targetOrgId)
+    }
+  })
+
+  test('TC-DASH-014-3: an assigner cannot read or change the override of a user in another tenant', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const scope = getTokenScope(adminToken)
+    let foreignTenantId: string | null = null
+    let foreignOrgId: string | null = null
+    let target: Actor | null = null
+    let assigner: Actor | null = null
+
+    try {
+      const tenantResponse = await apiRequest(request, 'POST', '/api/directory/tenants', {
+        token: superadminToken,
+        data: { name: uniqueId('QA TC-DASH-014 tenant') },
+      })
+      expect(tenantResponse.status(), 'tenant fixture should be created').toBe(201)
+      foreignTenantId = expectId(
+        (await readJsonSafe<{ id?: string }>(tenantResponse))?.id,
+        'tenant create response should contain an id',
+      )
+      expect(foreignTenantId).not.toBe(scope.tenantId)
+      foreignOrgId = await createOrganizationFixture(request, superadminToken, {
+        name: uniqueId('QA TC-DASH-014 foreign org'),
+        tenantId: foreignTenantId,
+      })
+      target = await createActor(request, {
+        superadminToken,
+        tenantId: foreignTenantId,
+        organizationId: foreignOrgId,
+        prefix: 'tc-dash-014-foreign',
+        features: BASE_DASHBOARD_FEATURES,
+      })
+      assigner = await createActor(request, {
+        superadminToken,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        prefix: 'tc-dash-014-tenant-admin',
+        features: ASSIGN_WIDGETS_FEATURES,
+      })
+
+      const before = await readLayout(request, target.token)
+      expect(before.context?.organizationId).toBe(foreignOrgId)
+      const beforeWidgetIds = before.allowedWidgetIds ?? []
+      expect(beforeWidgetIds.length).toBeGreaterThanOrEqual(2)
+
+      const putResponse = await apiRequest(request, 'PUT', API.userWidgets, {
+        token: assigner.token,
+        data: { userId: target.userId, mode: 'override', widgetIds: [beforeWidgetIds[0]] },
+      })
+      expect(putResponse.status()).toBe(404)
+
+      const getResponse = await apiRequest(
+        request,
+        'GET',
+        `${API.userWidgets}?userId=${encodeURIComponent(target.userId ?? '')}`,
+        { token: assigner.token },
+      )
+      expect(getResponse.status()).toBe(404)
+
+      const after = await readLayout(request, target.token)
+      expect(after.allowedWidgetIds).toEqual(beforeWidgetIds)
+    } finally {
+      await cleanupActor(request, superadminToken, assigner)
+      await cleanupActor(request, superadminToken, target)
+      await deleteOrganizationIfExists(request, superadminToken, foreignOrgId)
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
     }
   })
 })
