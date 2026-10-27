@@ -2,6 +2,7 @@
 import {
   DEFAULT_WEBHOOK_BODY_LIMIT_BYTES,
   readBoundedRequestBody,
+  readBoundedRequestBytes,
   resolveWebhookBodyLimitBytes,
   WebhookBodyTooLargeError,
 } from '../body'
@@ -74,6 +75,53 @@ describe('readBoundedRequestBody', () => {
     const { request } = makeStreamingRequest([bytes.slice(0, 2), bytes.slice(2)])
 
     await expect(readBoundedRequestBody(request, { maxBytes: bytes.byteLength })).resolves.toBe('a€')
+  })
+})
+
+describe('readBoundedRequestBytes', () => {
+  it('preserves exact bytes including invalid UTF-8', async () => {
+    const bytes = new Uint8Array([0xff, 0xfe, 0x41, 0xc3, 0x28])
+    const { request } = makeStreamingRequest([bytes.slice(0, 2), bytes.slice(2)])
+
+    const result = await readBoundedRequestBytes(request, { maxBytes: bytes.byteLength })
+
+    expect(Array.from(result)).toEqual(Array.from(bytes))
+    expect(new TextDecoder().decode(result)).toContain('\uFFFD')
+  })
+
+  it('returns an empty array for a missing body', async () => {
+    const request = new Request('http://localhost/webhook', { method: 'POST' })
+
+    expect((await readBoundedRequestBytes(request)).byteLength).toBe(0)
+    await expect(readBoundedRequestBody(request)).resolves.toBe('')
+  })
+
+  it('enforces the declared and streamed limits and cancels the stream', async () => {
+    const declared = new Request('http://localhost/webhook', {
+      method: 'POST',
+      headers: { 'content-length': '6' },
+      body: 'ok',
+    })
+    await expect(readBoundedRequestBytes(declared, { maxBytes: 5 })).rejects.toBeInstanceOf(
+      WebhookBodyTooLargeError,
+    )
+
+    const { request, cancel } = makeStreamingRequest([
+      new Uint8Array([1, 2, 3]),
+      new Uint8Array([4, 5, 6]),
+      new Uint8Array([7, 8, 9]),
+    ])
+    await expect(readBoundedRequestBytes(request, { maxBytes: 5 })).rejects.toBeInstanceOf(
+      WebhookBodyTooLargeError,
+    )
+    expect(cancel).toHaveBeenCalled()
+  })
+
+  it('keeps the string reader decoding the same bytes', async () => {
+    const bytes = new TextEncoder().encode('zażółć')
+    const { request } = makeStreamingRequest([bytes])
+
+    await expect(readBoundedRequestBody(request)).resolves.toBe('zażółć')
   })
 })
 

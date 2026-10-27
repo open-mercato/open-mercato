@@ -1,8 +1,13 @@
 import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
-import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
+import {
+  upsertCanonicalEncryptionMap,
+  upsertEncryptionMapSpecs,
+  upsertEncryptionMaps,
+  invalidateEncryptionMapScopes,
+} from './lib/encryption-maps'
 import {
   installCustomEntitiesFromModules,
   getAggregatedCustomEntityConfigs,
@@ -28,6 +33,7 @@ import {
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { Organization } from '../directory/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 
 function parseArgs(rest: string[]) {
@@ -256,11 +262,20 @@ const addField: ModuleCli = {
   },
 }
 
-function resolveEncryptionMapModules(): Module[] {
+// Re-exported for backward compatibility: callers importing these from `./cli` keep working.
+// `upsertEncryptionMapSpecs`/`upsertEncryptionMaps`/`invalidateEncryptionMapScopes` live in
+// `./lib/encryption-maps` (kept lean so the subscriber that seeds a new organization's maps does
+// not pull in this whole CLI module's dependency graph). `resolveEncryptionMapModules` stays
+// defined here: it reads `getCliModules()`, and `cli-registry-boundary.test.ts` in
+// @open-mercato/shared only allows that from `packages/cli/**` or a file literally named
+// `cli.ts` — a lib file could not host it.
+export { upsertEncryptionMapSpecs, upsertEncryptionMaps, invalidateEncryptionMapScopes }
+
+async function resolveEncryptionMapModules(): Promise<Module[]> {
   const cliModules = getCliModules()
   if (cliModules.length > 0) return cliModules
   try {
-    const { getModules } = require('@open-mercato/shared/lib/modules/registry')
+    const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
     return getModules()
   } catch {
     return []
@@ -275,57 +290,12 @@ function resolveEncryptionMapModules(): Module[] {
  * DEK produces a payload runtime decryption can never read again. `backfill-system-encryption`
  * is the one command that handles them.
  */
-function getSystemScopedEntityIds(): Set<string> {
+async function getSystemScopedEntityIds(): Promise<Set<string>> {
   return new Set(
-    getDefaultEncryptionMaps(resolveEncryptionMapModules())
+    getDefaultEncryptionMaps(await resolveEncryptionMapModules())
       .filter((map) => map.keyScope === 'system')
       .map((map) => map.entityId),
   )
-}
-
-// Idempotently upsert a specific set of encryption-map specs for one (tenant, org) scope. Exported so
-// upgrade actions can backfill a newly-added encrypted entity for pre-existing tenants (whose maps were
-// seeded once at tenant creation and never re-run) without depending on the full CLI module registry.
-export async function upsertEncryptionMapSpecs(
-  em: any,
-  tenantId: string,
-  organizationId: string | null,
-  specs: ModuleEncryptionMap[],
-  logger: (msg: string) => void = () => {},
-) {
-  for (const spec of specs) {
-    if (spec.keyScope === 'system') {
-      logger(`Skipping ${spec.entityId}: system-scoped map, resolved from module code rather than a tenant row.`)
-      continue
-    }
-    const existing = await em.findOne(EncryptionMap, {
-      entityId: spec.entityId,
-      tenantId,
-      organizationId,
-      deletedAt: null,
-    })
-    if (existing) {
-      existing.fieldsJson = spec.fields
-      existing.isActive = true
-      existing.updatedAt = new Date()
-      logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
-      await em.persist(existing).flush()
-      continue
-    }
-    const map = em.create(EncryptionMap, {
-      entityId: spec.entityId,
-      tenantId,
-      organizationId,
-      fieldsJson: spec.fields,
-      isActive: true,
-    })
-    await em.persist(map).flush()
-    logger(`Created encryption map for ${spec.entityId}`)
-  }
-}
-
-async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
-  await upsertEncryptionMapSpecs(em, tenantId, organizationId, getDefaultEncryptionMaps(resolveEncryptionMapModules()), logger)
 }
 
 const seedEncryptionMaps: ModuleCli = {
@@ -345,9 +315,12 @@ const seedEncryptionMaps: ModuleCli = {
     }
 
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
+    const em = resolve('em') as EntityManager
     const logger = (msg: string) => console.log(msg)
-    await upsertEncryptionMaps(em, tenantId, organizationId, logger)
+    const encryptionService = resolve('tenantEncryptionService') as Pick<TenantDataEncryptionService, 'invalidateMap'>
+    await upsertEncryptionMaps(em, tenantId, organizationId, await resolveEncryptionMapModules(), logger, async (scope) => {
+      await invalidateEncryptionMapScopes(encryptionService, [scope])
+    })
     console.log('✅ Encryption maps seeded')
   },
 }
@@ -590,7 +563,7 @@ const rotateEncryptionKey: ModuleCli = {
     if (tenantIdArg) where.tenantId = tenantIdArg
     if (organizationIdArg) where.organizationId = organizationIdArg
     const allMaps = await em.find(EncryptionMap, where)
-    const systemScopedEntityIds = getSystemScopedEntityIds()
+    const systemScopedEntityIds = await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
       console.warn(
@@ -881,7 +854,7 @@ const decryptDatabase: ModuleCli = {
     if (organizationIdArg) mapWhere.organizationId = organizationIdArg
     if (entityIdArg) mapWhere.entityId = entityIdArg
     const allMaps = await em.find(EncryptionMap, mapWhere)
-    const systemScopedEntityIds = getSystemScopedEntityIds()
+    const systemScopedEntityIds = await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
       console.warn(
@@ -1221,7 +1194,7 @@ const backfillSystemEncryption: ModuleCli = {
       return
     }
 
-    const systemMaps = getDefaultEncryptionMaps(resolveEncryptionMapModules()).filter((map) => map.keyScope === 'system')
+    const systemMaps = getDefaultEncryptionMaps(await resolveEncryptionMapModules()).filter((map) => map.keyScope === 'system')
     if (!systemMaps.length) {
       console.log('No system-scoped encryption maps are declared by the installed modules. Nothing to backfill.')
       return

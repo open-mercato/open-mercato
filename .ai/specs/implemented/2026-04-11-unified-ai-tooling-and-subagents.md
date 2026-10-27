@@ -1864,6 +1864,11 @@ When implemented, release notes must call out:
 
 ## Changelog
 
+### 2026-10-14 — Bulk confirm runs only the previewed, fresh rows (#7221)
+- §9.8 described an all-or-nothing batch with a `partialSuccess` opt-in; the shipped contract is partial success: stale rows are reported in `failedRecords` and the rest commit. The executor now enforces it: the handler receives only the `records[]` entries that match a previewed row exactly (first entry per id) and passed the recheck; unpreviewed entries are reported as `record_not_previewed`; input that cannot be narrowed, or a batch with nothing approved left to run, answers `412 stale_version` before any status change.
+- The handler context carries `expectedRecordVersions`; catalog AI writes send them as the optimistic-lock header (`expectedUpdatedAt`), so a product whose `updated_at` moved after the preview fails with `optimistic_lock_conflict` instead of being overwritten.
+- Tests: `TC-AI-ACTIONS-STALE-010`, `pending-action-executor-stale-batch.test.ts`, `pending-action-recheck-batch.test.ts`, `ai-api-operation-runner-optimistic-lock.test.ts`, `catalog/__tests__/ai-tools/mutation-pack-optimistic-lock.test.ts`.
+
 ### 2026-09-15 — Deal comment / activity tools resolve the timeline owner through the link tables (#6119)
 - `customers.manage_deal_comment` (create) populated `personEntity` / `companyEntity` on `CustomerDealPersonLink` / `CustomerDealCompanyLink`; the entities define those relations as `person` / `company`, and the lookup also filtered by `tenantId`, a column the link tables do not have, so MikroORM rejected it and no deal comment could ever be created through the tool. `customers.manage_deal_activity` (create) read `deal.entity`, which `CustomerDeal` does not carry, and always failed with "no associated person/company".
 - Both handlers now call one helper (`resolveDealLinkedEntityId` in `customers/ai-tools/activities-tasks-pack.ts`): primary linked person first, then the oldest person by creation/id, then the oldest company by creation/id, queried by the deal id alone (the deal was already scope-checked by `loadDealForScope`; the same query `api/deals/[id]/route.ts` runs) and populated under the real relation names; when the deal has no links the tool tells the operator to link a contact first, with the same wording for comments and activities.

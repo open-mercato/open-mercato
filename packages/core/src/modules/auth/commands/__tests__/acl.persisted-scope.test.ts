@@ -32,6 +32,7 @@ describe('auth ACL commands — persisted log scope', () => {
     const logged: Record<string, unknown>[] = []
     const em = {
       fork: () => em,
+      find: async () => [],
       findOne: async () => null,
       create: (_entity: unknown, data: Record<string, unknown>) => ({ isSuperAdmin: false, ...data }),
       getReference: (_entity: unknown, id: string) => ({ id }),

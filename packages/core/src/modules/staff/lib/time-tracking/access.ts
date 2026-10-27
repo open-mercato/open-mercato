@@ -28,10 +28,21 @@ export type ProjectAccessContext = {
   now?: Date
 }
 
+export type AssignmentWindow = {
+  startIndex: number | null
+  endIndex: number | null
+}
+
 export type ProjectAccess = {
   canManageAll: boolean
   projectIds: string[]
   staffMemberId: string | null
+  /**
+   * The windows (day indexes, end already extended by the grace days) of the
+   * memberships that granted each project in `projectIds`. Absent on a hand-built
+   * access, which then places no bound on the entry date.
+   */
+  assignmentWindows?: Record<string, AssignmentWindow[]>
 }
 
 const DENIED: ProjectAccess = { canManageAll: false, projectIds: [], staffMemberId: null }
@@ -63,6 +74,19 @@ function toDayIndex(value: unknown): number | null {
     return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / MS_PER_DAY
   }
   return null
+}
+
+/**
+ * An entry date is a calendar day the client sent as `YYYY-MM-DD`, which
+ * `z.coerce.date()` turns into UTC midnight — so a Date is read through its UTC
+ * fields here, the same way the grid addresses a cell (D-8).
+ */
+function toEntryDayIndex(value: unknown): number | null {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()) / MS_PER_DAY
+  }
+  return toDayIndex(value)
 }
 
 /**
@@ -136,16 +160,51 @@ export async function resolveProjectAccess(ctx: ProjectAccessContext): Promise<P
   const todayIndex = toDayIndex(ctx.now ?? new Date())
 
   const projectIds: string[] = []
-  const seen = new Set<string>()
+  const assignmentWindows: Record<string, AssignmentWindow[]> = {}
   for (const membership of memberships) {
     const projectId = membership.timeProjectId
-    if (!projectId || seen.has(projectId)) continue
+    if (!projectId) continue
     if (todayIndex === null || !isWithinAssignmentWindow(membership, todayIndex, graceDays)) continue
-    seen.add(projectId)
+    const endIndex = toDayIndex(membership.assignedEndDate)
+    const window: AssignmentWindow = {
+      startIndex: toDayIndex(membership.assignedStartDate),
+      endIndex: endIndex === null ? null : endIndex + graceDays,
+    }
+    const windows = assignmentWindows[projectId]
+    if (windows) {
+      windows.push(window)
+      continue
+    }
+    assignmentWindows[projectId] = [window]
     projectIds.push(projectId)
   }
 
-  return { canManageAll: false, projectIds, staffMemberId }
+  return { canManageAll: false, projectIds, staffMemberId, assignmentWindows }
+}
+
+/**
+ * Whether the caller may write time dated `date` on `projectId`. On top of the
+ * today-based access `resolveProjectAccess` grants (D-12), the entry's own date
+ * must fall inside one of the windows of the memberships that granted it: from
+ * `assigned_start_date` until `assigned_end_date` plus the grace days. An
+ * unparseable date fails closed.
+ */
+export function isProjectAccessibleOnDate(
+  access: ProjectAccess,
+  projectId: string | null | undefined,
+  date: Date | string | null | undefined,
+): boolean {
+  if (access.canManageAll) return true
+  if (!projectId || !access.projectIds.includes(projectId)) return false
+  const windows = access.assignmentWindows?.[projectId]
+  if (!windows) return true
+  const dateIndex = toEntryDayIndex(date)
+  if (dateIndex === null) return false
+  return windows.some(
+    (window) =>
+      (window.startIndex === null || dateIndex >= window.startIndex) &&
+      (window.endIndex === null || dateIndex <= window.endIndex),
+  )
 }
 
 export function assertProjectAccess(access: ProjectAccess, projectId?: string | null): boolean {
