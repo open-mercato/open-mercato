@@ -41,6 +41,7 @@ import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTime
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
 import { RunManifestCard } from '../../../components/RunManifestCard'
+import { LlmStepMetadataCard } from '../../../components/trace/LlmStepMetadataCard'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -1314,6 +1315,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       )}
                 </InspectorCard>
                 </div>
+
+                <LlmStepMetadataCard spans={detail.spans} currency={run.currency} />
 
                 {/* Tool calls + Output — two columns */}
                 <div className="grid gap-6 lg:grid-cols-2">

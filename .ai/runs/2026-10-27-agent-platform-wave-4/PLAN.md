@@ -25,7 +25,7 @@
 | 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | done | 8696df6eb |
 | 2 | 2.4 | Add the trace capture settings API and undoable command | dispatch | done | 1d6c76567 |
 | 2 | 2.5 | Add the trace capture settings page | dispatch | done | 763858447 |
-| 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | todo | — |
+| 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | done | pending |
 | 3 | 3.2 | Normalize gen_ai attributes on ingested llm spans | dispatch | todo | — |
 | 3 | 3.3 | Cover step metadata and capture settings with integration tests | dispatch | todo | — |
 | 4 | 4.1 | Add deterministic OTel ids and the OTLP JSON encoder | dispatch | todo | — |
