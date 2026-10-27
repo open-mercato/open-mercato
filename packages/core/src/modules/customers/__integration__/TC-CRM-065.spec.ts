@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test';
 import { readJsonSafe as parseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   createDealFixture,
   createPersonFixture,
   deleteEntityByBody,
   deleteEntityIfExists,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+} from '@open-mercato/core/helpers/integration/crmFixtures';
 
 /**
  * TC-CRM-065: People bulk delete with partial dependency failure
@@ -89,6 +89,18 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       for (const name of ['Free0', 'Free1', 'Blocked']) {
         await expect(page.getByRole('link', { name: `${prefix} ${name}`, exact: true })).toBeVisible();
       }
+      const fixtureIds = [...deletableIds, blockedId].sort();
+      const deletedPersonIds: string[] = [];
+      page.on('request', (sentRequest) => {
+        const url = new URL(sentRequest.url());
+        const id = url.searchParams.get('id');
+        if (sentRequest.method() === 'DELETE' && url.pathname === '/api/customers/people' && id) {
+          deletedPersonIds.push(id);
+        }
+      });
+
+      const selectAllCheckbox = page.getByRole('checkbox', { name: 'Select all', exact: true });
+      await expect(selectAllCheckbox).toBeVisible();
 
       for (const name of [`${prefix} Free0`, `${prefix} Free1`, `${prefix} Blocked`]) {
         const row = page.getByRole('row').filter({
@@ -96,6 +108,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
         });
         await row.getByRole('checkbox').check();
       }
+      await expect(page.getByRole('checkbox', { name: 'Select row', exact: true, checked: true })).toHaveCount(3);
       await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
 
       const deleteButton = page.getByRole('button', { name: /Delete selected/i });
@@ -109,6 +122,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
 
       // Grouped failure toast must surface the dependency reason from the server.
       await expect(page.getByText(/linked deals/i).first()).toBeVisible({ timeout: 10_000 });
+      expect(deletedPersonIds.sort()).toEqual(fixtureIds);
 
       // Server state: blocked person remains; deletable people are gone.
       await expect
