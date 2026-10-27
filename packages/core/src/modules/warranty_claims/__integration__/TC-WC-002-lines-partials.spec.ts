@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
@@ -9,6 +10,7 @@ import {
   expectClaimStatus,
   listClaimLines,
   numeric,
+  OPTIMISTIC_LOCK_HEADER,
   resolveLineThroughLifecycle,
   submitAndExpect,
   transitionAndExpect,
@@ -17,6 +19,60 @@ import {
 } from './helpers'
 
 test.describe('TC-WC-002: warranty claim line partial approvals', () => {
+  for (const role of ['admin', 'employee'] as const) {
+    test(`${role} can cancel then confirm removing a line from the desk (#8012)`, async ({ page, request }) => {
+      const token = await getAuthToken(request, 'admin')
+      const stamp = uniqueLabel('tc-wc-002-remove')
+      let claimId: string | null = null
+      try {
+        const claim = await createClaimFixture(request, token, {
+          claimType: 'return',
+          customerName: `QA WC Remove ${stamp}`,
+          reasonCode: 'defective',
+          currencyCode: 'USD',
+          lines: [
+            { productName: `Keep ${stamp}`, qtyClaimed: 1, creditAmount: 10 },
+            { productName: `Remove ${stamp}`, qtyClaimed: 1, creditAmount: 20 },
+          ],
+        })
+        claimId = claim.id
+        const initialLines = await listClaimLines(request, token, claimId!)
+        const removedLine = initialLines.find((line) => line.productName === `Remove ${stamp}`)
+        expect(removedLine?.updatedAt).toBeTruthy()
+        await login(page, role)
+        await page.goto(`/backend/warranty_claims/${claimId}`)
+        const row = page.getByRole('row').filter({ hasText: `Remove ${stamp}` })
+        await row.getByRole('button', { name: 'Open actions' }).click()
+        await page.getByRole('menuitem', { name: 'Remove line', exact: true }).click()
+        const confirmation = page.getByRole('dialog', { name: 'Remove line', exact: true })
+        await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+        await expect(row).toBeVisible()
+        expect(await listClaimLines(request, token, claimId!)).toHaveLength(2)
+
+        await row.getByRole('button', { name: 'Open actions' }).click()
+        await page.getByRole('menuitem', { name: 'Remove line', exact: true }).click()
+        const deletion = page.waitForResponse((response) =>
+          new URL(response.url()).pathname === '/api/warranty_claims/lines'
+          && response.request().method() === 'DELETE',
+        )
+        await confirmation.getByRole('button', { name: 'Confirm', exact: true }).click()
+        const response = await deletion
+        expect(response.status()).toBe(200)
+        expect(response.request().headers()[OPTIMISTIC_LOCK_HEADER]).toBe(removedLine?.updatedAt)
+        expect(response.request().postDataJSON()).toMatchObject({ id: removedLine?.id, claimId })
+        await expect(row).toHaveCount(0)
+        await expect(page.getByRole('row').filter({ hasText: `Keep ${stamp}` })).toBeVisible()
+        const remaining = await listClaimLines(request, token, claimId!)
+        expect(remaining).toHaveLength(1)
+        expect(remaining[0].productName).toBe(`Keep ${stamp}`)
+        const updatedClaim = await expectClaimStatus(request, token, claimId!, 'draft')
+        expect(numeric(updatedClaim.totalClaimedAmount)).toBe(10)
+      } finally {
+        await cleanupDraftClaimWithLines(request, token, claimId)
+      }
+    })
+  }
+
   test('validates partial quantities, recomputes header totals, and locks closed claims', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-002')
