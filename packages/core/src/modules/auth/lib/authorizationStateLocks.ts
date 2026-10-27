@@ -195,7 +195,6 @@ export async function lockAuthorizationState(
   }
 
   const apiKeyIds = uniqueSortedIds(targets.apiKeyIds ?? [])
-  const userIds = uniqueSortedIds(targets.userIds ?? [])
   const explicitRoleIds = uniqueSortedIds(targets.roleIds ?? [])
   const tenantIds = uniqueSortedIds(targets.tenantIds ?? [])
   const explicitApiKeys = apiKeyIds.length
@@ -207,6 +206,10 @@ export async function lockAuthorizationState(
         { tenantId: null, organizationId: null },
       )
     : []
+  const userIds = uniqueSortedIds([
+    ...(targets.userIds ?? []),
+    ...explicitApiKeys.flatMap((apiKey) => apiKey.sessionUserId ? [apiKey.sessionUserId] : []),
+  ])
   const explicitApiKeyRoleIds = uniqueSortedIds(explicitApiKeys.flatMap((apiKey) => (
     Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []
   )))
@@ -239,7 +242,7 @@ export async function lockAuthorizationState(
     const before = explicitApiKeys.find((candidate) => String(candidate.id) === id)
     const beforeRoles = Array.isArray(before?.rolesJson) ? before.rolesJson : []
     const lockedRoles = Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []
-    if (!sameIds(beforeRoles, lockedRoles)) {
+    if (!sameIds(beforeRoles, lockedRoles) || (before?.sessionUserId ?? null) !== (apiKey.sessionUserId ?? null)) {
       throw authorizationStateDrift()
     }
   }

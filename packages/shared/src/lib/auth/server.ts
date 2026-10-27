@@ -224,7 +224,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const keyOrganizationId = typeof record.organizationId === 'string' && record.organizationId.trim().length > 0
       ? record.organizationId.trim()
       : null
-    if (roleIds.length && !keyOrganizationId) {
+    if (roleIds.length && !keyOrganizationId && !record.sessionUserId) {
       const superAcls = await em.find(
         RoleAcl,
         {

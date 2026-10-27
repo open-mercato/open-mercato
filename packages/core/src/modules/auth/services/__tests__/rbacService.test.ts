@@ -233,6 +233,136 @@ describe('RbacService', () => {
     })
   })
 
+  describe('delegated API-key ACL ceilings', () => {
+    let ownerFeatures: string[]
+    let ownerOrganizations: string[] | null
+    let ownerExists: boolean
+    let key: Partial<ApiKey>
+
+    beforeEach(() => {
+      ownerFeatures = ['customers.people.view']
+      ownerOrganizations = ['org-1']
+      ownerExists = true
+      key = {
+        id: 'delegated-key', tenantId: 'tenant-1', organizationId: null,
+        rolesJson: ['role-broad'], sessionUserId: baseUser.id,
+      }
+      em.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === ApiKey) return key
+        if (entity === User) return ownerExists && where.tenantId !== 'tenant-foreign' ? baseUser : null
+        if (entity === Organization) return { id: where.id, ancestorIds: [] }
+        if (entity === UserAcl && where.isSuperAdmin !== true) {
+          return { isSuperAdmin: false, featuresJson: ownerFeatures, organizationsJson: ownerOrganizations }
+        }
+        return null
+      })
+      em.find.mockImplementation(async (entity: unknown) => entity === RoleAcl ? [{
+        featuresJson: ['customers.*'], organizationsJson: null, isSuperAdmin: false,
+      }] : [])
+    })
+
+    it.each([null, 'sess_test'])('caps persistent and session keys on cold and warm caches (%s)', async (sessionToken) => {
+      key.sessionToken = sessionToken
+      for (const organizationId of ['org-1', 'org-2']) {
+        const scope = { tenantId: 'tenant-1', organizationId }
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          await expect(service.userHasAllFeatures(baseUser.id!, ['customers.people.view'], scope))
+            .resolves.toBe(organizationId === 'org-1')
+          await expect(service.userHasAllFeatures(baseUser.id!, ['customers.people.edit'], scope))
+            .resolves.toBe(false)
+          await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.view'], scope))
+            .resolves.toBe(organizationId === 'org-1')
+          await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.edit'], scope))
+            .resolves.toBe(false)
+        }
+      }
+    })
+
+    it('evicts the key ceiling when the owner ACL changes', async () => {
+      const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ownerFeatures, scope)).resolves.toBe(true)
+      ownerFeatures = []
+      ownerOrganizations = []
+      await service.invalidateUserCache(baseUser.id!)
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.view'], scope)).resolves.toBe(false)
+    })
+
+    it('does not expose MCP features outside the owner organization allowlist', async () => {
+      await expect(service.loadAcl('api_key:delegated-key', {
+        tenantId: 'tenant-1', organizationId: 'org-2',
+      })).resolves.toEqual({ isSuperAdmin: false, features: [], organizations: ['org-1'] })
+    })
+
+    it.each([
+      [['customers.*'], ['customers.people.*'], ['customers.people.*']],
+      [['customers.people.view'], ['customers.*'], ['customers.people.view']],
+      [['*'], ['customers.people.view'], ['customers.people.view']],
+    ])('intersects wildcard grants without widening either principal (%j, %j)', async (keyFeatures, userFeatures, expected) => {
+      ownerFeatures = userFeatures
+      em.find.mockImplementation(async (entity: unknown) => entity === RoleAcl ? [{
+        featuresJson: keyFeatures, organizationsJson: null, isSuperAdmin: false,
+      }] : [])
+      const acl = await service.loadAcl('api_key:delegated-key', { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(acl.features).toEqual(expected)
+    })
+
+    it('caps a super-admin role by the non-super owner ACL', async () => {
+      em.find.mockImplementation(async (entity: unknown) => entity === RoleAcl ? [{
+        featuresJson: [], organizationsJson: null, isSuperAdmin: true,
+      }] : [])
+      const acl = await service.loadAcl('api_key:delegated-key', { tenantId: 'tenant-1', organizationId: 'org-1' })
+      expect(acl).toEqual({ isSuperAdmin: false, features: ownerFeatures, organizations: ['org-1'] })
+    })
+
+    it('ignores legacy role-only cache entries', async () => {
+      await cache.set('rbac:api_key:delegated-key:tenant-1:org-1', {
+        isSuperAdmin: true, features: ['*'], organizations: null,
+      })
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.edit'], {
+        tenantId: 'tenant-1', organizationId: 'org-1',
+      })).resolves.toBe(false)
+    })
+
+    it('uses only the supplied EntityManager for the owner ceiling', async () => {
+      await expect(service.loadAclWithEntityManager(em as never, 'api_key:delegated-key', {
+        tenantId: 'tenant-1', organizationId: 'org-1',
+      })).resolves.toEqual({ isSuperAdmin: false, features: ownerFeatures, organizations: ownerOrganizations })
+      expect(em.fork).not.toHaveBeenCalled()
+    })
+
+    it('intersects organization projections and invalidates them with the owner', async () => {
+      const candidates = [{ id: 'org-1' }, { id: 'org-2' }]
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const access = await service.resolveFeatureOrganizationAccess('api_key:delegated-key', ownerFeatures, { tenantId: 'tenant-1' })
+        expect(access.unrestricted).toBe(false)
+        expect(access.filterOrganizationIds(candidates)).toEqual(['org-1'])
+      }
+      ownerOrganizations = ['org-2']
+      await service.invalidateUserCache(baseUser.id!)
+      const access = await service.resolveFeatureOrganizationAccess('api_key:delegated-key', ownerFeatures, { tenantId: 'tenant-1' })
+      expect(access.filterOrganizationIds(candidates)).toEqual(['org-2'])
+      const denied = await service.resolveFeatureOrganizationAccess('api_key:delegated-key', ['customers.people.edit'], { tenantId: 'tenant-1' })
+      expect(denied.filterOrganizationIds(candidates)).toEqual([])
+    })
+
+    it('denies deleted or foreign-tenant owners', async () => {
+      ownerExists = false
+      await expect(service.loadAcl('api_key:delegated-key', { tenantId: 'tenant-1', organizationId: null }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+      ownerExists = true
+      await expect(service.loadAclWithEntityManager(em as never, 'api_key:delegated-key', { tenantId: 'tenant-foreign', organizationId: null }))
+        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: [] })
+    })
+
+    it('keeps unbound machine-key role grants independent of the creator ACL', async () => {
+      key.sessionUserId = null
+      key.createdBy = baseUser.id
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.edit'], {
+        tenantId: 'tenant-1', organizationId: 'org-2',
+      })).resolves.toBe(true)
+    })
+  })
+
   describe('loadAcl', () => {
     it('returns empty ACL for unknown user', async () => {
       em.findOne.mockImplementation(async (entity: any) => {

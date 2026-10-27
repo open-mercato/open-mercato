@@ -191,6 +191,22 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     ).resolves.toBeNull()
   })
 
+  it('never caches a role-only super-admin flag for a user-bound key', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'bound-super-key', name: 'bound', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: ['role-super'], sessionUserId: 'owner-1', createdBy: 'owner-1',
+      expiresAt: null, lastUsedAt: null,
+    })
+    emFind.mockResolvedValue([{ name: 'superadmin', isSuperAdmin: true, organizationsJson: null }])
+    emFindOne.mockResolvedValue({ id: 'owner-1', tenantId: 'tenant-1', organizationId: null })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(getAuthFromRequest(buildRequest('bound-super-secret')))
+        .resolves.toMatchObject({ isSuperAdmin: false, userId: 'owner-1' })
+    }
+    expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+  })
+
   it('accepts a tenant-scoped regular key that records no creator', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({

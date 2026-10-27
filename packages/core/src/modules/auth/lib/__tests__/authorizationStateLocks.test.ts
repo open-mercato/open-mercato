@@ -184,6 +184,52 @@ describe('authorization state lock ordering', () => {
     )
   })
 
+  it('locks the delegated key owner and its ACL before replay authorization', async () => {
+    const lockOrder: string[] = []
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+          lockOrder.push(`${entityLabel(entity)}:${lockedIds(where)}`)
+        }
+        if (entity === ApiKey && typeof where.id === 'object') {
+          return [{ id: 'key-actor', rolesJson: ['role-a'], sessionUserId: 'owner-1' }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    })
+    await inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'api_key:key-actor', tenantId: null, orgId: null } },
+      {},
+    ))
+    expect(lockOrder).toEqual([
+      'key:key-actor', 'user:owner-1', 'role:role-a', 'user-role:', 'user-acl:', 'role-acl:',
+    ])
+    expect(em.find).toHaveBeenCalledWith(UserAcl, { user: { $in: ['owner-1'] } }, expect.objectContaining({
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+    }))
+  })
+
+  it('rejects an owner binding changed during API-key lock acquisition', async () => {
+    let keyReads = 0
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere) => {
+        if (entity === ApiKey && typeof where.id === 'object') {
+          keyReads += 1
+          return [{ id: 'key-actor', rolesJson: [], sessionUserId: keyReads === 1 ? 'owner-1' : 'owner-2' }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    })
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'api_key:key-actor', tenantId: null, orgId: null } },
+      {},
+    ))).rejects.toMatchObject({ status: 409 })
+  })
+
   it('rejects a membership phantom instead of appending earlier-rank locks', async () => {
     let userRoleRead = 0
     const em = withTransactionMethods({
