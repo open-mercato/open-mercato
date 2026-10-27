@@ -68,3 +68,7 @@
 ## 2026-10-27 — 5.2-review-fix-2 follow-ups
 - `GET /api/agent_orchestrator/eval-runs` still decrypts each run's full `summary` (which can carry a manifest body up to 5 MiB) just to read `manifest_hash`. The pointer and body share one encrypted column, so selecting fields doesn't help. Follow-up: keep the manifest hash in a plain column, or move the body out of `summary`. Both need AO DDL.
 - Only pin resolution (`resolveManifest`, used by `resolveSnapshotPin` and report resolution) pages through all suite runs of the agent when no hash-pinned run holds the version. Each such resolution costs one full decrypting scan, and the same indexed column would make it a direct lookup. Start-time body dedupe (`findEvalSetCarrier`) stays bounded to the 200 most recent runs. A miss there only stores the body again (follow-up commit `perf(agent_orchestrator): bound the eval-set carrier dedupe scan on run start`).
+
+## 2026-10-27T06:30:00Z — review pass complete
+- `om-auto-review-pr --autofix`: first review 1 major + 11 minor + 2 nits → fixed in 5.2-review-fix (`fd4b204eb`), 5.2-review-fix-2 (`2f9dec57f`) + bounded start-time dedupe (`81585d3ba`); re-review APPROVABLE with 3 nits → fixed in 5.2-review-fix-3 (`2fbd393b5`). Targeted validation green (ai-assistant 2040, AO 1654+, core guards, lint, i18n, `yarn build:app --force`).
+- Run complete. PR #8011 → ready for review after the user pushes; merge waits on #7794 (stacked) and on manual QA in an AO-enabled environment.
