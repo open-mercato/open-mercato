@@ -143,10 +143,9 @@ the coalescing key**. No index, no expiry, nothing to orphan — dropping `ttl` 
 One thing cannot be derived from `queue.json`: whether a job is running *right now*. The in-memory
 `inFlightJobIds` set cannot answer it for a producer, and producers are in other processes — the
 documented topology is many producers and exactly one consumer. So the consumer publishes
-`active.json`, listing the jobs it has started and not yet finalized on disk, written with an atomic
-rename. The initial lease is published while the queue lock still protects job selection; later
-updates need no queue lock because there is only one writer. Producers read it inside their own
-locked segment.
+`active.json`, listing every job selected into the current batch and not yet finalized on disk,
+written with an atomic rename while the queue lock still protects selection. Producers read it
+inside their own locked segment.
 
 - **`enqueue`** — unchanged fast path when no key resolves. Otherwise, inside one locked segment: no
   record carries the key → append; the record is leased active → park the payload on it as
@@ -249,13 +248,13 @@ uncoalesced jobs untouched; the key released on completion and on attempt exhaus
 retry; an enqueue during a run producing exactly one more run with the latest payload, driven from a
 second queue instance so the pass proves the active state was read from disk rather than from the
 in-process in-flight set; active-burst enqueues receiving the active job id while the latest parked
-id is preserved for promotion; nothing
-parked when the twin is merely waiting; an immediate enqueue pulling a delayed twin forward while a
+id is preserved for promotion; nothing parked when the twin is merely waiting; an immediate enqueue
+pulling a delayed twin forward while a
 delayed one never pushes an earlier twin back; a queue-level `coalesceBy` keying every enqueue,
 returning `null` to opt a payload out, and losing to an explicit per-enqueue key (including an empty
 explicit key opting out); every selected job being leased before the selection lock is released;
-enqueues for later selected jobs being parked rather than lost; leases being cleared and ignored when their
-owner is dead or when a consumer starts; a coalesced enqueue leaving `queue.json`'s inode and mtime
+enqueues for later selected jobs being parked rather than lost; leases being cleared and ignored
+when their owner is dead or when a consumer starts; a coalesced enqueue leaving `queue.json`'s inode and mtime
 untouched; an unparsable lease failing open while reporting the error; and records written before
 this feature still processing. The real-Redis file also verifies BullMQ's active/follow-up id
 behavior and contains an always-running guard that fails the shared GitHub `test` job when its Redis
