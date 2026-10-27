@@ -12,17 +12,17 @@ Open Mercato modules are developed by third-party developers who depend on stabl
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+**Only steps 1-3 are waived** when the removed surface *is itself* the vulnerability: accepting its old shape alongside the replacement preserves the exploit throughout the deprecation window. Merely enabling insecure usage does not qualify.
 
-This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
+All conditions below MUST hold; authors/reviewers cannot waive them. Otherwise follow the ordinary protocol:
 
-1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
-2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
-3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
-4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
-5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
+1. The PR **argues, not merely asserts**, the surface, vulnerability, and why a bridge keeps it exploitable.
+2. Use the **narrowest removal** that closes the flaw: no unrelated tightening or vulnerable branch retained behind a flag, config toggle, or opt-in.
+3. **Steps 4-5 apply in full**: `UPGRADE_NOTES.md` includes client AND operator migration; a spec under `.ai/specs/` or `.ai/specs/enterprise/` includes "Migration & Backward Compatibility".
+4. Add a **dated entry at this document's end**: surface, classification, qualifying argument, and migration path.
+5. The PR has `security` and **named human maintainer approval acknowledging the waiver**; automated review cannot clear it.
 
-Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
+Disclosure compensates for the missing bridge: `UPGRADE_NOTES.md` MUST plainly state what stops working, for whom, what to do, and any stored credentials/data made unusable or newly suspect.
 
 ---
 
@@ -603,24 +603,12 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
-## Bootstrap Credential Output Redaction (2026-10-27)
+## Bootstrap Credential Output (2026-10-27)
 
-Issue #7822 removes plaintext passwords from the `mercato init` account banner,
-masks secret-bearing module command options, and redacts known credentials from
-CLI-owned failure diagnostics. CLI commands and flags (§13, STABLE) keep their
-names, accepted inputs, execution behavior and exit codes. The human-readable
-output intentionally changes; password-scraping clients must migrate.
+#7822 changes CLI output (§13, STABLE): init no longer prints passwords; command
+banners/errors redact secrets. The output is the disclosure, so a bridge would
+retain the exploit. Named human maintainer waiver is pending on the security PR.
 
-**Security exception:** the removed output is itself the disclosure to durable
-terminal, CI and deployment logs. Keeping the old output in a bridge release or
-behind a toggle would retain the vulnerability. Only the vulnerable output is
-removed; no insecure fallback is retained. The exception remains **pending named
-human maintainer approval** on the security-labeled implementation PR, which an
-automated review cannot replace.
-
-**Migration:** clients stop parsing plaintext passwords. Operators supply the
-existing `OM_INIT_*_PASSWORD` overrides from their secret manager or use the
-configured password-reset flow, and rotate credentials that earlier logs may have
-exposed. Previously retained logs remain suspect. Full client/operator guidance is
-in `UPGRADE_NOTES.md`; the design and test contract are in
-[the spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md#migration--backward-compatibility).
+Clients stop scraping passwords. Operators use `OM_INIT_*_PASSWORD` or password
+reset and rotate credentials exposed in old logs. See [migration](UPGRADE_NOTES.md)
+and [spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md#migration--backward-compatibility).
