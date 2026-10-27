@@ -167,6 +167,7 @@ jest.mock('../schedule', () => ({
   // keeps the real per-type rules rather than a stub.
   isDateRequired: jest.requireActual('../schedule/fieldConfig').isDateRequired,
   isTimeRequired: jest.requireActual('../schedule/fieldConfig').isTimeRequired,
+  resolveScheduleActivityType: jest.requireActual('../schedule/fieldConfig').resolveScheduleActivityType,
   FIELD_VISIBILITY: jest.requireActual('../schedule/fieldConfig').FIELD_VISIBILITY,
   getFieldLabel: (_activityType: string, _fieldId: string, _t: unknown, _labelKey: string, fallback: string) => fallback,
   DateTimeFields: (props: unknown) => mockUseRealScheduleState
@@ -358,6 +359,31 @@ describe('ScheduleActivityDialog', () => {
     expect(init.method).toBe(editing ? 'PUT' : 'POST')
     expect(payload.durationMinutes).toBe(45)
     expect(findInapplicableCoreFields(calendarEventTypes.find((type) => type.key === activityType)!.behavior, payload)).toEqual([])
+  })
+
+  it.each([
+    'event',      // built-in Event — outside this dialog's five legacy kinds
+    'workshop',   // custom dictionary key an admin configured
+    'legacy-sms', // historical key no longer offered by the type picker
+  ])('opens and saves an unsupported "%s" interactionType without crashing (#7486)', async (interactionType) => {
+    mockScheduleState = createScheduleState({ activityType: interactionType, title: 'Follow up' })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{ id: '11111111-1111-4111-8111-111111111111', interactionType }}
+      />,
+    )
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+    expect(apiCallOrThrowMock).toHaveBeenCalled()
+    const init = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method: string; body: string }
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    // The raw persisted type is preserved verbatim — never silently rewritten to 'meeting'.
+    expect(payload.interactionType).toBe(interactionType)
+    expect(payload.durationMinutes).toBe(45)
   })
 
   it('passes excludeId when checking conflicts for an edited activity', async () => {
