@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Inbound webhook receipt deduplication includes verified scope (#7830)
+
+Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
+The same message ID delivered to different verified scopes is ingested independently; repeated
+delivery within one scope still returns `200 { ok: true, duplicate: true }`. Explicitly unscoped
+legacy adapters retain a separate null/null namespace with the same replay protection.
+
+**Operator action:** apply `Migration20261027193000_receipt_scope` before resuming inbound
+traffic, on PostgreSQL 15+. Schedule for the table lock needed to rebuild the receipt uniqueness
+constraint. The migration preserves its existing name and every receipt/message ID; data valid
+under the previous global uniqueness rule requires no cleanup. Existing receiver code already
+writes the scope fields, so mixed-version receivers can use the migrated schema.
+
+**Module author action:** include verified tenant/organization scope in any independent receipt
+lookup or deduplication cache key. The source/adapter interfaces, events, and HTTP response
+contracts are unchanged, and the named constraint remains available to `ON CONFLICT` consumers.
+After cross-scope collisions have been stored, restoring the former global constraint may fail;
+there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
+before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its

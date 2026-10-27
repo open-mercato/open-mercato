@@ -3,7 +3,7 @@ import type { WebhookSourceConfig } from '@open-mercato/shared/lib/webhooks'
 const enqueueInboundDispatch = jest.fn(async () => 'job-1')
 const emitWebhooksEvent = jest.fn(async () => undefined)
 const findWithDecryption = jest.fn()
-const credentialsResolve = jest.fn(async () => ({ webhookSigningSecret: 'whsec' }))
+const credentialsResolve = jest.fn(async (_integrationId: string, _scope: { tenantId: string; organizationId: string }) => ({ webhookSigningSecret: 'whsec' }))
 
 const flush = jest.fn(async () => undefined)
 const persist = jest.fn()
@@ -72,7 +72,8 @@ beforeEach(() => {
   flush.mockResolvedValue(undefined)
   findWithDecryption.mockReset()
   findWithDecryption.mockResolvedValue([{ organizationId: 'o1', tenantId: 't1', sourceKey: 'stripe', isActive: true }])
-  credentialsResolve.mockClear()
+  credentialsResolve.mockReset()
+  credentialsResolve.mockResolvedValue({ webhookSigningSecret: 'whsec' })
 })
 
 it('returns 404 when neither a source nor an adapter matches the segment', async () => {
@@ -146,4 +147,29 @@ it('returns duplicate when the receipt unique constraint is violated', async () 
   expect(res.status).toBe(200)
   await expect(res.json()).resolves.toEqual({ ok: true, duplicate: true })
   expect(enqueueInboundDispatch).not.toHaveBeenCalled()
+})
+
+it('persists the scope selected by each source delivery own credentials', async () => {
+  const scopes = [
+    { tenantId: 'tenant-1', organizationId: 'org-1' },
+    { tenantId: 'tenant-1', organizationId: 'org-2' },
+    { tenantId: 'tenant-2', organizationId: 'org-1' },
+  ]
+  findWithDecryption.mockResolvedValue(scopes.map((scope) => ({ ...scope, sourceKey: 'stripe', isActive: true })))
+  credentialsResolve.mockImplementation(async (_integrationId: string, scope: { tenantId: string; organizationId: string }) => ({
+    webhookSigningSecret: `${scope.tenantId}:${scope.organizationId}`,
+  }))
+  registerWebhookSource(makeSource({
+    verifier: async (request, credentials) => request.headers['x-test-signature'] === credentials.webhookSigningSecret,
+  }))
+
+  for (const scope of scopes) {
+    const response = await postTo('stripe', undefined, {
+      'x-test-signature': `${scope.tenantId}:${scope.organizationId}`,
+    })
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(persist).toHaveBeenCalledWith(expect.objectContaining({ endpointId: 'stripe', messageId: 'evt_1', ...scope }))
+    expect(enqueueInboundDispatch).toHaveBeenLastCalledWith(expect.objectContaining(scope))
+  }
+  expect(enqueueInboundDispatch).toHaveBeenCalledTimes(scopes.length)
 })
