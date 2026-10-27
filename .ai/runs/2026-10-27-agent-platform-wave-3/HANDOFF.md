@@ -1,6 +1,6 @@
 # Handoff — 2026-10-27-agent-platform-wave-3
 
-**Last updated:** 2026-10-27T09:44:37Z
+**Last updated:** 2026-10-27T09:45:26Z
 **Branch:** feat/agent-platform-wave-3 (stacked on feat/agent-platform-wave-2 @ 2d3734ed6)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8018 (draft)
 **Current phase/step:** Phase 4 Step 4.1
@@ -13,7 +13,8 @@
 - Step 4.1 — Add the integrity path dialect, declaration schemas and defineAgent keys.
 
 ## Blockers / open questions
-- none. Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).
+- Paused at the safety checkpoint (after Phase 3) for user review. Resume with `om-auto-continue-pr-loop 8018` (or continue in-session) from Step 4.1.
+- Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).
 
 ## Environment caveats
 - Dev runtime runnable: not from this worktree (port 3000 belongs to an unrelated project)

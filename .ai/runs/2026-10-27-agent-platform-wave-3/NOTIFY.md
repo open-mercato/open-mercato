@@ -62,3 +62,6 @@
 - Correction to the wave-2 handoff: AO does register in the ephemeral app when started with `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`.
 - Decision: the 3.4 commit reached `upstream` before its amend, so local was reset to the pushed `d14cf1e1a` (code identical) and the 3.4 row is flipped in this checkpoint commit. Executor rule changed: no amend; `pending` SHAs filled at checkpoints.
 - 3.4 decisions: tool name `agent_examples.triage_ticket` (FROZEN once published); `support.ticket_triage` declares `requiredFeatures: ['agent_orchestrator.agents.view']` (existing feature, granted to employee/admin/superadmin by default).
+
+## 2026-10-27T09:45:26Z — safety checkpoint: paused for user review
+- 18 code Steps landed (Phases 1–3: MCP P4 + Identity P1 + Identity P5, the ID-Q3 bundle). Paused at the phase boundary per the ~20-Step safety checkpoint before Integrity P1–P2 and DocStructure P3. Resume point: Step 4.1. Lock released; PR stays a draft with `Status: in-progress`.
