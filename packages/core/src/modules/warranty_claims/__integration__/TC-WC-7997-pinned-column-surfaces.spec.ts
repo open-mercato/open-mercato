@@ -27,7 +27,7 @@ async function openList(page: Page, list: typeof lists[number], search: string) 
     const url = new URL(response.url())
     return url.pathname === list.api && url.searchParams.get('search') === search && response.ok()
   })
-  await page.locator('[data-slot=search-input-wrapper] input').first().fill(search)
+  await page.getByRole('main').locator('[data-slot=search-input-wrapper] input').fill(search)
   await searchResponse
   return table
 }
