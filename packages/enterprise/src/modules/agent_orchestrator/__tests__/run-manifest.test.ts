@@ -162,6 +162,27 @@ describe('run manifest builder', () => {
     expect(attributes['om.skills']).toHaveLength(2)
   })
 
+  it('records the integrity raw output key only when one is provided', () => {
+    const withKey = buildRunManifestAttributes(
+      codeAgentInput({ integrityRawOutputKey: 'agent-trace-artifacts/raw-output.json' }),
+    )
+    expect(withKey['om.integrity.raw_output_key']).toBe('agent-trace-artifacts/raw-output.json')
+    expect(buildRunManifestAttributes(codeAgentInput())).not.toHaveProperty('om.integrity.raw_output_key')
+    expect(buildRunManifestAttributes(codeAgentInput({ integrityRawOutputKey: null }))).not.toHaveProperty(
+      'om.integrity.raw_output_key',
+    )
+  })
+
+  it('keeps the integrity raw output key while trimming to the size cap', () => {
+    const toolNames = Array.from({ length: 300 }, (_entry, index) => `module_${index}.tool_with_a_long_name_${index}`)
+    const attributes = buildRunManifestAttributes(
+      codeAgentInput({ toolNames, integrityRawOutputKey: 'agent-trace-artifacts/raw-output.json' }),
+    )
+    expect(measureRunManifest(attributes)).toBeLessThanOrEqual(RUN_MANIFEST_MAX_CHARS)
+    expect(attributes['om.manifest.truncated']).toBe(true)
+    expect(attributes['om.integrity.raw_output_key']).toBe('agent-trace-artifacts/raw-output.json')
+  })
+
   it('produces deterministic output for the same input', () => {
     const first = JSON.stringify(buildRunManifestAttributes(codeAgentInput()))
     const second = JSON.stringify(

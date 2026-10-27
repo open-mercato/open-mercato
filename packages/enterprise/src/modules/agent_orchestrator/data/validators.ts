@@ -1094,7 +1094,7 @@ export const integrityEvidenceSchema = guardrailEvidenceSchema.extend({
   ambiguous: z.number().int().nonnegative().default(0),
   /** Pointer to the pre-repair model output in the encrypted artifact store. */
   rawOutput: z
-    .object({ key: z.string().min(1), status: z.enum(['stored', 'storage_unavailable']) })
+    .object({ key: z.string().min(1).optional(), status: z.enum(['stored', 'storage_unavailable']) })
     .optional(),
   holdsAutoApproval: z.boolean().optional(),
 })

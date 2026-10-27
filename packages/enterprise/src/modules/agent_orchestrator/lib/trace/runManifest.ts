@@ -69,6 +69,7 @@ export type RunManifestInput = {
   runAs?: RunManifestPrincipal | null
   capture?: Partial<RunManifestCapture> | null
   traceparent?: string | null
+  integrityRawOutputKey?: string | null
 }
 
 export type RunManifestAttributes = {
@@ -97,6 +98,7 @@ export type RunManifestAttributes = {
   }
   'om.capture'?: RunManifestCapture
   'om.platform_trace'?: { traceparent: string }
+  'om.integrity.raw_output_key'?: string
   'om.manifest.truncated'?: true
 }
 
@@ -197,6 +199,7 @@ function buildUntrimmed(input: RunManifestInput): RunManifestAttributes {
     }
   }
   if (input.traceparent) attributes['om.platform_trace'] = { traceparent: input.traceparent }
+  if (input.integrityRawOutputKey) attributes['om.integrity.raw_output_key'] = input.integrityRawOutputKey
   return attributes
 }
 

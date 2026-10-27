@@ -3,7 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { AgentRun, AgentToolCall } from '../../../../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { AgentGuardrailCheck, AgentRun, AgentToolCall } from '../../../../data/entities'
 import { ARTIFACT_REFS, getArtifact, type ArtifactEncryptionRef } from '../../../../lib/trace/artifactStore'
 import { agentOrchestratorTag } from '../../../openapi'
 
@@ -12,7 +13,9 @@ import { agentOrchestratorTag } from '../../../openapi'
  * tool request/response payloads are stored encrypted in `storage-s3` with only
  * a redacted summary + key on the row; the inspector calls this to retrieve the
  * full value. The requested key MUST belong to the addressed run (validated
- * against the run's own artifact-key columns) so no arbitrary key can be read,
+ * against the run's own artifact-key columns, or — for `raw_output`, the
+ * pre-repair model output — against `evidence.rawOutput.key` on the run's
+ * guardrail check rows) so no arbitrary key can be read,
  * and the storage scope is the run's own tenant/org — matching the upload scope.
  */
 export const metadata = {
@@ -22,8 +25,16 @@ export const metadata = {
 const idSchema = z.string().uuid()
 const querySchema = z.object({
   key: z.string().min(1).max(500),
-  kind: z.enum(['output', 'tool_request', 'tool_response']),
+  kind: z.enum(['output', 'tool_request', 'tool_response', 'raw_output']),
 })
+
+function readRawOutputKey(evidence: unknown): string | null {
+  if (!evidence || typeof evidence !== 'object') return null
+  const rawOutput = (evidence as Record<string, unknown>).rawOutput
+  if (!rawOutput || typeof rawOutput !== 'object') return null
+  const key = (rawOutput as Record<string, unknown>).key
+  return typeof key === 'string' ? key : null
+}
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -55,6 +66,19 @@ export async function GET(req: Request, ctx: RouteContext) {
   if (kind === 'output') {
     if (run.outputArtifactKey !== key) return NextResponse.json({ error: 'Artifact not found' }, { status: 404 })
     ref = ARTIFACT_REFS.runOutput
+  } else if (kind === 'raw_output') {
+    const checkScope = { tenantId: run.tenantId, organizationId: run.organizationId }
+    const checks = await findWithDecryption(
+      em,
+      AgentGuardrailCheck,
+      { agentRunId: run.id, ...checkScope },
+      undefined,
+      checkScope,
+    )
+    if (!checks.some((check) => readRawOutputKey(check.evidence) === key)) {
+      return NextResponse.json({ error: 'Artifact not found' }, { status: 404 })
+    }
+    ref = ARTIFACT_REFS.runRawOutput
   } else {
     const where =
       kind === 'tool_request'
@@ -80,7 +104,11 @@ export const openApi = {
   summary: 'Fetch a full offloaded trace artifact',
   methods: {
     GET: {
-      summary: 'Retrieve the full (decrypted) offloaded output or tool payload for a run by storage key',
+      summary:
+        'Retrieve the full (decrypted) offloaded output, pre-repair raw model output or tool payload for a run by storage key',
+      description:
+        '`kind=raw_output` returns the model output before integrity repair; its key must be referenced by `evidence.rawOutput.key` on one of this run\'s guardrail check rows.',
+      query: querySchema,
       tags: [agentOrchestratorTag],
       responses: [
         { status: 200, description: 'Decrypted artifact payload' },

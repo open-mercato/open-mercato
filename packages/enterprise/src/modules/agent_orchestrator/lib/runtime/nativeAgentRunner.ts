@@ -22,7 +22,14 @@ import {
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
-import { normalizeToolName, runOutputPipeline, type OutputPipelineResult } from '../guardrails/integrity/pipeline'
+import {
+  attachRawOutputPointer,
+  normalizeToolName,
+  runOutputPipeline,
+  type OutputPipelineResult,
+  type RawOutputPointer,
+} from '../guardrails/integrity/pipeline'
+import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
@@ -245,6 +252,7 @@ export class NativeAgentRunner {
     }
     const integrityRules = entry.integrity?.length ? entry.integrity : null
     const integrityToolCalls: IntegrityToolCall[] = []
+    let integrityRawOutputKey: string | null = null
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
     // workflow INVOKE_AGENT step (`ctx.workflowInstanceId` present) and an event bus is
@@ -363,6 +371,7 @@ export class NativeAgentRunner {
           promptResolved,
           observation: runObservation.snapshot(),
           traceparent,
+          integrityRawOutputKey,
         })
       } catch (err) {
         logger.warn('native run manifest build failed', {
@@ -531,8 +540,14 @@ export class NativeAgentRunner {
           container: this.container,
         })
       : null
+    const rawOutputPointer = integrityOutcome?.changed
+      ? await this.storeRawOutput(ctx, runId, integrityOutcome.rawOutput)
+      : null
+    integrityRawOutputKey = rawOutputPointer?.key ?? null
     const verdict = integrityOutcome
-      ? integrityOutcome.verdict
+      ? rawOutputPointer
+        ? attachRawOutputPointer(integrityOutcome.verdict, integrityOutcome.changedCheckIndexes, rawOutputPointer)
+        : integrityOutcome.verdict
       : await guardrailService.checkOutput({
           capability: agentId,
           schema: entry.schema,
@@ -627,6 +642,38 @@ export class NativeAgentRunner {
     await captureTrace()
 
     return result
+  }
+
+  /**
+   * Offloads the pre-repair model output as an encrypted artifact (spec
+   * `2026-10-21-output-integrity-guardrails` → Raw model output). Fail-open: an
+   * unavailable store or a failed upload never fails the run.
+   */
+  private async storeRawOutput(
+    ctx: AgentRunCtx,
+    runId: string,
+    rawOutput: unknown,
+  ): Promise<RawOutputPointer> {
+    try {
+      const key = await putArtifact(
+        this.container,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        ARTIFACT_REFS.runRawOutput,
+        rawOutput,
+      )
+      return key ? { key, status: 'stored' } : { status: 'storage_unavailable' }
+    } catch (error) {
+      logger.warn('raw model output offload failed', {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'agent_orchestrator',
+        code: 'agent_orchestrator.raw_output_store_failed',
+        attributes: { runId },
+      })
+      return { status: 'storage_unavailable' }
+    }
   }
 
   /**

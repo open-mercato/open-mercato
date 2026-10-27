@@ -27,6 +27,7 @@ export type AgentRunManifestOptions = {
   promptResolved?: Pick<AiAgentPromptResolvedEvent, 'systemPrompt' | 'promptOverride' | 'provider' | 'modelId'> | null
   observation?: Pick<RunObservationSnapshot, 'knowledge'> | null
   traceparent?: string | null
+  integrityRawOutputKey?: string | null
 }
 
 function compareCodePoints(left: string, right: string): number {
@@ -132,6 +133,7 @@ export function buildAgentRunManifestInput(options: AgentRunManifestOptions): Ru
       ? { agentUserId: ctx.runAs.agentUserId, onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null }
       : null,
     traceparent: options.traceparent ?? null,
+    ...(options.integrityRawOutputKey ? { integrityRawOutputKey: options.integrityRawOutputKey } : {}),
   }
 }
 

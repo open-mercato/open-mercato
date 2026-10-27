@@ -50,6 +50,24 @@ export type OutputPipelineResult = {
   finalOutput: unknown
   rawOutput: unknown
   changed: boolean
+  changedCheckIndexes: number[]
+}
+
+export type RawOutputPointer = { key?: string; status: 'stored' | 'storage_unavailable' }
+
+export function attachRawOutputPointer(
+  verdict: GuardrailVerdict,
+  changedCheckIndexes: readonly number[],
+  pointer: RawOutputPointer,
+): GuardrailVerdict {
+  if (changedCheckIndexes.length === 0) return verdict
+  const indexes = new Set(changedCheckIndexes)
+  return {
+    ...verdict,
+    checks: verdict.checks.map((check, index) =>
+      indexes.has(index) ? { ...check, evidence: { ...(check.evidence ?? {}), rawOutput: pointer } } : check,
+    ),
+  }
 }
 
 export function normalizeToolName(name: string): string {
@@ -114,13 +132,20 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
   })
   const schemaChecks = rawVerdict.checks.filter((check) => check.kind === 'schema')
   if (schemaChecks.some((check) => check.result === 'block')) {
-    return { verdict: buildVerdict(schemaChecks), finalOutput: rawOutput, rawOutput, changed: false }
+    return {
+      verdict: buildVerdict(schemaChecks),
+      finalOutput: rawOutput,
+      rawOutput,
+      changed: false,
+      changedCheckIndexes: [],
+    }
   }
 
   const evaluators = args.evaluators ?? INTEGRITY_RULE_EVALUATORS
   const integrityChecks: GuardrailCheck[] = []
   let current: unknown = structuredClone(rawOutput)
   let changed = false
+  const changedCheckIndexes: number[] = []
   for (const rule of args.entry.integrity ?? []) {
     const outcome = await evaluateRule(
       evaluators,
@@ -141,11 +166,13 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
         finalOutput: rawOutput,
         rawOutput,
         changed: false,
+        changedCheckIndexes: [],
       }
     }
     if (outcome.changed) {
       current = outcome.output
       changed = true
+      changedCheckIndexes.push(schemaChecks.length + integrityChecks.length - 1)
     }
   }
   const finalOutput = changed ? current : rawOutput
@@ -162,6 +189,7 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
       finalOutput,
       rawOutput,
       changed,
+      changedCheckIndexes,
     }
   }
 
@@ -179,5 +207,6 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
     finalOutput,
     rawOutput,
     changed,
+    changedCheckIndexes,
   }
 }

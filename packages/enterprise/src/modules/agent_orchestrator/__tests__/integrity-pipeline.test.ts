@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { integrityRuleSchema, type GuardrailCheck, type IntegrityRule } from '../data/validators'
 import { GuardrailService, GUARDRAIL_SET_VERSION, type CheckOutputArgs } from '../lib/guardrails/guardrailService'
 import {
+  attachRawOutputPointer,
   INTEGRITY_REPAIR_INVALID,
   INTEGRITY_RULE_UNSUPPORTED,
   normalizeToolName,
@@ -109,6 +110,44 @@ describe('runOutputPipeline', () => {
     expect(outputs[1]).not.toBe(outputs[0])
     expect((result.finalOutput as z.infer<typeof schema>).data.findings[0].id).toBe('finding-1+first+second')
     expect(rawObject.data.findings[0].id).toBe('finding-1')
+  })
+
+  it('reports the indexes of the checks whose rule changed the output', async () => {
+    const evaluators: IntegrityRuleEvaluators = {
+      evidence_quote: (ctx: IntegrityRuleContext, rule): IntegrityRuleOutcome => ({
+        output: ctx.output,
+        check: check('evidence_quote', 'pass', rule.id),
+        changed: rule.id !== 'untouched',
+        blocked: false,
+      }),
+    }
+    const result = await runOutputPipeline(
+      buildArgs({
+        entry: { schema, integrity: [quoteRule('untouched'), quoteRule('changing')] },
+        evaluators,
+      }),
+    )
+    expect(result.changedCheckIndexes).toEqual([2])
+    expect(result.verdict.checks[2].evidence).toMatchObject({ ruleId: 'changing' })
+
+    const unchanged = await runOutputPipeline(buildArgs())
+    expect(unchanged.changedCheckIndexes).toEqual([])
+  })
+
+  it('attaches the raw output pointer only to the checks that changed the output', async () => {
+    const result = await runOutputPipeline(
+      buildArgs({ rawObject: envelope(['deliver within 30 days', 'free shipping forever']) }),
+    )
+    const stored = attachRawOutputPointer(result.verdict, result.changedCheckIndexes, {
+      key: 'agent-trace-artifacts/raw.json',
+      status: 'stored',
+    })
+    const quoteCheck = stored.checks.find((entry) => entry.kind === 'evidence_quote')
+    expect(quoteCheck?.evidence?.rawOutput).toEqual({ key: 'agent-trace-artifacts/raw.json', status: 'stored' })
+    expect(quoteCheck?.evidence?.ruleId).toBe('quotes')
+    expect(stored.checks.filter((entry) => entry.evidence?.rawOutput)).toHaveLength(1)
+    expect(result.verdict.checks.some((entry) => entry.evidence?.rawOutput)).toBe(false)
+    expect(attachRawOutputPointer(result.verdict, [], { status: 'storage_unavailable' })).toBe(result.verdict)
   })
 
   it('blocks on a schema-invalid raw object before any integrity rule runs', async () => {

@@ -34,6 +34,7 @@ export type ArtifactEncryptionRef = { entityId: string; field: string }
 
 export const ARTIFACT_REFS = {
   runOutput: { entityId: 'agent_orchestrator:agent_run', field: 'output' },
+  runRawOutput: { entityId: 'agent_orchestrator:agent_run', field: 'output' },
   toolRequest: { entityId: 'agent_orchestrator:agent_tool_call', field: 'request_summary' },
   toolResponse: { entityId: 'agent_orchestrator:agent_tool_call', field: 'response_summary' },
 } as const satisfies Record<string, ArtifactEncryptionRef>

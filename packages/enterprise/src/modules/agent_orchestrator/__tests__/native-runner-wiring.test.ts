@@ -69,7 +69,14 @@ jest.mock('../lib/runtime/nativeTraceCapture', () => {
   }
 })
 
+const putArtifactMock = jest.fn<Promise<string | null>, unknown[]>()
+jest.mock('../lib/trace/artifactStore', () => {
+  const actual = jest.requireActual('../lib/trace/artifactStore')
+  return { ...actual, putArtifact: (...args: unknown[]) => putArtifactMock(...args) }
+})
+
 import { z } from 'zod'
+import { ARTIFACT_REFS } from '../lib/trace/artifactStore'
 import { integrityRuleSchema } from '../data/validators'
 import { AgentGuardrailBlockedError } from '../lib/runtime/errors'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
@@ -128,6 +135,7 @@ beforeEach(() => {
   captureNativeRunTraceMock.mockReset().mockResolvedValue(undefined)
   checkOutputMock.mockReset().mockResolvedValue({ result: 'pass', checks: [] })
   persistVerdictMock.mockReset().mockResolvedValue([])
+  putArtifactMock.mockReset().mockResolvedValue(null)
   delete process.env.OM_AGENT_TRACE_CAPTURE
 })
 
@@ -701,6 +709,83 @@ describe('output pipeline wiring', () => {
       grounding: undefined,
     })
     expect('attemptedTools' in checkOutputMock.mock.calls[0][0]).toBe(false)
+  })
+
+  type PersistedCheck = { kind: string; evidence?: Record<string, unknown> }
+  function persistedQuoteCheck(): PersistedCheck | undefined {
+    const persisted = persistVerdictMock.mock.calls[0][2] as { verdict: { checks: PersistedCheck[] } }
+    return persisted.verdict.checks.find((check) => check.kind === 'evidence_quote')
+  }
+  function capturedManifest(): Record<string, unknown> {
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as { manifest: Record<string, unknown> }
+    return traceInput.manifest
+  }
+
+  it('stores the raw output before completing the run and points the changed check and manifest at it', async () => {
+    registerIntegrityAgent('native.integrity_raw_store_agent', 'drop')
+    mockModelWithToolCall()
+    putArtifactMock.mockResolvedValue('agent-trace-artifacts/raw-1.json')
+
+    await makeService().run('native.integrity_raw_store_agent', { content: CONTENT }, runCtx)
+
+    expect(putArtifactMock).toHaveBeenCalledTimes(1)
+    const [, scope, ref, value] = putArtifactMock.mock.calls[0]
+    expect(scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(ref).toBe(ARTIFACT_REFS.runRawOutput)
+    expect(ref).toEqual({ entityId: 'agent_orchestrator:agent_run', field: 'output' })
+    expect(value).toEqual(RAW_PROPOSAL)
+    expect(putArtifactMock.mock.invocationCallOrder[0]).toBeLessThan(persistVerdictMock.mock.invocationCallOrder[0])
+    expect(putArtifactMock.mock.invocationCallOrder[0]).toBeLessThan(completeRunMock.mock.invocationCallOrder[0])
+    expect(persistedQuoteCheck()?.evidence?.rawOutput).toEqual({
+      key: 'agent-trace-artifacts/raw-1.json',
+      status: 'stored',
+    })
+    expect(capturedManifest().integrityRawOutputKey).toBe('agent-trace-artifacts/raw-1.json')
+  })
+
+  it('stores nothing when the integrity rules leave the output unchanged', async () => {
+    registerIntegrityAgent('native.integrity_unchanged_agent', 'drop')
+    runAiAgentObjectMock.mockResolvedValue({
+      mode: 'generate',
+      object: { kind: 'proposal', proposal: { evidence: [{ quote: 'deliver within 30 days' }] } },
+      usage: { inputTokens: 5, outputTokens: 2 },
+    })
+
+    await makeService().run('native.integrity_unchanged_agent', { content: CONTENT }, runCtx)
+
+    expect(putArtifactMock).not.toHaveBeenCalled()
+    expect(persistedQuoteCheck()?.evidence).not.toHaveProperty('rawOutput')
+    expect(capturedManifest()).not.toHaveProperty('integrityRawOutputKey')
+  })
+
+  it('records storage_unavailable and still completes the run when the store returns no key', async () => {
+    registerIntegrityAgent('native.integrity_raw_unavailable_agent', 'drop')
+    mockModelWithToolCall()
+
+    const result = await makeService().run('native.integrity_raw_unavailable_agent', { content: CONTENT }, runCtx)
+
+    expect(result.kind).toBe('proposal')
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+    expect(persistedQuoteCheck()?.evidence?.rawOutput).toEqual({ status: 'storage_unavailable' })
+    expect(capturedManifest()).not.toHaveProperty('integrityRawOutputKey')
+  })
+
+  it('records storage_unavailable and still completes the run when the store throws', async () => {
+    registerIntegrityAgent('native.integrity_raw_throw_agent', 'drop')
+    mockModelWithToolCall()
+    putArtifactMock.mockRejectedValue(new Error('[internal] storage down'))
+
+    const logs = captureLogs()
+    try {
+      const result = await makeService().run('native.integrity_raw_throw_agent', { content: CONTENT }, runCtx)
+      expect(result.kind).toBe('proposal')
+      expect(logs.at('warn').map((record) => record.message)).toContain('raw model output offload failed')
+    } finally {
+      logs.restore()
+    }
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+    expect(failRunMock).not.toHaveBeenCalled()
+    expect(persistedQuoteCheck()?.evidence?.rawOutput).toEqual({ status: 'storage_unavailable' })
   })
 
   it('does not wire the step hook for agents without integrity when trace capture is off', async () => {
