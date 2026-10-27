@@ -1,8 +1,8 @@
 ---
 title: "Verify integration fixture cleanup against the actual endpoint"
-modules: ["resources", "entities", "channel_discord"]
-areas: ["testing", "integration"]
-topics: ["testing", "fixture-cleanup", "api-contracts", "proposal-origin"]
+modules: ["resources","entities","sales","warranty_claims","channel_discord"]
+areas: ["testing","integration"]
+topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","schema-validation","proposal-origin"]
 ---
 
 # Verify integration fixture cleanup against the actual endpoint
@@ -11,6 +11,8 @@ While implementing resources undo coverage for #2577, copying the customer custo
 
 Read both setup and teardown handlers before reusing a fixture pattern. Send the endpoint's actual payload and assert successful cleanup for custom configuration. Likewise, derived read fields such as resource-type `resourceCount` need their explicit query option; a successful list response alone does not prove the requested projection was returned.
 
-Evidence: `packages/core/src/modules/entities/api/definitions.ts` DELETE; `packages/core/src/modules/resources/api/resourceTypeCounts.ts`; `TC-UNDO-001-resources.spec.ts` and `TC-UNDO-001-resource-types.spec.ts`.
+Validate nested setup payloads against the endpoint's schema as well. Sales order creation requires `lines[].currencyCode` even when the header supplies `currencyCode`; omitting it made `TC-WC-038` fail during setup before reaching the claim-order regression. Reuse the sales fixture helpers where possible, and check required child fields when a test needs a custom header payload.
+
+Evidence: `packages/core/src/modules/entities/api/definitions.ts` DELETE; `packages/core/src/modules/resources/api/resourceTypeCounts.ts`; `TC-UNDO-001-resources.spec.ts` and `TC-UNDO-001-resource-types.spec.ts`; `packages/core/src/modules/sales/data/validators.ts` (`lineSharedSchema`, `orderCreateSchema`); `TC-WC-038-order-reference-integrity.spec.ts`.
 
 After merging authorization changes, also verify that setup reaches the intended guard. Discord refusal fixtures must be created as admin and authenticated with `stampSystemProposalFixture`; ordinary client cards fail the origin check before source-read validation. Keep forged-card coverage separate, use a unique scenario ID, and scope cleanup to records owned by the test. Evidence: PR #7356 review and `TC-CHANNEL-DISCORD-013`/`TC-CHANNEL-DISCORD-014`.

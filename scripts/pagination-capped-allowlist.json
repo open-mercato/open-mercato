@@ -28,6 +28,10 @@
     "reason": "invitations are returned unpaginated with total = items.length (api/distributions/[distributionId]/invitations/route.ts:132) \u2014 exact by construction"
   },
   {
+    "file": "packages/core/src/modules/promotions/components/GeneratedCodesModal.tsx",
+    "reason": "generated-codes list counts with em.count (api/codes/[id]/generated/route.ts) \u2014 an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
+  },
+  {
     "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
     "reason": "claim-line picker over a locally filtered array; totalPages = ceil(filteredRows.length / LINE_PAGE_SIZE), never a server total"
   },
