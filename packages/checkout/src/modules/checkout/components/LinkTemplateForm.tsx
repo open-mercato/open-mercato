@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { formatLocaleNumberInput, parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -42,6 +42,7 @@ import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
+import { findUncollectedPayerFields, PAYER_FIELD_CUSTOMER_FIELD_KEYS } from '../lib/payerFieldRequirements'
 import { readCustomerFieldsSectionError } from '../lib/customerFieldErrors'
 import { isRecordNotFoundError } from '../lib/recordNotFound'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
@@ -62,6 +63,7 @@ type ProviderDescriptor = {
   isConfigured?: boolean
   requiresConfiguration?: boolean
   configurationStatus?: 'configured' | 'missing_credentials' | 'disabled' | 'unmanaged' | null
+  requiresPayerFields?: string[]
 }
 
 type TemplateSummary = {
@@ -105,8 +107,8 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function readNumberInputValue(value: unknown): string {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+function readNumberInputValue(value: unknown, locale?: string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return formatLocaleNumberInput(value, locale)
   if (typeof value === 'string') return value
   return ''
 }
@@ -421,6 +423,7 @@ export function PriceListEditor({
   error?: string
 }) {
   const t = useT()
+  const locale = useLocale()
   const items = Array.isArray(value) ? value : []
 
   const updateItem = React.useCallback(
@@ -489,7 +492,7 @@ export function PriceListEditor({
                       <Input
                         type="text"
                         inputMode="decimal"
-                        value={readNumberInputValue(item.amount)}
+                        value={readNumberInputValue(item.amount, locale)}
                         onChange={(event) =>
                           updateItem(index, {
                             // Stays raw while editing — re-parsing and re-serializing on every
@@ -548,6 +551,7 @@ export function PriceListEditor({
 
 export function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
   const t = useT()
+  const locale = useLocale()
   const pricingMode = readString(values.pricingMode) || 'fixed'
   const pricingModeError = readError(errors, 'pricingMode')
   const fixedPriceAmountError = readError(errors, 'fixedPriceAmount')
@@ -590,7 +594,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.fixedPriceAmount)}
+              value={readNumberInputValue(values.fixedPriceAmount, locale)}
               onChange={(event) => setValue('fixedPriceAmount', event.target.value)}
               placeholder="150"
               className={errorInputClassName(fixedPriceAmountError)}
@@ -614,7 +618,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.fixedPriceOriginalAmount)}
+              value={readNumberInputValue(values.fixedPriceOriginalAmount, locale)}
               onChange={(event) => setValue('fixedPriceOriginalAmount', event.target.value)}
               placeholder="200"
               className={errorInputClassName(fixedPriceOriginalAmountError)}
@@ -641,7 +645,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.customAmountMin)}
+              value={readNumberInputValue(values.customAmountMin, locale)}
               onChange={(event) => setValue('customAmountMin', event.target.value)}
               placeholder="10"
               className={errorInputClassName(customAmountMinError)}
@@ -653,7 +657,7 @@ export function PricingSection({ values, setValue, errors }: CrudFormGroupCompon
             <Input
               type="text"
               inputMode="decimal"
-              value={readNumberInputValue(values.customAmountMax)}
+              value={readNumberInputValue(values.customAmountMax, locale)}
               onChange={(event) => setValue('customAmountMax', event.target.value)}
               placeholder="500"
               className={errorInputClassName(customAmountMaxError)}
@@ -920,6 +924,24 @@ function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupCo
       return messageKey ? t(messageKey) : undefined
     })()
   const gatewaySettingsError = readError(errors, 'gatewaySettings')
+  const customerFields = readCustomerFields(values.customerFieldsSchema, t)
+  const uncollectedPayerFields = findUncollectedPayerFields({
+    requiredPayerFields: selectedProvider?.requiresPayerFields,
+    collectCustomerDetails: readBoolean(values.collectCustomerDetails, true),
+    customerFieldsSchema: customerFields,
+  })
+  const customerFieldLabels = new Map(
+    [...getLocalizedDefaultCheckoutCustomerFields(t), ...customerFields].map((field) => [field.key, field.label]),
+  )
+  const payerFieldWarning = selectedProvider && uncollectedPayerFields.length > 0
+    ? t('checkout.linkTemplateForm.payment.payerFields.description', {
+      provider: selectedProvider.label,
+      fields: uncollectedPayerFields
+        .flatMap((payerField) => PAYER_FIELD_CUSTOMER_FIELD_KEYS[payerField])
+        .map((key) => customerFieldLabels.get(key) ?? key)
+        .join(', '),
+    })
+    : null
 
   return (
     <div className="space-y-4">
@@ -946,6 +968,13 @@ function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupCo
           ))}
         </select>
       </SectionLabel>
+
+      {payerFieldWarning ? (
+        <Alert status="warning">
+          <AlertTitle>{t('checkout.linkTemplateForm.payment.payerFields.title')}</AlertTitle>
+          <AlertDescription>{payerFieldWarning}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <GatewaySettingsFields
         providerKey={readString(values.gatewayProviderKey) || null}

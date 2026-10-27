@@ -519,5 +519,6 @@
   "documents.versions.snapshot.labelPlaceholder": "Label (optional)",
   "documents.versions.snapshotTooLarge": "This version is too large to process safely.",
   "documents.versions.title": "Version history",
+  "notifications.categories.documents": "Documents",
   "search.entityType.documents.document": "Document"
 }

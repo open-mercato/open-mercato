@@ -30,6 +30,7 @@ import { listNonEmailSenderChannelTypes } from '@open-mercato/core/modules/messa
 import { CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID } from '../../ai-agents'
 import { DISCORD_CHANNEL_TYPE } from '../../lib/channel-identity'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
+import { hasDiscordProposalOrigin } from '../../lib/ai-proposal-origin'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
 const aiMod = jest.requireMock('@open-mercato/ai-assistant') as { runAiAgentObject: jest.Mock }
@@ -226,6 +227,7 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(args.input.recipients).toEqual([{ userId: 'agent-user-1', type: 'to' }])
     expect(args.input.sourceEntityId).toBe('m-1')
     expect(args.input.body).toContain('We are open 9-5.')
+    expect(hasDiscordProposalOrigin({ ...args.input, senderUserId: args.input.userId })).toBe(true)
   })
 
   it('(complex, nobody assigned) stores the proposal as a draft rather than losing it', async () => {
@@ -241,6 +243,7 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(args.input.isDraft).toBe(true)
     expect(args.input.recipients).toEqual([])
     expect(args.input.visibility).toBe('internal')
+    expect(hasDiscordProposalOrigin({ ...args.input, senderUserId: args.input.userId })).toBe(true)
   })
 
   it('(easy, model asks for a human) proposes instead of sending', async () => {

@@ -45,8 +45,8 @@ export default function CreateExchangeRatePage() {
           onSubmit={async (values) => {
             const validated = validateExchangeRateForm(values, t)
             const payload = {
-              organizationId,
-              tenantId,
+              organizationId: organizationId ?? undefined,
+              tenantId: tenantId ?? undefined,
               ...buildExchangeRatePayload(values, validated),
             }
 

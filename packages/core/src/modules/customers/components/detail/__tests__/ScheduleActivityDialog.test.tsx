@@ -8,6 +8,8 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ScheduleActivityDialog } from '../ScheduleActivityDialog'
 import type { ScheduleActivityEditData } from '../schedule'
+import { calendarEventTypes } from '../../../calendar-event-types'
+import { findInapplicableCoreFields } from '../../../lib/calendar/interactionApplicability'
 
 const readApiResultOrThrowMock = jest.fn()
 const setConflictMock = jest.fn()
@@ -148,6 +150,10 @@ jest.mock('../schedule', () => ({
   // keeps the real per-type rules rather than a stub.
   isDateRequired: jest.requireActual('../schedule/fieldConfig').isDateRequired,
   isTimeRequired: jest.requireActual('../schedule/fieldConfig').isTimeRequired,
+  // Real resolver so a persisted type outside the five legacy kinds (built-in
+  // Event, a custom dictionary key, a historical key — #7486) exercises the
+  // actual safe-fallback logic under test, not a stub that would hide a regression.
+  resolveScheduleActivityType: jest.requireActual('../schedule/fieldConfig').resolveScheduleActivityType,
   FIELD_VISIBILITY: {
     meeting: new Set(['duration']),
     call: new Set(['duration']),
@@ -186,6 +192,49 @@ describe('ScheduleActivityDialog', () => {
   afterEach(() => {
     jest.useRealTimers()
     jest.restoreAllMocks()
+  })
+
+  it.each([
+    ['call', false, /^Log call$/],
+    ['call', true, /^Update activity$/],
+    ['task', false, /^Save task$/],
+    ['task', true, /^Update activity$/],
+  ] as const)('submits an applicable %s duration payload when editing=%s', async (activityType, editing, buttonName) => {
+    mockScheduleState = createScheduleState({ activityType, title: 'Follow up' })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    renderWithProviders(<ScheduleActivityDialog open onClose={() => undefined} entityId="person-1" entityType="person" editData={editing ? { id: '11111111-1111-4111-8111-111111111111', interactionType: activityType } : null} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: buttonName })) })
+    expect(apiCallOrThrowMock).toHaveBeenCalled()
+    const init = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method: string; body: string }
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    expect(init.method).toBe(editing ? 'PUT' : 'POST')
+    expect(payload.durationMinutes).toBe(45)
+    expect(findInapplicableCoreFields(calendarEventTypes.find((type) => type.key === activityType)!.behavior, payload)).toEqual([])
+  })
+
+  it.each([
+    'event',      // built-in Event — outside this dialog's five legacy kinds
+    'workshop',   // custom dictionary key an admin configured
+    'legacy-sms', // historical key no longer offered by the type picker
+  ])('opens and saves an unsupported "%s" interactionType without crashing (#7486)', async (interactionType) => {
+    mockScheduleState = createScheduleState({ activityType: interactionType, title: 'Follow up' })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{ id: '11111111-1111-4111-8111-111111111111', interactionType }}
+      />,
+    )
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+    expect(apiCallOrThrowMock).toHaveBeenCalled()
+    const init = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { method: string; body: string }
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    // The raw persisted type is preserved verbatim — never silently rewritten to 'meeting'.
+    expect(payload.interactionType).toBe(interactionType)
+    expect(payload.durationMinutes).toBe(45)
   })
 
   it('passes excludeId when checking conflicts for an edited activity', async () => {
