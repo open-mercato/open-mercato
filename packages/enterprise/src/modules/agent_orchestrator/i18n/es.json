@@ -57,6 +57,7 @@
   "agent_orchestrator.agentDetail.evaluation.results.openFull": "Abrir la ejecución completa",
   "agent_orchestrator.agentDetail.evaluation.results.title": "Resultados de evaluación",
   "agent_orchestrator.agentDetail.evaluation.run.allApproved": "Todos los casos aprobados ({count})",
+  "agent_orchestrator.agentDetail.evaluation.run.allInSnapshot": "Todos los casos de la instantánea congelada",
   "agent_orchestrator.agentDetail.evaluation.run.caseSet": "Conjunto de casos",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGate": "Permitir que los jueces LLM bloqueen",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGateHint": "Si está activo, los veredictos de rúbrica de las reglas de juez LLM pueden decidir si esta ejecución pasa o falla.",

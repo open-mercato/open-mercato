@@ -12,6 +12,7 @@ import {
   SNAPSHOT_LATEST,
   SNAPSHOT_NONE,
   buildEvalRunRequestBody,
+  canSubmitEvalRun,
   knownSnapshotHashes,
   shortSnapshotHash,
 } from '../backend/agents/[id]/components/RunEvaluationDrawer'
@@ -39,10 +40,10 @@ const OLDER_HASH = 'sha256:older0123456789digest'
 const apiCallMock = apiCall as jest.Mock
 const apiCallOrThrowMock = apiCallOrThrow as jest.Mock
 
-function mockLists() {
+function mockLists(caseItems: Array<Record<string, unknown>> = [{ id: CASE_ID, process_type: 'deal_review' }]) {
   apiCallMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/agent_orchestrator/eval-cases')) {
-      return { ok: true, status: 200, result: { items: [{ id: CASE_ID, process_type: 'deal_review' }] } }
+      return { ok: true, status: 200, result: { items: caseItems } }
     }
     return {
       ok: true,
@@ -116,10 +117,29 @@ describe('run evaluation snapshot picker helpers', () => {
       repeatCount: 2,
       judgeMayGate: false,
     })
-    expect(buildEvalRunRequestBody({ ...base, selection: CASE_ID, snapshot: KNOWN_HASH })).toMatchObject({
+    expect(buildEvalRunRequestBody({ ...base, selection: CASE_ID, snapshot: SNAPSHOT_LATEST })).toMatchObject({
       evalCaseIds: [CASE_ID],
-      snapshot: KNOWN_HASH,
+      snapshot: SNAPSHOT_LATEST,
     })
+  })
+
+  it('always replays the whole frozen set for a hash pin, even with a single case selected', () => {
+    const body = buildEvalRunRequestBody({
+      agentId: AGENT_ID,
+      caseIds: [CASE_ID],
+      selection: CASE_ID,
+      snapshot: KNOWN_HASH,
+      repeatCount: 1,
+      judgeMayGate: false,
+    })
+    expect(body).toEqual({ agentDefinitionId: AGENT_ID, snapshot: KNOWN_HASH, repeatCount: 1, judgeMayGate: false })
+  })
+
+  it('requires live approved cases only when the run is not pinned to a hash', () => {
+    expect(canSubmitEvalRun({ caseCount: 0, snapshot: SNAPSHOT_NONE })).toBe(false)
+    expect(canSubmitEvalRun({ caseCount: 0, snapshot: SNAPSHOT_LATEST })).toBe(false)
+    expect(canSubmitEvalRun({ caseCount: 0, snapshot: KNOWN_HASH })).toBe(true)
+    expect(canSubmitEvalRun({ caseCount: 1, snapshot: SNAPSHOT_NONE })).toBe(true)
   })
 })
 
@@ -146,6 +166,39 @@ describe('RunEvaluationDrawer snapshot picker', () => {
     expect(await screen.findByRole('option', { name: dict['agent_orchestrator.agentDetail.evaluation.run.snapshotLatest'] })).toBeTruthy()
     fireEvent.click(await screen.findByRole('option', { name: shortSnapshotHash(KNOWN_HASH) }))
 
+    fireEvent.keyDown(trigger.closest('form') as HTMLFormElement, { key: 'Enter', ctrlKey: true })
+
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(sentBody()).toEqual({ agentDefinitionId: AGENT_ID, snapshot: KNOWN_HASH, repeatCount: 1, judgeMayGate: false })
+  })
+
+  it('locks the case picker to the whole frozen set once a hash snapshot is selected', async () => {
+    renderDrawer()
+    const trigger = await screen.findByRole('combobox', { name: dict['agent_orchestrator.agentDetail.evaluation.run.snapshot'] })
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(2))
+    const caseSet = screen.getByRole('combobox', { name: dict['agent_orchestrator.agentDetail.evaluation.run.caseSet'] })
+    expect(caseSet.hasAttribute('disabled')).toBe(false)
+
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(trigger)
+    fireEvent.click(await screen.findByRole('option', { name: shortSnapshotHash(KNOWN_HASH) }))
+
+    await waitFor(() => expect(caseSet.hasAttribute('disabled')).toBe(true))
+    expect(caseSet.textContent).toBe(dict['agent_orchestrator.agentDetail.evaluation.run.allInSnapshot'])
+  })
+
+  it('replays a hash pin with zero live approved cases', async () => {
+    mockLists([])
+    renderDrawer()
+    const trigger = await screen.findByRole('combobox', { name: dict['agent_orchestrator.agentDetail.evaluation.run.snapshot'] })
+    const submitButton = screen.getByRole('button', { name: dict['agent_orchestrator.agentDetail.evaluation.run.submit'] })
+    expect(submitButton.hasAttribute('disabled')).toBe(true)
+
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(trigger)
+    fireEvent.click(await screen.findByRole('option', { name: shortSnapshotHash(KNOWN_HASH) }))
+
+    await waitFor(() => expect(submitButton.hasAttribute('disabled')).toBe(false))
     fireEvent.keyDown(trigger.closest('form') as HTMLFormElement, { key: 'Enter', ctrlKey: true })
 
     await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1))

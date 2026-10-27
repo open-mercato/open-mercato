@@ -94,6 +94,7 @@ export const evalReportSchema = z.object({
     manifestHash: z.string().nullable(),
     label: z.string().nullable(),
     source: z.enum(['db', 'file']),
+    /** Counts the cases in the frozen manifest, not the cases this run executed (a narrowed run executes fewer). */
     caseCount: z.number().int().nonnegative(),
     assertionCount: z.number().int().nonnegative(),
   }),

@@ -52,7 +52,6 @@ describe('run manifest builder', () => {
         'om.agent.definition_hash',
         'om.agent.id',
         'om.agent.source',
-        'om.capture',
         'om.channel',
         'om.correlation_id',
         'om.entry_point',
@@ -85,7 +84,7 @@ describe('run manifest builder', () => {
       agentUserId: 'agent-user-1',
       onBehalfOfUserId: 'user-1',
     })
-    expect(attributes['om.capture']).toEqual({ level: 'metadata', source: 'deployment', retentionDays: 30, redactPii: false })
+    expect(attributes['om.capture']).toBeUndefined()
     expect(attributes['om.platform_trace']).toEqual({ traceparent: '00-trace-span-01' })
     expect(attributes['om.manifest.truncated']).toBeUndefined()
   })

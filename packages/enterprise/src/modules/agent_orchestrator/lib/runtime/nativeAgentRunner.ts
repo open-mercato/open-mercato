@@ -352,6 +352,11 @@ export class NativeAgentRunner {
           runId,
           error: err instanceof Error ? err.message : String(err),
         })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'agent_orchestrator',
+          code: 'run_manifest_build_failed',
+          attributes: { runId },
+        })
         return null
       }
     }

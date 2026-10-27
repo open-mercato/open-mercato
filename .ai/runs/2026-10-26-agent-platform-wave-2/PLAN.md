@@ -52,7 +52,7 @@
 | 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | b7c6c05ce |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 2 | inline | done | 86fd2743a |
 | 5 | 5.2-review-fix | Harden call settings, stream cancel and run recording on the request path | dispatch:capable | done | 8d5580727 |
-| 5 | 5.2-review-fix-2 | Harden eval manifest resolution, cache bounds and decryption reads | dispatch:capable | todo | — |
+| 5 | 5.2-review-fix-2 | Harden eval manifest resolution, cache bounds and decryption reads | dispatch:capable | done | 5a1246052 |
 
 ## Goal
 

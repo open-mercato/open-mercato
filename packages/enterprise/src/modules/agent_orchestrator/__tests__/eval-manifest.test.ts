@@ -8,6 +8,7 @@ import {
   freezeManifest,
   hashManifest,
   resolveEvalSetMaxBytes,
+  findEvalSetCarrier,
   resolveManifest,
   uuidV5,
   type EvalSetManifest,
@@ -21,20 +22,49 @@ const UUID_V5_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 type Row = Record<string, unknown>
 
+function compareRowValues(left: unknown, right: unknown): number {
+  const leftValue = left instanceof Date ? left.getTime() : left
+  const rightValue = right instanceof Date ? right.getTime() : right
+  if (typeof leftValue === 'number' && typeof rightValue === 'number') return leftValue - rightValue
+  return String(leftValue ?? '').localeCompare(String(rightValue ?? ''))
+}
+
 function matchValue(actual: unknown, expected: unknown): boolean {
   if (expected && typeof expected === 'object' && '$in' in (expected as object)) {
     return ((expected as { $in: unknown[] }).$in ?? []).includes(actual)
   }
+  if (expected && typeof expected === 'object' && '$lt' in (expected as object)) {
+    if (actual === undefined || actual === null) return false
+    return compareRowValues(actual, (expected as { $lt: unknown }).$lt) < 0
+  }
+  if (expected instanceof Date) return actual instanceof Date && actual.getTime() === expected.getTime()
   if (expected === null) return actual === null || actual === undefined
   return actual === expected
 }
 
-function createFakeEm(seed: Map<unknown, Row[]>): EntityManager {
+type FindOptions = { orderBy?: Record<string, string>; limit?: number }
+
+function createFakeEm(seed: Map<unknown, Row[]>, findCalls: Row[] = []): EntityManager {
   const storeFor = (entity: unknown) => seed.get(entity) ?? []
-  const matches = (row: Row, where: Row) => Object.entries(where).every(([key, value]) => matchValue(row[key], value))
+  const matches = (row: Row, where: Row): boolean =>
+    Object.entries(where).every(([key, value]) =>
+      key === '$or' ? (value as Row[]).some((branch) => matches(row, branch)) : matchValue(row[key], value),
+    )
   return {
-    async find(entity: unknown, where: Row) {
-      return storeFor(entity).filter((row) => matches(row, where))
+    async find(entity: unknown, where: Row, options: FindOptions = {}) {
+      findCalls.push(where)
+      const rows = storeFor(entity).filter((row) => matches(row, where))
+      const orderEntries = Object.entries(options.orderBy ?? {})
+      const ordered = orderEntries.length
+        ? [...rows].sort((left, right) => {
+            for (const [field, direction] of orderEntries) {
+              const delta = compareRowValues(left[field], right[field])
+              if (delta !== 0) return direction.toLowerCase() === 'desc' ? -delta : delta
+            }
+            return 0
+          })
+        : rows
+      return options.limit ? ordered.slice(0, options.limit) : ordered
     },
     async findOne(entity: unknown, where: Row) {
       return storeFor(entity).find((row) => matches(row, where)) ?? null
@@ -265,6 +295,41 @@ describe('eval-set manifest', () => {
       expect(await resolveManifest(em, SCOPE, AGENT, unknownVersion)).toBeNull()
       expect(await resolveManifest(em, SCOPE, 'other.agent', version)).toBeNull()
       expect(await resolveManifest(em, OTHER_SCOPE, AGENT, version)).toBeNull()
+    })
+
+    it('finds a carrier older than the most recent 200 suite runs by paging through all of them', async () => {
+      const { manifest, version, carrier } = await seededCarrier()
+      const base = Date.UTC(2026, 0, 1)
+      const olderCarrier = { ...carrier, evalSetVersion: null, createdAt: new Date(base) }
+      const newerRuns: Row[] = Array.from({ length: 250 }, (_unused, index) => ({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        ...SCOPE,
+        agentDefinitionId: AGENT,
+        evalSetVersion: null,
+        createdAt: new Date(base + (index + 1) * 1000),
+        summary: {},
+      }))
+      const findCalls: Row[] = []
+      const em = createFakeEm(new Map<unknown, Row[]>([[AgentEvalSuiteRun, [olderCarrier, ...newerRuns]]]), findCalls)
+      expect(await resolveManifest(em, SCOPE, AGENT, version)).toEqual(manifest)
+      expect(findCalls.filter((where) => '$or' in where)).toHaveLength(2)
+      expect(await findEvalSetCarrier(em, SCOPE, AGENT, version)).toBe(carrier.id)
+    })
+
+    it('pages past runs that share a creation timestamp without skipping any', async () => {
+      const { manifest, version, carrier } = await seededCarrier()
+      const sharedAt = new Date(Date.UTC(2026, 0, 1))
+      const tiedCarrier = { ...carrier, id: '00000000-0000-4000-8000-000000000000', evalSetVersion: null, createdAt: sharedAt }
+      const tiedRuns: Row[] = Array.from({ length: 150 }, (_unused, index) => ({
+        id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        ...SCOPE,
+        agentDefinitionId: AGENT,
+        evalSetVersion: null,
+        createdAt: sharedAt,
+        summary: {},
+      }))
+      const em = createFakeEm(new Map<unknown, Row[]>([[AgentEvalSuiteRun, [tiedCarrier, ...tiedRuns]]]))
+      expect(await resolveManifest(em, SCOPE, AGENT, version)).toEqual(manifest)
     })
 
     it('rejects a carrier body whose content no longer matches its version', async () => {

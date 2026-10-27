@@ -95,7 +95,7 @@ export type RunManifestAttributes = {
     agentUserId: string | null
     onBehalfOfUserId: string | null
   }
-  'om.capture': RunManifestCapture
+  'om.capture'?: RunManifestCapture
   'om.platform_trace'?: { traceparent: string }
   'om.manifest.truncated'?: true
 }
@@ -173,8 +173,8 @@ function buildUntrimmed(input: RunManifestInput): RunManifestAttributes {
     'om.knowledge': resolveKnowledge(input),
     'om.invoker': resolveInvoker(input),
     'om.correlation_id': input.correlationId ?? null,
-    'om.capture': { ...DEFAULT_CAPTURE, ...(input.capture ?? {}) },
   }
+  if (input.capture) attributes['om.capture'] = { ...DEFAULT_CAPTURE, ...input.capture }
   if (input.promptOverride) {
     attributes['om.prompt.override'] = { id: input.promptOverride.id, version: input.promptOverride.version }
   }

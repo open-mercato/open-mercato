@@ -36,6 +36,7 @@ import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
@@ -480,6 +481,11 @@ export class OpenCodeAgentRunner {
       logger.warn('failed to build OpenCode run manifest', {
         agentId: entry.id,
         error: err instanceof Error ? err.message : String(err),
+      })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'agent_orchestrator',
+        code: 'run_manifest_build_failed',
+        attributes: { runId, agentId: entry.id },
       })
       return null
     }

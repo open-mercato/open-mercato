@@ -57,6 +57,7 @@
   "agent_orchestrator.agentDetail.evaluation.results.openFull": "Vollständigen Lauf öffnen",
   "agent_orchestrator.agentDetail.evaluation.results.title": "Bewertungsergebnisse",
   "agent_orchestrator.agentDetail.evaluation.run.allApproved": "Alle genehmigten Fälle ({count})",
+  "agent_orchestrator.agentDetail.evaluation.run.allInSnapshot": "Alle Fälle im eingefrorenen Snapshot",
   "agent_orchestrator.agentDetail.evaluation.run.caseSet": "Fallset",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGate": "LLM-Judges dürfen sperren",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGateHint": "Wenn aktiv, dürfen Rubrik-Urteile aus LLM-Judge-Regeln über Bestehen oder Fehlschlag dieses Laufs entscheiden.",

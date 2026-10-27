@@ -64,3 +64,7 @@
 
 ## 2026-10-27T03:30:00Z — final gate
 - Validation gate green, with a Jest worker crash (`SIGSEGV`) in `@open-mercato/cli` that passes alone. Integration 2774 passed / 11 failed (10 known failures on main + TC-CRM-065, flaky, passes alone) / 7 flaky. DS lint clean. Next: `om-auto-review-pr --autofix`.
+
+## 2026-10-27 — 5.2-review-fix-2 follow-ups
+- `GET /api/agent_orchestrator/eval-runs` still decrypts each run's full `summary` (which can carry a manifest body up to 5 MiB) just to read `manifest_hash`. The pointer and body share one encrypted column, so selecting fields doesn't help. Follow-up: keep the manifest hash in a plain column, or move the body out of `summary`. Both need AO DDL.
+- `findEvalSetCarrier` / `resolveManifest` now page through all suite runs of the agent when no hash-pinned run holds the version. A version frozen for the first time therefore costs one full decrypting scan. The same indexed column would make this a direct lookup.

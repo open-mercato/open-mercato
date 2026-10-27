@@ -78,6 +78,16 @@ describe('RunManifestCard', () => {
     expect(screen.getAllByRole('button', { name: 'agent_orchestrator.traces.detail.manifest.copy' })).toHaveLength(2)
   })
 
+  it('hides the capture row when the manifest carries no capture policy', () => {
+    const withoutCapture = Object.fromEntries(
+      Object.entries(MANIFEST_ATTRIBUTES).filter(([key]) => key !== 'om.capture'),
+    )
+    renderWithProviders(<RunManifestCard spans={[span({ attributes: withoutCapture })]} agentVersion="4" />)
+    expect(screen.getByText(shortenHash(DEFINITION_HASH))).not.toBeNull()
+    expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.capture')).toBeNull()
+    expect(screen.queryByText('metadata')).toBeNull()
+  })
+
   it('states that nothing was recorded when the run has no manifest span', () => {
     renderWithProviders(
       <RunManifestCard spans={[span({ id: 'span-0', name: 'llm.call', kind: 'llm' })]} agentVersion={null} />,

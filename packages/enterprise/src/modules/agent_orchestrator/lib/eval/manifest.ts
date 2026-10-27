@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalAssertion, AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
@@ -19,6 +20,7 @@ export const EVAL_SET_UNRESOLVED = 'eval_set_unresolved' as const
 export const EVAL_SET_CASE_MISSING = 'eval_set_case_missing' as const
 
 const CARRIER_SCAN_LIMIT = 200
+export const CARRIER_SCAN_PAGE_SIZE = 100
 
 const jsonSchema: z.ZodType<Json> = z.lazy(() =>
   z.union([
@@ -310,6 +312,45 @@ async function bodyFromCandidates(
   return null
 }
 
+/**
+ * Walks every suite run of an agent in this organization, newest first, one
+ * keyset page at a time, until `visit` returns a non-null value. The scan is
+ * unbounded on purpose: a manifest frozen by an old run must keep resolving no
+ * matter how many runs followed it.
+ */
+async function scanSuiteRuns<Result>(
+  em: EntityManager,
+  scope: ManifestScope,
+  agentId: string,
+  visit: (page: ReadonlyArray<AgentEvalSuiteRun>) => Promise<Result | null>,
+): Promise<Result | null> {
+  let cursor: { createdAt: Date; id: string } | null = null
+  for (;;) {
+    const where: FilterQuery<AgentEvalSuiteRun> = cursor
+      ? {
+          ...scope,
+          agentDefinitionId: agentId,
+          $or: [
+            { createdAt: { $lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { $lt: cursor.id } },
+          ],
+        }
+      : { ...scope, agentDefinitionId: agentId }
+    const page: AgentEvalSuiteRun[] = await findWithDecryption(
+      em,
+      AgentEvalSuiteRun,
+      where,
+      { orderBy: { createdAt: 'desc', id: 'desc' }, limit: CARRIER_SCAN_PAGE_SIZE },
+      scope,
+    )
+    const found = await visit(page)
+    if (found !== null) return found
+    const last = page[page.length - 1]
+    if (page.length < CARRIER_SCAN_PAGE_SIZE || !last?.createdAt) return null
+    cursor = { createdAt: last.createdAt, id: last.id }
+  }
+}
+
 export async function resolveManifest(
   em: EntityManager,
   scope: ManifestScope,
@@ -325,15 +366,7 @@ export async function resolveManifest(
   )
   const fromPinned = await bodyFromCandidates(em, scope, agentId, version, pinned)
   if (fromPinned) return fromPinned
-
-  const recent = await findWithDecryption(
-    em,
-    AgentEvalSuiteRun,
-    { ...scope, agentDefinitionId: agentId },
-    { orderBy: { createdAt: 'desc' }, limit: CARRIER_SCAN_LIMIT },
-    scope,
-  )
-  return bodyFromCandidates(em, scope, agentId, version, recent)
+  return scanSuiteRuns(em, scope, agentId, (page) => bodyFromCandidates(em, scope, agentId, version, page))
 }
 
 export async function findEvalSetCarrier(
@@ -342,19 +375,14 @@ export async function findEvalSetCarrier(
   agentId: string,
   version: string,
 ): Promise<string | null> {
-  const candidates = await findWithDecryption(
-    em,
-    AgentEvalSuiteRun,
-    { ...scope, agentDefinitionId: agentId },
-    { orderBy: { createdAt: 'desc' }, limit: CARRIER_SCAN_LIMIT },
-    scope,
-  )
-  for (const candidate of candidates) {
-    const pointer = readEvalSetPointer(candidate.summary)
-    if (pointer?.version !== version || pointer.body === undefined) continue
-    if (verifiedBody(pointer.body, agentId, version)) return candidate.id
-  }
-  return null
+  return scanSuiteRuns(em, scope, agentId, async (page) => {
+    for (const candidate of page) {
+      const pointer = readEvalSetPointer(candidate.summary)
+      if (pointer?.version !== version || pointer.body === undefined) continue
+      if (verifiedBody(pointer.body, agentId, version)) return candidate.id
+    }
+    return null
+  })
 }
 
 export function buildEvalSetPointer(options: {

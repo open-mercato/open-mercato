@@ -57,6 +57,7 @@
   "agent_orchestrator.agentDetail.evaluation.results.openFull": "Otwórz pełne uruchomienie",
   "agent_orchestrator.agentDetail.evaluation.results.title": "Wyniki ewaluacji",
   "agent_orchestrator.agentDetail.evaluation.run.allApproved": "Wszystkie zatwierdzone przypadki ({count})",
+  "agent_orchestrator.agentDetail.evaluation.run.allInSnapshot": "Wszystkie przypadki z zamrożonej migawki",
   "agent_orchestrator.agentDetail.evaluation.run.caseSet": "Zestaw przypadków",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGate": "Pozwól sędziom LLM bramkować",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGateHint": "Gdy włączone, werdykty rubryk z reguł sędziego LLM mogą decydować o zaliczeniu tego uruchomienia.",

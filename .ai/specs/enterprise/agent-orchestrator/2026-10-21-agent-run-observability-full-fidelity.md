@@ -570,4 +570,5 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **The invoker falls back to `{ kind: 'user', userId: ctx.userId }`** until the identity spec adds `ctx.invoker`.
   - **The trace kill switch** `OM_AGENT_TRACE_CAPTURE=off` also suppresses the manifest.
   - **The Actions link is not rendered**, because the identity spec's route does not exist yet.
+  - **`om.capture` is omitted until a capture policy exists (Phase 2).** The builder emits it only when the caller passes an explicit capture input.
 - Test environment: the repo has no scripted LLM provider (`OM_AI_PROVIDER=scripted` was assumed). `TC-AGENT-TRACE-004` therefore skips without a configured provider.

@@ -21,7 +21,9 @@ import {
  * reference, and a user invoker; the run row stamps a short `sha256:` agent
  * version; and the trace page renders the Versions & identity card. When the
  * agent is unknown to the prompt-override API, the override is asserted absent.
- * The override fixture is reverted to its previous sections in `finally`.
+ * The override fixture is reverted to its previous sections in `finally`. There is
+ * no DELETE route, so cleanup posts the previous sections as a new override
+ * version; when no override existed before, that leaves one extra active version.
  */
 
 const integrationDirectory = path.dirname(fileURLToPath(import.meta.url))

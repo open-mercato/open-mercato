@@ -27,6 +27,7 @@ import {
   type EvalSetManifest,
   type EvalSetManifestCase,
 } from './manifest'
+import { createEvalSetManifestCache, evalSetManifestCacheKey } from './manifestCache'
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
@@ -96,8 +97,7 @@ type AgentRuntimeLike = {
   ) => Promise<unknown>
 }
 
-const MANIFEST_CACHE_LIMIT = 32
-const manifestCache = new Map<string, EvalSetManifest>()
+const manifestCache = createEvalSetManifestCache()
 
 export function resetEvalSetManifestCache(): void {
   manifestCache.clear()
@@ -106,9 +106,10 @@ export function resetEvalSetManifestCache(): void {
 type SuiteManifest = { pinned: false } | { pinned: true; manifest: EvalSetManifest | null }
 
 /**
- * Resolves the frozen eval-set manifest a suite run was started with, once per
- * suite run. Only successful resolutions are cached: the manifest is immutable
- * for its version, while a miss may be a transient read the next case retries.
+ * Resolves the frozen eval-set manifest a suite run was started with. Keyed by
+ * tenant, organization and version: the version is a content hash, so every
+ * suite run pinned to it shares one entry. Only successful resolutions are
+ * cached: a miss may be a transient read the next case retries.
  */
 async function loadSuiteManifest(
   em: EntityManager,
@@ -117,17 +118,11 @@ async function loadSuiteManifest(
 ): Promise<SuiteManifest> {
   const pointer = suiteRun ? readEvalSetPointer(suiteRun.summary) : null
   if (!suiteRun || !pointer) return { pinned: false }
-  const cacheKey = `${scope.tenantId}:${scope.organizationId}:${suiteRun.id}:${pointer.version}`
+  const cacheKey = evalSetManifestCacheKey(scope, pointer.version)
   const cached = manifestCache.get(cacheKey)
   if (cached) return { pinned: true, manifest: cached }
   const manifest = await resolveManifest(em, scope, suiteRun.agentDefinitionId, pointer.version)
-  if (manifest) {
-    if (manifestCache.size >= MANIFEST_CACHE_LIMIT) {
-      const oldest = manifestCache.keys().next()
-      if (!oldest.done) manifestCache.delete(oldest.value)
-    }
-    manifestCache.set(cacheKey, manifest)
-  }
+  if (manifest) manifestCache.set(cacheKey, manifest)
   return { pinned: true, manifest }
 }
 
@@ -260,7 +255,13 @@ async function runCase(
   const caseRun = await em.findOne(AgentEvalCaseRun, { id: caseRunId, ...scope })
   if (!caseRun) throw new Error('[internal] eval case run not found')
 
-  const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: caseRun.suiteRunId, ...scope })
+  const suiteRun = await findOneWithDecryption(
+    em,
+    AgentEvalSuiteRun,
+    { id: caseRun.suiteRunId, ...scope },
+    undefined,
+    scope,
+  )
   const suiteManifest = await loadSuiteManifest(em, suiteRun, scope)
 
   let source: ReplaySource
@@ -515,7 +516,7 @@ async function judgeAssertionIds(
   results: ReadonlyArray<AgentEvalResult>,
   scope: EvalScope,
 ): Promise<Set<string>> {
-  const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: suiteRunId, ...scope })
+  const suiteRun = await findOneWithDecryption(em, AgentEvalSuiteRun, { id: suiteRunId, ...scope }, undefined, scope)
   const suiteManifest = await loadSuiteManifest(em, suiteRun, scope)
   if (suiteManifest.pinned && suiteManifest.manifest) {
     return new Set(
@@ -598,7 +599,7 @@ export async function replaySuiteRun(
   userId: string,
 ): Promise<void> {
   const em = (container.resolve('em') as EntityManager).fork()
-  const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: suiteRunId, ...scope })
+  const suiteRun = await findOneWithDecryption(em, AgentEvalSuiteRun, { id: suiteRunId, ...scope }, undefined, scope)
   if (!suiteRun) throw new Error('[internal] eval suite run not found')
 
   // Mark the suite in-flight before the first case: without this the row stays

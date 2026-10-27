@@ -59,6 +59,14 @@ export function shortSnapshotHash(hash: string): string {
   return digest.length > HASH_DISPLAY_LENGTH ? `${HASH_PIN_PREFIX}${digest.slice(0, HASH_DISPLAY_LENGTH)}…` : hash
 }
 
+export function isHashSnapshot(snapshot: string): boolean {
+  return snapshot.startsWith(HASH_PIN_PREFIX)
+}
+
+export function canSubmitEvalRun(options: { caseCount: number; snapshot: string }): boolean {
+  return options.caseCount > 0 || isHashSnapshot(options.snapshot)
+}
+
 export function buildEvalRunRequestBody(options: {
   agentId: string
   caseIds: ReadonlyArray<string>
@@ -68,7 +76,8 @@ export function buildEvalRunRequestBody(options: {
   judgeMayGate: boolean
 }): Record<string, unknown> {
   const pinned = options.snapshot !== SNAPSHOT_NONE
-  const evalCaseIds = options.selection === ALL_CASES ? (pinned ? null : [...options.caseIds]) : [options.selection]
+  const replaysWholeSet = options.selection === ALL_CASES || isHashSnapshot(options.snapshot)
+  const evalCaseIds = replaysWholeSet ? (pinned ? null : [...options.caseIds]) : [options.selection]
   return {
     agentDefinitionId: options.agentId,
     ...(evalCaseIds ? { evalCaseIds } : {}),
@@ -147,7 +156,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
   }, [open, agentId])
 
   const submit = React.useCallback(async () => {
-    if (cases.length === 0) {
+    if (!canSubmitEvalRun({ caseCount: cases.length, snapshot })) {
       flash(t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.'), 'error')
       return
     }
@@ -185,6 +194,9 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
   }, [selection, cases, agentId, snapshot, repeatCount, judgeMayGate, runMutation, retryLastMutation, onOpenChange, onStarted, t])
 
   const noApproved = !isLoading && cases.length === 0
+  const hashPinned = isHashSnapshot(snapshot)
+  const showForm = !isLoading && (cases.length > 0 || knownHashes.length > 0)
+  const submitBlocked = !canSubmitEvalRun({ caseCount: cases.length, snapshot })
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -212,7 +224,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
               <Spinner className="size-4" />
               {t('agent_orchestrator.agentDetail.evaluation.run.loadingCases', 'Loading approved cases…')}
             </div>
-          ) : noApproved ? (
+          ) : !showForm ? (
             <p className="py-4 text-sm text-muted-foreground">
               {t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.')}
             </p>
@@ -228,19 +240,26 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
                 }
               }}
             >
+              {noApproved ? (
+                <p className="text-sm text-muted-foreground">
+                  {t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.')}
+                </p>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="run-eval-case-set">
                   {t('agent_orchestrator.agentDetail.evaluation.run.caseSet', 'Case set')}
                 </Label>
-                <Select value={selection} onValueChange={setSelection}>
+                <Select value={hashPinned ? ALL_CASES : selection} onValueChange={setSelection} disabled={hashPinned}>
                   <SelectTrigger id="run-eval-case-set">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL_CASES}>
-                      {t('agent_orchestrator.agentDetail.evaluation.run.allApproved', 'All approved cases ({count})', { count: cases.length })}
+                      {hashPinned
+                        ? t('agent_orchestrator.agentDetail.evaluation.run.allInSnapshot', 'All cases in the frozen snapshot')
+                        : t('agent_orchestrator.agentDetail.evaluation.run.allApproved', 'All approved cases ({count})', { count: cases.length })}
                     </SelectItem>
-                    {cases.map((row) => (
+                    {hashPinned ? null : cases.map((row) => (
                       <SelectItem key={row.id} value={row.id}>
                         {row.processType ? `${row.processType} · ${shortCaseId(row.id)}` : shortCaseId(row.id)}
                       </SelectItem>
@@ -317,7 +336,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
               {t('agent_orchestrator.proposal.actions.cancelEdit', 'Cancel')}
             </Button>
           </DrawerClose>
-          <Button type="submit" form={FORM_ID} disabled={isBusy || isLoading || noApproved}>
+          <Button type="submit" form={FORM_ID} disabled={isBusy || isLoading || !showForm || submitBlocked}>
             {isBusy ? <Spinner className="size-4" /> : <Play className="size-4" />}
             {t('agent_orchestrator.agentDetail.evaluation.run.submit', 'Run evaluation')}
           </Button>

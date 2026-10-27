@@ -57,6 +57,7 @@
   "agent_orchestrator.agentDetail.evaluation.results.openFull": "Open full run",
   "agent_orchestrator.agentDetail.evaluation.results.title": "Evaluation results",
   "agent_orchestrator.agentDetail.evaluation.run.allApproved": "All approved cases ({count})",
+  "agent_orchestrator.agentDetail.evaluation.run.allInSnapshot": "All cases in the frozen snapshot",
   "agent_orchestrator.agentDetail.evaluation.run.caseSet": "Case set",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGate": "Let LLM judges gate",
   "agent_orchestrator.agentDetail.evaluation.run.judgeGateHint": "When on, rubric verdicts from LLM-judge assertions may decide pass/fail for this run.",
