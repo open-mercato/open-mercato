@@ -594,3 +594,9 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - Structure routes resolve the organization with `resolveAttachmentRequestScope` (organization switcher); a superadmin with no selected organization reaches the attachment in its own organization.
   - Partition access in the structure service is tenant-wide (global or same-tenant partitions, any organization), matching `GET /api/attachments/partitions`.
   - `TC-ATT-STRUCT-004` asserts the purge at the database level; the encryption-map test checks that `heading_path` restores as an array.
+
+### 2026-10-27
+- Phase 3 implemented (wave 3, PR #8018):
+  - `attachments/ai-tools.ts` with the read-only tool `attachments.get_document_sections` (`attachments.view`). Section text is returned in `content`, documented as untrusted data. It returns `not_found` when the tool context has no organization; `page` is the section's start page. The optional `emitCitations` coupling is not implemented (the helper does not exist yet, Chat P4).
+  - UI: there is no attachment drawer; the panel is `packages/ui/src/backend/detail/DocumentStructurePanel.tsx`, lazy-loaded as a Structure tab in `AttachmentMetadataDialog` (about 3.6 KB gz). The tab shows for every file type (the API reports unsupported types). Extract / Re-extract is gated by the additive `canManageStructure` prop or, when absent, `/api/auth/feature-check`. Second-level outline nodes always offer expand because `childCount` is not known at `maxDepth=2`.
+  - Integration: `TC-ATT-STRUCT-007`.

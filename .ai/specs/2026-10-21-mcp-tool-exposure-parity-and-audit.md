@@ -773,3 +773,17 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
   - Linking approved writes to `action_logs` through `auditCorrelation` is Future Work; docs no longer imply it.
   - `mcp.mdx` states that `/tools/execute` is outside the MCP allow/deny lists while the mutation mode still applies.
   - Integration coverage: `TC-AI-MCP-APPROVAL-017` (list visibility for non-approvers and approvers, cross-organization 404, `requester_revoked` after deleting the API key).
+
+### 2026-10-27
+- Phase 4 implemented (wave 3, PR #8018, stacked on #8011):
+  - `lib/agent-run-dispatcher.ts`: the `AiAgentRunDispatcher` port, `AI_AGENT_RUN_DISPATCHER_DI_KEY`, `resolveAiAgentRunDispatcher` (soft resolve), `AiAgentDispatchDeniedError`, and `resolveDispatchOwner` (dispatcher `owns()` first; for ids unknown to the ai-assistant registry it awaits `isAvailable()`, which covers a cold AO registry).
+  - `lib/agent-tool.ts`: `defineAgentTool`. `defineAiAgent({ mcpTool })` is synthesized by the tool loader after the agent registry loads; the loader also materializes `requiredFeatures` for agent tools that declare none.
+  - The three MCP servers advertise `outputSchema` and return `structuredContent: { result, agentId, runId, agentRunId }` for agent tools; unrunnable agent tools are hidden; audit rows carry `agentId`, `aiAgentRunId`, `agentRunId`.
+  - Read-only MCP exposure view: `GET /api/ai_assistant/tools?view=mcp` and an "MCP exposure" section on the settings page.
+- Phase 5 implemented in the same PR (identity spec Phase 5): the AO dispatcher and `run-object` delegation.
+- Deviations:
+  - `runAiAgentObject` has no `mutationPolicyOverride`; agent tools rely on the existing channel rule (`mcp` / `tools-api` → read-only unless `OM_MCP_MUTATION_MODE=approval`). `McpToolContext` gains optional `channel`, `mutationMode`, `apiKeyId`, `correlationId`, filled by `executeTool`.
+  - `AgentToolError` lives in `lib/agent-tool-error.ts` (import cycle with the executor).
+  - `outputSchema` is not advertised for mutation tools (pending-approval results would fail the SDK's output validation).
+  - The chat route has no object branch on this base, so `run-object` is the only route that delegates.
+  - Agent-tool timeouts are raced (the runtime takes no abort signal).

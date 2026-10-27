@@ -295,3 +295,10 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
   - `lib/agent-call-contract.ts` (§6) and `lib/trace/runManifest.ts` (the manifest builder the identity and integrity specs write keys through).
   - `@open-mercato/shared/lib/ai/run-observation`.
   - Eval `summary.__evalSet` (the `agent_eval_set_snapshots` re-squash candidate is unchanged).
+
+- Wave 3 implemented on one PR (#8018), stacked on wave 2:
+  - MCP P4 + Identity P1 + Identity P5 together (ID-Q3).
+  - Integrity P1–P2.
+  - DocStructure P3.
+- Found and fixed while verifying: the AO `guardrail-checks` and `context-bundles` list routes returned 500 on every request (unregistered entity ids).
+- New follow-up (pre-existing): the AO OAuth identity routes declare `POST: {}`, so they require a staff session.

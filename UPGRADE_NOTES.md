@@ -482,6 +482,22 @@ Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2
 
 **`tool-loop-agent` system prompt.** Agents with `executionEngine: 'tool-loop-agent'` previously ran without their composed system prompt. They now receive it, so their responses can change. Re-check any prompt-level workaround you added to compensate.
 
+### Agent invoke permission, AO agent dispatch from ai-assistant, agent tools and output integrity
+
+Specs: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md) (Phase 4), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md) (Phases 1 and 5), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md) (Phases 1–2), [`.ai/specs/2026-10-21-document-structure-extraction.md`](.ai/specs/2026-10-21-document-structure-extraction.md) (Phase 3). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Agent tools".
+
+**Agent Orchestrator agents can require features to be invoked.** An agent that declares `requiredFeatures` (in `defineAgent` or `AGENT.md` frontmatter) is now checked in `AgentRuntimeService.run()` for every entry point: the run and rerun routes (`403 { code: 'agent_invoke_denied' }`), `delegate_agent` (`{ ok: false, error: 'agent_invoke_denied' }`), workflow `INVOKE_AGENT` steps, eval replays, ai-assistant `run-object` and agent tools. Agents that declare nothing behave as before. `GET /api/agent_orchestrator/agents` now lists only agents the caller can invoke unless the caller holds `agent_orchestrator.agents.manage`; items gain `requiredFeatures` and `invocable`. The bundled example agent `support.ticket_triage` now requires `agent_orchestrator.agents.view`. **Action:** if an agent you ship starts declaring `requiredFeatures`, make sure the roles that run it (and workflow grants that invoke it — saving such a workflow now returns a `warnings` entry `agent_invoke_not_covered`) hold those features. `OM_AGENT_INVOKE_ENFORCEMENT=off` turns the check into a logged warning while you adjust roles.
+
+**`POST /api/ai_assistant/ai/run-object` runs Agent Orchestrator agents through the orchestrator.** It previously ran them as plain ai-assistant agents, outside `agentRuntime.run()` (no `AgentRun`, guardrails or trace). They now go through the `aiAgentRunDispatcher` port: the response keeps `{ object, finishReason, usage }`, returns `runId: null` and adds `agentRunId`, and a caller without the agent's features gets `403 agent_features_denied`. **Action:** callers that read `runId` for these agents should read `agentRunId`.
+
+**Agents as tools.** `defineAgentTool` and `defineAiAgent({ mcpTool })` (from `@open-mercato/ai-assistant`) publish an object-mode agent as one tool for chat, MCP and `/tools/execute`; MCP results carry `structuredContent: { result, agentId, runId, agentRunId }`. `OM_MCP_AGENT_TOOLS=off` hides them.
+
+**Agent-token door (opt-in).** `POST /api/agent_orchestrator/agent-api/agents/:id/run` accepts bearer agent tokens when `OM_AGENT_API_ENABLED=true` (404 otherwise), rate-limited by `RATE_LIMIT_AGENT_ORCH_AGENT_API_RUN_*`.
+
+**Output integrity (opt-in per agent).** Agents can declare `integrity` rules (`evidence_quote`, `reference_exists`, `tool_consulted`, `custom`); the native runner then checks and may drop, repair, flag or block the structured output before it is stored or turned into a proposal. Agents without `integrity` are unchanged. Reference resolvers implement the type-only contract `@open-mercato/shared/lib/ai/referenceResolver` and register in DI as `agentReferenceResolver:<id>`; custom checkers register with `registerIntegrityChecker`. `OM_AGENT_INTEGRITY=off` records checks without changing outputs (shadow mode). `guardrailSetBodySchema` keeps validating grounding sets; read stored set bodies, which may now be integrity sets, with the new `agentGuardrailSetBodySchema`.
+
+**Fixed:** `GET /api/agent_orchestrator/guardrail-checks` and `GET /api/agent_orchestrator/context-bundles` returned `500 DATABASE_ERROR` on every request; they now list rows.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
