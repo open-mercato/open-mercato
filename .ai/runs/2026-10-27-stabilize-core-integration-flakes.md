@@ -2,17 +2,16 @@
 
 ## Overview
 
-Fix the remaining unrelated core integration-test failures that block PR #7875 without changing that security PR. PR #8030 landed the cart and communication-channel repairs while this run was being triaged. This branch carries forward the still-needed catalog worker-race fix from #8017, with credit retained for the original diagnosis by @mobinea, and stabilizes the warranty upload-limit fixture reproduced by #7875's refreshed CI.
+Fix the remaining unrelated core integration-test failures that block PR #7875 without changing that security PR. PR #8030 landed the cart and communication-channel repairs while this run was being triaged. Current `main` later absorbed the warranty upload-limit stabilization through #7946. This branch therefore carries forward only the still-needed catalog worker-race fix from #8017, with credit retained for the original diagnosis by @mobinea.
 
 ## Goal
 
-Make the catalog bulk-create and warranty upload-limit integration scenarios deterministic under the ephemeral CI harness without extending per-test timeouts or weakening assertions.
+Make the catalog bulk-create integration scenario deterministic under the ephemeral CI harness without extending per-test timeouts.
 
 ## Scope
 
 - Prevent the catalog integration test from starting a competing queue consumer when the ephemeral app already auto-spawns workers.
 - Preserve fallback queue drains for environments where auto-spawned workers are disabled.
-- Size the warranty chunked-upload fixture against the configured multipart ceiling so it still proves the 413 contract without flooding the socket after rejection.
 
 ## Non-goals
 
@@ -27,7 +26,6 @@ Make the catalog bulk-create and warranty upload-limit integration scenarios det
 ### Phase 1: Deterministic queue ownership
 
 - Make catalog queue progression respect the ephemeral server's worker ownership and continue polling the existing progress-job terminal state.
-- Keep the warranty upload request minimally over the multipart ceiling, preserving the streaming-limit and error-body assertions.
 
 ### Phase 2: Verification and delivery
 
@@ -39,7 +37,6 @@ Make the catalog bulk-create and warranty upload-limit integration scenarios det
 
 - Worker-owned polling could expose a real worker-startup failure; bounded diagnostics must retain the last observed state.
 - `AUTO_SPAWN_WORKERS` and `OM_AUTO_SPAWN_WORKERS` precedence must mirror the application runtime.
-- The warranty fixture must remain over the configured request limit after multipart field and boundary overhead are included.
 - #8017 overlaps this work; the resulting PR must credit that contribution and clearly identify itself as the focused replacement for its remaining catalog change.
 
 ## Progress
@@ -49,7 +46,7 @@ Make the catalog bulk-create and warranty upload-limit integration scenarios det
 ### Phase 1: Deterministic queue ownership
 
 - [x] 1.1 Prevent the catalog integration test from competing with auto-spawned queue workers — b1a0effaf
-- [x] 1.2 Stop the warranty upload-limit fixture from flooding the socket after the configured ceiling — 07257cbf2
+- [x] 1.2 Stop the warranty upload-limit fixture from flooding the socket after the configured ceiling — 07257cbf2 (superseded by upstream #7946 during the base refresh)
 
 ### Phase 2: Verification and delivery
 
