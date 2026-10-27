@@ -218,7 +218,7 @@ export async function POST(req: Request) {
   }
 }
 
-const errorSchema = z.object({ ok: z.literal(false).optional(), error: z.string() })
+const errorSchema = z.object({ ok: z.literal(false).optional(), error: z.string(), code: z.string().optional() })
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Staff Portal',

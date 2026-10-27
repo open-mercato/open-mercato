@@ -21,12 +21,14 @@ import {
   PORTAL_SUPPORT_STATUS_VARIANTS,
   PORTAL_SUPPORT_UPDATED_EVENT,
   formatPortalDate,
+  isPortalSupportAccountNotLinked,
   portalSupportStatusLabel,
   type PortalSupportOptions,
   type PortalSupportStatus,
   type PortalSupportTicketList,
   type PortalSupportTicketListItem,
 } from '@open-mercato/core/modules/staff/lib/support-ui/portalSupport'
+import { PortalSupportNotLinked } from '@open-mercato/core/modules/staff/lib/support-ui/PortalSupportNotLinked'
 
 type Props = { params: { orgSlug: string } }
 
@@ -46,6 +48,7 @@ export default function PortalSupportTicketsPage({ params }: Props) {
   const [totalPages, setTotalPages] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [notLinked, setNotLinked] = React.useState(false)
 
   React.useEffect(() => {
     if (!loading && !user) replaceWithPageReload(`/${params.orgSlug}/portal/login`)
@@ -69,6 +72,13 @@ export default function PortalSupportTicketsPage({ params }: Props) {
         apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' }),
       ])
       if (isStale()) return
+      if (isPortalSupportAccountNotLinked(list)) {
+        setNotLinked(true)
+        setTickets([])
+        setOptions(null)
+        return
+      }
+      setNotLinked(false)
       if (!list.ok) {
         setError(t('staff.portal.support.loadFailed', 'Could not load your support tickets.'))
         if (!options.silent) setTickets([])
@@ -114,7 +124,7 @@ export default function PortalSupportTicketsPage({ params }: Props) {
         title={t('staff.portal.support.title', 'Support')}
         description={t('staff.portal.support.description', 'Ask for help and follow the progress of your requests.')}
         action={
-          canCreate ? (
+          canCreate && !notLinked ? (
             <Button asChild>
               <Link href={newTicketHref}>
                 <Plus className="mr-2 h-4 w-4" />
@@ -125,28 +135,32 @@ export default function PortalSupportTicketsPage({ params }: Props) {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm text-muted-foreground">{t('staff.portal.support.filter.status', 'Status')}</span>
-        <Select
-          value={status}
-          onValueChange={(value) => {
-            setStatus(value)
-            setPage(1)
-          }}
-        >
-          <SelectTrigger className="w-48" aria-label={t('staff.portal.support.filter.status', 'Status')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_STATUSES}>{t('staff.portal.support.filter.all', 'All statuses')}</SelectItem>
-            {(['received', 'in_progress', 'resolved'] as PortalSupportStatus[]).map((value) => (
-              <SelectItem key={value} value={value}>
-                {portalSupportStatusLabel(t, value)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {notLinked ? <PortalSupportNotLinked /> : null}
+
+      {notLinked ? null : (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-muted-foreground">{t('staff.portal.support.filter.status', 'Status')}</span>
+          <Select
+            value={status}
+            onValueChange={(value) => {
+              setStatus(value)
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className="w-48" aria-label={t('staff.portal.support.filter.status', 'Status')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_STATUSES}>{t('staff.portal.support.filter.all', 'All statuses')}</SelectItem>
+              {(['received', 'in_progress', 'resolved'] as PortalSupportStatus[]).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {portalSupportStatusLabel(t, value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {error ? (
         <ErrorMessage
@@ -159,7 +173,7 @@ export default function PortalSupportTicketsPage({ params }: Props) {
         />
       ) : null}
 
-      {isLoading ? (
+      {notLinked ? null : isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Spinner />
         </div>

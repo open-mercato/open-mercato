@@ -12,11 +12,13 @@ import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEve
 import {
   PORTAL_SUPPORT_STATUS_VARIANTS,
   PORTAL_SUPPORT_UPDATED_EVENT,
+  isPortalSupportAccountNotLinked,
   portalSupportStatusLabel,
   type PortalSupportOptions,
   type PortalSupportTicketList,
   type PortalSupportTicketListItem,
 } from '@open-mercato/core/modules/staff/lib/support-ui/portalSupport'
+import { PortalSupportNotLinked } from '@open-mercato/core/modules/staff/lib/support-ui/PortalSupportNotLinked'
 
 function readOrgSlug(context: unknown): string {
   if (!context || typeof context !== 'object') return ''
@@ -39,6 +41,7 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
   const [canCreate, setCanCreate] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadFailed, setLoadFailed] = React.useState(false)
+  const [notLinked, setNotLinked] = React.useState(false)
 
   const loadSeqRef = React.useRef(0)
 
@@ -53,6 +56,12 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
         apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' }),
       ])
       if (isStale()) return
+      const accountNotLinked = isPortalSupportAccountNotLinked(received)
+      setNotLinked(accountNotLinked)
+      if (accountNotLinked) {
+        setLoadFailed(false)
+        return
+      }
       if (!received.ok || !inProgress.ok) {
         setLoadFailed(true)
         return
@@ -81,6 +90,14 @@ export default function PortalSupportTicketsWidget({ context }: InjectionWidgetC
 
   if (loading) {
     return <LoadingMessage label={t('staff.portal.support.widget.loading', 'Loading your tickets…')} />
+  }
+
+  if (notLinked) {
+    return (
+      <div data-testid="portal-support-widget">
+        <PortalSupportNotLinked size="sm" />
+      </div>
+    )
   }
 
   if (loadFailed) {

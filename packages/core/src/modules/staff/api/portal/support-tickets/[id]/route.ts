@@ -29,6 +29,7 @@ const messageSchema = z.object({
   id: z.string().uuid(),
   authorKind: z.enum(['staff', 'customer']),
   authorName: z.string().nullable(),
+  isSelf: z.boolean(),
   body: z.string(),
   createdAt: z.string().nullable(),
 })
@@ -43,6 +44,7 @@ const detailSchema = z.object({
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
   canReply: z.boolean(),
+  requester: z.object({ name: z.string().nullable(), isSelf: z.boolean() }),
   messages: z.array(messageSchema),
   attachments: z.array(portalSupportAttachmentItemSchema),
 })
@@ -114,6 +116,10 @@ export async function GET(req: Request) {
         createdAt: task.createdAt ? task.createdAt.toISOString() : null,
         updatedAt: task.updatedAt ? task.updatedAt.toISOString() : null,
         canReply,
+        requester: {
+          name: nonEmptyName(ticket.customerSnapshot?.reporterDisplayName),
+          isSelf: ticket.reportedByCustomerUserId === scope.auth.sub,
+        },
         messages: comments.map((comment) => ({
           id: comment.id,
           authorKind: comment.authorKind === 'customer' ? 'customer' : 'staff',
@@ -123,6 +129,7 @@ export async function GET(req: Request) {
               : comment.authorUserId
                 ? staffNames.get(comment.authorUserId) ?? null
                 : null,
+          isSelf: comment.authorKind === 'customer' && comment.authorCustomerUserId === scope.auth.sub,
           body: comment.body,
           createdAt: comment.createdAt ? comment.createdAt.toISOString() : null,
         })),

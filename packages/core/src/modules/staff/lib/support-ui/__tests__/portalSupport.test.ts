@@ -1,5 +1,5 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatFileSize } from '../portalSupport'
+import { formatFileSize, isPortalSupportAccountNotLinked } from '../portalSupport'
 
 const translate: TranslateFn = (key, fallbackOrParams, params) => {
   const template = typeof fallbackOrParams === 'string' ? fallbackOrParams : key
@@ -29,5 +29,20 @@ describe('formatFileSize', () => {
       'staff.portal.support.fileSize.kilobytes',
       'staff.portal.support.fileSize.megabytes',
     ])
+  })
+})
+
+describe('isPortalSupportAccountNotLinked', () => {
+  it('recognises the not-linked refusal by its code', () => {
+    expect(isPortalSupportAccountNotLinked({
+      status: 403,
+      result: { ok: false, error: 'staff.errors.customerAccountNotLinked', code: 'customer_account_not_linked' },
+    })).toBe(true)
+  })
+
+  it('leaves other refusals and failures to the generic error state', () => {
+    expect(isPortalSupportAccountNotLinked({ status: 403, result: { ok: false, error: 'staff.errors.forbidden' } })).toBe(false)
+    expect(isPortalSupportAccountNotLinked({ status: 500, result: { code: 'customer_account_not_linked' } })).toBe(false)
+    expect(isPortalSupportAccountNotLinked({ status: 403, result: null })).toBe(false)
   })
 })

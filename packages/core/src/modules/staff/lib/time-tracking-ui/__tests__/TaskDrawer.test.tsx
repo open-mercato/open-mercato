@@ -621,6 +621,66 @@ describe('TaskDrawer', () => {
 
     await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/claim`).length).toBe(1))
     expect(writeCalls(`/tasks/${TASK_ID}/claim`)[0][1]?.method).toBe('POST')
+    expect(mockWithScopedHeaders).not.toHaveBeenCalled()
+  })
+
+  it('tells the loser of a claim race inside the drawer that someone else took the task', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes(`/tasks/${TASK_ID}/claim`)) {
+        taskRow = {
+          ...taskRow,
+          assignee_staff_member_id: OTHER_TASK_ID,
+          updated_at: VERSION_TWO,
+          _staffAssignment: { canClaim: false, canRelease: false },
+        }
+        throw Object.assign(new Error('Someone else already took this task.'), {
+          status: 409,
+          code: 'task_already_claimed',
+        })
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-claim'))
+
+    expect(await screen.findByTestId('task-drawer-notice')).toHaveTextContent('Someone else already took this task.')
+    await waitFor(() => expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument())
+  })
+
+  it('shows a conflicting save inside the drawer instead of only behind it', async () => {
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes(`/tasks/${TASK_ID}/status`)) {
+        throw Object.assign(new Error('Conflict'), {
+          status: 409,
+          body: { code: 'optimistic_lock_conflict', currentUpdatedAt: VERSION_TWO, expectedUpdatedAt: VERSION_ONE },
+        })
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+
+    expect(await screen.findByTestId('task-drawer-notice')).toHaveTextContent('Someone else changed this task.')
+  })
+
+  it('reports a save a guard refused as a conflict when the task moved underneath it', async () => {
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes(`/tasks/${TASK_ID}/status`)) {
+        taskRow = { ...taskRow, task_status_id: BACKLOG_ID, updated_at: VERSION_TWO }
+        throw new Error('Record conflict detected')
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('task-drawer-notice')).toHaveTextContent('Someone else changed this task.'),
+    )
   })
 
   it('offers Release to the assignee the server names', async () => {

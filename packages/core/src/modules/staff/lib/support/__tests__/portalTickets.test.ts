@@ -162,7 +162,11 @@ describe('resolveSupportPortalScope', () => {
     customerAuthValue = signedIn({ customerEntityId: null })
     const result = await resolveSupportPortalScope(request(), PORTAL_SUPPORT_TICKETS_VIEW_FEATURE)
     expect((result as Response).status).toBe(403)
-    expect(await (result as Response).json()).toEqual({ ok: false, error: 'staff.errors.customerAccountNotLinked' })
+    expect(await (result as Response).json()).toEqual({
+      ok: false,
+      error: 'staff.errors.customerAccountNotLinked',
+      code: 'customer_account_not_linked',
+    })
   })
 
   it('answers 403 when the required feature is missing', async () => {

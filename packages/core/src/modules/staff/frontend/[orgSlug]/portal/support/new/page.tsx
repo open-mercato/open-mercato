@@ -30,8 +30,10 @@ import {
 import { rememberFailedUploads } from '@open-mercato/core/modules/staff/lib/support-ui/portalPendingUploads'
 import {
   formatFileSize,
+  isPortalSupportAccountNotLinked,
   type PortalSupportOptions,
 } from '@open-mercato/core/modules/staff/lib/support-ui/portalSupport'
+import { PortalSupportNotLinked } from '@open-mercato/core/modules/staff/lib/support-ui/PortalSupportNotLinked'
 
 type Props = { params: { orgSlug: string } }
 
@@ -53,6 +55,7 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
   const [options, setOptions] = React.useState<PortalSupportOptions | null>(null)
   const [optionsLoading, setOptionsLoading] = React.useState(true)
   const [optionsError, setOptionsError] = React.useState<string | null>(null)
+  const [notLinked, setNotLinked] = React.useState(false)
   const [optionsAttempt, setOptionsAttempt] = React.useState(0)
   const [categoryValue, setCategoryValue] = React.useState('')
   const [subject, setSubject] = React.useState('')
@@ -75,11 +78,14 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
       try {
         const response = await apiCall<PortalSupportOptions>('/api/staff/portal/support-tickets/options', { credentials: 'include' })
         if (cancelled) return
+        setNotLinked(isPortalSupportAccountNotLinked(response))
         if (response.ok && response.result) {
           setOptions(response.result)
         } else {
           setOptions(null)
-          setOptionsError(t('staff.portal.support.new.optionsLoadFailed', 'Could not load the support form.'))
+          if (!isPortalSupportAccountNotLinked(response)) {
+            setOptionsError(t('staff.portal.support.new.optionsLoadFailed', 'Could not load the support form.'))
+          }
         }
       } catch (err) {
         if (cancelled) return
@@ -218,7 +224,9 @@ export default function PortalSupportNewTicketPage({ params }: Props) {
         description={t('staff.portal.support.new.description', 'Tell us what you need. Please do not include passwords or other secrets.')}
       />
       {error ? <ErrorMessage label={error} /> : null}
-      {optionsError ? (
+      {notLinked ? (
+        <PortalSupportNotLinked />
+      ) : optionsError ? (
         <ErrorMessage
           label={optionsError}
           action={

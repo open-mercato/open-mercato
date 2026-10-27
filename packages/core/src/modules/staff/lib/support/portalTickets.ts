@@ -7,6 +7,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { StaffSupportTicket, StaffTimeTask } from '../../data/entities'
+import { PORTAL_SUPPORT_NOT_LINKED_CODE } from '../support-ui/portalSupport'
 
 const logger = createLogger('staff').child({ component: 'lib/support/portalTickets' })
 
@@ -55,7 +56,10 @@ export async function resolveSupportPortalScope(
       ? auth.customerEntityId.trim()
       : null
   if (!customerId) {
-    return NextResponse.json({ ok: false, error: 'staff.errors.customerAccountNotLinked' }, { status: 403 })
+    return NextResponse.json(
+      { ok: false, error: 'staff.errors.customerAccountNotLinked', code: PORTAL_SUPPORT_NOT_LINKED_CODE },
+      { status: 403 },
+    )
   }
   if (!requireFeature) {
     logger.error('staff portal support could not resolve requireCustomerFeature; refusing the request', {

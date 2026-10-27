@@ -37,12 +37,14 @@ import {
   PORTAL_SUPPORT_UPDATED_EVENT,
   formatFileSize,
   formatPortalDate,
+  isPortalSupportAccountNotLinked,
   portalSupportStatusLabel,
   readPortalTicketIdFromEvent,
   type PortalSupportAttachment,
   type PortalSupportOptions,
   type PortalSupportTicketDetail,
 } from '@open-mercato/core/modules/staff/lib/support-ui/portalSupport'
+import { PortalSupportNotLinked } from '@open-mercato/core/modules/staff/lib/support-ui/PortalSupportNotLinked'
 
 type Props = { params: { orgSlug: string; id: string } }
 
@@ -70,6 +72,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
   const [failedUploads, setFailedUploads] = React.useState<string[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [notFound, setNotFound] = React.useState(false)
+  const [notLinked, setNotLinked] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [reply, setReply] = React.useState('')
   const [replying, setReplying] = React.useState(false)
@@ -114,6 +117,11 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
         credentials: 'include',
       })
       if (isStale()) return
+      if (isPortalSupportAccountNotLinked(detail)) {
+        setNotLinked(true)
+        setTicket(null)
+        return
+      }
       if (detail.status === 404) {
         setNotFound(true)
         setTicket(null)
@@ -317,7 +325,12 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
     [params.orgSlug, params.id, ticket?.supportReference, ticket?.portalStatus, auth.resolvedFeatures],
   )
 
-  if (loading || (isLoading && !ticket && !notFound)) {
+  const customerAuthorLabel = (isSelf: boolean, name: string | null) => {
+    if (isSelf) return t('staff.portal.support.detail.you', 'You')
+    return name ?? t('staff.portal.support.detail.colleague', 'A colleague')
+  }
+
+  if (loading || (isLoading && !ticket && !notFound && !notLinked)) {
     return (
       <div className="flex items-center justify-center py-20">
         <Spinner />
@@ -350,7 +363,9 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
         />
       ) : null}
 
-      {notFound || (!ticket && !error) ? (
+      {notLinked ? (
+        <PortalSupportNotLinked />
+      ) : notFound || (!ticket && !error) ? (
         <PortalEmptyState
           title={t('staff.portal.support.detail.notFoundTitle', 'Ticket not found')}
           description={t('staff.portal.support.detail.notFoundDescription', 'This ticket does not exist or is not yours.')}
@@ -378,7 +393,9 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
             <ol className="space-y-3" data-testid="support-thread">
               <li className="rounded-md border border-border bg-muted p-3">
                 <p className="text-xs text-muted-foreground">
-                  {t('staff.portal.support.detail.you', 'You')} · {formatPortalDate(ticket.createdAt, locale)}
+                  {customerAuthorLabel(ticket.requester?.isSelf ?? false, ticket.requester?.name ?? null)}
+                  {' · '}
+                  {formatPortalDate(ticket.createdAt, locale)}
                 </p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{ticket.description}</p>
               </li>
@@ -394,7 +411,7 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
                 >
                   <p className="text-xs text-muted-foreground">
                     {message.authorKind === 'customer'
-                      ? message.authorName || t('staff.portal.support.detail.you', 'You')
+                      ? customerAuthorLabel(message.isSelf ?? false, message.authorName)
                       : message.authorName
                         ? t('staff.portal.support.detail.supportTeamNamed', 'Support team · {name}', { name: message.authorName })
                         : t('staff.portal.support.detail.supportTeam', 'Support team')}

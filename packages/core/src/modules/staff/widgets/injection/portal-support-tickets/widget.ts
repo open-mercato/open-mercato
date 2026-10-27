@@ -4,7 +4,7 @@ import PortalSupportTicketsWidget from './widget.client'
 const widget: InjectionWidgetModule = {
   metadata: {
     id: 'staff.injection.portal-support-tickets',
-    title: 'Support tickets',
+    title: 'staff.portal.support.widget.title',
     description: 'Your open support tickets at a glance.',
     features: ['portal.support_tickets.view'],
     priority: 20,

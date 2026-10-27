@@ -13,6 +13,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from '@open-mercato/ui/primitives/drawer'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -28,7 +29,11 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import {
+  buildOptimisticLockHeader,
+  extractOptimisticLockConflict,
+  extractRecordLockConflict,
+} from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -94,6 +99,15 @@ type TaskDetailInjectionContext = {
 }
 
 export const TASK_DRAWER_MUTATION_CONTEXT_ID = 'staff.time_tracking.task_drawer'
+
+const ASSIGNMENT_RACE_CODES = new Set(['task_already_claimed', 'task_assignment_changed'])
+
+function isAssignmentRace(error: unknown): boolean {
+  if (extractOptimisticLockConflict(error) || extractRecordLockConflict(error)) return true
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' && ASSIGNMENT_RACE_CODES.has(code)
+}
 export const RATES_FEATURE = 'staff.timesheets.rates.view'
 export const TASKS_MANAGE_FEATURE = 'staff.timesheets.tasks.manage'
 export const ENTRIES_LIST_PATH = '/backend/staff/time-tracking/entries'
@@ -218,8 +232,16 @@ export function TaskDrawer({
    * with the token the first blur just invalidated.
    */
   const versionRef = React.useRef<string | null>(null)
+  /**
+   * Guarded-mutation state (the enterprise record-lock base, for one) is keyed by
+   * `formId`, so it is scoped to the task *and* the version on screen: the drawer
+   * live-refreshes to other users' writes, and a key shared across tasks or
+   * versions would keep validating against a record the user no longer looks at.
+   */
+  const formIdRef = React.useRef<string>(`${TASK_DRAWER_MUTATION_CONTEXT_ID}:${taskId}`)
+  const [notice, setNotice] = React.useState<{ status: 'warning' | 'error'; message: string } | null>(null)
 
-  const { runMutation, retryLastMutation } = useGuardedMutation<{
+  const { runMutation: runGuardedMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
     resourceKind: string
     resourceId: string
@@ -228,6 +250,13 @@ export function TaskDrawer({
     contextId: TASK_DRAWER_MUTATION_CONTEXT_ID,
     blockedMessage: t('staff.time_tracking.taskDrawer.properties.saveError', 'Could not save the change.'),
   })
+  const runMutation = React.useCallback<typeof runGuardedMutation>(
+    (input) => {
+      setNotice(null)
+      return runGuardedMutation(input)
+    },
+    [runGuardedMutation],
+  )
 
   const taskQuery = useQuery<LoadedTask | null>({
     queryKey: [...DRAWER_QUERY_ROOT, 'task', `scope:${scopeVersion}`, taskId],
@@ -272,8 +301,13 @@ export function TaskDrawer({
   React.useEffect(() => {
     if (!task) return
     versionRef.current = task.updatedAt
+    formIdRef.current = `${TASK_DRAWER_MUTATION_CONTEXT_ID}:${task.id}:${task.updatedAt ?? 'none'}`
     setTagIds(task.tagIds)
   }, [task])
+
+  React.useEffect(() => {
+    setNotice(null)
+  }, [taskId])
 
   const statusesQuery = useQuery<BoardStatus[]>({
     queryKey: [...DRAWER_QUERY_ROOT, 'statuses', `scope:${scopeVersion}`, projectId ?? 'none'],
@@ -476,17 +510,36 @@ export function TaskDrawer({
     if (updatedAt) versionRef.current = updatedAt
   }, [taskQuery])
 
+  /**
+   * A failed save is reported inside the drawer, which covers the page-level
+   * conflict bar. It is a conflict when the server says so, or when the task
+   * moved underneath the save (a guard can refuse it before any request leaves);
+   * either way the drawer refetches, so the next attempt starts from what it shows.
+   */
   const reportError = React.useCallback(
     (error: unknown, fallback: string) => {
+      const conflictNotice = {
+        status: 'warning' as const,
+        message: t(
+          'staff.time_tracking.taskDrawer.conflict',
+          'Someone else changed this task. It now shows the latest version. Check it and try again.',
+        ),
+      }
+      const seenVersion = versionRef.current
+      invalidate('children')
       if (surfaceRecordConflict(error, t)) {
+        setNotice(conflictNotice)
         invalidate('task')
-        invalidate('children')
         return
       }
       logger.error('staff.time_tracking task drawer mutation failed', { err: error })
-      flash(error instanceof Error && error.message ? error.message : fallback, 'error')
+      setNotice({ status: 'error', message: error instanceof Error && error.message ? error.message : fallback })
+      void taskQuery.refetch().then((refreshed) => {
+        const currentVersion = refreshed.data?.task.updatedAt ?? null
+        if (seenVersion && currentVersion && currentVersion !== seenVersion) setNotice(conflictNotice)
+      })
     },
-    [invalidate, t],
+    [invalidate, t, taskQuery],
   )
 
   const handleQuickLog = React.useCallback(
@@ -532,7 +585,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.quickLog.error', 'Could not save the time entry.') },
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+            formId: formIdRef.current,
             resourceKind: 'staff.timesheets.time_entry',
             resourceId: taskId,
             retryLastMutation,
@@ -563,7 +616,7 @@ export function TaskDrawer({
             { errorMessage: t('staff.time_tracking.board.timer.stopError', 'Could not stop the timer.') },
           ),
         context: {
-          formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+          formId: formIdRef.current,
           resourceKind: 'staff.timesheets.time_entry',
           resourceId: entryId,
           retryLastMutation,
@@ -625,7 +678,7 @@ export function TaskDrawer({
             { errorMessage: t('staff.time_tracking.board.timer.startError', 'Could not start the timer.') },
           ),
         context: {
-          formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+          formId: formIdRef.current,
           resourceKind: 'staff.timesheets.time_entry',
           resourceId: taskId,
           retryLastMutation,
@@ -710,7 +763,7 @@ export function TaskDrawer({
                 ),
               ),
             context: {
-              formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+              formId: formIdRef.current,
               resourceKind: 'staff.timesheets.task',
               resourceId: taskId,
               retryLastMutation,
@@ -750,7 +803,7 @@ export function TaskDrawer({
                 ),
               ),
             context: {
-              formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+              formId: formIdRef.current,
               resourceKind: 'staff.timesheets.task',
               resourceId: taskId,
               retryLastMutation,
@@ -804,17 +857,18 @@ export function TaskDrawer({
       setBusy(true)
       void runSerialized(async () => {
         try {
+          // No optimistic-lock header: claim and release are atomic conditional
+          // updates on the assignee, so a lost race answers with its own reason
+          // instead of a generic "record changed".
           const done = await runMutation({
             operation: () =>
-              withScopedApiRequestHeaders(buildOptimisticLockHeader(versionRef.current), () =>
-                apiCallOrThrow<Record<string, unknown>>(
-                  `/api/staff/timesheets/tasks/${encodeURIComponent(taskId)}/${action}`,
-                  { method: 'POST' },
-                  { errorMessage },
-                ),
+              apiCallOrThrow<Record<string, unknown>>(
+                `/api/staff/timesheets/tasks/${encodeURIComponent(taskId)}/${action}`,
+                { method: 'POST' },
+                { errorMessage },
               ),
             context: {
-              formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+              formId: formIdRef.current,
               resourceKind: 'staff.timesheets.task',
               resourceId: taskId,
               retryLastMutation,
@@ -832,13 +886,43 @@ export function TaskDrawer({
           )
           onChanged?.()
         } catch (error) {
-          reportError(error, errorMessage)
+          if (!isAssignmentRace(error)) {
+            reportError(error, errorMessage)
+            return
+          }
+          const refreshed = await taskQuery.refetch()
+          const assigneeId = refreshed.data?.task.assigneeStaffMemberId ?? null
+          const takenByOther = action === 'claim' && assigneeId !== null && assigneeId !== selfStaffMemberId
+          setNotice({
+            status: 'warning',
+            message: takenByOther
+              ? t('staff.timesheets.errors.taskAlreadyClaimed', 'Someone else already took this task.')
+              : t(
+                  'staff.time_tracking.taskDrawer.conflict',
+                  'Someone else changed this task. It now shows the latest version. Check it and try again.',
+                ),
+          })
+          invalidate('task')
+          onChanged?.()
         } finally {
           setBusy(false)
         }
       })
     },
-    [invalidate, onChanged, refreshVersion, reportError, retryLastMutation, runMutation, runSerialized, t, task, taskId],
+    [
+      invalidate,
+      onChanged,
+      refreshVersion,
+      reportError,
+      retryLastMutation,
+      runMutation,
+      runSerialized,
+      selfStaffMemberId,
+      t,
+      task,
+      taskId,
+      taskQuery,
+    ],
   )
 
   const handleToggleSubtask = React.useCallback(
@@ -868,7 +952,7 @@ export function TaskDrawer({
               ),
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+            formId: formIdRef.current,
             resourceKind: 'staff.timesheets.task',
             resourceId: child.id,
             retryLastMutation,
@@ -917,7 +1001,7 @@ export function TaskDrawer({
             },
           ),
         context: {
-          formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+          formId: formIdRef.current,
           resourceKind: 'staff.timesheets.task',
           resourceId: taskId,
           retryLastMutation,
@@ -985,7 +1069,7 @@ export function TaskDrawer({
               ),
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+            formId: formIdRef.current,
             resourceKind: 'staff.timesheets.task_comment',
             resourceId: comment.id,
             retryLastMutation,
@@ -1021,7 +1105,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.comments.error', 'Could not post the comment.') },
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+            formId: formIdRef.current,
             resourceKind: 'staff.timesheets.task_comment',
             resourceId: taskId,
             retryLastMutation,
@@ -1059,7 +1143,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.properties.tagError', 'Could not save the tags.') },
             ),
           context: {
-            formId: TASK_DRAWER_MUTATION_CONTEXT_ID,
+            formId: formIdRef.current,
             resourceKind: 'staff.timesheets.task_tag',
             resourceId: taskId,
             retryLastMutation,
@@ -1150,6 +1234,11 @@ export function TaskDrawer({
 
     return (
       <div className="flex flex-col gap-6">
+        {notice ? (
+          <Alert status={notice.status} data-testid="task-drawer-notice">
+            <AlertDescription>{notice.message}</AlertDescription>
+          </Alert>
+        ) : null}
         {support ? <SupportRequestPanel ticket={support} /> : null}
         {support ? <SupportAttachmentsSection taskId={taskId} /> : null}
         <TaskQuickLog

@@ -32,6 +32,7 @@ export type PortalSupportMessage = {
   id: string
   authorKind: 'staff' | 'customer'
   authorName: string | null
+  isSelf?: boolean
   body: string
   createdAt: string | null
 }
@@ -46,6 +47,7 @@ export type PortalSupportTicketDetail = {
   createdAt: string | null
   updatedAt: string | null
   canReply: boolean
+  requester?: { name: string | null; isSelf: boolean }
   messages: PortalSupportMessage[]
   attachments?: PortalSupportAttachment[]
 }
@@ -62,6 +64,17 @@ export type PortalSupportAttachment = {
 }
 
 export const PORTAL_SUPPORT_UPDATED_EVENT = 'staff.support_ticket.portal_updated'
+
+export const PORTAL_SUPPORT_NOT_LINKED_CODE = 'customer_account_not_linked'
+
+/**
+ * A portal account without a company link can never see or file tickets, so the
+ * support screens explain that instead of offering a retry that cannot succeed.
+ */
+export function isPortalSupportAccountNotLinked(call: { status: number; result?: unknown }): boolean {
+  if (call.status !== 403 || !call.result || typeof call.result !== 'object') return false
+  return (call.result as { code?: unknown }).code === PORTAL_SUPPORT_NOT_LINKED_CODE
+}
 
 export const PORTAL_SUPPORT_STATUS_VARIANTS: Record<PortalSupportStatus, StatusBadgeVariant> = {
   received: 'info',

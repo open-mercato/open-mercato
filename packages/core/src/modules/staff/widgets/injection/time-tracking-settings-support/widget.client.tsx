@@ -594,7 +594,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
 
   const nobodyNotifiedText = t(
     'staff.support.settings.routing.nobodyNotified',
-    'Nobody will be notified about tickets routed here: the project has no active assigner, no usable default assignee and no owner.',
+    "No one in this project will be notified about tickets routed here: it has no active assigner, no usable default assignee and no owner. New tickets go to the organization's project managers instead.",
   )
   const unnotifiedTicketCount = typeof preview.unnotifiedTicketCount === 'number' ? preview.unnotifiedTicketCount : 0
 
