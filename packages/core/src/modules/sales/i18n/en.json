@@ -846,6 +846,7 @@
   "sales.documents.errors.number_forbidden": "Document number operation is not allowed.",
   "sales.documents.errors.number_generate_failed": "Failed to generate document number.",
   "sales.documents.errors.organization_required": "Organization context is required.",
+  "sales.documents.errors.organization_selection_invalid": "Your selected organization is no longer available. Please re-select an organization and try again.",
   "sales.documents.errors.unauthorized": "Unauthorized",
   "sales.documents.errors.undoStaleOrder": "This change can no longer be undone because the order was changed afterwards.",
   "sales.documents.errors.undoStaleQuote": "This change can no longer be undone because the quote was changed afterwards.",
