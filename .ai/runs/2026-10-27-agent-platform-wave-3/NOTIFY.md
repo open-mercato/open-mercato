@@ -65,3 +65,10 @@
 
 ## 2026-10-27T09:45:26Z — safety checkpoint: paused for user review
 - 18 code Steps landed (Phases 1–3: MCP P4 + Identity P1 + Identity P5, the ID-Q3 bundle). Paused at the phase boundary per the ~20-Step safety checkpoint before Integrity P1–P2 and DocStructure P3. Resume point: Step 4.1. Lock released; PR stays a draft with `Status: in-progress`.
+
+## 2026-10-27T10:54:23Z — resumed after user review
+- The user said "Continue"; lock reclaimed; Steps resume at 4.1.
+
+## 2026-10-27T10:54:23Z — checkpoint 5 (Steps 4.1..4.5)
+- AO jest 195 suites / 1899 tests, i18n, typecheck, lint, build:app --force: pass.
+- Decisions from executors: integrity paths are relative to the whole result envelope (e.g. `data.findings[*]`); `onResolverMissing` accepts `block` (default) and `flag`; `tool_consulted` needs `returned` or `matchArgs`; `integrity` in AGENT.md frontmatter not supported (optional per spec); normalization works per grapheme cluster (partial-cluster matches widen outward; empty quotes never match); evidence_quote misses under `onViolation: 'repair'` are flagged; integrity agents' `tool_scope` uses the effective tool allowlist (own + skill + delegate tools) with `attemptedTools`; rule kinds without an evaluator block with `integrity_rule_unsupported` until Phase 5; tool-call errors keep only the code in memory; `integrityEvidenceSchema.rawOutput.key` is optional (omitted when storage is unavailable).

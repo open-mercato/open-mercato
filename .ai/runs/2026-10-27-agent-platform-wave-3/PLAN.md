@@ -35,11 +35,11 @@
 | 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | done | d14cf1e1a |
 | 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | done | 360793dca |
 | 3 | 3.6 | Fix the run-object integration spec for nullable runId and HTTP call settings | inline | done | c3be2cb24 |
-| 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | done | pending |
-| 4 | 4.2 | Add quote normalization with an index map and grapheme snapping | dispatch:capable | done | pending |
-| 4 | 4.3 | Add the evidence_quote rule | dispatch | done | pending |
-| 4 | 4.4 | Run the output pipeline in the native runner and return the final output | dispatch:capable | done | pending |
-| 4 | 4.5 | Store the raw model output as an encrypted artifact | dispatch | done | pending |
+| 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | done | e3d3fe20c |
+| 4 | 4.2 | Add quote normalization with an index map and grapheme snapping | dispatch:capable | done | 89513d10b |
+| 4 | 4.3 | Add the evidence_quote rule | dispatch | done | bcb0245a3 |
+| 4 | 4.4 | Run the output pipeline in the native runner and return the final output | dispatch:capable | done | 08a1dfad6 |
+| 4 | 4.5 | Store the raw model output as an encrypted artifact | dispatch | done | 12a9912c0 |
 | 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | todo | — |
 | 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | todo | — |
 | 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | todo | — |

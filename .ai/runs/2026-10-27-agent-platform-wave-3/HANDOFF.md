@@ -1,20 +1,19 @@
 # Handoff — 2026-10-27-agent-platform-wave-3
 
-**Last updated:** 2026-10-27T09:45:26Z
+**Last updated:** 2026-10-27T10:54:23Z
 **Branch:** feat/agent-platform-wave-3 (stacked on feat/agent-platform-wave-2 @ 2d3734ed6)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8018 (draft)
-**Current phase/step:** Phase 4 Step 4.1
-**Last commit:** checkpoint 4 — docs(runs): checkpoint 4 — steps 3.4..3.6 verified
+**Current phase/step:** Phase 4 Step 4.6
+**Last commit:** checkpoint 5 — docs(runs): checkpoint 5 — steps 4.1..4.5 verified
 
 ## What just happened
-- Phase 3 (Identity P5 + MCP P5) complete: example agent tool, decoupling test, integration specs. Checkpoint 4 ran the new specs against the ephemeral app (AO enabled): 8 passed, 2 skipped (provider / no unrunnable tool); TC-AI-RUN-TRACE-016 fixed in 3.6.
+- Resumed after the safety checkpoint. Steps 4.1–4.5 landed (integrity declarations, normalization, evidence_quote, output pipeline, raw-output artifact). Checkpoint 5 passed.
 
 ## Next concrete action
-- Step 4.1 — Add the integrity path dialect, declaration schemas and defineAgent keys.
+- Step 4.6 — Hash and sync integrity sets and add the shadow-mode switch.
 
 ## Blockers / open questions
-- Paused at the safety checkpoint (after Phase 3) for user review. Resume with `om-auto-continue-pr-loop 8018` (or continue in-session) from Step 4.1.
-- Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).
+- none. Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).
 
 ## Environment caveats
 - Dev runtime runnable: not from this worktree (port 3000 belongs to an unrelated project)
