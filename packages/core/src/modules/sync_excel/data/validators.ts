@@ -45,7 +45,7 @@ export const syncExcelImportRequestSchema = z.object({
   uploadId: z.string().uuid(),
   entityType: syncExcelEntityTypeSchema,
   mapping: syncExcelSuggestedMappingSchema,
-  batchSize: z.number().int().min(1).max(1000).default(100).optional(),
+  batchSize: z.number().int().min(1).max(1000).optional(),
 })
 
 export const syncExcelImportResponseSchema = z.object({
