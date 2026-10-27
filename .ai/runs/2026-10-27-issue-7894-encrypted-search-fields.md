@@ -37,18 +37,35 @@ No changes to buildSource/callback context sanitization (#7874), search defaults
 
 ## Progress
 
+PR: #8043
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Resolve and carry exclusions
 
-- [ ] 1.1 Add typed resolver and DI wiring with fail-closed exclusion metadata across indexing paths.
+- [x] 1.1 Add typed resolver and DI wiring with fail-closed exclusion metadata across indexing paths. — 68313cc4e
 
 ### Phase 2: Enforce the plaintext boundaries
 
-- [ ] 2.1 Filter fulltext and vector fallback fields while retaining token values.
-- [ ] 2.2 Add regression coverage and operator/compatibility documentation.
+- [x] 2.1 Filter fulltext and vector fallback fields while retaining token values. — 68313cc4e
+- [x] 2.2 Add regression coverage and operator/compatibility documentation. — 68313cc4e
 
 ### Phase 3: Review and handoff
 
-- [ ] 3.1 Publish implementation and resolve latest-base conflicts.
+- [x] 3.1 Publish implementation and resolve latest-base conflicts. — 68313cc4e; latest origin/main 7b5ad7492, already incorporated
 - [ ] 3.2 Complete independent review/autofix and record current-head validation.
+
+## Validation evidence
+
+Runner: local; prescribed Compose probes found no running app. Narrow fallback
+for the new unreported source diff used the existing read-only tooling and the
+worktree's own Jest configuration/module mapping; no package install was needed.
+
+- Three new suites: 17/17 checks passed.
+- Restoring the original fulltext/vector strategy files causes 10/11 boundary
+  assertions to fail; restoring the fix passes all 11.
+- Full search package: 44 suites / 422 tests passed.
+- `git diff --check` passed.
+- No live external backend, embedding API, database or browser was contacted.
+- Broad builds/typechecking and the repository gate are delegated to exact-head
+  GitHub CI. Pending CI is not a pass.
