@@ -307,6 +307,35 @@ interface AiAgentRunDispatcher {
 
 The key is resolved soft-optionally: when nothing is registered, or the registered value does not have these three methods, agent tools run through the `ai_assistant` runtime only. For an agent id the dispatcher `owns`, `runObject` receives the agent id, the input, the caller (tenant, organization, user, API key id, features, superuser flag), the channel (`mcp`, `tools-api` or `chat`), `via: 'tool'`, the correlation id and the timeout, and returns `{ result, agentRunId }`. It signals a refusal by throwing `AiAgentDispatchDeniedError`, which surfaces as `AGENT_POLICY_DENIED`.
 
+#### Expose an Agent Orchestrator agent as a tool {#expose-an-agent-orchestrator-agent}
+
+When the enterprise `agent_orchestrator` module is enabled, it registers the `aiAgentRunDispatcher` and owns every agent declared with its `defineAgent` (code agents) or an `AGENT.md` file (file agents). To publish one of these agents, declare a `defineAgentTool` with its id in a module's `ai-tools.ts`. The `agent_examples` app module has a working example:
+
+```ts
+import { z } from 'zod'
+import { defineAgentTool } from '@open-mercato/ai-assistant'
+import { ticketTriageResult } from './data/validators'
+
+export const aiTools = [
+  defineAgentTool({
+    name: 'agent_examples.triage_ticket',
+    description: 'Classify a support ticket into a category and priority with a one-line summary.',
+    agentId: 'support.ticket_triage',
+    inputSchema: z.object({ subject: z.string().min(1), body: z.string().min(1) }),
+    outputSchema: ticketTriageResult.shape.data,
+    requiredFeatures: ['agent_orchestrator.agents.view'],
+  }),
+]
+```
+
+- **Input.** The validated tool input is passed to the agent as its run input, unchanged. `toPrompt` is not used on this path.
+- **Output.** `result` is the agent's result payload: the `data` of a research result, the proposal of a proposal agent, or `{ artifacts, summary }` for a file agent. The response carries `runId: null` and the orchestrator run id in `agentRunId`.
+- **Invoke permission.** Declare `requiredFeatures` on the agent: on `defineAgent({ requiredFeatures })`, or with the `requiredFeatures` key in the `AGENT.md` frontmatter. Use features that already exist in an `acl.ts`. The orchestrator checks that the invoker holds them at every entry point: its run and rerun routes, the Playground, `delegate_agent`, workflow `INVOKE_AGENT` steps, eval replay, `POST /api/ai_assistant/ai/run-object`, agent tools, and the agent-token route below. A denial returns `agent_invoke_denied`, without the feature names. The tool's `requiredFeatures` must include every feature the agent requires.
+- **Run-object delegation.** `POST /api/ai_assistant/ai/run-object` with an orchestrator agent id hands the run to the dispatcher too. That response carries `runId: null` and `agentRunId`.
+- **Agent-token route.** An external agent can run one agent with its own agent token instead of a staff session: `POST /api/agent_orchestrator/agent-api/agents/{id}/run` with `Authorization: Bearer <agent token>`. The route returns 404 unless `OM_AGENT_API_ENABLED=true`, is rate-limited per client IP, and requires a token whose scopes include `agent_orchestrator.agents.run` or `agent:<id>`. Every token failure is the same 401. The run executes as the token principal, so the agent's `requiredFeatures` are checked against that principal's role.
+- **Kill switch.** `OM_AGENT_INVOKE_ENFORCEMENT=off` turns invoke denials into log entries (a warning is logged at boot). Use it only to unblock a rollout, and turn it back on.
+- **Module disabled.** Without `agent_orchestrator` no dispatcher is registered and nothing else knows the agent id. The tool is then hidden from `tools/list`, a direct call returns `AGENT_DISPATCHER_UNAVAILABLE`, and the MCP server starts normally.
+
 #### Audit
 
 A call to an agent tool writes the usual `access_logs` row (see [Audit of MCP tool calls](#audit-of-mcp-tool-calls)) with three extra `context` fields: `agentId`, `aiAgentRunId` (the `runId` above) and `agentRunId`, so a call can be traced to the agent run it started.

@@ -14,12 +14,18 @@ import { ticketTriageResult, triageBatchResult } from './data/validators'
 // reasons purely over the input it is given. The agent appears in
 // Backend → Agents and can be run from the Playground with input like:
 //   { "subject": "Charged twice this month", "body": "I see two charges ..." }
+//
+// `requiredFeatures` is the per-agent invoke permission: every door (run route,
+// Playground, delegate, workflow, eval, ai-assistant run-object, MCP tool,
+// agent-token route) checks the caller holds these features. `ai-tools.ts`
+// exposes this agent as the `agent_examples.triage_ticket` tool.
 export const aiAgents: AiAgentDefinition[] = [
   defineAgent({
     id: 'support.ticket_triage',
     moduleId: 'agent_examples',
     label: 'Support ticket triage',
     description: 'Classify a support ticket into a category and priority with a one-line summary.',
+    requiredFeatures: ['agent_orchestrator.agents.view'],
     instructions: [
       'You triage inbound customer support tickets. The input contains the ticket as `subject`',
       'and `body`. Reason ONLY over that text — you have no tools and cannot look anything up.',

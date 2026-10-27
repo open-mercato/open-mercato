@@ -122,6 +122,22 @@ The whole tree stays propose-only: no agent writes.
 It delegates each ticket to `support.ticket_triage` in parallel and returns an
 aggregate (`total`, `urgentCount`, `items[]`).
 
+## Invoke permission and exposing the agent as a tool
+
+`requiredFeatures` on `defineAgent` (or the `requiredFeatures` frontmatter key in
+`AGENT.md`) is the per-agent invoke permission. Every door — the run and rerun
+routes, the Playground, `delegate_agent`, workflow `INVOKE_AGENT`, eval replay,
+ai-assistant `run-object`, agent tools and the agent-token route — checks that
+the caller holds those features.
+
+`ai-tools.ts` publishes `support.ticket_triage` as the
+`agent_examples.triage_ticket` tool with `defineAgentTool` from
+`@open-mercato/ai-assistant`. The tool's `requiredFeatures` must cover the
+agent's. Calls route through the orchestrator's run dispatcher and return
+`{ result, agentId, runId: null, agentRunId }`. With `agent_orchestrator`
+disabled the tool is hidden from MCP `tools/list`, and a direct call fails with
+`AGENT_DISPATCHER_UNAVAILABLE`.
+
 ## Try it
 
 Open **Backend → Agents → Support ticket triage → Open in playground** and run:
