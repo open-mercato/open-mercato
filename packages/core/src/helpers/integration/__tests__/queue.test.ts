@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { createQueue, getQueuePendingProbe } from '@open-mercato/queue'
 import { drainIntegrationQueue } from '../queue'
 
@@ -78,7 +79,7 @@ describe('drainIntegrationQueue', () => {
     process.env.AUTO_SPAWN_WORKERS = value
     mockDrainQueue.mockResolvedValue(3)
     await expect(drainIntegrationQueue('events', { appRoot: '/tmp/test-app', jobLimit: 7 })).resolves.toBe(3)
-    expect(mockDrainQueue).toHaveBeenCalledWith('events', { appRoot: '/tmp/test-app', jobLimit: 7 })
+    expect(mockDrainQueue).toHaveBeenCalledWith('events', { appRoot: path.resolve('/tmp/test-app'), jobLimit: 7 })
     expect(createQueue).not.toHaveBeenCalled()
   })
 
