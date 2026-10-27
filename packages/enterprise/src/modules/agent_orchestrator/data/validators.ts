@@ -443,6 +443,36 @@ export const traceIngestSchema = z.object({
 })
 export type TraceIngest = z.infer<typeof traceIngestSchema>
 
+export const TRACE_CAPTURE_LEVELS = ['off', 'metadata', 'full'] as const
+export const traceCaptureLevelSchema = z.enum(TRACE_CAPTURE_LEVELS)
+export const TRACE_CAPTURE_PER_AGENT_MAX = 200
+
+export const traceCaptureAgentOverrideSchema = z.object({
+  level: traceCaptureLevelSchema,
+  until: z.string().datetime().optional(),
+})
+
+/**
+ * Per-tenant trace capture policy (module config
+ * `agent_orchestrator/trace_capture_policy`). Resolution and the deployment
+ * default/ceiling live in `lib/trace/capturePolicy.ts`.
+ */
+export const traceCapturePolicySchema = z.object({
+  level: traceCaptureLevelSchema.default('metadata'),
+  evalLevel: traceCaptureLevelSchema.optional(),
+  perAgent: z
+    .record(z.string().max(100), traceCaptureAgentOverrideSchema)
+    .refine((overrides) => Object.keys(overrides).length <= TRACE_CAPTURE_PER_AGENT_MAX, {
+      message: `perAgent accepts at most ${TRACE_CAPTURE_PER_AGENT_MAX} overrides`,
+    })
+    .default({}),
+  retentionDays: z.number().int().min(1).max(3650).default(30),
+  redactPii: z.boolean().default(false),
+  includeProviderBody: z.boolean().default(false),
+})
+export type TraceCapturePolicy = z.infer<typeof traceCapturePolicySchema>
+export type TraceCapturePolicyInput = z.input<typeof traceCapturePolicySchema>
+
 /** Shape returned by GET /runs/:id — the full run with its trace tree. */
 export type RunDetailResponse = {
   run: Record<string, unknown>
