@@ -41,7 +41,7 @@ test.describe('TC-EUDR-004: Backend EUDR UI smoke', () => {
       await page.goto(target.path, { waitUntil: 'domcontentloaded' })
 
       await expect(
-        page.getByRole('heading', { name: target.title, level: 2 }).first(),
+        page.getByRole('heading', { name: target.title, level: 1 }).first(),
       ).toBeVisible()
       await page.getByText('Loading data...', { exact: true }).first()
         .waitFor({ state: 'hidden', timeout: 10_000 })

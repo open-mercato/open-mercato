@@ -1,0 +1,59 @@
+---
+title: mercato customer_accounts sync-customer-role-acls
+sidebar_label: customer_accounts sync-customer-role-acls
+description: Re-applies default portal feature ACLs from every enabled module to the customer roles of existing tenants.
+---
+
+`yarn mercato customer_accounts sync-customer-role-acls` merges each enabled module's `setup.defaultCustomerRoleFeatures` into the `CustomerRoleAcl` rows of the target tenant(s). It is the customer-portal counterpart of [`auth sync-role-acls`](./auth-sync-role-acls): `defaultCustomerRoleFeatures` is otherwise merged during *tenant setup* only, so a tenant that already exists never receives portal features a module declares later.
+
+The command lives in `customer_accounts` because that module owns the `CustomerRole` / `CustomerRoleAcl` entities and the merge helper both this command and `seedDefaults` call.
+
+## Usage
+
+```bash
+# Sync a single tenant (recommended)
+yarn mercato customer_accounts sync-customer-role-acls --tenant <tenantId>
+
+# Sync every tenant in the connected database
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+## Flags
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--tenant <id>` | none — iterates every tenant | Restrict the sync to one tenant. Accepts `--tenantId` and `--tenant_id` as aliases. |
+
+## Behavior
+
+- Collects `defaultCustomerRoleFeatures` from every enabled module (via `getCliModules()`), keyed by customer role slug.
+- Resolves each slug against the tenant's own non-deleted `CustomerRole` rows, then that role's `CustomerRoleAcl`.
+- Adds only the features the role does not already hold:
+  - **Additive only** — a feature an operator added by hand is never revoked.
+  - **Wildcard-aware** — a role already holding `portal.*` (or `*`) does not gain a redundant concrete grant.
+  - **Never creates a role or an ACL row** — a slug with no matching seeded role is a silent no-op, the same rule tenant setup follows.
+- Every query is scoped by `tenantId`, and the write set for one tenant can never reach another.
+- Reports per tenant which roles gained which features, and prints `Nothing to do — N tenant(s) already in sync.` when there is nothing to write.
+- Safe to run multiple times — a second run writes nothing.
+
+## When to Run
+
+- **After upgrading a module that ships new portal features** — for example the `workflows` module's `portal.tasks.view` / `portal.tasks.complete`. Existing tenants receive them only after this command runs.
+- **Recovery** — a customer role's ACL drifted and portal users lost access to a module surface.
+
+## When NOT to Use
+
+- **Not a role seeder.** It assumes `portal_admin` / `buyer` / `viewer` (or your module's custom slugs) already exist; roles are created by `customer_accounts` `onTenantCreated` / `seedDefaults`, or by the module that owns them.
+- **Does not revoke features.** Use the customer-role editor for curated removals.
+- **Not a substitute for `auth sync-role-acls`** — that command syncs staff `RoleAcl` rows; this one syncs customer `CustomerRoleAcl` rows. They target different identity systems.
+
+## Troubleshooting
+
+- **`❌ No CLI modules registered. Run \`yarn generate\` first.`** — regenerate the module aggregation files.
+- **`❌ Invalid --tenant value: …`** — the value was empty or whitespace. Pass a UUID from `yarn mercato auth list-tenants`.
+- **`❌ Tenant not found: …`** — no `Tenant` row with that id; nothing was written.
+- **Grant applied but the portal user still gets 403** — `CustomerRbacService` caches resolved ACLs for five minutes; wait for the TTL or have the user re-authenticate.
+
+## Related
+
+- [`auth sync-role-acls`](./auth-sync-role-acls) — the staff-role counterpart.

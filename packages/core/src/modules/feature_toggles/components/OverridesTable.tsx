@@ -137,7 +137,8 @@ export default function OverridesTable() {
 
     return (
         <DataTable
-            title={t('feature_toggles.overrides.help.title', 'Feature Toggle Overrides')}
+      title={t('feature_toggles.overrides.help.title', 'Feature Toggle Overrides')}
+      titleHeadingLevel={1}
             columns={columns}
             filters={filters}
             filterValues={filterValues}

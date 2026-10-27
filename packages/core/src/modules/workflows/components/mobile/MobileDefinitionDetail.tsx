@@ -31,6 +31,11 @@ interface MobileDefinitionDetailProps {
   onAddTransition: () => void
 }
 
+/**
+ * @deprecated The form editor is retired (spec section 10) — the mobile Studio
+ * (`components/mobile/MobileVisualEditor`) is the mobile authoring surface. Kept
+ * exported for at least one minor release; it has no call site in this module.
+ */
 export function MobileDefinitionDetail({
   values,
   onEditStep,

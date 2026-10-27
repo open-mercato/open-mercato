@@ -30,7 +30,7 @@ const iconButtonVariants = cva(
         primary:
           'bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover',
         destructive:
-          'bg-destructive text-white shadow-xs hover:bg-destructive/90',
+          'bg-status-error-solid text-status-error-solid-foreground shadow-xs hover:shadow-md',
         outline:
           'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
         ghost: 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',

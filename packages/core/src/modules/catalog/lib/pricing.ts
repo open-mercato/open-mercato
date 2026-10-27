@@ -1,4 +1,5 @@
 import type { EventBus } from '@open-mercato/events'
+import type { FilterQuery } from '@mikro-orm/postgresql'
 import type {
   CatalogOffer,
   CatalogPriceKind,
@@ -13,7 +14,21 @@ export type PricingContext = {
   userId?: string | null
   userGroupId?: string | null
   customerId?: string | null
+  /** @deprecated use `customerGroupIds` — kept for backward compatibility, read as a one-element set when `customerGroupIds` is absent. */
   customerGroupId?: string | null
+  /** Set membership: a row's `customerGroupId` matches when it appears in this list. Falls back to `customerGroupId` (above) when omitted. */
+  customerGroupIds?: string[]
+  /** When set, only rows in this currency match. Omitted (the default): no currency filtering, unchanged legacy behavior. */
+  currencyCode?: string | null
+  /**
+   * When set, only rows of this price kind (by `CatalogPriceKind` id) match, plus rows of any promotional
+   * kind (`CatalogPriceKind.isPromotion === true`) as an overlay (pricing-engine amendment D2a). Promotion
+   * status is read from a populated `priceKind`; a row carrying only a kind id string is admitted solely when
+   * that id equals this one. Unset or `null`: kind is not filtered, unchanged legacy behavior.
+   */
+  priceKindId?: string | null
+  /** The buyer's customer entities, person first, then company. A row's `customerId` matches when it appears in this list. Falls back to `customerId` (above) when omitted. */
+  customerIds?: string[]
   quantity: number
   date: Date
 }
@@ -30,6 +45,22 @@ export function resolvePriceVariantId(row: PriceRow): string | null {
   return typeof row.variant === 'string' ? row.variant : row.variant.id
 }
 
+/**
+ * Narrows a batch of `CatalogProductPrice` rows down to the ones a single variant's line may
+ * actually use: product-level rows (`row.variant === null`) plus rows scoped to THIS variant.
+ * Required after any fetch built with a `product OR variant` clause (`{ $or: [{ product },
+ * { variant } ] }`) — every variant's price row also carries its parent `product_id`, so that
+ * clause's `{ product: productId }` arm returns every sibling variant's rows too, not just the
+ * target variant's. Callers that fetch by product id alone, without this follow-up filter, risk
+ * pricing a line off a sibling variant's row.
+ */
+export function filterRowsForVariant(rows: PriceRow[], variantId: string | null): PriceRow[] {
+  return rows.filter((row) => {
+    const rowVariantId = resolvePriceVariantId(row)
+    return rowVariantId === null || rowVariantId === variantId
+  })
+}
+
 export function resolvePriceOfferId(row: PriceRow): string | null {
   if (!row.offer) return null
   return typeof row.offer === 'string' ? row.offer : row.offer.id
@@ -39,6 +70,23 @@ export function resolvePriceChannelId(row: PriceRow): string | null {
   if (!row.offer) return row.channelId ?? null
   if (typeof row.offer === 'string') return row.channelId ?? null
   return row.channelId ?? row.offer.channelId ?? null
+}
+
+export function resolvePriceKindId(row: PriceRow): string | null {
+  if (!row.priceKind) return null
+  return typeof row.priceKind === 'string' ? row.priceKind : row.priceKind.id ?? null
+}
+
+function resolveContextCustomerIds(ctx: PricingContext): string[] {
+  return ctx.customerIds ?? (ctx.customerId ? [ctx.customerId] : [])
+}
+
+function isPromotionalPriceKindRow(row: PriceRow): boolean {
+  return Boolean(row.priceKind && typeof row.priceKind !== 'string' && row.priceKind.isPromotion === true)
+}
+
+function matchesPriceKind(row: PriceRow, priceKindId: string): boolean {
+  return resolvePriceKindId(row) === priceKindId || isPromotionalPriceKindRow(row)
 }
 
 export function resolvePriceKindCode(row: PriceRow): string {
@@ -62,10 +110,70 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
   }
   if (row.userId && ctx.userId !== row.userId) return false
   if (row.userGroupId && ctx.userGroupId !== row.userGroupId) return false
-  if (row.customerId && ctx.customerId !== row.customerId) return false
-  if (row.customerGroupId && ctx.customerGroupId !== row.customerGroupId) return false
+  if (row.customerId && !resolveContextCustomerIds(ctx).includes(row.customerId)) return false
+  if (row.customerGroupId) {
+    const candidateGroupIds = ctx.customerGroupIds ?? (ctx.customerGroupId ? [ctx.customerGroupId] : [])
+    if (!candidateGroupIds.includes(row.customerGroupId)) return false
+  }
+  if (ctx.currencyCode && row.currencyCode !== ctx.currencyCode) return false
+  if (ctx.priceKindId && !matchesPriceKind(row, ctx.priceKindId)) return false
   if (ctx.offerId && resolvePriceOfferId(row) && resolvePriceOfferId(row) !== ctx.offerId) return false
   return true
+}
+
+/**
+ * The narrowing half of `matchesContext` expressed as a MikroORM filter, for
+ * callers that fetch `CatalogProductPrice` rows by product/variant today and
+ * would otherwise load every contracted customer's rows just to discard
+ * almost all of them (per-customer pricing at scale — see
+ * `.ai/specs/2026-08-21-pricing-engine.md` § Row narrowing).
+ *
+ * Covers only the dimensions that are plain column comparisons: customer,
+ * customer-group, user, user-group, channel, currency, price kind (the resolved
+ * kind or any promotional kind, via a `priceKind.isPromotion` relation clause). Quantity bounds,
+ * validity windows, and offer-derived channel resolution stay in
+ * `matchesContext` — they are cheap over an already-narrowed set and are not
+ * expressible as one column predicate (offer's own `channelId` lives on a
+ * different table).
+ *
+ * **Invariant (one-directional, this is the whole point of the helper):**
+ * `matchesContext(row, ctx)` implies this filter admits `row`. The filter
+ * MAY admit rows `matchesContext` later rejects (a slightly wide fetch) —
+ * it MUST NEVER exclude a row `matchesContext` would have accepted, because
+ * that is a silently wrong price with no error anywhere. Verified by the
+ * property-based test in `lib/__tests__/buildPriceRowFilter.property.test.ts`.
+ */
+export function buildPriceRowFilter(ctx: PricingContext): FilterQuery<CatalogProductPrice> {
+  const customerGroupIds = ctx.customerGroupIds ?? (ctx.customerGroupId ? [ctx.customerGroupId] : [])
+  const customerIds = resolveContextCustomerIds(ctx)
+
+  const clauses: FilterQuery<CatalogProductPrice>[] = [
+    customerIds.length
+      ? { $or: [{ customerId: null }, { customerId: { $in: customerIds } }] }
+      : { customerId: null },
+    customerGroupIds.length
+      ? { $or: [{ customerGroupId: null }, { customerGroupId: { $in: customerGroupIds } }] }
+      : { customerGroupId: null },
+    ctx.userId
+      ? { $or: [{ userId: null }, { userId: ctx.userId }] }
+      : { userId: null },
+    ctx.userGroupId
+      ? { $or: [{ userGroupId: null }, { userGroupId: ctx.userGroupId }] }
+      : { userGroupId: null },
+    ctx.channelId
+      ? { $or: [{ channelId: null }, { channelId: ctx.channelId }] }
+      : { channelId: null },
+  ]
+
+  if (ctx.currencyCode) {
+    clauses.push({ currencyCode: ctx.currencyCode })
+  }
+
+  if (ctx.priceKindId) {
+    clauses.push({ $or: [{ priceKind: ctx.priceKindId }, { priceKind: { isPromotion: true } }] })
+  }
+
+  return { $and: clauses } as FilterQuery<CatalogProductPrice>
 }
 
 function scorePrice(row: PriceRow): number {
@@ -89,9 +197,14 @@ function scorePrice(row: PriceRow): number {
 export function selectBestPrice(rows: PriceRow[], ctx: PricingContext): PriceRow | null {
   const candidates = rows.filter((row) => matchesContext(row, ctx))
   if (!candidates.length) return null
+  const customerIds = resolveContextCustomerIds(ctx)
+  const customerRank = (row: PriceRow): number => (row.customerId ? customerIds.indexOf(row.customerId) : -1)
   candidates.sort((a, b) => {
     const scoreDiff = scorePrice(b) - scorePrice(a)
     if (scoreDiff !== 0) return scoreDiff
+    const rankA = customerRank(a)
+    const rankB = customerRank(b)
+    if (rankA >= 0 && rankB >= 0 && rankA !== rankB) return rankA - rankB
     const startA = a.startsAt ? a.startsAt.getTime() : 0
     const startB = b.startsAt ? b.startsAt.getTime() : 0
     if (startA !== startB) return startB - startA
@@ -114,26 +227,61 @@ export type CatalogPricingResolver = (
 ) => PriceRow | null | undefined | Promise<PriceRow | null | undefined>
 
 type RegisteredResolver = {
+  id?: string
   resolver: CatalogPricingResolver
   priority: number
 }
 
-const pricingResolvers: RegisteredResolver[] = []
+type PricingRegistryState = {
+  resolvers: RegisteredResolver[]
+}
 
-function sortResolvers(): void {
-  pricingResolvers.sort((a, b) => b.priority - a.priority)
+// `globalThis`-keyed so the registry survives duplicated module instances
+// (a standalone app built from this monorepo, or any dev/build setup that
+// loads `catalog` through more than one chunk) — the same failure class
+// already fixed once for the ORM entity registry
+// (see `packages/shared/src/modules/integrations/types.ts` for the identical
+// pattern). A module-local array is invisible across instances: a resolver
+// registered from one instance would silently never run for resolution
+// happening in another.
+const GLOBAL_PRICING_REGISTRY_KEY = '__openMercatoCatalogPricingRegistry__' as const
+
+type GlobalPricingRegistry = typeof globalThis & {
+  [GLOBAL_PRICING_REGISTRY_KEY]?: PricingRegistryState
+}
+
+function getPricingRegistryState(): PricingRegistryState {
+  const globalRegistry = globalThis as GlobalPricingRegistry
+  if (!globalRegistry[GLOBAL_PRICING_REGISTRY_KEY]) {
+    globalRegistry[GLOBAL_PRICING_REGISTRY_KEY] = { resolvers: [] }
+  }
+  return globalRegistry[GLOBAL_PRICING_REGISTRY_KEY]
+}
+
+function sortResolvers(state: PricingRegistryState): void {
+  // `Array.prototype.sort` is stable (ES2019+): resolvers registered at the
+  // same priority keep their registration order. This is the documented,
+  // tested same-priority tie-break — see `catalog/AGENTS.md` § Price
+  // selection order and the registry test in `lib/__tests__/pricing.test.ts`.
+  state.resolvers.sort((a, b) => b.priority - a.priority)
 }
 
 export function registerCatalogPricingResolver(
   resolver: CatalogPricingResolver,
-  options?: { priority?: number }
+  options?: { priority?: number; id?: string }
 ): void {
-  pricingResolvers.push({ resolver, priority: options?.priority ?? 0 })
-  sortResolvers()
+  const state = getPricingRegistryState()
+  const id = options?.id
+  // Dedupe by id so a documented extension point stays HMR-safe for every
+  // future registrant, not just one caller: re-registering the same id is a
+  // no-op instead of appending a duplicate entry on every module reload.
+  if (id && state.resolvers.some((entry) => entry.id === id)) return
+  state.resolvers.push({ id, resolver, priority: options?.priority ?? 0 })
+  sortResolvers(state)
 }
 
 export function resetCatalogPricingResolvers(): void {
-  pricingResolvers.splice(0, pricingResolvers.length)
+  getPricingRegistryState().resolvers.splice(0)
 }
 
 export async function resolveCatalogPrice(
@@ -163,7 +311,7 @@ export async function resolveCatalogPrice(
     if (resolved !== undefined) return resolved
   }
 
-  for (const { resolver } of pricingResolvers) {
+  for (const { resolver } of getPricingRegistryState().resolvers) {
     const result = await resolver(workingRows, workingContext)
     if (result !== undefined) {
       resolved = result ?? null

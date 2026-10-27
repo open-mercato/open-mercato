@@ -132,7 +132,8 @@ export default function RulesListPage() {
       flash(t('business_rules.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules'] })
     } else {
-      flash(t('business_rules.messages.updateFailed'), 'error')
+      const serverError = (result.result as { error?: unknown } | null)?.error
+      flash(typeof serverError === 'string' && serverError ? serverError : t('business_rules.messages.updateFailed'), 'error')
     }
   }
 
@@ -331,7 +332,8 @@ export default function RulesListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('business_rules.list.title')}
+        title={t('business_rules.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/rules/create">

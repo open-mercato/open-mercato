@@ -36,6 +36,8 @@ test.describe('TC-AUTH-010: Edit Existing User', () => {
       await page.goto(`/backend/users/${userId}/edit`, { waitUntil: 'domcontentloaded' })
       await page.waitForLoadState('domcontentloaded')
       await expect(page).toHaveURL(new RegExp(`/backend/users/${userId}/edit$`, 'i'))
+      await expect(page.getByRole('heading', { name: 'Edit User', level: 1 })).toBeVisible()
+      await expect(page.locator('main h1')).toHaveCount(1)
 
       const emailInput = page.locator('[data-crud-field-id="email"] input').first()
       const nameInput = page.locator('[data-crud-field-id="name"] input').first()

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ExchangeRate } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
@@ -43,7 +45,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'currencies.exchange_rates.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
+        return withScopedPayload(parsed, ctx, translate)
+      },
       response: ({ result }) => ({ id: String(result.exchangeRateId) }),
       status: 201,
     },
@@ -56,11 +61,17 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     delete: {
       commandId: 'currencies.exchange_rates.delete',
       schema: rawBodySchema,
-      mapInput: ({ raw, ctx }) => ({
-        id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
-        tenantId: ctx.auth?.tenantId ?? undefined,
-      }),
+      mapInput: ({ raw, ctx }) => {
+        const rawRecord = raw as Record<string, unknown>
+        const body = rawRecord.body as Record<string, unknown> | undefined
+        const query = rawRecord.query as Record<string, unknown> | undefined
+        const candidate = body?.id ?? query?.id
+        return {
+          id: typeof candidate === 'string' ? candidate : undefined,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+          tenantId: ctx.auth?.tenantId ?? undefined,
+        }
+      },
       response: () => ({ ok: true }),
     },
   },

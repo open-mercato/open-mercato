@@ -35,11 +35,11 @@ The deterministic tie-breaker makes reruns select the same winner. Soft deletion
 
 Every path that asks for current ACL state includes `deletedAt: null`:
 
-- human and API-key grant resolution in `RbacService`;
+- human and API-key grant resolution in `RbacService`, including exact-EntityManager replay readers and feature-organization projections;
 - super-admin target protection and exclusion lists in `grantChecks.ts`;
 - role/user ACL GET and PUT routes;
 - protected role filtering in the roles list;
-- setup reconciliation;
+- setup reconciliation and execution-principal provisioning;
 - command snapshots used by delete/update undo.
 - notification role/feature recipient resolution.
 
@@ -82,11 +82,11 @@ No UI or user-facing string changes. Existing forms and conflict handling contin
 
 ## Migration & Backward Compatibility
 
-The change is additive under `BACKWARD_COMPATIBILITY.md`: it adds indexes and narrows current-state reads to rows already defined as live. No public surface is removed or renamed.
+The indexes are additive, while grant resolution intentionally stops accepting revoked, foreign-tenant super-admin and tenant-less legacy grants. Duplicate cleanup can remove features previously unioned across duplicate role ACL rows or change the selected user override. No public symbol or request/response shape is removed or renamed. `UPGRADE_NOTES.md` documents the affected callers, pre-upgrade audits and operator remediation; operators must establish a tenant-owned administrator before deployment.
 
 The migration `up()` remediation is intentionally not data-reversible: `down()` drops the partial indexes but does not clear `deleted_at`, because doing so would reactivate ambiguous and potentially privileged rows. The historical payload remains stored, so an operator can inspect or explicitly restore a chosen row after rollback.
 
-Rolling deployments must ship migration and reader changes as one release. An old process running briefly after remediation may still read a newly revoked duplicate; deployment orchestration must drain/restart old instances and clear process-local RBAC caches. The new application code remains compatible before and after the migration because explicit live-row predicates work without the indexes.
+Rolling deployments must ship migration and reader changes as one release. An old process running briefly after remediation may still read a newly revoked duplicate; deployment orchestration must drain/restart old instances and clear process-local RBAC caches. Shared RBAC caches can survive restarts until the configured TTL (five minutes by default); invalidate those entries or wait out the TTL. The new application code remains compatible before and after the migration because explicit live-row predicates work without the indexes.
 
 Standard `CREATE UNIQUE INDEX` is used because project migrations run transactionally and PostgreSQL does not permit `CREATE INDEX CONCURRENTLY` inside a transaction. Operators should schedule the migration with awareness that writes to the two ACL tables may briefly block while each index builds.
 
@@ -189,6 +189,12 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-10-27
+
+- Preserved main authorization-state locking while incorporating the latest base.
+- Extended live-row semantics to transaction-bound replay, feature-organization projections and execution-principal provisioning; replay checks bypass cached super-admin decisions.
+- Added revoked/foreign-tenant regression coverage and operator audits for tenant-less users, foreign grants and duplicate cleanup, including shared-cache TTL guidance.
 
 ### 2026-08-29
 

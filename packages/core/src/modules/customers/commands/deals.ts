@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -18,8 +19,10 @@ import {
   CustomerDealPersonLink,
   CustomerDealCompanyLink,
   CustomerDealStageTransition,
+  CustomerPipeline,
   CustomerPipelineStage,
 } from '../data/entities'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   dealCreateSchema,
   dealUpdateSchema,
@@ -33,6 +36,7 @@ import {
   ensureSameScope,
   extractUndoPayload,
   ensureDictionaryEntry,
+  invalidateDictionaryKindCaches,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -40,7 +44,7 @@ import {
   buildCustomFieldResetMap,
   type CustomFieldChangeSet,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -55,6 +59,8 @@ import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+const dealCommandOutputSchema = z.object({ dealId: z.string().uuid() })
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -106,7 +112,13 @@ async function loadPipelineStageSnapshot(
   tenantId: string,
   organizationId: string,
 ): Promise<PipelineStageSnapshot | null> {
-  const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: pipelineStageId }, {}, { tenantId, organizationId })
+  const stage = await findOneWithDecryption(
+    em,
+    CustomerPipelineStage,
+    { id: pipelineStageId, tenantId, organizationId },
+    {},
+    { tenantId, organizationId },
+  )
   if (!stage) return null
   return {
     id: stage.id,
@@ -131,6 +143,7 @@ async function resolvePipelineStageValue(
   pipelineStageId: string,
   tenantId: string,
   organizationId: string,
+  createdDictionaryKinds?: Set<string>,
 ): Promise<string | null> {
   const stage = await loadPipelineStageSnapshot(em, pipelineStageId, tenantId, organizationId)
   if (!stage) return null
@@ -139,20 +152,23 @@ async function resolvePipelineStageValue(
     organizationId,
     kind: 'pipeline_stage',
     value: stage.label,
-  })
+  }, createdDictionaryKinds)
   return entry?.value ?? stage.label
 }
 
-function resolvePipelineAssignment(input: {
+async function resolvePipelineAssignment(em: EntityManager, input: {
+  tenantId: string
+  organizationId: string
   pipelineId?: string | null
   pipelineStageId?: string | null
   stageSnapshot: PipelineStageSnapshot | null
-}): { pipelineId: string | null; pipelineStageId: string | null } {
+}): Promise<{ pipelineId: string | null; pipelineStageId: string | null }> {
   const requestedPipelineId = input.pipelineId ?? null
   const requestedPipelineStageId = input.pipelineStageId ?? null
+  const { translate } = await resolveTranslations()
 
   if (requestedPipelineStageId && !input.stageSnapshot) {
-    throw new CrudHttpError(400, { error: 'Pipeline stage not found' })
+    throw badRequest(translate('customers.errors.pipeline_stage_not_found', 'Pipeline stage not found'))
   }
 
   if (
@@ -160,13 +176,25 @@ function resolvePipelineAssignment(input: {
     input.stageSnapshot &&
     input.stageSnapshot.pipelineId !== requestedPipelineId
   ) {
-    throw new CrudHttpError(400, {
-      error: 'Pipeline stage does not belong to the selected pipeline',
-    })
+    throw badRequest(translate('customers.errors.pipeline_stage_mismatch', 'Pipeline stage does not belong to the selected pipeline'))
+  }
+
+  const pipelineId = requestedPipelineId ?? input.stageSnapshot?.pipelineId ?? null
+  if (pipelineId) {
+    const pipeline = await findOneWithDecryption(
+      em,
+      CustomerPipeline,
+      { id: pipelineId, tenantId: input.tenantId, organizationId: input.organizationId },
+      {},
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
+    if (!pipeline) {
+      throw badRequest(translate('customers.errors.pipeline_not_found', 'Pipeline not found'))
+    }
   }
 
   return {
-    pipelineId: requestedPipelineId ?? input.stageSnapshot?.pipelineId ?? null,
+    pipelineId,
     pipelineStageId: requestedPipelineStageId,
   }
 }
@@ -383,12 +411,49 @@ function toNumericString(value: number | null | undefined): string | null {
   return value.toString()
 }
 
+function sameLinkIdSet(next: Set<string>, current: Set<string>): boolean {
+  if (next.size !== current.size) return false
+  for (const id of next) {
+    if (!current.has(id)) return false
+  }
+  return true
+}
+
+/**
+ * The deal's optimistic-lock token is `customer_deals.updated_at`, and `CustomerDeal.updatedAt`
+ * is declared `onUpdate`-only — it advances only when the deal entity itself enters the change
+ * set. A `{ id, personIds }` or `{ id, companyIds }` payload mutates link rows exclusively, so
+ * without this explicit touch the token never moves: two clients editing the same deal's links
+ * from the same base version both pass the version check and the later stale whole-set payload
+ * silently reinstates what the earlier one removed.
+ *
+ * Assigning the property is what dirties the entity; the `onUpdate` hook then supplies the
+ * committed value, so the two do not fight. Same pattern as the profile-only branch in
+ * `people.ts`, which touches its parent for exactly this reason.
+ *
+ * Callers MUST only invoke this when the links actually changed — stamping on a no-op write
+ * would invalidate every other session's token on an idle save.
+ *
+ * ORDERING: this MUST be the last thing a sync helper does. MikroORM v7 discards a pending
+ * scalar change on a managed entity when a query runs on the same EntityManager before the
+ * flush (SPEC-018) — the same footgun the CRITICAL comment in `updateDealCommand` guards
+ * against, and these helpers are exactly the queries it names. Touching before
+ * `requireCustomerEntity` runs would silently drop the UPDATE and leave the token frozen.
+ */
+function touchDealLockToken(deal: CustomerDeal): void {
+  deal.updatedAt = new Date()
+}
+
 async function syncDealPeople(
   em: EntityManager,
   deal: CustomerDeal,
   personIds: string[] | undefined | null,
-  primaryPersonEntityId?: string | null
+  primaryPersonEntityId?: string | null,
+  options?: { stampLockToken?: boolean }
 ): Promise<void> {
+  // A freshly created deal has no other session holding a token to invalidate, and stamping
+  // there would only make `updated_at` overtake `created_at` on every new deal with links.
+  const stampLockToken = options?.stampLockToken !== false
   if (personIds === undefined) {
     if (primaryPersonEntityId === undefined) return
     const links = await em.find(CustomerDealPersonLink, { deal })
@@ -400,6 +465,18 @@ async function syncDealPeople(
           'Primary person must be linked to the deal',
         ),
       })
+    }
+    const currentPrimaryId = links.find((link) => link.isPrimary)?.person?.id ?? null
+    // Nothing changed — same invariant the whole-set branch below enforces. Without this the
+    // clear loop and its flush would rewrite every link row just to put the flag back on the
+    // row it was already on, and would briefly leave the deal with no primary at all inside
+    // the transaction. Only one row can carry the flag (partial unique index on
+    // `deal_id where is_primary`), so there is no second stale flag left to clean up here.
+    if (currentPrimaryId === primaryPersonEntityId) return
+    // Safe here: only assignments and the explicit flush below follow — no query runs
+    // between this touch and the flush that persists it.
+    if (stampLockToken) {
+      touchDealLockToken(deal)
     }
     for (const link of links) {
       link.isPrimary = false
@@ -421,13 +498,30 @@ async function syncDealPeople(
       ),
     })
   }
+  // Read the current links once: this both resolves the inherited primary (as the previous
+  // `findOne(..., { isPrimary: true })` did) and lets us tell a real change from a no-op save,
+  // which the lock stamp below depends on.
+  const existingLinks = await em.find(CustomerDealPersonLink, { deal })
+  const currentPersonIds = new Set(existingLinks.map((link) => link.person.id))
+  const currentPrimaryId = existingLinks.find((link) => link.isPrimary)?.person?.id ?? null
+
   let effectivePrimaryId = primaryPersonEntityId
   if (effectivePrimaryId === undefined) {
-    const existingPrimary = await em.findOne(CustomerDealPersonLink, { deal, isPrimary: true })
-    effectivePrimaryId = existingPrimary?.person?.id ?? null
+    effectivePrimaryId = currentPrimaryId
   }
+  const linksChanged =
+    !sameLinkIdSet(new Set(unique), currentPersonIds) || effectivePrimaryId !== currentPrimaryId
+  // Nothing to do. Returning here also stops a no-op save from deleting and recreating every
+  // row, which would otherwise discard `participant_role`, `created_at` and the link ids while
+  // this function reports the write as a no-op to every other session.
+  //
+  // NOTE: this only covers the pure no-op. A genuine change below still deletes and recreates
+  // every row, so surviving participants do lose those columns — pre-existing behaviour that
+  // the set-diff in PR 3 of the linked-people parity spec removes. It is out of scope here
+  // because the linked date it corrupts is not rendered until that PR.
+  if (!linksChanged) return
+
   await em.nativeDelete(CustomerDealPersonLink, { deal })
-  if (!unique.length) return
   for (const personId of unique) {
     const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)
@@ -438,17 +532,24 @@ async function syncDealPeople(
     })
     em.persist(link)
   }
+  // Last statement on purpose — see the ORDERING note on `touchDealLockToken`.
+  if (stampLockToken) touchDealLockToken(deal)
 }
 
 async function syncDealCompanies(
   em: EntityManager,
   deal: CustomerDeal,
-  companyIds: string[] | undefined | null
+  companyIds: string[] | undefined | null,
+  options?: { stampLockToken?: boolean }
 ): Promise<void> {
   if (companyIds === undefined) return
+  const stampLockToken = options?.stampLockToken !== false
+  const unique = Array.from(new Set(companyIds ?? []))
+  const existingLinks = await em.find(CustomerDealCompanyLink, { deal })
+  const currentCompanyIds = new Set(existingLinks.map((link) => link.company.id))
+  if (sameLinkIdSet(new Set(unique), currentCompanyIds)) return
+
   await em.nativeDelete(CustomerDealCompanyLink, { deal })
-  if (!companyIds || !companyIds.length) return
-  const unique = Array.from(new Set(companyIds))
   for (const companyId of unique) {
     const company = await requireCustomerEntity(em, companyId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'company', 'Company not found')
     ensureSameScope(company, deal.organizationId, deal.tenantId)
@@ -458,10 +559,13 @@ async function syncDealCompanies(
     })
     em.persist(link)
   }
+  // Last statement on purpose — see the ORDERING note on `touchDealLockToken`.
+  if (stampLockToken) touchDealLockToken(deal)
 }
 
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
+  outputSchema: dealCommandOutputSchema,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -476,12 +580,15 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       pipelineStageId: null,
     }
     let resolvedPipelineStageLabel: string | null = null
+    const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
           ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
           : null
-        pipelineAssignment = resolvePipelineAssignment({
+        pipelineAssignment = await resolvePipelineAssignment(em, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
           pipelineId: parsed.pipelineId,
           pipelineStageId: parsed.pipelineStageId,
           stageSnapshot,
@@ -492,7 +599,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
             organizationId: parsed.organizationId,
             kind: 'pipeline_stage',
             value: stageSnapshot.label,
-          }))?.value ?? stageSnapshot.label
+          }, createdDictionaryKinds))?.value ?? stageSnapshot.label
           : parsed.pipelineStage ?? null
       },
       async () => {
@@ -530,9 +637,10 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
-      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId),
-      () => syncDealCompanies(em, deal, parsed.companyIds ?? []),
+      () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
+      () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
     ], { transaction: true })
+    await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
@@ -665,6 +773,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
 
 const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   id: 'customers.deals.update',
+  outputSchema: dealCommandOutputSchema,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -693,6 +802,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let resolvedCurrentPipelineStageLabel: string | null = null
     let pipelineStageAssignmentChanged = false
     let requestedClosureOutcome: DealClosureOutcome | null = null
+    const createdDictionaryKinds = new Set<string>()
 
     await runCrudCommandWrite({
       ctx,
@@ -740,7 +850,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               : null
           )
           if (pipelineAssignmentChanged) {
-            nextPipelineAssignment = resolvePipelineAssignment({
+            nextPipelineAssignment = await resolvePipelineAssignment(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
               pipelineId: requestedPipelineId,
               pipelineStageId: requestedPipelineStageId,
               stageSnapshot: nextStageSnapshot,
@@ -752,11 +864,11 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
               organizationId: record.organizationId,
               kind: 'pipeline_stage',
               value: nextStageSnapshot.label,
-            }))?.value ?? nextStageSnapshot.label
+            }, createdDictionaryKinds))?.value ?? nextStageSnapshot.label
             : null
           resolvedCurrentPipelineStageLabel =
             !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
-              ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
+              ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId, createdDictionaryKinds)
               : null
         },
         () => {
@@ -838,6 +950,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         () => syncDealCompanies(em, record, parsed.companyIds),
       ],
     })
+    await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
 
     // Emit a lifecycle event for deal won/lost status changes; the notifications
     // subscriber translates these into recipient notifications. Tenant/organization
@@ -1039,6 +1152,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       await deleteDealStageTransitions(em, record)
       await em.nativeDelete(CustomerDealPersonLink, { deal: record })
       await em.nativeDelete(CustomerDealCompanyLink, { deal: record })
+      await em.nativeDelete(CustomFieldValue, { entityId: DEAL_ENTITY_ID, recordId: record.id })
       em.remove(record)
       await em.flush()
 

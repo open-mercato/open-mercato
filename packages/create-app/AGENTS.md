@@ -8,7 +8,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 2. **MUST keep `@types/*` in `dependencies`** (not `devDependencies`) — standalone apps need type declarations at runtime
 3. **MUST follow build order** — `yarn build:packages` → `yarn generate` → `yarn build:packages`
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
-5. **MUST sync template equivalents** — touching ANY file under `apps/mercato/src/app/**` (layouts, providers, and route/page behavior like a `page.tsx` handoff), any locale key in `apps/mercato/src/i18n/**`, or any env var in `apps/mercato/.env.example` means mirroring YOUR change into the template counterpart (`packages/create-app/template/src/app/**`, `packages/create-app/template/src/i18n/**`, `packages/create-app/template/.env.example`) in the same task; if genuinely monorepo-only, say so in the PR. Some pairs intentionally diverge (`globals.css`, docs API routes, template-only `api/healthz`, env comments) — mirror your change, don't fix pre-existing drift. The locale dictionaries do NOT diverge: they are a byte-exact mirror enforced by `packages/create-app/src/lib/template-i18n-parity.test.ts`, and `yarn template:sync:fix` is what repairs them
+5. **MUST sync template equivalents** — touching ANY file under `apps/mercato/src/app/**` (layouts, providers, and route/page behavior like a `page.tsx` handoff), any locale key in `apps/mercato/src/i18n/**`, or any env var in `apps/mercato/.env.example` means mirroring YOUR change into the template counterpart (`packages/create-app/template/src/app/**`, `packages/create-app/template/src/i18n/**`, `packages/create-app/template/.env.example`) in the same task; if genuinely monorepo-only, say so in the PR. Some pairs intentionally diverge (`globals.css`, docs API routes, env comments) — mirror your change, don't fix pre-existing drift. The locale dictionaries do NOT diverge: they are a byte-exact mirror enforced by `packages/create-app/src/lib/template-i18n-parity.test.ts`, and `yarn template:sync:fix` is what repairs them
 6. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
 7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`)
 8. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
@@ -70,6 +70,9 @@ Telemetry / observability wiring (keep at parity when the `@open-mercato/telemet
 12. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
 13. `packages/cli/src/lib/telemetry-init.ts` (the `mercato telemetry init` adoption command) embeds copies of the `.env` telemetry block and the `instrumentation.ts` bootstrap so it can patch a pre-telemetry app — keep those constants in sync when items 9/12 change.
 14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
+15. Browser RUM wiring — the `{ id: 'telemetry', from: '@open-mercato/telemetry' }` entry in `apps/mercato/src/modules.ts` ↔ `packages/create-app/template/src/modules.ts`, and the backend-layout wiring (item 2): `BrowserTelemetry` from `@open-mercato/telemetry/browser` and `resolveBrowserTelemetryConfig` from the server-only `@open-mercato/telemetry/browser/server` — keep the two import paths split. The `TELEMETRY_BROWSER_*` env block follows items 12/13. `mercato telemetry init` reproduces all three edits, so `packages/cli/src/lib/telemetry-init.ts` must stay in step.
+
+Known deferred drift: the monorepo's `starters/` directory (hybrid install/start scripts, compose files under `starters/docker/`, the MCP-as-dev.mjs-child runtime in `scripts/dev.mjs` + `scripts/dev-mcp.mjs`) is NOT mirrored into the template yet — generated apps keep compose files at their own root and the pre-starters dev runtime. Mirroring the starters layout into the template is a tracked follow-up of `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`; sync `scripts/dev.mjs` + `scripts/dev-mcp.mjs` together when doing it (the former imports the latter).
 
 ## Dev Runtime Expectations
 
@@ -190,11 +193,15 @@ packages/create-app/agentic/
 ├── codex/                       # Codex tool config
 │   ├── enforcement-rules.md     # Prepended to AGENTS.md with marker comments
 │   └── mcp.json.example
-└── cursor/                      # Cursor tool config
-    ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
-    ├── hooks.json               # afterFileEdit hook registration
-    ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
-    └── mcp.json.example
+├── cursor/                      # Cursor tool config
+│   ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
+│   ├── hooks.json               # afterFileEdit hook registration
+│   ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
+│   └── mcp.json.example
+└── github-copilot/             # GitHub Copilot tool config (no hook mechanism — text only)
+    ├── copilot-instructions.md.template  # → .github/copilot-instructions.md ({{PROJECT_NAME}})
+    ├── instructions/*.instructions.md    # Path-scoped guards via `applyTo` globs
+    └── mcp.json.example                  # → .vscode/mcp.json.example ("servers" key)
 ```
 
 ### Skills Mixin (external open-mercato/skills + local overrides)
@@ -225,3 +232,5 @@ Both generators recursively emit the same `agentic/` source tree: `src/setup/too
 - The Codex generator patches `AGENTS.md` (created by shared generator) — ordering matters
 - `{{PROJECT_NAME}}` is the only placeholder; resolved from `path.basename(targetDir)`
 - Cursor hook is `.mjs` (no tsx dep); Claude Code hook is `.ts` (needs tsx in devDependencies)
+- GitHub Copilot has no hook mechanism, so its migration/generated guards are instruction text only (`.github/copilot-instructions.md` + `.github/instructions/*.instructions.md` with `applyTo` globs); MCP example lands at `.vscode/mcp.json.example` and uses the VS Code `"servers"` key (not `"mcpServers"`)
+- A new tool id must be added in BOTH generators — `packages/create-app/src/setup/tools/<tool>.ts` (+ `wizard.ts`) and `packages/cli/src/lib/agentic-setup.ts` — plus the idempotency map in `packages/cli/src/lib/agentic-init.ts`. Renumber the `multiple`/`skip` wizard keys when inserting

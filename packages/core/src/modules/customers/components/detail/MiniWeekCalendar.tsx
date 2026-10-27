@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import type { InteractionSummary } from './types'
 import { loadLegacyActivitiesInRange } from './legacyActivities'
+import { isSameDay } from '../../lib/localDay'
 
 interface MiniWeekCalendarProps {
   entityId: string
@@ -28,10 +29,6 @@ function getWeekDays(baseDate: Date): Date[] {
     days.push(d)
   }
   return days
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
 function getDayLabels(t: ReturnType<typeof useT>): string[] {

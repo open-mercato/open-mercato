@@ -128,6 +128,16 @@ test.describe('TC-WF-002: Duplicate Workflow Definition API flow', () => {
       ).toBe(201)
       sourceDefinitionId = sourceBody?.data?.id ?? null
       expect(sourceDefinitionId).toBeTruthy()
+      const sourceStoredDefinition = sourceBody?.data?.definition
+
+      // The create route normalizes the stored definition — notably it defaults
+      // NEW definitions to `interpolation: 'strict'` (spec §3.6; see the comment
+      // on `interpolation` in data/validators.ts). So "the copy preserves the
+      // payload" is asserted against the SOURCE AS STORED rather than against the
+      // request body: that is what a duplicate must reproduce, and it stays true
+      // through any future server-side normalization.
+      expect(sourceStoredDefinition).toMatchObject(sourcePayload.definition)
+      expect(sourceStoredDefinition?.interpolation).toBe('strict')
 
       const duplicateResponse = await apiRequest(request, 'POST', '/api/workflows/definitions', {
         token,
@@ -145,7 +155,7 @@ test.describe('TC-WF-002: Duplicate Workflow Definition API flow', () => {
       expect(duplicateDefinition?.workflowId).toBe(duplicatePayload.workflowId)
       expect(duplicateDefinition?.workflowId).not.toBe(sourcePayload.workflowId)
       expect(duplicateDefinition?.version).toBe(sourcePayload.version)
-      expect(duplicateDefinition?.definition).toEqual(sourcePayload.definition)
+      expect(duplicateDefinition?.definition).toEqual(sourceStoredDefinition)
       expect(duplicateDefinition?.metadata).toEqual(sourcePayload.metadata)
 
       const duplicateListResponse = await apiRequest(
@@ -160,7 +170,9 @@ test.describe('TC-WF-002: Duplicate Workflow Definition API flow', () => {
         (item) => item.id === duplicateDefinitionId,
       )
       expect(foundDuplicate).toBeTruthy()
-      expect(foundDuplicate?.definition).toEqual(sourcePayload.definition)
+      // Read back through the list route: same rule as above — the copy must equal
+      // the source AS STORED, which carries the server's `interpolation` default.
+      expect(foundDuplicate?.definition).toEqual(sourceStoredDefinition)
 
       const duplicateAgainResponse = await apiRequest(request, 'POST', '/api/workflows/definitions', {
         token,

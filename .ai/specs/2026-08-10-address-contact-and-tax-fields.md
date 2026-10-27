@@ -8,18 +8,18 @@
 - They belong on the **address**, not on the customer: one customer keeps several addresses, each with its own recipient and its own contact. Shopify, Medusa and commercetools all model a phone on the address; Open Mercato is the outlier that does not.
 
 **Proposed solution:**
-- Additive optional fields on `AddressValue` (`phone`, `taxId`, `taxIdType`), rendered by `AddressView` as an opt-in contact block — omit the labels and output is byte-identical to today.
+- Additive optional fields on `AddressValue` (`phone`, `taxId`, `taxIdType`), rendered by `AddressEditor` as ordinary fields — every existing caller keeps compiling and rendering exactly as before.
 - On the sales side the document address snapshot is the carrier. It is already schemaless and encrypted at rest, so no schema change is needed there; customer-address columns arrive later and additively.
 
 **Scope:**
-- `AddressValue` contact fields + opt-in `AddressView` contact block
+- `AddressValue` contact fields, rendered as ordinary `AddressEditor` fields
 - Tax-id typing (`taxIdType`) and EU-VAT normalization on write
 - Locked documents render a disabled editor instead of an editable one
-- Type-aware indexing/display policy for tax ids
+- Type-aware indexing policy for tax ids (display is ungated — see Design Decisions)
 - `name` → `label` rename on address entities (deprecation protocol)
 
 **Concerns:**
-- Two new frozen exports (`formatAddressContactPairs`, `AddressContactLabels`) per `BACKWARD_COMPATIBILITY.md` — this spec is the reference its §"Spec requirement" demands.
+- One new frozen export (`resolveTaxIdLabel`) per `BACKWARD_COMPATIBILITY.md` — this spec is the reference its §"Spec requirement" demands.
 - Tax ids are PII-adjacent and already treated as sensitive by search (`customers/search.ts:713`, `:805`).
 - `AddressesSection.tsx` carries `// @ts-nocheck` — the file is invisible to `tsc`, so everything added there is unchecked by CI until the directive is lifted.
 
@@ -43,7 +43,7 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 >
 > **Rejected:** an email on the address — two of the three commerce platforms deliberately keep it on the order, and an order-level email is the better home; splicing contact details into the postal address lines — nobody does this, and it corrupts every one-line summary built from those lines.
 
-**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, sales i18n (5 locales), Phase 3 only: `customers` address entities + migration.
+**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, customers i18n (5 locales), Phase 3 only: `customers` address entities + migration.
 
 **Not touched:** `sales_document_addresses` schema (explicitly rejected — see Alternatives), `addressSnapshotSchema` (stays free-form), search indexing config outside the tax-id rules, per-country address formats, VIES calls, address filterability (blocked by encryption at rest), `buildingNumber`/`flatNumber` logic (house numbers are conventionally written into the street line, and the field is near-empty in practice — see Appendix).
 
@@ -58,23 +58,23 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 
 ## Proposed Solution
 
-Model the contact details as **optional fields on `AddressValue`**, rendered by `AddressView` as a trailing contact block that is **opt-in per field via caller-supplied labels** — omit `contactLabels` and the component is byte-identical to today. `formatAddressContactPairs(address, labels)` is exported so callers can ask "anything to show?" without rendering. On the sales side the **document snapshot is the carrier**: it already persists the keys, is encrypted at rest, and is the frozen per-document fact. Tax identifiers carry a `taxIdType`; EU VAT numbers are normalized to the ISO-2-prefixed form on write.
+Model the contact details as **optional fields on `AddressValue`**, rendered by `AddressEditor` as **ordinary fields** — always present, edited like their neighbours, and disabled with them. Whether an address can be edited at all is a property of the address, not decided per field. `resolveTaxIdLabel(label, taxIdType)` is exported so the editor and any later read-only surface name an identifier through one mapping. On the sales side the **document snapshot is the carrier**: it already persists the keys, is encrypted at rest, and is the frozen per-document fact. Tax identifiers carry a `taxIdType`; EU VAT numbers are normalized to the ISO-2-prefixed form on write.
 
 ### Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | Contact block outside `formatAddressLines` | `formatAddressString` joins lines with `", "` into picker labels and table cells; a tax id spliced into `"Baker Street 10, NW1 London"` is wrong in every one. A test pins postal-line purity. |
-| Labels-as-opt-in, caller-translated | The util module is deliberately i18n-free; callers have `useT()`. Also enables phone-without-tax-id, which is the common delivery-address case. |
+| Label mapping caller-translated | The util module is deliberately i18n-free; the calling component already has `useT()`. |
 | Snapshot as carrier on the sales side, not typed columns | The snapshot is where the per-document value is frozen and where integrations already write. Typed columns would need a write path and a backfill to reach the same place. |
-| Tax identifier carries an explicit type | Follows Stripe; without it the value cannot be interpreted, validated or gated. Shape is `{country}_{kind}` — see Design Decisions. |
+| Tax identifier carries an explicit type | Follows Stripe; without it the value cannot be interpreted, labelled or validated. Shape is `{country}_{kind}` — see Design Decisions. |
 
 ### Alternatives Considered
 
 | Alternative | Why Rejected |
 |-------------|-------------|
 | Columns on `sales_document_addresses` | Wrong on two counts: the per-document frozen fact belongs on the snapshot, and that table holds a document's *additional* addresses — it is not where the primary shipping and billing addresses live, so columns there would not reach the addresses this feature is about. |
-| A new read-only render path for locked documents | Rejected as a standalone step. `AddressEditor` already accepts `disabled`, so `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137` — beside the `locked` value that already flows to every sibling control — delivers the stated outcome in two lines with no second rendering path to keep in step. A read-only `AddressView` summary would read better than greyed-out inputs and stays open as a later improvement; it is not a prerequisite for the contact block, which renders beside the editor either way. |
+| A new read-only render path for locked documents | Rejected as a standalone step. `AddressEditor` already accepts `disabled`, so `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137` — beside the `locked` value that already flows to every sibling control — delivers the stated outcome in two lines with no second rendering path to keep in step. A read-only `AddressView` summary would read better than greyed-out inputs and stays open as a later improvement; it is not a prerequisite for these fields, which the editor renders either way. |
 | Splice contacts into `formatAddressLines` | Corrupts every one-line summary downstream — picker options, entry labels, table cells. |
 | Bare `taxId: string`, type added later | The identifier is uninterpretable without its type, and the field freezes as public surface on merge. |
 | `email` on the address | Two of three comparable platforms hold it on the order instead; see Design Decisions. |
@@ -86,9 +86,9 @@ Every question raised while this spec was drafted is settled. They are recorded 
 
 - **Scope — one spec, phased.** Contact-detail rendering and tax-id semantics freeze the same `AddressValue` surface, so splitting them would commit to a bare `taxId: string` in the first spec and regret it in the second. The phases below are independently shippable, which is what a split would have bought.
 
-- **`taxIdType` is Stripe-shaped `{country}_{kind}`, seeded `eu_vat`, `pl_nip`, `other`, widened one case at a time as they are observed.** A minimal `eu_vat | local | other` enum was considered and rejected: `local` cannot be interpreted without a constrained country, `country` stays unconstrained free text (see the deferred-work list below), and the display gate would then have nothing reliable to key on — so the ambiguity in Problem 4 would move rather than resolve. The larger seed set is a smaller commitment than it looks, because the backward-compatibility contract makes these enums additive-only; only the seed values freeze. It also makes the display gate implementable immediately.
+- **`taxIdType` is Stripe-shaped `{country}_{kind}`, seeded `eu_vat`, `pl_nip`, `other`, widened one case at a time as they are observed.** A minimal `eu_vat | local | other` enum was considered and rejected: `local` cannot be interpreted without a constrained country, and `country` stays unconstrained free text (see the deferred-work list below) — so the ambiguity in Problem 4 would move rather than resolve. The larger seed set is a smaller commitment than it looks, because the backward-compatibility contract makes these enums additive-only; only the seed values freeze. It is what lets a renderer label `PL1234567890` as an EU VAT number and `1234567890` as a domestic one without guessing from the format.
 
-- **Displaying a tax identifier is gated by type.** An EU VAT number is a public business identifier — VIES is an open lookup — and renders ungated; a local or personal tax number renders only behind the customer-PII feature the deployment already applies to `tax_id`. This is the split `customers/search.ts:713` (`excluded` for people) and `:805` (`hashOnly` for companies) already draws. Exact feature id settled in Phase 2 review.
+- **Displaying a tax identifier is not gated.** It renders to anyone who can read the record that carries it, like every other field on the address. A gate keyed on `taxIdType` was specified here and rejected in Phase 2 review, for two reasons that also rule out the obvious repairs. First, `1234567890` and `PL1234567890` are the same business with the same number, so keying on the format makes visibility depend on which form the source system happened to record rather than on anything about the data. Second, `customers/search.ts` does not draw that split: it divides on **who the identifier belongs to** — `:713` `excluded` for people, beside `government_id` and `ssn`; `:805` `hashOnly` for companies, beside `registration_number` — and a document address snapshot carries no reliable signal to tell a person from a company. Gating this one field also buys little while the company name, the recipient name and the full postal address render ungated beside it; for a sole trader those identify the person more than the number does. A deployment that needs the field hidden has no mechanism here and is not given one: a per-deployment display switch is a preference, and preferences belong to configuration rather than to a formatter's signature.
 
 - **`name` → `label` on address entities, under the deprecation protocol.** `name` is the address *label* ("Home", "Warehouse"); putting a recipient name beside it is a trap. Medusa makes the same split explicitly — `address_name` for the label, `first_name`/`last_name` for the person. Bridge both for ≥1 minor with an `UPGRADE_NOTES.md` entry; snapshot storage keys are untouched and the bridge maps them.
 
@@ -107,11 +107,11 @@ Every question raised while this spec was drafted is settled. They are recorded 
 - A **warehouse operator** dispatching an order sees the phone the carrier needs, on the delivery address that carries it — not a number belonging to a different address of the same customer.
 - An **accountant** sees the tax identifier a B2B invoice was issued under, on the billing address, exactly as frozen at document time.
 - An **integration author** posting an address with a phone number sees it rendered, and sees it survive a subsequent manual edit.
-- A **third-party module author** calls `AddressView` exactly as before and observes zero change until they opt in with labels.
+- A **third-party module author** calls `AddressView` exactly as before and observes zero change; contact fields remain outside its postal-only contract.
 
 ## Architecture
 
-Data flow (read): `writer → *_address_snapshot (jsonb, encrypted at rest per sales/encryption.ts) → document detail UI → AddressView contact block`.
+Data flow (read): `writer → *_address_snapshot (jsonb, encrypted at rest per sales/encryption.ts) → document detail UI → AddressEditor fields`.
 Data flow (write/edit): `AddressEditor draft → normalizeAddressDraft(draft, previousSnapshot) → snapshot` — keys the editor does not own are merged back rather than dropped, and a draft with no editor-owned content normalizes to `null` so clearing an address cannot strand them. The document *create* form keeps its own single-argument copy of the helper, which needs none of this because no prior snapshot exists there.
 
 No new commands, events, routes, or DI registrations. The snapshot rides the existing order/quote update payload. Cross-module surface: `customers` owns the util, `sales` consumes it, `ui` holds the near-identical twin (edited in parallel here; collapsing the two into one module is deferred).
@@ -136,19 +136,19 @@ No new endpoints; no request/response shape changes. `addressSnapshotSchema` del
 
 ## Internationalization (i18n)
 
-Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, `de`, `es`, `ko`. No existing key is removed. Phase 3 adds `recipientName`.
+Six keys added under `customers.people.detail.addresses.fields.*`, in `en`, `pl`, `de`, `es`, `ko`: `phone`, `taxId` and `taxIdType` name the three inputs, and `taxId.{plNip,euVat,other}` name the three schemes. The scheme labels are keys rather than a hardcoded map because they are the same strings in two places — the picker's options and the marker beside a filled field — and `resolveTaxIdLabel` is what keeps the two readings identical. They sit under `customers.*` and not `sales.*` because the editor is a customers component; the sales document tiles are one of its callers, not its owner. No existing key is removed. Phase 3 adds `recipientName`.
 
 ## UI/UX
 
-- Contact block under the shipping/billing tiles as `text-xs text-muted-foreground` label–value lines; self-hiding when the address carries nothing.
+- Tax-id scheme, tax number, and phone inputs appear inside shipping/billing `AddressEditor` tiles only when the caller opts in with `showTaxIdField` / `showPhoneField`; they share the tile's editable or disabled state.
 - Phase 1 passes `disabled={locked}` to the two snapshot `AddressEditor`s, so a locked document stops presenting an editable form over data the API refuses to change.
 - DS rules apply: semantic tokens only, shared primitives, no new inline comments.
 - Phase 1 MUST remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the type errors it hides. This is a precondition of the phase, not a preference: while the directive stands the file is invisible to `tsc`, so everything the phase adds there is unchecked by CI.
 
 ## Migration & Backward Compatibility
 
-- **Everything in Phases 0–2 is additive.** No DB migration; snapshots are schemaless. With no `contactLabels` supplied, `AddressView` output is byte-identical — pinned by test.
-- **New frozen exports**: `formatAddressContactPairs`, `AddressContactLabels` freeze on merge per `BACKWARD_COMPATIBILITY.md`; this spec is the required reference.
+- **Everything in Phases 0–2 is additive.** No DB migration; snapshots are schemaless. `AddressView` is untouched, so every existing render is byte-identical.
+- **New frozen export**: `resolveTaxIdLabel` freezes on merge per `BACKWARD_COMPATIBILITY.md`; this spec is the required reference. A contact-rendering API was drafted alongside it and dropped before merge — it had no caller, and a public surface whose only consumer is its own test suite is a promise made for nothing. Phase 3 brings the read-only tiles that need one.
 - **`name` → `label` rename (Phase 4)** follows the deprecation protocol: add `label`, keep `name` as a deprecated bridge for ≥1 minor, `@deprecated` JSDoc with target removal version, `UPGRADE_NOTES.md` entry. Snapshot storage keys are untouched.
 - **Phase 3 migration** is additive nullable columns — deployable without downtime, safely re-runnable.
 - **No core backfill.** Existing snapshots keep whatever they carry; a writer that wants the fields on historical documents re-emits them.
@@ -162,12 +162,14 @@ Two keys added: `sales.documents.detail.addresses.{taxId,phone}` in `en`, `pl`, 
 
 **Phase 1 must extend `emptyDraft` when it adds `phone` or `taxId` to the editor.** A field the editor writes without being part of that draft shape reverts to its previous value on save.
 
-The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on document creation, where no prior snapshot exists, so a merge-back there would be permanently inert. Collapsing the two copies is separate work with its own justification.
+The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document creation, where no prior snapshot exists, so one there would be permanently inert. It does need the same **assign list** — a key the editor writes and the list omits is simply absent from the payload, which is reachable on the create page and silent. Collapsing the two copies is separate work with its own justification, and now has a second reason.
+
+**Only a caller whose storage can hold the fields may render them.** `AddressEditor` takes `showPhoneField` and `showTaxIdField`, both off by default, in the shape `showCoordinateFields` already established. Two props and not one: a phone is a contact detail and a tax identifier is not, and they stop travelling together at the next phase, where `CustomerAddress` gains a `phone` column and no tax id — so the address book will offer one and not the other. The document snapshot is schemaless and keeps both keys, so the document detail tiles and the create form opt in. `CustomerAddress` has neither column until Phase 3, so the customer address book opts into neither — an input there would take a value and drop it on save with nothing to show for it. Both props gate the caller, not the field: inside a tile that opts in, the field renders whether or not it carries a value and takes the same `disabled` as every neighbour.
 
 ### Phase 1 — contact fields and render
-1. `AddressValue` + `formatAddressContactPairs` + `AddressView` contact block, with postal-purity and self-hiding tests.
-2. Wire to the shipping/billing snapshot tiles.
-3. Add `taxIdType` to the type and the pair-formatter.
+1. `AddressValue` gains `phone` / `taxId` / `taxIdType`, and `resolveTaxIdLabel` names an identifier from its type.
+2. Render `taxId` and `phone` as ordinary `AddressEditor` fields, and own them in the snapshot tiles' draft (`emptyDraft` + the normalising assign list) so a manual save keeps them.
+3. Add `taxIdType` to the type, and let the user **pick** it from the seeded vocabulary beside the identifier — the shape Stripe uses. Not inferred from the value: `1234567890` and `PL1234567890` are the same business written two ways, so a rule that reads the form of the value is guessing, and it guesses more often as the vocabulary grows. A wrong scheme is worse than none, because it puts a name on the number.
 4. Pass `disabled={locked}` at `AddressesSection.tsx:1070` and `:1137`.
 5. Remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the errors it hides.
 
@@ -175,10 +177,10 @@ The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on doc
 
 ### Phase 2 — tax-id semantics
 1. `normalizeEuVatId()` util — ISO-2 prefix on write.
-2. Type-aware display gate; align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded.
+2. Align search config so a public VAT number may index where local/personal numbers stay `hashOnly` or excluded. Indexing only — display is ungated, per Design Decisions.
 
 ### Phase 3 — recipient name + customer address book *(separable)*
-1. `recipientName` on `AddressValue`/`AddressView`; `recipient_name`, `phone` columns on `CustomerAddress` with encryption-map entries.
+1. `recipientName` on `AddressValue`/`AddressView`; `recipient_name`, `phone` columns on `CustomerAddress` with encryption-map entries. This is where `showPhoneField` and `showTaxIdField` stop travelling together: the address book gains the phone and not the tax identifier, which is why the editor takes a flag for each rather than one for both.
 2. `TC-CRM-CRUDFORM-*` sweep update for the new editable fields.
 
 ### Phase 4 — rename + docs
@@ -188,7 +190,7 @@ The `SalesDocumentForm.tsx` copy is deliberately left alone: it runs only on doc
 
 Unit (`packages/core`): postal lines unchanged when contacts present (**the safety property**); per-field label gate; null-render preserved; snapshot round-trip keeps unowned keys, asserted through the document detail save path — the only path on which a prior snapshot exists.
 
-Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` — order created via API with a snapshot carrying `phone`/`taxId`; detail page renders both; save round-trips them from the detail tab and from the document form; a locked document renders the address inputs in their disabled state. Self-contained fixtures, no seeded data.
+Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` covers the API/detail edit-and-reload round-trip; `TC-SALES-ADDR-CONTACT-002.spec.ts` creates a document through the form and verifies both persisted snapshots; `TC-SALES-ADDR-CONTACT-003.spec.ts` verifies the disabled contact controls under an address-editing guard. Self-contained fixtures, no seeded data.
 
 Phase 3: `TC-CRM-CRUDFORM-*` proves `recipient_name`/`phone` save-and-reload on customer address create + update.
 
@@ -198,10 +200,10 @@ Write operations are limited to the existing document-update path (Phase 0/1) an
 
 #### Tax id shown to under-privileged users
 - **Scenario**: A personal (non-VAT) tax number renders in the document detail to a user who shouldn't see PII.
-- **Severity**: Medium
+- **Severity**: Low
 - **Affected area**: sales document detail
-- **Mitigation**: the type-aware gate ships with Phase 2, before any tax id renders to a non-privileged user; `pl_nip`/`other` sit behind the existing PII feature.
-- **Residual risk**: `eu_vat` renders ungated by design — it is a public identifier (VIES).
+- **Mitigation**: none by type, deliberately — a tax id renders to anyone who can read the record carrying it, like every other field on the address. Reading a sales document is itself the privilege: the company name, the recipient name and the full postal address already render ungated beside the number, and for a sole trader those identify the person more than it does. A deployment that needs the field hidden supplies no `taxId` contact label, which renders no tax id.
+- **Residual risk**: accepted. The rejected alternative — gating on `taxIdType` — gave the same business two different visibilities depending on whether its number was recorded as `1234567890` or `PL1234567890`.
 
 #### Editor merge-back resurrects a stale key
 - **Scenario**: Integration updates the snapshot while a user edits; save merges the user's postal fields with the pre-edit contact keys.
@@ -272,6 +274,15 @@ The justification above stands on the market comparison, not on any single deplo
 Two observations that shaped decisions above: the order-level tax-id rate exceeds the customer-level rate because business buyers reorder more often — an input to keeping the customer as master while the document freezes what it was issued under — and `buildingNumber` was populated on ~1% of addresses because house numbers are conventionally written into the street line, which is why this spec adds no further logic there.
 
 ## Changelog
+
+- `taxIdType` is a picker beside the identifier rather than a value derived from it. Deriving worked for the three seeded schemes and stops working as the vocabulary grows — `GB123456789` reads as an EU VAT number under a two-letter-prefix rule and has not been one since Brexit, which is the same example that argued for storing the type rather than recomputing it. Storing a wrong answer does not make it right. Stripe asks for the choice; so does this. `deriveTaxIdType` is gone, and with it the ordering subtlety it needed against the unowned-key merge-back: the scheme is an editable key now, seeded from the snapshot and written back like any other.
+
+- `taxIdType` is derived on save rather than only read. It was reachable only through an integration: nothing in the UI sets it, and no form should ask a user to choose between `pl_nip` and `eu_vat` when the answer is already in what they typed. So a hand-entered identifier had no type, every label fell to the neutral one, and the distinction this vocabulary exists to draw never appeared. `deriveTaxIdType(taxId, country)` applies the rule the Design Decisions already state, in both normalisers, after the merge-back that would otherwise restore a stale type.
+
+- Dropped the contact-rendering API before merge: `formatAddressContactPairs`, `AddressContactLabels`, `AddressContactPair`, `AddressContactField` and `AddressView`'s `contactLabels` / `contactClassName`. Rendering the fields in the editor left it with no caller, and freezing a public surface whose only consumer is its own test suite commits the project to supporting it forever for nothing. `resolveTaxIdLabel` stays — the editor's marker is a real caller — and takes the label map directly rather than reaching through a wrapper object. Phase 3's read-only tiles are where a render API earns its place.
+
+### 2026-08-20
+- Reversed "Displaying a tax identifier is gated by type" in Phase 2 review. The decision cited `customers/search.ts` as drawing the same split; it does not — core divides person/company, not `eu_vat`/local — and a format-keyed gate gives the same business two different visibilities. The tax id now renders ungated, and `canSeeTaxId` is gone.
 
 ### 2026-08-13
 - Phase 0 implemented and marked done. The editable-key set is derived from `emptyDraft` rather than restated, and emptiness is decided over editor-owned string content so a cleared address normalizes to `null` instead of stranding unowned keys behind an always-assigned `isPrimary`. Phase 1 now carries an explicit warning that adding `phone`/`taxId` to the editor means extending `emptyDraft`.
