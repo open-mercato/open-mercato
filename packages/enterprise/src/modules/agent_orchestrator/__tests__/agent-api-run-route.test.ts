@@ -178,6 +178,18 @@ describe('POST /agent-api/agents/:id/run', () => {
     expect((await res.json()).code).toBe('agent_not_found')
   })
 
+  it('answers an unclassified failure with a 500 that carries only the code, never the internal error text', async () => {
+    setupContainer(async () => {
+      throw new TypeError('column "secret_internal_column" does not exist')
+    })
+    verifyMock.mockResolvedValue(verified('agent_orchestrator.agents.run'))
+    const res = await POST(makeRequest(), { params: params() })
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'The agent run failed unexpectedly', code: 'agent_run_failed' })
+    expect(JSON.stringify(body)).not.toContain('secret_internal_column')
+  })
+
   it('runs as the token principal on behalf of the delegator and returns the run contract', async () => {
     const { run, find } = setupContainer()
     verifyMock.mockResolvedValue(verified('agent_orchestrator.agents.run'))

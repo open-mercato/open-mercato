@@ -486,6 +486,7 @@ Approved for implementation once Q1–Q6 are answered.
   - `reference_exists` with the type-only contract `@open-mercato/shared/lib/ai/referenceResolver` (`agentReferenceResolverDiKey`); `onResolverMissing` accepts `block` (default) and `flag`; a run without an organization fails closed (`scope_missing`).
   - `tool_consulted`: `includeSubRuns` sees native in-process sub-runs only (through the run context); `enforce: 'prepare_step'` passes `loop.prepareStep` to `runAiAgentObject` (additive ai-assistant change for tool-enabled object mode).
   - `custom`: `registerIntegrityChecker` (`lib/sdk/integrityCheckers.ts`); missing checker → `checker_missing`, throwing or malformed checker → `checker_error` (both block).
+  - `flag` is recorded on the check row (`holdsAutoApproval`); auto-approval honours it once Integrity Phase 3 lands — until then `flag` only records a `warn`.
   - Example: `support.policy_check` in `agent_examples` with a static policy catalogue and the resolver `agent_examples.support_policy`.
   - Integration: `TC-AGENT-INT-001..004` (004 needs a real model).
 - Fixed while verifying (pre-existing on `main`): `GET /api/agent_orchestrator/guardrail-checks` and `/context-bundles` returned 500 for every request because their `ENTITY_TYPE` named no registered entity; they now use `agent_orchestrator:agent_guardrail_check` / `agent_orchestrator:agent_context_bundle`, guarded by `__tests__/crud-route-entity-ids.test.ts`.

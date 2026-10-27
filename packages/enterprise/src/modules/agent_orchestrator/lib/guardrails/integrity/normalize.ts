@@ -189,31 +189,67 @@ export function codepointToUtf16Offset(text: string, codepointOffset: number): n
   return utf16Offset
 }
 
+function graphemeBoundaries(text: string, locale?: string): number[] {
+  const boundaries: number[] = []
+  for (const { index } of graphemeSegmenter(locale).segment(text)) boundaries.push(index)
+  boundaries.push(text.length)
+  return boundaries
+}
+
+function lastBoundaryAtOrBefore(boundaries: number[], offset: number): number {
+  let low = 0
+  let high = boundaries.length - 1
+  let found = boundaries[0]
+  while (low <= high) {
+    const middle = (low + high) >> 1
+    if (boundaries[middle] <= offset) {
+      found = boundaries[middle]
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+  return found
+}
+
+function firstBoundaryAtOrAfter(boundaries: number[], offset: number): number {
+  let low = 0
+  let high = boundaries.length - 1
+  let found = boundaries[boundaries.length - 1]
+  while (low <= high) {
+    const middle = (low + high) >> 1
+    if (boundaries[middle] >= offset) {
+      found = boundaries[middle]
+      high = middle - 1
+    } else {
+      low = middle + 1
+    }
+  }
+  return found
+}
+
 export function findQuote(source: string, quote: string, options: FindQuoteOptions = {}): FindQuoteResult {
   const needle = normalizeQuote(quote, options)
   if (needle.length === 0) return { found: false }
   const haystack = normalizeWithMap(source, options)
+  const hintStart =
+    typeof options.hintStart === 'number' && Number.isFinite(options.hintStart) ? options.hintStart : null
   const spans = new Map<string, { start: number; end: number }>()
+  let boundaries: number[] | null = null
   let position = haystack.normalized.indexOf(needle)
   while (position !== -1) {
-    const snapped = snapToGraphemes(
-      source,
-      haystack.map[position],
-      haystack.ends[position + needle.length - 1],
-      options.locale,
-    )
-    spans.set(`${snapped.start}:${snapped.end}`, snapped)
+    boundaries ??= graphemeBoundaries(source, options.locale)
+    const start = lastBoundaryAtOrBefore(boundaries, haystack.map[position])
+    const end = firstBoundaryAtOrAfter(boundaries, Math.max(start, haystack.ends[position + needle.length - 1]))
+    spans.set(`${start}:${end}`, { start, end })
+    if (hintStart === null && spans.size > 1) break
     position = haystack.normalized.indexOf(needle, position + 1)
   }
   const candidates = Array.from(spans.values())
   if (candidates.length === 0) return { found: false }
   const unit = options.offsetUnit ?? 'utf16'
   const hint =
-    typeof options.hintStart === 'number' && Number.isFinite(options.hintStart)
-      ? unit === 'codepoint'
-        ? codepointToUtf16Offset(source, options.hintStart)
-        : options.hintStart
-      : null
+    hintStart === null ? null : unit === 'codepoint' ? codepointToUtf16Offset(source, hintStart) : hintStart
   const chosen =
     hint === null
       ? candidates[0]

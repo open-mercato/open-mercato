@@ -140,8 +140,10 @@ function dropTarget(concretePath: string): string | null {
  * Limitation: sub-runs dispatched to another runtime (OpenCode) or another
  * process are not visible, and their persisted trace rows are not consulted.
  *
- * `onViolation`: `flag` (default) keeps the output and holds auto-approval,
- * `drop` removes the nearest enclosing array item, `block` stops the run.
+ * `onViolation`: `flag` (default) keeps the output and records it on the check
+ * row (`holdsAutoApproval`); auto-approval honours it once Integrity Phase 3
+ * lands — until then `flag` only records a `warn`. `drop` removes the nearest
+ * enclosing array item, `block` stops the run.
  * Evidence is redacted: item paths and reason codes only, never cited values.
  */
 export function evaluateToolConsulted(ctx: IntegrityRuleContext, rule: ToolConsultedRule): IntegrityRuleOutcome {

@@ -101,7 +101,7 @@ describe('registerIntegrityChecker', () => {
 })
 
 describe('evaluateCustomIntegrity', () => {
-  it('hands the checker private copies of output and input plus tool calls, citable sources, scope, container and config', async () => {
+  it('hands the checker private copies of output, input and tool calls plus citable sources, scope, container and config', async () => {
     const received: IntegrityCheckerInput[] = []
     register((input) => {
       received.push(input)
@@ -121,7 +121,8 @@ describe('evaluateCustomIntegrity', () => {
     expect(checkerInput.input).toEqual(input)
     expect(checkerInput.input).not.toBe(input)
     expect(checkerInput.output).not.toBe(output)
-    expect(checkerInput.toolCalls).toBe(toolCalls)
+    expect(checkerInput.toolCalls).toEqual(toolCalls)
+    expect(checkerInput.toolCalls).not.toBe(toolCalls)
     expect(checkerInput.citableSources).toBe(citableSources)
     expect(checkerInput.scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(checkerInput.container).toBe(container)
@@ -142,6 +143,18 @@ describe('evaluateCustomIntegrity', () => {
         ambiguous: 0,
       },
     })
+  })
+
+  it('never lets a checker mutate the run tool calls', async () => {
+    const runToolCalls: IntegrityToolCall[] = [{ toolName: 'acme.get_rule', args: { id: 'r1' }, result: { id: 'r1' } }]
+    register((input) => {
+      const mutableCalls = input.toolCalls as IntegrityToolCall[]
+      ;(mutableCalls[0].result as { id: string }).id = 'tampered'
+      mutableCalls.push({ toolName: 'acme.injected', args: {}, result: null })
+      return { violations: [] }
+    })
+    await evaluateCustomIntegrity(buildContext(envelope(['a']), { toolCalls: runToolCalls }), buildRule())
+    expect(runToolCalls).toEqual([{ toolName: 'acme.get_rule', args: { id: 'r1' }, result: { id: 'r1' } }])
   })
 
   it('passes an empty citable-source list when the run has none', async () => {

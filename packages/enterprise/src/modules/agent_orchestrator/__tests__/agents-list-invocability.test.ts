@@ -18,6 +18,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   })),
 }))
 
+const resolveScope = jest.fn()
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveScope(...args),
+}))
+
 jest.mock('../lib/settings/agentSettings', () => ({
   getAgentPresentationMaps: jest.fn(async () => ({ icons: new Map(), tags: new Map() })),
 }))
@@ -50,7 +56,7 @@ const REGISTRY: AgentRegistryEntry[] = [
   entry({ id: 'finance.agent', requiredFeatures: ['finance.ledger.view', 'finance.ledger.export'] }),
 ]
 
-type ListedAgent = { id: string; requiredFeatures: string[]; invocable: boolean }
+type ListedAgent = { id: string; requiredFeatures?: string[]; invocable: boolean }
 
 async function listAgents(
   acl: { features: string[]; isSuperAdmin?: boolean },
@@ -78,6 +84,7 @@ describe('GET /api/agent_orchestrator/agents invocability', () => {
 
   beforeEach(() => {
     loadAcl.mockReset()
+    resolveScope.mockReset().mockResolvedValue({ selectedId: 'org-1', filterIds: ['org-1'], allowedIds: ['org-1'], tenantId: 'tenant-1' })
     delete process.env.OM_AGENT_INVOKE_ENFORCEMENT
   })
 
@@ -129,13 +136,31 @@ describe('GET /api/agent_orchestrator/agents invocability', () => {
     ])
   })
 
-  it('exposes requiredFeatures on every item, empty when the agent declares none', async () => {
+  it('exposes requiredFeatures on every item to a manager, empty when the agent declares none', async () => {
     const items = await listAgents({ features: ['agent_orchestrator.agents.manage'] })
     expect(items.map(({ id, requiredFeatures }) => ({ id, requiredFeatures }))).toEqual([
       { id: 'open.agent', requiredFeatures: [] },
       { id: 'sales.agent', requiredFeatures: ['sales.orders.view'] },
       { id: 'finance.agent', requiredFeatures: ['finance.ledger.view', 'finance.ledger.export'] },
     ])
+  })
+
+  it('never echoes requiredFeatures to a non-manager', async () => {
+    const items = await listAgents({ features: ['agent_orchestrator.agents.view', 'sales.orders.view'] })
+    expect(items.map((item) => item.id)).toEqual(['open.agent', 'sales.agent'])
+    for (const item of items) expect(item).not.toHaveProperty('requiredFeatures')
+  })
+
+  it('loads the ACL for the selected organization, not the token org', async () => {
+    resolveScope.mockResolvedValue({ selectedId: 'org-selected', filterIds: ['org-selected'], allowedIds: null, tenantId: 'tenant-1' })
+    await listAgents({ features: ['agent_orchestrator.agents.view'] })
+    expect(loadAcl).toHaveBeenCalledWith('user-1', { tenantId: 'tenant-1', organizationId: 'org-selected' })
+  })
+
+  it('loads the tenant-level ACL when no single organization is selected', async () => {
+    resolveScope.mockResolvedValue({ selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' })
+    await listAgents({ features: ['agent_orchestrator.agents.view'] })
+    expect(loadAcl).toHaveBeenCalledWith('user-1', { tenantId: 'tenant-1', organizationId: null })
   })
 
   it('loads the API key ACL for an API key caller', async () => {

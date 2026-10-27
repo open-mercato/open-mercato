@@ -55,6 +55,7 @@
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | done | fbccb7647 |
 | 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | 3695a39e2 |
 | 7 | 7.3-review-fix | Fix the agent-tool review findings in ai-assistant and the attachment dialog | inline | done | pending |
+| 7 | 7.3-review-fix-2 | Fix the agent_orchestrator review findings | inline | done | pending |
 
 ## Goal
 
@@ -284,6 +285,15 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
   - `run-object` returns `422 dispatch_option_unsupported` when `attachmentIds`, `pageContext` or `modelOverride` is sent for a dispatched agent.
   - `buildToolSuccessResponse` and the `outputSchema` advertisement share one predicate (object JSON schema that converts to a Zod object); `structuredContent` only when advertised and the value is a record.
   - `AttachmentMetadataDialog` hides the Save footer on the Structure tab; Escape still closes.
+
+#### 7.3-review-fix-2 Fix the agent_orchestrator review findings
+- `om-auto-review-pr --autofix` findings on PR #8018 (agent_orchestrator):
+  - `flag` wording: recorded on the check row (`holdsAutoApproval`); auto-approval honours it once Integrity Phase 3 lands — until then `flag` only records a `warn` (rule JSDoc, `agent_examples` README + template, integrity spec changelog).
+  - An integrity block reports the blocking check's `guardrailSetVersion` on `AgentGuardrailBlockedError`, not the `p1` default.
+  - `agentRunErrorResponse(…, { exposeReason: false })` on the agent-token door: its unclassified 500 carries only the code; staff doors keep `reason` (now optional in the schema).
+  - `GET /agents` returns `requiredFeatures` to `agents.manage` holders only (optional in the schema) and loads the ACL for the organization resolved by `resolveOrganizationScopeForRequest`.
+  - `defineAgent` rejects a `tool_consulted` rule enforced at `prepare_step` whose `tools` miss the agent's effective tools (`a__b` ≡ `a.b`).
+  - Custom checkers receive a `structuredClone` of the tool calls; the output pipeline throwing fails the run and captures the trace; `findQuote` segments the source once and stops at the second distinct match without a hint.
 
 ## Risks
 

@@ -101,6 +101,9 @@ function isDroppable(concretePath: string): boolean {
  * are never trusted — they are recomputed and written back, and a disagreement
  * counts as a repair. `repair` cannot fix a quote that is not in the source, so a
  * miss under `onViolation: 'repair'` is kept and flagged exactly like `flag`.
+ * A flag is recorded on the check row (`holdsAutoApproval`); auto-approval
+ * honours it once Integrity Phase 3 lands — until then `flag` only records a
+ * `warn`.
  * Evidence is redacted: counts and item paths only, never quote or input text.
  */
 export function evaluateEvidenceQuote(ctx: IntegrityRuleContext, rule: EvidenceQuoteRule): IntegrityRuleOutcome {

@@ -265,7 +265,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
   const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
-  const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity)
+  const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
 
   registry.set(input.id, {
     id: input.id,

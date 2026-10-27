@@ -40,7 +40,7 @@ const quoteRule: IntegrityRuleInput = {
 }
 
 let agentSequence = 0
-function register(integrity: IntegrityRuleInput[] | undefined) {
+function register(integrity: IntegrityRuleInput[] | undefined, extra: { tools?: string[]; subAgents?: string[] } = {}) {
   agentSequence += 1
   const id = `test.integrity_agent_${agentSequence}`
   defineAgent({
@@ -51,6 +51,7 @@ function register(integrity: IntegrityRuleInput[] | undefined) {
     instructions: 'BASE',
     result: { kind: 'research', schema: resultSchema },
     integrity,
+    ...extra,
   })
   return id
 }
@@ -171,6 +172,45 @@ describe('defineAgent integrity', () => {
     expect(() =>
       register([{ id: 'refs', kind: 'reference_exists', ids: 'data.findings[*].ruleId', resolver: 'r', onViolation: 'repair' as 'drop' }]),
     ).toThrow(/rule "refs": invalid declaration at "0\.onViolation"/)
+  })
+
+  describe('tool_consulted enforced at prepare_step', () => {
+    const enforcedRule: IntegrityRuleInput = {
+      id: 'read',
+      kind: 'tool_consulted',
+      cites: 'data.findings[*].ruleId',
+      tools: ['acme__get_rule'],
+      returned: ['id'],
+      enforce: 'prepare_step',
+    }
+
+    it('rejects a rule whose tools are not among the agent effective tools', () => {
+      expect(() => register([enforcedRule], { tools: ['acme.other_tool'] })).toThrow(
+        /^\[internal\] agent "test\.integrity_agent_\d+" integrity rule "read": enforce "prepare_step" requires at least one of tools \[acme__get_rule\]/,
+      )
+      expect(() => register([enforcedRule])).toThrow(/rule "read": enforce "prepare_step"/)
+    })
+
+    it('accepts the rule when a tool matches, treating a__b and a.b as the same tool', () => {
+      expect(getAgentEntry(register([enforcedRule], { tools: ['acme.get_rule'] }))?.integrity).toHaveLength(1)
+      expect(getAgentEntry(register([{ ...enforcedRule, tools: ['acme.get_rule'] }], { tools: ['acme__get_rule'] }))?.integrity).toHaveLength(1)
+    })
+
+    it('counts the delegate tool contributed by sub-agents as an effective tool', () => {
+      const id = register([{ ...enforcedRule, tools: ['agent_orchestrator.delegate_agent'] }], { subAgents: ['other.agent'] })
+      expect(getAgentEntry(id)?.integrity).toHaveLength(1)
+    })
+
+    it('does not require the tools to be reachable without prepare_step enforcement', () => {
+      const unenforced: IntegrityRuleInput = {
+        id: 'read',
+        kind: 'tool_consulted',
+        cites: 'data.findings[*].ruleId',
+        tools: ['acme__get_rule'],
+        returned: ['id'],
+      }
+      expect(getAgentEntry(register([unenforced]))?.integrity).toHaveLength(1)
+    })
   })
 
   it('does not register an agent whose integrity declaration is invalid', () => {

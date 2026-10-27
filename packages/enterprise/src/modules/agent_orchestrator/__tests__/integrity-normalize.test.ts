@@ -176,6 +176,19 @@ describe('findQuote matching rules', () => {
     expect(findQuote(source, 'net 30 days')).toEqual({ found: true, start: 0, end: 11, ambiguous: true })
   })
 
+  it('flags ambiguity across many occurrences and keeps the first or nearest match', () => {
+    const source = Array.from({ length: 500 }, (_unused, index) => `clause ${index}: net 30 days.`).join(' ')
+    const first = source.indexOf('net 30 days')
+    expect(findQuote(source, 'net 30 days')).toEqual({ found: true, start: first, end: first + 11, ambiguous: true })
+    const last = source.lastIndexOf('net 30 days')
+    expect(findQuote(source, 'net 30 days', { hintStart: last + 1 })).toEqual({
+      found: true,
+      start: last,
+      end: last + 11,
+      ambiguous: true,
+    })
+  })
+
   it('picks the match nearest to the hint', () => {
     const source = 'net 30 days; later net 30 days again'
     expect(findQuote(source, 'net 30 days', { hintStart: 25 })).toEqual({ found: true, start: 19, end: 30, ambiguous: true })

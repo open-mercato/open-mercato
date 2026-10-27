@@ -31,8 +31,8 @@ import {
  * Environment limit: `GET /agents` itself requires `agent_orchestrator.agents.view`
  * — the very feature the only feature-gated example agent declares — so a listing
  * caller can always invoke it and "hidden from a non-invoker" has no deterministic
- * fixture. The list case asserts the additive `requiredFeatures` / `invocable`
- * fields instead. Assumes the default `OM_AGENT_INVOKE_ENFORCEMENT` (on).
+ * fixture. The list case asserts the additive `invocable` field instead, that a
+ * non-manager never receives `requiredFeatures`, and that a manager (admin) does. Assumes the default `OM_AGENT_INVOKE_ENFORCEMENT` (on).
  *
  * Self-contained: creates its own roles, user and API key; deletes them in `finally`.
  */
@@ -83,7 +83,7 @@ test.describe('TC-AGENT-ACC-001: per-agent invoke permission', () => {
     }
   })
 
-  test('the agent list reports requiredFeatures and invocable for an invoker', async ({ request }) => {
+  test('the agent list reports invocable for an invoker and requiredFeatures only to a manager', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     let viewer: ScopedAgentUser | null = null
     try {
@@ -98,12 +98,17 @@ test.describe('TC-AGENT-ACC-001: per-agent invoke permission', () => {
       const items = body?.items ?? []
       expect(items.length).toBeGreaterThan(0)
       for (const item of items) {
-        expect(Array.isArray(item.requiredFeatures), `${String(item.id)} carries requiredFeatures`).toBe(true)
+        expect(item.requiredFeatures, `${String(item.id)} never echoes requiredFeatures to a non-manager`).toBeUndefined()
         expect(item.invocable, `${String(item.id)} is listed for a non-manager only when invocable`).toBe(true)
       }
       const gated = items.find((item) => item.id === GATED_AGENT_ID)
       expect(gated, `${GATED_AGENT_ID} is visible to a caller holding its feature`).toBeTruthy()
-      expect(gated!.requiredFeatures).toEqual([GATED_AGENT_FEATURE])
+
+      const managerResponse = await apiRequest(request, 'GET', AGENTS_LIST_PATH, { token: adminToken })
+      expect(managerResponse.status(), await managerResponse.text()).toBe(200)
+      const managerBody = await readJsonSafe<{ items?: AgentListItem[] }>(managerResponse)
+      const managerGated = (managerBody?.items ?? []).find((item) => item.id === GATED_AGENT_ID)
+      expect(managerGated?.requiredFeatures).toEqual([GATED_AGENT_FEATURE])
     } finally {
       await deleteScopedAgentUser(request, adminToken, viewer)
     }

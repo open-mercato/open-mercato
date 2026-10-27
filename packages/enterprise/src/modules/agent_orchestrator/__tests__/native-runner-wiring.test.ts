@@ -703,6 +703,30 @@ describe('output pipeline wiring', () => {
     expect(persisted.verdict.result).toBe('block')
   })
 
+  it('reports the blocking integrity check set version on the guardrail block error', async () => {
+    const entry = registerIntegrityAgent('native.integrity_block_version_agent', 'block')
+    mockModelWithToolCall()
+
+    const failure = makeService().run('native.integrity_block_version_agent', { content: CONTENT }, runCtx)
+    const expectedVersion = resolveIntegritySet(entry)?.version
+    expect(expectedVersion).toMatch(/^i1-[0-9a-f]{24}$/)
+    await expect(failure).rejects.toMatchObject({ kind: 'evidence_quote', guardrailSetVersion: expectedVersion })
+  })
+
+  it('fails the run and captures the trace when the output pipeline throws unexpectedly', async () => {
+    registerIntegrityAgent('native.integrity_pipeline_throw_agent', 'drop')
+    mockModelWithToolCall()
+    checkOutputMock.mockRejectedValue(new Error('pipeline exploded'))
+
+    const failure = makeService().run('native.integrity_pipeline_throw_agent', { content: CONTENT }, runCtx)
+    await expect(failure).rejects.toThrow('pipeline exploded')
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    expect((failRunMock.mock.calls[0][2] as Record<string, unknown>).errorMessage).toBe('pipeline exploded')
+    expect(captureNativeRunTraceMock).toHaveBeenCalledTimes(1)
+    expect(completeRunMock).not.toHaveBeenCalled()
+    expect(createProposalMock).not.toHaveBeenCalled()
+  })
+
   it('pins the agent integrity set version on the integrity check and syncs the set', async () => {
     const entry = registerIntegrityAgent('native.integrity_version_agent', 'drop')
     mockModelWithToolCall()

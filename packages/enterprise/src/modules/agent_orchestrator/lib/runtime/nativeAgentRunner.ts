@@ -563,26 +563,46 @@ export class NativeAgentRunner {
     const integritySet = integrityRules ? resolveIntegritySet(entry) : null
     if (integritySet) await this.ensureIntegritySetSynced(ctx, entry)
 
+    const failRunAfterUnexpectedError = async (err: unknown): Promise<void> => {
+      const message = err instanceof Error ? err.message : String(err)
+      try {
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+      } catch (failRunError) {
+        reportSettleFailure(failRunError, 'agent_orchestrator.native_fail_run_failed', runId)
+      }
+      try {
+        await captureTrace()
+      } catch (captureError) {
+        reportSettleFailure(captureError, 'agent_orchestrator.native_trace_capture_failed', runId)
+      }
+    }
+
     const guardrailService = new GuardrailService(this.container)
-    const integrityOutcome: OutputPipelineResult | null = integrityRules
-      ? await runOutputPipeline({
-          entry,
-          rawObject,
-          input,
-          toolCalls: integrityToolCalls,
-          ...(collectSubRunToolCalls ? { subRunToolCalls } : {}),
-          citableSources,
-          grounding,
-          guardrailService,
-          capability: agentId,
-          allowedTools: resolveAgentEffectiveTools(entry),
-          attemptedTools: buildAttemptedTools(integrityToolCalls),
-          guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
-          scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-          container: this.container,
-          shadow: !isAgentIntegrityEnforced(),
-        })
-      : null
+    let integrityOutcome: OutputPipelineResult | null = null
+    try {
+      integrityOutcome = integrityRules
+        ? await runOutputPipeline({
+            entry,
+            rawObject,
+            input,
+            toolCalls: integrityToolCalls,
+            ...(collectSubRunToolCalls ? { subRunToolCalls } : {}),
+            citableSources,
+            grounding,
+            guardrailService,
+            capability: agentId,
+            allowedTools: resolveAgentEffectiveTools(entry),
+            attemptedTools: buildAttemptedTools(integrityToolCalls),
+            guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
+            scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+            container: this.container,
+            shadow: !isAgentIntegrityEnforced(),
+          })
+        : null
+    } catch (err) {
+      await failRunAfterUnexpectedError(err)
+      throw err
+    }
     const rawOutputPointer = integrityOutcome?.changed
       ? await this.storeRawOutput(ctx, runId, integrityOutcome.rawOutput)
       : null
@@ -620,7 +640,8 @@ export class NativeAgentRunner {
         throw new AgentGuardrailBlockedError(agentId, detail, {
           phase: blocked.phase,
           kind: blocked.kind,
-          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          guardrailSetVersion:
+            verdict.checks.find((check) => check.result === 'block')?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
         })
       }
       throw new AgentOutputInvalidError(agentId, detail)
@@ -650,17 +671,7 @@ export class NativeAgentRunner {
         ...buildUsageStamp(),
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      try {
-        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
-      } catch (failRunError) {
-        reportSettleFailure(failRunError, 'agent_orchestrator.native_fail_run_failed', runId)
-      }
-      try {
-        await captureTrace()
-      } catch (captureError) {
-        reportSettleFailure(captureError, 'agent_orchestrator.native_trace_capture_failed', runId)
-      }
+      await failRunAfterUnexpectedError(err)
       throw err
     }
 

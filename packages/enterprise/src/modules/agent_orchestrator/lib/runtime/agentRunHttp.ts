@@ -37,7 +37,7 @@ export const guardrailBlockedErrorSchema = agentRunErrorSchema.extend({
 /** 500 body for a failure this route could not classify — it names itself. */
 export const unclassifiedErrorSchema = agentRunErrorSchema.extend({
   code: z.literal('agent_run_failed'),
-  reason: z.string(),
+  reason: z.string().optional(),
 })
 
 /** 503 body for a deployment whose LLM provider is missing or unusable. */
@@ -129,8 +129,23 @@ export function createRunIdObserver(): { onRunPersisted: (runId: string) => void
   }
 }
 
+export type AgentRunErrorResponseOptions = {
+  /**
+   * Include the unclassified error's name and message as `reason` on the 500
+   * body. Staff doors keep it (default `true`); the agent-token door, whose
+   * callers are external principals, passes `false` — the server log keeps the
+   * detail.
+   */
+  exposeReason?: boolean
+}
+
 /** Maps a failed `agentRuntime.run` to the shared HTTP error contract. */
-export function agentRunErrorResponse(err: unknown, agentId: string, runId: string | null): NextResponse {
+export function agentRunErrorResponse(
+  err: unknown,
+  agentId: string,
+  runId: string | null,
+  options: AgentRunErrorResponseOptions = {},
+): NextResponse {
   if (err instanceof AgentNotFoundError) {
     return NextResponse.json({ error: 'Agent not found', code: 'agent_not_found' }, { status: 404 })
   }
@@ -205,6 +220,12 @@ export function agentRunErrorResponse(err: unknown, agentId: string, runId: stri
   // operational detail ("provider refused", "column does not exist"), and the
   // provider's response body — which echoes the request — is never included.
   logger.error('Agent run failed with an unclassified error', { agentId, runId, err })
+  if (options.exposeReason === false) {
+    return NextResponse.json(
+      { error: 'The agent run failed unexpectedly', code: 'agent_run_failed' },
+      { status: 500 },
+    )
+  }
   const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
   return NextResponse.json(
     {

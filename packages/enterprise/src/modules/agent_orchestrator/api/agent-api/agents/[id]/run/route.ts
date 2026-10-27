@@ -133,7 +133,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     const agentRuntime = container.resolve('agentRuntime') as AgentRuntimeService
     result = await agentRuntime.run(id, parsed.input, runCtx)
   } catch (err) {
-    return agentRunErrorResponse(err, id, runIdObserver.runId())
+    return agentRunErrorResponse(err, id, runIdObserver.runId(), { exposeReason: false })
   }
 
   if (guardResult?.shouldRunAfterSuccess) {

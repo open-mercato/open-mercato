@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
 import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContract'
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
@@ -35,7 +36,9 @@ const agentItemSchema = z.object({
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
-  requiredFeatures: z.array(z.string()),
+  // Declared invoke features — returned to agents.manage holders only; feature
+  // names are never echoed to other callers.
+  requiredFeatures: z.array(z.string()).optional(),
   invocable: z.boolean(),
   label: z.string(),
   description: z.string(),
@@ -102,9 +105,10 @@ export async function GET(req: Request) {
   let acl: InvokerAcl | null = null
   if (needsAcl) {
     const container = await createRequestContainer()
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     acl = await loadInvokerAcl(container, invokerFromAuth(auth), {
       tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
+      organizationId: scope?.selectedId ?? null,
     })
   }
   const enforcementEnabled = isAgentInvokeEnforcementEnabled()
@@ -121,7 +125,7 @@ export async function GET(req: Request) {
       runtime: entry.runtime,
       tools: entry.tools,
       skills: entry.skills,
-      requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : [],
+      ...(isManager ? { requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : [] } : {}),
       invocable,
       label: entry.label,
       description: entry.description,
@@ -141,7 +145,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags). Each item carries its declared requiredFeatures and whether the caller may invoke it; callers without agent_orchestrator.agents.manage only receive the agents they may invoke.',
+        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags). Each item carries whether the caller may invoke it; callers holding agent_orchestrator.agents.manage also receive the declared requiredFeatures of each agent, while other callers only receive the agents they may invoke and never the feature names.',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],

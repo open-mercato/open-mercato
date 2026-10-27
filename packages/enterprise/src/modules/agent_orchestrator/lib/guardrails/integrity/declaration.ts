@@ -1,6 +1,7 @@
 import type { ZodTypeAny } from 'zod'
 import { integrityRulesSchema, type IntegrityRule } from '../../../data/validators'
 import { validatePathAgainstSchema } from './paths'
+import { normalizeToolName } from './pipeline'
 
 type PathCheck = { field: string; path: string }
 
@@ -51,6 +52,28 @@ function validateRulePaths(agentId: string, rule: IntegrityRule, schema: ZodType
   }
 }
 
+function validatePrepareStepTools(agentId: string, rule: IntegrityRule, effectiveTools: readonly string[]): void {
+  if (rule.kind !== 'tool_consulted' || rule.enforce !== 'prepare_step') return
+  const available = new Set(effectiveTools.map(normalizeToolName))
+  const reachable = rule.tools.some((tool) => available.has(normalizeToolName(tool)))
+  if (!reachable) {
+    throw registrationError(
+      agentId,
+      rule.id,
+      `enforce "prepare_step" requires at least one of tools [${rule.tools.join(', ')}] in the agent's effective tools (own, skill and delegate tools)`,
+    )
+  }
+}
+
+export type ParseAgentIntegrityRulesOptions = {
+  /**
+   * The agent's effective tool allowlist (own + skill + delegate tools). When
+   * given, a `tool_consulted` rule enforced at `prepare_step` must name at least
+   * one of them — otherwise the run could never satisfy it.
+   */
+  effectiveTools?: readonly string[]
+}
+
 /**
  * Parses an agent's `integrity` declaration and checks every output path against
  * its result schema — `items`/`ids`/`cites` from the result root, item-relative
@@ -63,6 +86,7 @@ export function parseAgentIntegrityRules(
   agentId: string,
   schema: ZodTypeAny,
   declared: unknown,
+  options: ParseAgentIntegrityRulesOptions = {},
 ): IntegrityRule[] | undefined {
   if (declared === undefined || declared === null) return undefined
   const parsed = integrityRulesSchema.safeParse(declared)
@@ -78,6 +102,9 @@ export function parseAgentIntegrityRules(
     const location = issue ? issue.path.join('.') : ''
     throw registrationError(agentId, ruleId, `invalid declaration${location ? ` at "${location}"` : ''}: ${issue?.message ?? 'unknown error'}`)
   }
-  for (const rule of parsed.data) validateRulePaths(agentId, rule, schema)
+  for (const rule of parsed.data) {
+    validateRulePaths(agentId, rule, schema)
+    if (options.effectiveTools) validatePrepareStepTools(agentId, rule, options.effectiveTools)
+  }
   return parsed.data.length > 0 ? parsed.data : undefined
 }

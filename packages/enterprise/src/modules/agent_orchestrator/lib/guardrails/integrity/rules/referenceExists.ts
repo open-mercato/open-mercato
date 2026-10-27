@@ -149,7 +149,9 @@ function dropTarget(concretePath: string): string | null {
  * item. A missing or failing resolver (or a run without an organization
  * scope) leaves the references unverified and applies `onResolverMissing` —
  * `block` by default, fail closed. `drop` removes the nearest enclosing array
- * item. Evidence is redacted: item paths and reason codes only, never id values.
+ * item. A flag is recorded on the check row (`holdsAutoApproval`); auto-approval
+ * honours it once Integrity Phase 3 lands — until then `flag` only records a
+ * `warn`. Evidence is redacted: item paths and reason codes only, never id values.
  */
 export async function evaluateReferenceExists(
   ctx: IntegrityRuleContext,

@@ -179,8 +179,9 @@ a startup error. The declaration lives in `lib/policyCheckIntegrity.ts`.
   `block`): an unverifiable reference is not a verified one.
 - **`tool_consulted`** — every cited `policyId` must equal a `policy.id` returned
   by a successful `agent_examples.get_support_policy` call in the same run. A
-  finding citing a policy the agent never read is kept but flagged, which holds
-  auto-approval.
+  finding citing a policy the agent never read is kept but flagged: the flag is
+  recorded on the check row (`holdsAutoApproval`); auto-approval honours it once
+  Integrity Phase 3 lands — until then `flag` only records a `warn`.
 
 Every rule records an `AgentGuardrailCheck` (pass, or warn with the dropped and
 flagged counts) that shows in the run trace; item paths and reason codes are
