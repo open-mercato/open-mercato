@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 160 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 161 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -57,12 +57,12 @@ This catalog indexes 160 focused lessons. Route the task first, then read only r
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [A migration with swapped up/down can silently drop a unique constraint the code relies on](lessons/swapped-migration-up-down-can-silently-drop-a-unique-constraint.md) — area:module-data,debugging,testing; module:payment_gateways; topic:database-migrations,data-integrity,webhooks
-- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
+- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers; topic:command-pattern,data-integrity,generated-files,encryption
 - [Classify redo creation by operation and snapshot](lessons/classify-redo-creation-by-operation-and-snapshot.md) — area:module-data,testing; module:feature_toggles; topic:command-pattern,data-integrity,undo-redo
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Data migrations must declare the query-index projections they invalidate](lessons/data-migrations-must-declare-the-projections-they.md) — area:module-data,architecture,debugging; module:query_index,cli,customers; topic:database-migrations,query-index,events
-- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,reference-integrity
+- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,row-locking,reference-integrity
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
@@ -181,6 +181,7 @@ This catalog indexes 160 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [Verify persisted state with fresh CRUD reads](lessons/verify-persisted-state-with-fresh-crud-reads.md) — area:testing,integration,module-data; module:customers,shared; topic:cache,data-integrity,testing
 - [Repository-source tests must register as cross-package guards](lessons/repository-source-tests-must-register-as-cross-package-guards.md) — area:testing; module:cli,catalog; topic:testing,module-boundaries,generated-files
 
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
