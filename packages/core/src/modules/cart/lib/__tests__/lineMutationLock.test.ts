@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { withCartLineMutationLock } from '../lineMutationLock'
+import { CartLineMutationLockTimeoutError, withCartLineMutationLock } from '../lineMutationLock'
 
 function createManager(initialTransaction = false) {
   let active = initialTransaction
@@ -38,21 +38,23 @@ test('a contended cart releases its transaction before backing off and never run
   expect(manager.rollback).toHaveBeenCalledTimes(1)
 })
 
-test('waiting longer than fifteen seconds preserves the original lock wait behavior', async () => {
+test('the fifteen-second deadline expires only after releasing a contended transaction without mutations', async () => {
   jest.useFakeTimers()
   const { manager, em } = createManager()
-  const availableAt = Date.now() + 30_000
-  manager.execute.mockImplementation(async () => [{ locked: Date.now() >= availableAt }])
+  manager.execute.mockResolvedValue([{ locked: false }])
   const mutate = jest.fn(async () => undefined)
   const pending = withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add')
-  await jest.advanceTimersByTimeAsync(20_000)
+  const rejected = expect(pending).rejects.toBeInstanceOf(CartLineMutationLockTimeoutError)
+  await jest.advanceTimersByTimeAsync(15_000)
+  await rejected
   expect(manager.isInTransaction()).toBe(false)
+  expect(manager.rollback).toHaveBeenCalled()
+  expect(manager.flush).not.toHaveBeenCalled()
   expect(mutate).not.toHaveBeenCalled()
   expect(manager.commit).not.toHaveBeenCalled()
-  await jest.advanceTimersByTimeAsync(11_000)
-  await pending
-  expect(mutate).toHaveBeenCalledTimes(1)
-  expect(manager.commit).toHaveBeenCalledTimes(1)
+  const attempts = manager.begin.mock.calls.length
+  await jest.advanceTimersByTimeAsync(5_000)
+  expect(manager.begin).toHaveBeenCalledTimes(attempts)
 })
 
 test('a mutation failure rolls back and propagates without retrying its writes', async () => {
