@@ -119,14 +119,28 @@ export function isRefusedInApprovalMode(tool: McpExposableTool, mutationMode: Mc
   return mutationMode === 'approval' && tool.isMutation === true && tool.mcp?.approvalMode === 'refuse'
 }
 
+export type McpToolHiddenReason =
+  | 'expose_false'
+  | 'not_allowlisted'
+  | 'denylist'
+  | 'mutation_mode'
+  | 'agent_tools_off'
+
+export function resolveToolHiddenReason(
+  tool: McpExposableTool,
+  config: McpExposureConfig,
+): McpToolHiddenReason | null {
+  if (tool.mcp?.expose === false) return 'expose_false'
+  if (config.allow !== null && !matchesAnyPattern(tool.name, config.allow)) return 'not_allowlisted'
+  if (matchesAnyPattern(tool.name, config.deny)) return 'denylist'
+  if (config.mutationMode === 'deny' && tool.isMutation === true) return 'mutation_mode'
+  if (isRefusedInApprovalMode(tool, config.mutationMode)) return 'mutation_mode'
+  if (!config.includeAgentTools && tool.agentRef) return 'agent_tools_off'
+  return null
+}
+
 export function isToolExposed(tool: McpExposableTool, config: McpExposureConfig): boolean {
-  if (tool.mcp?.expose === false) return false
-  if (config.allow !== null && !matchesAnyPattern(tool.name, config.allow)) return false
-  if (matchesAnyPattern(tool.name, config.deny)) return false
-  if (config.mutationMode === 'deny' && tool.isMutation === true) return false
-  if (isRefusedInApprovalMode(tool, config.mutationMode)) return false
-  if (!config.includeAgentTools && tool.agentRef) return false
-  return true
+  return resolveToolHiddenReason(tool, config) === null
 }
 
 export function filterToolsForCaller<TTool extends McpExposableTool>(

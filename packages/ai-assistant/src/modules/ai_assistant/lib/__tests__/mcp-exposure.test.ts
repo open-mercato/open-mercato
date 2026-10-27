@@ -7,6 +7,7 @@ import {
   isToolExposed,
   matchesToolPattern,
   resolveMcpExposureConfig,
+  resolveToolHiddenReason,
   type McpExposableTool,
   type McpExposureConfig,
 } from '../mcp-exposure'
@@ -208,6 +209,44 @@ describe('isToolExposed', () => {
     expect(isToolExposed(tool('execute'), config)).toBe(false)
     expect(isToolExposed(tool('context_whoami'), config)).toBe(false)
     expect(isToolExposed(tool('execute'), { ...baseConfig, deny: ['execute'] })).toBe(false)
+  })
+})
+
+describe('resolveToolHiddenReason', () => {
+  it('returns null for an exposed tool', () => {
+    expect(resolveToolHiddenReason(tool('customers.list_people'), baseConfig)).toBeNull()
+  })
+
+  it('reports the first failing check in evaluation order', () => {
+    expect(
+      resolveToolHiddenReason(tool('customers.list_people', { mcp: { expose: false } }), {
+        ...baseConfig,
+        deny: ['customers.*'],
+      }),
+    ).toBe('expose_false')
+    expect(resolveToolHiddenReason(tool('catalog.list_products'), { ...baseConfig, allow: ['customers.*'] })).toBe(
+      'not_allowlisted',
+    )
+    expect(resolveToolHiddenReason(tool('customers.delete_person'), { ...baseConfig, deny: ['customers.delete_*'] })).toBe(
+      'denylist',
+    )
+    expect(
+      resolveToolHiddenReason(tool('customers.update_person', { isMutation: true }), { ...baseConfig, mutationMode: 'deny' }),
+    ).toBe('mutation_mode')
+    expect(
+      resolveToolHiddenReason(tool('execute', { isMutation: true, mcp: { approvalMode: 'refuse' } }), {
+        ...baseConfig,
+        mutationMode: 'approval',
+      }),
+    ).toBe('mutation_mode')
+    expect(
+      resolveToolHiddenReason(
+        tool('customers.account_assistant.run', {
+          agentRef: { agentId: 'customers.account_assistant', engine: 'ai-assistant' },
+        }),
+        { ...baseConfig, includeAgentTools: false },
+      ),
+    ).toBe('agent_tools_off')
   })
 })
 
