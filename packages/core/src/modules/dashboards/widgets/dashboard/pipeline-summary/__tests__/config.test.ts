@@ -20,6 +20,7 @@ describe('pipeline summary settings', () => {
 
     it('defaults the status scope to open when it is absent', () => {
       expect(hydrateSettings({ dateRange: 'this_year' })).toEqual({
+        dateRangeMode: 'global',
         dateRange: 'this_year',
         statusScope: 'open',
       })
@@ -37,6 +38,7 @@ describe('pipeline summary settings', () => {
   describe('dehydrateSettings', () => {
     it('persists the status scope so a saved widget keeps it', () => {
       expect(dehydrateSettings({ dateRange: 'this_year', statusScope: 'all' })).toEqual({
+        dateRangeMode: 'global',
         dateRange: 'this_year',
         statusScope: 'all',
       })
@@ -45,7 +47,13 @@ describe('pipeline summary settings', () => {
     it('round-trips through hydrateSettings without losing the scope', () => {
       const saved = dehydrateSettings({ dateRange: 'this_year', statusScope: 'all' })
 
-      expect(hydrateSettings(saved)).toEqual({ dateRange: 'this_year', statusScope: 'all' })
+      expect(hydrateSettings(saved)).toEqual({ dateRangeMode: 'global', dateRange: 'this_year', statusScope: 'all' })
+    })
+
+    it.each(['global', 'custom'] as const)('preserves %s date ranges together with the status scope', (dateRangeMode) => {
+      const settings = { dateRangeMode, dateRange: 'this_year' as const, statusScope: 'all' as const }
+
+      expect(hydrateSettings(dehydrateSettings(settings))).toEqual(settings)
     })
   })
 

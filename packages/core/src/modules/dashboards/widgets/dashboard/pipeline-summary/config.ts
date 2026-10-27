@@ -42,7 +42,7 @@ export const PIPELINE_STATUS_SCOPES = ['open', 'all'] as const
 export type PipelineStatusScope = typeof PIPELINE_STATUS_SCOPES[number]
 
 export type PipelineSummarySettings = {
-  dateRangeMode: 'global' | 'custom'
+  dateRangeMode?: 'global' | 'custom'
   dateRange: DateRangePreset
   statusScope: PipelineStatusScope
 }
@@ -69,7 +69,7 @@ export function hydrateSettings(raw: unknown): PipelineSummarySettings {
 
 export function dehydrateSettings(settings: PipelineSummarySettings): Record<string, unknown> {
   return {
-    dateRangeMode: settings.dateRangeMode,
+    dateRangeMode: settings.dateRangeMode ?? DEFAULT_SETTINGS.dateRangeMode,
     dateRange: settings.dateRange,
     statusScope: settings.statusScope,
   }
