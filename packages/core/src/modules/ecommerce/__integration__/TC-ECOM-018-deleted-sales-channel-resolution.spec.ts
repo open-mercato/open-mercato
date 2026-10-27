@@ -78,7 +78,9 @@ test.describe('TC-ECOM-018: deleting a store default sales channel', () => {
         salesChannelId: otherChannelId,
         isDefault: false,
       });
-      const bindingIds = [fixture.channelBindingId ?? '', otherBindingId].sort();
+      const defaultBindingId = fixture.channelBindingId;
+      expect(defaultBindingId, 'the storefront fixture should create a default channel binding').toBeTruthy();
+      const bindingIds = [defaultBindingId as string, otherBindingId].sort();
 
       const before = await getStorefrontContext(hostname);
       expect(before.status, `context should resolve before the delete (${before.text})`).toBe(200);
