@@ -10,6 +10,7 @@ import { POST } from '../order-lines/batch/route'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRbacService = { getGrantedFeatures: jest.fn(async () => ['sales.orders.manage']) }
+const mockReportError = jest.fn()
 const registeredGuards: MutationGuard[] = []
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -34,6 +35,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
     translate: (key: string, fallback?: string) => fallback ?? key,
   })),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: mockReportError })),
 }))
 
 // The route must run every registered guard, not just the legacy DI bridge, so
@@ -268,6 +273,14 @@ describe('batch order-line mutation guards', () => {
     expect(await response.json()).toEqual({ orderId: ORDER_ID, lineIds: [LINE_ID] })
     expect(afterSuccess).toHaveBeenCalledTimes(1)
     expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      {
+        module: 'sales',
+        code: 'sales.order_lines_guard_after_success_failed',
+        attributes: { guardId: 'test.after-success-fails' },
+      },
+    )
   })
 
   it('runs every afterSuccess callback even when an earlier one throws', async () => {
@@ -297,6 +310,39 @@ describe('batch order-line mutation guards', () => {
 
     expect(response.status).toBe(200)
     expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the committed response when telemetry reporting fails', async () => {
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('[internal] telemetry unavailable')
+    })
+    registeredGuards.push({
+      id: 'test.after-success-fails-with-telemetry',
+      targetEntity: 'sales.order',
+      operations: ['update'],
+      validate: async () => ({ ok: true, shouldRunAfterSuccess: true }),
+      afterSuccess: async () => {
+        throw new Error('[internal] lock release failed')
+      },
+    })
+
+    const response = await POST(makeRequest(undefined, SELECTED_ORGANIZATION_ID))
+
+    expect(response.status).toBe(200)
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports an unexpected command failure with a stable code', async () => {
+    const failure = new Error('[internal] command failed')
+    mockCommandBus.execute.mockRejectedValueOnce(failure)
+
+    const response = await POST(makeRequest(undefined, SELECTED_ORGANIZATION_ID))
+
+    expect(response.status).toBe(400)
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'sales',
+      code: 'sales.order_lines_batch_failed',
+    })
   })
 })
 

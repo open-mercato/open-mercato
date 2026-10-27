@@ -18,10 +18,27 @@ import {
 import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { orderLineBulkUpsertSchema } from '../../../data/validators'
 import { withScopedPayload } from '../../utils'
 
 const logger = createLogger('sales')
+
+function reportBatchRouteError(
+  error: unknown,
+  code: 'sales.order_lines_batch_failed' | 'sales.order_lines_guard_after_success_failed',
+  attributes?: Record<string, string | number | boolean | undefined>,
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(
+      error,
+      attributes ? { module: 'sales', code, attributes } : { module: 'sales', code },
+    )
+  } catch (reportingError) {
+    logger.warn('Failed to report batch order-line error', { code, reportingError })
+  }
+}
 
 /**
  * The bulk schema tags its own refusals with a translation key in `params`
@@ -124,6 +141,9 @@ async function runGuardAfterSuccessCallbacks(
       })
     } catch (err) {
       logger.error('Mutation guard afterSuccess failed', { guardId: callback.guard.id, err })
+      reportBatchRouteError(err, 'sales.order_lines_guard_after_success_failed', {
+        guardId: callback.guard.id,
+      })
     }
   }
 }
@@ -159,7 +179,7 @@ export async function POST(req: Request) {
   try {
     const ctx = await resolveRequestContext(req)
     const { translate } = await resolveTranslations()
-    const payload = await req.json().catch(() => ({}))
+    const payload = await readJsonSafe(req, {})
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
     let input = orderLineBulkUpsertSchema.parse(scoped)
 
@@ -240,6 +260,7 @@ export async function POST(req: Request) {
     }
     const { translate } = await resolveTranslations()
     logger.error('sales.orders.lines.upsert_many failed', { err })
+    reportBatchRouteError(err, 'sales.order_lines_batch_failed')
     return NextResponse.json(
       { error: translate('sales.documents.items.errorSaveBatch', 'Failed to save order lines.') },
       { status: 400 }

@@ -20,6 +20,11 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_HEADER_NAME,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import {
   SalesOrder,
   SalesShipment,
   SalesShipmentItem,
@@ -37,6 +42,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
   invalidateCrudCache: jest.fn(),
   deriveResourceFromCommandId: jest.fn(() => 'sales.order'),
+}))
+
+jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
+  setRecordCustomFields: jest.fn(async () => undefined),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -333,7 +342,11 @@ type Harness = {
   trace: string[]
 }
 
-function makeHarness(world: World, tenantId: string = TENANT_ID): Harness {
+function makeHarness(
+  world: World,
+  tenantId: string = TENANT_ID,
+  expectedUpdatedAt?: string,
+): Harness {
   const trace: string[] = []
   const em = makeEm(world, trace)
   const emitEvent = jest.fn(async (eventId: string) => {
@@ -356,7 +369,12 @@ function makeHarness(world: World, tenantId: string = TENANT_ID): Harness {
     selectedOrganizationId: ORG_ID,
     organizationScope: null,
     organizationIds: null,
-    request: new Request('https://example.test/api/sales/order-lines', { method: 'POST' }),
+    request: new Request('https://example.test/api/sales/order-lines', {
+      method: 'POST',
+      headers: expectedUpdatedAt
+        ? { [OPTIMISTIC_LOCK_HEADER_NAME]: expectedUpdatedAt }
+        : undefined,
+    }),
   }
   return { em, ctx, emitEvent, trace }
 }
@@ -382,8 +400,13 @@ function bulkHandler() {
 
 type BulkResult = { orderId: string; lineIds: string[] }
 
-async function runBulk(world: World, body: TestWhere, tenantId: string = TENANT_ID) {
-  const harness = makeHarness(world, tenantId)
+async function runBulk(
+  world: World,
+  body: TestWhere,
+  tenantId: string = TENANT_ID,
+  expectedUpdatedAt?: string,
+) {
+  const harness = makeHarness(world, tenantId, expectedUpdatedAt)
   let caught: unknown
   let result: BulkResult | undefined
   try {
@@ -442,6 +465,10 @@ describe('sales.orders.lines.upsert_many', () => {
     await import('../documents')
   })
 
+  beforeEach(() => {
+    jest.mocked(setRecordCustomFields).mockClear()
+  })
+
   it('reaches the same line set and totals as the equivalent sequence of single upserts', async () => {
     const added = [newLineBody(1), newLineBody(2), newLineBody(3)]
 
@@ -460,6 +487,60 @@ describe('sales.orders.lines.upsert_many', () => {
     )
     expect(projectOrder(bulkWorld.order)).toEqual(projectOrder(sequentialWorld.order))
     expect(bulkWorld.order.lineItemCount).toBe(4)
+  })
+
+  it('persists custom fields and fieldset selection for each supplied line', async () => {
+    const world = makeWorld(1)
+    const customFieldSetId = '77777777-7777-4777-8777-777777777777'
+    const customFields = { warehouseZone: 'A-17', fragile: true }
+
+    const { caught, result } = await runBulk(world, {
+      lines: [newLineBody(1, { customFieldSetId, customFields })],
+    })
+
+    expect(caught).toBeUndefined()
+    const created = world.lines.find((line) => line.id === result?.lineIds[0])
+    expect(created?.customFieldSetId).toBe(customFieldSetId)
+    expect(setRecordCustomFields).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        recordId: result?.lineIds[0],
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        values: customFields,
+      }),
+    )
+  })
+
+  it('rejects a stale parent-order version and accepts the current one', async () => {
+    const staleWorld = makeWorld(1)
+    const before = orderedLines(staleWorld).map(projectLine)
+    const stale = await runBulk(
+      staleWorld,
+      { lines: [newLineBody(1)] },
+      TENANT_ID,
+      '2026-07-08T09:21:28.000Z',
+    )
+
+    expect(stale.caught).toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: OPTIMISTIC_LOCK_CONFLICT_CODE }),
+    })
+    expect(orderedLines(staleWorld).map(projectLine)).toEqual(before)
+    expect(stale.em.flush).not.toHaveBeenCalled()
+
+    const freshWorld = makeWorld(1)
+    const fresh = await runBulk(
+      freshWorld,
+      { lines: [newLineBody(1)] },
+      TENANT_ID,
+      freshWorld.order.updatedAt instanceof Date
+        ? freshWorld.order.updatedAt.toISOString()
+        : String(freshWorld.order.updatedAt),
+    )
+
+    expect(fresh.caught).toBeUndefined()
+    expect(fresh.result?.lineIds).toHaveLength(1)
   })
 
   it('loads the order lines once for the whole batch instead of once per line', async () => {
