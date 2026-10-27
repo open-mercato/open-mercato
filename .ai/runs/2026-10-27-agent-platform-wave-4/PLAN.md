@@ -37,7 +37,7 @@
 | 4 | 4.7 | Add the OTel export settings and test-span APIs | dispatch | done | pending |
 | 4 | 4.8 | Add the OTel export settings page, health line and trace link | dispatch | done | pending |
 | 4 | 4.9 | Add the otel:export backfill CLI | dispatch | done | pending |
-| 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | todo | — |
+| 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | done | pending |
 | 4 | 4.11 | Cover OTel export with integration tests | dispatch | todo | — |
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | todo | — |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | todo | — |
