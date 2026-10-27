@@ -34,6 +34,7 @@ import {
   normalizeGrantedFeatures,
   syncWorkflowDefinitionPrincipal,
 } from '../../lib/definition-grant'
+import { collectAgentInvokeGrantWarnings } from '../../lib/agent-invoke-grant-warnings'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -337,10 +338,16 @@ export async function POST(request: NextRequest) {
     // next event reload picks up this definition.
     if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
+    const warnings = await collectAgentInvokeGrantWarnings(container, {
+      definition: definition.definition,
+      grantedFeatures: definition.grantedFeatures,
+    })
+
     return NextResponse.json(
       {
         data: serializeWorkflowDefinition(definition),
         message: 'Workflow definition created successfully',
+        ...(warnings.length ? { warnings } : {}),
       },
       { status: 201 }
     )

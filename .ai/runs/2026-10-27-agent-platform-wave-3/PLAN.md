@@ -27,7 +27,7 @@
 | 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | done | 3f32eb6bc |
 | 2 | 2.3 | Map invoke denials on the run, rerun, delegate, workflow and eval paths | dispatch | done | 221d70670 |
 | 2 | 2.4 | Filter the agent list by invocability and expose invocable | dispatch | done | abd0e1f0e |
-| 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | todo | — |
+| 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | done | 5bd01eec8 |
 | 2 | 2.6 | Record invoker, entry point, channel and correlation id in the run manifest | dispatch | todo | — |
 | 3 | 3.1 | Implement the AO agent run dispatcher and register it | dispatch:capable | todo | — |
 | 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | todo | — |

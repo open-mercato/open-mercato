@@ -86,6 +86,11 @@ export type AgentOutcomeContractSnapshot = {
   schema: ZodTypeAny
 }
 
+export type AgentAccessRequirementSnapshot = {
+  agentId: string
+  requiredFeatures: string[]
+}
+
 export interface AgentWorkflowBridge {
   invokeAgentForWorkflow(
     args: InvokeAgentForWorkflowArgs,
@@ -97,6 +102,12 @@ export interface AgentWorkflowBridge {
    * falls back to `unknown` ledger entries.
    */
   listAgentOutcomeContracts?(): Promise<AgentOutcomeContractSnapshot[]>
+  /**
+   * Invoke requirements of every registered agent, so the workflows module can
+   * warn at authoring time when a definition grant cannot invoke an agent its
+   * INVOKE_AGENT step targets. OPTIONAL for the same reason as above.
+   */
+  listAgentAccessRequirements?(): Promise<AgentAccessRequirementSnapshot[]>
 }
 
 export type AgentWorkflowBridgeDeps = {
@@ -225,6 +236,14 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       contracts.push({ agentId: entry.id, resultKind: entry.resultKind, schema })
     }
     return contracts
+  }
+
+  async listAgentAccessRequirements(): Promise<AgentAccessRequirementSnapshot[]> {
+    await ensureAgentsLoaded()
+    return listAgentEntries().map((entry) => ({
+      agentId: entry.id,
+      requiredFeatures: [...(entry.requiredFeatures ?? [])],
+    }))
   }
 
   private parseSubject(raw: unknown): ProcessSubject | null {
