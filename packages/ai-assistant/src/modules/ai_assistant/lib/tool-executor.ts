@@ -1,12 +1,13 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import type { AiToolDefinition, McpToolContext, ToolExecutionResult } from './types'
+import type { AiToolDefinition, McpToolContext, McpToolDefinition, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { isMutationTool } from './mcp-audit'
 import { isRefusedInApprovalMode, type McpMutationMode } from './mcp-exposure'
 import { AiMutationPreparationError, prepareRawToolMutation } from './prepare-mutation'
+import { isAgentToolError } from './agent-tool-error'
 
 const logger = createLogger('ai_assistant')
 
@@ -134,6 +135,19 @@ async function resolveMutationGate(
   return buildMutationRequiresApprovalResult(tool.name)
 }
 
+function buildHandlerContext(
+  context: McpToolContext,
+  tool: McpToolDefinition,
+  options: ExecuteToolOptions,
+): McpToolContext {
+  const handlerContext: McpToolContext = { ...context, tool }
+  if (options.channel) handlerContext.channel = options.channel
+  if (options.mutationMode) handlerContext.mutationMode = options.mutationMode
+  if (options.correlationId) handlerContext.correlationId = options.correlationId
+  if (options.requester && options.requester.apiKeyId) handlerContext.apiKeyId = options.requester.apiKeyId
+  return handlerContext
+}
+
 /**
  * Execute a tool with full context and ACL checks.
  */
@@ -203,11 +217,21 @@ export async function executeTool(
   // Execute tool. Attach `tool` to the context so handlers that build an
   // `AiToolExecutionContext` (e.g. via `createAiApiOperationRunner`) keep their
   // route-gate coverage check working.
-  const handlerContext: McpToolContext = { ...context, tool }
+  const handlerContext = buildHandlerContext(context, tool, options)
   try {
     const result = await tool.handler(parseResult.data, handlerContext)
     return { success: true, result }
   } catch (error) {
+    if (isAgentToolError(error)) {
+      logger.warn('Agent tool call refused', { toolName, code: error.code, denyCode: error.denyCode })
+      return {
+        success: false,
+        error: error.code === 'AGENT_POLICY_DENIED'
+          ? `Tool "${toolName}" was denied by the agent policy (${error.denyCode ?? 'agent_policy_denied'})`
+          : `Tool "${toolName}" cannot run: its agent is not available`,
+        errorCode: error.code,
+      }
+    }
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Error executing tool', { toolName, err: error })
     return {

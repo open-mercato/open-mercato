@@ -75,6 +75,21 @@ export {
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
 
+// Agent exposed as one tool (chat, MCP, /tools/execute)
+export {
+  defineAgentTool,
+  AGENT_TOOL_DEFAULT_TIMEOUT_MS,
+  isAgentToolFeatureSuperset,
+  type AgentToolResult,
+  type DefineAgentToolSpec,
+} from './modules/ai_assistant/lib/agent-tool'
+export {
+  AgentToolError,
+  isAgentToolError,
+  type AgentToolErrorCode,
+  type AgentToolDenyCode,
+} from './modules/ai_assistant/lib/agent-tool-error'
+
 // Attachment-bridge contract types (spec Phase 0 §8/§10, implementation-ready for Phase 3 runtime)
 export {
   type AttachmentSource,

@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
-import type { McpExposureConfig } from './mcp-exposure'
+import type { McpExposureConfig, McpMutationMode } from './mcp-exposure'
 
 /**
  * Execution context for MCP tool calls.
@@ -32,6 +32,17 @@ export interface McpToolContext {
    * write can be correlated with the original request and its requester.
    */
   auditCorrelation?: McpToolAuditCorrelation
+  /**
+   * Surface the call arrived on, populated by `executeTool` from its options.
+   * Absent means the in-process agent channel.
+   */
+  channel?: 'agent' | 'mcp' | 'tools-api'
+  /** Server mutation mode for the `mcp` / `tools-api` channels. */
+  mutationMode?: McpMutationMode
+  /** API key that authenticated the call, when the caller used one. */
+  apiKeyId?: string | null
+  /** Correlation id shared by the call's audit row and any run it starts. */
+  correlationId?: string | null
 }
 
 export interface McpToolAuditCorrelation {
@@ -286,6 +297,8 @@ export interface ToolExecutionResult {
     | 'EXECUTION_ERROR'
     | 'MUTATION_REQUIRES_APPROVAL'
     | 'MUTATION_REQUESTER_UNRESOLVED'
+    | 'AGENT_DISPATCHER_UNAVAILABLE'
+    | 'AGENT_POLICY_DENIED'
   pendingApproval?: { pendingActionId: string; expiresAt: string }
 }
 
