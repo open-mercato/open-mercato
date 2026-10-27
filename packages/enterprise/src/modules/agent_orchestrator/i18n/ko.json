@@ -237,6 +237,7 @@
   "agent_orchestrator.audit.kpi.totalSub": "기록된 에이전트 결정",
   "agent_orchestrator.audit.log.serverPaginatedNote": "로그는 모든 결정에 대해 서버에서 페이지로 나뉩니다. 처리 필터로 범위를 좁히세요.",
   "agent_orchestrator.audit.title": "감사 로그",
+  "agent_orchestrator.audit.traceCapturePolicy.update": "추적 캡처 정책 업데이트",
   "agent_orchestrator.caseload.actions.approveAria": "제안 승인",
   "agent_orchestrator.caseload.actions.rejectAria": "제안 거부",
   "agent_orchestrator.caseload.bulk.clear": "선택 해제",

@@ -34,7 +34,7 @@ type ModuleConfigServiceLike = {
     moduleId: string,
     name: string,
     scope?: { tenantId?: string | null },
-  ): Promise<{ value: unknown } | null>
+  ): Promise<{ value: unknown; source?: string; updatedAt?: string } | null>
 }
 
 const warnedEnvValues = new Set<string>()
@@ -89,39 +89,55 @@ function resolveModuleConfig(container: AwilixContainer): ModuleConfigServiceLik
   }
 }
 
+export type StoredTraceCapturePolicy = {
+  policy: TraceCapturePolicy
+  source: TraceCapturePolicySource
+  updatedAt: string | null
+}
+
 /**
- * The tenant's stored capture policy and whether it actually saved one.
+ * The tenant's stored capture policy, whether it actually saved one, and the
+ * tenant row's `updatedAt` (the optimistic-lock version; `null` when the
+ * tenant has no row of its own).
  *
- * Every failure arm — no config store, no record, a malformed or unreadable
- * record — reports `'default'`, which `resolveCaptureLevel` reads as "use the
- * deployment default", never as a looser level.
+ * Every failure arm — no config store, no record, a cleared (`null`) value, a
+ * malformed or unreadable record — reports `'default'`, which
+ * `resolveCaptureLevel` reads as "use the deployment default", never as a
+ * looser level.
  */
 export async function readTraceCapturePolicy(
   container: AwilixContainer,
   tenantId: string | null,
-): Promise<{ policy: TraceCapturePolicy; source: TraceCapturePolicySource }> {
-  const fallback = { policy: DEFAULT_TRACE_CAPTURE_POLICY, source: 'default' as const }
+): Promise<StoredTraceCapturePolicy> {
+  const fallback = (updatedAt: string | null = null): StoredTraceCapturePolicy => ({
+    policy: DEFAULT_TRACE_CAPTURE_POLICY,
+    source: 'default',
+    updatedAt,
+  })
   const service = resolveModuleConfig(container)
-  if (!service) return fallback
+  if (!service) return fallback()
   try {
     const record = await service.getRecord(TRACE_CAPTURE_CONFIG_MODULE, TRACE_CAPTURE_CONFIG_NAME, {
       tenantId,
     })
-    if (!record) return fallback
+    if (!record) return fallback()
+    const updatedAt =
+      record.source !== 'instance' && typeof record.updatedAt === 'string' ? record.updatedAt : null
+    if (record.value === null || record.value === undefined) return fallback(updatedAt)
     const parsed = traceCapturePolicySchema.safeParse(record.value)
     if (!parsed.success) {
       logger.warn('stored trace capture policy is malformed; using the deployment default', {
         tenantId,
       })
-      return fallback
+      return fallback(updatedAt)
     }
-    return { policy: parsed.data, source: 'tenant' }
+    return { policy: parsed.data, source: 'tenant', updatedAt }
   } catch (error) {
     logger.warn('trace capture policy unreadable; using the deployment default', {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     })
-    return fallback
+    return fallback()
   }
 }
 

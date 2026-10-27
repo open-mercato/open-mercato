@@ -100,7 +100,41 @@ describe('readTraceCapturePolicy', () => {
     await expect(readTraceCapturePolicy(container as never, TENANT_ID)).resolves.toEqual({
       policy: DEFAULT_TRACE_CAPTURE_POLICY,
       source: 'default',
+      updatedAt: null,
     })
+  })
+
+  test('a tenant row reports its updatedAt as the lock version', async () => {
+    const { container } = makeContainer({
+      value: { level: 'off' },
+      source: 'tenant',
+      updatedAt: '2026-10-27T10:00:00.000Z',
+    })
+    const result = await readTraceCapturePolicy(container as never, TENANT_ID)
+    expect(result).toMatchObject({ source: 'tenant', updatedAt: '2026-10-27T10:00:00.000Z' })
+  })
+
+  test('a cleared tenant row reads as the default but keeps its version', async () => {
+    const { container } = makeContainer({
+      value: null,
+      source: 'tenant',
+      updatedAt: '2026-10-27T10:00:00.000Z',
+    })
+    await expect(readTraceCapturePolicy(container as never, TENANT_ID)).resolves.toEqual({
+      policy: DEFAULT_TRACE_CAPTURE_POLICY,
+      source: 'default',
+      updatedAt: '2026-10-27T10:00:00.000Z',
+    })
+  })
+
+  test('an instance-level row carries no tenant lock version', async () => {
+    const { container } = makeContainer({
+      value: { level: 'full' },
+      source: 'instance',
+      updatedAt: '2026-10-27T10:00:00.000Z',
+    })
+    const result = await readTraceCapturePolicy(container as never, TENANT_ID)
+    expect(result.updatedAt).toBeNull()
   })
 })
 
