@@ -27,7 +27,7 @@ const SKIPPED_DIRECTORIES = new Set([
   'build',
   '.docusaurus',
 ]);
-const ENTERPRISE_PACKAGE = join('packages', 'enterprise') + '/';
+const ENTERPRISE_PACKAGE = join('packages', 'enterprise', '/');
 
 function collectConventionFiles(dir, found = []) {
   let entries;
