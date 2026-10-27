@@ -12,17 +12,17 @@ Open Mercato modules are developed by third-party developers who depend on stabl
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+**Only steps 1–3** (staged removal, deprecation, bridge) may be waived when the removed surface **is itself the vulnerability**: retaining the old shape keeps the exploit reachable throughout the deprecation window. Merely enabling insecure usage does not qualify.
 
-This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
+This is not author/reviewer discretion. Every condition below MUST hold; otherwise use the ordinary protocol:
 
-1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
-2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
-3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
-4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
-5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
+1. **Argue qualification:** the PR names the surface, vulnerability, and why a bridge keeps it reachable.
+2. **Remove only what closes the hole:** no unrelated tightening and no vulnerable branch retained behind a flag, config toggle, or opt-in.
+3. **Keep steps 4–5:** `UPGRADE_NOTES.md` gives client AND operator migration instructions; a spec under `.ai/specs/` or `.ai/specs/enterprise/` includes "Migration & Backward Compatibility".
+4. **Append a dated entry here:** record the surface, classification, qualifying argument, and migration path.
+5. **Require named human maintainer sign-off:** the PR carries `security` and human approval acknowledging the waiver. Automated review cannot clear it.
 
-Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
+With no bridge, disclosure is mandatory: `UPGRADE_NOTES.md` MUST plainly state what stops working, for whom, and the remedy, including stored credentials or data that become unusable or newly suspect.
 
 ---
 
@@ -605,37 +605,10 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ---
 
-## Public Pay-Link Administrative Disclosure (2026-10-27, #7823)
+## Public pay links (2026-10-27, #7823)
 
-**Surface and classification:** `GET /api/checkout/pay/:slug` response fields,
-including verified-password and authenticated link-preview responses — **STABLE
-API contract (§7), security removal under the Emergency Security Exception**.
+**STABLE API §7:** `GET /api/checkout/pay/:slug` removes admin email/management fields, including verified and preview responses. The old shape is the disclosure itself; a bridge or flag retains it, qualifying for the Emergency Security Exception.
 
-**Qualifying argument:** the route returned administrative email subjects/bodies
-and send flags together with management metadata to public payers by spreading
-the administrative serializer. Continued delivery of those fields is the
-disclosure itself. A bridge, legacy response option, or flag retaining them would
-leave the vulnerability reachable throughout the deprecation window. The fix
-removes only administrative members and leaves the payer-facing flow intact.
+Clients use authenticated admin reads; operators deploy, purge public caches and assess prior exposure. See [migration/spec](.ai/specs/implemented/2026-03-19-checkout-pay-links.md) and [upgrade notes](UPGRADE_NOTES.md).
 
-**Removed fields:** `successEmailSubject`, `successEmailBody`, `sendSuccessEmail`,
-`errorEmailSubject`, `errorEmailBody`, `sendErrorEmail`, `startEmailSubject`,
-`startEmailBody`, `sendStartEmail`, `logoAttachmentId`, `customFieldsetCode`,
-`templateId`, `maxCompletions`, `completionCount`, `activeReservationCount`,
-`isLocked`, `createdAt`, `updatedAt`. Gateway settings, password hashes and scope
-identifiers remain excluded. Authenticated administrative responses are unchanged.
-
-**Migration:** public consumers use the documented public allowlist, including
-`logoPreviewUrl`/`logoUrl` and derived `remainingUses`. Management clients read
-`GET /api/checkout/links/:id` with `checkout.view` and must not forward that payload
-to a public page. Operators deploy the patched app/package, purge cached public
-responses and assess confidential template content already exposed; downloaded
-copies cannot be recalled. No database migration, stored-data conversion or
-password-session reset is required. See
-[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) and the
-[spec's Migration & Backward Compatibility section](.ai/specs/implemented/2026-03-19-checkout-pay-links.md#migration--backward-compatibility).
-
-**Maintainer sign-off: pending.** The PR must carry `security` and a named human
-maintainer approval explicitly acknowledging the waiver of deprecation steps
-1–3 before merge. Automated review cannot grant this exception. Steps 4–5
-(upgrade guidance and specification) remain mandatory and are supplied here.
+**Pending:** `security` and named human maintainer approval waiving steps 1–3 before merge; automation cannot grant it.
