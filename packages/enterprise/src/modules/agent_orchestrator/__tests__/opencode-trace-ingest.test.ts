@@ -376,6 +376,31 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     expect(attributes['om.invoker']).toEqual({ kind: 'user', userId: 'user-1', apiKeyId: null, ownerUserId: null })
   })
 
+  it('records the invoker, entry point and correlation id from the run context in the manifest', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'manifest' }, {
+      ...runCtx,
+      invoker: { kind: 'api_key', apiKeyId: 'key-1', ownerUserId: 'user-1' },
+      entryPoint: 'run_api',
+      correlationId: 'corr-1',
+    })
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    const attributes = manifest?.attributes as Record<string, unknown>
+    expect(attributes['om.invoker']).toEqual({ kind: 'api_key', userId: null, apiKeyId: 'key-1', ownerUserId: 'user-1' })
+    expect(attributes['om.entry_point']).toBe('run_api')
+    expect(attributes).not.toHaveProperty('om.channel')
+    expect(attributes['om.correlation_id']).toBe('corr-1')
+  })
+
   it('writes no run.manifest span when trace capture is off', async () => {
     process.env.OM_AGENT_TRACE_CAPTURE = 'off'
     try {

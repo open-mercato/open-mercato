@@ -393,6 +393,26 @@ describe('post-run trace capture', () => {
     })
   })
 
+  it('records the invoker, entry point and correlation id from the run context in the manifest', async () => {
+    registerNativeAgent('native.manifest_identity_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    await makeService().run('native.manifest_identity_agent', {}, {
+      ...runCtx,
+      invoker: { kind: 'workflow', actingUserId: 'user-1' },
+      entryPoint: 'workflow',
+      correlationId: 'corr-1',
+    })
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    const payload = buildNativeTracePayload(traceInput)
+    const manifest = (payload.spans ?? []).find((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+    const attributes = manifest?.attributes as Record<string, unknown>
+    expect(attributes['om.invoker']).toEqual({ kind: 'workflow', userId: 'user-1', apiKeyId: null, ownerUserId: null })
+    expect(attributes['om.entry_point']).toBe('workflow')
+    expect(attributes['om.correlation_id']).toBe('corr-1')
+  })
+
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {
     process.env.OM_AGENT_TRACE_CAPTURE = 'off'
     registerNativeAgent('native.capture_off_agent')

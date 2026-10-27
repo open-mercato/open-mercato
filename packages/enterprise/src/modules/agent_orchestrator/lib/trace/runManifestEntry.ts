@@ -6,7 +6,7 @@ import type { TraceSpanIngest } from '../../data/validators'
 import { DELEGATE_TOOL_ID, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { getSkillEntry } from '../sdk/defineSkill'
 import { getAgentSkill } from '../runtime/fileAgentSkills'
-import type { AgentRunCtx } from '../runtime/persistence'
+import type { AgentInvoker, AgentRunCtx } from '../runtime/persistence'
 import { resolveAgentDefinitionHash } from './definitionHash'
 import {
   RUN_MANIFEST_SPAN_NAME,
@@ -15,13 +15,14 @@ import {
   runManifestExternalSpanId,
   type RunManifestAgentSource,
   type RunManifestInput,
+  type RunManifestInvoker,
   type RunManifestRuntime,
   type RunManifestSkill,
 } from './runManifest'
 
 export type AgentRunManifestOptions = {
   entry: AgentRegistryEntry
-  ctx: Pick<AgentRunCtx, 'userId' | 'runAs'>
+  ctx: Pick<AgentRunCtx, 'userId' | 'runAs' | 'invoker' | 'entryPoint' | 'channel' | 'correlationId'>
   runtime: RunManifestRuntime
   promptResolved?: Pick<AiAgentPromptResolvedEvent, 'systemPrompt' | 'promptOverride' | 'provider' | 'modelId'> | null
   observation?: Pick<RunObservationSnapshot, 'knowledge'> | null
@@ -83,6 +84,24 @@ export function resolveManifestSkills(entry: AgentRegistryEntry): RunManifestSki
   return skills
 }
 
+export function toManifestInvoker(invoker: AgentInvoker): RunManifestInvoker {
+  switch (invoker.kind) {
+    case 'user':
+      return { kind: 'user', userId: invoker.userId, apiKeyId: null, ownerUserId: null }
+    case 'api_key':
+      return { kind: 'api_key', userId: null, apiKeyId: invoker.apiKeyId, ownerUserId: invoker.ownerUserId ?? null }
+    case 'workflow':
+      return { kind: 'workflow', userId: invoker.actingUserId, apiKeyId: null, ownerUserId: null }
+    case 'agent_token':
+      return {
+        kind: 'agent_token',
+        userId: invoker.agentUserId,
+        apiKeyId: null,
+        ownerUserId: invoker.onBehalfOfUserId ?? null,
+      }
+  }
+}
+
 export function captureManifestTraceparent(): string | null {
   return captureTelemetryTrace()?.traceparent ?? null
 }
@@ -105,6 +124,10 @@ export function buildAgentRunManifestInput(options: AgentRunManifestOptions): Ru
     modelResolved: promptResolved?.modelId ?? null,
     provider: promptResolved?.provider ?? null,
     observation: options.observation ?? null,
+    invoker: ctx.invoker ? toManifestInvoker(ctx.invoker) : null,
+    entryPoint: ctx.entryPoint ?? null,
+    channel: ctx.channel ?? null,
+    correlationId: ctx.correlationId ?? null,
     runAs: ctx.runAs
       ? { agentUserId: ctx.runAs.agentUserId, onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null }
       : null,

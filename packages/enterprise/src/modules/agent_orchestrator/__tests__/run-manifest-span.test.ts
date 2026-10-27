@@ -8,12 +8,20 @@ import { buildNativeTracePayload, type NativeStepRecord } from '../lib/runtime/n
 import { registerAgentSkills, clearAgentSkills } from '../lib/runtime/fileAgentSkills'
 import type { AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../lib/trace/definitionHash'
-import { RUN_MANIFEST_SPAN_NAME, computeManifestSha256, type RunManifestAttributes } from '../lib/trace/runManifest'
+import type { AgentInvoker } from '../lib/runtime/persistence'
+import {
+  RUN_MANIFEST_MAX_CHARS,
+  RUN_MANIFEST_SPAN_NAME,
+  computeManifestSha256,
+  measureRunManifest,
+  type RunManifestAttributes,
+} from '../lib/trace/runManifest'
 import {
   buildAgentRunManifestInput,
   buildRunManifestSpan,
   captureManifestTraceparent,
   computeManifestToolsSha256,
+  toManifestInvoker,
 } from '../lib/trace/runManifestEntry'
 
 const RUN_ID = '018f6f2a-0000-4000-8000-0000000000aa'
@@ -214,5 +222,83 @@ describe('OpenCode run manifest input', () => {
     expect(attributes['om.skills']).toHaveLength(1)
     expect(attributes['om.skills'][0].id).toBe('stage_playbook')
     expect(attributes['om.skills'][0].sha256).toMatch(/^sha256:[0-9a-f]+$/)
+  })
+})
+
+describe('run manifest invoker, entry point, channel and correlation', () => {
+  const API_KEY_ID = '018f6f2a-0000-4000-8000-0000000000dd'
+  const GRANT_ID = '018f6f2a-0000-4000-8000-0000000000ee'
+  const CORRELATION_ID = '018f6f2a-0000-4000-8000-0000000000ff'
+
+  function manifestFor(ctx: Parameters<typeof buildAgentRunManifestInput>[0]['ctx'], entry = codeAgent()) {
+    return buildRunManifestSpan({
+      runId: RUN_ID,
+      sequence: 0,
+      recordedAtMs: T0,
+      manifest: buildAgentRunManifestInput({ entry, ctx, runtime: 'native' }),
+    }).attributes as RunManifestAttributes
+  }
+
+  it.each<[AgentInvoker, RunManifestAttributes['om.invoker']]>([
+    [{ kind: 'user', userId: USER_ID }, { kind: 'user', userId: USER_ID, apiKeyId: null, ownerUserId: null }],
+    [
+      { kind: 'api_key', apiKeyId: API_KEY_ID, ownerUserId: USER_ID },
+      { kind: 'api_key', userId: null, apiKeyId: API_KEY_ID, ownerUserId: USER_ID },
+    ],
+    [
+      { kind: 'api_key', apiKeyId: API_KEY_ID, ownerUserId: null },
+      { kind: 'api_key', userId: null, apiKeyId: API_KEY_ID, ownerUserId: null },
+    ],
+    [{ kind: 'workflow', actingUserId: USER_ID }, { kind: 'workflow', userId: USER_ID, apiKeyId: null, ownerUserId: null }],
+    [
+      { kind: 'agent_token', agentUserId: AGENT_USER_ID, onBehalfOfUserId: USER_ID, grantId: GRANT_ID },
+      { kind: 'agent_token', userId: AGENT_USER_ID, apiKeyId: null, ownerUserId: USER_ID },
+    ],
+  ])('serializes a %o invoker without secrets or grant ids', (invoker, expected) => {
+    expect(toManifestInvoker(invoker)).toEqual(expected)
+    const attributes = manifestFor({ userId: USER_ID, invoker })
+    expect(attributes['om.invoker']).toEqual(expected)
+    expect(JSON.stringify(attributes)).not.toContain(GRANT_ID)
+  })
+
+  it('records the entry point and correlation id from the run context', () => {
+    const attributes = manifestFor({ userId: USER_ID, entryPoint: 'workflow', correlationId: CORRELATION_ID })
+    expect(attributes['om.entry_point']).toBe('workflow')
+    expect(attributes['om.correlation_id']).toBe(CORRELATION_ID)
+  })
+
+  it('records the channel only for ai_assistant and tool entry points', () => {
+    expect(manifestFor({ userId: USER_ID, entryPoint: 'ai_assistant', channel: 'chat' })['om.channel']).toBe('chat')
+    expect(manifestFor({ userId: USER_ID, entryPoint: 'tool', channel: 'mcp' })['om.channel']).toBe('mcp')
+    expect(manifestFor({ userId: USER_ID, entryPoint: 'run_api', channel: 'internal' })).not.toHaveProperty('om.channel')
+    expect(manifestFor({ userId: USER_ID, channel: 'chat' })).not.toHaveProperty('om.channel')
+  })
+
+  it('keeps the default user invoker and omits the entry point when the context lacks them', () => {
+    const attributes = manifestFor({ userId: USER_ID })
+    expect(attributes['om.invoker']).toEqual({ kind: 'user', userId: USER_ID, apiKeyId: null, ownerUserId: null })
+    expect(attributes).not.toHaveProperty('om.entry_point')
+    expect(attributes).not.toHaveProperty('om.channel')
+    expect(attributes['om.correlation_id']).toBeNull()
+  })
+
+  it('keeps identity keys while trimming an oversized manifest under the cap', () => {
+    const entry = { ...codeAgent(), tools: Array.from({ length: 400 }, (_, index) => `module_${index}.tool_${index}`) }
+    const attributes = manifestFor(
+      {
+        userId: USER_ID,
+        invoker: { kind: 'api_key', apiKeyId: API_KEY_ID, ownerUserId: USER_ID },
+        entryPoint: 'tool',
+        channel: 'mcp',
+        correlationId: CORRELATION_ID,
+      },
+      entry,
+    )
+    expect(attributes['om.manifest.truncated']).toBe(true)
+    expect(measureRunManifest(attributes)).toBeLessThanOrEqual(RUN_MANIFEST_MAX_CHARS)
+    expect(attributes['om.invoker'].apiKeyId).toBe(API_KEY_ID)
+    expect(attributes['om.entry_point']).toBe('tool')
+    expect(attributes['om.channel']).toBe('mcp')
+    expect(attributes['om.correlation_id']).toBe(CORRELATION_ID)
   })
 })
