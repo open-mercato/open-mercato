@@ -1,6 +1,6 @@
 # Backward Compatibility Contract
 
-Open Mercato modules are developed by third-party developers who depend on stable platform APIs. Every surface listed below is a **public contract**. Changes to these surfaces MUST follow the deprecation protocol or they are **breaking changes** that block merge.
+Every listed surface is a **public contract**. Changes MUST follow the deprecation protocol or block merge as **breaking changes**.
 
 ## Deprecation Protocol
 
@@ -68,7 +68,7 @@ The following file names, their expected export names, and their role in module 
 
 ### 2. Type Definitions & Interfaces (STABLE)
 
-These exported types are consumed by module developers. Required fields MUST NOT be removed or have their types narrowed. Optional fields may be added freely.
+Required fields MUST NOT be removed or narrowed. Optional fields may be added freely.
 
 **Immutable required fields** (removing or renaming any is a breaking change):
 
@@ -112,7 +112,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 
 ### 3. Function Signatures (STABLE)
 
-These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
+Signatures MUST NOT change incompatibly. New optional parameters may be added.
 
 | Function | Package | Contract |
 |----------|---------|----------|
@@ -179,8 +179,6 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
 
 ### 7. API Route URLs (STABLE)
-
-External tools, frontends, and integrations depend on API URL patterns.
 
 - MUST NOT rename or remove an existing API route URL
 - MUST NOT change the HTTP method for an existing operation
@@ -605,8 +603,6 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ---
 
-## SCIM Pre-verification Rate Limit (2026-10-27)
+## SCIM rate limiting (2026-10-27)
 
-Public SCIM v2 operations share a trusted-client-IP budget before bearer verification ([#7829](https://github.com/open-mercato/open-mercato/issues/7829)). The default is 10 requests per second, configurable with `RATE_LIMIT_SCIM_POINTS`, `RATE_LIMIT_SCIM_DURATION`, and `RATE_LIMIT_SCIM_BLOCK_DURATION`. Exhaustion adds a SCIM `429` error with `Retry-After` and `X-RateLimit-*` headers; limiter unavailability adds a SCIM `503` error. This is an additive error-response change to API routes (§7); URLs, HTTP methods, request schemas and successful response bodies remain stable.
-
-Clients should honor `Retry-After`; operators should configure `RATE_LIMIT_TRUST_PROXY_DEPTH` for their proxy topology and tune the budget for provisioning bursts. Without a trusted client IP, requests share the safe global fallback bucket. No database or token migration is required. See the [SSO specification's migration guidance](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+SCIM v2 adds 429/503 errors before bearer verification; honor Retry-After. URLs and successful bodies stay stable. See [configuration and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
