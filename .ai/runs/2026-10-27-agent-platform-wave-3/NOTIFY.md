@@ -55,3 +55,10 @@
   - run-object passes a single user message as its content string, else the messages array, to AO agents. Agents present in the ai-assistant registry still hit `checkAgentPolicy` first, whose existing 403 message lists the required features; dispatcher denials are generic.
   - Agent-token route uses `requireAuth: false` and the bucket `RATE_LIMIT_AGENT_ORCH_AGENT_API_RUN_*`; staff run-route helpers extracted to `lib/runtime/agentRunHttp.ts`.
 - Finding (pre-existing, out of scope, follow-up): `api/identity/token/route.ts` and `api/identity/agent/auth/route.ts` declare `POST: {}`; the app dispatcher (`checkAuthorization`) requires auth unless `requireAuth === false`, so these OAuth endpoints are unreachable without a staff session. Verified in `apps/mercato/src/app/api/[...slug]/route.ts`.
+
+## 2026-10-27T09:44:37Z — checkpoint 4 (Steps 3.4..3.6, Phase 3 close)
+- ai-assistant + AO jest, lint, typecheck, agents budget, template sync, build:app --force: pass.
+- Integration against the ephemeral app (AO enabled via enterprise flags): wave-3 specs 8 passed / 2 skipped (no real LLM provider; no deterministic unrunnable agent tool). TC-AI-RUN-TRACE-016 failed twice → fixed forward as Step 3.6 (resolver depth for nullable runId; providerOptions case contradicted the wave-2 HTTP schema — latent on #8011 too).
+- Correction to the wave-2 handoff: AO does register in the ephemeral app when started with `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`.
+- Decision: the 3.4 commit reached `upstream` before its amend, so local was reset to the pushed `d14cf1e1a` (code identical) and the 3.4 row is flipped in this checkpoint commit. Executor rule changed: no amend; `pending` SHAs filled at checkpoints.
+- 3.4 decisions: tool name `agent_examples.triage_ticket` (FROZEN once published); `support.ticket_triage` declares `requiredFeatures: ['agent_orchestrator.agents.view']` (existing feature, granted to employee/admin/superadmin by default).

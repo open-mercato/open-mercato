@@ -1,23 +1,23 @@
 # Handoff — 2026-10-27-agent-platform-wave-3
 
-**Last updated:** 2026-10-27T09:11:58Z
+**Last updated:** 2026-10-27T09:44:37Z
 **Branch:** feat/agent-platform-wave-3 (stacked on feat/agent-platform-wave-2 @ 2d3734ed6)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8018 (draft)
-**Current phase/step:** Phase 3 Step 3.4
-**Last commit:** checkpoint 3 — docs(runs): checkpoint 3 — steps 2.5..3.3 verified
+**Current phase/step:** Phase 4 Step 4.1
+**Last commit:** checkpoint 4 — docs(runs): checkpoint 4 — steps 3.4..3.6 verified
 
 ## What just happened
-- Phase 2 (Identity P1) complete. Steps 3.1–3.3 landed: AO dispatcher, run-object delegation (runId null + agentRunId), agent-token run route. Checkpoint 3 passed.
+- Phase 3 (Identity P5 + MCP P5) complete: example agent tool, decoupling test, integration specs. Checkpoint 4 ran the new specs against the ephemeral app (AO enabled): 8 passed, 2 skipped (provider / no unrunnable tool); TC-AI-RUN-TRACE-016 fixed in 3.6.
 
 ## Next concrete action
-- Step 3.4 — Expose an example AO agent with defineAgentTool and test module decoupling.
+- Step 4.1 — Add the integrity path dialect, declaration schemas and defineAgent keys.
 
 ## Blockers / open questions
 - none. Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).
 
 ## Environment caveats
 - Dev runtime runnable: not from this worktree (port 3000 belongs to an unrelated project)
-- Browser / UI checks: skipped at checkpoint 1 (component test covers the new section); deferred to the final-gate integration run
+- Browser / UI checks: the ephemeral env (`yarn test:integration:ephemeral:start` with `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`) runs the app incl. AO at the port in `.ai/qa/ephemeral-env.json`; run specs with `BASE_URL`/`DATABASE_URL` from that file
 - Database/migration state: clean (no migration)
 - Run `yarn build:packages` after `yarn generate` in a fresh worktree, otherwise ui tests importing core `#generated` fail to load.
 
