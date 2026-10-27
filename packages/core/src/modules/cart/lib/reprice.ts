@@ -12,7 +12,7 @@ import type { SalesCalculationService } from '@open-mercato/core/modules/sales/s
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
 import { Cart, CartLine } from '../data/entities'
 import { absDecimal, decimalToString } from '@open-mercato/shared/lib/decimal'
-import { resolveCartCurrencyDecimalPlaces, resolvedPriceString } from './exactPricing'
+import { resolvedPriceString, samePrice } from './exactPricing'
 
 // Step 5.1 — the whole-cart re-pricing engine behind the `cart.reprice` command (triggers
 // 2-4, §5.2) and the real `Cart.totals` aggregate (§3.2). Closes the gap NOTIFY.md has
@@ -199,13 +199,12 @@ export function buildCartLineRepricePhases(
   now: Date,
   changes: CartPriceChange[],
   touched: CartLine[],
+  currencyDecimalPlaces: number | null = null,
 ): Array<() => Promise<void>> {
   const scope: CartRepriceScope = { tenantId: cart.tenantId, organizationId: cart.organizationId }
   const buyerPricingService = container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
   const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
   const pricingContext = buildPricingContext(cart)
-  let currencyDecimalPlaces: Promise<number | null> | null = null
-  const resolveDecimalPlaces = () => (currencyDecimalPlaces ??= resolveCartCurrencyDecimalPlaces(container, cart))
 
   // Step 7.1 — §4.2/§6a.2: a flagged line is excluded from re-pricing (same reasoning as the
   // totals/evaluate exclusion below — it is not for sale right now). A `promotion`-origin
@@ -233,7 +232,7 @@ export function buildCartLineRepricePhases(
     const resolved = await buyerPricingService.resolveLinePrice(
       em,
       rows,
-      buildBuyerContext(cart, quantity, now, await resolveDecimalPlaces()),
+      buildBuyerContext(cart, quantity, now, currencyDecimalPlaces),
       scope,
     )
     if (!resolved.priceRow) return
@@ -246,7 +245,7 @@ export function buildCartLineRepricePhases(
 
     const newNet = line.unitPriceNet ?? null
     const newGross = line.unitPriceGross ?? null
-    if (oldNet !== newNet || oldGross !== newGross) {
+    if (!samePrice(oldNet, newNet) || !samePrice(oldGross, newGross)) {
       changes.push({
         lineId: line.id,
         productId: line.productId,
