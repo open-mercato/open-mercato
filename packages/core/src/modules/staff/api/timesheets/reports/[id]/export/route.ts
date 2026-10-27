@@ -133,9 +133,11 @@ function stripAmounts(groups: readonly ReportGroup[]): ReportGroup[] {
   return groups.map((group) => ({
     ...group,
     rate: null,
+    rateExact: null,
     amount: 0,
+    amountExact: '0',
     lines: group.lines.map(function strip(line): ReportGroup['lines'][number] {
-      return { ...line, rate: null, amount: 0, children: line.children.map(strip) }
+      return { ...line, rate: null, rateExact: null, amount: 0, amountExact: '0', children: line.children.map(strip) }
     }),
   }))
 }
