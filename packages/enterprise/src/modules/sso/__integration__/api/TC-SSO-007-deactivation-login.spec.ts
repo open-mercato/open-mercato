@@ -77,8 +77,15 @@ test.describe('TC-SSO-007: SCIM deactivation blocks sign-in', () => {
       expect((await apiRequest(request, 'GET', '/api/auth/profile', { token: oldToken })).status()).toBe(401)
       const refresh = await request.get('/api/auth/session/refresh', {
         headers: { Cookie: `session_token=${oldRefreshToken}` },
+        maxRedirects: 0,
       })
-      expect(refresh.status()).toBe(401)
+      expect(refresh.status()).toBe(307)
+      expect(new URL(refresh.headers().location, refresh.url()).pathname).toBe('/login')
+      const apiRefresh = await request.post('/api/auth/session/refresh', {
+        data: { refreshToken: oldRefreshToken },
+      })
+      expect(apiRefresh.status()).toBe(401)
+      expect((await readJsonSafe<Record<string, unknown>>(apiRefresh))?.accessToken).toBeUndefined()
 
       const deniedLogin = await signIn()
       expect(deniedLogin.status()).toBe(401)
