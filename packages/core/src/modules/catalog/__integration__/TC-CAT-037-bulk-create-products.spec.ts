@@ -3,6 +3,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const POLL_INTERVAL_MS = 200
 const POLL_TIMEOUT_MS = 30_000
@@ -19,20 +20,24 @@ if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
 }
 
+const SERVER_RUNS_QUEUE_WORKERS =
+  parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) ??
+  parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS) ??
+  true
+
 /**
- * The drained count is returned rather than discarded because it distinguishes the two ways this
- * batch can reach a terminal state. `ephemeral-integration` runs the app with AUTO_SPAWN_WORKERS
- * defaulting to true, so the server's own worker competes with this drain for the same job: 0
- * means the server had already claimed it and this drain was a no-op, 1 means this process ran the
- * batch. #6008 turns on whether both of them ran it, and that is invisible from the job row alone
- * — the drain child's own logs are suppressed unless OM_DRAIN_DEBUG=1.
+ * Drain only when the app runs no queue worker of its own. The local queue strategy supports one
+ * consumer per queue, so starting this drain alongside the ephemeral server's auto-spawned worker
+ * lets both consumers claim the same job. The two attempts then collide on their own rows and the
+ * later completion can overwrite the correct summary (#6008). Returning the drain count keeps the
+ * failure diagnostic explicit: zero means the server owned the job.
  */
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
 ): Promise<{ job: Record<string, unknown>; drained: number }> {
-  const drained = await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
+  const drained = SERVER_RUNS_QUEUE_WORKERS ? 0 : await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let last: Record<string, unknown> | null = null
   while (Date.now() < deadline) {
@@ -86,8 +91,6 @@ async function deleteProductsMatching(
  */
 test.describe('TC-CAT-037: Bulk create products', () => {
   test('creates products via the async queue worker and reports a batch-collision failure', async ({ request }) => {
-    test.slow()
-
     const token = await getAuthToken(request)
     const stamp = Date.now()
     const duplicateSku = `TC-CAT-037-DUP-${stamp}`
