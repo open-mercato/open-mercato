@@ -1,7 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { createOrderLineFixture, createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import {
   cancelThenDeleteClaimIfPossible, createClaimFixture, listClaimLines, readClaim,
@@ -60,7 +59,6 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
         expect(created.status()).toBe(200)
         expect(result?.replacementOrderId).toBeTruthy()
         const replacementId = result!.replacementOrderId
-        await drainIntegrationQueue('events')
         await expect.poll(async () => (await readOrder(request, token, replacementId))?.status).toBe('pending_approval')
         const log = await replacementLog(request, token, claimId)
         if (edited) {

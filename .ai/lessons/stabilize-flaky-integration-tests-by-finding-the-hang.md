@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","cli"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -10,6 +10,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
+
+`TC-WC-040` exhausted its 20-second budget while `drainIntegrationQueue('events')` bootstrapped another application process; its trace reached no undo assertion. The managed integration runner already configures persistent subscribers for inline delivery (`OM_EVENTS_SINGLE_DELIVERY=false`) and starts workers. Poll the order's durable `pending_approval` status instead of paying for a redundant cold queue bootstrap. Keep explicit drains for scenarios that actually enqueue work outside that request-side contract.
 
 `TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, and selected count before any bulk mutation.
 
