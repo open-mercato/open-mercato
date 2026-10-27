@@ -436,6 +436,8 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
         promotionId,
         amountNet: Number(effect.amountNet),
         amountGross: Number(effect.amountGross),
+        amountNetExact: effect.amountNet,
+        amountGrossExact: effect.amountGross,
         currencyCode: effect.currency,
         label: pickEffectLabel(effect.label, cart.locale),
       })

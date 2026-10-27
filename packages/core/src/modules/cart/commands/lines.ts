@@ -71,6 +71,7 @@ import { emitCartEvent } from '../events'
 // module-load cycle. See `dispatchCartRepriceForUndo` below for how the undo handlers call
 // `cart.reprice` without importing its handler object.
 import type { CartRepriceInput, CartRepriceResult } from './cart'
+import { resolveCartCurrencyDecimalPlaces, resolvedPriceString } from '../lib/exactPricing'
 
 // Step 4.6 — `cart.lines.add`, `.update`, `.remove`, `.bulkAdd`. Builds directly on Step
 // 4.4's `evaluateCartVisibility` (§6a) and Step 4.5's `cart.create`/`cart.get` + the
@@ -267,7 +268,12 @@ function buildCartPricingRowFilterContext(cart: Cart): PricingContext {
   }
 }
 
-function buildBuyerPricingContext(cart: Cart, quantity: number, date: Date): BuyerPricingContext {
+function buildBuyerPricingContext(
+  cart: Cart,
+  quantity: number,
+  date: Date,
+  currencyDecimalPlaces: number | null,
+): BuyerPricingContext {
   return {
     channelId: cart.salesChannelId ?? null,
     customerId: cart.customerId ?? null,
@@ -277,6 +283,7 @@ function buildBuyerPricingContext(cart: Cart, quantity: number, date: Date): Buy
     priceKindId: cart.priceKindId ?? null,
     quantity,
     date,
+    currencyDecimalPlaces,
   }
 }
 
@@ -328,7 +335,7 @@ async function resolveLinePricing(
   date: Date,
 ): Promise<ResolvedLinePrice> {
   const buyerPricingService = container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
-  const context = buildBuyerPricingContext(cart, quantity, date)
+  const context = buildBuyerPricingContext(cart, quantity, date, await resolveCartCurrencyDecimalPlaces(container, cart))
   return buyerPricingService.resolveLinePrice(em, rows, context, {
     tenantId: cart.tenantId,
     organizationId: cart.organizationId,
@@ -336,8 +343,8 @@ async function resolveLinePricing(
 }
 
 function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedAt: Date): void {
-  line.unitPriceNet = resolved.amountNet !== null ? String(resolved.amountNet) : null
-  line.unitPriceGross = resolved.amountGross !== null ? String(resolved.amountGross) : null
+  line.unitPriceNet = resolvedPriceString(resolved.amountNetExact, resolved.amountNet)
+  line.unitPriceGross = resolvedPriceString(resolved.amountGrossExact, resolved.amountGross)
   line.taxRate = resolved.taxRatePercent !== null ? String(resolved.taxRatePercent) : null
   line.priceKindId = resolved.priceRow ? resolvePriceKindId(resolved.priceRow) : null
   line.priceRowId = resolved.priceRow?.id ?? null
@@ -392,6 +399,8 @@ async function computeLineTotals(
     quantity: number
     unitPriceNet: number | null
     unitPriceGross: number | null
+    unitPriceNetExact?: string | null
+    unitPriceGrossExact?: string | null
     taxRate: number | null
     configuration: Record<string, unknown> | null
   },
@@ -408,6 +417,8 @@ async function computeLineTotals(
       currencyCode: cart.currencyCode,
       unitPriceNet: params.unitPriceNet,
       unitPriceGross: params.unitPriceGross,
+      unitPriceNetExact: params.unitPriceNetExact ?? null,
+      unitPriceGrossExact: params.unitPriceGrossExact ?? null,
       taxRate: params.taxRate,
       configuration: params.configuration,
     },
@@ -973,6 +984,8 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
             quantity: sumCheck.quantity,
             unitPriceNet: resolved.amountNet,
             unitPriceGross: resolved.amountGross,
+            unitPriceNetExact: resolved.amountNetExact,
+            unitPriceGrossExact: resolved.amountGrossExact,
             taxRate: resolved.taxRatePercent,
             configuration: existing.configuration ?? null,
           })
@@ -1024,6 +1037,8 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           quantity: acceptedQuantity,
           unitPriceNet: resolved.amountNet,
           unitPriceGross: resolved.amountGross,
+          unitPriceNetExact: resolved.amountNetExact,
+          unitPriceGrossExact: resolved.amountGrossExact,
           taxRate: resolved.taxRatePercent,
           configuration: fields.configuration,
         })
@@ -1217,6 +1232,8 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         quantity: finalQuantity,
         unitPriceNet: resolved.amountNet,
         unitPriceGross: resolved.amountGross,
+        unitPriceNetExact: resolved.amountNetExact,
+        unitPriceGrossExact: resolved.amountGrossExact,
         taxRate: resolved.taxRatePercent,
         configuration: line.configuration ?? null,
       })
@@ -1571,6 +1588,8 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
           quantity: sumCheck.quantity,
           unitPriceNet: resolved.amountNet,
           unitPriceGross: resolved.amountGross,
+          unitPriceNetExact: resolved.amountNetExact,
+          unitPriceGrossExact: resolved.amountGrossExact,
           taxRate: resolved.taxRatePercent,
           configuration: existingLine.configuration ?? null,
         })
@@ -1618,6 +1637,8 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         quantity: acceptedQuantity,
         unitPriceNet: resolved.amountNet,
         unitPriceGross: resolved.amountGross,
+        unitPriceNetExact: resolved.amountNetExact,
+        unitPriceGrossExact: resolved.amountGrossExact,
         taxRate: resolved.taxRatePercent,
         configuration: fields.configuration,
       })
