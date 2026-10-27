@@ -54,8 +54,10 @@ jest.mock('@open-mercato/shared/security/enabledModulesRegistry', () => ({
 jest.mock('@open-mercato/ui/backend/utils/nav', () => ({
   buildAdminNav: jest.fn(async () => []),
   buildSettingsSections: jest.fn(() => []),
+  buildProfileSections: jest.fn(() => []),
   computeSettingsPathPrefixes: jest.fn(() => []),
   convertToSectionNavGroups: jest.fn(() => []),
+  mergeSectionsWithDiscovered: jest.fn((baseline: unknown) => baseline),
 }))
 
 jest.mock('@open-mercato/ui/backend/icons/lucideRegistry', () => ({
@@ -70,7 +72,7 @@ jest.mock('../profile-sections', () => ({
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
   applySidebarPreference: (groups: unknown) => groups,
   loadFirstRoleSidebarPreference: jest.fn(async () => null),
-  loadSidebarPreference: jest.fn(async () => null),
+  findSidebarPreference: jest.fn(async () => null),
 }))
 
 import { resolveBackendChromePayload } from '../backendChrome'

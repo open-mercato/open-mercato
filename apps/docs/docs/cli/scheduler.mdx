@@ -137,6 +137,10 @@ Manually execute a scheduled job immediately.
 yarn mercato scheduler run <schedule-id>
 ```
 
+:::note
+Like `POST /api/scheduler/trigger`, this command requires `QUEUE_STRATEGY=async`: it enqueues the run on the `scheduler-execution` queue for a worker to execute. With the local strategy it exits with an error, because the local scheduler runs due schedules by polling and never consumes that queue.
+:::
+
 **Arguments:**
 
 | Argument | Description | Required |
@@ -223,7 +227,7 @@ Starting scheduler in LOCAL mode...
 
 Configuration:
 - Poll Interval: 30000ms
-- Lock Strategy: PostgreSQL advisory locks
+- Lock Strategy: in-process (single instance only)
 - Execution: Direct (queue/command)
 
 Database connected

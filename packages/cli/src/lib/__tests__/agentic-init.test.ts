@@ -20,7 +20,12 @@ const loadRunAgenticInit = async ({
   runAgenticSetupImplementation?: (
     targetDir: string,
     ask: (question: string) => Promise<string>,
-    options?: { tool?: string; force?: boolean; updateHarness?: boolean },
+    options?: {
+      tool?: string
+      force?: boolean
+      updateHarness?: boolean
+      experimentalHooksValidator?: boolean
+    },
   ) => Promise<void>
 }): Promise<AgenticInitTestContext> => {
   jest.resetModules()
@@ -89,6 +94,13 @@ describe('resolveRelevantAgenticFiles', () => {
     ])
   })
 
+  it('resolves github-copilot existing files', () => {
+    expect(loadActualModule().resolveRelevantAgenticFiles('github-copilot')).toEqual([
+      '.github/copilot-instructions.md',
+      '.vscode/mcp.json.example',
+    ])
+  })
+
   it('falls back to the full known file list when no tool is provided', () => {
     expect(loadActualModule().resolveRelevantAgenticFiles()).toEqual([
       'CLAUDE.md',
@@ -96,6 +108,8 @@ describe('resolveRelevantAgenticFiles', () => {
       '.mcp.json.example',
       '.codex/mcp.json.example',
       '.cursor/hooks.json',
+      '.github/copilot-instructions.md',
+      '.vscode/mcp.json.example',
     ])
   })
 
@@ -106,6 +120,8 @@ describe('resolveRelevantAgenticFiles', () => {
       '.mcp.json.example',
       '.codex/mcp.json.example',
       '.cursor/hooks.json',
+      '.github/copilot-instructions.md',
+      '.vscode/mcp.json.example',
     ])
   })
 })
@@ -180,7 +196,12 @@ describe('runAgenticInit', () => {
       questionAnswer: '  cursor  ',
       runAgenticSetupImplementation: async (currentTargetDir, ask, options) => {
         expect(currentTargetDir).toBe(targetDir)
-        expect(options).toEqual({ tool: undefined, force: undefined, updateHarness: undefined })
+        expect(options).toEqual({
+          tool: undefined,
+          force: undefined,
+          updateHarness: undefined,
+          experimentalHooksValidator: undefined,
+        })
         await expect(ask('Select a tool')).resolves.toBe('cursor')
       },
     })
@@ -208,7 +229,12 @@ describe('runAgenticInit', () => {
     expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
       targetDir,
       expect.any(Function),
-      { tool: 'codex', force: undefined, updateHarness: undefined },
+      {
+        tool: 'codex',
+        force: undefined,
+        updateHarness: undefined,
+        experimentalHooksValidator: undefined,
+      },
     )
     expect(consoleLogSpy.mock.calls.flat()).not.toContain('⚠️  Agentic files already exist:')
     expect(testContext.closeInterface).toHaveBeenCalledTimes(1)
@@ -225,7 +251,12 @@ describe('runAgenticInit', () => {
     expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
       targetDir,
       expect.any(Function),
-      { tool: 'codex', force: true, updateHarness: undefined },
+      {
+        tool: 'codex',
+        force: true,
+        updateHarness: undefined,
+        experimentalHooksValidator: undefined,
+      },
     )
     expect(testContext.closeInterface).toHaveBeenCalledTimes(1)
   })
@@ -241,9 +272,37 @@ describe('runAgenticInit', () => {
     expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
       targetDir,
       expect.any(Function),
-      { tool: 'codex', force: undefined, updateHarness: true },
+      {
+        tool: 'codex',
+        force: undefined,
+        updateHarness: true,
+        experimentalHooksValidator: undefined,
+      },
     )
     expect(testContext.closeInterface).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the experimental hook validator opt-in to setup', async () => {
+    const testContext = await loadRunAgenticInit({
+      existingPaths: new Set<string>([appModulesPath]),
+    })
+
+    const exitCode = await testContext.runAgenticInit([
+      '--tool=claude-code,codex',
+      '--experimental-hooks-validator',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(testContext.runAgenticSetup).toHaveBeenCalledWith(
+      targetDir,
+      expect.any(Function),
+      {
+        tool: 'claude-code,codex',
+        force: undefined,
+        updateHarness: undefined,
+        experimentalHooksValidator: true,
+      },
+    )
   })
 
   it('closes the readline interface when setup fails', async () => {

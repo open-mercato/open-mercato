@@ -120,6 +120,9 @@ describe('GET /api/customers/companies/[id] — parallel enrichment (issue #3203
     mockFindOneWithDecryption.mockReset()
     mockEm.findOne.mockReset()
     mockEm.find.mockReset()
+    // The people-count path queries the EM directly (projection-only, no decryption),
+    // so the fake EM has to answer like a real one instead of returning undefined.
+    mockEm.find.mockResolvedValue([])
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
     mockContainer.resolve.mockClear()

@@ -40,22 +40,29 @@ function buildItem(): CalendarItem {
   }
 }
 
-function renderPopover(canManage: boolean, onEdit: jest.Mock, onOpenChange: jest.Mock) {
+type PopoverOverrides = Partial<React.ComponentProps<typeof EventPeekPopover>>
+
+function renderPopoverWith(overrides: PopoverOverrides = {}) {
   return renderWithProviders(
     <EventPeekPopover
       item={buildItem()}
       open
       joinUrl={null}
       aiSummaries={false}
-      canManage={canManage}
-      onOpenChange={onOpenChange}
+      canManage
+      onOpenChange={jest.fn()}
       onJoin={jest.fn()}
-      onEdit={onEdit}
+      onEdit={jest.fn()}
+      {...overrides}
     >
       <button type="button">trigger</button>
     </EventPeekPopover>,
     { dict },
   )
+}
+
+function renderPopover(canManage: boolean, onEdit: jest.Mock, onOpenChange: jest.Mock) {
+  return renderPopoverWith({ canManage, onEdit, onOpenChange })
 }
 
 describe('EventPeekPopover — edit permission gating (#3649)', () => {
@@ -82,5 +89,43 @@ describe('EventPeekPopover — edit permission gating (#3649)', () => {
 
     fireEvent.click(editButton)
     expect(onEdit).not.toHaveBeenCalled()
+  })
+})
+
+describe('EventPeekPopover — Join affordance is independent of AI summaries (#5153)', () => {
+  it('renders Join for a joinable event even when AI summaries are disabled', () => {
+    const onJoin = jest.fn()
+    renderPopoverWith({ joinUrl: 'https://meet.example.com/abc', aiSummaries: false, onJoin })
+
+    const joinButton = screen.getByRole('button', { name: 'Join' })
+    fireEvent.click(joinButton)
+    expect(onJoin).toHaveBeenCalledTimes(1)
+    expect(onJoin).toHaveBeenCalledWith(expect.objectContaining({ id: 'item-1' }))
+  })
+
+  it('renders Join for a joinable event when AI summaries are enabled', () => {
+    renderPopoverWith({ joinUrl: 'https://meet.example.com/abc', aiSummaries: true })
+
+    expect(screen.getByRole('button', { name: 'Join' })).toBeInTheDocument()
+  })
+
+  it('hides Join when the event has no meeting URL', () => {
+    renderPopoverWith({ joinUrl: null, aiSummaries: true })
+
+    expect(screen.queryByRole('button', { name: 'Join' })).not.toBeInTheDocument()
+  })
+})
+
+describe('EventPeekPopover — configurable popover side (#5153)', () => {
+  it('defaults to the right side so existing callers are unchanged', () => {
+    renderPopoverWith()
+
+    expect(screen.getByText('Quarterly review').closest('[data-side]')).toHaveAttribute('data-side', 'right')
+  })
+
+  it('honours an explicit side for wide triggers', () => {
+    renderPopoverWith({ side: 'bottom' })
+
+    expect(screen.getByText('Quarterly review').closest('[data-side]')).toHaveAttribute('data-side', 'bottom')
   })
 })

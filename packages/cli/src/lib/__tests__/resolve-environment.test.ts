@@ -208,6 +208,24 @@ describe('resolveEnvironment', () => {
     })
   })
 
+  describe('monorepo — materialized workspace node_modules', () => {
+    it('prefers checked-out package sources when the workspace package is a real directory', async () => {
+      await makeDir(tempRoot, 'node_modules', '@open-mercato', 'core')
+      await makeDir(tempRoot, 'packages', 'core', 'src', 'modules')
+      await makeDir(tempRoot, 'apps', 'mercato')
+      const packageDir = await makeDir(tempRoot, 'packages', 'create-app')
+
+      const env = resolveEnvironment(packageDir)
+
+      expect(env.mode).toBe('monorepo')
+      expect(normalizePath(env.rootDir)).toBe(normalizePath(tempRoot))
+      expect(normalizePath(env.appDir)).toBe(normalizePath(path.join(tempRoot, 'apps', 'mercato')))
+      expect(normalizePath(env.packageRoot('@open-mercato/core'))).toBe(
+        normalizePath(path.join(tempRoot, 'packages', 'core')),
+      )
+    })
+  })
+
   describe('no @open-mercato packages present', () => {
     it('falls back to standalone mode with rootDir = cwd', async () => {
       const env = resolveEnvironment(tempRoot)

@@ -76,7 +76,9 @@ async function loadGeneratedTools(): Promise<{ moduleId: string; tools: AiToolDe
     )
   }
   await ensureApiRouteManifestsRegistered()
-  const mod = (await compileAndImportGenerated(tsPath)) as RawAiToolsModule
+  const mod = (await compileAndImportGenerated(tsPath, {
+    bundleLocalModules: true,
+  })) as RawAiToolsModule
   const entries = mod.aiToolConfigEntriesRaw ?? mod.aiToolConfigEntries ?? []
   const result: { moduleId: string; tools: AiToolDefinition[] }[] = []
   for (const entry of entries) {

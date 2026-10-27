@@ -210,7 +210,7 @@ async function expectDialogComboboxLabel(dialog: Locator, label: string): Promis
 }
 
 async function expectDialogLookupLabel(dialog: Locator, label: string): Promise<void> {
-  await expect(dialog.getByRole('button').filter({ hasText: label }).first()).toBeVisible()
+  await expect(dialog.getByRole('option').filter({ hasText: label }).first()).toBeVisible()
 }
 
 test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', () => {

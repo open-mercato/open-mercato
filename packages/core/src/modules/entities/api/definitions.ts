@@ -441,6 +441,9 @@ export async function GET(req: Request) {
         label: d.configJson?.label || d.key,
         description: d.configJson?.description || undefined,
         multi: Boolean(d.configJson?.multi),
+        relatedEntityId: d.kind === 'relation' && typeof d.configJson?.relatedEntityId === 'string'
+          ? d.configJson.relatedEntityId.trim() || undefined
+          : undefined,
         options: (() => {
           if (d.kind === 'currency') return undefined
           const normalizedOptions = normalizeCustomFieldOptions(d.configJson?.options)
@@ -707,6 +710,7 @@ const customFieldDefinitionSchema = z.object({
   label: z.string(),
   description: z.string().optional(),
   multi: z.boolean().optional(),
+  relatedEntityId: z.string().optional(),
   options: z.array(customFieldOptionValueSchema).optional(),
   optionsUrl: z.string().optional(),
   filterable: z.boolean().optional(),

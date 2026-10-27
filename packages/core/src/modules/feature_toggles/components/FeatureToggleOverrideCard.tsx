@@ -69,7 +69,7 @@ export function FeatureToggleOverrideCard({ toggleId }: { toggleId: string }) {
                     <CardTitle>{t('feature_toggles.override.title', 'Override')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <Alert variant="destructive">
+                    <Alert status="error">
                         <AlertTitle>{t('ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
                         <AlertDescription>{error.message}</AlertDescription>
                     </Alert>

@@ -106,6 +106,14 @@ export async function GET(req: Request) {
   )
   const allowedWidgets = widgets.filter((w) => allowedIds.includes(w.metadata.id))
 
+  // An empty widget registry means the module registry has not been populated yet
+  // (a boot race), not that this app has no widgets. Every write below is derived
+  // from it, so a read request must persist nothing until it recovers — otherwise a
+  // restart-recoverable glitch is written into saved layouts for good (#5041).
+  // Note this keys off the registry, not off `allowedIds`: a user whose allowlist is
+  // legitimately empty on a healthy registry is still pruned and seeded as before.
+  const hasRegisteredWidgets = widgets.length > 0
+
   let layout = await loadScopeLayout(em, scope)
   let items = layout ? normalizeLayoutItems(layout.layoutJson) : []
   let hasChanged = false
@@ -120,15 +128,17 @@ export async function GET(req: Request) {
       size: widget.metadata.defaultSize ?? DEFAULT_SIZE,
       settings: widget.metadata.defaultSettings ?? undefined,
     }))
-    layout = em.create(DashboardLayout, {
-      userId: scope.userId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      layoutJson: items,
-    })
-    em.persist(layout)
-    hasChanged = true
-  } else {
+    if (hasRegisteredWidgets) {
+      layout = em.create(DashboardLayout, {
+        userId: scope.userId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        layoutJson: items,
+      })
+      em.persist(layout)
+      hasChanged = true
+    }
+  } else if (hasRegisteredWidgets) {
     const existingLayout = layout
     const filtered = items.filter((item) => allowedIds.includes(item.widgetId))
     if (filtered.length !== items.length) {
@@ -252,6 +262,15 @@ export async function PUT(req: Request) {
   }
 
   const widgets = await loadAllWidgets()
+  // The allowlist below is derived from the registry, and this handler persists the
+  // filtered result unconditionally. An empty registry — the boot race behind #5041 —
+  // would drop every submitted item and save `[]` while answering `{ ok: true }`, so a
+  // stale tab reordering a widget could erase the layout it just rendered. Fail the
+  // write instead: the save is explicit, so the client must learn it did not happen
+  // and retry, rather than be told a wipe succeeded.
+  if (widgets.length === 0) {
+    return NextResponse.json({ error: 'Widget registry unavailable' }, { status: 503 })
+  }
   const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
@@ -349,6 +368,7 @@ const layoutPutDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Invalid layout payload', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
     { status: 403, description: 'Missing dashboards.configure feature', schema: dashboardsErrorSchema },
+    { status: 503, description: 'Widget registry unavailable — the layout was not saved', schema: dashboardsErrorSchema },
   ],
 }
 

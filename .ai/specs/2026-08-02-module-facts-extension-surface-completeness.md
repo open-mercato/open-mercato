@@ -114,10 +114,10 @@ Spec 2: bound topology   Spec 3: exact overrides
 
 ## Cross-Suite Compatibility Contract
 
-- The top-level `module-facts.json` remains `Record<moduleId, ModuleFactsJsonEntry>`.
+- The top-level `module-facts.json` remains the v1 compatibility `Record<moduleId, ModuleFactsJsonEntry>`; additive `module-facts.v2.json` carries corrected reader facts with the same record shape.
 - Generator diagnostics remain optional fields on the owning module entry (or a separate sibling artifact); no synthetic framework/diagnostics key is added to the root module record.
 - New exported properties are optional; current generators emit deterministic empty values.
-- Existing arrays/objects keep their current types and required fields.
+- Existing arrays/objects keep their current types and required fields; the v1 sidecar also keeps its published values while v2 carries corrections.
 - Existing Markdown headings remain; new sections and appended source columns are additive.
 - Existing `extensionSurfaces.hosts` rows are not removed or reclassified in this suite. Spec 2 adds an authoritative activation layer and guidance requires an activation for route-bound use.
 - Framework facts remain in `framework-extension-points.md`; no fake framework module key is added.

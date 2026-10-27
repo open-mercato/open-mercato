@@ -99,6 +99,10 @@ describe('S3StorageDriver', () => {
       new S3StorageDriver(BASE_CONFIG)
       const [[arg]] = (S3Client as jest.Mock).mock.calls
       expect(arg.credentials).toBeUndefined()
+      expect(arg.requestHandler).toEqual(expect.objectContaining({
+        connectionTimeout: 10_000,
+        requestTimeout: 120_000,
+      }))
     })
 
     it('applies forcePathStyle and custom endpoint', () => {

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
 import Link from 'next/link'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -39,6 +39,7 @@ type DeliveryResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type DeliveryDetail = DeliveryRow & {
@@ -63,6 +64,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [status, setStatus] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [selectedRow, setSelectedRow] = React.useState<DeliveryRow | null>(null)
@@ -105,6 +107,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
           setItems(call.result.items)
           setTotal(call.result.total)
           setTotalPages(call.result.totalPages)
+          setTotalIsCapped(call.result.totalIsCapped === true)
         }
       } catch {
         if (!cancelled) {
@@ -203,6 +206,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
 
       <DataTable
         title={t('webhooks.deliveries.title')}
+        titleHeadingLevel={2}
         columns={columns}
         data={items}
         onRowClick={(row) => { void handleDeliveryOpen(row) }}
@@ -234,6 +238,7 @@ export default function IntegrationDeliveriesWidget(_props: InjectionWidgetCompo
           pageSize: 20,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
         }}
         isLoading={isLoading}

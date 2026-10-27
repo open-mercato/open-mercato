@@ -166,6 +166,46 @@ describe('GET /api/ai_assistant/ai/agents/[agentId]/models', () => {
     )
   })
 
+  describe('with the real AI_RUNTIME_BASEURL_ALLOWLIST helper (issue #7228)', () => {
+    const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+
+    beforeEach(() => {
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+      ])
+    })
+
+    afterEach(() => {
+      if (originalAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+      else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalAllowlist
+    })
+
+    async function resolveTenantOverrideBaseUrl(storedBaseUrl: string): Promise<unknown> {
+      getDefaultMock.mockResolvedValueOnce({
+        providerId: 'openai',
+        modelId: 'gpt-4o',
+        baseUrl: storedBaseUrl,
+      })
+      const response = await GET(
+        new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+        buildParams('catalog.assistant'),
+      )
+      expect(response.status).toBe(200)
+      return resolveModelMock.mock.calls[0][0].tenantOverride.baseURL
+    }
+
+    it('drops a stored baseURL that the current allowlist no longer permits', async () => {
+      await expect(resolveTenantOverrideBaseUrl('http://api.openai.com/v1')).resolves.toBeNull()
+    })
+
+    it('keeps a stored baseURL that the current allowlist still permits', async () => {
+      await expect(resolveTenantOverrideBaseUrl('https://api.openai.com/v1')).resolves.toBe(
+        'https://api.openai.com/v1',
+      )
+    })
+  })
+
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
     const response = await GET(
@@ -222,6 +262,89 @@ describe('GET /api/ai_assistant/ai/agents/[agentId]/models', () => {
     const json = await response.json()
     expect(json.allowRuntimeModelOverride).toBe(false)
     expect(json.providers).toEqual([])
+  })
+
+  it('marks the response degraded when the tenant allowlist lookup fails', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+    getSnapshotMock.mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(true)
+    expect(json.degradedReason).toBe('tenant_allowlist_unavailable')
+    expect(json.providers.map((p: { id: string }) => p.id)).toEqual(['openai', 'lm-studio'])
+    expect(resolveModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantAllowlist: null }),
+    )
+  })
+
+  it('marks the response degraded when the agent runtime override lookup fails', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+    getExactMock.mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(true)
+    expect(json.degradedReason).toBe('tenant_allowlist_unavailable')
+  })
+
+  it('keeps the tenant clipping when only the agent runtime override lookup fails', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+    const tenantSnapshot = {
+      allowedProviders: ['openai'],
+      allowedModelsByProvider: { openai: [] },
+    }
+    getSnapshotMock.mockResolvedValueOnce(tenantSnapshot)
+    getExactMock.mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(true)
+    expect(json.degradedReason).toBe('tenant_allowlist_unavailable')
+    // The snapshot was already resolved when the override read threw, so the list is
+    // still tenant-clipped rather than environment-only — the reason code covers the
+    // whole tenant-scoped block, so it MUST NOT promise an environment-only list.
+    expect(json.providers.map((p: { id: string }) => p.id)).toEqual(['openai'])
+    expect(resolveModelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantAllowlist: tenantSnapshot }),
+    )
+  })
+
+  it('reports a fully resolved response as not degraded', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
+    ])
+
+    const response = await GET(
+      new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+      buildParams('catalog.assistant'),
+    )
+
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.degraded).toBe(false)
+    expect(json.degradedReason).toBeNull()
   })
 
   it('clips providers and models against the tenant allowlist intersection', async () => {

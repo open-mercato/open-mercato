@@ -125,6 +125,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid query parameters', schema: widgetErrorSchema },
         { status: 401, description: 'Unauthorized', schema: widgetErrorSchema },
+        { status: 403, description: 'Requested scope is not accessible', schema: widgetErrorSchema },
         { status: 500, description: 'Widget failed to load', schema: widgetErrorSchema },
       ],
     },

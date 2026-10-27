@@ -30,6 +30,7 @@ import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../com
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { coerceDisplayName } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
@@ -152,7 +153,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       )
       setData(payload as CompanyOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
@@ -247,6 +248,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,
@@ -305,7 +307,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.placement.groupLabel)
+            : widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -317,7 +321,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           return { id: tabId, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext],
+    [data, injectedTabWidgets, injectionContext, t],
   )
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])

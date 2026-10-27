@@ -5,12 +5,25 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
-import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+import {
+  isBroadcastEvent,
+  isCoalescedBroadcastEvent,
+  isCrossProcessBroadcastEvent,
+  isPortalBroadcastEvent,
+  isPrivateCrossProcessBroadcastEvent,
+  isPrivateCrossProcessEventEmitter,
+} from '@open-mercato/shared/modules/events'
+import {
+  BROADCAST_FLUSH_DEADLINE_MS,
+  flushPendingBroadcasts,
+  resolveBroadcastCoalesceIntervalMs,
+  submitBroadcast,
+} from './broadcast-coalescer'
 import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
-export { registerCrossProcessEventListener } from './bridge'
+export { registerCrossProcessEventListener, CROSS_PROCESS_EVENT_INSTANCE_ID } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
 import type {
   EventBus,
@@ -19,6 +32,7 @@ import type {
   SubscriberDescriptor,
   EventPayload,
   EmitOptions,
+  QueuedDispatchResult,
 } from './types'
 
 /** Queue name for persistent events */
@@ -38,10 +52,16 @@ type RegisteredSubscriber = {
  * When enabled, a persistent emit delivers each subscriber on exactly one path:
  * persistent-marked subscribers are skipped inline (the events worker dispatches
  * them via pattern match, so wildcard persistent subscribers are reached), while
- * ephemeral subscribers keep running inline. Defaults ON; the server bootstrap
- * reconciles the env against worker availability (and may rewrite it to `false`
- * for a worker-less process). Both the bus and the events worker read the same
- * (possibly reconciled) env var, so they always agree within a process.
+ * ephemeral subscribers keep running inline. Defaults ON.
+ *
+ * The bus never second-guesses this against "is a worker running": the queue is
+ * durable, so a persistent emit with no worker yet is delayed, not lost, and a
+ * worker started later drains the backlog. Delivering inline instead would move
+ * the work back onto the caller's request path — exactly what a split app/worker
+ * deployment sets `AUTO_SPAWN_WORKERS=false` to avoid.
+ *
+ * The events worker asks this same bus for its subscribers via `dispatchQueued`,
+ * so both halves of single-delivery read one decision.
  */
 function isSingleDeliveryEnabled(): boolean {
   return isSingleDeliveryRequested()
@@ -50,9 +70,137 @@ function isSingleDeliveryEnabled(): boolean {
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
 const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
 
-function hasTenantScope(payload: EventPayload): boolean {
-  return typeof (payload as Record<string, unknown>)?.tenantId === 'string'
-    && String((payload as Record<string, unknown>).tenantId).trim().length > 0
+function hasTrustedTenantScope(options?: EmitOptions): boolean {
+  return typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
+}
+
+function normalizePayloadScope(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function isBrowserBroadcastEvent(event: string): boolean {
+  return isBroadcastEvent(event) || isPortalBroadcastEvent(event)
+}
+
+/** Relayed over the bridge: both browser audiences plus private coordination; each consumer filters by its own flag. */
+function shouldPublishCrossProcess(event: string): boolean {
+  return isCrossProcessBroadcastEvent(event) || isPortalBroadcastEvent(event)
+}
+
+function resolveCrossProcessEmitOptions(
+  event: string,
+  payload: EventPayload,
+  options?: EmitOptions,
+): EmitOptions | undefined {
+  if (hasTrustedTenantScope(options)) return options
+  // Preserve the public raw EventBus contract for legacy clientBroadcast and
+  // portalBroadcast emitters. These callers are trusted server code and
+  // historically supplied their scope in the typed payload. Tenant-managed
+  // workflow execution passes scope in options, while private cross-process
+  // events never take this path.
+  if (!isBrowserBroadcastEvent(event) || isPrivateCrossProcessBroadcastEvent(event)) return options
+  const tenantId = normalizePayloadScope((payload as Record<string, unknown>)?.tenantId)
+  if (!tenantId) return options
+  const organizationId = normalizePayloadScope((payload as Record<string, unknown>)?.organizationId)
+  const organizationIdsValue = (payload as Record<string, unknown>)?.organizationIds
+  const organizationIds = Array.isArray(organizationIdsValue)
+    ? organizationIdsValue.filter((value): value is string => typeof value === 'string')
+    : []
+  return {
+    ...options,
+    tenantId,
+    ...(organizationId ? { organizationId } : {}),
+    ...(organizationIds.length > 0 ? { organizationIds } : {}),
+  }
+}
+
+function collectStringScopes(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  const values: string[] = []
+  for (const value of input) {
+    if (typeof value !== 'string') continue
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    values.push(trimmed)
+  }
+  return values
+}
+
+// Sorted so an audience keys identically however the caller ordered it, and
+// explicitly comparator-ed per the #3620 guard.
+function sortScopes(scopes: Set<string>): string[] {
+  return Array.from(scopes).sort((left, right) => left.localeCompare(right))
+}
+
+/**
+ * Coalescing key for the browser dispatch of one event.
+ *
+ * Built from the raw union of every dimension the SSE audience filter
+ * (`matchesAudience` in `events/api/stream/route.ts`) reads — tenant,
+ * organization, recipient user and recipient role — taken from BOTH the
+ * trusted `options` and the payload, without calling `resolveCrossProcessEmitOptions`
+ * or any other resolver. Those resolvers pick one source to trust for delivery
+ * semantics; the key instead has to key on every dimension a connection can be
+ * filtered by, or one audience's emit would silently replace another
+ * audience's pending delivery — recipient/role targeting and a portal-only
+ * event (which carries no trusted `options` scope at all) included.
+ *
+ * Options and payload scope stay in separate segments, never merged: the three
+ * filters each read a different source, so `options` org A + payload org B must
+ * not key like the reverse. The options tenant segment encodes PRESENCE, not
+ * just value — the backoffice `hasTrustedScope` is a presence test, so `{}` and
+ * `{ tenantId: undefined }` take different filter branches and must not share
+ * a key.
+ *
+ * Scope is part of the key by necessity, not for granularity: a key with no
+ * scope segments would let a burst in one tenant suppress another tenant's
+ * delivery and then deliver the first tenant's payload in its place.
+ */
+function buildBroadcastCoalesceKey(event: string, payload: EventPayload, options?: EmitOptions): string {
+  const data = (payload ?? {}) as Record<string, unknown>
+
+  const payloadTenantId = normalizePayloadScope(data.tenantId) ?? ''
+  const optionsTenantToken = options && Object.prototype.hasOwnProperty.call(options, 'tenantId')
+    ? `=${normalizePayloadScope(options.tenantId) ?? ''}`
+    : 'absent'
+
+  const optionsOrganizationScopes = new Set<string>()
+  const optionsOrganizationId = normalizePayloadScope(options?.organizationId)
+  if (optionsOrganizationId) optionsOrganizationScopes.add(optionsOrganizationId)
+  for (const organizationId of collectStringScopes(options?.organizationIds)) {
+    optionsOrganizationScopes.add(organizationId)
+  }
+
+  const payloadOrganizationScopes = new Set<string>()
+  const payloadOrganizationId = normalizePayloadScope(data.organizationId)
+  if (payloadOrganizationId) payloadOrganizationScopes.add(payloadOrganizationId)
+  for (const organizationId of collectStringScopes(data.organizationIds)) {
+    payloadOrganizationScopes.add(organizationId)
+  }
+
+  const recipientUserScopes = new Set<string>()
+  const recipientUserId = normalizePayloadScope(data.recipientUserId)
+  if (recipientUserId) recipientUserScopes.add(recipientUserId)
+  for (const userId of collectStringScopes(data.recipientUserIds)) {
+    recipientUserScopes.add(userId)
+  }
+
+  const recipientRoleScopes = new Set<string>()
+  const recipientRoleId = normalizePayloadScope(data.recipientRoleId)
+  if (recipientRoleId) recipientRoleScopes.add(recipientRoleId)
+  for (const roleId of collectStringScopes(data.recipientRoleIds)) {
+    recipientRoleScopes.add(roleId)
+  }
+
+  return [
+    event,
+    payloadTenantId,
+    optionsTenantToken,
+    sortScopes(payloadOrganizationScopes).join(','),
+    sortScopes(optionsOrganizationScopes).join(','),
+    sortScopes(recipientUserScopes).join(','),
+    sortScopes(recipientRoleScopes).join(','),
+  ].join('::')
 }
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
@@ -78,6 +226,14 @@ type EventJobData = {
   event: string
   payload: EventPayload
   options?: EmitOptions
+  /**
+   * Set by the producer when it already ran the persistent subscribers inline
+   * (single-delivery reconciled off). The worker skips such jobs, so the app and
+   * the worker staying exactly-once no longer depends on both processes agreeing
+   * about `OM_EVENTS_SINGLE_DELIVERY`. Absent on jobs queued before this field
+   * existed, which keeps their behavior unchanged.
+   */
+  persistentDeliveredInline?: boolean
 }
 
 // Process-wide cache of the async (BullMQ) persistent-events producer queue.
@@ -91,6 +247,7 @@ type EventJobData = {
 // base dir is cwd-relative, so it stays per-bus.
 const EVENTS_PRODUCER_QUEUE_KEY = '__openMercatoEventsProducerQueues__'
 const EVENTS_PRODUCER_SHUTDOWN_KEY = '__openMercatoEventsProducerShutdown__'
+const BROADCAST_COALESCER_SHUTDOWN_KEY = '__openMercatoBroadcastCoalescerShutdown__'
 
 function isSharedProducerEnabled(): boolean {
   return parseBooleanWithDefault(process.env.OM_EVENTS_SHARED_PRODUCER, true)
@@ -118,6 +275,52 @@ function registerProducerShutdownHook(): void {
   process.once('SIGTERM', shutdown)
   process.once('SIGINT', shutdown)
   ;(globalThis as Record<string, unknown>)[EVENTS_PRODUCER_SHUTDOWN_KEY] = true
+}
+
+/**
+ * Deliver the tail of any in-flight coalesced burst on the way out, so stopping
+ * a worker mid-import does not leave browsers a window behind. Registered
+ * independently of the producer hook: coalescing is in play whether or not this
+ * process ever opened an async producer queue.
+ *
+ * `beforeExit` matters as much as the signals here. The trailing timer is
+ * unref'd so a pending browser delivery never holds a process open, which means
+ * a short-lived emitter — a CLI import, a one-shot script — reaches a natural
+ * exit with the tail still queued and no signal ever fired. `beforeExit` runs
+ * exactly when the loop has drained, which is precisely that case.
+ *
+ * `createEventBus` calls this in every process that bootstraps DI — the app,
+ * every worker, and every `mercato` CLI command — so a bare `process.once`
+ * listener here would take away Node's default SIGINT/SIGTERM exit process-wide:
+ * once ANY listener is registered for a signal, Node stops exiting on it, and
+ * this listener only flushes, never exits. A one-shot CLI command (seed,
+ * import, reindex) with no graceful-shutdown handler of its own would then
+ * swallow the first Ctrl+C or SIGTERM and keep running until SIGKILL. The
+ * per-signal handler below flushes, then restores the default behavior itself
+ * — by re-raising the signal — but only when it was the last listener
+ * (`once` already removed itself before this body runs): a process with its
+ * own graceful-shutdown handler (the queue worker, `mercato server`) keeps
+ * that handler in charge of the actual exit, and this hook just adds the flush
+ * alongside it. Every flush here is capped at BROADCAST_FLUSH_DEADLINE_MS, so a
+ * hung dispatch cannot hold a stop until SIGKILL.
+ */
+function registerBroadcastCoalescerShutdownHook(): void {
+  if ((globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY]) return
+  const handleSignal = (signal: NodeJS.Signals) => {
+    void flushPendingBroadcasts({ deadlineMs: BROADCAST_FLUSH_DEADLINE_MS })
+      .catch(() => {})
+      .finally(() => {
+        if (process.listenerCount(signal) === 0) {
+          process.kill(process.pid, signal)
+        }
+      })
+  }
+  process.once('SIGTERM', () => handleSignal('SIGTERM'))
+  process.once('SIGINT', () => handleSignal('SIGINT'))
+  process.once('beforeExit', () => {
+    void flushPendingBroadcasts({ deadlineMs: BROADCAST_FLUSH_DEADLINE_MS }).catch(() => {})
+  })
+  ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 
 /**
@@ -151,6 +354,8 @@ function registerProducerShutdownHook(): void {
  * ```
  */
 export function createEventBus(opts: CreateBusOptions): EventBus {
+  registerBroadcastCoalescerShutdownHook()
+
   // In-memory listeners for immediate event delivery
   const listeners = new Map<string, Set<RegisteredSubscriber>>()
   // Subscribers registered as persistent (worker-dispatched). Used by the
@@ -201,13 +406,20 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
   /**
    * Delivers an event to all registered in-memory handlers.
    * Supports wildcard pattern matching for event patterns.
+   *
+   * Handler errors are logged and delivery continues - one bad subscriber must
+   * not stop the others. The count of failed PERSISTENT handlers is returned so
+   * the caller can decide whether the inline run may be recorded as complete:
+   * a persistent subscriber that threw inline has no retry of its own, so the
+   * queued job must stay unstamped and let the worker run it again.
    */
   async function deliver(
     event: string,
     payload: EventPayload,
     options?: EmitOptions,
     skipPersistent = false,
-  ): Promise<void> {
+  ): Promise<{ persistentFailures: number }> {
+    let persistentFailures = 0
     // Check all registered patterns (including wildcards)
     for (const [pattern, handlers] of listeners) {
       if (!matchEventPattern(event, pattern)) continue
@@ -235,6 +447,9 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             }),
           )
         } catch (error) {
+          if (persistentSubscribers.has(subscriber)) {
+            persistentFailures += 1
+          }
           logger.error('Handler error', { event, pattern, err: error })
           if (options?.rethrowHandlerErrors) {
             throw error
@@ -242,6 +457,97 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
         }
       }
     }
+    return { persistentFailures }
+  }
+
+  /**
+   * Selects the subscribers the events worker owns for a queued event: every
+   * pattern matching `event`, keeping persistent subscribers only, so wildcard
+   * (`event: '*'`) persistent subscribers are reached exactly once here.
+   *
+   * Deliberately does NOT read `OM_EVENTS_SINGLE_DELIVERY`. Whether inline
+   * delivery already happened is carried by the job's `persistentDeliveredInline`
+   * stamp, so the producer owns that decision entirely and the worker cannot
+   * disagree with it across processes. Reading the flag here would reintroduce
+   * exactly that skew: a worker whose env has the flag off would fall back to
+   * exact-match, re-running ephemeral subscribers the producer already ran inline
+   * and never reaching wildcard persistent subscribers - the failure this whole
+   * change exists to remove.
+   *
+   * Every job that reaches this point wants persistent-pattern selection: a job
+   * is only dispatched when its stamp is false, which means either the producer
+   * had single-delivery on, or the emit was enqueue-only (`deliverInline: false`,
+   * documented as "every subscriber to the event is persistent").
+   */
+  function selectQueuedSubscribers(event: string): RegisteredSubscriber[] {
+    const matched: RegisteredSubscriber[] = []
+    for (const [pattern, handlers] of listeners) {
+      if (!matchEventPattern(event, pattern)) {
+        continue
+      }
+      for (const subscriber of handlers) {
+        if (subscriber.persistent) {
+          matched.push(subscriber)
+        }
+      }
+    }
+    return matched
+  }
+
+  /**
+   * Dispatches a queued event on behalf of the events worker.
+   *
+   * Handler failures are returned instead of logged-and-swallowed the way
+   * `deliver()` does them: the worker needs them to propagate so the queue retries
+   * the job and eventually dead-letters it.
+   *
+   * Subscribers run against the caller's `resolve` when one is given, falling back
+   * to the bus's own. The events worker passes its per-job `ctx.resolve`, which is
+   * the container `createPerJobWorkerHandler` built for that job - the handle the
+   * queue contract already hands it. Defaulting to `opts.resolve` instead would
+   * bind subscribers to whichever container built the bus; that is the same object
+   * on the default configuration, but not under `OM_BOOTSTRAP_CACHE`, where the
+   * cached bus is replayed into later containers while its captured resolver stays
+   * bound to the first.
+   */
+  async function dispatchQueued(
+    event: string,
+    payload: EventPayload,
+    options?: EmitOptions,
+    resolve?: <T = unknown>(name: string) => T,
+  ): Promise<QueuedDispatchResult[]> {
+    const subscribers = selectQueuedSubscribers(event)
+    if (subscribers.length === 0) {
+      return []
+    }
+
+    const resolver = resolve ?? opts.resolve
+
+    const settled = await Promise.allSettled(
+      subscribers.map((subscriber) =>
+        withModuleResourceUsage(
+          {
+            moduleId: subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id),
+            surface: 'subscriber',
+            operation: `${event} -> ${subscriber.id ?? subscriber.event}`,
+            resourceId: subscriber.id ?? subscriber.event,
+          },
+          () => subscriber.handler(payload, {
+            resolve: resolver,
+            eventName: event,
+            tenantId: options?.tenantId ?? null,
+            organizationId: options?.organizationId ?? null,
+          }),
+        ),
+      ),
+    )
+
+    return settled.map((result, index) => {
+      const subscriberId = subscribers[index].id ?? subscribers[index].event
+      return result.status === 'rejected'
+        ? { subscriberId, ok: false, error: result.reason }
+        : { subscriberId, ok: true }
+    })
   }
 
   /**
@@ -290,13 +596,59 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
-    const taps = getGlobalEventTaps()
-    for (const tap of taps) {
-      try {
-        await Promise.resolve(tap(event, payload, options))
-      } catch (error) {
-        logger.error('Global tap error', { event, err: error })
+    const runGlobalTaps = async (): Promise<void> => {
+      const taps = getGlobalEventTaps()
+      for (const tap of taps) {
+        try {
+          await Promise.resolve(tap(event, payload, options))
+        } catch (error) {
+          logger.error('Global tap error', { event, err: error })
+        }
       }
+    }
+
+    // Resolved at call time, never hoisted. Private coordination always requires
+    // trusted envelope scope and module provenance. Legacy declared browser events
+    // may promote their typed scope for raw EventBus compatibility; tenant-managed
+    // workflow adapters pass authoritative scope in options, which always wins over
+    // payload values. Computing it lazily keeps the non-coalesced path resolving
+    // scope at exactly the point it always did — after inline delivery — so an
+    // event that did not opt in cannot observe this change at all.
+    const publishToOtherProcesses = async (): Promise<void> => {
+      const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
+      if (
+        !shouldPublishCrossProcess(event)
+        || !hasTrustedTenantScope(crossProcessOptions)
+        || !isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
+      ) return
+      try {
+        await publishCrossProcessEvent(event, payload, crossProcessOptions)
+      } catch (error) {
+        logger.error('Cross-process publish error', { event, err: error })
+      }
+    }
+
+    // Global taps are not a browser-only sink — `registerGlobalEventTap` is a
+    // public export that any process-local listener can use (the create-app
+    // template's qa-events route captures events for integration tests through
+    // it, and third-party modules can too), not just the two SSE endpoints. What
+    // both taps and the SSE bridges have in common is that neither carries domain
+    // meaning on its own, so an opted-in event may coalesce this dispatch — and
+    // with it every tap's delivery — without touching subscriber, webhook or
+    // queue semantics below. A tap on a coalesced event sees the same suppressed,
+    // trailing-flush-guaranteed stream the browser does, not one call per record.
+    const coalesceBrowserDelivery = isCoalescedBroadcastEvent(event)
+      && resolveBroadcastCoalesceIntervalMs() > 0
+    if (coalesceBrowserDelivery) {
+      await submitBroadcast(
+        buildBroadcastCoalesceKey(event, payload, options),
+        async () => {
+          await runGlobalTaps()
+          await publishToOtherProcesses()
+        },
+      )
+    } else {
+      await runGlobalTaps()
     }
 
     // Deliver to in-memory handlers first. Under single-delivery, persistent
@@ -309,23 +661,38 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // happens). Without this, a persistent emit dual-dispatches by default and
     // runs the subscriber inline in the caller's request too.
     const enqueueOnly = Boolean(options?.persistent) && options?.deliverInline === false
+    // Read the mode once so the inline skip and the stamp below cannot disagree.
+    const singleDelivery = isSingleDeliveryEnabled()
+    const skipPersistentInline = options?.skipPersistentSubscribersInline === true
+      || (Boolean(options?.persistent) && singleDelivery)
+    let inlinePersistentFailed = false
     if (!enqueueOnly) {
-      const skipPersistentInline = Boolean(options?.persistent) && isSingleDeliveryEnabled()
-      await deliver(event, payload, options, skipPersistentInline)
+      const delivered = await deliver(event, payload, options, skipPersistentInline)
+      inlinePersistentFailed = delivered.persistentFailures > 0
     }
 
-    if (isBroadcastEvent(event) && hasTenantScope(payload)) {
-      try {
-        await publishCrossProcessEvent(event, payload, options)
-      } catch (error) {
-        logger.error('Cross-process publish error', { event, err: error })
-      }
+    // Already dispatched with the taps when this event coalesces its browser
+    // delivery; otherwise it publishes here, exactly where it always has.
+    if (!coalesceBrowserDelivery) {
+      await publishToOtherProcesses()
     }
 
     // If persistent, also enqueue for async processing
     if (options?.persistent) {
       const q = getQueue()
-      await q.enqueue({ event, payload, options })
+      await q.enqueue({
+        event,
+        payload,
+        options,
+        // Only record the inline run as complete when every persistent
+        // subscriber actually succeeded. Inline delivery logs-and-continues, so a
+        // handler that threw has no retry of its own; leaving the job unstamped
+        // hands it to the worker, where a failure gets queue retry and
+        // dead-lettering. Without this, flipping the flag off (which the
+        // `mercato server` guard can do automatically) silently downgrades
+        // persistent delivery to at-most-once.
+        persistentDeliveredInline: !enqueueOnly && !skipPersistentInline && !inlinePersistentFailed,
+      })
     }
   }
 
@@ -345,6 +712,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     emitEvent, // Alias for backward compatibility
     on,
     registerModuleSubscribers,
+    dispatchQueued,
     clearQueue,
   }
 }

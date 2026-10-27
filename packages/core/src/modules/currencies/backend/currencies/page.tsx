@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -41,6 +41,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function CurrenciesPage() {
@@ -50,6 +51,7 @@ export default function CurrenciesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -96,6 +98,7 @@ export default function CurrenciesPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -278,7 +281,8 @@ export default function CurrenciesPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('currencies.list.title')}
+        title={t('currencies.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}
@@ -342,7 +346,7 @@ export default function CurrenciesPage() {
               createLabel={t('currencies.list.actions.create')}
             />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
           perspective={{ tableId: extensionPoints.hosts.currenciesTable.tableId }}
         />

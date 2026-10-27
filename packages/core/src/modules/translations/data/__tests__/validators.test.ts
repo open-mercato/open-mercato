@@ -25,6 +25,12 @@ describe('translation validators', () => {
       expect(result.success).toBe(true)
     })
 
+    it('accepts a nested option choice field key with maximum-length codes', () => {
+      const key = `options.${'a'.repeat(150)}.choices.${'b'.repeat(150)}.label`
+      const result = translationBodySchema.safeParse({ en: { [key]: 'Czerwony' } })
+      expect(result.success).toBe(true)
+    })
+
     it('rejects empty locale key', () => {
       const result = translationBodySchema.safeParse({ '': { title: 'x' } })
       expect(result.success).toBe(false)
@@ -40,8 +46,8 @@ describe('translation validators', () => {
       expect(result.success).toBe(false)
     })
 
-    it('rejects field key longer than 100 chars', () => {
-      const longKey = 'a'.repeat(101)
+    it('rejects field key longer than 400 chars', () => {
+      const longKey = 'a'.repeat(401)
       const result = translationBodySchema.safeParse({ en: { [longKey]: 'value' } })
       expect(result.success).toBe(false)
     })

@@ -16,6 +16,10 @@ import {
   isIgnorableSchedulerLogLine,
   isIgnorableSearchWarningLine,
   isInteractivePromptHintLine,
+  isBrowserForwardedLogLine,
+  isNonRuntimeFailureLine,
+  isStackFrameLine,
+  isStructuredNonErrorLogLine,
   isStatelessRuntimeNoiseLine,
   shouldIgnoreSplashPassthroughLine,
   stripStructuredLogPrefix,
@@ -197,6 +201,29 @@ test('isStatelessRuntimeNoiseLine combines all single-line ignore predicates', (
   assert.equal(isStatelessRuntimeNoiseLine('Error: real failure'), false)
   assert.equal(isStatelessRuntimeNoiseLine(''), false)
   assert.equal(isStatelessRuntimeNoiseLine(null), false)
+})
+
+test('browser-forwarded client logs are not runtime failures', () => {
+  const browserWarning = '[browser] [customers] failed to load interactions component=ActivitiesDayStrip Error: Missing response payload (200)'
+
+  assert.equal(isBrowserForwardedLogLine(browserWarning), true)
+  assert.equal(isBrowserForwardedLogLine('09:47:25.952 WARN  [browser] [customers] failed to load interactions'), true)
+  assert.equal(isBrowserForwardedLogLine('[server] Next.js dev server failed to boot'), false)
+
+  assert.equal(isNonRuntimeFailureLine(browserWarning), true)
+})
+
+test('stack frames and non-error structured log lines are not runtime failures', () => {
+  assert.equal(isStackFrameLine('    at readApiResultOrThrow (http://localhost:3000/_next/static/chunks/app.js:1678:15)'), true)
+  assert.equal(isStackFrameLine('at async ActivitiesDayStrip.useEffect (http://localhost:3000/_next/static/chunks/detail.js:6460:41)'), true)
+  assert.equal(isStackFrameLine('attach failed'), false)
+
+  assert.equal(isStructuredNonErrorLogLine('09:47:25.952 WARN  [ai_assistant] Tool registration failed toolName=search_query'), true)
+  assert.equal(isStructuredNonErrorLogLine('09:47:25.952 INFO  [ai_assistant:tools] Registered module-contributed AI tools toolCount=67'), true)
+  assert.equal(isStructuredNonErrorLogLine('09:47:25.952 ERROR [sales] Order sync failed orderId=42'), false)
+
+  assert.equal(isNonRuntimeFailureLine('09:47:25.952 ERROR [sales] Order sync failed orderId=42'), false)
+  assert.equal(isNonRuntimeFailureLine('⨯ Error: Cannot find module "next/dist/server"'), false)
 })
 
 test('createRuntimeNoiseFilter ignores empty, stateless noise, and multi-line search warning blocks', () => {

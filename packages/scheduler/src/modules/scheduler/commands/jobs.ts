@@ -14,7 +14,12 @@ import type {
 } from '../data/validators.js'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { BullMQSchedulerService } from '../services/bullmqSchedulerService.js'
-
+import {
+  assertSchedulerQueueTargetAuthorized,
+  isSchedulerSafeQueue,
+  validateSchedulerTargetPayload,
+} from '../lib/safeQueueTargets.js'
+import type { SchedulerTargetRbacService } from '../lib/safeQueueTargets.js'
 /**
  * Snapshot of a schedule for undo/redo
  */
@@ -83,7 +88,65 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return value instanceof Date ? value : new Date(value)
 }
 
-function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value ?? null)
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`
+}
+
+function normalizeTargetPayloadValue(value: unknown): unknown {
+  // `schedulerService.register()` persists `{}` as-is while the edit form sends
+  // `null` for an empty payload — treat the three empty shapes as equal (#5213).
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)
+      && Object.keys(value as Record<string, unknown>).length === 0) return null
+  return value
+}
+
+function targetPayloadChanged(inputValue: unknown, storedValue: unknown): boolean {
+  return targetValueChanged(
+    normalizeTargetPayloadValue(inputValue),
+    normalizeTargetPayloadValue(storedValue),
+  )
+}
+
+function targetValueChanged(inputValue: unknown, storedValue: unknown): boolean {
+  if (inputValue === undefined) return false
+  return canonicalJson(inputValue ?? null) !== canonicalJson(storedValue ?? null)
+}
+
+type QueueTargetAuthorizationContext = CommandRuntimeContext
+
+async function assertQueueTargetAuthorizedForActor(
+  ctx: QueueTargetAuthorizationContext,
+  queue: string,
+): Promise<void> {
+  const rbacService = (() => {
+    try {
+      return ctx.container?.resolve<SchedulerTargetRbacService>('rbacService') ?? null
+    } catch {
+      return null
+    }
+  })()
+  const reason = await assertSchedulerQueueTargetAuthorized({
+    queue,
+    actorUserId: resolveCommandActorUserId(ctx),
+    tenantId: ctx.auth?.tenantId ?? null,
+    organizationId: ctx.auth?.orgId ?? null,
+    isSuperAdmin: ctx.auth?.isSuperAdmin === true,
+    rbacService,
+  })
+  if (reason) throw new CrudHttpError(403, { error: reason })
+}
+
+async function assertQueueTargetPayloadAllowed(queue: string, targetPayload: Record<string, unknown> | null | undefined): Promise<void> {
+  const reason = validateSchedulerTargetPayload(queue, targetPayload)
+  if (reason) throw new CrudHttpError(422, { error: `Invalid target payload for queue ${queue}: ${reason}` })
+}
+
+export function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
   const auth = ctx.auth
   if (!auth) return null
   if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId.trim()
@@ -212,6 +275,11 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       throw new Error('Failed to calculate next run time')
     }
 
+    if (input.targetType === 'queue' && input.targetQueue) {
+      await assertQueueTargetAuthorizedForActor(ctx, input.targetQueue)
+      await assertQueueTargetPayloadAllowed(input.targetQueue, input.targetPayload)
+    }
+
     // Create schedule
     const schedule = em.create(ScheduledJob, {
       name: input.name,
@@ -228,8 +296,8 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       targetPayload: input.targetPayload ?? null,
       requireFeature: input.requireFeature ?? null,
       isEnabled: input.isEnabled ?? true,
-      sourceType: input.sourceType ?? 'user',
-      sourceModule: input.sourceModule ?? null,
+      sourceType: 'user',
+      sourceModule: null,
       nextRunAt,
       createdByUserId: resolveCommandActorUserId(ctx),
       createdAt: new Date(),
@@ -310,8 +378,74 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     if (schedule.organizationId) ensureOrganizationScope(ctx, schedule.organizationId)
     ensureCanManageSystemScopedJob(ctx, schedule)
 
+    // Module-authored schedules are trusted infrastructure wiring (#5213): their
+    // target and payload are owned by the registering module. Submitting them
+    // unchanged is a no-op (the edit form always resends every field) — only an
+    // actual change to provenance-relevant values is rejected.
+    const touchesModuleOwnedTarget =
+      schedule.sourceType === 'module'
+      && (
+        targetValueChanged(input.targetType, schedule.targetType)
+        || targetValueChanged(input.targetQueue, schedule.targetQueue)
+        || targetValueChanged(input.targetCommand, schedule.targetCommand)
+        || targetPayloadChanged(input.targetPayload, schedule.targetPayload)
+      )
+    if (touchesModuleOwnedTarget) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, {
+        error: translate(
+          'scheduler.errors.module_target_immutable',
+          'Module-authored schedules own their target; only operational fields can be updated here.',
+        ),
+      })
+    }
+
     if (input.isEnabled === true && schedule.isEnabled !== true) {
       await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
+    }
+
+    const effectiveTargetType = input.targetType ?? schedule.targetType
+    const effectiveQueue = input.targetQueue ?? schedule.targetQueue
+    const queueChanged =
+      effectiveTargetType === 'queue'
+      && (
+        targetValueChanged(input.targetQueue, schedule.targetQueue)
+        || targetValueChanged(input.targetType, schedule.targetType)
+        || targetPayloadChanged(input.targetPayload, schedule.targetPayload)
+      )
+    if (effectiveTargetType === 'queue' && effectiveQueue) {
+      const retargetedToUnapprovedQueue =
+        input.targetQueue !== undefined
+        && input.targetQueue !== schedule.targetQueue
+        && !isSchedulerSafeQueue(input.targetQueue)
+      // A save that leaves a user-authored row ACTIVE on an unapproved queue
+      // restores the invariant the update schema used to enforce; disabling the
+      // row stays allowed so admins can remediate legacy targets from the UI.
+      // (Dispatch-time re-verification remains the backstop either way.)
+      const keepsUnapprovedQueueActive =
+        effectiveQueue != null
+        && !isSchedulerSafeQueue(effectiveQueue)
+        && input.isEnabled !== false
+        && schedule.isEnabled !== false
+      if (
+        (retargetedToUnapprovedQueue || keepsUnapprovedQueueActive)
+        && schedule.sourceType !== 'module'
+      ) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(422, {
+          error: translate(
+            'scheduler.errors.queue_not_approved',
+            'Target queue is not an approved scheduler target. Only workers that opted into scheduling can be selected.',
+          ),
+        })
+      }
+      if (queueChanged) {
+        await assertQueueTargetAuthorizedForActor(ctx, effectiveQueue)
+        const effectivePayload = input.targetPayload !== undefined
+          ? input.targetPayload
+          : schedule.targetPayload
+        await assertQueueTargetPayloadAllowed(effectiveQueue, effectivePayload)
+      }
     }
 
     const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined

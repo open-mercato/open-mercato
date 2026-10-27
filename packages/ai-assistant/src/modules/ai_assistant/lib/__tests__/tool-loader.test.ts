@@ -1,11 +1,16 @@
 import { z } from 'zod'
 import {
+  applyAiToolOverrideEntries,
+  loadAllModuleTools,
   registerGeneratedAiToolEntries,
+  resetAllModuleToolsLoadForTests,
   type AiToolConfigEntry,
 } from '../tool-loader'
 import { toolRegistry } from '../tool-registry'
 import { convertMcpToolsToAiSdk } from '../mcp-tool-adapter'
 import type { InProcessMcpClient, ToolInfoWithSchema } from '../in-process-client'
+import * as codeModeTools from '../codemode-tools'
+import * as generatedRegistryLoader from '../generated-registry-loader'
 
 function makeTool(name: string) {
   return {
@@ -67,6 +72,30 @@ describe('registerGeneratedAiToolEntries', () => {
     warnSpy.mockRestore()
   })
 
+  it('applies intentional overrides without reporting a duplicate registration', () => {
+    const baseTool = makeTool('example.get_todo_summary')
+    registerGeneratedAiToolEntries([{ moduleId: 'example', tools: [baseTool] }])
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    applyAiToolOverrideEntries([
+      {
+        moduleId: 'example',
+        overrides: {
+          [baseTool.name]: {
+            ...baseTool,
+            description: 'Tool replacement applied through the override layer',
+          },
+        },
+      },
+    ])
+
+    expect(toolRegistry.getTool(baseTool.name)?.description).toBe(
+      'Tool replacement applied through the override layer',
+    )
+    expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('Tool already registered')
+    warnSpy.mockRestore()
+  })
+
   it('skips malformed tool objects instead of throwing', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const entries: AiToolConfigEntry[] = [
@@ -121,5 +150,41 @@ describe('registerGeneratedAiToolEntries', () => {
     const out = await adapted.execute({ q: 'hello' })
     expect(callToolMock).toHaveBeenCalledWith('search_query', { q: 'hello' })
     expect(out).toContain('"ok": true')
+  })
+})
+
+describe('loadAllModuleTools', () => {
+  beforeEach(() => {
+    toolRegistry.clear()
+    resetAllModuleToolsLoadForTests()
+    jest.restoreAllMocks()
+  })
+
+  afterEach(() => {
+    toolRegistry.clear()
+    resetAllModuleToolsLoadForTests()
+    jest.restoreAllMocks()
+  })
+
+  it('shares one load across concurrent and sequential callers', async () => {
+    const codeModeSpy = jest.spyOn(codeModeTools, 'loadCodeModeTools').mockResolvedValue(2)
+    const routeManifestSpy = jest
+      .spyOn(generatedRegistryLoader, 'ensureApiRouteManifestsRegistered')
+      .mockResolvedValue(0)
+    jest.spyOn(generatedRegistryLoader, 'findGeneratedFile').mockReturnValue(null)
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const firstLoad = loadAllModuleTools()
+    const concurrentLoad = loadAllModuleTools()
+
+    expect(concurrentLoad).toBe(firstLoad)
+    await Promise.all([firstLoad, concurrentLoad])
+    expect(loadAllModuleTools()).toBe(firstLoad)
+    await loadAllModuleTools()
+
+    expect(codeModeSpy).toHaveBeenCalledTimes(1)
+    expect(routeManifestSpy).toHaveBeenCalledTimes(1)
+    expect(toolRegistry.listToolNames()).toEqual(['context_whoami'])
+    expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('Tool already registered')
   })
 })

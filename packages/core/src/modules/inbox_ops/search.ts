@@ -20,6 +20,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: 'inbox_ops:inbox_proposal',
+      aclFeatures: ['inbox_ops.proposals.view'],
       enabled: true,
       priority: 6,
       fieldPolicy: {

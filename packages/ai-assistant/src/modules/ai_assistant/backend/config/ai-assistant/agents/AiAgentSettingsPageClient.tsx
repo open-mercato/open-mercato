@@ -714,7 +714,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         </div>
 
         <Alert
-          variant="info"
+          status="information"
           icon={<ShieldAlert aria-hidden="true" />}
           data-ai-agent-mutation-policy-notice
         >
@@ -740,7 +740,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
             )}
           />
         ) : query.isError ? (
-          <Alert variant="destructive" data-ai-agent-mutation-policy-load-error>
+          <Alert status="error" data-ai-agent-mutation-policy-load-error>
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.loadErrorTitle',
@@ -828,7 +828,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
         )}
 
         {state.kind === 'success' ? (
-          <Alert variant="success" data-ai-agent-mutation-policy-state="success">
+          <Alert status="success" data-ai-agent-mutation-policy-state="success">
             <AlertTitle>
               {t('ai_assistant.agents.mutation_policy.savedTitle', 'Mutation policy updated')}
             </AlertTitle>
@@ -836,7 +836,7 @@ function MutationPolicySection({ agent }: { agent: AgentSettings }) {
           </Alert>
         ) : null}
         {state.kind === 'error' ? (
-          <Alert variant="destructive" data-ai-agent-mutation-policy-state="error">
+          <Alert status="error" data-ai-agent-mutation-policy-state="error">
             <AlertTitle>
               {t(
                 'ai_assistant.agents.mutation_policy.errorTitle',
@@ -1334,7 +1334,7 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
             )}
           />
         ) : settingsQuery.isError ? (
-          <Alert variant="destructive" data-ai-agent-model-override-load-error>
+          <Alert status="error" data-ai-agent-model-override-load-error>
             <AlertTitle>
               {t(
                 'ai_assistant.agents.model_override.loadErrorTitle',
@@ -1544,12 +1544,12 @@ function AgentModelOverrideSection({ agent }: { agent: AgentSettings }) {
         ) : null}
 
         {state.kind === 'success' ? (
-          <Alert variant="success" data-ai-agent-model-override-state="success">
+          <Alert status="success" data-ai-agent-model-override-state="success">
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
         {state.kind === 'error' ? (
-          <Alert variant="destructive" data-ai-agent-model-override-state="error">
+          <Alert status="error" data-ai-agent-model-override-state="error">
             <AlertDescription>{state.message}</AlertDescription>
           </Alert>
         ) : null}
@@ -1793,7 +1793,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
             message={t('ai_assistant.agents.loop_policy.loading', 'Loading loop policy...')}
           />
         ) : query.isError ? (
-          <Alert variant="destructive" data-ai-agent-loop-policy-load-error>
+          <Alert status="error" data-ai-agent-loop-policy-load-error>
             <AlertTitle>
               {t('ai_assistant.agents.loop_policy.loadErrorTitle', 'Failed to load loop policy')}
             </AlertTitle>
@@ -1891,7 +1891,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
             </div>
 
             {state.kind === 'success' ? (
-              <Alert variant="success" data-ai-agent-loop-policy-state="success">
+              <Alert status="success" data-ai-agent-loop-policy-state="success">
                 <AlertTitle>
                   {t('ai_assistant.agents.loop_policy.savedTitle', 'Loop policy updated')}
                 </AlertTitle>
@@ -1899,7 +1899,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
               </Alert>
             ) : null}
             {state.kind === 'error' ? (
-              <Alert variant="destructive" data-ai-agent-loop-policy-state="error">
+              <Alert status="error" data-ai-agent-loop-policy-state="error">
                 <AlertTitle>
                   {t(
                     'ai_assistant.agents.loop_policy.errorTitle',
@@ -2246,7 +2246,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
         </header>
         <div className="mt-3">
           <Alert
-            variant="info"
+            status="information"
             icon={<Wand2 aria-hidden="true" />}
             data-ai-agent-prompt-notice
           >
@@ -2262,7 +2262,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </Alert>
         </div>
         {saveState.kind === 'success' ? (
-          <Alert variant="success" className="mt-3" data-ai-agent-prompt-state="success">
+          <Alert status="success" className="mt-3" data-ai-agent-prompt-state="success">
             <AlertTitle>
               {saveState.version > 0
                 ? t('ai_assistant.agents.override.savedTitle', 'Prompt override saved')
@@ -2276,7 +2276,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
           </Alert>
         ) : null}
         {saveState.kind === 'error' ? (
-          <Alert variant="destructive" className="mt-3" data-ai-agent-prompt-state="error">
+          <Alert status="error" className="mt-3" data-ai-agent-prompt-state="error">
             <AlertTitle>
               {t('ai_assistant.agents.override.errorTitle', 'Failed to save prompt override')}
             </AlertTitle>
@@ -2396,7 +2396,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
               )}
             />
           ) : overrideQuery.isError ? (
-            <Alert variant="destructive" data-ai-agent-override-history-error>
+            <Alert status="error" data-ai-agent-override-history-error>
               <AlertTitle>
                 {t(
                   'ai_assistant.agents.override.history.errorTitle',
@@ -2505,7 +2505,7 @@ export function AiAgentSettingsPageClient() {
 
   if (isError) {
     return (
-      <Alert variant="destructive" data-ai-agent-settings-error>
+      <Alert status="error" data-ai-agent-settings-error>
         <AlertTitle>
           {t('ai_assistant.agents.loadErrorTitle', 'Failed to load AI agents')}
         </AlertTitle>

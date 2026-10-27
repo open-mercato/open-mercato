@@ -7,11 +7,19 @@ import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/att
 
 const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
+type BaseCurrencyResolver = {
+  resolveBaseCurrency(scope: {
+    tenantId: string
+    organizationIds: string[]
+  }): Promise<{ status: 'resolved'; code: string } | { status: 'missing' | 'ambiguous' | 'unavailable' }>
+}
+
 export type UpgradeActionContext = {
   tenantId: string
   organizationId: string
   container: AppContainer
   em: EntityManager
+  deferAfterCommit?: (callback: () => void | Promise<void>) => void
 }
 
 export type UpgradeActionDefinition = {
@@ -21,6 +29,12 @@ export type UpgradeActionDefinition = {
   ctaKey: string
   successKey: string
   loadingKey?: string
+  /**
+   * Modules that must be enabled for this action to be offered/executed.
+   * Mirrors `InjectionWidgetMetadata.requiredModules` — omit for actions
+   * owned by `configs` itself.
+   */
+  requiredModules?: string[]
   run: (ctx: UpgradeActionContext) => Promise<void>
 }
 
@@ -63,6 +77,38 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     },
   },
   {
+    id: 'devices.seed-push-token-encryption-map',
+    version: '0.6.6',
+    messageKey: 'configs.upgrades.devicesPushTokenEncryption.message',
+    ctaKey: 'configs.upgrades.devicesPushTokenEncryption.cta',
+    successKey: 'configs.upgrades.devicesPushTokenEncryption.success',
+    loadingKey: 'configs.upgrades.devicesPushTokenEncryption.loading',
+    // Encryption maps are seeded once at tenant creation (`entities seed-encryption`), so a tenant
+    // that predates the devices push-token feature has no `devices:user_device` map row. Without it
+    // `encryptEntityPayload` no-ops and `push_token` is written as PLAINTEXT (the map is a declaration
+    // of which fields to encrypt; the tenant DEK still drives the actual crypto, so seeding it is safe
+    // even when encryption is currently disabled — it only takes effect once encryption is on).
+    // Lazy-imported so configs stays decoupled from devices/entities (mirrors the customers action).
+    run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
+      const [{ default: devicesEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
+        import('@open-mercato/core/modules/devices/encryption'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
+      ])
+      const materializedScopes = await upsertEncryptionMapSpecs(
+        em,
+        tenantId,
+        organizationId ?? null,
+        devicesEncryptionMaps,
+      )
+      const invalidate = async () => {
+        const encryptionService = container.resolve('tenantEncryptionService') as Parameters<typeof invalidateEncryptionMapScopes>[0]
+        await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+      }
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
+    },
+  },
+  {
     id: 'customers.seed-interaction-statuses',
     version: '0.6.5',
     messageKey: 'customers.config.upgradeActions.interactionStatuses.message',
@@ -98,11 +144,99 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.cta',
     successKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.success',
     loadingKey: 'payment_gateways.upgradeActions.sessionInitializationPrune.loading',
+    requiredModules: ['payment_gateways'],
     run: async ({ container, tenantId, organizationId }) => {
       const { registerSessionInitializationPruneSchedule } = await import(
         '@open-mercato/core/modules/payment_gateways/setup'
       )
       await registerSessionInitializationPruneSchedule(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'phone_calls.seed-call-encryption-maps',
+    version: '0.7.1',
+    messageKey: 'phone_calls.config.upgradeActions.encryptionMaps.message',
+    ctaKey: 'phone_calls.config.upgradeActions.encryptionMaps.cta',
+    successKey: 'phone_calls.config.upgradeActions.encryptionMaps.success',
+    loadingKey: 'phone_calls.config.upgradeActions.encryptionMaps.loading',
+    // `Migration20260822120000` backfills these maps, but only for scopes that had active maps when
+    // it ran. A tenant that upgraded with encryption disabled and turned it on afterwards is left
+    // without a map, so ingest writes call PII as plaintext with nothing to signal it. This is the
+    // heal for that case, and the same re-assert path devices exposes for its own map.
+    // Lazy-imported so configs stays decoupled from phone_calls/entities (mirrors the devices action).
+    run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
+      const [{ default: phoneCallsEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
+        import('@open-mercato/core/modules/phone_calls/encryption'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
+      ])
+      const materializedScopes = await upsertEncryptionMapSpecs(
+        em,
+        tenantId,
+        organizationId ?? null,
+        phoneCallsEncryptionMaps,
+      )
+      const invalidate = async () => {
+        const encryptionService = container.resolve('tenantEncryptionService') as Parameters<typeof invalidateEncryptionMapScopes>[0]
+        await invalidateEncryptionMapScopes(encryptionService, materializedScopes)
+      }
+      if (deferAfterCommit) deferAfterCommit(invalidate)
+      else await invalidate()
+    },
+  },
+  {
+    id: 'ecommerce.seed-draft-store',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.ecommerceDraftStore.message',
+    ctaKey: 'configs.upgrades.ecommerceDraftStore.cta',
+    successKey: 'configs.upgrades.ecommerceDraftStore.success',
+    loadingKey: 'configs.upgrades.ecommerceDraftStore.loading',
+    requiredModules: ['ecommerce'],
+    run: async ({ container, em, tenantId, organizationId }) => {
+      const { seedDraftStore } = await import('@open-mercato/core/modules/ecommerce/lib/seedDraftStore')
+      const result = await seedDraftStore(
+        em,
+        { tenantId, organizationId },
+        {
+          resolveCurrencyCode: async () => {
+            try {
+              const resolver = container.resolve<BaseCurrencyResolver>('baseCurrencyService')
+              const resolution = await resolver.resolveBaseCurrency({ tenantId, organizationIds: [organizationId] })
+              return resolution.status === 'resolved' ? resolution.code : null
+            } catch {
+              return null
+            }
+          },
+        },
+      )
+      logger.info('ecommerce draft store seed completed', { tenantId, organizationId, status: result.status })
+    },
+  },
+  {
+    id: 'cart.register-sweeper-schedules',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.cartSweeperSchedules.message',
+    ctaKey: 'configs.upgrades.cartSweeperSchedules.cta',
+    successKey: 'configs.upgrades.cartSweeperSchedules.success',
+    loadingKey: 'configs.upgrades.cartSweeperSchedules.loading',
+    requiredModules: ['cart'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCartSweeperSchedules } = await import('@open-mercato/core/modules/cart/lib/scheduling')
+      await registerCartSweeperSchedules(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'promotions.register-code-reservation-sweep-schedule',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.message',
+    ctaKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.cta',
+    successKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.success',
+    loadingKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.loading',
+    requiredModules: ['promotions'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCodeReservationSweepSchedule } = await import(
+        '@open-mercato/core/modules/promotions/lib/scheduling'
+      )
+      await registerCodeReservationSweepSchedule(container, { tenantId, organizationId })
     },
   },
 ]

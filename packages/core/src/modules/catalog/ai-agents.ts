@@ -407,7 +407,7 @@ const MERCHANDISING_PROMPT_SECTIONS: PromptSection[] = [
       '- Selection-first: if `pageContext.recordId` contains a non-empty comma-separated UUID list (or `pageContext.extra.selectedCount > 0`), the operator has selected rows in the grid and EXPECTS you to act on those first. Call catalog.list_selected_products with those IDs, present what you found, and THEN ask whether to expand to the full catalog or to a broader search. Do NOT silently fall back to catalog.search_products when a selection is present.',
       '- "list products" with no selection → call catalog.search_products with NO parameters (returns all active products, paginated; default limit=50, max=100).',
       '- User mentions a product name → call catalog.search_products with q=that name.',
-      '- If catalog.search_products returns more rows than the page (i.e. `total` > `limit + offset`), say so and offer to fetch the next page; do NOT raise `limit` above 100.',
+      '- If catalog.search_products fills the page (as many items as `limit`), more may follow: say so and offer to fetch the next page; do NOT raise `limit` above 100. When `totalIsCapped` is true, `total` is a floor — phrase it as "at least N", never as an exact count.',
       'Present results first, then offer refinement options. The user does NOT want to answer questions before seeing data.',
     ].join('\n'),
   },

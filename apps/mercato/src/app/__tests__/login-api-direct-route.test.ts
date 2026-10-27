@@ -7,7 +7,7 @@ describe('login API route graph', () => {
     const source = fs.readFileSync(routePath, 'utf8')
 
     expect(source).toContain('@open-mercato/core/modules/auth/api/login')
-    expect(source).toContain('@/bootstrap')
+    expect(source).toContain('@/bootstrap-api')
     expect(source).not.toContain('api-routes.generated')
     expect(source).not.toContain('[...slug]')
   })

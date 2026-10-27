@@ -1,8 +1,10 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { E } from '@/.mercato/generated/entities.ids.generated'
 import { id, name } from '@/.mercato/generated/entities/organization'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   exampleErrorSchema,
@@ -10,6 +12,13 @@ import {
   exampleTag,
   organizationQuerySchema,
 } from '../openapi'
+
+const logger = createLogger('example').child({ component: 'organizations-route' })
+
+type OrganizationRow = {
+  id: string
+  name: string | null
+}
 
 export const metadata = {
   GET: {
@@ -33,28 +42,24 @@ export const metadata = {
 export async function GET(request: Request) {
   try {
     const container = await createRequestContainer()
-    const queryEngine = (container.resolve('queryEngine') as QueryEngine)
+    const queryEngine = container.resolve<QueryEngine>('queryEngine')
     const auth = await getAuthFromCookies()
 
     if (!auth?.tenantId) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'content-type': 'application/json' },
-      })
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const url = new URL(request.url)
-    const organizationIds = url.searchParams.get('ids')?.split(',') || []
+    const organizationIds = parseCommaSeparatedList(url.searchParams.get('ids'))
 
     if (organizationIds.length === 0) {
-      return new Response(JSON.stringify({ items: [] }), {
-        headers: { 'content-type': 'application/json' },
-      })
+      return Response.json({ items: [] })
     }
 
-    // Query organizations
-    const res = await queryEngine.query(E.directory.organization, {
-      tenantId: auth.tenantId!,
+    // Query organizations. Typing the result parameter keeps the projection honest:
+    // adding a field to `fields` without adding it to `OrganizationRow` fails to compile.
+    const res = await queryEngine.query<OrganizationRow>(E.directory.organization, {
+      tenantId: auth.tenantId,
       organizationId: auth.orgId || undefined, // optional filter
       fields: [id, name],
       filters: [
@@ -62,20 +67,15 @@ export async function GET(request: Request) {
       ]
     })
 
-    const organizations = res.items.map((org: any) => ({
+    const organizations = res.items.map((org) => ({
       id: org.id,
       name: org.name,
     }))
 
-    return new Response(JSON.stringify({ items: organizations }), {
-      headers: { 'content-type': 'application/json' },
-    })
+    return Response.json({ items: organizations })
   } catch (error) {
-    console.error('Error fetching organizations:', error)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
-      status: 500,
-      headers: { 'content-type': 'application/json' },
-    })
+    logger.error('Failed to resolve organization labels', { err: error })
+    return Response.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 

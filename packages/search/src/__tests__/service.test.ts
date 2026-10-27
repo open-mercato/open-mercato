@@ -431,6 +431,30 @@ describe('SearchService', () => {
       expect(strategy.index).toHaveBeenCalledTimes(2)
     })
 
+    it('should bound in-flight writes when falling back to individual indexing', async () => {
+      let inFlight = 0
+      let peakInFlight = 0
+      const strategy = createMockStrategy({
+        id: 'test',
+        bulkIndex: undefined,
+        index: jest.fn(async () => {
+          inFlight++
+          peakInFlight = Math.max(peakInFlight, inFlight)
+          await new Promise<void>((resolve) => setTimeout(resolve, 0))
+          inFlight--
+        }),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+      const records = Array.from({ length: 50 }, (_, index) =>
+        createMockRecord({ recordId: `rec-${index}` }),
+      )
+
+      await service.bulkIndex(records)
+
+      expect(strategy.index).toHaveBeenCalledTimes(50)
+      expect(peakInFlight).toBeLessThanOrEqual(4)
+    })
+
     it('should do nothing when records array is empty', async () => {
       const strategy = createMockStrategy({ id: 'test' })
       const service = new SearchService({ strategies: [strategy] })

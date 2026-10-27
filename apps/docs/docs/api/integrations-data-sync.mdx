@@ -82,13 +82,15 @@ If integration has no declared `apiVersions`, the endpoint returns `422`.
 
 ### Get credentials - `GET /integrations/{id}/credentials`
 
-**Feature:** `integrations.view`
+**Feature:** `integrations.credentials.manage`
 
 Returns:
 
 - `integrationId`
 - resolved `schema`
-- `credentials` object (empty object if none)
+- `credentials` object; configured secret-bearing fields contain an opaque mask rather than plaintext
+- `secretFieldsConfigured`, a field-name-to-boolean map for write-only secret state
+- `updatedAt`, used for optimistic locking
 
 ```bash
 curl -X GET "$BASE_URL/integrations/$INTEGRATION_ID/credentials" \
@@ -99,15 +101,17 @@ curl -X GET "$BASE_URL/integrations/$INTEGRATION_ID/credentials" \
 
 **Feature:** `integrations.credentials.manage`
 
+The request remains a full-blob replacement by default. To retain an already configured write-only secret while updating other fields, omit its value from `credentials` and list its schema field name in `unchangedSecretFields`. Plain omission without that list removes the field; an explicit empty string clears it.
+
 ```bash
 curl -X PUT "$BASE_URL/integrations/$INTEGRATION_ID/credentials" \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "credentials": {
-      "apiUrl": "https://api.example.com",
-      "apiKey": "secret"
-    }
+      "apiUrl": "https://api.example.com"
+    },
+    "unchangedSecretFields": ["apiKey"]
   }'
 ```
 

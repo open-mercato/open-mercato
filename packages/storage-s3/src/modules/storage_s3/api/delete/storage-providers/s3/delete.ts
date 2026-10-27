@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isS3KeyAddressableByScope } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
+import type { AttachmentQuotaService } from '@open-mercato/core/modules/attachments/lib/quota-service'
 
 export const metadata = {
   path: '/storage-providers/s3/delete',
@@ -48,7 +49,21 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: t('storage_s3.errors.integrationNotConfigured', 'S3 integration is not configured.') }, { status: 400 })
   }
 
-  await driver.delete('', parsed.data.key)
+  await (driver.deleteStrict?.('', parsed.data.key) ?? driver.delete('', parsed.data.key))
+  const { resolve } = await createRequestContainer()
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  try {
+    attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService | null
+  } catch {
+    // Backward-compatible when the attachments quota service is not registered.
+  }
+  if (attachmentQuotaService) {
+    await attachmentQuotaService.releaseCommittedByPath({
+      tenantId: auth.tenantId,
+      storageDriver: 's3',
+      storagePath: parsed.data.key,
+    })
+  }
   return new NextResponse(null, { status: 204 })
 }
 

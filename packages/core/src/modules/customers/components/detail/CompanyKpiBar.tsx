@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { EyeOff } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts/KpiCard'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -67,6 +67,7 @@ type CompanyKpiBarProps = {
 
 export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
   const t = useT()
+  const locale = useLocale()
 
   const activeDeals = React.useMemo(() => getActiveDeals(data.deals), [data.deals])
   const activeDealsValue = React.useMemo(
@@ -126,7 +127,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
       title: t('customers.companies.dashboard.kpi.activeDeals', 'ACTIVE DEALS'),
       value: activeDealsValue,
       trend: dealTrend,
-      formatValue: (v: number) => formatCurrency(v, dealCurrency),
+      formatValue: (v: number) => formatCurrency(v, dealCurrency, locale),
       comparisonLabel: `${data.kpis?.activeDealsCount ?? activeDeals.length} ${(data.kpis?.activeDealsCount ?? activeDeals.length) === 1 ? 'pipeline' : 'pipelines'}`,
     },
     {
@@ -140,7 +141,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
       id: 'ltv',
       title: t('customers.companies.dashboard.kpi.ltv', 'CUSTOMER VALUE (LTV)'),
       value: ltvValue,
-      formatValue: ltvValue !== null ? (v: number) => formatCurrency(v, dealCurrency) : undefined,
+      formatValue: ltvValue !== null ? (v: number) => formatCurrency(v, dealCurrency, locale) : undefined,
       comparisonLabel: ltvValue !== null
         ? t('customers.companies.dashboard.kpi.wonDeals', 'won deals total')
         : t('customers.companies.dashboard.kpi.noWonDeals', 'No won deals'),
@@ -158,7 +159,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
         ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
         : t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet'),
     },
-  ], [t, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis])
+  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis])
 
   const visibleTiles = kpiTiles.filter((tile) => !hiddenTiles.has(tile.id))
 

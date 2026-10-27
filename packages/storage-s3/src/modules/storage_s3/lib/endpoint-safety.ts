@@ -143,17 +143,27 @@ function buildLookupValidationUrl(rawEndpoint: string, lookupHostname: string): 
 }
 
 export type SafeS3RequestHandlerOptions = {
-  httpAgent: HttpAgent
-  httpsAgent: HttpsAgent
+  connectionTimeout: number
+  requestTimeout: number
+  httpAgent?: HttpAgent
+  httpsAgent?: HttpsAgent
 }
+
+const S3_CONNECTION_TIMEOUT_MS = 10_000
+const S3_REQUEST_TIMEOUT_MS = 120_000
 
 export function createSafeS3RequestHandler(
   rawEndpoint: string | null | undefined,
   deps: SafeS3EndpointLookupDeps = {},
 ): SafeS3RequestHandlerOptions | undefined {
   const lookup = createSafeS3EndpointLookup(rawEndpoint, deps)
-  if (!lookup) return undefined
+  const timeouts = {
+    connectionTimeout: S3_CONNECTION_TIMEOUT_MS,
+    requestTimeout: S3_REQUEST_TIMEOUT_MS,
+  }
+  if (!lookup) return timeouts
   return {
+    ...timeouts,
     httpAgent: new HttpAgent({ lookup }),
     httpsAgent: new HttpsAgent({ lookup }),
   }

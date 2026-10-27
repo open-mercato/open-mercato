@@ -18,7 +18,9 @@ import type {
 import {
   convertToModelMessages,
   generateObject,
+  generateText,
   hasToolCall,
+  Output,
   stepCountIs,
   streamObject,
   streamText,
@@ -27,8 +29,9 @@ import {
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
+import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from './llm-registry'
 import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
 import {
   AiModerationBlockedError,
@@ -78,10 +81,6 @@ import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { recordTokenUsage } from './token-usage-recorder'
 import { injectTaskPlanIntoStream } from './task-plan-stream'
 import { TASK_PLAN_RUNTIME_PROMPT_SECTION } from './task-plan-labels'
-
-// Ensure built-in LLM providers are registered. Side-effect import; identical to
-// what `./ai-sdk.ts` consumers already rely on.
-import './llm-bootstrap'
 
 const logger = createLogger('ai_assistant').child({ component: 'agent-runtime' })
 
@@ -1207,6 +1206,12 @@ async function resolveTenantAllowlistSnapshot(
  * is appended to `agent.systemPrompt`. Throwing callbacks are caught and
  * logged without failing the request — the spec allows hydration to be
  * best-effort until Step 5.2 wires a stricter contract.
+ *
+ * `userId` identifies the authenticated caller and is forwarded to the callback
+ * so it can authorize user-scoped hydration. It MUST come from the server-side
+ * auth context — `pageContext` is browser-supplied and is never read for it.
+ * The parameter is trailing and optional so existing five-argument callers keep
+ * working; they simply hand the resolver no verified identity.
  */
 export async function composeSystemPrompt(
   agent: AiAgentDefinition,
@@ -1214,6 +1219,7 @@ export async function composeSystemPrompt(
   container: AwilixContainer | undefined,
   tenantId: string | null,
   organizationId: string | null,
+  userId?: string | null,
 ): Promise<string> {
   const baseFromOverride = await resolveBaseSystemPromptWithOverride(
     agent,
@@ -1237,6 +1243,7 @@ export async function composeSystemPrompt(
     container,
     tenantId,
     organizationId,
+    userId: userId ?? null,
   }
   try {
     const hydrated = await resolve(hydrationInput)
@@ -1361,10 +1368,18 @@ async function resolveRuntimeModelOverride(
       agentId,
     })
     if (!row) return null
+    const baseURL = resolveAllowlistedBaseurl(row.baseUrl)
+    if (!baseURL && row.baseUrl?.trim()) {
+      logger.warn('Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it', {
+        agentId,
+        tenantId,
+        organizationId,
+      })
+    }
     return {
       providerId: row.providerId ?? null,
       modelId: row.modelId ?? null,
-      baseURL: row.baseUrl ?? null,
+      baseURL,
     }
   } catch (error) {
     logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })
@@ -1705,6 +1720,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
+    input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeOutputLanguagePrompt(
@@ -1925,11 +1941,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
   if (builtToolLoopAgent !== undefined) {
     // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
-    // pipeline. prepareStep is already wired at construction (security-critical).
+    // pipeline. prepareStep is already wired at construction (security-critical),
+    // and so is `onStepFinish` — passing it here too makes the SDK merge both
+    // wirings without dedup, so the budget enforcer and the loop trace would count
+    // every step twice and abort the turn before the final answer (#5042).
     const agentStreamResult = await builtToolLoopAgent.stream({
       messages: modelMessages,
       abortSignal: abortController.signal,
-      onStepFinish: wiredOnStepFinish,
     })
     if (wallClockTimer !== undefined) {
       const clearTimer = () => clearTimeout(wallClockTimer!)
@@ -2048,6 +2066,21 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
     baseURL?: string | null
   }
   output?: RunAiAgentObjectOutputOverride<TSchema>
+  /**
+   * Opt-in: run the agent as a READ-ONLY tool loop that finalizes into the
+   * structured-output schema, instead of the toolless `generateObject` call.
+   *
+   * When `true` AND the agent resolves at least one tool, the runtime dispatches
+   * via `generateText({ tools, output: Output.object({ schema }) })`
+   * so the model can call its allowlisted tools to gather data before emitting
+   * the structured object. The mutation-approval gate (`buildWrapperPrepareStep`)
+   * is wired identically to chat mode, and read-only agents already have every
+   * `isMutation: true` tool stripped — so this never enables a direct write.
+   *
+   * When `false`/omitted (or no tools resolve) the existing toolless
+   * `generateObject`/`streamObject` path runs unchanged.
+   */
+  enableTools?: boolean
   debug?: boolean
   container?: AwilixContainer
   /**
@@ -2087,6 +2120,15 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
   object: TSchema
   finishReason?: string
   usage?: { inputTokens?: number; outputTokens?: number }
+  /**
+   * Per-step records from the read-only tool loop, in the same
+   * {@link LoopStepRecord} shape the chat path's LoopTrace collector produces.
+   * Present only on the `enableTools` tool-loop branch; the toolless
+   * `generateObject`/`streamObject` paths never set it. Additive — consumed by
+   * the agent-orchestrator native runtime for per-step trace capture (spec
+   * `2026-07-07-lightweight-agent-runtime` Phase 1).
+   */
+  steps?: LoopStepRecord[]
 }
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
@@ -2203,6 +2245,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.container,
     input.authContext.tenantId,
     input.authContext.organizationId,
+    input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
     appendRuntimeOutputLanguagePrompt(
@@ -2229,7 +2272,6 @@ export async function runAiAgentObject<TSchema = unknown>(
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  void tools
 
   // Phase 6.2 — resolve session id and generate per-call turn id for
   // token-usage correlation in object mode.
@@ -2239,12 +2281,70 @@ export async function runAiAgentObject<TSchema = unknown>(
   void effectiveObjectSessionId
   void objectTurnId
 
+  const abortController = new AbortController()
+
+  // Read-only tool-loop path (opt-in via `enableTools`). When the agent resolves
+  // tools, run a `generateText` loop that finalizes into the output schema via
+  // `experimental_output`, so the model can read through its allowlisted tools
+  // before proposing. The mutation gate + stop conditions are wired exactly as in
+  // chat mode; read-only agents have mutation tools stripped, so no direct write
+  // is ever possible. Falls through to `generateObject` when no tools resolve.
+  const resolvedToolNames = Object.keys((tools ?? {}) as ToolSet)
+  // Degrading to a single-shot call is a legitimate fallback, but it silently
+  // changes what the agent CAN do — an agent whose prompt says "validate your
+  // draft with the tool before returning" is now being asked to obey an
+  // instruction it has no way to follow. Say so, loudly, once per turn.
+  if (input.enableTools && resolvedToolNames.length === 0) {
+    logger.warn(
+      'Agent requested a tool loop but no tools resolved; falling back to a single-shot generateObject',
+      {
+        agentId: agent.id,
+        allowedTools: agent.allowedTools,
+      },
+    )
+  }
+  if (input.enableTools && resolvedToolNames.length > 0) {
+    const toolLoopConfig = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
+    const toolStopConditions = translateStopConditions(toolLoopConfig, sanitizeToolNameForModel)
+    const toolWrapperPrepareStep = buildWrapperPrepareStep(agent, toolLoopConfig, tools)
+    // Per-step exposure (native-runtime spec Phase 1, additive): aggregate the
+    // AI SDK's step records through the same collector the chat path uses and
+    // forward the caller's `loop.onStepFinish` — previously silently dropped on
+    // this branch. Callers that pass no `loop.onStepFinish` observe identical
+    // behavior plus the optional `steps` field on the result.
+    const toolLoopTrace = buildLoopTraceCollector(
+      agent.id,
+      effectiveObjectSessionId,
+      objectTurnId,
+      toolLoopConfig.onStepFinish,
+    )
+    const toolResult = await generateText({
+      model,
+      system: systemPrompt,
+      messages: modelMessages,
+      tools,
+      stopWhen: toolStopConditions as never,
+      prepareStep: toolWrapperPrepareStep as never,
+      onStepFinish: toolLoopTrace.onStepFinish as never,
+      output: Output.object({ schema: resolvedOutput.schema as never }),
+      abortSignal: abortController.signal,
+    })
+    return {
+      mode: 'generate',
+      object: (toolResult as unknown as { output: TSchema }).output,
+      finishReason: (toolResult as { finishReason?: string }).finishReason,
+      usage: {
+        inputTokens: toolResult.usage?.inputTokens,
+        outputTokens: toolResult.usage?.outputTokens,
+      },
+      steps: toolLoopTrace.finalize(null).steps,
+    }
+  }
+
   if (input.loop) {
     assertLoopObjectModeCompatible(input.loop)
   }
   const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
-
-  const abortController = new AbortController()
 
   const preparedObjectOptions: PreparedAiSdkObjectOptions = {
     model,

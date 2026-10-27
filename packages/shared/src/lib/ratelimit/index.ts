@@ -1,4 +1,5 @@
 export { RateLimiterService } from './service'
 export { readRateLimitConfig, readEndpointRateLimitConfig } from './config'
-export { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY, rateLimitErrorSchema } from './helpers'
+export { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY, RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK, rateLimitErrorSchema } from './helpers'
+export type { CheckRateLimitOptions } from './helpers'
 export type { RateLimitConfig, RateLimitResult, RateLimitStrategy, RateLimitGlobalConfig } from './types'

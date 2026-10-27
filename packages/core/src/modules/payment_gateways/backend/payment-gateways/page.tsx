@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/payment_gateways/extension-points'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -89,6 +89,7 @@ type TransactionsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -183,9 +184,11 @@ export default function PaymentTransactionsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<TransactionDetail | null>(null)
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false)
@@ -226,11 +229,15 @@ export default function PaymentTransactionsPage() {
     const fallback: TransactionsResponse = { items: [], total: 0, page, pageSize: 20, totalPages: 1 }
     const call = await apiCall<TransactionsResponse>(`/api/payment_gateways/transactions?${params.toString()}`, undefined, { fallback })
     if (call.ok && call.result) {
+      setLoadError(null)
       setRows(Array.isArray(call.result.items) ? call.result.items : [])
       setTotal(call.result.total ?? 0)
       setTotalPages(call.result.totalPages ?? 1)
+      setTotalIsCapped(call.result?.totalIsCapped === true)
     } else {
-      flash(t('payment_gateways.transactions.error.load', 'Failed to load payment transactions'), 'error')
+      const message = t('payment_gateways.transactions.error.load', 'Failed to load payment transactions')
+      flash(message, 'error')
+      setLoadError(message)
       setRows([])
       setTotal(0)
       setTotalPages(1)
@@ -464,6 +471,7 @@ export default function PaymentTransactionsPage() {
         <DataTable
           stickyActionsColumn
           title={t('payment_gateways.transactions.tableTitle', 'Transactions')}
+          titleHeadingLevel={2}
           columns={columns}
           data={rows}
           filters={filters}
@@ -474,8 +482,9 @@ export default function PaymentTransactionsPage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('payment_gateways.transactions.searchPlaceholder', 'Search by payment, transaction, session, or gateway id')}
           perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
+          error={loadError}
           onRowClick={(row) => setSelectedId((current) => current === row.id ? null : row.id)}
           rowActions={(row) => (
             <RowActions items={[

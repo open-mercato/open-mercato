@@ -1,6 +1,12 @@
 import { createProgressService } from '../lib/progressServiceImpl'
 import { PROGRESS_EVENTS } from '../lib/events'
-import { calculateEta, calculateProgressPercent, STALE_PENDING_TIMEOUT_SECONDS } from '../lib/progressService'
+import {
+  calculateEta,
+  calculateProgressPercent,
+  STALE_PENDING_TIMEOUT_SECONDS,
+  STALE_SWEEP_ERROR_PREFIX,
+  type ProgressServiceContext,
+} from '../lib/progressService'
 import type { ProgressJob } from '../data/entities'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -19,6 +25,23 @@ const baseCtx = {
 
 const detached = expect.objectContaining({ disableIdentityMap: true })
 
+// A revive is a start CAS narrowed to rows the stale sweep tagged; `startJob` uses the
+// same CAS without the narrowing so a queue retry can restart a genuine failure.
+const reviveFilter = expect.objectContaining({
+  status: { $in: ['pending', 'failed'] },
+  errorMessage: { $like: `${STALE_SWEEP_ERROR_PREFIX}%` },
+})
+const staleSweptError = `${STALE_SWEEP_ERROR_PREFIX} no heartbeat for 60 seconds`
+
+// Stands in for Postgres on the revive CAS: an update narrowed to sweep-marked rows
+// matches nothing when the row carries a real failure message.
+const buildStaleAwareNativeUpdate = (job: { errorMessage?: string | null }) =>
+  jest.fn((_entity: unknown, filter: Record<string, unknown>) => {
+    const like = (filter?.errorMessage as { $like?: string } | undefined)?.$like
+    if (!like) return Promise.resolve(1)
+    return Promise.resolve(job.errorMessage?.startsWith(like.slice(0, -1)) ? 1 : 0)
+  })
+
 const buildEm = () => {
   const flush = jest.fn().mockResolvedValue(undefined)
   const persist = jest.fn((_entity: unknown) => ({ flush }))
@@ -30,9 +53,15 @@ const buildEm = () => {
     findOneOrFail: jest.fn(),
     find: jest.fn(),
     nativeUpdate: jest.fn().mockResolvedValue(1),
+    fork: jest.fn(),
   }
   return em
 }
+
+const buildForkEm = () => ({
+  findOne: jest.fn(),
+  nativeUpdate: jest.fn().mockResolvedValue(1),
+})
 
 describe('progress service', () => {
   beforeEach(() => {
@@ -66,6 +95,94 @@ describe('progress service', () => {
         tenantId: baseCtx.tenantId,
       })
     )
+  })
+
+  it('createJob — rejects an explicit empty organization scope before persistence', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const service = createProgressService(em as never, eventBus)
+
+    await expect(service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId: 'org-1', organizationIds: [] },
+    )).rejects.toThrow('[internal] Progress job creation is outside the allowed organization scope')
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('createJob — allows a concrete target inside a finite organization scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data) => ({ id: 'job-finite', ...data }))
+    const service = createProgressService(em as never, eventBus)
+
+    await service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId: 'org-2', organizationIds: ['org-1', 'org-2'] },
+    )
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: baseCtx.tenantId, organizationId: 'org-2' }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['outside the finite scope', 'org-3'],
+    ['null in a finite scope', null],
+    ['missing from a finite scope', undefined],
+  ])('createJob — rejects a target %s before persistence', async (_scenario, organizationId) => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const service = createProgressService(em as never, eventBus)
+
+    await expect(service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId, organizationIds: ['org-1', 'org-2'] },
+    )).rejects.toThrow('[internal] Progress job creation is outside the allowed organization scope')
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('createJob — preserves legacy single-organization behavior when organizationIds is undefined', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data) => ({ id: 'job-legacy', ...data }))
+    const service = createProgressService(em as never, eventBus)
+
+    await service.createJob(
+      { jobType: 'import', name: 'Import contacts' },
+      { ...baseCtx, organizationId: 'org-legacy' },
+    )
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ organizationId: 'org-legacy' }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(1)
+  })
+
+  it('createJob — preserves explicit null unrestricted system behavior', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data) => ({ id: 'job-system', ...data }))
+    const service = createProgressService(em as never, eventBus)
+
+    await service.createJob(
+      { jobType: 'maintenance', name: 'System maintenance' },
+      { ...baseCtx, organizationId: 'org-system', organizationIds: null },
+    )
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ organizationId: 'org-system' }),
+    )
+    expect(em.persist).toHaveBeenCalledTimes(1)
   })
 
   it('startJob — transitions to running via a status-guarded update, emits JOB_STARTED', async () => {
@@ -112,7 +229,7 @@ describe('progress service', () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
-    const job = { id: 'job-1', status: 'failed', jobType: 'import', errorMessage: 'stale' } as ProgressJob
+    const job = { id: 'job-1', status: 'failed', jobType: 'import', errorMessage: 'Upstream returned 500' } as ProgressJob
     em.findOneOrFail.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
@@ -121,6 +238,10 @@ describe('progress service', () => {
     expect(result.status).toBe('running')
     expect(result.errorMessage).toBeNull()
     expect(result.finishedAt).toBeNull()
+    // Unlike the revive paths, an explicit start is NOT narrowed to sweep-marked rows —
+    // a queue retry restarts the whole unit of work, so a genuine failure is restartable.
+    const [, filter] = em.nativeUpdate.mock.calls[0]
+    expect(filter.errorMessage).toBeUndefined()
     expect(eventBus.emit).toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_STARTED, expect.objectContaining({ jobId: 'job-1' }))
   })
 
@@ -290,12 +411,20 @@ describe('progress service', () => {
     expect(result.status).toBe('failed')
     expect(eventBus.emit).not.toHaveBeenCalled()
 
-    // The throttle cache was dropped, so the next call re-reads and hits the terminal guard.
+    // The throttle cache was dropped, so the next call re-reads and hits the terminal
+    // guard. A `failed` status may be a stale-sweep false positive, so the guard attempts
+    // exactly one revive through the start CAS; when it loses, nothing else is written.
     em.findOneOrFail.mockResolvedValue(fresh)
     em.nativeUpdate.mockClear()
     const second = await service.updateProgress('job-1', { processedCount: 11 }, baseCtx)
     expect(second.status).toBe('failed')
-    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: { $in: ['pending', 'failed'] } }),
+      expect.objectContaining({ status: 'running' }),
+    )
+    expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
   it('incrementProgress — adds delta, persists an atomic SQL increment, emits JOB_UPDATED', async () => {
@@ -467,16 +596,22 @@ describe('progress service', () => {
     em.findOne.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
-    const result = await service.failJob('job-1', { errorMessage: 'Network error', errorStack: 'stack...' }, baseCtx)
+    const resultSummary = { affectedCount: 0, failedCount: 2 }
+    const result = await service.failJob(
+      'job-1',
+      { errorMessage: 'Network error', errorStack: 'stack...', resultSummary },
+      baseCtx,
+    )
 
     expect(result.status).toBe('failed')
     expect(result.finishedAt).toBeInstanceOf(Date)
     expect(result.errorMessage).toBe('Network error')
     expect(result.errorStack).toBe('stack...')
+    expect(result.resultSummary).toEqual(resultSummary)
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ id: 'job-1', status: { $in: ['pending', 'running'] } }),
-      expect.objectContaining({ status: 'failed', errorMessage: 'Network error' })
+      expect.objectContaining({ status: 'failed', errorMessage: 'Network error', resultSummary })
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
@@ -776,6 +911,8 @@ describe('progress service', () => {
 
   it('isCancellationRequested — returns true when cancelRequestedAt is set for matching tenant', async () => {
     const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
     const job = {
@@ -790,11 +927,30 @@ describe('progress service', () => {
 
     expect(result).toBe(true)
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
+      forkEm,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId }),
       detached
     )
+  })
+
+  // The sync engine polls this from the same keepalive timer that heartbeats, and that timer
+  // spans the per-batch consumer body — where `commitBatchProgress` holds the shared EM inside
+  // `em.begin()`/`em.commit()`. An unawaited poll on that EM would issue a SELECT into the open
+  // transaction and interleave with its UnitOfWork, which is the failure `withAtomicFlush` cannot
+  // guard against because its phase model assumes nothing else touches the EM (#5370).
+  it('isCancellationRequested — reads on a forked EM so timer polling never joins a producer transaction', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.isCancellationRequested('job-1', baseCtx.tenantId)
+
+    expect(em.fork).toHaveBeenCalledTimes(1)
+    expect(mockFindOneWithDecryption.mock.calls[0][0]).toBe(forkEm)
+    expect(mockFindOneWithDecryption.mock.calls[0][0]).not.toBe(em)
   })
 
   it('isCancellationRequested — bypasses the identity map so worker polling sees fresh state', async () => {
@@ -811,6 +967,8 @@ describe('progress service', () => {
 
   it('isCancellationRequested — returns false when job belongs to a different tenant', async () => {
     const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
     mockFindOneWithDecryption.mockResolvedValue(null)
@@ -820,7 +978,7 @@ describe('progress service', () => {
 
     expect(result).toBe(false)
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
+      forkEm,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: 'other-tenant-id' }),
       detached
@@ -905,6 +1063,54 @@ describe('progress service — organization scoping (#2930)', () => {
     expect(filter).toMatchObject({ id: 'job-1', tenantId: orgCtx.tenantId })
   })
 
+  it('list/detail reads use the resolved finite organization-id set', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+    em.findOne.mockResolvedValue(null)
+    const resolvedCtx = {
+      ...orgCtx,
+      organizationId: null,
+      organizationIds: ['org-allowed', 'org-child'],
+    }
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.getActiveJobs(resolvedCtx)
+    await service.getRecentlyCompletedJobs(resolvedCtx)
+    await service.getJob('job-1', resolvedCtx)
+
+    for (const call of em.find.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        tenantId: orgCtx.tenantId,
+        organizationId: { $in: ['org-allowed', 'org-child'] },
+      }))
+    }
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: 'job-1',
+        tenantId: orgCtx.tenantId,
+        organizationId: { $in: ['org-allowed', 'org-child'] },
+      }),
+    )
+  })
+
+  it('explicit empty organization scope remains a deny-all predicate on every list/detail read', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+    em.findOne.mockResolvedValue(null)
+    const deniedCtx = { ...orgCtx, organizationId: null, organizationIds: [] }
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.getActiveJobs(deniedCtx)
+    await service.getRecentlyCompletedJobs(deniedCtx)
+    await service.getJob('job-1', deniedCtx)
+
+    for (const call of em.find.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+    }
+    expect(em.findOne.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+  })
+
   it('updateProgress — scopes the lookup by organizationId when ctx provides one', async () => {
     const em = buildEm()
     const job = { id: 'job-1', status: 'running', processedCount: 0, totalCount: null, startedAt: null, meta: null } as unknown as ProgressJob
@@ -935,6 +1141,22 @@ describe('progress service — organization scoping (#2930)', () => {
     )
   })
 
+  it('updateProgress — keeps explicit empty scope on both lookup and guarded write', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'running', processedCount: 0, totalCount: null, startedAt: null, meta: null } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.updateProgress('job-1', { processedCount: 1 }, {
+      ...orgCtx,
+      organizationId: null,
+      organizationIds: [],
+    })
+
+    expect(em.findOneOrFail.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+    expect(em.nativeUpdate.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+  })
+
   it('cancelJob — scopes the lookup by organizationId when ctx provides one', async () => {
     const em = buildEm()
     const job = { id: 'job-1', status: 'pending', cancellable: true } as unknown as ProgressJob
@@ -959,6 +1181,22 @@ describe('progress service — organization scoping (#2930)', () => {
       }),
       expect.anything()
     )
+  })
+
+  it('cancelJob — keeps explicit empty scope on both lookup and guarded write', async () => {
+    const em = buildEm()
+    const job = { id: 'job-1', status: 'pending', cancellable: true } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.cancelJob('job-1', {
+      ...orgCtx,
+      organizationId: null,
+      organizationIds: [],
+    })
+
+    expect(em.findOneOrFail.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
+    expect(em.nativeUpdate.mock.calls[0][1]).toEqual(expect.objectContaining({ organizationId: { $in: [] } }))
   })
 })
 
@@ -1064,6 +1302,8 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
 
   it('isCancellationRequested — scopes the lookup by organizationId when provided', async () => {
     const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
     mockFindOneWithDecryption.mockResolvedValue({ id: 'job-1', cancelRequestedAt: new Date() } as unknown as ProgressJob)
 
     const service = createProgressService(em as never, { emit: jest.fn() })
@@ -1071,7 +1311,7 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
 
     expect(result).toBe(true)
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
+      forkEm,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId }),
       detached
@@ -1088,6 +1328,22 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
     const filter = mockFindOneWithDecryption.mock.calls[0][2]
     expect(filter).not.toHaveProperty('organizationId')
     expect(filter).toMatchObject({ id: 'job-1', tenantId: orgCtx.tenantId })
+  })
+
+  it('isCancellationRequested — preserves an explicit empty organization scope', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.isCancellationRequested('job-1', orgCtx.tenantId, null, [])
+
+    expect(mockFindOneWithDecryption.mock.calls[0][2]).toEqual(expect.objectContaining({
+      id: 'job-1',
+      tenantId: orgCtx.tenantId,
+      organizationId: { $in: [] },
+    }))
   })
 
   it('markStaleJobsFailed — scopes the lookup by organizationId when provided', async () => {
@@ -1115,6 +1371,22 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
     expect(filter).not.toHaveProperty('organizationId')
     expect(filter).toMatchObject({ tenantId: orgCtx.tenantId, status: 'running' })
   })
+
+  it('markStaleJobsFailed — preserves an explicit empty organization scope', async () => {
+    const em = buildEm()
+    em.find.mockResolvedValue([])
+
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
+    await service.markStaleJobsFailed(orgCtx.tenantId, 60, null, [])
+
+    expect(em.find).toHaveBeenCalledTimes(2)
+    for (const call of em.find.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({
+        tenantId: orgCtx.tenantId,
+        organizationId: { $in: [] },
+      }))
+    }
+  })
 })
 
 describe('progress service — broadcast coalescing (#2972)', () => {
@@ -1134,6 +1406,7 @@ describe('progress service — broadcast coalescing (#2972)', () => {
       id: 'job-1',
       jobType: 'import',
       status: 'running',
+      tenantId: baseCtx.tenantId,
       processedCount: 0,
       totalCount: 1000,
       progressPercent: 0,
@@ -1141,6 +1414,105 @@ describe('progress service — broadcast coalescing (#2972)', () => {
       meta: null,
       ...overrides,
     }) as unknown as ProgressJob
+
+  const authorizedCtx = {
+    tenantId: 'tenant-allowed',
+    organizationId: 'org-allowed',
+    organizationIds: ['org-allowed'],
+  }
+
+  const unauthorizedReuseCases: Array<[string, ProgressServiceContext]> = [
+    ['mismatched tenant', {
+      tenantId: 'tenant-denied',
+      organizationId: 'org-allowed',
+      organizationIds: ['org-allowed'],
+    }],
+    ['mismatched finite organization set', {
+      tenantId: 'tenant-allowed',
+      organizationId: 'org-denied',
+      organizationIds: ['org-denied'],
+    }],
+    ['explicit empty organization scope', {
+      tenantId: 'tenant-allowed',
+      organizationId: null,
+      organizationIds: [],
+    }],
+  ]
+
+  const permittedReuseCases: Array<[string, ProgressServiceContext]> = [
+    ['omitted organizationIds with the exact legacy organization', {
+      tenantId: 'tenant-allowed',
+      organizationId: 'org-allowed',
+    }],
+    ['omitted legacy organization scope', {
+      tenantId: 'tenant-allowed',
+    }],
+    ['explicit-null unrestricted organization scope', {
+      tenantId: 'tenant-allowed',
+      organizationId: null,
+      organizationIds: null,
+    }],
+  ]
+
+  describe.each(['updateProgress', 'incrementProgress'] as const)('%s cached scope enforcement', (operation) => {
+    it.each(unauthorizedReuseCases)('rejects %s without returning or mutating the cached job', async (_scenario, deniedCtx) => {
+      process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+      const em = buildEm()
+      const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+      const job = buildRunningJob({
+        tenantId: authorizedCtx.tenantId,
+        organizationId: authorizedCtx.organizationId,
+      })
+      em.findOneOrFail.mockResolvedValue(job)
+
+      const service = createProgressService(em as never, eventBus)
+      if (operation === 'updateProgress') {
+        await service.updateProgress('job-1', { processedCount: 1 }, authorizedCtx)
+      } else {
+        await service.incrementProgress('job-1', 1, authorizedCtx)
+      }
+
+      const authorizedCount = job.processedCount
+      em.findOne.mockClear()
+      em.nativeUpdate.mockClear()
+      eventBus.emit.mockClear()
+
+      const deniedCall = operation === 'updateProgress'
+        ? service.updateProgress('job-1', { processedCount: 2 }, deniedCtx)
+        : service.incrementProgress('job-1', 1, deniedCtx)
+
+      await expect(deniedCall).rejects.toThrow('[internal] Progress job job-1 not found')
+      expect(job.processedCount).toBe(authorizedCount)
+      expect(em.findOneOrFail).toHaveBeenCalledTimes(1)
+      expect(em.findOne).not.toHaveBeenCalled()
+      expect(em.nativeUpdate).not.toHaveBeenCalled()
+      expect(eventBus.emit).not.toHaveBeenCalled()
+    })
+
+    it.each(permittedReuseCases)('reuses the cached job for %s', async (_scenario, permittedCtx) => {
+      process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+      const em = buildEm()
+      const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+      const job = buildRunningJob({
+        tenantId: authorizedCtx.tenantId,
+        organizationId: authorizedCtx.organizationId,
+      })
+      em.findOneOrFail.mockResolvedValue(job)
+
+      const service = createProgressService(em as never, eventBus)
+      if (operation === 'updateProgress') {
+        await service.updateProgress('job-1', { processedCount: 1 }, authorizedCtx)
+        await service.updateProgress('job-1', { processedCount: 2 }, permittedCtx)
+        expect(job.processedCount).toBe(2)
+      } else {
+        await service.incrementProgress('job-1', 1, authorizedCtx)
+        await service.incrementProgress('job-1', 1, permittedCtx)
+        expect(job.processedCount).toBe(2)
+      }
+
+      expect(em.findOneOrFail).toHaveBeenCalledTimes(1)
+    })
+  })
 
   it('coalesces rapid successive updates within the interval into a single write + broadcast', async () => {
     process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
@@ -1283,5 +1655,521 @@ describe('calculateEta', () => {
     expect(eta).not.toBeNull()
     expect(eta!).toBeGreaterThan(0)
     expect(eta!).toBeLessThanOrEqual(11)
+  })
+})
+
+describe('progress service — stale-sweep recovery (GSM-314)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('touchJobHeartbeat — bumps only heartbeatAt/updatedAt on a forked EM, no events', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const service = createProgressService(em as never, eventBus)
+    await service.touchJobHeartbeat!('job-1', baseCtx)
+
+    expect(forkEm.nativeUpdate).toHaveBeenCalledTimes(1)
+    const [, filter, data] = forkEm.nativeUpdate.mock.calls[0]
+    expect(filter).toEqual(
+      expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId, status: { $in: ['pending', 'running'] } }),
+    )
+    // Heartbeats must never touch counters or status — only liveness columns.
+    expect(Object.keys(data).sort()).toEqual(['heartbeatAt', 'updatedAt'])
+    expect(forkEm.findOne).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('touchJobHeartbeat — revives a falsely-swept failed job through the start CAS and emits JOB_STARTED', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const startedAt = new Date(Date.now() - 3_600_000)
+    forkEm.nativeUpdate.mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    forkEm.findOne.mockResolvedValue({
+      id: 'job-1',
+      jobType: 'data_sync:import',
+      status: 'failed',
+      processedCount: 200,
+      progressPercent: 0,
+      startedAt,
+      errorMessage: staleSweptError,
+      organizationId: null,
+    } as unknown as ProgressJob)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.touchJobHeartbeat!('job-1', baseCtx)
+
+    expect(forkEm.findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'job-1' }), detached)
+    expect(forkEm.nativeUpdate).toHaveBeenCalledTimes(2)
+    expect(forkEm.nativeUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      reviveFilter,
+      // The original startedAt must survive: processedCount is absolute across deliveries,
+      // so restarting the clock would report seconds left for an hour of remaining work.
+      expect.objectContaining({ status: 'running', finishedAt: null, errorMessage: null, startedAt }),
+    )
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_STARTED,
+      expect.objectContaining({ jobId: 'job-1', status: 'running', tenantId: baseCtx.tenantId }),
+    )
+  })
+
+  it('touchJobHeartbeat — never revives completed/cancelled or missing jobs', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const service = createProgressService(em as never, eventBus)
+
+    forkEm.nativeUpdate.mockResolvedValueOnce(0)
+    forkEm.findOne.mockResolvedValueOnce({ id: 'job-1', status: 'completed' } as ProgressJob)
+    await service.touchJobHeartbeat!('job-1', baseCtx)
+    expect(forkEm.nativeUpdate).toHaveBeenCalledTimes(1)
+
+    forkEm.nativeUpdate.mockResolvedValueOnce(0)
+    forkEm.findOne.mockResolvedValueOnce(null)
+    await service.touchJobHeartbeat!('job-1', baseCtx)
+    expect(forkEm.nativeUpdate).toHaveBeenCalledTimes(2)
+
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('updateProgress — revives a cached failed job, then applies the update', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      jobType: 'data_sync:import',
+      status: 'failed',
+      processedCount: 200,
+      totalCount: null,
+      progressPercent: 0,
+      startedAt: null,
+      errorMessage: staleSweptError,
+      meta: null,
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.updateProgress('job-1', { processedCount: 300 }, baseCtx)
+
+    expect(result.status).toBe('running')
+    expect(result.processedCount).toBe(300)
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(2)
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      reviveFilter,
+      expect.objectContaining({ status: 'running' }),
+    )
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ status: { $in: ['pending', 'running'] } }),
+      expect.objectContaining({ processedCount: 300 }),
+    )
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_STARTED,
+      expect.objectContaining({ jobId: 'job-1', status: 'running' }),
+    )
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 300 }),
+    )
+  })
+
+  it('updateProgress — preserves startedAt across a revive so the ETA stays honest', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    // 200 of 2000 records in an hour: ~9h left. Restarting the clock on revive would
+    // divide 200 by a few milliseconds and report the job as nearly done.
+    const startedAt = new Date(Date.now() - 3_600_000)
+    const job = {
+      id: 'job-1',
+      jobType: 'data_sync:import',
+      status: 'failed',
+      processedCount: 200,
+      totalCount: 2000,
+      progressPercent: 10,
+      startedAt,
+      errorMessage: staleSweptError,
+      meta: null,
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.updateProgress('job-1', { processedCount: 210 }, baseCtx)
+
+    expect(result.status).toBe('running')
+    expect(result.startedAt).toBe(startedAt)
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      reviveFilter,
+      expect.objectContaining({ startedAt }),
+    )
+    expect(result.etaSeconds).toBeGreaterThan(3600)
+  })
+
+  it('updateProgress — never revives a genuine failure, so its diagnostics survive', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      jobType: 'data_sync:import',
+      status: 'failed',
+      processedCount: 10,
+      errorMessage: 'Akeneo returned 500 for /api/rest/v1/products',
+      errorStack: 'Error: Akeneo returned 500\n    at fetchPage',
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.nativeUpdate = buildStaleAwareNativeUpdate(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.updateProgress('job-1', { processedCount: 11 }, baseCtx)
+
+    // A concurrent buffered writer must not resurrect the job and erase why it died.
+    expect(result.status).toBe('failed')
+    expect(result.errorMessage).toBe('Akeneo returned 500 for /api/rest/v1/products')
+    expect(result.errorStack).toContain('at fetchPage')
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(expect.anything(), reviveFilter, expect.anything())
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('touchJobHeartbeat — never revives a genuine failure', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      jobType: 'data_sync:import',
+      status: 'failed',
+      errorMessage: 'Credentials rejected by upstream',
+      organizationId: null,
+    } as unknown as ProgressJob
+    forkEm.nativeUpdate = buildStaleAwareNativeUpdate(job)
+    forkEm.nativeUpdate.mockImplementationOnce(() => Promise.resolve(0))
+    forkEm.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.touchJobHeartbeat!('job-1', baseCtx)
+
+    expect(job.status).toBe('failed')
+    expect(job.errorMessage).toBe('Credentials rejected by upstream')
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('updateProgress — does not revive when the start CAS loses to a real terminal transition', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = { id: 'job-1', jobType: 'import', status: 'failed', processedCount: 10 } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.nativeUpdate.mockResolvedValueOnce(0)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.updateProgress('job-1', { processedCount: 11 }, baseCtx)
+
+    expect(result.status).toBe('failed')
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('incrementProgress — revives a cached failed job and keeps the atomic delta', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'failed',
+      processedCount: 40,
+      totalCount: 100,
+      progressPercent: 40,
+      startedAt: new Date(Date.now() - 10_000),
+      errorMessage: staleSweptError,
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.findOne.mockResolvedValue({ ...job, status: 'running', processedCount: 50, progressPercent: 50 } as ProgressJob)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('running')
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(2)
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(1, expect.anything(), reviveFilter, expect.anything())
+    const [, , persistData] = em.nativeUpdate.mock.calls[1]
+    expect(typeof persistData.processedCount).not.toBe('number')
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_STARTED,
+      expect.objectContaining({ jobId: 'job-1' }),
+    )
+  })
+
+  it('incrementProgress — applies the delta when a fork heartbeat won the revive race', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    // The throttle entry cached `failed` from the stale sweep, but touchJobHeartbeat's
+    // forked revive already flipped the row back to `running`, so the start CAS matches
+    // zero rows. The delta must still land — increments are relative and unrecoverable.
+    // The shipped callers are search's reindex workers via incrementReindexProgress
+    // (packages/search/src/modules/search/lib/reindex-progress.ts), which gate job
+    // auto-completion on the returned processedCount reaching totalCount: one lost delta
+    // leaves a reindex job permanently short of its total and unable to ever complete.
+    const cached = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'failed',
+      processedCount: 40,
+      totalCount: 100,
+      progressPercent: 40,
+      startedAt: new Date(Date.now() - 10_000),
+      errorMessage: staleSweptError,
+      organizationId: null,
+    } as unknown as ProgressJob
+    const revivedByHeartbeat = { ...cached, status: 'running', errorMessage: null, processedCount: 50, progressPercent: 50 } as ProgressJob
+    em.findOneOrFail.mockResolvedValue(cached)
+    em.nativeUpdate
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1)
+    em.findOne
+      .mockResolvedValueOnce(revivedByHeartbeat)
+      .mockResolvedValueOnce({ ...revivedByHeartbeat, processedCount: 60, progressPercent: 60 } as ProgressJob)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('running')
+    expect(result.processedCount).toBe(60)
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(2)
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(1, expect.anything(), reviveFilter, expect.anything())
+    const [, persistFilter, persistData] = em.nativeUpdate.mock.calls[1]
+    expect(persistFilter).toEqual(expect.objectContaining({ status: { $in: ['pending', 'running'] } }))
+    expect(typeof persistData.processedCount).not.toBe('number')
+    // The heartbeat that won the race already emitted JOB_STARTED; this call must not double it.
+    expect(eventBus.emit).not.toHaveBeenCalledWith(PROGRESS_EVENTS.JOB_STARTED, expect.anything())
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 60 }),
+    )
+  })
+
+  it('incrementProgress — the re-read never revives a genuine failure', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    // A real failure misses the revive CAS on the errorMessage filter rather than on the
+    // status, so the re-read added for the heartbeat race is reached here too. It must
+    // return the row as-is: resurrecting it would erase why the job died.
+    const job = {
+      id: 'job-1',
+      jobType: 'data_sync:import',
+      status: 'failed',
+      processedCount: 10,
+      totalCount: 100,
+      progressPercent: 10,
+      errorMessage: 'Akeneo returned 500 for /api/rest/v1/products',
+      errorStack: 'Error: Akeneo returned 500\n    at fetchPage',
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.nativeUpdate = buildStaleAwareNativeUpdate(job)
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('failed')
+    expect(result.errorMessage).toBe('Akeneo returned 500 for /api/rest/v1/products')
+    expect(result.errorStack).toContain('at fetchPage')
+    expect(result.processedCount).toBe(10)
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(expect.anything(), reviveFilter, expect.anything())
+    // The re-read did run — this is the new branch, not the pre-existing early return —
+    // and it still refused to adopt a row whose status is genuinely terminal.
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('incrementProgress — still drops the write when the row is genuinely completed', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const cached = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'completed',
+      processedCount: 100,
+      totalCount: 100,
+      progressPercent: 100,
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(cached)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('completed')
+    expect(result.processedCount).toBe(100)
+    // No revive CAS is attempted and no re-read is spent on a status that can never
+    // become writable again.
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
+  })
+
+  it('persist CAS miss — a mid-buffer sweep is revived once and the buffered delta is not dropped', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      jobType: 'import',
+      status: 'running',
+      processedCount: 40,
+      totalCount: 100,
+      progressPercent: 40,
+      startedAt: new Date(Date.now() - 10_000),
+      organizationId: null,
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.nativeUpdate
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+    em.findOne
+      .mockResolvedValueOnce({ ...job, status: 'failed', errorMessage: staleSweptError } as ProgressJob)
+      .mockResolvedValueOnce({ ...job, status: 'running', processedCount: 50, progressPercent: 50 } as ProgressJob)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.incrementProgress('job-1', 10, baseCtx)
+
+    expect(result.status).toBe('running')
+    expect(result.processedCount).toBe(50)
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(3)
+    expect(em.nativeUpdate).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      reviveFilter,
+      expect.objectContaining({ status: 'running' }),
+    )
+    const [, retryFilter, retryData] = em.nativeUpdate.mock.calls[2]
+    expect(retryFilter).toEqual(expect.objectContaining({ status: { $in: ['pending', 'running'] } }))
+    expect(typeof retryData.processedCount).not.toBe('number')
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_STARTED,
+      expect.objectContaining({ jobId: 'job-1' }),
+    )
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 50 }),
+    )
+  })
+  it('markCancelled — flushes the throttled meta so a producer\'s partial summary survives the cancel', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      tenantId: baseCtx.tenantId,
+      organizationId: null,
+      status: 'running',
+      jobType: 'catalog.categories.bulk_create',
+      processedCount: 0,
+      progressPercent: 0,
+      totalCount: 100,
+      cancellable: true,
+      meta: {},
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+
+    // First write opens the throttle entry and persists. The second lands inside the throttle
+    // window with an unchanged progressPercent, so persistAndMaybeBroadcast writes nothing —
+    // exactly what a bulk worker does when it records its partial summary just before cancelling.
+    await service.updateProgress('job-1', { processedCount: 0, meta: { lastCompletedRowIndex: 4 } }, baseCtx)
+    const writesBefore = em.nativeUpdate.mock.calls.length
+    await service.updateProgress('job-1', { meta: { resultSummary: { createdCount: 5 } } }, baseCtx)
+    expect(em.nativeUpdate.mock.calls.length).toBe(writesBefore)
+
+    em.nativeUpdate.mockClear()
+    await service.markCancelled('job-1', baseCtx)
+
+    const [, , data] = em.nativeUpdate.mock.calls[0]
+    expect(data.status).toBe('cancelled')
+    expect(data.meta).toEqual(expect.objectContaining({
+      lastCompletedRowIndex: 4,
+      resultSummary: { createdCount: 5 },
+    }))
+  })
+
+  it('markCancelled — broadcasts the flushed row rather than the pre-flush copy', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const throttleSnapshot = {
+      id: 'job-1',
+      tenantId: baseCtx.tenantId,
+      organizationId: null,
+      status: 'running',
+      jobType: 'catalog.categories.bulk_create',
+      processedCount: 0,
+      progressPercent: 0,
+      totalCount: 100,
+      cancellable: true,
+      meta: {},
+    } as unknown as ProgressJob
+    // Stands in for the database row. Every read returns a fresh copy the way
+    // disableIdentityMap does, so a payload built from the pre-flush copy is
+    // distinguishable from one built after the write landed.
+    const persistedRow: Record<string, unknown> = { ...(throttleSnapshot as unknown as Record<string, unknown>) }
+
+    em.findOneOrFail.mockResolvedValue(throttleSnapshot)
+    em.findOne.mockImplementation(() => Promise.resolve({ ...persistedRow } as unknown as ProgressJob))
+    em.nativeUpdate.mockImplementation((_entity: unknown, _filter: unknown, data: Record<string, unknown>) => {
+      Object.assign(persistedRow, data)
+      return Promise.resolve(1)
+    })
+
+    const service = createProgressService(em as never, eventBus)
+
+    await service.updateProgress('job-1', { processedCount: 0, meta: { lastCompletedRowIndex: 39 } }, baseCtx)
+    const writesBefore = em.nativeUpdate.mock.calls.length
+    await service.updateProgress('job-1', { meta: { resultSummary: { createdCount: 40 } } }, baseCtx)
+    // The summary write is throttled, so only markCancelled's flush can put it on the wire.
+    expect(em.nativeUpdate.mock.calls.length).toBe(writesBefore)
+
+    eventBus.emit.mockClear()
+    await service.markCancelled('job-1', baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_CANCELLED,
+      expect.objectContaining({
+        jobId: 'job-1',
+        status: 'cancelled',
+        meta: expect.objectContaining({ resultSummary: { createdCount: 40 } }),
+      }),
+    )
   })
 })

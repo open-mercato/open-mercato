@@ -688,7 +688,7 @@ N/A. No HTTP endpoint is added or changed.
 
 ### Generated JSON compatibility
 
-The top-level `module-facts.json` remains `Record<moduleId, ModuleFactsJsonEntry>`. Do not add `$schema`, `framework`, or another non-module key. Additive entry fields:
+The top-level `module-facts.json` remains the v1 compatibility `Record<moduleId, ModuleFactsJsonEntry>` and preserves its published stable arrays/IDs/modes. Corrected reader facts are emitted additively at `module-facts.v2.json`, with the same top-level record shape. Do not add `$schema`, `framework`, or another non-module key to either file. Additive entry fields:
 
 ```ts
 export interface ModuleFactsJsonEntry {
@@ -697,7 +697,7 @@ export interface ModuleFactsJsonEntry {
 }
 ```
 
-The property is optional in the exported interface for source compatibility with external constructors, but the current generator always emits it (including empty arrays). Existing `hostTokens` remains required and unchanged.
+The property is optional in the exported interface for source compatibility with external constructors, but both projections emit it (including empty arrays). Existing `hostTokens` remains required and unchanged. Newly generated consumers prefer v2 and fall back to v1.
 
 Existing event facts gain optional `clientBroadcast` and `portalBroadcast` booleans. Existing entity, route, and command sections gain only the smallest optional reference/capability fields needed to avoid copying their contracts into `extensionSurfaces`. Framework facts are emitted in a separate artifact, never a top-level module key.
 

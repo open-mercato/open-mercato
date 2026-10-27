@@ -1,6 +1,6 @@
 ---
 title: "`dbMigrate` must not write migration snapshots during initialize flows"
-modules: ["cli"]
+modules: ["cli","create_app"]
 areas: ["module-data","architecture"]
 topics: ["generated-files","database-migrations","runtime-startup"]
 ---
@@ -13,4 +13,6 @@ topics: ["generated-files","database-migrations","runtime-startup"]
 
 **Rule**: Keep stable snapshot naming for `dbGenerate`, but disable migration snapshots for `dbMigrate` (`snapshot: false`) so initialize applies committed migrations without mutating snapshot files.
 
-**Applies to**: `packages/cli/src/lib/db/commands.ts` and any future init/bootstrap flow that calls `dbMigrate`.
+**Activation corollary**: Generating runtime registries does not apply migrations. Any guide that activates a previously inert module with committed migrations must explicitly direct operators to run `yarn db:migrate`; otherwise its routes can become reachable before their tables exist.
+
+**Applies to**: `packages/cli/src/lib/db/commands.ts`, create-app activation guidance, and any future init/bootstrap flow that calls `dbMigrate`.

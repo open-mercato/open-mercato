@@ -38,6 +38,21 @@ function readDevDependencies(): Record<string, string> {
   return parsed.devDependencies ?? {}
 }
 
+function listTemplateScriptFiles(dir: string): string[] {
+  const found: string[] = []
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      found.push(...listTemplateScriptFiles(entryPath))
+    } else if (/\.mjs$/.test(entry.name)) {
+      found.push(entryPath)
+    }
+  }
+
+  return found
+}
+
 // #4328: `yarn test`, `yarn lint`, and `yarn install-skills` failed on a clean
 // scaffold because the template's package.json pointed at files it did not ship
 // (and at `next lint`, removed in Next 16). Keep those targets honest.
@@ -61,6 +76,22 @@ test('every file a template script references is shipped by the template', () =>
       fs.existsSync(new URL(file, TEMPLATE_DIR)),
       `template script "${script}" references ${file}, which the template does not ship`,
     )
+  }
+})
+
+test('every local ESM import in template scripts resolves inside the template', () => {
+  const scriptFiles = listTemplateScriptFiles(fileURLToPath(new URL('scripts/', TEMPLATE_DIR)))
+  const localImportPattern = /(?:from\s+|import\s*\()(['"])(\.\/[^'"]+)\1/g
+
+  for (const scriptFile of scriptFiles) {
+    const source = fs.readFileSync(scriptFile, 'utf8')
+    for (const match of source.matchAll(localImportPattern)) {
+      const importedPath = match[2]
+      assert.ok(
+        fs.existsSync(path.resolve(path.dirname(scriptFile), importedPath)),
+        `template script ${path.relative(fileURLToPath(TEMPLATE_DIR), scriptFile)} imports missing ${importedPath}`,
+      )
+    }
   }
 })
 
@@ -117,6 +148,56 @@ test('Jest loads shared DOM matchers and transforms framework ESM dependencies',
   }
 })
 
+// MikroORM v7 is ESM-only and calls `import.meta.resolve()` at module scope.
+// Jest loads it as CommonJS, so a bare ts-jest transform dies with
+// "Cannot use 'import.meta' outside a module" before a single assertion runs —
+// and `@open-mercato/shared/lib/commands` pulls MikroORM in transitively, which
+// covers every command, entity, and data-engine test the harness tells an app
+// author to write. The monorepo has always shipped a sanitizing transformer for
+// this; the standalone template did not, which is what a live session hit.
+test('Jest routes every transform through the sanitizing MikroORM transformer', () => {
+  const transformerRelativePath = 'scripts/jest-mikroorm-transformer.cjs'
+  const transformerUrl = new URL(transformerRelativePath, TEMPLATE_DIR)
+  const jestConfig = createRequire(import.meta.url)(
+    fileURLToPath(new URL('jest.config.cjs', TEMPLATE_DIR)),
+  ) as { transform?: Record<string, unknown> }
+  const transformEntries = Object.values(jestConfig.transform ?? {})
+
+  assert.ok(transformEntries.length > 0, 'template jest config declares no transform')
+  for (const entry of transformEntries) {
+    assert.equal(
+      Array.isArray(entry) ? entry[0] : entry,
+      `<rootDir>/${transformerRelativePath}`,
+      'a bare ts-jest transform cannot parse MikroORM',
+    )
+  }
+
+  assert.ok(fs.existsSync(transformerUrl), `${transformerRelativePath} is missing from the template`)
+  const transformer = createRequire(import.meta.url)(fileURLToPath(transformerUrl)) as {
+    createTransformer: (config: unknown) => unknown
+    sanitize: (code: string) => string
+  }
+  assert.equal(typeof transformer.createTransformer, 'function')
+
+  const sanitized = transformer.sanitize(
+    "const url = import.meta.resolve('pg'); const dir = import.meta.dirname; const self = import.meta.url; const bare = import.meta",
+  )
+  assert.ok(!sanitized.includes('import.meta'), 'a surviving import.meta still fails to parse')
+  assert.ok(sanitized.includes("require.resolve('pg')"))
+
+  const untouched = "const literal = 'import' + '.meta'\nexport const value = 1\n"
+  assert.equal(transformer.sanitize(untouched), untouched, 'sanitization must be a no-op elsewhere')
+
+  // The monorepo's copy redirects `typescript` to the `typescript-js` alias
+  // because it pins the native TypeScript 7 compiler ts-jest cannot drive.
+  // Standalone apps pin TypeScript 6 and never install that alias, so copying
+  // the redirect would break every scaffolded app's test run at require time.
+  assert.ok(
+    !fs.readFileSync(transformerUrl, 'utf8').includes('typescript-js'),
+    'standalone apps do not install typescript-js',
+  )
+})
+
 test('the template ignores raw agent session exports', () => {
   const gitignore = fs.readFileSync(new URL('gitignore', TEMPLATE_DIR), 'utf8')
 
@@ -164,6 +245,24 @@ test('the standalone smoke installs from the same Verdaccio registry it publishe
     smokeTest,
     /yarnConfig\.includes\(`npmRegistryServer: \"\$\{VERDACCIO_URL\}\"`\)/,
     'the smoke must verify the generated Yarn registry before installing packages',
+  )
+})
+
+test('the standalone integration lane uses the configured Verdaccio registry', () => {
+  const integrationTest = fs.readFileSync(
+    new URL('../../../../scripts/test-create-app-integration.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(
+    integrationTest,
+    /\[CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'\]/,
+    'the activated standalone lane must not silently fall back to the fixed --verdaccio port',
+  )
+  assert.match(
+    integrationTest,
+    /yarnConfig\.includes\(`npmRegistryServer: \"\$\{VERDACCIO_URL\}\"`\)/,
+    'the activated standalone lane must verify the generated Yarn registry before installing packages',
   )
 })
 

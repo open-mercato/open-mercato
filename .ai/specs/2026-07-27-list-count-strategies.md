@@ -386,7 +386,7 @@ Communication requirements, which are not optional even though the default is:
 
 ## Implementation Plan
 
-### Phase 1 — Short-page termination *(independently correct; no cap yet)*
+### Phase 1 — Short-page termination *(independently correct; no cap yet)* — **Implemented 2026-08-04**
 
 1. Convert the CRUD export loop, `packages/shared/src/lib/crud/factory.ts:1787-1807` (`while (exportItems.length < total)` at `:1792`), to short-page termination with a fail-closed page ceiling.
 2. Convert the custom-entity records export loop, `packages/core/src/modules/entities/api/records.ts:357-371` (`while (exportItems.length < total)` at `:360`), identically.
@@ -626,6 +626,44 @@ None blocking. One deferred item: integration tests are specified but not shippe
 **Fully compliant** — ready for implementation.
 
 ## Changelog
+
+### 2026-08-12 — Phase 2 implemented ([#5228](https://github.com/open-mercato/open-mercato/pull/5228))
+
+The count query is rebuilt at all four sites rather than bounded: scope + filters only, cf/doc filters as correlated `EXISTS` semi-joins, projection joins dropped, `SELECT 1 … LIMIT cap + 1` inner and `count(*)` outer — so the `LIMIT` stops the scan instead of being absorbed by a blocking `HashAggregate`. Sites as implemented:
+
+- `BasicQueryEngine` — `packages/shared/src/lib/query/engine.ts`; extension and CF projection joins dropped from the count, CF filters compiled to `EXISTS`.
+- Hybrid optimized path and full-shape path — `packages/core/src/modules/query_index/lib/engine.ts`; the `groupBy(b.id)` is gone, and rowset-dependent predicates evaluate inside one seed-rowed `EXISTS` built from the display query's own join builders, so per-base-row filter semantics are identical by construction.
+- Custom-entity doc storage — same file; `applyCfFilterFromAlias` compiled to `EXISTS`, `distinct` dropped. Dropping the `distinct` is a deliberate value correction beyond capping: across a scope spanning organizations that hold a row for the same record id, `count(distinct entity_id)` under-reported relative to the item list (which returns one row per storage row); `count(*)` matches it. Pinned by a two-organization test against PostgreSQL and called out in `UPGRADE_NOTES.md`.
+
+`resolveListCountCap()` lives in `packages/shared/src/lib/query/count-cap.ts` (default `10000`, `0` = permanent kill switch, no entity parameter). `QueryResult` shape is unchanged; the cap surfaces as `meta.listCountCapWarning` from the engine and `totalIsCapped: true` spread onto CRUD payloads (`crud/factory.ts`, `openapi/crud.ts`).
+
+Decoupled and adjacent work folded in: encrypted-sort truncation now runs its own `cap + 1` probe instead of reading the cappable `total`; the WMS `inventoryMutationLoaders.ts` loops flagged by Phase 1 terminate on a short page rather than on `totalPages`.
+
+**Audit deltas against this spec's `ba2cd5d` line audit.** Three of the five listed direct-payload routes had drifted: attachments, todos and interactions/tasks now derive totals from `em.findAndCount` or in-memory pagination, which the cap never touches, so they were left unchanged — as were the workflows and dictionaries `hasMore` fields. Only `customers/api/deals/map` and `entities/api/records` still consume engine totals and carry the flag.
+
+Test coverage per the mandated plan: compiled-SQL shape assertions per site (`EXISTS` rendering, no `GROUP BY`/`DISTINCT` beneath the probe `LIMIT`, projection joins absent), cap boundary (cap−1/cap/cap+1/0/unparseable), a count-parity matrix at `cap=0` against both ground truth and the display query's own rowset, an encrypted-sort regression, and the `EXPLAIN`-backed plan guard against a live PostgreSQL 16 (gated on `OM_COUNT_CAP_PG_URL`) asserting `Limit → scan` with no blocking node below the `Limit`.
+
+`cf:` clauses inside `$or` (proper OR-group support landed on `develop` via #5039/#5056 while this phase was in review): the count shape compiles an OR-grouped cf leaf to the same correlated `EXISTS` used for ANDed cf filters, gated on key resolution — the count-side mirror of the display query's `cfValueExprByKey` applicability test — so a disjunct is never narrowed by a dropped leaf and count/display parity holds.
+
+### 2026-08-04 — Phase 1 implemented ([#4942](https://github.com/open-mercato/open-mercato/pull/4942))
+
+All six loops now terminate on a short page with a fail-closed page ceiling that throws (`[internal]`-prefixed), per §Short-page termination. `total`/`totalPages` are no longer loop bounds anywhere in the converted set. Line references as implemented:
+
+- CRUD export loop — `packages/shared/src/lib/crud/factory.ts` (`EXPORT_MAX_PAGES = 1000`); loop gate is now "first page came back full", not `total > exportItems.length`.
+- Custom-entity records export — `packages/core/src/modules/entities/api/records.ts` (`EXPORT_MAX_PAGES = 1000`).
+- `findMatchingEntityIdsWithQueryEngine` — `packages/core/src/modules/customers/api/utils.ts`; the latent infinite loop (`Set` size vs duplicate-inflated `total`) is gone. Signature unchanged (`Promise<string[]>`); the three callers' `!== null` checks are a pre-existing dead branch left as-is.
+- `fetchFilteredProductIds` — `packages/core/src/modules/catalog/widgets/injection/product-bulk-delete/widget.ts`; previously had no ceiling and no empty-page break.
+- `loadLegacyActivities` — extracted from `MiniWeekCalendar.tsx` into `packages/core/src/modules/customers/components/detail/legacyActivities.ts` (`loadLegacyActivitiesInRange`) so the loop is unit-testable; the domain date-range break is preserved.
+- `phoneDuplicates.ts` — `total`-derived early exit replaced with a short-page check; the deliberate `MAX_PAGES = 3` best-effort bound stays (hint feature, partial acceptable by design).
+
+Regression coverage (per step 7): `crud-factory.test.ts` (export loop ×3), `records.export.test.ts` (×3), customers `utils.test.ts` (×4, incl. the duplicate-ids infinite-loop repro), `product-bulk-delete/__tests__/widget.test.ts` (×3), `legacyActivities.test.ts` (×4), `phoneDuplicates.test.ts` (updated to short-page fixtures, +2).
+
+**Adjacent sites found during implementation — to fold into Phases 2–3** (all consume `total`/`totalPages` as truth but are not termination hazards, so they were out of Phase 1 scope):
+
+- WMS `inventoryMutationLoaders.ts` loops (`while (page <= totalPages && page <= N)`, N ∈ {10, 20, 50}) — already hard-bounded, but under a capped total they under-enumerate silently; the location total-on-hand loop **sums `quantity_on_hand` across pages into a user-visible number**.
+- `hasMore: offset + … < total` computations in `workflows/api/{tasks,instances,instances/[id]/events,definitions}/route.ts` and `dictionaries/api/[dictionaryId]/entries/route.ts` — a capped total flips `hasMore` to false early. Phase 2 must convert these to `items.length === limit` (or thread `totalIsCapped`).
+- UI "load more" guards comparing against `totalPages`/`total`: `packages/ui/src/backend/detail/AttachmentsSection.tsx`, customers `LinkedEntitiesField.tsx`, `ParticipantsField.tsx`, `DealsSection.tsx`, `AssignRoleDialog.tsx` — a capped total hides the button early (labelling-class, Phase 3).
+- `loadCanonicalInteractions` in `MiniWeekCalendar.tsx` — cursor-driven (cap-immune) but fully unbounded; `useCalendarItems.ts` (`MAX_WINDOW_ITEMS` + `truncated` flag) is the in-repo precedent if it is ever bounded.
 
 ### 2026-07-28 — Review revision
 

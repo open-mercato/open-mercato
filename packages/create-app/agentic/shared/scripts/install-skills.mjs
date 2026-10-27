@@ -35,6 +35,27 @@ const SKILL_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const ARCHIVE_LIMIT_BYTES = 32 * 1024 * 1024
 const EXTRACTED_LIMIT_BYTES = 256 * 1024 * 1024
 const EXTERNAL_OWNERSHIP_FILE = '.om-external-ownership.json'
+const requestedOutputIndent = Number.parseInt(process.env.OM_SKILLS_OUTPUT_INDENT ?? '0', 10)
+const outputIndent = Number.isSafeInteger(requestedOutputIndent) && requestedOutputIndent > 0
+  ? Math.min(requestedOutputIndent, 12)
+  : 0
+const outputPrefix = ' '.repeat(outputIndent)
+
+function formatOutput(message) {
+  return String(message).replace(/^(?=.)/gm, outputPrefix)
+}
+
+function log(message = '') {
+  console.log(formatOutput(message))
+}
+
+function warn(message) {
+  console.warn(formatOutput(message))
+}
+
+function logError(message) {
+  console.error(formatOutput(message))
+}
 
 const USAGE = `Usage: install-skills.mjs [options]
 
@@ -400,14 +421,14 @@ function selectedExternalConfig(manifest, tiers) {
 function printCatalog(manifest) {
   for (const [name, tier] of Object.entries(manifest.tiers).sort(([left], [right]) => left.localeCompare(right))) {
     const label = manifest.default.includes(name) ? 'default' : 'opt-in'
-    console.log(`${name.padEnd(12)} (${tier.skills.length} skills, ${label}):`)
-    console.log(`  ${tier.skills.join(', ')}`)
+    log(`${name.padEnd(12)} (${tier.skills.length} skills, ${label}):`)
+    log(`  ${tier.skills.join(', ')}`)
   }
-  console.log(`\nexternal     (${manifest.external.skills.length} skills available, pinned):`)
-  console.log(`  source: ${manifest.external.source}@${manifest.external.ref}`)
+  log(`\nexternal     (${manifest.external.skills.length} skills available, pinned):`)
+  log(`  source: ${manifest.external.source}@${manifest.external.ref}`)
   for (const [name, tier] of Object.entries(manifest.external.tiers).sort(([left], [right]) => left.localeCompare(right))) {
     const label = manifest.default.includes(name) ? 'default' : 'opt-in'
-    console.log(`  ${name.padEnd(10)} (${tier.skills.length} entry skills, ${label}; dependencies added): ${tier.skills.join(', ')}`)
+    log(`  ${name.padEnd(10)} (${tier.skills.length} entry skills, ${label}; dependencies added): ${tier.skills.join(', ')}`)
   }
 }
 
@@ -834,7 +855,7 @@ async function installExternal(rootDir, external, fetchImpl, downloadSource, act
             removeInstallerTransactionPath(rootDir, transaction.backupDestination)
             transaction.backedUp = false
           } catch (error) {
-            console.warn(`install-skills: warning: committed '${transaction.skill}' but could not remove its hidden backup (${error.message})`)
+            warn(`install-skills: warning: committed '${transaction.skill}' but could not remove its hidden backup (${error.message})`)
           }
         }
       }
@@ -925,7 +946,7 @@ export async function runInstaller({
 } = {}) {
   const options = parseArgs(args, env)
   if (options.help) {
-    console.log(USAGE)
+    log(USAGE)
     return 0
   }
   rootDir = realInstallerRoot(rootDir)
@@ -937,7 +958,7 @@ export async function runInstaller({
   }
   if (options.clean) {
     cleanAllLinks(rootDir)
-    console.log('Removed harness-owned skill links; user-owned paths and installed external directories were preserved.')
+    log('Removed harness-owned skill links; user-owned paths and installed external directories were preserved.')
     return 0
   }
   const ignoredAgents = options.ignoreAgents ?? manifest.agents?.ignore ?? []
@@ -953,7 +974,7 @@ export async function runInstaller({
   prepareLinkDirectory(rootDir, join(rootDir, '.agents', 'skills'), join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
   const quarantined = reconcileExternalSkillVisibility(rootDir, external)
   for (const item of quarantined) {
-    console.warn(`install-skills: quarantined stale or modified managed skill '${item.skill}' outside agent discovery: ${item.path}`)
+    warn(`install-skills: quarantined stale or modified managed skill '${item.skill}' outside agent discovery: ${item.path}`)
   }
   let externalStatus = 'skipped (--no-external)'
   let refreshDownload
@@ -985,8 +1006,8 @@ export async function runInstaller({
           throw error
         }
         externalStatus = `unavailable (${error.message})`
-        console.warn(`install-skills: warning: ${error.message}`)
-        console.warn('  Local skills will still be installed. Retry with `yarn install-skills` when online.')
+        warn(`install-skills: warning: ${error.message}`)
+        warn('  Local skills will still be installed. Retry with `yarn install-skills` when online.')
       }
     }
   } finally {
@@ -1006,12 +1027,12 @@ export async function runInstaller({
       cleanManagedLinks(rootDir, harnessDir, join(rootDir, '.ai', 'skills'), join(rootDir, '.agents', 'skills'))
     }
   }
-  console.log(`Installed ${localSkills.length} local skills across ${tiers.length} tier(s): ${tiers.join(', ')}.`)
-  console.log(`External skills: ${externalStatus}.`)
-  if (options.update) console.log(`Pinned current shared skills at ${external.ref}.`)
+  log(`Installed ${localSkills.length} local skills across ${tiers.length} tier(s): ${tiers.join(', ')}.`)
+  log(`External skills: ${externalStatus}.`)
+  if (options.update) log(`Pinned current shared skills at ${external.ref}.`)
   const links = linkAgents.filter((agent) => !ignoredAgents.includes(agent))
-  console.log(`Layout: .agents/skills/ (canonical); per-agent links: ${links.join(', ') || 'none'}.`)
-  if (options.mode === 'default') console.log('Tip: inspect opt-in tiers with `yarn install-skills --list`.')
+  log(`Layout: .agents/skills/ (canonical); per-agent links: ${links.join(', ') || 'none'}.`)
+  if (options.mode === 'default') log('Tip: inspect opt-in tiers with `yarn install-skills --list`.')
   return 0
 }
 
@@ -1023,7 +1044,7 @@ const isEntryPoint = process.argv[1] && realpathSync(process.argv[1]) === realpa
 if (isEntryPoint) {
   const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   runInstaller({ rootDir, args: process.argv.slice(2) }).catch((error) => {
-    console.error(error.message)
+    logError(error.message)
     process.exitCode = 1
   })
 }

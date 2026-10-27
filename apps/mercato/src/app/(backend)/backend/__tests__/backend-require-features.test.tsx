@@ -4,8 +4,8 @@
 import React from 'react'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
-jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
-  backendRoutes: [],
+jest.mock('@/.mercato/generated/backend-route-shards.generated', () => ({
+  backendRouteFacades: [],
 }))
 
 jest.mock('@/bootstrap', () => ({

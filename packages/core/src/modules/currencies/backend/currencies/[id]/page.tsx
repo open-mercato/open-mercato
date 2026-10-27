@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useParams, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -75,6 +75,8 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     loadCurrency()
   }, [params, t])
 
+  const isCurrentBase = currency?.isBase === true
+
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
       {
@@ -136,6 +138,8 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'isBase',
             type: 'checkbox',
             label: t('currencies.form.field.isBase'),
+            disabled: isCurrentBase,
+            description: isCurrentBase ? t('currencies.form.field.isBaseLocked') : undefined,
           },
           {
             id: 'isActive',
@@ -145,7 +149,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         ],
       },
     ],
-    [t]
+    [t, isCurrentBase]
   )
 
   const handleDelete = React.useCallback(async () => {
@@ -251,6 +255,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
       <PageBody>
         <CrudForm
           title={t('currencies.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/currencies"
           versionHistory={{ resourceKind: 'currencies.currency', resourceId: currency.id }}
           extraActions={(

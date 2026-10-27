@@ -6,7 +6,8 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -25,6 +26,7 @@ import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced
 import { createEmptyTree, makeRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeAdvancedFilter, deserializeTree, flatToTree, mapDictionaryColorToTone, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
@@ -117,6 +119,7 @@ type CompaniesResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type DictionaryKindKey = CustomerDictionaryKind
@@ -197,9 +200,10 @@ export default function CustomersCompaniesPage() {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
   // parallel `useState<AdvancedFilterTree>` (see spec "Migration & Backward
@@ -324,11 +328,12 @@ export default function CustomersCompaniesPage() {
     { keyExtras: [scopeVersion, reloadToken] },
   )
   const currentUserId = useCurrentUserId()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
   React.useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
-    void fetchAssignableStaffMembers('', { pageSize: 100, signal: controller.signal })
+    void fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId, signal: controller.signal })
       .then((items) => {
         if (!cancelled) setOwnerFilterOptions(mapAssignableStaffToFilterOptions(items))
       })
@@ -339,7 +344,7 @@ export default function CustomersCompaniesPage() {
       cancelled = true
       controller.abort()
     }
-  }, [scopeVersion])
+  }, [activeOrgId, scopeVersion])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
       ownerFilterOptions,
@@ -349,9 +354,9 @@ export default function CustomersCompaniesPage() {
     [currentUserId, ownerFilterOptions, t],
   )
   const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
-    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100 })
+    const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId })
     return mapAssignableStaffToFilterOptions(items)
-  }, [])
+  }, [activeOrgId])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -421,6 +426,7 @@ export default function CustomersCompaniesPage() {
         setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is CompanyRow => !!row))
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -609,9 +615,9 @@ export default function CustomersCompaniesPage() {
         header: t('customers.companies.list.columns.name'),
         meta: {
           alwaysVisible: true,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'display_name',
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           maxWidth: '260px',
         },
         cell: ({ row }) => (
@@ -624,9 +630,9 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'email',
         header: t('customers.companies.list.columns.email'),
         meta: {
-          columnChooserGroup: 'Contact',
+          columnChooserGroup: t('customers.columnGroups.contact', 'Contact'),
           filterKey: 'primary_email',
-          filterGroup: 'Contact',
+          filterGroup: t('customers.columnGroups.contact', 'Contact'),
           filterIconName: 'mail',
           maxWidth: '220px',
         },
@@ -636,10 +642,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'phone',
         header: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
         meta: {
-          columnChooserGroup: 'Contact',
+          columnChooserGroup: t('customers.columnGroups.contact', 'Contact'),
           hidden: true,
           filterKey: 'primary_phone',
-          filterGroup: 'Contact',
+          filterGroup: t('customers.columnGroups.contact', 'Contact'),
           filterIconName: 'phone',
           maxWidth: '180px',
         },
@@ -651,8 +657,8 @@ export default function CustomersCompaniesPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.statuses,
-          columnChooserGroup: 'Basic Info',
-          filterGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('statuses', row.original.status),
       },
@@ -662,9 +668,9 @@ export default function CustomersCompaniesPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.lifecycleStages,
-          columnChooserGroup: 'Basic Info',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
           filterKey: 'lifecycle_stage',
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('lifecycle-stages', row.original.lifecycleStage),
       },
@@ -672,9 +678,9 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'nextInteractionAt',
         header: t('customers.companies.list.columns.nextInteraction'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'next_interaction_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) =>
@@ -707,8 +713,8 @@ export default function CustomersCompaniesPage() {
         meta: {
           filterType: 'select' as const,
           filterOptions: dictionaryOptions.sources,
-          columnChooserGroup: 'Basic Info',
-          filterGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.basicInfo', 'Basic Info'),
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
         },
         cell: ({ row }) => renderDictionaryCell('sources', row.original.source),
       },
@@ -716,11 +722,11 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'ownerUserId',
         header: t('customers.companies.list.columns.owner', 'Owner'),
         meta: {
-          columnChooserGroup: 'CRM',
+          columnChooserGroup: t('customers.columnGroups.crm', 'CRM'),
           filterType: 'select',
           filterOptions: resolvedOwnerFilterOptions,
           filterLoadOptions: loadOwnerFilterOptions,
-          filterGroup: 'CRM',
+          filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
           hidden: true,
@@ -731,10 +737,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'legalName',
         header: t('customers.companies.detail.fields.legalName', 'Legal name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.legal_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.legalName || noValue,
       },
@@ -742,10 +748,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'brandName',
         header: t('customers.companies.detail.fields.brandName', 'Brand name'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.brand_name',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.brandName || noValue,
       },
@@ -753,10 +759,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'domain',
         header: t('customers.companies.detail.fields.domain', 'Domain'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.domain',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.domain || noValue,
       },
@@ -764,10 +770,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'websiteUrl',
         header: t('customers.companies.detail.fields.website', 'Website'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.website_url',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.websiteUrl || noValue,
       },
@@ -775,10 +781,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'industry',
         header: t('customers.companies.detail.fields.industry', 'Industry'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.industry',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.industry || noValue,
       },
@@ -786,10 +792,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'sizeBucket',
         header: t('customers.companies.detail.fields.sizeBucket', 'Company size'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.size_bucket',
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.sizeBucket || noValue,
       },
@@ -797,11 +803,11 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'annualRevenue',
         header: t('customers.companies.detail.highlights.annualRevenue', 'Annual revenue'),
         meta: {
-          columnChooserGroup: 'Profile',
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
           hidden: true,
           filterKey: 'company_profile.annual_revenue',
           filterType: 'number' as const,
-          filterGroup: 'Profile',
+          filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.annualRevenue || noValue,
       },
@@ -809,10 +815,10 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'description',
         header: t('customers.companies.detail.fields.description', 'Description'),
         meta: {
-          columnChooserGroup: 'Notes',
+          columnChooserGroup: t('customers.columnGroups.notes', 'Notes'),
           hidden: true,
           filterKey: 'description',
-          filterGroup: 'Notes',
+          filterGroup: t('customers.columnGroups.notes', 'Notes'),
         },
         cell: ({ row }) => row.original.description || noValue,
       },
@@ -825,8 +831,8 @@ export default function CustomersCompaniesPage() {
         header: def.label || def.key,
         enableSorting: true,
         meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
+          columnChooserGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
+          filterGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
@@ -869,6 +875,7 @@ export default function CustomersCompaniesPage() {
           stickyFirstColumn
           stickyActionsColumn
           title={t('customers.companies.list.title')}
+          titleHeadingLevel={1}
           refreshButton={{
             label: t('customers.companies.list.actions.refresh'),
             onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
@@ -962,7 +969,7 @@ export default function CustomersCompaniesPage() {
             />
           )}
           virtualized
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
           isLoading={isLoading}
         />
         <AdvancedFilterPanel

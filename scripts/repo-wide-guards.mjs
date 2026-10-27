@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/modules/auth/__tests__/acl-feature-catalog.i18n.test.ts',
+        scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },
@@ -81,12 +85,36 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/*/src/modules tree — optimistic-lock command coverage',
       },
       {
+        path: 'src/__tests__/backend-page-route-params.test.ts',
+        scans: 'every packages/*/src/modules and apps/*/src/modules backend page — route ids read from the `params` prop rather than `useParams()`, which the /backend/[...slug] catch-all never populates with an id (#5600)',
+      },
+      {
+        path: 'src/__tests__/notification-channel-eligibility.test.ts',
+        scans: 'every module-root notification catalogue under packages and apps — explicit delivery-channel eligibility (#5495)',
+      },
+      {
+        path: 'src/modules/notifications/__tests__/category-labels-coverage.test.ts',
+        scans: 'every non-enterprise packages/* and apps/* module notifications.ts and i18n dictionary — a translated notifications.categories.<key> heading for every resolved category (#7089)',
+      },
+      {
+        path: 'src/__tests__/dictionary-key-schema-coverage.test.ts',
+        scans: 'every packages/*/src/modules tree plus the apps/mercato and create-app template module roots — dictionary key literals that the create route\'s dictionaryKeySchema would reject',
+      },
+      {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
       {
+        path: 'src/modules/portal/__tests__/boundaryNavigation.test.ts',
+        scans: 'every portal source tree under packages/ and apps/ — boundary-crossing portal navigations must be full page loads. The rule exists because the portal (frontend) layout sits above [...slug], so a client-side navigation across the public/authenticated line leaves the previous side\'s chrome painted over the new page (#5678). The guard lives in core while the call sites it protects include packages/ui (the portal shell and hooks) and any module contributing portal pages, so the turbo filter would skip it on exactly the PRs that break it (#5958).',
+      },
+      {
         path: 'src/modules/design_system/gallery/__tests__/gallery-coverage.test.ts',
         scans: 'packages/ui/src/primitives — design-system gallery coverage',
+      },
+      {
+        path: 'src/modules/design_system/gallery/__tests__/inventory-parity.test.ts',
+        scans: 'packages/create-app/scripts/design-system-sources.mjs and its derived inventory asset — the only guard that compares the runtime gallery registry against the statically derived inventory, so a reader change that silently under-reports a family is caught here and nowhere else. It lives in core while the reader lives in create-app, and core is a dependency of create-app rather than a dependent, so the turbo filter never selects it for a reader-only PR (#4991).',
       },
     ],
   },
@@ -95,6 +123,10 @@ export const REPO_WIDE_GUARDS = [
     workspaceDir: 'packages/cli',
     jestConfig: 'jest.config.cjs',
     tests: [
+      {
+        path: 'src/lib/generators/__tests__/module-subset.test.ts',
+        scans: 'live Catalog and Entities dependency metadata across packages/core and all three module-generator variants — standalone dependency closure (#6517)',
+      },
       {
         path: 'src/lib/generators/__tests__/module-facts.bc-guard.test.ts',
         scans: 'every package module source — generator BC resolve guard',
@@ -112,6 +144,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live packages/core/src/modules sources — module-facts local-reference resolution',
+      },
+      {
         path: 'src/lib/generators/__tests__/example-public-route-safety.test.ts',
         scans: 'apps/mercato and packages/create-app/template — example route safety (#3864)',
       },
@@ -122,6 +158,14 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/__tests__/release-notes-retired.test.ts',
         scans: 'repo-root docs — RELEASE_NOTES.md retirement (#4024)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.example-fact-coverage.test.ts',
+        scans: 'live apps/mercato/src/modules/example sources — the enum-derived factCoverage ledger, which fails both ways (a fact value with no row, and a row for a value the enum dropped), so a module change that adds an unledgered fact must fail its own PR (#4991)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
+        scans: 'live apps/mercato/src/modules/example sources — local-reference fact discovery, projection and source fingerprints (#4991)',
       },
     ],
   },
@@ -134,6 +178,25 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/lib/db/__tests__/escapeLikePattern.test.ts',
         scans: 'packages/ and apps/ — unescaped LIKE patterns in query builders',
       },
+      {
+        path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
+        scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
+      },
+      {
+        path: 'src/lib/di/__tests__/di-injection-mode.test.ts',
+        scans: 'every di.ts and container.ts under packages/ and apps/ — argument-taking asFunction registrations that skip .proxy(), which CLASSIC injection resolves by parameter name and a bundler may rename. The registrations it guards live in core, enterprise and app modules rather than in shared, so the turbo filter never selects this workspace for the PRs that can break them (#5861).',
+      },
+    ],
+  },
+  {
+    workspace: '@open-mercato/cache',
+    workspaceDir: 'packages/cache',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/cache-di-contract-docs.test.ts',
+        scans: 'packages/core/src/bootstrap.ts, packages/cache/AGENTS.md and .ai/review-checklist.md — cache DI token and CacheStrategy method names quoted by the docs',
+      },
     ],
   },
   {
@@ -144,6 +207,28 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/__tests__/legal-entity.test.tsx',
         scans: 'repo-root legal documents — superseded operator identity',
+      },
+    ],
+  },
+  {
+    workspace: '@open-mercato/search',
+    workspaceDir: 'packages/search',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/search/__tests__/global-search-acl.test.ts',
+        scans: 'every packages/core and packages/checkout module search.ts — searchable entities declare the view feature the global-search route filters on (#5163)',
+      },
+    ],
+  },
+  {
+    workspace: '@open-mercato/telemetry',
+    workspaceDir: 'packages/telemetry',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/__tests__/default-unloaded.test.ts',
+        scans: 'apps/mercato, packages/create-app/template, packages/cli and packages/queue runtime hosts — telemetry stays unloaded unless a backend is configured (#4475)',
       },
     ],
   },
@@ -163,10 +248,33 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/enterprise',
+    workspaceDir: 'packages/enterprise',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
+        scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
+      },
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-run-invocation-identity.test.ts',
+        scans: 'packages/core/src/modules/workflows/lib — that the activity executor and the async worker both thread `invocationId` into the agent bridge, which is what gives an agent invocation an identity instead of a creation-time guess',
+      },
+      {
+        path: 'src/modules/security/__tests__/enterprise-notification-category-labels.test.ts',
+        scans: 'every packages/* and apps/* module i18n dictionary — translated notification category headings for enterprise notification types (#7095)',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/app',
     workspaceDir: 'apps/mercato',
     jestConfig: 'jest.config.cjs',
     tests: [
+      {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules plus every packages/ acl.ts — module override keys anchored to declared ACL features (#4462)',
+      },
       {
         path: 'src/components/__tests__/starter-chrome-ds.test.ts',
         scans: 'apps/mercato and packages/create-app/template components — DS status tokens in starter chrome',
@@ -174,6 +282,14 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/components/__tests__/StartPageContent.test.tsx',
         scans: 'apps/mercato and packages/create-app/template StartPageContent — hydration-safety guard',
+      },
+      {
+        path: 'src/__tests__/module-override-acl-features.test.ts',
+        scans: 'apps/mercato/src/modules and every packages/ acl.ts — ACL override keys anchored to a declared feature (#4944)',
+      },
+      {
+        path: 'src/__tests__/api-bootstrap-ui-boundary.test.ts',
+        scans: 'every packages/*/src message-object contributor reached from the generated manifest — runtime imports of the @open-mercato/ui barrel on the API bootstrap path',
       },
     ],
   },
@@ -185,6 +301,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
+    reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
@@ -193,11 +313,39 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/setup-ci-skill.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares the om-setup-ci skill\'s vendored templates/scripts/ci/{audit-ci,time-bomb-scanner}.mjs against the monorepo scripts/ originals.',
+  },
+  {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/template-env-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares apps/mercato/.env.example against packages/create-app/template/.env.example.',
+  },
+  {
     path: 'packages/create-app/src/lib/standalone-cache-strategy-guard.test.ts',
+    reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-example-module-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-i18n-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-modules-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It reads apps/mercato/src/modules.ts and the template counterpart through the scripts/template-sync.ts transform, and it is a node:test file rather than a jest one, so it could not run under this jest-based runner anyway (#5598).',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/standalone-portal-email-env-guard.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
   },
   {
@@ -207,6 +355,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/agent-harness-release.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779); its process.cwd() anchor sits inside a fixture script string, not a repository read.',
+  },
+  {
+    path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
+    reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
   },
   {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',

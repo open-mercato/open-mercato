@@ -91,6 +91,29 @@ that skips it. These capabilities are therefore visible to the catalog but not a
 different, larger piece of work — a case per capability with a prompt that genuinely forces the read — and
 it is handed to a follow-up rather than grown into this branch.
 
+### 1.4 How that tier was closed (added 2026-08-06)
+
+[#4603](https://github.com/open-mercato/open-mercato/issues/4603) closed it. Re-measuring the predicate
+against the *shipped* set rather than against the eleven names above found a twelfth sheet with the same
+defect, `design_system`, which post-dates this audit. Ten of the twelve received a routing case with the
+sheet in `context.required` — OMH-204 `audit_logs`, OMH-205 `business_rules`, OMH-206 `dashboards`,
+OMH-207 `directory`, OMH-208 `entities`, OMH-209 `inbox_ops`, OMH-210 `messages`, OMH-211 `onboarding`,
+OMH-212 `planner`, OMH-213 `translations` — taking the catalog from 203 to 213 cases.
+
+`api_docs` and `design_system` were exempted with reasons rather than covered: neither ships a `data/`
+directory, an entity, or a migration (`api_docs` exports an empty `features` array; `design_system` has
+one view-only feature), so there is no schema an agent could duplicate and the `facts-first` /
+`tenant-scope` / `acl-features` decisions have nothing to bind to. Both stay reachable through their
+existing `allowedExtra` references.
+
+The `module-facts-build` guard §1.2 describes was tightened from "routed by some case" to "required by
+some case", carrying those two exemptions in a list that is itself asserted — an exemption must still be
+shipped and still be routed, so it cannot rot into a hidden coverage hole.
+
+Unlike the OMH-194…OMH-202 cohort, whose uniform 11 / 57 344 / 147 456 envelope §3.2 calls "generous
+rather than tight", the new cases carry budgets derived from each one's own measured footprint on an
+emitted controller (6–8 files, 36 864–53 248 initial bytes, 61 440–118 784 total bytes).
+
 ## 2. Case-budget audit
 
 Three budgets are case-local: `maxContextFiles`, `maxInitialContextBytes`, `maxTotalContextBytes`.

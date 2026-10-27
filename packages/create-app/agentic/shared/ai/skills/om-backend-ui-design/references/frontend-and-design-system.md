@@ -28,6 +28,12 @@ Load this reference for public frontend, portal, or visually substantial applica
 - Follow tokenized radius, spacing, border, shadow, layering, opacity, and motion. Honor reduced motion and avoid decorative animation that delays work.
 - Prefer content-driven sizing and mobile-first standard breakpoints (`sm`, `md`, `lg`, `xl`, `2xl`). Do not use arbitrary media queries, desktop-first `max-*`, or inline style dimensions when a component prop/token exists.
 
+## Exact Gallery and Foundation Sources
+
+Start with the generated `.ai/harness/design-system-inventory.json` and follow only the item that matches the requested component or token family. For the representative Button route, the exact packed sources are the [`buttons` gallery entry](../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx), the exported [`Button` implementation](../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx), and the auxiliary [`Button` Code Connect mapping](../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx). The Code Connect file is packed read-only evidence, not a package export or runtime dependency; that exact link grants no access to the rest of `figma/`.
+
+For token and design-foundation decisions, inspect the app-owned [`src/app/globals.css`](../../../../src/app/globals.css) together with the exact prompt-applicable gallery item. The inventory records that no portable design skill or token snapshot is emitted today; do not substitute a monorepo-only skill/snapshot, infer Figma publication from parse success, or follow network/credential paths.
+
 ## Portal Extension Contract
 
 - Hooks: `useCustomerAuth`, `useTenantContext`, `usePortalInjectedMenuItems`, `usePortalEventBridge`, and `usePortalAppEvent` from their `@open-mercato/ui/portal/hooks/*` exports.

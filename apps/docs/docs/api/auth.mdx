@@ -60,12 +60,18 @@ The login endpoint uses two-layer rate limiting: **20 attempts per 60s** per IP 
 
 ### List Users — `GET /auth/users`
 
-**Feature:** `auth.users.list`  
+**Feature:** `auth.users.list`
+
+For non-superadmins, this feature grants tenant-wide staff identity visibility: the list is restricted to the authenticated tenant and excludes superadmin accounts, but can include users assigned to other organizations or no organization. Neither the active organization nor the caller's organization visibility list narrows the default directory. Directory visibility is separate from permission to access organization-owned records.
+
+Use `organizationId` or `scopeToActiveOrganization=1` to narrow results explicitly. These are optional list filters, not authorization boundaries; omitting them restores the tenant-wide default for non-superadmins. Superadmins can scope the list through the topbar tenant and organization selection; without a selected tenant, their list can span tenants.
+
 **Query parameters:**
 
 - `page` / `pageSize` &mdash; pagination (defaults `1` / `50`, max `100`).
 - `search` &mdash; case-insensitive match on email.
-- `organizationId` &mdash; filter to a particular organization UUID.
+- `organizationId` &mdash; additional filter to an exact organization UUID.
+- `scopeToActiveOrganization` &mdash; pass `1` to restrict results to the caller's exact active organization, as used by recipient and assignee pickers. When the caller has no active organization, this returns only users with no organization. If `organizationId` is also supplied, both filters apply.
 - `roleIds` &mdash; comma-separated role UUIDs.
 
 ```bash
@@ -208,6 +214,15 @@ Response:
 { "ok": true }
 ```
 
+Omitted fields keep their stored value: send only `features` and the organization
+scope is preserved, send only `organizations` and the feature grant is preserved.
+To remove an override entirely, clear every dimension explicitly
+(`{ "userId": "…", "features": [], "organizations": null }`).
+
+A per-user ACL is an absolute override rather than an addition to the role, so an
+organization-scoped override with no feature grant would revoke every role-granted
+feature. That combination is rejected with `400` instead of being persisted.
+
 ## Roles
 
 ### List Roles — `GET /auth/roles`
@@ -331,11 +346,17 @@ Simplified response:
     {
       "name": "Dashboard",
       "items": [
-        { "href": "/backend", "title": "Overview", "enabled": true }
+        { "href": "/backend", "title": "Overview", "enabled": true, "order": 10 }
       ]
     }
   ]
 }
 ```
+
+Items (and their `children`) arrive already sorted by weight: `pagePriority` when the page declared one, otherwise `pageOrder`, otherwise a large fallback so pages declaring neither sort last. That resolved weight is echoed back as `order` — always a number — so re-sorting by it reproduces the order you received, and a custom shell can merge its own entries against it instead of relying on array position.
+
+`order` here is not the same precedence as the `order` on `settingsSections` items, which resolves `order ?? priority` instead. A page that appears in both surfaces can report a different weight in each.
+
+A `pageOrder` set through an `overrides.routes.pages` entry repositions the item as well, because the override's metadata is normalized through the same alias table the manifest was built with. One caveat follows from the precedence above: if the target page declares its own `pagePriority`, that still wins over an overridden `pageOrder` — override `pagePriority` instead when you need to reposition such a page.
 
 Use this endpoint to drive custom admin shells or to debug visibility rules when developing new modules.

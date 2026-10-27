@@ -117,3 +117,7 @@ skills-lock.json
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (ports, process tools, shell) — keep them local, never commit
 .ai/scripts/test-env-*
+
+# per-session validation-gate evidence written by the gate-evidence hook on every
+# Bash call — machine-local observation, never source
+.ai/.gate-state.json

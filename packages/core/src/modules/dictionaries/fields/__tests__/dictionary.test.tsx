@@ -107,6 +107,9 @@ describe('dictionary field defEditor', () => {
     const message = await screen.findByText(/Failed to load dictionaries/)
     expect(message).toHaveClass('text-status-error-text')
     expect(message).not.toHaveClass('text-red-600')
+    // A load failure is status copy, not a destructive action — the action
+    // token would read as "click here to delete something".
+    expect(message).not.toHaveClass('text-destructive')
   })
 
   it('uses the design-system warning token (not text-amber-600) for a stale default value', async () => {

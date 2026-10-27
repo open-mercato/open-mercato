@@ -115,10 +115,11 @@ describe('executePendingActionConfirm', () => {
   it('transitions pending → confirmed → executing → confirmed on handler success and emits typed ai.action.confirmed', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const handler = jest.fn(async () => ({ recordId: 'p-1', commandName: 'catalog.product.update' }))
     const result = await executePendingActionConfirm({
       action: makeAction(),
       agent: makeAgent(),
-      tool: makeTool(),
+      tool: makeTool({ handler }),
       ctx: makeCtx(),
       repo: repo as unknown as never,
       emitEvent,
@@ -134,6 +135,10 @@ describe('executePendingActionConfirm', () => {
       recordId: 'p-1',
       commandName: 'catalog.product.update',
     })
+    expect(handler).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ approvedPendingActionId: 'pa_1' }),
+    )
     expect(emitEvent).toHaveBeenCalledTimes(1)
     const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
       'ai.action.confirmed',

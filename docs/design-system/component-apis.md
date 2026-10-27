@@ -472,7 +472,7 @@ export type AlertProps = {
 
 // Sub-components (composition pattern):
 export type AlertTitleProps = React.HTMLAttributes<HTMLHeadingElement>
-export type AlertDescriptionProps = React.HTMLAttributes<HTMLParagraphElement>
+export type AlertDescriptionProps = React.HTMLAttributes<HTMLDivElement>
 export type AlertActionProps = { children: ReactNode; className?: string }
 ```
 

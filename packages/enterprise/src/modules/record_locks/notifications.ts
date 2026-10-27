@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.participant.joined',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.participant_joined.title',
     bodyKey: 'record_locks.notifications.participant_joined.body',
     icon: 'users',
@@ -14,6 +15,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.participant.left',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.participant_left.title',
     bodyKey: 'record_locks.notifications.participant_left.body',
     icon: 'user-minus',
@@ -24,6 +26,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.lock.contended',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.lock_contended.title',
     bodyKey: 'record_locks.notifications.lock_contended.body',
     icon: 'users',
@@ -34,6 +37,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.lock.force_released',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.lock_force_released.title',
     bodyKey: 'record_locks.notifications.lock_force_released.body',
     icon: 'unlock',
@@ -44,6 +48,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.record.deleted',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.record_deleted.title',
     bodyKey: 'record_locks.notifications.record_deleted.body',
     icon: 'trash-2',
@@ -54,6 +59,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.conflict.detected',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.conflict_detected.title',
     bodyKey: 'record_locks.notifications.conflict_detected.body',
     icon: 'git-compare-arrows',
@@ -64,6 +70,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.incoming_changes.available',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.incoming_changes.title',
     bodyKey: 'record_locks.notifications.incoming_changes.body',
     icon: 'git-pull-request-arrow',
@@ -74,6 +81,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'record_locks.conflict.resolved',
     module: 'record_locks',
+    channels: ['in_app', 'email'],
     titleKey: 'record_locks.notifications.conflict_resolved.title',
     bodyKey: 'record_locks.notifications.conflict_resolved.body',
     icon: 'check-circle',

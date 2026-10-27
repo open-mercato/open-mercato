@@ -161,14 +161,14 @@ function sanitizeString(input, key, state) {
   value = replaceMatches(value, /\b(Authorization\s*:\s*)[^\s,;]+/gi, (_match, prefix) => `${prefix}«redacted:authorization»`, state, 'secrets')
   value = replaceMatches(value, /([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]+@/gi, (_match, prefix) => `${prefix}«redacted:credential»@`, state, 'secrets')
   value = replaceMatches(value, /\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret)\s*[:=]\s*)[^\s,;"']+/gi, (_match, prefix) => `${prefix}«redacted:secret»`, state, 'secrets')
-  value = redactHighEntropy(value, state)
+  if (key !== 'generated-file-path') value = redactHighEntropy(value, state)
 
   value = replaceMatches(value, /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '«redacted:email»', state, 'pii')
   value = replaceMatches(value, /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b(?:[A-F0-9]{1,4}:){2,7}[A-F0-9]{1,4}\b/gi, '«redacted:ip»', state, 'pii')
   value = replaceMatches(value, /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '«redacted:identifier»', state, 'identifiers')
   value = replaceMatches(value, /\b[0-9a-f]{64,}\b/gi, '«redacted:hex-secret»', state, 'secrets')
-  value = value.replace(/\+?\d[\d ()-]{7,}\d/g, (candidate) => {
+  value = value.replace(/(?<![A-Za-z0-9_])\+?\d[\d ()-]{7,}\d(?![A-Za-z0-9_])/g, (candidate) => {
     const digits = candidate.replace(/\D/g, '')
     if (digits.length < 9 || digits.length > 15) return candidate
     countReplacement(state, 'pii')
@@ -183,6 +183,10 @@ function sanitizeNode(value, key, state) {
   if (Array.isArray(value)) return value.map((item) => sanitizeNode(item, '', state))
   if (!value || typeof value !== 'object') return value
 
+  const redactsBrowserTabListing = value.type === 'mcpToolCall'
+    && typeof value.arguments?.code === 'string'
+    && /\.user\.openTabs\s*\(/.test(value.arguments.code)
+
   for (const [candidateKey, candidateValue] of Object.entries(value)) {
     if (pathKeyPattern.test(candidateKey) && typeof candidateValue === 'string' && isDangerousPath(candidateValue)) {
       countReplacement(state, 'dangerous')
@@ -194,6 +198,11 @@ function sanitizeNode(value, key, state) {
   for (const [childKey, childValue] of Object.entries(value)) {
     const sanitizedKey = sanitizeString(childKey, 'object-key', state)
     if (Object.hasOwn(output, sanitizedKey)) fail('Sanitization produced duplicate object keys.')
+    if (redactsBrowserTabListing && childKey === 'result') {
+      countReplacement(state, 'pii')
+      output[sanitizedKey] = { redacted: 'browser-tab-list' }
+      continue
+    }
     output[sanitizedKey] = sanitizeNode(childValue, childKey, state)
   }
   return output
@@ -203,8 +212,46 @@ function inferRole(value) {
   if (!value || typeof value !== 'object') return null
   for (const candidate of [value.type, value.role, value.message?.role]) {
     if (candidate === 'user' || candidate === 'assistant') return candidate
+    if (candidate === 'userMessage') return 'user'
+    if (candidate === 'agentMessage') return 'assistant'
   }
   return null
+}
+
+function inferRoles(value) {
+  const directRole = inferRole(value)
+  if (directRole) return [directRole]
+  if (!value || typeof value !== 'object' || !Array.isArray(value.items)) return []
+  return [...new Set(value.items.map(inferRole).filter(Boolean))]
+}
+
+function extractLastEntryError(lastEntry) {
+  const error = lastEntry?.info?.error
+  if (!error || typeof error !== 'object' || Array.isArray(error)) return null
+  const name = typeof error.name === 'string' ? error.name : null
+  const statusCode = Number.isInteger(error.statusCode)
+    ? error.statusCode
+    : Number.isInteger(error.status)
+      ? error.status
+      : null
+  const message = typeof error.message === 'string' ? error.message : null
+  if (name === null || message === null) return null
+  return { name, statusCode, message }
+}
+
+function classifyStopCause(lastEntry, lastEntryError) {
+  if (lastEntryError) {
+    const errorText = `${lastEntryError.name} ${lastEntryError.message}`
+    if (
+      lastEntryError.statusCode === 429
+      || /\b(?:quota|rate[-_ ]?limit|too many requests|resource[-_ ]?exhausted|usage limit)\b/i.test(errorText)
+    ) return 'provider-limit'
+    if (/\b(?:abort(?:ed)?|cancel(?:led|ed|ation)?)\b/i.test(errorText)) return 'user-abort'
+    return 'provider-error'
+  }
+  const lastRoles = inferRoles(lastEntry)
+  if (lastRoles.at(-1) === 'assistant') return 'completed'
+  return 'unknown'
 }
 
 function analyzeSession(session) {
@@ -224,12 +271,13 @@ function analyzeSession(session) {
   }
   if (!entries) fail('Session JSON has no recognizable turn/event collection.')
 
-  const roles = entries.map(inferRole).filter(Boolean)
+  const roles = entries.flatMap(inferRoles)
   const userTurns = roles.filter((role) => role === 'user').length
   const assistantTurns = roles.filter((role) => role === 'assistant').length
   if (userTurns === 0 || assistantTurns === 0) {
     fail('Session JSON must contain at least one recognizable user turn and one assistant turn.')
   }
+  const lastEntryError = extractLastEntryError(entries.at(-1))
   return {
     collection: collectionName,
     entries: entries.length,
@@ -238,6 +286,10 @@ function analyzeSession(session) {
     assistantTurns,
     firstRecognizedRole: roles[0],
     lastRecognizedRole: roles.at(-1),
+    stopCause: {
+      classification: classifyStopCause(entries.at(-1), lastEntryError),
+      lastEntryError,
+    },
   }
 }
 
@@ -390,7 +442,7 @@ function main() {
     } catch {
       fail('Session export is not valid JSON.')
     }
-    const sessionSummary = analyzeSession(session)
+    const { stopCause, ...sessionSummary } = analyzeSession(session)
     const sanitizedSession = sanitizeNode(session, '', state)
     const sanitizedSessionText = `${JSON.stringify(sanitizedSession, null, 2)}\n`
     const sessionOutputPath = join(bundleDirectory, 'session.json')
@@ -432,6 +484,7 @@ function main() {
         bytes: Buffer.byteLength(sanitizedSessionText),
         sha256: sha256(sanitizedSessionText),
       },
+      stopCause: sanitizeNode(stopCause, 'stopCause', state),
       generatedFiles: files.map(({ relativePath, mode, originalBytes, sanitizedBytes, sha256: fileHash }) => ({
         path: relativePath,
         mode: mode.toString(8).padStart(3, '0'),

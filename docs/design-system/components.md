@@ -26,7 +26,7 @@ Components evaluated on the following criteria:
 | **When to use** | Any user action: submit, cancel, delete, create, navigate |
 | **When NOT to use** | Navigation to another page (use Link). Display-only text. |
 | **Anatomy** | `[icon?] [label] [icon?]` |
-| **Variants** | default, destructive, outline, secondary, ghost, muted, link |
+| **Variants** | default, destructive (quiet: red text, calm surface), destructive-solid (point-of-no-return confirms only), destructive-soft, destructive-ghost, outline, secondary, ghost, muted, link |
 | **Sizes** | sm (h-8), default (h-9), lg (h-10), icon (size-9) |
 | **States** | default, hover, focus, active, disabled, loading |
 | **Accessibility** | `aria-label` required if icon-only. `disabled` prevents interaction. Focus ring visible. |

@@ -280,10 +280,14 @@ export async function findMatchingEntityIdsWithQueryEngine({
   const qe = ctx.container.resolve('queryEngine') as QueryEngine
   const ids = new Set<string>()
   const pageSize = 100
+  const maxPages = 1000
   let page = 1
-  let total = 0
 
-  do {
+  // Short-page termination: `total` is a display value, not a loop bound. The previous
+  // `while (ids.size < total)` could spin forever — `ids` is a Set, so duplicate ids across
+  // pages keep its size permanently below an inflated `total`. Fail closed at the page
+  // ceiling: a partial id set fed into advanced filtering would silently drop matches.
+  for (;;) {
     const result = await qe.query(entityId, {
       fields: ['id'],
       filters,
@@ -296,16 +300,19 @@ export async function findMatchingEntityIdsWithQueryEngine({
       joins,
     })
 
-    total = result.total ?? 0
-    for (const item of result.items ?? []) {
+    const items = result.items ?? []
+    for (const item of items) {
       const id = item && typeof item === 'object' ? (item as Record<string, unknown>).id : null
       if (typeof id === 'string' && id.length > 0) {
         ids.add(id)
       }
     }
-    if (!result.items?.length) break
+    if (items.length < pageSize) break
+    if (page >= maxPages) {
+      throw new Error(`[internal] advanced-filter id resolution exceeded ${maxPages} pages; refusing to return a partial id set`)
+    }
     page += 1
-  } while (ids.size < total)
+  }
 
   return Array.from(ids)
 }

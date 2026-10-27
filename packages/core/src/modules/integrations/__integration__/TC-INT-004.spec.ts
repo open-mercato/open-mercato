@@ -94,6 +94,15 @@ test.describe('TC-INT-004: Integration credentials payload validation', () => {
     }
     expect(initialResponse.status()).toBe(200)
     const initialBody = await readJson(initialResponse)
+    const secretFieldsConfigured = (
+      initialBody.secretFieldsConfigured && typeof initialBody.secretFieldsConfigured === 'object'
+        ? initialBody.secretFieldsConfigured
+        : {}
+    ) as Record<string, boolean>
+    if (Object.values(secretFieldsConfigured).some(Boolean)) {
+      test.skip(true, 'Configured write-only secrets cannot be restored safely in this shared integration')
+      return
+    }
     const originalCredentials =
       initialBody.credentials && typeof initialBody.credentials === 'object'
         ? (initialBody.credentials as JsonRecord)
@@ -121,7 +130,7 @@ test.describe('TC-INT-004: Integration credentials payload validation', () => {
       expect(credentials.booleanField).toBe(true)
       expect(credentials.nullField).toBeNull()
 
-      // An empty object clears all credentials and is a valid payload.
+      // A plain empty object keeps the full-replacement clear-all contract.
       const clearResponse = await apiRequest(request, 'PUT', path, { token, data: { credentials: {} } })
       expect(clearResponse.status(), 'empty credentials object should be accepted').toBe(200)
       const clearedBody = await readJson(await apiRequest(request, 'GET', path, { token }))

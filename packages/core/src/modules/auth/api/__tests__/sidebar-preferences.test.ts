@@ -19,7 +19,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
   loadRoleSidebarPreferences: jest.fn(),
-  loadSidebarPreference: jest.fn(),
+  findSidebarPreference: jest.fn(),
   saveRoleSidebarPreference: jest.fn(),
   saveSidebarPreference: jest.fn(),
   createSidebarVariant: jest.fn(),

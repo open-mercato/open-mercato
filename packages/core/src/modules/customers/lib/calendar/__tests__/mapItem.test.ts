@@ -148,6 +148,25 @@ describe('mapInteractionToCalendarItem', () => {
     expect(withoutParticipants!.participants).toEqual([])
   })
 
+  it('carries the participant status into the projection', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'participant-status',
+        participants: [
+          { userId: 'user-1', name: 'Anna', status: 'accepted' },
+          { email: 'guest@example.org', status: 'declined' },
+          { userId: 'user-2', status: 42 },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([
+      { userId: 'user-1', name: 'Anna', status: 'accepted' },
+      { email: 'guest@example.org', status: 'declined' },
+      { userId: 'user-2' },
+    ])
+  })
+
   it('drops duplicate participants by userId so avatar keys stay unique', () => {
     const item = mapInteractionToCalendarItem(
       makePayload({
@@ -164,6 +183,37 @@ describe('mapInteractionToCalendarItem', () => {
       { userId: 'user-1', name: 'Anna' },
       { userId: 'user-2', name: 'Tom' },
     ])
+  })
+
+  it('keeps distinct guest participants that have no userId', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'guest-participants',
+        participants: [
+          { email: 'guest-one@example.org', name: 'Guest One' },
+          { email: 'guest-two@example.org', name: 'Guest Two' },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([
+      { email: 'guest-one@example.org', name: 'Guest One' },
+      { email: 'guest-two@example.org', name: 'Guest Two' },
+    ])
+  })
+
+  it('collapses the same guest listed twice under a different email casing', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'duplicate-guest',
+        participants: [
+          { email: 'guest@example.org', name: 'Guest' },
+          { email: ' Guest@Example.ORG ', name: 'Guest again' },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([{ email: 'guest@example.org', name: 'Guest' }])
   })
 
   it('derives the category and keeps payload references', () => {

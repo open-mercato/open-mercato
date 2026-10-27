@@ -159,3 +159,141 @@ them would have produced exactly the brittle string-assertion tests the initiati
    survivor is 75 %.
 5. `phone.ts` at 57 % shows the gate cannot be switched on retroactively for whole files. It must
    score **only the changed lines/files of the PR**, and land advisory-first.
+
+---
+
+# Phase 0b — measured feasibility on `packages/core` (2026-08-04)
+
+## Verdict
+
+**`packages/core` stays out of the Phase 1 allowlist.** It misses the spec's exit criterion — "a
+run on 3 representative `core` business-logic files completes under 10 min" — not marginally but by
+roughly two orders of magnitude. `packages/shared` ships alone.
+
+## Setup
+
+Identical to the Phase 0 pilot, via a throwaway `packages/core/stryker.conf.mjs` mirroring the
+pilot config (not committed — the deliverable of this phase is the measurement). One adaptation was
+required: `timeoutMS` raised from 30 s to 60 s, because `packages/core/jest.config.cjs` sets
+`testTimeout: 30000` and the pilot's 30 s Stryker timeout would report timeouts instead of scores.
+
+Three representative business-logic files were chosen, one per the layer the spec named, each with
+real existing test coverage so the numbers reflect genuine fan-in rather than an empty suite.
+
+## Measurements
+
+| Target | Layer | LOC | Mutants | Wall time | Score | Tests per mutant |
+|--------|-------|-----|---------|-----------|-------|------------------|
+| `src/modules/auth/lib/rateLimitCheck.ts` | `lib/` | 75 | 41 | **1 m 45 s** | 58.5 % | 92.7 |
+| `src/modules/auth/commands/roles.ts` | `commands/` | 657 | — | **> 10 min, never completed** | — | — |
+| `src/modules/customers/data/validators.ts` | `data/validators.ts` | 783 | 403 | **~6 h 42 m (Stryker's own ETA)** | — | — |
+
+Only the leaf `lib/` file completed. `roles.ts` was run twice and exceeded ten minutes both times
+without producing a score. `validators.ts` was aborted after Stryker generated 403 mutants and
+projected 6 h 42 m remaining — the projection, not a guess, is the measurement.
+
+The Phase 0 conclusion holds and sharpens: **the cost driver is fan-in, not file size.** A 75-line
+`core` leaf file costs 1 m 45 s against 92.7 tests per mutant, while `shared`'s 396-line leaf file
+cost 1 m 25 s. What breaks `core` is that its command and validator layers sit under large,
+DI/ORM-bootstrapping suites, so `--findRelatedTests` pulls in an order of magnitude more work per
+mutant.
+
+## Score finding
+
+`rateLimitCheck.ts` scored **58.5 %** (24 killed / 17 survived of 41). Survivors cluster on the
+early-return guards — `if (!rateLimiterService) return { error: null, compoundKey: null }` survives
+being forced to `if (false)`, and the compound-key branch survives `&&` becoming `||`. That is the
+same class of gap the Phase 0 pilot found in `phone.ts`: the tests exercise the happy path and
+assert the returned shape, but never assert that a *specific* guard is what rejected the request.
+The finding is real and worth a follow-up issue — but it is a reason to write tests, not a reason
+to enable the gate on a package that cannot finish a run.
+
+## Operational finding: an interrupted `inPlace` run is expensive to recover
+
+This was measured accidentally and matters more than the timings for anyone running locally.
+
+Stryker's `disableTypeChecks` defaults to on, so before mutating it prepends `// @ts-nocheck` to
+every file matching its instrumentation globs. With `inPlace: true` those writes land on real
+source files. When a run was killed mid-flight, it left **4 966 modified files** in
+`packages/core` — every one of them carrying an injected `// @ts-nocheck`.
+
+Recovery was complete and immediate with `git checkout -- packages/core`, exactly the command the
+spec requires the wrapper to print. Two conclusions:
+
+1. The clean-tree guard in `yarn mutation:changed` is not a nicety, it is the only thing standing
+   between an interrupted run and 5 000 unreviewable modifications mixed into a developer's work.
+   It is implemented as a hard stop, never a warning.
+2. `disableTypeChecks` cannot simply be turned off to shrink the blast radius: this repository's
+   jest transformer is ts-jest based and type-checks, so mutants that break types would surface as
+   errors instead of being scored. The default stays, and the guard carries the risk.
+
+A cleanly finishing run restores its own files correctly, including after a `SIGTERM` — that was
+verified separately and matches the Phase 0 finding.
+
+## Implications for the design
+
+1. **The Phase 1 allowlist is `['shared']`.** `packages/core` is excluded in `scripts/stryker/scope.mjs`
+   and adding it later requires a fresh measurement, not a judgement call.
+2. `createConfig.mjs` still carries a per-package `timeoutMS` override (`core: 60000`) because the
+   value is a property of the package's jest config, not of its allowlist status. It documents why
+   the knob exists if `core` is ever revisited.
+3. Revisiting `core` is not hopeless, but it needs a different lever than a bigger timeout — the
+   `coverageAnalysis: "perTest"` work deferred to Phase 4, or scoping mutation to changed *lines*
+   rather than changed *files*. Neither is in scope for this change.
+
+---
+
+# Phase 4 — optimisation assessed and declined (2026-08-04)
+
+Phase 4 is conditional in the spec: *"Only if Phase 1–3 timings demand it."* Both steps were
+attempted rather than assumed. Neither ships.
+
+## The timing budget that decides it
+
+Measured on the shipped scope (`packages/shared`, the only allowlisted package):
+
+| Segment | Time |
+|---------|------|
+| `yarn install --immutable` (warm Yarn cache) | ~16 s |
+| `yarn build:packages` | ~55 s |
+| Mutation run — `boolean.ts`, the pilot's worst fan-in case (615.92 tests/mutant) | 1 m 27 s |
+| **Total job** | **~3 min** |
+| Workflow budget (`timeout-minutes`) | **20 min** |
+
+The job uses about 15 % of its budget on the worst single-file case the pilot identified. There is
+no timing pressure for either optimisation to relieve.
+
+## Step 1 — `perTest` coverage is blocked, not merely unnecessary
+
+`--coverageAnalysis perTest` fails `packages/shared` in the initial test run. 19 of its suites carry
+`@jest-environment` docblocks (792 repo-wide), which is the blocker Q3 anticipated.
+
+Stryker ships the wrapped environments this needs (`@stryker-mutator/jest-runner/jest-env/node` and
+`.../jest-env/jsdom`), and those match the only two values the docblocks use here (`node`, `jsdom`).
+So the natural fix is to redirect the docblocks' resolution rather than edit them. **That was tried
+and does not work:** a Jest `moduleNameMapper` mapping `jest-environment-node` and
+`jest-environment-jsdom` onto the Stryker wrappers has no effect, because Jest resolves the
+`@jest-environment` docblock outside the `moduleNameMapper` path.
+
+What remains is editing 19 test files (Q3 forbids it) or replacing the repo-wide Jest `resolver` in
+`jest.config.base.cjs` — which would place every suite in the repository behind a change made for a
+mutation-testing optimisation that the timings do not need.
+
+## Step 2 — `incremental` caching is declined on risk, not just need
+
+`incremental: true` reuses Stryker's previous report to skip re-testing unchanged mutants. Two
+reasons not to ship it here:
+
+- **No time to win.** The mutation step is 1 m 27 s of a ~3 min job. Even a perfect cache hit leaves
+  the install and build, and the job still ends far inside its 20-minute budget.
+- **A stale incremental file reports mutants as killed that current tests do not kill.** That is a
+  false green in the one check whose entire value is trustworthy signal. Trading correctness risk
+  for time nobody needs is a bad exchange, and the cache-key discipline needed to avoid it is real
+  ongoing maintenance.
+
+## When to revisit
+
+When a package with materially larger suites joins the allowlist — which today means solving the
+`packages/core` problem measured in Phase 0b — or when the Phase 1–2 advisory runs show real PRs
+approaching the 20-minute timeout. At that point `perTest` via a Jest `resolver` change is the
+higher-leverage of the two and becomes worth its blast radius.

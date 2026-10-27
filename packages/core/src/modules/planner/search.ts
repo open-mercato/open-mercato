@@ -86,6 +86,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: 'planner:planner_availability_rule_set',
+      aclFeatures: ['planner.view'],
       enabled: true,
       priority: 6,
       buildSource: async (ctx) => {

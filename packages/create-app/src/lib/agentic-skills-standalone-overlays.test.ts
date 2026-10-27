@@ -86,14 +86,20 @@ test('the template wires the ephemeral runner scripts and the override keeps the
     fs.readFileSync(new URL('../../template/package.json.template', import.meta.url), 'utf8'),
   ) as { scripts?: Record<string, string> }
   const scripts = templatePackageJson.scripts ?? {}
+  // The template routes the CLI through its own `mercato` script
+  // (`node ./scripts/mercato-cli.mjs`) rather than relying on a bare bin being
+  // on PATH — that wrapper is what makes the invocation work on Windows, and
+  // the `om-prepare-test-env` skill documents the same `yarn mercato …` form.
+  // The contract this guards is "the cross-platform mercato CLI, never an
+  // sh-based script"; the sibling assertion above still enforces the sh ban.
   assert.equal(
     scripts['test:integration:ephemeral'],
-    'mercato test:integration',
+    'yarn mercato test:integration',
     'test:integration:ephemeral must run the cross-platform mercato CLI suite runner',
   )
   assert.equal(
     scripts['test:integration:ephemeral:start'],
-    'mercato test:ephemeral',
+    'yarn mercato test:ephemeral',
     'test:integration:ephemeral:start must boot the app-only ephemeral env via the mercato CLI (reused by iterative filtered runs)',
   )
   const override = readOverrideSkill('om-prepare-test-env')
@@ -109,6 +115,25 @@ test('the template wires the ephemeral runner scripts and the override keeps the
     /ASK before the first run/.test(override),
     'the om-prepare-test-env override must instruct skills to ask the user which run mode they want',
   )
+})
+
+test('spec delivery does not promote the optional ephemeral runner into a mandatory exit gate', () => {
+  const phasesAndGates = fs.readFileSync(
+    new URL('om-implement-spec/references/phases-and-gates.md', skillsDir),
+    'utf8',
+  )
+  const override = readOverrideSkill('om-prepare-test-env')
+  const rootInstructions = [
+    fs.readFileSync(new URL('../../agentic/shared/AGENTS.md.template', import.meta.url), 'utf8'),
+    fs.readFileSync(new URL('../../template/AGENTS.md', import.meta.url), 'utf8'),
+  ]
+
+  assert.doesNotMatch(phasesAndGates, /test:integration:ephemeral|integration: blocked/)
+  assert.doesNotMatch(override, /Consumed by the spec exit gate|final phase remains open/)
+  for (const instructions of rootInstructions) {
+    assert.match(instructions, /integration: `yarn test:integration:ephemeral`/)
+    assert.doesNotMatch(instructions, /spec-exit integration/)
+  }
 })
 
 test('override folders do not also ship a stale STANDALONE.md', () => {
@@ -307,6 +332,7 @@ test('local spec implementation shares stable planning and report contracts with
   for (const reference of [
     'references/spec-resolution.md',
     'references/planning-and-progress.md',
+    'references/resume.md',
     'references/report-templates.md',
   ]) {
     assert.ok(implementation.includes(reference), `om-implement-spec must load ${reference}`)
@@ -315,6 +341,14 @@ test('local spec implementation shares stable planning and report contracts with
   assert.match(specResolution, /Closest candidates:/)
   assert.match(planning, /Goal.*Scope.*Non-goals.*Source doc:.*Risks/is)
   assert.match(planning, /Only one phase may be `in_progress`/)
+  assert.match(planning, /ledger write is part of the slice/)
+  const resume = fs.readFileSync(
+    new URL('om-implement-spec/references/resume.md', skillsDir),
+    'utf8',
+  )
+  assert.match(resume, /focused typecheck.*first/is)
+  assert.match(resume, /Never re-execute a verified ticked slice/)
+  assert.match(implementation, /paired edits atomically in one edit operation/)
   assert.match(planning, /present.*plan.*user.*before coding/is)
   assert.match(reportTemplate, /### 📋 Plan & progress/)
   assert.match(reportTemplate, /### 🧪 Validation & 🔍 review/)
@@ -331,6 +365,7 @@ test('local spec implementation shares stable planning and report contracts with
     '.ai/skills/om-implement-spec/references/spec-resolution.md',
     '.ai/skills/om-implement-spec/references/phases-and-gates.md',
     '.ai/skills/om-implement-spec/references/planning-and-progress.md',
+    '.ai/skills/om-implement-spec/references/resume.md',
     '.ai/skills/om-implement-spec/references/report-templates.md',
   ]
   for (const caseId of ['OMH-006', 'OMH-168']) {

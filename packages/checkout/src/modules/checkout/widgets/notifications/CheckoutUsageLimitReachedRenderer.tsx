@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 
 export function CheckoutUsageLimitReachedRenderer({
@@ -16,6 +16,7 @@ export function CheckoutUsageLimitReachedRenderer({
   actions = [],
 }: NotificationRendererProps) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
@@ -24,7 +25,7 @@ export function CheckoutUsageLimitReachedRenderer({
   const viewAction = actions.find((action) => action.id === 'view') ?? actions[0] ?? null
 
   const handleView = async () => {
-    if (!viewAction) {
+    if (!viewAction || notification.status === 'actioned') {
       if (notification.linkHref) router.push(notification.linkHref)
       return
     }
@@ -73,7 +74,7 @@ export function CheckoutUsageLimitReachedRenderer({
             </div>
             <span className="flex-shrink-0 text-xs text-muted-foreground flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
+              {formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''}
             </span>
           </div>
           <div className="mt-3 flex gap-2">
@@ -81,7 +82,7 @@ export function CheckoutUsageLimitReachedRenderer({
               variant="default"
               size="sm"
               onClick={(e) => { e.stopPropagation(); handleView() }}
-              disabled={executing || (!viewAction && !notification.linkHref)}
+              disabled={executing || (!viewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
               className="gap-1"
             >
               <ExternalLink className="h-3 w-3" />

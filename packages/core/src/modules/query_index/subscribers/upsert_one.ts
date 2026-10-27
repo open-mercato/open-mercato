@@ -92,6 +92,10 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
             indexDelta,
           })
           if (adjustments.length) {
+            // Stays inside the transaction: `alwaysConsistent` exists to make the read
+            // projection and its coverage counters commit together, and the adjustment is a
+            // one incrementing statement in steady state (see `applyCoverageAdjustments`), so
+            // it holds the coverage row's lock only for that statement.
             await applyCoverageAdjustments(em, adjustments, { trx })
           }
         }

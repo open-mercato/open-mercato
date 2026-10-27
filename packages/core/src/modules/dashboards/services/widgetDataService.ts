@@ -5,6 +5,7 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import {
   type DateRangePreset,
   resolveDateRange,
@@ -865,12 +866,8 @@ export class WidgetDataService {
   }
 
   private resolveEntityMetadata(tableName: string): Record<string, any> | null {
-    const registry = (this.em as any)?.getMetadata?.()
-    if (!registry) return null
-    const entries =
-      (typeof registry.getAll === 'function' && registry.getAll()) ||
-      (Array.isArray(registry.metadata) ? registry.metadata : Object.values(registry.metadata ?? {}))
-    const metas = Array.isArray(entries) ? entries : Object.values(entries ?? {})
+    const metas = listEntityMetadata(this.em)
+    if (!metas.length) return null
     const match = metas.find((meta: any) => {
       const table = meta?.tableName ?? meta?.collection
       if (typeof table !== 'string') return false

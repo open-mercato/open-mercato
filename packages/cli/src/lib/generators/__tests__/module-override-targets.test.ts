@@ -222,6 +222,30 @@ describe('module override targets — deterministic diagnostics (never a guessed
     expect(diag?.source).toBeUndefined()
   })
 
+  it('never guesses a mode: the framework catalog describes every adapter host', () => {
+    const { overrideTargets, overrideTargetDiagnostics } = collectModuleOverrideTargets(baseFacts())
+    expect(overrideTargetDiagnostics.filter((diagnostic) => diagnostic.code === 'unknown-framework-domain')).toEqual([])
+    expect(overrideTargets.length).toBeGreaterThan(0)
+    for (const target of overrideTargets) {
+      expect(target.modes).toHaveLength(1)
+      expect(['disable-replace', 'replace', 'additive']).toContain(target.modes[0])
+    }
+  })
+
+  it('routes every widget contribution by its own kind/payload discriminant', () => {
+    const { overrideTargets } = collectModuleOverrideTargets(baseFacts())
+    const widgets = overrideTargets
+      .filter((target) => target.domain === 'widgets')
+      .map((target) => `${target.path.slice(0, 2).join('/')} ${target.key}`)
+      .sort()
+    expect(widgets).toEqual([
+      'widgets/components section:demo.login',
+      'widgets/dashboard demo.card',
+      'widgets/injection demo.table-widget',
+      'widgets/injection demo.widget',
+    ])
+  })
+
   it('emits missing-source when an acl feature has no indexed provenance', () => {
     const facts = baseFacts({ factSources: [] })
     const { overrideTargets, overrideTargetDiagnostics } = collectModuleOverrideTargets(facts)

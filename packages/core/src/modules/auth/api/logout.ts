@@ -3,40 +3,85 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { buildSafeRedirectResponse } from '@open-mercato/core/modules/auth/lib/requestRedirect'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+type AuthTokenClaims = {
+  userId: string | null
+  sessionId: string | null
+  tenantId: string | null
+  organizationId: string | null
+}
+
+const emptyAuthTokenClaims: AuthTokenClaims = Object.freeze({
+  userId: null,
+  sessionId: null,
+  tenantId: null,
+  organizationId: null,
+})
 
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
-  return m ? decodeURIComponent(m[1]) : null
-}
-
-function extractSessionIdFromAuthToken(token: string | null): string | null {
-  if (!token) return null
+  if (!m) return null
   try {
-    const payload = verifyJwt(token) as Record<string, unknown> | null
-    if (!payload) return null
-    const sid = payload.sid
-    return typeof sid === 'string' && sid.length > 0 ? sid : null
+    return decodeURIComponent(m[1])
   } catch {
     return null
+  }
+}
+
+function readStringClaim(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function extractAuthTokenClaims(token: string | null): AuthTokenClaims {
+  if (!token) return emptyAuthTokenClaims
+  try {
+    const payload = verifyJwt(token) as Record<string, unknown> | null
+    if (!payload || payload.type === 'customer') return emptyAuthTokenClaims
+    return {
+      userId: readStringClaim(payload, 'sub'),
+      sessionId: readStringClaim(payload, 'sid'),
+      tenantId: readStringClaim(payload, 'tenantId'),
+      organizationId: readStringClaim(payload, 'orgId'),
+    }
+  } catch {
+    return emptyAuthTokenClaims
   }
 }
 
 export async function POST(req: Request) {
   const sessToken = parseCookie(req, 'session_token')
   const authToken = parseCookie(req, 'auth_token')
-  const sessionId = extractSessionIdFromAuthToken(authToken)
-  if (sessToken || sessionId) {
+  if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login')
+  const claims = extractAuthTokenClaims(authToken)
+  let sessionRevoked = false
+  if (sessToken || claims.sessionId) {
     try {
       const c = await createRequestContainer()
       const auth = c.resolve<AuthService>('authService')
-      if (sessionId) {
-        await auth.deleteSessionById(sessionId)
+      if (claims.sessionId) {
+        await auth.deleteSessionById(claims.sessionId)
       }
       if (sessToken) {
         await auth.deleteSessionByToken(sessToken)
       }
-    } catch {}
+      sessionRevoked = true
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.logout_revoke_failed' })
+    }
+  }
+  if (claims.userId) {
+    void emitAuthEvent('auth.logout', {
+      id: claims.userId,
+      tenantId: claims.tenantId,
+      organizationId: claims.organizationId,
+      sessionId: claims.sessionId,
+      sessionRevoked,
+      at: new Date().toISOString(),
+    }, { persistent: true }).catch(() => undefined)
   }
   const res = buildSafeRedirectResponse(req, '/login')
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
@@ -45,7 +90,7 @@ export async function POST(req: Request) {
 }
 
 export const metadata = {
-  POST: { requireAuth: true },
+  POST: { requireAuth: false },
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -54,9 +99,9 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Invalidate session and redirect',
-      description: 'Clears authentication cookies and redirects the browser to the login page.',
+      description: 'Revokes the session identified by the `auth_token` sid claim and the `session_token` cookie, clears both cookies, and redirects the browser to the login page. A valid access token is not required, so a logout submitted after the access token expired still revokes the remember-me refresh session. A request that carries neither cookie is only redirected.',
       responses: [
-        { status: 302, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
+        { status: 307, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
       ],
     },
   },

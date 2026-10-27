@@ -3,6 +3,8 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'business_rules.rule.execution_failed',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'business_rules',
     titleKey: 'businessRules.notifications.rule.executionFailed.title',
     bodyKey: 'businessRules.notifications.rule.executionFailed.body',

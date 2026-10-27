@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -32,6 +32,7 @@ type ModerationFlagsResponse = {
   total: number
   page: number
   pageSize: number
+  totalIsCapped?: boolean
 }
 
 async function fetchModerationFlags(params: {
@@ -123,6 +124,7 @@ export function AiModerationFlagsPageClient() {
   )
 
   const total = query.data?.total ?? 0
+  const totalIsCapped = query.data?.totalIsCapped === true
 
   return (
     <div className="flex flex-col gap-4">
@@ -176,6 +178,7 @@ export function AiModerationFlagsPageClient() {
           pageSize: PAGE_SIZE,
           total,
           totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+          totalIsCapped,
           onPageChange: setPage,
         }}
       />

@@ -1,6 +1,6 @@
 # Module Facts Exact Unified Override Targets
 
-- **Status:** Proposed — implementation-ready
+- **Status:** Implemented
 - **Date:** 2026-08-02
 - **Parent:** [Complete Source-Linked Module Extension Contracts](2026-08-02-module-facts-extension-surface-completeness.md)
 - **Depends on:** [Source Provenance and Contract Inventory](2026-08-02-module-facts-source-provenance-and-contract-inventory.md)
@@ -113,13 +113,24 @@ Add a deterministic per-module diagnostic collection through `ModuleFactsJsonEnt
 
 ```ts
 type ModuleOverrideTargetDiagnostic = {
-  code: 'missing-owned-fact' | 'missing-source' | 'unsupported-dynamic-key' | 'unknown-framework-domain'
+  code:
+    | 'missing-owned-fact'
+    | 'missing-source'
+    | 'unsupported-dynamic-key'
+    | 'unknown-framework-domain'
+    | 'unknown-framework-mode'
   moduleId: string
   domain: ModuleOverrideDomain
   candidatePath?: string[]
   source?: ModuleFactSourceRef
 }
 ```
+
+`unknown-framework-domain` and `unknown-framework-mode` are distinct causes and MUST NOT be
+collapsed: the first means the framework catalog does not describe the dotted host at all, the
+second means it describes the host but names an operation the generator cannot map to a public
+`ModuleOverrideMode`. Reporting a catalog the generator has fallen behind as a surface that does
+not exist would send a downstream app to the wrong fix. Neither case ever guesses a target.
 
 Diagnostics sort by `moduleId`, `domain`, `code`, then path/source. They contain no source snippets or runtime values. Release validation fails for missing adapter/domain coverage; per-module dynamic-key diagnostics remain visible and explicitly prevent a fabricated target. A compatibility test asserts that every root key still identifies a selected module and that a legacy root record remains readable unchanged.
 
@@ -438,7 +449,7 @@ No non-compliant item or required human confirmation was identified.
 - **Performance:** Passed; adapters consume existing normalized facts.
 - **Compatibility:** Passed; generated target facts are additive and runtime behavior is unchanged.
 - **Scope:** Cohesive; framework semantics and topology remain linked dependencies.
-- **Verdict:** Ready for implementation after the provenance prerequisite.
+- **Verdict:** Implemented after the provenance prerequisite; later corrections are recorded below.
 
 ### 2026-08-03 — Code-review corrections
 
@@ -446,3 +457,10 @@ No non-compliant item or required human confirmation was identified.
 - `notifications.handlers.<id>` targets are emitted from the reactive-handler contributions, keyed by the declared handler id the runtime applier keys on; a handler declaring no id yields a diagnostic instead of a target.
 - `setup.defaultCustomerRoleFeatures` is emitted when `setup.ts` declares customer-role profiles.
 - An override host the framework catalog does not describe no longer defaults to `disable-replace`: it emits the previously unused `unknown-framework-domain` diagnostic and no target.
+
+### 2026-08-05 — Diagnostic-cause split
+
+- Split the single "framework catalog yielded no modes" diagnostic into two causes. `unknown-framework-domain` now means the catalog does not describe the dotted host at all; the added `unknown-framework-mode` means the catalog describes the host but names an operation that is not a public `ModuleOverrideMode`. `resolveFrameworkOverrideModes` returns the discriminated outcome and `pushTarget` publishes it as the diagnostic `code`, so the two are never conflated. Neither case emits a target.
+- Added `getFrameworkOverrideHostOperations()` alongside `getFrameworkOverrideModes()`: the projector needs the catalog's raw declared operation to tell an absent host from an unrecognized one, which the validated mode map silently collapses. Both take the host list as an optional parameter defaulting to the framework catalog, because every real catalog host declares a valid mode today — so a stub catalog is the only way to prove that an operation the generator does not recognize really survives the raw map unfiltered instead of degrading into "host does not exist".
+- Added the enum-derived `factCoverage` ledger (`buildModuleFactCoverageLedger`) over the six closed public sets, built during `extractAllModuleFacts` and carried on the reference-projection envelope, so a value with no classification — or a stale row for a removed value — fails fact generation. Statuses are self-sufficient: `pending-emission` states a required-but-unemitted value in the status itself, and `currently-unbound` marks a code reserved by the closed set that no code path emits (today: `missing-owned-fact`). Every `negative-fixture` row is backed by a fixture that really drives that code out of `collectModuleOverrideTargets`.
+- `requiresGeneratedRegistry` is the only way a row skips the non-zero real-count proof, so the flag is itself proven rather than trusted: a row carrying it must report zero from a source-only extraction of the example AND a real count once the same extraction is handed a module registry. Setting it on a row that is extractable from source, or on one that nothing emits at all, fails the coverage test. The published `generatedNote` documents all six statuses, including `catalog-only`, whose rows are pinned to a real count of zero.

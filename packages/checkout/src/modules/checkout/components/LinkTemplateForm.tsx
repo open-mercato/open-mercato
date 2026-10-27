@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { formatLocaleNumberInput, parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -28,6 +29,7 @@ import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ColorPicker } from '@open-mercato/ui/primitives/color-picker'
@@ -40,6 +42,7 @@ import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
+import { findUncollectedPayerFields, PAYER_FIELD_CUSTOMER_FIELD_KEYS } from '../lib/payerFieldRequirements'
 import { readCustomerFieldsSectionError } from '../lib/customerFieldErrors'
 import { isRecordNotFoundError } from '../lib/recordNotFound'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
@@ -60,6 +63,7 @@ type ProviderDescriptor = {
   isConfigured?: boolean
   requiresConfiguration?: boolean
   configurationStatus?: 'configured' | 'missing_credentials' | 'disabled' | 'unmanaged' | null
+  requiresPayerFields?: string[]
 }
 
 type TemplateSummary = {
@@ -82,6 +86,9 @@ type LegalDocumentsValue = {
 }
 
 type PriceListItem = PriceListItemInput
+// `amount` stays a raw locale-typed string while a row is being edited (issue #5828) —
+// converted to a number only at submit time.
+type PriceListEditorItem = Omit<PriceListItem, 'amount'> & { amount: number | string }
 
 const DEFAULT_COLORS = {
   primaryColor: '#1E3A8A',
@@ -100,10 +107,38 @@ function readString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function readNumberInputValue(value: unknown): string {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+function readNumberInputValue(value: unknown, locale?: string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return formatLocaleNumberInput(value, locale)
   if (typeof value === 'string') return value
   return ''
+}
+
+// Money fields stay a raw locale-typed string while being edited (issue #5828) so an
+// in-progress decimal separator is never dropped mid-keystroke; this converts to the
+// canonical number the API expects right before submission.
+export function toSubmittedAmount(value: unknown, locale?: string): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string') return null
+  if (!value.trim()) return null
+  return parseLocaleNumber(value, locale)
+}
+
+function isUnparseableAmount(value: unknown, locale?: string): boolean {
+  return typeof value === 'string' && value.trim().length > 0 && toSubmittedAmount(value, locale) === null
+}
+
+// `toSubmittedAmount` turns unparseable text into `null`, which the API then reads as "no
+// amount" (or, for a price-list row, coerces to 0), so the typed value would be lost silently
+// (issue #6311). Collects the money fields of the active pricing mode that hold text the
+// locale-aware parser cannot read, keyed by form path, so submission can stop with a field error.
+export function collectUnparseableAmountPaths(values: Record<string, unknown>, locale?: string): string[] {
+  const pricingMode = readString(values.pricingMode) || 'fixed'
+  const candidates: Array<[string, unknown]> = pricingMode === 'custom_amount'
+    ? [['customAmountMin', values.customAmountMin], ['customAmountMax', values.customAmountMax]]
+    : pricingMode === 'price_list'
+      ? normalizePriceListItems(values.priceListItems).map((item, index) => [`priceListItems.${index}.amount`, item.amount])
+      : [['fixedPriceAmount', values.fixedPriceAmount], ['fixedPriceOriginalAmount', values.fixedPriceOriginalAmount]]
+  return candidates.filter(([, value]) => isUnparseableAmount(value, locale)).map(([path]) => path)
 }
 
 function readBoolean(value: unknown, fallback = false): boolean {
@@ -173,23 +208,26 @@ function createDefaultValues(t?: TranslateFn): FormValues {
   }
 }
 
-function normalizePriceListItems(value: unknown): PriceListItem[] {
+function normalizePriceListItems(value: unknown): PriceListEditorItem[] {
   if (!Array.isArray(value)) return []
   return value
     .map((item) => {
       if (!isRecord(item)) return null
       const id = readString(item.id).trim()
       const description = readString(item.description)
-      const amount = Number(item.amount ?? 0)
+      // Preserve a string amount as-is — a row mid-edit carries the raw locale-typed text
+      // (issue #5828); re-coercing it with `Number()` here would corrupt it on every render.
+      const amount =
+        typeof item.amount === 'number' || typeof item.amount === 'string' ? item.amount : 0
       const currencyCode = readString(item.currencyCode).trim().toUpperCase()
       return {
         id: id || `item_${Date.now()}`,
         description,
-        amount: Number.isFinite(amount) ? amount : 0,
+        amount,
         currencyCode: currencyCode || 'USD',
       }
     })
-    .filter((item): item is PriceListItem => item !== null)
+    .filter((item): item is PriceListEditorItem => item !== null)
 }
 
 function normalizeCustomerFields(value: unknown, t?: TranslateFn): CustomerFieldDefinitionInput[] {
@@ -375,20 +413,21 @@ function ColorField({
   )
 }
 
-function PriceListEditor({
+export function PriceListEditor({
   value,
   onChange,
   error,
 }: {
-  value: PriceListItem[]
-  onChange: (next: PriceListItem[]) => void
+  value: PriceListEditorItem[]
+  onChange: (next: PriceListEditorItem[]) => void
   error?: string
 }) {
   const t = useT()
+  const locale = useLocale()
   const items = Array.isArray(value) ? value : []
 
   const updateItem = React.useCallback(
-    (index: number, patch: Partial<PriceListItem>) => {
+    (index: number, patch: Partial<PriceListEditorItem>) => {
       onChange(items.map((item, currentIndex) => (currentIndex === index ? { ...item, ...patch } : item)))
     },
     [items, onChange],
@@ -408,7 +447,7 @@ function PriceListEditor({
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.priceList.notices.singleCurrency')}
         </AlertDescription>
@@ -451,11 +490,18 @@ function PriceListEditor({
                     </td>
                     <td className="px-3 py-2">
                       <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.amount}
-                        onChange={(event) => updateItem(index, { amount: Number(event.target.value) })}
+                        type="text"
+                        inputMode="decimal"
+                        value={readNumberInputValue(item.amount, locale)}
+                        onChange={(event) =>
+                          updateItem(index, {
+                            // Stays raw while editing — re-parsing and re-serializing on every
+                            // keystroke would drop an in-progress decimal separator (e.g. typing
+                            // "110,70" collapses to "11070" the instant the comma is typed,
+                            // issue #5828). Converted to a number at submit time instead.
+                            amount: event.target.value,
+                          })
+                        }
                         placeholder="0.00"
                         aria-label={t('checkout.linkTemplateForm.priceList.aria.amount', { index: index + 1 })}
                         className="h-8"
@@ -486,7 +532,7 @@ function PriceListEditor({
           </div>
         ) : (
           <div className="px-4 py-8">
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t('checkout.linkTemplateForm.priceList.notices.empty')}
               </AlertDescription>
@@ -503,8 +549,9 @@ function PriceListEditor({
   )
 }
 
-function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+export function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
   const t = useT()
+  const locale = useLocale()
   const pricingMode = readString(values.pricingMode) || 'fixed'
   const pricingModeError = readError(errors, 'pricingMode')
   const fixedPriceAmountError = readError(errors, 'fixedPriceAmount')
@@ -545,11 +592,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
         <div className="grid gap-4 md:grid-cols-2">
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.amount')} error={fixedPriceAmountError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={readNumberInputValue(values.fixedPriceAmount)}
-              onChange={(event) => setValue('fixedPriceAmount', Number(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              value={readNumberInputValue(values.fixedPriceAmount, locale)}
+              onChange={(event) => setValue('fixedPriceAmount', event.target.value)}
               placeholder="150"
               className={errorInputClassName(fixedPriceAmountError)}
               aria-invalid={Boolean(fixedPriceAmountError)}
@@ -570,11 +616,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
             error={fixedPriceOriginalAmountError}
           >
             <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={readNumberInputValue(values.fixedPriceOriginalAmount)}
-              onChange={(event) => setValue('fixedPriceOriginalAmount', Number(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              value={readNumberInputValue(values.fixedPriceOriginalAmount, locale)}
+              onChange={(event) => setValue('fixedPriceOriginalAmount', event.target.value)}
               placeholder="200"
               className={errorInputClassName(fixedPriceOriginalAmountError)}
               aria-invalid={Boolean(fixedPriceOriginalAmountError)}
@@ -598,11 +643,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
         <div className="grid gap-4 md:grid-cols-3">
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.minimumAmount')} error={customAmountMinError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={readNumberInputValue(values.customAmountMin)}
-              onChange={(event) => setValue('customAmountMin', Number(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              value={readNumberInputValue(values.customAmountMin, locale)}
+              onChange={(event) => setValue('customAmountMin', event.target.value)}
               placeholder="10"
               className={errorInputClassName(customAmountMinError)}
               aria-invalid={Boolean(customAmountMinError)}
@@ -611,11 +655,10 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
 
           <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.maximumAmount')} error={customAmountMaxError} required>
             <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={readNumberInputValue(values.customAmountMax)}
-              onChange={(event) => setValue('customAmountMax', Number(event.target.value))}
+              type="text"
+              inputMode="decimal"
+              value={readNumberInputValue(values.customAmountMax, locale)}
+              onChange={(event) => setValue('customAmountMax', event.target.value)}
               placeholder="500"
               className={errorInputClassName(customAmountMaxError)}
               aria-invalid={Boolean(customAmountMaxError)}
@@ -881,6 +924,24 @@ function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupCo
       return messageKey ? t(messageKey) : undefined
     })()
   const gatewaySettingsError = readError(errors, 'gatewaySettings')
+  const customerFields = readCustomerFields(values.customerFieldsSchema, t)
+  const uncollectedPayerFields = findUncollectedPayerFields({
+    requiredPayerFields: selectedProvider?.requiresPayerFields,
+    collectCustomerDetails: readBoolean(values.collectCustomerDetails, true),
+    customerFieldsSchema: customerFields,
+  })
+  const customerFieldLabels = new Map(
+    [...getLocalizedDefaultCheckoutCustomerFields(t), ...customerFields].map((field) => [field.key, field.label]),
+  )
+  const payerFieldWarning = selectedProvider && uncollectedPayerFields.length > 0
+    ? t('checkout.linkTemplateForm.payment.payerFields.description', {
+      provider: selectedProvider.label,
+      fields: uncollectedPayerFields
+        .flatMap((payerField) => PAYER_FIELD_CUSTOMER_FIELD_KEYS[payerField])
+        .map((key) => customerFieldLabels.get(key) ?? key)
+        .join(', '),
+    })
+    : null
 
   return (
     <div className="space-y-4">
@@ -907,6 +968,13 @@ function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupCo
           ))}
         </select>
       </SectionLabel>
+
+      {payerFieldWarning ? (
+        <Alert status="warning">
+          <AlertTitle>{t('checkout.linkTemplateForm.payment.payerFields.title')}</AlertTitle>
+          <AlertDescription>{payerFieldWarning}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <GatewaySettingsFields
         providerKey={readString(values.gatewayProviderKey) || null}
@@ -946,7 +1014,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
 
       {collectCustomerDetails ? (
         <>
-          <Alert variant="info">
+          <Alert status="information">
             <AlertDescription>
               {t('checkout.linkTemplateForm.customerDetails.notices.simpleLink')}
             </AlertDescription>
@@ -959,7 +1027,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
           />
         </>
       ) : (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>
             {t('checkout.linkTemplateForm.customerDetails.notices.disabled')}
           </AlertDescription>
@@ -993,7 +1061,7 @@ function LegalSection({ values, setValue, errors }: CrudFormGroupComponentProps)
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.legal.notice')}
         </AlertDescription>
@@ -1103,7 +1171,7 @@ function MessagesSection({ values, setValue, errors }: CrudFormGroupComponentPro
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.messages.notice')}
         </AlertDescription>
@@ -1202,7 +1270,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.emails.notice')}
         </AlertDescription>
@@ -1316,6 +1384,7 @@ function SettingsSection({ values, setValue, errors }: CrudFormGroupComponentPro
 
 export function LinkTemplateForm({ mode, recordId }: Props) {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const entityId = mode === 'link' ? CHECKOUT_ENTITY_IDS.link : CHECKOUT_ENTITY_IDS.template
   const templateId = React.useMemo(() => {
@@ -1557,7 +1626,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     [mode, recordId],
   )
   const lockedNotice = isLocked ? (
-    <Alert variant="warning">
+    <Alert status="warning">
       <AlertTitle>{t('checkout.linkTemplateForm.locked.title')}</AlertTitle>
       <AlertDescription>{t('checkout.linkTemplateForm.locked.description')}</AlertDescription>
     </Alert>
@@ -1606,6 +1675,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             title={recordId
               ? t(mode === 'link' ? 'checkout.linkTemplateForm.titles.editLink' : 'checkout.linkTemplateForm.titles.editTemplate')
               : t(mode === 'link' ? 'checkout.linkTemplateForm.titles.createLink' : 'checkout.linkTemplateForm.titles.createTemplate')}
+            titleHeadingLevel={1}
             backHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             cancelHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             fields={fields}
@@ -1664,9 +1734,25 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                   ? 'publish'
                   : 'save'
               const shouldOpenPreview = submitIntent === 'preview'
+              const unparseableAmountPaths = collectUnparseableAmountPaths(values, locale)
+              if (unparseableAmountPaths.length > 0) {
+                const invalidNumberMessage = t('checkout.validation.common.invalidNumber')
+                throw createCrudFormError(
+                  invalidNumberMessage,
+                  Object.fromEntries(unparseableAmountPaths.map((path) => [path, invalidNumberMessage])),
+                )
+              }
               const payload = {
                 ...values,
                 status: submitIntent === 'publish' ? 'active' : values.status,
+                fixedPriceAmount: toSubmittedAmount(values.fixedPriceAmount, locale),
+                fixedPriceOriginalAmount: toSubmittedAmount(values.fixedPriceOriginalAmount, locale),
+                customAmountMin: toSubmittedAmount(values.customAmountMin, locale),
+                customAmountMax: toSubmittedAmount(values.customAmountMax, locale),
+                priceListItems: normalizePriceListItems(values.priceListItems).map((item) => ({
+                  ...item,
+                  amount: toSubmittedAmount(item.amount, locale) ?? Number.NaN,
+                })),
                 customFields: collectCustomFieldValues(values),
               }
               const endpoint = `/api/checkout/${mode === 'link' ? 'links' : 'templates'}${recordId ? `/${encodeURIComponent(recordId)}` : ''}`

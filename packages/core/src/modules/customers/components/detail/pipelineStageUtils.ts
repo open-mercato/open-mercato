@@ -14,6 +14,7 @@ const TERMINAL_OUTCOME_LABELS = new Set([
   'closed won',
   'closed win',
   'lost',
+  // Pre-0.7.1 misspelling; unmigrated stage labels still carry it.
   'loose',
   'closed lost',
   'closed loose',

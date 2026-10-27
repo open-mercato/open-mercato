@@ -21,12 +21,14 @@ const defaultFindOneImpl = async (entity: any, where: any) => {
   return null
 }
 
-function buildUsageKysely(totalSize: number) {
+function buildUsageKysely(totalSize: number, storageReferenceIds: string[] = ['att-1']) {
   const selectChain: any = {
     select: jest.fn(() => selectChain),
     where: jest.fn(() => selectChain),
+    orderBy: jest.fn(() => selectChain),
+    forUpdate: jest.fn(() => selectChain),
     executeTakeFirst: jest.fn(async () => ({ total_size: totalSize })),
-    execute: jest.fn(async () => []),
+    execute: jest.fn(async () => storageReferenceIds.map((id) => ({ id }))),
   }
   return {
     selectFrom: jest.fn(() => selectChain),
@@ -45,7 +47,11 @@ const mockEm = {
   flush: jest.fn(async () => {}),
   transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
   find: jest.fn(),
+  count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
+  begin: jest.fn(async () => {}),
+  commit: jest.fn(async () => {}),
+  rollback: jest.fn(async () => {}),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -56,26 +62,42 @@ const mockDataEngine = {
   flushOrmEntityChanges: jest.fn(async () => {}),
 }
 
+let mockAttachmentQuotaService: any = null
+const mockAttachmentQuotaRecoveryScheduler = jest.fn(async () => {})
+let mockRateLimiterService: {
+  consume: jest.Mock
+  trustProxyDepth: number
+} | null = null
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (k: string) => {
       if (k === 'em') return mockEm
       if (k === 'dataEngine') return mockDataEngine
+      if (k === 'attachmentQuotaService') return mockAttachmentQuotaService
+      if (k === 'attachmentQuotaRecoveryScheduler') return mockAttachmentQuotaRecoveryScheduler
+      if (k === 'rateLimiterService') return mockRateLimiterService
       return null
     },
   }),
 }))
 
-const defaultAuth = () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] })
+const defaultAuth = () => ({ sub: 'user-1', orgId: 'org', tenantId: 't1', roles: ['admin'] })
 const mockGetAuthFromRequest = jest.fn(defaultAuth)
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
 
 // The route derives the active org from the selected-organization scope, not the
 // raw auth.orgId (#3765). Default the helper to the auth home org so existing
 // tests are unaffected; individual tests override it to a selected org.
-const mockResolveAttachmentOrganizationId = jest.fn(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+type AttachmentAuthStub = { orgId?: string | null }
+const mockResolveAttachmentRequestScope = jest.fn(
+  async (_container: unknown, auth: AttachmentAuthStub | null | undefined) => ({
+    denied: false,
+    organizationId: auth?.orgId ?? null,
+  }),
+)
 jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
-  resolveAttachmentOrganizationId: (...args: unknown[]) => mockResolveAttachmentOrganizationId(...args),
+  resolveAttachmentRequestScope: (...args: unknown[]) => mockResolveAttachmentRequestScope(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -128,12 +150,19 @@ describe('attachments API', () => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockReset()
     mockGetAuthFromRequest.mockImplementation(defaultAuth)
-    mockResolveAttachmentOrganizationId.mockReset()
-    mockResolveAttachmentOrganizationId.mockImplementation(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+    mockResolveAttachmentRequestScope.mockReset()
+    mockResolveAttachmentRequestScope.mockImplementation(
+      async (_container: unknown, auth: AttachmentAuthStub | null | undefined) => ({
+        denied: false,
+        organizationId: auth?.orgId ?? null,
+      }),
+    )
     mockEm.findOne.mockReset()
     mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
     mockExtractAttachmentContent.mockReset()
     delete process.env.OM_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
@@ -142,10 +171,35 @@ describe('attachments API', () => {
     delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
     mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
+    mockAttachmentQuotaService = null
+    mockAttachmentQuotaRecoveryScheduler.mockClear()
+    mockRateLimiterService = null
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENAI_API_KEY
+  })
+
+  it('rejects uploads when the per-tenant/user rate limit is exceeded', async () => {
+    mockRateLimiterService = {
+      trustProxyDepth: 0,
+      consume: jest.fn(async () => ({
+        allowed: false,
+        remainingPoints: 0,
+        msBeforeNext: 12_000,
+        consumedPoints: 30,
+      })),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(429)
+    expect(mockRateLimiterService.consume).toHaveBeenCalledWith(
+      't1:user-1',
+      expect.objectContaining({ keyPrefix: 'attachments_upload', points: 100, duration: 60 }),
+    )
+    expect(mockEm.create).not.toHaveBeenCalled()
   })
 
   it('rejects disallowed extension', async () => {
@@ -229,6 +283,69 @@ describe('attachments API', () => {
     // so a custom-field failure aborts the whole unit and never emits a created event.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(mockDataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(fsp.rm).toHaveBeenCalled()
+  })
+
+  it('fails closed before storage when quota accounting is unavailable', async () => {
+    mockAttachmentQuotaService = {
+      recoverExpired: jest.fn(async () => {}),
+      reserve: jest.fn(async () => {
+        throw Object.assign(new Error('quota accounting unavailable'), { code: 'quota_accounting_unavailable' })
+      }),
+    }
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const res = await upload(new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(file) as any,
+    }))
+
+    expect(res.status).toBe(500)
+    expect(fsp.writeFile).not.toHaveBeenCalled()
+  })
+
+  it('maps a concurrent quota rejection to 413 while the first upload remains active', async () => {
+    let pendingBytes = 0
+    mockAttachmentQuotaService = {
+      recoverExpired: jest.fn(async () => {}),
+      reserve: jest.fn(async ({ bytes }: { bytes: number }) => {
+        if (pendingBytes + bytes > 3) {
+          throw Object.assign(new Error('quota exceeded'), { code: 'quota_exceeded' })
+        }
+        pendingBytes += bytes
+        return {
+          id: `reservation-${pendingBytes}`,
+          leaseToken: `lease-${pendingBytes}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        }
+      }),
+      markStored: jest.fn(async () => {}),
+      completeAttachment: jest.fn(async () => { pendingBytes = 0 }),
+      release: jest.fn(async () => { pendingBytes = 0 }),
+    }
+
+    let releaseFirstWrite!: () => void
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      ;(fsp.writeFile as jest.Mock).mockImplementationOnce(async () => {
+        resolve()
+        await new Promise<void>((release) => { releaseFirstWrite = release })
+      })
+    })
+    const { POST: upload } = await loadHandlers()
+    const makeRequest = () => new Request('http://x/api/attachments', {
+      method: 'POST',
+      body: fdWith(new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })) as any,
+    })
+
+    const first = upload(makeRequest())
+    await firstWriteStarted
+    const second = upload(makeRequest())
+    const secondResponse = await second
+    releaseFirstWrite()
+    const firstResponse = await first
+
+    expect([firstResponse.status, secondResponse.status].sort()).toEqual([200, 413])
+    expect(mockAttachmentQuotaService.reserve).toHaveBeenCalledTimes(2)
   })
 
   it('rejects files that exceed configured size limit', async () => {
@@ -475,6 +592,70 @@ describe('attachments API', () => {
     )
   })
 
+  it('pages with an unclamped offset and echoes the requested page (#5299)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.count.mockResolvedValue(5)
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1&page=2&pageSize=2')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual(expect.objectContaining({ total: 5, page: 2, pageSize: 2, totalPages: 3 }))
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 2, offset: 2 }),
+    )
+  })
+
+  it('serves an empty page past the end instead of clamping to the last one (#5299)', async () => {
+    const { GET: list } = await loadHandlers()
+    // Five records over a page size of two is three pages; page 7 is well past the end.
+    mockEm.count.mockResolvedValue(5)
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1&page=7&pageSize=2')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload.items).toEqual([])
+    // The echoed page is what the caller asked for, not the clamped last page, so an
+    // incremental loader that pages while the page is full terminates instead of
+    // being served the last page forever.
+    expect(payload).toEqual(expect.objectContaining({ total: 5, page: 7, pageSize: 2, totalPages: 3 }))
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 2, offset: 12 }),
+    )
+  })
+
+  it('caps an unpaginated record list at the page-size ceiling (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual({ items: [] })
+    expect(mockEm.count).not.toHaveBeenCalled()
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 100, orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
+  it('caps the list when only one of page and pageSize is supplied (#3816)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.find.mockResolvedValue([])
+    for (const query of ['page=3', 'pageSize=5']) {
+      mockEm.find.mockClear()
+      const res = await list(new Request(`http://x/api/attachments?entityId=example:todo&recordId=r1&${query}`))
+      expect(res.status).toBe(200)
+      const options = mockEm.find.mock.calls[0]?.[2] as { limit?: number } | undefined
+      expect(typeof options?.limit).toBe('number')
+      expect(options!.limit!).toBeLessThanOrEqual(100)
+    }
+  })
+
   it('rejects superadmin uploads with no organization selected using a 400 with a clear message instead of a 401 (#3764)', async () => {
     mockGetAuthFromRequest.mockImplementation(() => ({
       orgId: null,
@@ -537,6 +718,58 @@ describe('attachments API', () => {
     expect(mockEm.remove).toHaveBeenCalled()
   })
 
+  describe('DELETE with stored objects shared between attachment rows', () => {
+    const storedAttachment = {
+      id: 'att-1',
+      tenantId: 't1',
+      organizationId: 'org',
+      partitionCode: 'productsMedia',
+      storagePath: 'productsMedia/org/shared.png',
+    }
+
+    const storedObjectRemovals = () =>
+      (fsp.rm as jest.Mock).mock.calls.filter(([target]) => String(target).endsWith('shared.png'))
+
+    beforeEach(() => {
+      mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
+        if (entity?.name === 'Attachment') return { ...storedAttachment }
+        return defaultFindOneImpl(entity, where)
+      })
+    })
+
+    it('keeps the stored object while another attachment row still references it', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1', 'att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(mockEm.commit).toHaveBeenCalledTimes(1)
+      expect(storedObjectRemovals()).toHaveLength(0)
+    })
+
+    it('deletes the stored object once the last referencing row is removed', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-1']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(200)
+      expect(mockEm.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'att-1' }))
+      expect(storedObjectRemovals()).toHaveLength(1)
+      const removalCall = (fsp.rm as jest.Mock).mock.calls.findIndex(([target]) => String(target).endsWith('shared.png'))
+      expect(mockEm.commit.mock.invocationCallOrder[0])
+        .toBeLessThan((fsp.rm as jest.Mock).mock.invocationCallOrder[removalCall])
+    })
+
+    it('returns 404 without touching storage when a concurrent delete already removed the row', async () => {
+      mockEm.getKysely.mockReturnValue(buildUsageKysely(0, ['att-copy']))
+      const { DELETE: remove } = await loadHandlers()
+      const res = await remove(new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' }))
+      expect(res.status).toBe(404)
+      expect(mockEm.remove).not.toHaveBeenCalled()
+      expect(fsp.rm).not.toHaveBeenCalled()
+      expect(mockDataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    })
+  })
+
   it('still returns 401 for a non-superadmin delete with no organization', async () => {
     mockGetAuthFromRequest.mockImplementation(() => ({
       orgId: null,
@@ -553,7 +786,7 @@ describe('attachments API', () => {
     const { POST: upload } = await loadHandlers()
     // A multi-org admin switched the header org: auth.orgId stays 'org' (home),
     // but the request scope resolves the selected org.
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
@@ -565,7 +798,7 @@ describe('attachments API', () => {
 
   it('filters listed attachments by the currently selected organization (#3765)', async () => {
     const { GET: list } = await loadHandlers()
-    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockResolveAttachmentRequestScope.mockResolvedValueOnce({ denied: false, organizationId: 'selected-org' })
     mockEm.find.mockResolvedValue([])
     const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
     const res = await list(req)

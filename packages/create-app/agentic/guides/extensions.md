@@ -7,7 +7,7 @@ Use the smallest extension mechanism that preserves installed-module ownership. 
 Resolve an installed extension in this order:
 
 1. Choose the mechanism by intent below; the mechanism decides which contribution kind and host capability are required.
-2. Open only the named target module sheet at `.ai/guides/modules/<module>.md`. Its `UMES hosts` rows prove mountable exact/pattern targets; its `UMES contributions` rows preserve activation, phases/operations, feature and scope contracts, specialist routes, correlation resolution, and read/write/UI `roundTripId` links.
+2. Open only the named target module sheet at `.ai/guides/modules/<module>/index.md`. Its `UMES hosts` rows prove mountable exact/pattern targets; its `UMES contributions` rows preserve activation, phases/operations, feature and scope contracts, specialist routes, correlation resolution, and read/write/UI `roundTripId` links.
 3. For global shell, menu, dashboard, notification, or integration surfaces, use `.ai/guides/framework-extension-points.md`. Do not assign a framework-owned host to a business module or invent a `$framework` module.
 4. Follow a contribution's `fact-ref` or `specialistRoute` to the existing event/entity/API/command/search/AI/provider facts and owning specialist route. A specialized registry is not evidence for a generic widget target.
 5. Use `om-framework-context` for one named unresolved installed-version gap only. An `optional-external` target is explicit provenance and must degrade when its owner package is absent; an `unresolved` first-party target is a blocker, not permission to guess.
@@ -21,6 +21,8 @@ Your file lives in `src/modules/<id>/` either way, so what you change decides th
 Add every other match too: `backend-ui` + `om-backend-ui-design` when authoring, restyling, or ACL-gating a surface this app owns or injected; `module-data` + contracts for app-owned entities/links/routes/commands/ACL; `ai-workflow` for a durable process, activity, or user task; plus the facts of each module involved. Stay `umes`-only when nothing of yours is rendered — hiding, toggling, disabling, rewiring, or auditing a surface an installed module owns.
 
 ## Mechanism Selector
+
+For Customers calendar event types, follow the [Customers calendar guide](customers-calendar.md) and its exact app example links. It owns add/remove/patch behavior and optional staff/resources coupling.
 
 | Goal | Mechanism | App module file |
 |---|---|---|

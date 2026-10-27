@@ -30,6 +30,7 @@ const sidebarNavItemSchema: z.ZodType<{
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   iconName?: string
   iconMarkup?: string
+  order?: number
   children?: any[]
 }> = z.lazy(() =>
   z.object({
@@ -42,6 +43,7 @@ const sidebarNavItemSchema: z.ZodType<{
     pageContext: z.enum(['main', 'admin', 'settings', 'profile']).optional(),
     iconName: z.string().optional(),
     iconMarkup: z.string().optional(),
+    order: z.number().optional(),
     children: z.array(sidebarNavItemSchema).optional(),
   }),
 )
@@ -161,7 +163,7 @@ export async function GET(req: Request) {
   // the resolved organization cannot distinguish "all organizations" from "my own organization";
   // use the resolved selection so cookie-driven requests without an `orgId` query remain distinct.
   // The fingerprint invalidates module-surface changes; the TTL bounds anything it cannot observe.
-  const cacheVersion = `v6:${getModuleSurfaceFingerprint()}`
+  const cacheVersion = `v7:${getModuleSurfaceFingerprint()}`
   const cacheSelection = cacheScopeSelectedOrganizationId ?? '__all__'
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
   try {

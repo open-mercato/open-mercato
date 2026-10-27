@@ -1,6 +1,6 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache"]
+modules: ["shared","auth","cache","events","example","create_app"]
 areas: ["integration","testing","module-data"]
 topics: ["access-control","data-scoping","events"]
 ---
@@ -14,6 +14,10 @@ topics: ["access-control","data-scoping","events"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-08-11 · events/example: options-only SSE scope hardening would have dropped 53 of 62 current browser event types → use an explicit trusted-scope marker and audit every `clientBroadcast` producer before changing the legacy fallback.
+
+- 2026-08-12 · example_customers_sync: a positive security-control fixture omitted fields required by the downstream sync contract, so it could not prove the guarded delete sink was reachable → make legitimate controls satisfy every downstream invariant before contrasting them with rejected probes.
 
 - 2026-07-10 · payment_gateways: mock-only idempotency coverage missed Stripe partial-refund terminalization and retry advancement → test production adapters, successor-state reconciliation, and rerunnable operation IDs.
 - 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change

@@ -122,8 +122,10 @@ test.describe('sidebar group visibility toggle', () => {
     const groupName = accessibleName.replace(/^Show\s+/, '').trim();
     expect(groupName.length, 'the switch should name the group it controls').toBeGreaterThan(0);
     await expect(groupSwitch, 'the group should start visible').toHaveAttribute('aria-checked', 'true');
-    const groupHrefs = await visibleGroupHrefs(page, groupName);
-    expect(groupHrefs.length, `"${groupName}" should expose at least one main-nav entry`).toBeGreaterThan(0);
+    const declaredGroupHrefs = await visibleGroupHrefs(page, groupName);
+    const renderedBaselineHrefs = await sidebarHrefs(page);
+    const groupHrefs = declaredGroupHrefs.filter((href) => renderedBaselineHrefs.includes(href));
+    expect(groupHrefs.length, `"${groupName}" should render at least one main-nav entry`).toBeGreaterThan(0);
 
     const namedSwitch = () => page.getByRole('switch', { name: `Show ${groupName}` }).first();
 

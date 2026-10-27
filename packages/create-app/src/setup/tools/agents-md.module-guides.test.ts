@@ -4,12 +4,16 @@ import os from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import {
+  enforceRootInstructionBudget,
   injectModuleGuides,
   readEnabledModuleIds,
   renderModuleGuidesBlock,
   selectModuleFactSheets,
 } from './shared.js'
-import { renderModuleGuidesBlock as renderCliModuleGuidesBlock } from '../../../../cli/src/lib/agentic-setup.js'
+import {
+  enforceRootInstructionBudget as cliEnforceRootInstructionBudget,
+  renderModuleGuidesBlock as renderCliModuleGuidesBlock,
+} from '../../../../cli/src/lib/agentic-setup.js'
 
 // A fixture bundle of fact-sheets that build.mjs would have written to
 // dist/agentic/guides/modules/. Post-auto-discovery the real bundle is every
@@ -44,7 +48,8 @@ function makeFactSheetDir(modules: string[]): string {
   const modulesSubdir = join(makeTmpDir(), 'modules')
   fs.mkdirSync(modulesSubdir, { recursive: true })
   for (const moduleId of modules) {
-    fs.writeFileSync(join(modulesSubdir, `${moduleId}.md`), `# ${moduleId} facts\n`)
+    fs.mkdirSync(join(modulesSubdir, moduleId), { recursive: true })
+    fs.writeFileSync(join(modulesSubdir, moduleId, 'index.md'), `# ${moduleId} facts\n`)
   }
   return modulesSubdir
 }
@@ -109,7 +114,7 @@ test('injectModuleGuides writes exactly the selected ID index, drops the hedge, 
   const firstPass = fs.readFileSync(agentsPath, 'utf8')
 
   assert.match(firstPass, /Enabled module facts: `customers`,`sales`\./)
-  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\.md` only for a named or targeted installed module\/host/)
+  assert.match(firstPass, /Load `\.ai\/guides\/modules\/<id>\/index\.md` only for a targeted installed module\/host/)
   assert.equal((firstPass.match(/\.ai\/guides\/modules\//g) ?? []).length, 1, 'the reusable path pattern appears once')
   assert.ok(!firstPass.includes('modules/customers.md'), 'module IDs must not expand into per-module paths')
   assert.ok(!firstPass.includes('modules/sales.md'), 'module IDs must not expand into per-module paths')
@@ -125,7 +130,48 @@ test('injectModuleGuides writes exactly the selected ID index, drops the hedge, 
 test('create-app and agentic:init render byte-identical module fact indexes', () => {
   for (const selected of [[], ['customers', 'sales'], BUNDLED_FIXTURE]) {
     assert.equal(renderModuleGuidesBlock(selected), renderCliModuleGuidesBlock(selected))
+    assert.equal(
+      renderModuleGuidesBlock(selected, { compact: true }),
+      renderCliModuleGuidesBlock(selected, { compact: true }),
+    )
   }
+})
+
+test('enforceRootInstructionBudget leaves a root that already fits untouched', () => {
+  const targetDir = makeTmpDir()
+  const agentsPath = join(targetDir, 'AGENTS.md')
+  fs.writeFileSync(agentsPath, AGENTS_TEMPLATE)
+  injectModuleGuides(agentsPath, BUNDLED_FIXTURE)
+  const before = fs.readFileSync(agentsPath, 'utf8')
+
+  const shed = enforceRootInstructionBudget(agentsPath, BUNDLED_FIXTURE, 8 * 1024)
+
+  assert.equal(shed, false)
+  assert.equal(fs.readFileSync(agentsPath, 'utf8'), before)
+  assert.equal(cliEnforceRootInstructionBudget(agentsPath, BUNDLED_FIXTURE, 8 * 1024), false)
+})
+
+test('enforceRootInstructionBudget sheds the enumerated index when the root overflows (T6)', () => {
+  const targetDir = makeTmpDir()
+  const agentsPath = join(targetDir, 'AGENTS.md')
+  fs.writeFileSync(agentsPath, AGENTS_TEMPLATE)
+  const selected = Array.from({ length: 64 }, (_, index) => `module_${String(index).padStart(2, '0')}`)
+  injectModuleGuides(agentsPath, selected)
+  const enumerated = Buffer.byteLength(fs.readFileSync(agentsPath))
+
+  const shed = enforceRootInstructionBudget(agentsPath, selected, enumerated - 1)
+  const rendered = fs.readFileSync(agentsPath, 'utf8')
+
+  assert.equal(shed, true)
+  assert.ok(Buffer.byteLength(rendered) <= enumerated - 1)
+  assert.match(rendered, /Enabled module facts: 64 sheets bundled, too many to index inline/)
+  assert.ok(!rendered.includes('`module_00`'), 'the pointer form must not enumerate module ids')
+  assert.ok(rendered.includes('intro prose stays untouched'), 'surrounding prose must be preserved')
+  assert.equal(
+    (rendered.match(/\.ai\/guides\/modules\//g) ?? []).length,
+    1,
+    'the reusable path pattern still appears once',
+  )
 })
 
 test('injectModuleGuides keeps a large enabled set compact and never embeds fact descriptions (T6)', () => {
@@ -143,7 +189,7 @@ test('injectModuleGuides keeps a large enabled set compact and never embeds fact
 
   assert.ok(Buffer.byteLength(block) < 1_200, `compact module index is ${Buffer.byteLength(block)} bytes`)
   assert.equal(block.split('\n').length, 3)
-  assert.equal((block.match(/\.ai\/guides\/modules\/<id>\.md/g) ?? []).length, 1)
+  assert.equal((block.match(/\.ai\/guides\/modules\/<id>\/index\.md/g) ?? []).length, 1)
   assert.ok(!block.includes('Core CRM capabilities'))
   assert.ok(!block.includes('| Task | Load |'))
 })

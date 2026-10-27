@@ -2,6 +2,7 @@ import { Resolver, promises as dnsPromises } from 'node:dns'
 import { request as httpsRequest } from 'node:https'
 import { setTimeout as delay } from 'node:timers/promises'
 import { EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   DomainMapping,
   type DomainStatus,
@@ -9,8 +10,16 @@ import {
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { normalizeHostname, tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
+import { findOrganizationInTenant } from '@open-mercato/core/modules/customer_accounts/lib/organizationLookup'
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { detectProxy, isInKnownProxyRange } from '@open-mercato/core/modules/customer_accounts/lib/proxyRanges'
+
+export class DomainMappingOrgScopeError extends Error {
+  constructor(organizationId: string) {
+    super(`[internal] organizationId ${organizationId} does not belong to the caller's tenant`)
+    this.name = 'DomainMappingOrgScopeError'
+  }
+}
 
 const DOMAIN_ROUTING_TAG = 'domain_routing'
 const RESOLVE_KEY_PREFIX = 'domain_routing:resolve'
@@ -165,17 +174,18 @@ export class DomainMappingService {
     if (platformDomains().includes(hostname)) return null
 
     const cacheKey = `${RESOLVE_KEY_PREFIX}:${hostname}`
-    if (this.cache) {
-      const cached = (await this.cache.get(cacheKey)) as ResolveResult | null | undefined
+    const cache = this.cache
+    if (cache) {
+      const cached = (await runWithCacheTenant(null, () => cache.get(cacheKey))) as ResolveResult | null | undefined
       if (cached !== undefined && cached !== null) return cached
     }
 
     const result = await this.lookupResolveResult(hostname)
-    if (this.cache) {
-      await this.cache.set(cacheKey, result, {
+    if (cache) {
+      await runWithCacheTenant(null, () => cache.set(cacheKey, result, {
         ttl: RESOLVE_TTL_MS,
         tags: [DOMAIN_ROUTING_TAG, `${DOMAIN_ROUTING_TAG}:${hostname}`],
-      })
+      }))
     }
     return result
   }
@@ -269,6 +279,8 @@ export class DomainMappingService {
 
   async register(input: RegisterInput): Promise<DomainMapping> {
     const hostname = normalizeHostname(input.hostname)
+    const organization = await findOrganizationInTenant(this.em, input.organizationId, input.tenantId)
+    if (!organization) throw new DomainMappingOrgScopeError(input.organizationId)
 
     let replacesDomain: DomainMapping | null = null
     if (input.replacesDomainId) {
@@ -477,14 +489,14 @@ export class DomainMappingService {
   }
 
   private async invalidateCacheFor(hostname: string, organizationId: string | null): Promise<void> {
-    if (!this.cache) return
+    const cache = this.cache
+    if (!cache) return
     const tags = [DOMAIN_ROUTING_TAG, `${DOMAIN_ROUTING_TAG}:${hostname}`]
     if (organizationId) tags.push(`${DOMAIN_ROUTING_TAG}:org:${organizationId}`)
-    try {
-      await this.cache.deleteByTags(tags)
-    } catch {
-      // Cache invalidation is best-effort — TTL backstop ensures eventual consistency.
-    }
+    await Promise.allSettled([
+      cache.deleteByTags(tags),
+      runWithCacheTenant(null, () => cache.deleteByTags([`${DOMAIN_ROUTING_TAG}:${hostname}`])),
+    ])
   }
 
   private async runDnsVerification(

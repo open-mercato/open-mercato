@@ -64,7 +64,8 @@ import {
 ```typescript
 class LocalSchedulerService {
   // Polls database every 30s (configurable via SCHEDULER_POLL_INTERVAL_MS)
-  // Uses PostgreSQL advisory locks for single-instance safety
+  // Prevents duplicate execution in-process; the PostgreSQL advisory lock
+  // only serialises the claim, not the run
   // Enqueues to target queues or executes commands directly
   async start(): Promise<void>
   async stop(): Promise<void>
@@ -80,6 +81,23 @@ class LocalSchedulerService {
 - ~30 second timing accuracy
 - Single instance only
 - No execution history UI
+
+:::warning Run exactly one process with `QUEUE_STRATEGY=local`
+
+The local strategy provides **no cross-process protection**. Duplicate prevention is
+in-process only: the PostgreSQL advisory lock is released as soon as the short claim
+transaction commits (holding it across the whole run would pin a connection
+idle-in-transaction and get it reaped), and `nextRunAt` is advanced only after the
+target has run. A second process polling the same database therefore sees the schedule
+as still due and executes it too — the same job is enqueued twice, or the same command
+runs twice.
+
+Two entry points start this engine: `mercato scheduler start` and
+`mercato worker --with-scheduler`. Running both, or overlapping containers during a
+rolling redeploy, double-fires every schedule due in that window. Use
+`QUEUE_STRATEGY=async` when more than one instance may run.
+
+:::
 
 #### Async Strategy (`QUEUE_STRATEGY=async`)
 
@@ -368,6 +386,22 @@ const nextRun = calculateNextRun(
 - **Cron:** Uses `cron-parser` to find the next occurrence after the current time
 - **Interval:** Adds the interval duration to the current time (or last run time)
 - **Timezone:** All calculations respect the schedule's timezone
+
+### `nextRunAt` after a run
+
+`nextRunAt` is calculated when a schedule is created or its timing is edited. After that, each strategy keeps it current in its own way:
+
+- **Local strategy:** the polling engine recalculates `nextRunAt` after every run, skip or failure.
+- **Async strategy:** BullMQ decides when a schedule fires, so once a run of an enabled schedule is over — completed, skipped, refused or failed, scheduled or manually triggered — the worker copies the Job Scheduler's own next fire time into `nextRunAt`. This is best effort and never changes the outcome of the run. Nothing is written when:
+  - BullMQ has no Job Scheduler for the schedule, the Job Scheduler has no next slot, or the installed BullMQ release does not provide `Queue.getJobScheduler`;
+  - the Job Scheduler's timing differs from the timing the run loaded, or the row's timing changed during the run (an edit is in flight);
+  - the schedule was disabled or deleted during the run;
+  - the time is no longer in the future, or already equals the stored value;
+  - Redis or the database could not be reached (the read is given up after 2 seconds); the failure is logged and reported.
+
+  Where the cause is transient — an edit in flight, an outage, a slot that was already due — the next run corrects the value. The refresh does not change `updatedAt`.
+
+A schedule that has not fired since it was re-enabled, since an edit or delete was undone, or since a cold-start sync re-registered it can still show its previous `nextRunAt` until its next run.
 
 ## Target Types
 

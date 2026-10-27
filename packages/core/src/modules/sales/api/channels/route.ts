@@ -38,7 +38,7 @@ const listSchema = z
   .passthrough()
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['sales.channels.view'] },
   POST: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },

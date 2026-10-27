@@ -43,8 +43,8 @@ function runCommand(command: string, args: string[], cwd: string, env: NodeJS.Pr
   })
 }
 
-function runMercato(args: string[], cwd: string): string {
-  return runCommand(process.execPath, [cliBin, ...args], cwd)
+function runMercato(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}): string {
+  return runCommand(process.execPath, [cliBin, ...args], cwd, env)
 }
 
 function writeFile(filePath: string, content: string): void {
@@ -144,31 +144,39 @@ function mapSharedSourceToOutput(relativePath: string): string {
   return normalizePath(path.join('.ai', relativePath.slice('ai/'.length)))
 }
 
-function mapClaudeSourceToOutput(relativePath: string): string {
+function mapClaudeSourceToOutput(relativePath: string): string | null {
   if (relativePath === 'CLAUDE.md.template') {
     return 'CLAUDE.md'
   }
   if (relativePath === 'settings.json') {
     return '.claude/settings.json'
   }
+  if (relativePath === 'settings.experimental-hooks-validator.json') {
+    return null
+  }
   if (relativePath === 'mcp.json.example') {
     return '.mcp.json.example'
   }
   if (relativePath.startsWith('hooks/')) {
+    if (relativePath.includes('gate-evidence.')) return null
     return normalizePath(path.join('.claude', relativePath))
   }
 
   throw new Error(`Unexpected Claude source path: ${relativePath}`)
 }
 
-function mapCursorSourceToOutput(relativePath: string): string {
+function mapCursorSourceToOutput(relativePath: string): string | null {
   if (relativePath === 'hooks.json') {
     return '.cursor/hooks.json'
+  }
+  if (relativePath === 'hooks.experimental-hooks-validator.json') {
+    return null
   }
   if (relativePath === 'mcp.json.example') {
     return '.cursor/mcp.json.example'
   }
   if (relativePath.startsWith('hooks/') || relativePath.startsWith('rules/')) {
+    if (relativePath.includes('gate-evidence.')) return null
     return normalizePath(path.join('.cursor', relativePath))
   }
 
@@ -180,6 +188,9 @@ function mapCodexSourceToOutput(relativePath: string): string | null {
     return '.codex/mcp.json.example'
   }
   if (relativePath === 'enforcement-rules.md') {
+    return null
+  }
+  if (relativePath === 'hooks.json' || relativePath === 'hooks/gate-evidence.mjs') {
     return null
   }
 
@@ -247,18 +258,28 @@ function expectedGuideOutputNames(): string[] {
   }
 
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
-  // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
-  // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
+  // the v1/v2 sidecars and disabled local-reference projection are copied as-is,
+  // while installed fact-sheets are filtered to the fixture's enabled modules. The legacy
+  // core.<module>.md redirect stubs are no longer
   // emitted (#3754). framework-extension-points.md is likewise generated into
   // dist/agentic/guides by both build.mjs pipelines (#4810) rather than checked in
   // alongside the static conceptual guides, so it needs an explicit entry here.
   collected.add('module-facts.json')
+  collected.add('module-facts.v2.json')
+  collected.add('reference-module-facts.json')
   collected.add('framework-extension-points.md')
   collected.add('upstream/AGENTS.md')
   collected.add('upstream/BACKWARD_COMPATIBILITY.md')
   collected.add('upstream/manifest.json')
   for (const moduleId of FIXTURE_ENABLED_MODULES) {
-    collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
+    const moduleFactsRoot = path.join(cliDir, 'dist', 'agentic', 'guides', 'modules', moduleId)
+    for (const file of fs.readdirSync(moduleFactsRoot)) {
+      if (file.endsWith('.md')) collected.add(normalizePath(path.join('modules', moduleId, file)))
+    }
+  }
+  const referenceFactsRoot = path.join(cliDir, 'dist', 'agentic', 'guides', 'reference-modules')
+  for (const file of listRelativeFiles(referenceFactsRoot)) {
+    collected.add(normalizePath(path.join('reference-modules', file)))
   }
 
   return Array.from(collected).sort()
@@ -272,6 +293,15 @@ function assertPathsExist(appDir: string, relativePaths: string[]): void {
 test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding assets', () => {
   test.beforeAll(() => {
     ensureCliBuilt()
+  })
+
+  // dist/ is published, so a staging tree the build forgot to swap in would ship with the package —
+  // and a surviving agentic.previous would mean the swap never completed (#5104). beforeAll has run
+  // the real build, so this asserts the state a completed build leaves behind.
+  test('should leave no staging artifacts behind in dist', () => {
+    for (const leftover of ['agentic.staging', 'agentic.previous']) {
+      expect(fs.existsSync(path.join(cliDir, 'dist', leftover))).toBe(false)
+    }
   })
 
   test('should run bootstrap-free and generate the shared, guide, and tool-specific agentic files', () => {
@@ -288,14 +318,32 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       expect(fs.existsSync(path.join(appDir, '.mercato', 'generated'))).toBe(false)
 
       const sharedOutputs = listRelativeFiles(path.join(agenticRoot, 'shared')).map(mapSharedSourceToOutput)
-      const claudeOutputs = listRelativeFiles(path.join(agenticRoot, 'claude-code')).map(mapClaudeSourceToOutput)
-      const cursorOutputs = listRelativeFiles(path.join(agenticRoot, 'cursor')).map(mapCursorSourceToOutput)
+      const claudeOutputs = listRelativeFiles(path.join(agenticRoot, 'claude-code'))
+        .map(mapClaudeSourceToOutput)
+        .filter((relativePath): relativePath is string => relativePath !== null)
+      const cursorOutputs = listRelativeFiles(path.join(agenticRoot, 'cursor'))
+        .map(mapCursorSourceToOutput)
+        .filter((relativePath): relativePath is string => relativePath !== null)
       const codexOutputs = listRelativeFiles(path.join(agenticRoot, 'codex'))
         .map(mapCodexSourceToOutput)
         .filter((relativePath): relativePath is string => relativePath !== null)
 
       expect(sharedOutputs).toContain(standalonePlaywrightConfigPath)
       assertPathsExist(appDir, [...sharedOutputs, ...claudeOutputs, ...cursorOutputs, ...codexOutputs])
+      for (const relativePath of [
+        '.claude/hooks/gate-evidence.ts',
+        '.codex/hooks.json',
+        '.codex/hooks/gate-evidence.mjs',
+        '.cursor/hooks/gate-evidence.mjs',
+      ]) {
+        expect(fs.existsSync(path.join(appDir, relativePath))).toBe(false)
+      }
+      expect(fs.readFileSync(path.join(appDir, '.claude', 'settings.json'), 'utf8')).not.toContain('gate-evidence')
+      expect(fs.readFileSync(path.join(appDir, '.cursor', 'hooks.json'), 'utf8')).not.toContain('gate-evidence')
+      const defaultManifest = JSON.parse(
+        fs.readFileSync(path.join(appDir, '.ai', 'harness', 'manifest.json'), 'utf8'),
+      ) as { files: Array<{ path: string }> }
+      expect(defaultManifest.files.some((entry) => entry.path.includes('gate-evidence'))).toBe(false)
       expect(fs.existsSync(path.join(appDir, standalonePlaywrightConfigPath))).toBe(true)
 
       const generatedGuideNames = listRelativeFiles(path.join(appDir, '.ai', 'guides'))
@@ -310,7 +358,7 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       for (const moduleId of FIXTURE_ENABLED_MODULES) {
         expect(agentsSource).toContain(`\`${moduleId}\``)
       }
-      expect(agentsSource).toContain('`.ai/guides/modules/<id>.md`')
+      expect(agentsSource).toContain('`.ai/guides/modules/<id>/index.md`')
       expect(agentsSource.match(/\.ai\/guides\/modules\//g)).toHaveLength(1)
       expect(agentsSource).not.toContain('`auth`')
       expect(agentsSource).not.toContain('Core CRM capabilities')
@@ -348,6 +396,59 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
 
       expect(fs.existsSync(path.join(appDir, '.codex', 'skills'))).toBe(false)
       expect(fs.existsSync(path.join(appDir, '.cursor', 'skills'))).toBe(false)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('installs gate-evidence hooks only through the explicit flag or environment opt-in', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-agentic-hooks-'))
+
+    try {
+      const flagAppDir = createStandaloneFixture(path.join(tempRoot, 'flag'))
+      runMercato([
+        'agentic:init',
+        '--tool=claude-code,codex,cursor',
+        '--experimental-hooks-validator',
+      ], flagAppDir)
+
+      assertPathsExist(flagAppDir, [
+        '.claude/hooks/gate-evidence.ts',
+        '.codex/hooks.json',
+        '.codex/hooks/gate-evidence.mjs',
+        '.cursor/hooks/gate-evidence.mjs',
+      ])
+      expect(fs.readFileSync(path.join(flagAppDir, '.claude', 'settings.json'), 'utf8')).toContain('gate-evidence')
+      expect(fs.readFileSync(path.join(flagAppDir, '.cursor', 'hooks.json'), 'utf8')).toContain('gate-evidence')
+      const enabledManifest = JSON.parse(
+        fs.readFileSync(path.join(flagAppDir, '.ai', 'harness', 'manifest.json'), 'utf8'),
+      ) as { files: Array<{ path: string }> }
+      expect(enabledManifest.files.filter((entry) => entry.path.includes('gate-evidence'))).toHaveLength(3)
+
+      runMercato([
+        'agentic:init',
+        '--tool=claude-code,codex,cursor',
+        '--update-harness',
+      ], flagAppDir)
+      for (const relativePath of [
+        '.claude/hooks/gate-evidence.ts',
+        '.codex/hooks.json',
+        '.codex/hooks/gate-evidence.mjs',
+        '.cursor/hooks/gate-evidence.mjs',
+      ]) {
+        expect(fs.existsSync(path.join(flagAppDir, relativePath))).toBe(false)
+      }
+      expect(fs.readFileSync(path.join(flagAppDir, '.claude', 'settings.json'), 'utf8')).not.toContain('gate-evidence')
+      expect(fs.readFileSync(path.join(flagAppDir, '.cursor', 'hooks.json'), 'utf8')).not.toContain('gate-evidence')
+
+      const envAppDir = createStandaloneFixture(path.join(tempRoot, 'environment'))
+      runMercato(['agentic:init', '--tool=codex'], envAppDir, {
+        OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR: '1',
+      })
+      assertPathsExist(envAppDir, [
+        '.codex/hooks.json',
+        '.codex/hooks/gate-evidence.mjs',
+      ])
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true })
     }

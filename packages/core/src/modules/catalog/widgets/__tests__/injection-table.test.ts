@@ -3,18 +3,19 @@
  */
 
 describe('catalog injection table', () => {
-  it('registers default bulk delete actions for catalog product tables', async () => {
+  it('registers the bulk delete action on the spot the products table actually resolves', async () => {
     const mod = await import('../injection-table')
     const table = mod.injectionTable
 
-    expect(table['data-table:catalog.products:bulk-actions']).toEqual({
-      widgetId: 'catalog.injection.product-bulk-delete',
-      priority: 40,
-    })
     expect(table['data-table:catalog.products.list:bulk-actions']).toEqual({
       widgetId: 'catalog.injection.product-bulk-delete',
       priority: 40,
     })
+    // `DataTable` derives `extensionTableId` from `perspective.tableId` before
+    // `injectionSpotId`, and spot resolution is exact-match (only `*` patterns
+    // fan out), so the base-spot spelling could never bind — it is not declared
+    // as a host either, and the build guard rejects it.
+    expect(table['data-table:catalog.products:bulk-actions']).toBeUndefined()
   })
 
   it('registers the merchandising assistant trigger on the products list search-trailing slot', async () => {

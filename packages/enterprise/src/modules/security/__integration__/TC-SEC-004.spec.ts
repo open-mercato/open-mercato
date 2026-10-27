@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+  attemptUnsignedPasskeyVerify,
   createAdminApiToken,
   createUserFixture,
   deleteUserFixture,
@@ -7,7 +8,6 @@ import {
   fetchJson,
   loginViaApi,
   setAuthCookie,
-  verifyPasskeyChallenge,
 } from './helpers/securityFixtures'
 
 test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
@@ -27,7 +27,7 @@ test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
     await deleteUserFixture(request, adminToken ?? null, userId)
   })
 
-  test('shows the passkey provider UI and completes the simplified passkey contract', async ({ request, page, browserName }) => {
+  test('shows the passkey provider UI, enrolls a passkey, and refuses login verification without an assertion', async ({ request, page, browserName }) => {
     test.skip(browserName !== 'chromium', 'Passkey coverage is only exercised on Chromium in this suite.')
 
     const firstLogin = await loginViaApi(request, userEmail, userPassword)
@@ -58,14 +58,14 @@ test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
     const pendingLogin = await loginViaApi(request, userEmail, userPassword)
     expect(pendingLogin.available_methods?.map((method) => method.type)).toContain('passkey')
 
-    const verifyResponse = await verifyPasskeyChallenge(
+    const unsignedVerify = await attemptUnsignedPasskeyVerify(
       request,
       pendingLogin.token,
       pendingLogin.challenge_id as string,
       enrollment.credentialId,
     )
-    expect(verifyResponse.status).toBe(200)
-    expect(verifyResponse.body.ok).toBe(true)
-    expect(verifyResponse.body.redirect).toBe('/backend')
+    expect(unsignedVerify.status).toBe(401)
+    expect(unsignedVerify.body.ok).toBeFalsy()
+    expect(unsignedVerify.body.token).toBeFalsy()
   })
 })

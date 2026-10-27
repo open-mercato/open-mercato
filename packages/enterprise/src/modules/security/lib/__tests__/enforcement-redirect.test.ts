@@ -1,8 +1,18 @@
 const mockLoggerError = jest.fn()
+const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => ({
-    child: () => ({ error: mockLoggerError }),
+    warn: mockLoggerWarn,
+    error: mockLoggerError,
+    info: jest.fn(),
+    debug: jest.fn(),
+    child: () => ({
+      warn: mockLoggerWarn,
+      error: mockLoggerError,
+      info: jest.fn(),
+      debug: jest.fn(),
+    }),
   }),
 }))
 
@@ -35,6 +45,7 @@ describe('resolveMfaEnrollmentRedirect', () => {
   beforeEach(() => {
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     mockLoggerError.mockClear()
+    mockLoggerWarn.mockClear()
   })
 
   test('returns redirect immediately when deadline is not set', async () => {
@@ -201,5 +212,141 @@ describe('resolveMfaEnrollmentRedirect', () => {
     const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
 
     expect(redirect).toBeNull()
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'MFA emergency bypass is active',
+      expect.objectContaining({
+        emergencyBypass: true,
+        context: 'mfa-enrollment-redirect bypassed',
+        userId: 'user-1',
+        pathname: '/backend/customers/people',
+      }),
+    )
+  })
+
+  test('does not emit warning when bypass is enabled but user is compliant', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => ({
+              compliant: true,
+              enforced: true,
+            }),
+          }),
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  test('does not emit warning when bypass is enabled but enforcement is not enforced', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => ({
+              compliant: false,
+              enforced: false,
+            }),
+          }),
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  test('does not emit warning when bypass is enabled but deadline is not overdue', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => ({
+              compliant: false,
+              enforced: true,
+              deadline: new Date(Date.now() + 60_000),
+            }),
+          }),
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  test('emits warning when bypass prevents redirect due to unavailable enforcement service', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => null,
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'MFA emergency bypass is active',
+      expect.objectContaining({
+        context: 'mfa-enrollment-redirect bypassed',
+        reason: 'enforcement-service-unavailable',
+      }),
+    )
+  })
+
+  test('emits warning when bypass prevents redirect due to compliance check failure', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => {
+              throw new Error('compliance unavailable')
+            },
+          }),
+        },
+      }),
+    )
+
+    expect(redirect).toBeNull()
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'MFA emergency bypass is active',
+      expect.objectContaining({
+        context: 'mfa-enrollment-redirect bypassed',
+        reason: 'compliance-check-failed',
+      }),
+    )
+  })
+
+  test('does not emit warning when bypass is disabled even though redirect would occur', async () => {
+    delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
+
+    const redirect = await resolveMfaEnrollmentRedirect(buildArgs())
+
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  test('does not emit warning for exempt path even when bypass is enabled', async () => {
+    process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
+
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({ pathname: '/backend/profile/security/mfa' }),
+    )
+
+    expect(redirect).toBeNull()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })

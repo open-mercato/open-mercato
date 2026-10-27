@@ -30,6 +30,11 @@ import {
   CustomerTodoLink,
 } from '../../data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import {
+  registerCoreInjectionTables,
+  registerCoreInjectionWidgets,
+  registerEnabledModuleIds,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 // Todo type removed - example package no longer exists
 type Todo = {
   id: string
@@ -100,6 +105,8 @@ function createMockContext(deps: {
           return em
         case 'dataEngine':
           return engine
+        case 'organizationHierarchyService':
+          return { resolveAncestorIds: async () => [] }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }
@@ -121,6 +128,11 @@ function createMockContext(deps: {
 }
 
 describe('customers commands undo custom fields', () => {
+  beforeAll(() => {
+    registerCoreInjectionWidgets([])
+    registerCoreInjectionTables([])
+    registerEnabledModuleIds(['customers'])
+  })
   afterEach(() => {
     jest.clearAllMocks()
   })
@@ -476,6 +488,7 @@ describe('customers commands undo custom fields', () => {
     expect(handler).toBeDefined()
     const tenantId = TEST_TENANT_ID
     const organizationId = TEST_ORG_ID
+    const futureExpectedCloseAt = new Date(Date.now() + 30 * 86_400_000)
 
     const personEntity: CustomerEntity = {
       id: 'person-1',
@@ -589,7 +602,7 @@ describe('customers commands undo custom fields', () => {
               valueAmount: '1000',
               valueCurrency: 'USD',
               probability: 20,
-              expectedCloseAt: '2026-07-20T12:00:00.000Z',
+              expectedCloseAt: futureExpectedCloseAt.toISOString(),
               ownerUserId: 'user-8',
               source: 'event',
             },
@@ -635,7 +648,7 @@ describe('customers commands undo custom fields', () => {
       })
     )
     expect(existingDeal.title).toBe('Before Deal')
-    expect(existingDeal.expectedCloseAt).toEqual(new Date('2026-07-20T12:00:00.000Z'))
+    expect(existingDeal.expectedCloseAt).toEqual(futureExpectedCloseAt)
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ person: personEntity, isPrimary: true }),

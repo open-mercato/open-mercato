@@ -140,7 +140,7 @@ export default function PortalResetPasswordPage({ params }: Props) {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error ? (
-          <Alert variant="destructive">
+          <Alert status="error">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}

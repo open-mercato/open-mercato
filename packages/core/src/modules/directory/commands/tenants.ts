@@ -87,7 +87,7 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     const identifiers = {
       id: String(tenant.id),
       organizationId: null,
-      tenantId: String(tenant.id),
+      tenantId: null,
     }
 
     await emitCrudSideEffects({
@@ -119,9 +119,6 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     buildResult: (entity) => entity,
     events: tenantCrudEvents,
     indexer: tenantCrudIndexer,
-    afterRestore: ({ entity }) => {
-      Reflect.set(entity, 'tenantId', String(entity.id))
-    },
   }),
 }
 
@@ -162,7 +159,7 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     const identifiers = {
       id: String(tenant.id),
       organizationId: null,
-      tenantId: String(tenant.id),
+      tenantId: null,
     }
 
     await emitCrudSideEffects({
@@ -216,7 +213,7 @@ const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, str
     const identifiers = {
       id: String(id),
       organizationId: null,
-      tenantId: String(id),
+      tenantId: null,
     }
 
     await emitCrudSideEffects({

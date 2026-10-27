@@ -9,6 +9,7 @@ jest.mock('../detail/RolesSection', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useOptionalLocale: () => undefined,
 }))
 
 import React from 'react'
@@ -334,6 +335,7 @@ describe('PhoneNumberField defaultCountryIso2 forwarding', () => {
     const phoneField = fields.find((f) => f.id === 'primaryPhone')
     expect(phoneField).toBeDefined()
     expect(phoneField?.type).toBe('custom')
+    if (phoneField?.type === 'custom') expect(phoneField.rendersOwnError).toBe(true)
 
     const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
     expect(html).toContain('+48')
@@ -344,6 +346,7 @@ describe('PhoneNumberField defaultCountryIso2 forwarding', () => {
     const phoneField = fields.find((f) => f.id === 'primaryPhone')
     expect(phoneField).toBeDefined()
     expect(phoneField?.type).toBe('custom')
+    if (phoneField?.type === 'custom') expect(phoneField.rendersOwnError).toBe(true)
 
     const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
     expect(html).toContain('+48')

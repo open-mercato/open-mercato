@@ -1,13 +1,15 @@
 // @ts-nocheck
 
 import { randomUUID } from "crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
-import type { CommandHandler } from "@open-mercato/shared/lib/commands";
+import type { CommandHandler, CommandRuntimeContext } from "@open-mercato/shared/lib/commands";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
   buildChanges,
   emitCrudSideEffects,
+  emitCrudUndoSideEffects,
   requireId,
   type CrudEventsConfig,
 } from "@open-mercato/shared/lib/commands/helpers";
@@ -26,7 +28,10 @@ import { buildFeatureNotificationFromType } from "../../notifications/lib/notifi
 import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
-import { normalizeCustomFieldValues } from "@open-mercato/shared/lib/custom-fields/normalize";
+import {
+  normalizeCustomFieldResponse,
+  normalizeCustomFieldValues,
+} from "@open-mercato/shared/lib/custom-fields/normalize";
 import { E } from "#generated/entities.ids.generated";
 import { findWithDecryption, findOneWithDecryption } from "@open-mercato/shared/lib/encryption/find";
 import {
@@ -52,6 +57,7 @@ import {
   SalesPaymentMethod,
   SalesDocumentTag,
   SalesDocumentTagAssignment,
+  SalesReturn,
   type SalesLineKind,
   type SalesAdjustmentKind,
   type SalesSettings,
@@ -116,6 +122,7 @@ import {
   restorePaymentSnapshot,
   type PaymentSnapshot,
 } from "./payments";
+import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
@@ -129,8 +136,16 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
+import {
+  mapOrderLineEntityToSnapshot,
+  mapQuoteLineEntityToSnapshot,
+  resolveUpsertDiscountFields,
+  resolveUpsertTotalsOrigin,
+  resolveUpsertCalculatedAmounts,
+} from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
+import { assertOrderCanBeCancelled, isCancelledOrderStatus } from "../lib/orderCancellationGuard";
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
@@ -584,6 +599,11 @@ const addressSnapshotSchema = z
   .nullable()
   .optional();
 
+// Mirrors the create schema's `decimal({ min: 0 })` (data/validators.ts). `null`
+// comes first in the union below because the coercion accepts it — `Number(null)`
+// is 0 — and would turn a clear into a written zero.
+const exchangeRateSchema = z.coerce.number().min(0);
+
 export const documentUpdateSchema = z
   .object({
     id: z.string().uuid(),
@@ -594,9 +614,21 @@ export const documentUpdateSchema = z
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
     comment: z.string().nullable().optional(),
+    // Same names and limits as the create schema (data/validators.ts), so a
+    // caller can send one payload shape to create and update. Nullable here
+    // because an update — unlike a create — has an existing value to clear.
+    comments: z.string().trim().max(4000).nullable().optional(),
+    internalNotes: z.string().trim().max(4000).nullable().optional(),
     orderNumber: z.string().trim().min(1).max(191).optional(),
     quoteNumber: z.string().trim().min(1).max(191).optional(),
     currencyCode: currencyCodeSchema.optional(),
+    // Order-only columns — SalesQuote declares none of them. Declared here
+    // because the create schema declares them and a caller reusing its create
+    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
+    // rejects each with a 400 on a quote rather than dropping it.
+    exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
+    paymentStatusEntryId: z.string().uuid().nullable().optional(),
+    fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
     channelId: z.string().uuid().nullable().optional(),
     statusEntryId: z.string().uuid().nullable().optional(),
     placedAt: z.union([dateOnlySchema, z.null()]).optional(),
@@ -628,6 +660,9 @@ export const documentUpdateSchema = z
       input.expectedDeliveryAt !== undefined ||
       input.channelId !== undefined ||
       input.statusEntryId !== undefined ||
+      input.exchangeRate !== undefined ||
+      input.paymentStatusEntryId !== undefined ||
+      input.fulfillmentStatusEntryId !== undefined ||
       input.shippingAddressId !== undefined ||
       input.billingAddressId !== undefined ||
       input.customerEntityId !== undefined ||
@@ -637,6 +672,8 @@ export const documentUpdateSchema = z
       input.customerReference !== undefined ||
       input.externalReference !== undefined ||
       input.comment !== undefined ||
+      input.comments !== undefined ||
+      input.internalNotes !== undefined ||
       input.orderNumber !== undefined ||
       input.quoteNumber !== undefined ||
       input.shippingAddressSnapshot !== undefined ||
@@ -663,6 +700,52 @@ type DocumentAdjustmentCreateInput =
 function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Graph snapshots load custom fields through `loadCustomFieldValues`, which keys
+ * them `cf_<key>`. Writing those keys back verbatim stores a new `cf_<key>` row
+ * instead of restoring `<key>`, so restores strip the prefix first.
+ */
+function toSnapshotCustomFieldWriteValues(
+  values: Record<string, unknown>,
+): ReturnType<typeof normalizeCustomFieldValues> {
+  return normalizeCustomFieldValues(normalizeCustomFieldResponse(values) ?? {});
+}
+
+/**
+ * Persists document-level custom fields supplied on a create input.
+ *
+ * Order and quote creates used to accept `customFields` at the HTTP boundary
+ * (`splitCustomFieldPayload` folds `cf_*` keys into it) and then drop the values
+ * on the floor, because the create schemas never declared the key and the
+ * handlers never wrote it — only updates did. Callers therefore had to create,
+ * then immediately update, to get custom fields to stick.
+ */
+async function setDocumentCustomFieldsIfSupplied(
+  em: EntityManager,
+  params: {
+    entityId: string;
+    recordId: string;
+    organizationId: string;
+    tenantId: string;
+    customFields: unknown;
+  },
+): Promise<void> {
+  const { customFields } = params;
+  if (customFields === undefined || customFields === null) return;
+  const values =
+    typeof customFields === "object" && !Array.isArray(customFields)
+      ? (customFields as Record<string, unknown>)
+      : {};
+  if (!Object.keys(values).length) return;
+  await setRecordCustomFields(em, {
+    entityId: params.entityId,
+    recordId: params.recordId,
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+    values: normalizeCustomFieldValues(values),
+  });
 }
 
 async function resolveCustomerSnapshot(
@@ -865,10 +948,6 @@ function normalizeStatusValue(raw: unknown): string | null {
 
 function isConfirmedOrderStatus(status: string | null): boolean {
   return status === "confirmed";
-}
-
-function isCancelledOrderStatus(status: string | null): boolean {
-  return status === "canceled" || status === "cancelled";
 }
 
 async function emitOrderLifecycleEvent(input: {
@@ -1127,8 +1206,47 @@ async function applyDocumentUpdate({
       typeof input.comment === "string" ? input.comment.trim() : "";
     entity.comments = normalized.length ? normalized : null;
   }
+  // After `comment`, so the canonical name wins when a payload carries both.
+  if (input.comments !== undefined) {
+    const normalized =
+      typeof input.comments === "string" ? input.comments.trim() : "";
+    entity.comments = normalized.length ? normalized : null;
+  }
+  // Orders only — SalesQuote has no internalNotes column. Reject rather than
+  // ignore it on a quote: the field now satisfies the schema's refine on its
+  // own, so silently dropping it would let an otherwise-empty payload run the
+  // update, and a quote in `sent` status loses its acceptance token and reverts
+  // to draft on any update that reaches execution.
+  if (kind === "quote" && input.internalNotes !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.internal_notes_unsupported",
+        "Internal notes are not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.internalNotes !== undefined) {
+    const normalized =
+      typeof input.internalNotes === "string" ? input.internalNotes.trim() : "";
+    (entity as SalesOrder).internalNotes = normalized.length
+      ? normalized
+      : null;
+  }
   if (typeof input.currencyCode === "string") {
     entity.currencyCode = input.currencyCode;
+  }
+  // Orders only — SalesQuote has no exchange_rate column, so the field is
+  // rejected rather than ignored for the same reason as internalNotes above.
+  if (kind === "quote" && input.exchangeRate !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.exchange_rate_unsupported",
+        "Exchange rate is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.exchangeRate !== undefined) {
+    (entity as SalesOrder).exchangeRate = toNumericString(input.exchangeRate);
   }
   if (input.channelId !== undefined) {
     if (input.channelId === null) {
@@ -1173,6 +1291,62 @@ async function applyDocumentUpdate({
     }
     (entity as any).statusEntryId = input.statusEntryId ?? null;
     (entity as any).status = statusValue;
+  }
+  // Orders only — SalesQuote has neither the entry-id nor the derived text
+  // column for payment and fulfillment status, so both are rejected on a quote.
+  if (kind === "quote" && input.paymentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.payment_status_unsupported",
+        "Payment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.paymentStatusEntryId !== undefined) {
+    const paymentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.paymentStatusEntryId,
+      { tenantId },
+    );
+    if (input.paymentStatusEntryId && !paymentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    // Both columns, like the statusEntryId branch above and like order create:
+    // moving the id without its derived text leaves a self-contradicting row.
+    (entity as SalesOrder).paymentStatusEntryId =
+      input.paymentStatusEntryId ?? null;
+    (entity as SalesOrder).paymentStatus = paymentStatusValue;
+  }
+  if (kind === "quote" && input.fulfillmentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.fulfillment_status_unsupported",
+        "Fulfillment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.fulfillmentStatusEntryId !== undefined) {
+    const fulfillmentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.fulfillmentStatusEntryId,
+      { tenantId },
+    );
+    if (input.fulfillmentStatusEntryId && !fulfillmentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    (entity as SalesOrder).fulfillmentStatusEntryId =
+      input.fulfillmentStatusEntryId ?? null;
+    (entity as SalesOrder).fulfillmentStatus = fulfillmentStatusValue;
   }
   if (input.placedAt !== undefined) {
     if (input.placedAt === null) {
@@ -1358,12 +1532,14 @@ async function applyDocumentUpdate({
       !Array.isArray(input.customFields)
         ? (input.customFields as Record<string, unknown>)
         : {};
+    // Same normalize path as create (`setDocumentCustomFieldsIfSupplied`) so
+    // update and create agree on key/value shapes written to EAV.
     await setRecordCustomFields(em, {
       entityId: kind === "order" ? E.sales.sales_order : E.sales.sales_quote,
       recordId: entity.id,
       organizationId,
       tenantId,
-      values,
+      values: normalizeCustomFieldValues(values),
     });
   }
 }
@@ -2044,8 +2220,8 @@ async function loadCreditMemoSnapshot(
       organizationId: creditMemo.organizationId,
       tenantId: creditMemo.tenantId,
       creditMemoNumber: creditMemo.creditMemoNumber,
-      orderId: creditMemo.orderId ?? null,
-      invoiceId: creditMemo.invoiceId ?? null,
+      orderId: creditMemo.order?.id ?? null,
+      invoiceId: creditMemo.invoice?.id ?? null,
       statusEntryId: creditMemo.statusEntryId ?? null,
       status: creditMemo.status ?? null,
       reason: creditMemo.reason ?? null,
@@ -2817,68 +2993,6 @@ function buildCalculationContext(params: {
   };
 }
 
-function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
-function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
 function mapOrderAdjustmentToDraft(
   adjustment: SalesOrderAdjustment,
 ): SalesAdjustmentDraft {
@@ -2935,6 +3049,20 @@ async function emitTotalsCalculated(
   await eventBus.emitEvent("sales.document.totals.calculated", payload);
 }
 
+function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "discountAmountFromStoredRow">)
+      .discountAmountFromStoredRow === true
+  );
+}
+
+function isStoredRowSourcedTotalsLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "totalsFromStoredRow">)
+      .totalsFromStoredRow === true
+  );
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -2966,6 +3094,20 @@ function createLineSnapshotFromInput(
     unitPriceNet: line.unitPriceNet ?? null,
     unitPriceGross: line.unitPriceGross ?? null,
     discountAmount: line.discountAmount ?? null,
+    // Several callers re-run an already-mapped snapshot through here — the line
+    // upsert and delete paths rebuild every line of the document, not just the
+    // one being edited. Those inputs already carry a line total from a stored
+    // row, so their origin must survive rather than be overwritten with the
+    // caller default, or the untouched lines get re-inflated by quantity on
+    // every write. Exactly one of the two origin fields is ever set, which is
+    // the invariant the calculation engine relies on.
+    ...(isStoredRowSourcedLine(line)
+      ? { discountAmountFromStoredRow: true }
+      : { discountAmountBasis: line.discountAmountBasis ?? "unit" }),
+    // Carried independently of the discount origin above: a line upsert can
+    // take its discount from the caller while its totals still come off the
+    // stored row, and only the caller half is worth reconciling (#5644).
+    ...(isStoredRowSourcedTotalsLine(line) ? { totalsFromStoredRow: true } : {}),
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
@@ -3597,6 +3739,22 @@ function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   return Array.from(set);
 }
 
+// A loaded assignment exposes its tag as an entity, an unwrapped id or the raw
+// column depending on how it was fetched; the snapshot loaders read it the same
+// defensive way. Returns null when the id cannot be determined, which callers
+// must treat as "unrecognised" rather than as a match.
+function readAssignmentTagId(assignment: {
+  tag?: unknown;
+}): string | null {
+  const tag = (assignment as { tag?: unknown }).tag;
+  if (typeof tag === "string") return tag;
+  return (
+    (tag as { id?: string } | null | undefined)?.id ??
+    (assignment as { tag_id?: string }).tag_id ??
+    null
+  );
+}
+
 function buildTagChange(
   beforeTags: TagAssignmentSnapshot[] | undefined,
   afterTags: TagAssignmentSnapshot[] | undefined,
@@ -3641,11 +3799,22 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
   if (input.customerSnapshot !== undefined) keys.add("customerSnapshot");
   if (input.metadata !== undefined) keys.add("metadata");
   if (input.comment !== undefined) keys.add("comments");
+  if (input.comments !== undefined) keys.add("comments");
   if (input.currencyCode !== undefined) keys.add("currencyCode");
   if (input.channelId !== undefined) keys.add("channelId");
   if (kind === "order") {
+    if (input.internalNotes !== undefined) keys.add("internalNotes");
     if (input.placedAt !== undefined) keys.add("placedAt");
     if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
+    if (input.exchangeRate !== undefined) keys.add("exchangeRate");
+    if (input.paymentStatusEntryId !== undefined) {
+      keys.add("paymentStatusEntryId");
+      keys.add("paymentStatus");
+    }
+    if (input.fulfillmentStatusEntryId !== undefined) {
+      keys.add("fulfillmentStatusEntryId");
+      keys.add("fulfillmentStatus");
+    }
   }
   if (
     input.shippingAddressId !== undefined ||
@@ -3684,6 +3853,28 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
   return Array.from(keys);
 }
 
+// Writes only the difference between the stored and the incoming tag set, and
+// no-ops when they are equal. The previous delete-all-then-reinsert rewrote an
+// unchanged set on every save that carried `tags`: on a large
+// sales_document_tag_assignments that delete was the dominant cost of a bulk
+// import, and it also reset each assignment's id/created_at, churned the unique
+// index and left two dead tuples per document per save.
+//
+// Semantics are unchanged — a tag removed out of band still differs from the
+// incoming set and is still restored. Removals go through the UnitOfWork rather
+// than nativeDelete because the assignments are loaded (managed) here; a native
+// delete would leave stale identities behind. The add and remove sets are
+// disjoint by construction, so MikroORM's insert-before-delete commit order can
+// never transiently violate the unique (tag_id, document_id, document_kind).
+//
+// The assignment read below is deliberately scoped by document only, with no
+// organization/tenant predicate — unlike the display reads in
+// api/documents/factory.ts, and unlike the tag-scope check above. It has to
+// match the scope of the unique constraint it reconciles against, which spans
+// (tag_id, document_id, document_kind) and no scope columns. Narrowing the read
+// would hide a mis-scoped row from the diff, put its tag in the add set, and
+// turn the insert into a unique-constraint violation. The document itself is
+// already scope-checked by the caller before this runs.
 async function syncSalesDocumentTags(
   em: EntityManager,
   params: {
@@ -3696,29 +3887,38 @@ async function syncSalesDocumentTags(
 ) {
   if (params.tagIds === undefined) return;
   const tagIds = normalizeTagIds(params.tagIds);
-  if (tagIds.length === 0) {
-    await em.nativeDelete(SalesDocumentTagAssignment, {
-      documentId: params.documentId,
-      documentKind: params.kind,
+  const byId = new Map<string, SalesDocumentTag>();
+  if (tagIds.length > 0) {
+    const tagsInScope = await em.find(SalesDocumentTag, {
+      id: { $in: tagIds },
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
     });
-    return;
+    if (tagsInScope.length !== tagIds.length) {
+      throw new CrudHttpError(400, {
+        error: "One or more tags not found for this scope",
+      });
+    }
+    tagsInScope.forEach((tag) => byId.set(tag.id, tag));
   }
-  const tagsInScope = await em.find(SalesDocumentTag, {
-    id: { $in: tagIds },
-    organizationId: params.organizationId,
-    tenantId: params.tenantId,
-  });
-  if (tagsInScope.length !== tagIds.length) {
-    throw new CrudHttpError(400, {
-      error: "One or more tags not found for this scope",
-    });
-  }
-  const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]));
-  await em.nativeDelete(SalesDocumentTagAssignment, {
+  const existing = await em.find(SalesDocumentTagAssignment, {
     documentId: params.documentId,
     documentKind: params.kind,
   });
-  for (const tagId of tagIds) {
+  const existingByTagId = new Map<string, (typeof existing)[number]>();
+  existing.forEach((assignment) => {
+    const tagId = readAssignmentTagId(assignment);
+    if (tagId) existingByTagId.set(tagId, assignment);
+  });
+  const wanted = new Set(tagIds);
+  const toRemove = existing.filter((assignment) => {
+    const tagId = readAssignmentTagId(assignment);
+    return tagId === null || !wanted.has(tagId);
+  });
+  const toAdd = tagIds.filter((tagId) => !existingByTagId.has(tagId));
+  if (toRemove.length === 0 && toAdd.length === 0) return;
+  toRemove.forEach((assignment) => em.remove(assignment));
+  for (const tagId of toAdd) {
     const tag = byId.get(tagId);
     if (!tag) continue;
     const assignment = em.create(SalesDocumentTagAssignment, {
@@ -3871,9 +4071,65 @@ function applyOrderSnapshot(
   order.lineItemCount = snapshot.lineItemCount;
 }
 
+async function assertQuoteGraphUndoCurrent(
+  em: EntityManager,
+  quoteId: string,
+  expected: QuoteGraphSnapshot,
+): Promise<void> {
+  const current = await loadQuoteSnapshot(em, quoteId);
+  const unchanged =
+    !!current &&
+    sameIds(current.lines, expected.lines) &&
+    sameIds(current.adjustments, expected.adjustments) &&
+    sameRecords(current.notes, expected.notes) &&
+    sameRecords(current.tags, expected.tags) &&
+    sameRecords(current.addresses, expected.addresses);
+  if (!unchanged) return throwDocumentUndoStale("quote");
+}
+
+async function undoQuoteGraph(
+  ctx: CommandRuntimeContext,
+  before: QuoteGraphSnapshot,
+  after: QuoteGraphSnapshot | null | undefined,
+): Promise<void> {
+  ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  let restored: SalesQuote | undefined;
+  await em.transactional(async (tx) => {
+    const quote = await findOneWithDecryption(
+      tx,
+      SalesQuote,
+      { id: before.quote.id },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: before.quote.tenantId, organizationId: before.quote.organizationId },
+    );
+    if (after) {
+      if (!quote) return throwDocumentUndoStale("quote");
+      await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      tx.clear();
+    }
+    restored = await restoreQuoteGraph(tx, before, quote && after ? after : null);
+    await tx.flush();
+  });
+  if (!restored) return;
+  const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action: "updated",
+    entity: restored,
+    identifiers: {
+      id: restored.id,
+      organizationId: restored.organizationId,
+      tenantId: restored.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_quote },
+  });
+}
+
 async function restoreQuoteGraph(
   em: EntityManager,
   snapshot: QuoteGraphSnapshot,
+  verified: QuoteGraphSnapshot | null = null,
 ): Promise<SalesQuote> {
   let quote = await findOneWithDecryption(
     em,
@@ -3985,17 +4241,22 @@ async function restoreQuoteGraph(
     : [];
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : [];
   const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : [];
+  const verifiedIds = (entries: ReadonlyArray<{ id: string }> | undefined) =>
+    verified ? { id: { $in: (entries ?? []).map((entry) => entry.id) } } : {};
   await em.nativeDelete(SalesDocumentAddress, {
     documentId: quote.id,
     documentKind: "quote",
+    ...verifiedIds(verified?.addresses),
   });
   await em.nativeDelete(SalesNote, {
     contextType: "quote",
     contextId: quote.id,
+    ...verifiedIds(verified?.notes),
   });
   await em.nativeDelete(SalesDocumentTagAssignment, {
     documentId: quote.id,
     documentKind: "quote",
+    ...verifiedIds(verified?.tags),
   });
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
   await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
@@ -4145,7 +4406,7 @@ async function restoreQuoteGraph(
       recordId: quote.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(snapshot.quote.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.quote.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4155,7 +4416,7 @@ async function restoreQuoteGraph(
       recordId: line.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4165,16 +4426,222 @@ async function restoreQuoteGraph(
       recordId: adjustment.id,
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
   return quote;
 }
 
+async function throwDocumentUndoStale(kind: "order" | "quote"): Promise<never> {
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(409, {
+    error:
+      kind === "order"
+        ? translate(
+            "sales.documents.errors.undoStaleOrder",
+            "This change can no longer be undone because the order was changed afterwards.",
+          )
+        : translate(
+            "sales.documents.errors.undoStaleQuote",
+            "This change can no longer be undone because the quote was changed afterwards.",
+          ),
+  });
+}
+
+function canonicalizeForComparison(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map(canonicalizeForComparison)
+      .map((entry) => ({ entry, key: JSON.stringify(entry) }))
+      .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0))
+      .map(({ entry }) => entry);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+        .map((key) => [key, canonicalizeForComparison((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return value;
+}
+
+function toComparableRecords(
+  entries: ReadonlyArray<{ id: string }> | null | undefined,
+): Map<string, unknown> {
+  const records = new Map<string, unknown>();
+  for (const entry of entries ?? []) {
+    records.set(entry.id, canonicalizeForComparison(JSON.parse(JSON.stringify(entry))));
+  }
+  return records;
+}
+
+function withoutAllocationIds(
+  payments: ReadonlyArray<PaymentSnapshot> | null | undefined,
+): Array<PaymentSnapshot> {
+  return (payments ?? []).map((payment) => ({
+    ...payment,
+    allocations: (payment.allocations ?? []).map((allocation) =>
+      Object.fromEntries(Object.entries(allocation).filter(([key]) => key !== "id")),
+    ),
+  }));
+}
+
+function sameRecords(
+  current: ReadonlyArray<{ id: string }> | null | undefined,
+  expected: ReadonlyArray<{ id: string }> | null | undefined,
+): boolean {
+  const currentRecords = toComparableRecords(current);
+  const expectedRecords = toComparableRecords(expected);
+  if (currentRecords.size !== expectedRecords.size) return false;
+  for (const [id, record] of expectedRecords) {
+    if (!currentRecords.has(id)) return false;
+    if (!isDeepStrictEqual(currentRecords.get(id), record)) return false;
+  }
+  return true;
+}
+
+function sameIds(
+  current: ReadonlyArray<{ id: string }> | null | undefined,
+  expected: ReadonlyArray<{ id: string }> | null | undefined,
+): boolean {
+  const currentIds = new Set((current ?? []).map((entry) => entry.id));
+  const expectedIds = (expected ?? []).map((entry) => entry.id);
+  return (
+    currentIds.size === expectedIds.length &&
+    expectedIds.every((id) => currentIds.has(id))
+  );
+}
+
+function sameLineProgress(
+  current: ReadonlyArray<SalesLineSnapshot>,
+  expected: ReadonlyArray<SalesLineSnapshot> | null | undefined,
+): boolean {
+  if (!sameIds(current, expected)) return false;
+  const expectedById = new Map((expected ?? []).map((line) => [line.id, line]));
+  return current.every((line) => {
+    const target = expectedById.get(line.id);
+    return (
+      !!target &&
+      Number(line.fulfilledQuantity ?? 0) === Number(target.fulfilledQuantity ?? 0) &&
+      Number(line.returnedQuantity ?? 0) === Number(target.returnedQuantity ?? 0)
+    );
+  });
+}
+
+async function assertOrderGraphUndoCurrent(
+  em: EntityManager,
+  orderId: string,
+  expected: OrderGraphSnapshot,
+): Promise<void> {
+  const current = await loadOrderSnapshot(em, orderId);
+  if (!current) return throwDocumentUndoStale("order");
+  const lineIds = current.lines.map((line) => line.id);
+  const [returnCount, invoiceLineCount, creditMemoLineCount] = await Promise.all([
+    em.count(SalesReturn, { order: orderId }),
+    lineIds.length
+      ? em.count(SalesInvoiceLine, { orderLine: { $in: lineIds } })
+      : Promise.resolve(0),
+    lineIds.length
+      ? em.count(SalesCreditMemoLine, { orderLine: { $in: lineIds } })
+      : Promise.resolve(0),
+  ]);
+  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0) {
+    return throwDocumentUndoStale("order");
+  }
+  const unchanged =
+    sameLineProgress(current.lines, expected.lines) &&
+    sameIds(current.adjustments, expected.adjustments) &&
+    sameRecords(current.shipments, expected.shipments) &&
+    sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
+    sameRecords(current.notes, expected.notes) &&
+    sameRecords(current.tags, expected.tags) &&
+    sameRecords(current.addresses, expected.addresses);
+  if (!unchanged) return throwDocumentUndoStale("order");
+}
+
+async function lockOrderForUndo(
+  em: EntityManager,
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  const order = await findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  );
+  if (!order) return false;
+  await em.find(
+    SalesOrderLine,
+    { order: orderId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: "asc" } },
+  );
+  return true;
+}
+
+async function withVerifiedOrderGraph(
+  ctx: CommandRuntimeContext,
+  expected: OrderGraphSnapshot | null | undefined,
+  scope: { orderId: string; tenantId: string; organizationId: string },
+  work: (tx: EntityManager, exists: boolean) => Promise<void>,
+): Promise<void> {
+  const em = (ctx.container.resolve("em") as EntityManager).fork();
+  await em.transactional(async (tx) => {
+    const exists = await lockOrderForUndo(tx, scope.orderId, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    });
+    if (exists && expected) {
+      await assertOrderGraphUndoCurrent(tx, scope.orderId, expected);
+      tx.clear();
+    }
+    await work(tx, exists);
+  });
+}
+
+async function undoOrderGraph(
+  ctx: CommandRuntimeContext,
+  before: OrderGraphSnapshot,
+  after: OrderGraphSnapshot | null | undefined,
+): Promise<void> {
+  ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
+  let restored: SalesOrder | undefined;
+  await withVerifiedOrderGraph(
+    ctx,
+    after,
+    {
+      orderId: before.order.id,
+      tenantId: before.order.tenantId,
+      organizationId: before.order.organizationId,
+    },
+    async (tx, exists) => {
+      if (!exists && after) await throwDocumentUndoStale("order");
+      restored = await restoreOrderGraph(tx, before, exists ? after : null);
+      await tx.flush();
+    },
+  );
+  if (!restored) return;
+  const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action: "updated",
+    entity: restored,
+    identifiers: {
+      id: restored.id,
+      organizationId: restored.organizationId,
+      tenantId: restored.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_order },
+  });
+}
+
 async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
+  verified: OrderGraphSnapshot | null = null,
 ): Promise<SalesOrder> {
   let order = await findOneWithDecryption(
     em,
@@ -4186,6 +4653,20 @@ async function restoreOrderGraph(
       organizationId: snapshot.order.organizationId,
     },
   );
+  let existingLines: SalesOrderLine[] = [];
+  if (order) {
+    existingLines = await em.find(
+      SalesOrderLine,
+      { order },
+      { orderBy: { lineNumber: "asc" } },
+    );
+    await assertShippedOrderGraphRestorable(
+      em,
+      order,
+      existingLines,
+      snapshot,
+    );
+  }
   if (!order) {
     order = em.create(SalesOrder, {
       id: snapshot.order.id,
@@ -4270,11 +4751,6 @@ async function restoreOrderGraph(
   }
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
-  const existingLines = await em.find(
-    SalesOrderLine,
-    { order: order.id },
-    { fields: ["id"] },
-  );
   const existingAdjustments = await em.find(
     SalesOrderAdjustment,
     { order: order.id },
@@ -4320,17 +4796,22 @@ async function restoreOrderGraph(
   }
   await em.nativeDelete(SalesPaymentAllocation, { order: order.id });
   await em.nativeDelete(SalesPayment, { order: order.id });
+  const verifiedIds = (entries: ReadonlyArray<{ id: string }> | undefined) =>
+    verified ? { id: { $in: (entries ?? []).map((entry) => entry.id) } } : {};
   await em.nativeDelete(SalesDocumentAddress, {
     documentId: order.id,
     documentKind: "order",
+    ...verifiedIds(verified?.addresses),
   });
   await em.nativeDelete(SalesNote, {
     contextType: "order",
     contextId: order.id,
+    ...verifiedIds(verified?.notes),
   });
   await em.nativeDelete(SalesDocumentTagAssignment, {
     documentId: order.id,
     documentKind: "order",
+    ...verifiedIds(verified?.tags),
   });
   await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
   await em.nativeDelete(SalesOrderLine, { order: order.id });
@@ -4484,7 +4965,7 @@ async function restoreOrderGraph(
       recordId: order.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(snapshot.order.customFields),
+      values: toSnapshotCustomFieldWriteValues(snapshot.order.customFields),
     });
   }
   for (const line of snapshot.lines) {
@@ -4494,7 +4975,7 @@ async function restoreOrderGraph(
       recordId: line.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(line.customFields),
+      values: toSnapshotCustomFieldWriteValues(line.customFields),
     });
   }
   for (const adjustment of snapshot.adjustments) {
@@ -4504,7 +4985,7 @@ async function restoreOrderGraph(
       recordId: adjustment.id,
       organizationId: order.organizationId,
       tenantId: order.tenantId,
-      values: normalizeCustomFieldValues(adjustment.customFields),
+      values: toSnapshotCustomFieldWriteValues(adjustment.customFields),
     });
   }
 
@@ -4782,6 +5263,13 @@ const createQuoteCommand: CommandHandler<
             tenantId: quote.tenantId,
             tagIds: parsed.tags,
           });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_quote,
+            recordId: quote.id,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            customFields: parsed.customFields,
+          });
         },
       ],
       { transaction: true },
@@ -4884,23 +5372,26 @@ const createQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const after = payload?.after;
     if (!after) return;
+    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(
-      em,
-      SalesQuote,
-      { id: after.quote.id },
-      {},
-      {
-        tenantId: after.quote.tenantId,
-        organizationId: after.quote.organizationId,
-      },
-    );
-    if (!quote) return;
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
-    await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
-    em.remove(quote);
-    await em.flush();
+    await em.transactional(async (tx) => {
+      const quote = await findOneWithDecryption(
+        tx,
+        SalesQuote,
+        { id: after.quote.id },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        {
+          tenantId: after.quote.tenantId,
+          organizationId: after.quote.organizationId,
+        },
+      );
+      if (!quote) return;
+      await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      await tx.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
+      await tx.nativeDelete(SalesQuoteLine, { quote: quote.id });
+      tx.remove(quote);
+      await tx.flush();
+    });
   },
 };
 
@@ -5024,10 +5515,7 @@ const deleteQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -5061,10 +5549,6 @@ const updateQuoteCommand: CommandHandler<
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
-    if (shouldInvalidateSentToken) {
-      quote.acceptanceToken = null;
-      quote.sentAt = null;
-    }
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -5087,7 +5571,12 @@ const updateQuoteCommand: CommandHandler<
             input: parsed,
             em,
           });
+          // After applyDocumentUpdate, not before it: the reset must not happen
+          // for an update that turns out to be invalid, or a rejected payload
+          // still strips a sent quote of its acceptance link.
           if (shouldInvalidateSentToken) {
+            quote.acceptanceToken = null;
+            quote.sentAt = null;
             quote.status = "draft";
             quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
               tenantId: quote.tenantId,
@@ -5199,6 +5688,21 @@ const updateQuoteCommand: CommandHandler<
       ],
       { transaction: true },
     );
+    // Same as sales.orders.update (#6217): refresh the query-index projection so
+    // customFields written in applyDocumentUpdate are visible on the next list GET.
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: quote,
+      identifiers: {
+        id: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_quote },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
     const resourceKind =
       deriveResourceFromCommandId(updateQuoteCommand.id) ?? "sales.quote";
     await invalidateCrudCache(
@@ -5256,18 +5760,59 @@ const updateQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
+
+/**
+ * Output contracts for the order commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`.
+ *
+ * `sales.orders.update` genuinely returns the mutated `SalesOrder` entity, not
+ * an id — so the schema describes the entity's own scalar columns. It is a
+ * curated subset, not the whole entity: relation properties (`channel`,
+ * `shippingMethod`, `lines`) are ORM references that do not survive the JSON
+ * context column, and the jsonb snapshot blobs carry no pickable shape. Zod
+ * objects do not claim exhaustiveness, so naming a subset stays honest while
+ * keeping the variable picker readable.
+ */
+const orderEntityOutputSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  orderNumber: z.string(),
+  channelId: z.string().uuid().nullable().optional(),
+  customerEntityId: z.string().uuid().nullable().optional(),
+  currencyCode: z.string(),
+  status: z.string().nullable().optional(),
+  statusEntryId: z.string().uuid().nullable().optional(),
+  fulfillmentStatus: z.string().nullable().optional(),
+  paymentStatus: z.string().nullable().optional(),
+  subtotalNetAmount: z.string(),
+  subtotalGrossAmount: z.string(),
+  discountTotalAmount: z.string(),
+  taxTotalAmount: z.string(),
+  grandTotalNetAmount: z.string(),
+  grandTotalGrossAmount: z.string(),
+  paidTotalAmount: z.string(),
+  outstandingAmount: z.string(),
+  lineItemCount: z.number(),
+  placedAt: z.date().nullable().optional(),
+  dueAt: z.date().nullable().optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+const orderUpdateOutputSchema = z.object({ order: orderEntityOutputSchema });
+
+const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
 
 const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
   { order: SalesOrder }
 > = {
   id: "sales.orders.update",
+  outputSchema: orderUpdateOutputSchema,
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5293,6 +5838,16 @@ const updateOrderCommand: CommandHandler<
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
+    if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
+      const requestedStatus = normalizeStatusValue(
+        await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+          tenantId: order.tenantId,
+        }),
+      );
+      if (isCancelledOrderStatus(requestedStatus)) {
+        await assertOrderCanBeCancelled(em, order);
+      }
+    }
     let statusChangeNote: SalesNote | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
@@ -5429,8 +5984,24 @@ const updateOrderCommand: CommandHandler<
       { transaction: true },
     );
     emitOrderLifecycleEventsForTransition({ order, previousStatus });
+    // Refresh the query-index projection (including customValues). Create already
+    // did this; update used to only invalidate the HTTP CRUD cache, so a PUT that
+    // wrote EAV custom fields still returned the pre-update values on the next
+    // GET `/api/sales/orders?id=` (list reads cf_* from the index, #6217).
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
     if (statusChangeNote) {
-      const dataEngine = ctx.container.resolve("dataEngine");
       await emitCrudSideEffects({
         dataEngine,
         action: "created",
@@ -5500,10 +6071,7 @@ const updateOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -5512,6 +6080,7 @@ const createOrderCommand: CommandHandler<
   { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
+  outputSchema: orderIdOutputSchema,
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -5804,6 +6373,13 @@ const createOrderCommand: CommandHandler<
             tenantId: order.tenantId,
             tagIds: parsed.tags,
           });
+          await setDocumentCustomFieldsIfSupplied(em, {
+            entityId: E.sales.sales_order,
+            recordId: order.id,
+            organizationId: order.organizationId,
+            tenantId: order.tenantId,
+            customFields: parsed.customFields,
+          });
         },
       ],
       { transaction: true },
@@ -5923,23 +6499,34 @@ const createOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const after = payload?.after;
     if (!after) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const order = await findOneWithDecryption(
-      em,
-      SalesOrder,
-      { id: after.order.id },
-      {},
+    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId);
+    await withVerifiedOrderGraph(
+      ctx,
+      after,
       {
+        orderId: after.order.id,
         tenantId: after.order.tenantId,
         organizationId: after.order.organizationId,
       },
+      async (tx, exists) => {
+        if (!exists) return;
+        const order = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: after.order.id },
+          {},
+          {
+            tenantId: after.order.tenantId,
+            organizationId: after.order.organizationId,
+          },
+        );
+        if (!order) return;
+        await tx.nativeDelete(SalesOrderAdjustment, { order: order.id });
+        await tx.nativeDelete(SalesOrderLine, { order: order.id });
+        tx.remove(order);
+        await tx.flush();
+      },
     );
-    if (!order) return;
-    ensureOrderScope(ctx, order.organizationId, order.tenantId);
-    await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
-    await em.nativeDelete(SalesOrderLine, { order: order.id });
-    em.remove(order);
-    await em.flush();
   },
 };
 
@@ -5948,6 +6535,7 @@ const deleteOrderCommand: CommandHandler<
   { orderId: string }
 > = {
   id: "sales.orders.delete",
+  outputSchema: orderIdOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -6099,10 +6687,7 @@ const deleteOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -6294,9 +6879,11 @@ const convertQuoteToOrderCommand: CommandHandler<
         subtotalGrossAmount: snapshot.quote.subtotalGrossAmount,
         discountTotalAmount: snapshot.quote.discountTotalAmount,
         taxTotalAmount: snapshot.quote.taxTotalAmount,
-        shippingNetAmount: "0",
-        shippingGrossAmount: "0",
-        surchargeTotalAmount: "0",
+        ...resolveConvertedOrderFeeTotals({
+          totalsSnapshot: snapshot.quote.totalsSnapshot,
+          currencyCode: snapshot.quote.currencyCode,
+          adjustments: snapshot.adjustments,
+        }),
         grandTotalNetAmount: snapshot.quote.grandTotalNetAmount,
         grandTotalGrossAmount: snapshot.quote.grandTotalGrossAmount,
         paidTotalAmount: "0",
@@ -6530,56 +7117,74 @@ const convertQuoteToOrderCommand: CommandHandler<
     const quoteSnapshot = payload?.quote;
     const orderSnapshot = payload?.order;
     if (!quoteSnapshot) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
     ensureQuoteScope(
       ctx,
       quoteSnapshot.quote.organizationId,
       quoteSnapshot.quote.tenantId,
     );
-    if (orderSnapshot) {
-      const orderId = orderSnapshot.order.id;
-      const orderLineIds = orderSnapshot.lines.map((line) => line.id);
-      const existingOrder = await findOneWithDecryption(em, SalesOrder, { id: orderId }, undefined, { tenantId: quoteSnapshot.quote.tenantId, organizationId: quoteSnapshot.quote.organizationId });
-      if (existingOrder) {
-        const shipments = await em.find(SalesShipment, { order: orderId });
-        const shipmentIds = shipments.map((entry) => entry.id);
-        if (shipmentIds.length) {
-          await em.nativeDelete(SalesShipmentItem, {
-            shipment: { $in: shipmentIds },
+    const revertConversion = async (em: EntityManager, orderExists: boolean) => {
+      if (orderSnapshot) {
+        const orderId = orderSnapshot.order.id;
+        const orderLineIds = orderSnapshot.lines.map((line) => line.id);
+        const existingOrder = orderExists
+          ? await findOneWithDecryption(em, SalesOrder, { id: orderId }, undefined, { tenantId: quoteSnapshot.quote.tenantId, organizationId: quoteSnapshot.quote.organizationId })
+          : null;
+        if (existingOrder) {
+          const shipments = await em.find(SalesShipment, { order: orderId });
+          const shipmentIds = shipments.map((entry) => entry.id);
+          if (shipmentIds.length) {
+            await em.nativeDelete(SalesShipmentItem, {
+              shipment: { $in: shipmentIds },
+            });
+            await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } });
+          }
+          await em.nativeDelete(SalesPaymentAllocation, { order: orderId });
+          await em.nativeDelete(SalesPayment, { order: orderId });
+          await em.nativeDelete(SalesDocumentAddress, {
+            documentId: orderId,
+            documentKind: "order",
           });
-          await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } });
+          await em.nativeDelete(SalesDocumentTagAssignment, {
+            documentId: orderId,
+            documentKind: "order",
+          });
+          await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
+          await em.nativeDelete(SalesOrderLine, { order: orderId });
+          em.remove(existingOrder);
         }
-        await em.nativeDelete(SalesPaymentAllocation, { order: orderId });
-        await em.nativeDelete(SalesPayment, { order: orderId });
-        await em.nativeDelete(SalesDocumentAddress, {
-          documentId: orderId,
-          documentKind: "order",
-        });
-        await em.nativeDelete(SalesDocumentTagAssignment, {
-          documentId: orderId,
-          documentKind: "order",
-        });
-        await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
-        await em.nativeDelete(SalesOrderLine, { order: orderId });
-        em.remove(existingOrder);
-      }
-      await em.nativeDelete(CustomFieldValue, {
-        entityId: E.sales.sales_order,
-        recordId: orderId,
-      });
-      if (orderLineIds.length) {
         await em.nativeDelete(CustomFieldValue, {
-          entityId: E.sales.sales_order_line,
-          recordId: { $in: orderLineIds } as any,
+          entityId: E.sales.sales_order,
+          recordId: orderId,
         });
+        if (orderLineIds.length) {
+          await em.nativeDelete(CustomFieldValue, {
+            entityId: E.sales.sales_order_line,
+            recordId: { $in: orderLineIds } as any,
+          });
+        }
       }
+      const noteIds = quoteSnapshot.notes.map((note) => note.id);
+      if (noteIds.length) {
+        await em.nativeDelete(SalesNote, { id: { $in: noteIds } });
+      }
+      await restoreQuoteGraph(em, quoteSnapshot);
+      await em.flush();
+    };
+    if (orderSnapshot) {
+      await withVerifiedOrderGraph(
+        ctx,
+        orderSnapshot,
+        {
+          orderId: orderSnapshot.order.id,
+          tenantId: orderSnapshot.order.tenantId,
+          organizationId: orderSnapshot.order.organizationId,
+        },
+        revertConversion,
+      );
+      return;
     }
-    const noteIds = quoteSnapshot.notes.map((note) => note.id);
-    if (noteIds.length) {
-      await em.nativeDelete(SalesNote, { id: { $in: noteIds } });
-    }
-    await restoreQuoteGraph(em, quoteSnapshot);
-    await em.flush();
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    await em.transactional((tx) => revertConversion(tx, false));
   },
 };
 
@@ -6625,11 +7230,50 @@ const quoteAdjustmentDeleteSchema = z.object({
 
 const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
 
+// Locked outright on a shipped line: none of these may move at all.
+const SHIPPED_LINE_NUMERIC_PRICING_FIELDS = [
+  "unitPriceNet",
+  "unitPriceGross",
+  "discountAmount",
+  "discountPercent",
+  "taxRate",
+] as const;
+
+// Line totals are derived, not authored: clients recompute and echo them on every
+// submit, so raising the quantity of a shipped line legitimately changes them. They
+// are still writable straight through, so they cannot simply be ignored either.
+// The invariant that separates a quantity edit from moving money is the per-unit
+// economics — total per unit must stay put, whatever the quantity does. That also
+// keeps discounted lines working, since a proportional total scales with quantity.
+const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
+  "totalNetAmount",
+  "totalGrossAmount",
+] as const;
+
+type ShippedLineComparable = Pick<
+  SalesLineSnapshot,
+  | "quantity"
+  | "quantityUnit"
+  | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
+  | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
+>;
+
 const hasNumericChange = (
   next: number | null | undefined,
   previous: number | null | undefined,
 ): boolean => {
   if (next === undefined || next === null) return false;
+  if (previous === undefined || previous === null) return true;
+  return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
+};
+
+const hasExactNumericChange = (
+  next: number | null | undefined,
+  previous: number | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) {
+    return previous !== undefined && previous !== null;
+  }
   if (previous === undefined || previous === null) return true;
   return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
 };
@@ -6644,6 +7288,111 @@ const hasUnitChange = (
   return next.trim().toLowerCase() !== normalizedPrevious;
 };
 
+const hasExactUnitChange = (
+  next: string | null | undefined,
+  previous: string | null | undefined,
+): boolean =>
+  (next ?? "").trim().toLowerCase() !==
+  (previous ?? "").trim().toLowerCase();
+
+function hasShippedLineTotalChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  nextQuantity: number | null | undefined,
+  exact: boolean,
+): boolean {
+  const numericChange = exact ? hasExactNumericChange : hasNumericChange;
+  const previousQuantity = previous.quantity;
+  const canScale =
+    typeof previousQuantity === "number" &&
+    Math.abs(previousQuantity) > SHIPPED_QUANTITY_TOLERANCE &&
+    typeof nextQuantity === "number";
+
+  return SHIPPED_LINE_DERIVED_TOTAL_FIELDS.some((field) => {
+    const nextTotal = next[field];
+    const previousTotal = previous[field];
+    // Without a scalable quantity pair there is nothing to derive the expected
+    // total from, so fall back to locking the value outright.
+    if (!canScale || typeof previousTotal !== "number") {
+      return numericChange(nextTotal, previousTotal);
+    }
+    if (nextTotal === undefined || nextTotal === null) {
+      return exact ? numericChange(nextTotal, previousTotal) : false;
+    }
+    const expectedTotal =
+      (previousTotal / (previousQuantity as number)) * (nextQuantity as number);
+    // Scale the tolerance with magnitude: a fixed 1e-6 is below the float noise
+    // floor once totals reach six figures.
+    const tolerance = Math.max(
+      SHIPPED_QUANTITY_TOLERANCE,
+      Math.abs(expectedTotal) * 1e-9,
+    );
+    return Math.abs(nextTotal - expectedTotal) > tolerance;
+  });
+}
+
+function hasShippedLinePricingChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  nextQuantity: number | null | undefined,
+  exact: boolean,
+): boolean {
+  const numericChange = exact ? hasExactNumericChange : hasNumericChange;
+  return (
+    SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
+      numericChange(next[field], previous[field]),
+    ) ||
+    hasShippedLineTotalChange(next, previous, nextQuantity, exact) ||
+    (exact
+      ? hasExactUnitChange(next.quantityUnit, previous.quantityUnit)
+      : hasUnitChange(next.quantityUnit, previous.quantityUnit))
+  );
+}
+
+async function assertShippedOrderLineChangeAllowed(
+  existingSnapshot: SalesLineSnapshot,
+  nextSnapshot: Partial<ShippedLineComparable> | null,
+  shippedQuantity: number,
+  exact: boolean,
+): Promise<void> {
+  if (shippedQuantity <= 0) return;
+
+  const nextQuantity = nextSnapshot
+    ? exact
+      ? nextSnapshot.quantity
+      : (nextSnapshot.quantity ?? existingSnapshot.quantity)
+    : 0;
+  const quantityInvalid =
+    nextQuantity === undefined ||
+    nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE;
+  const pricingChanged =
+    nextSnapshot !== null &&
+    hasShippedLinePricingChange(
+      nextSnapshot,
+      existingSnapshot,
+      nextQuantity,
+      exact,
+    );
+  if (!quantityInvalid && !pricingChanged) return;
+
+  const { translate } = await resolveTranslations();
+  if (quantityInvalid) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorQuantityBelowShipped",
+        "You cannot lower the quantity below the {{shipped}} already shipped.",
+        { shipped: shippedQuantity },
+      ),
+    });
+  }
+  throw new CrudHttpError(409, {
+    error: translate(
+      "sales.documents.items.errorPriceShipped",
+      "You cannot change the price or unit of a line that has shipped items.",
+    ),
+  });
+}
+
 async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
@@ -6657,32 +7406,38 @@ async function assertShippedOrderLineEditable(
     organizationId: order.organizationId,
   });
   const shippedQuantity = shippedByLine.get(lineId) ?? 0;
-  if (shippedQuantity <= 0) return;
+  await assertShippedOrderLineChangeAllowed(
+    existingSnapshot,
+    parsed,
+    shippedQuantity,
+    false,
+  );
+}
 
-  const { translate } = await resolveTranslations();
-  const nextQuantity = parsed.quantity ?? existingSnapshot.quantity;
-  if (nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE) {
-    throw new CrudHttpError(409, {
-      error: translate(
-        "sales.documents.items.errorQuantityBelowShipped",
-        "You cannot lower the quantity below the {{shipped}} already shipped.",
-        { shipped: shippedQuantity },
-      ),
-    });
-  }
+async function assertShippedOrderGraphRestorable(
+  em: EntityManager,
+  order: SalesOrder,
+  existingLines: SalesOrderLine[],
+  snapshot: OrderGraphSnapshot,
+): Promise<void> {
+  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  });
+  if (shippedByLine.size === 0) return;
 
-  const pricingChanged =
-    hasNumericChange(parsed.unitPriceNet, existingSnapshot.unitPriceNet) ||
-    hasNumericChange(parsed.unitPriceGross, existingSnapshot.unitPriceGross) ||
-    hasNumericChange(parsed.taxRate, existingSnapshot.taxRate) ||
-    hasUnitChange(parsed.quantityUnit, existingSnapshot.quantityUnit);
-  if (pricingChanged) {
-    throw new CrudHttpError(409, {
-      error: translate(
-        "sales.documents.items.errorPriceShipped",
-        "You cannot change the price or unit of a line that has shipped items.",
-      ),
-    });
+  const snapshotLinesById = new Map(
+    snapshot.lines.flatMap((line) => (line.id ? [[line.id, line] as const] : [])),
+  );
+  for (const line of existingLines) {
+    const shippedQuantity = shippedByLine.get(line.id) ?? 0;
+    if (shippedQuantity <= 0) continue;
+    await assertShippedOrderLineChangeAllowed(
+      mapOrderLineEntityToSnapshot(line),
+      snapshotLinesById.get(line.id) ?? null,
+      shippedQuantity,
+      true,
+    );
   }
 }
 
@@ -6882,16 +7637,17 @@ const orderLineUpsertCommand: CommandHandler<
         order.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode:
@@ -6904,6 +7660,10 @@ const orderLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
@@ -7021,10 +7781,7 @@ const orderLineUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -7203,10 +7960,7 @@ const orderLineDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -7376,16 +8130,17 @@ const quoteLineUpsertCommand: CommandHandler<
         quote.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
       totalNetAmount:
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode:
@@ -7398,6 +8153,10 @@ const quoteLineUpsertCommand: CommandHandler<
           ? cloneJson(parsed.customFields)
           : ((existingSnapshot as any)?.customFields ?? null),
     };
+    Object.assign(
+      updatedSnapshot,
+      resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
+    );
     (updatedSnapshot as any).statusEntryId = statusEntryId;
     (updatedSnapshot as any).catalogSnapshot =
       parsed.catalogSnapshot ??
@@ -7514,10 +8273,7 @@ const quoteLineUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -7668,10 +8424,7 @@ const quoteLineDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -7962,10 +8715,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8127,10 +8877,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
-    await restoreOrderGraph(em, before);
-    await em.flush();
+    await undoOrderGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8419,10 +9166,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8583,10 +9327,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId);
-    await restoreQuoteGraph(em, before);
-    await em.flush();
+    await undoQuoteGraph(ctx, before, payload?.after);
   },
 };
 
@@ -8813,6 +9554,88 @@ const createInvoiceCommand: CommandHandler<
   },
 };
 
+const invoiceUpdateChangeKeys = [
+  "invoiceNumber",
+  "statusEntryId",
+  "status",
+  "issueDate",
+  "dueDate",
+  "currencyCode",
+  "subtotalNetAmount",
+  "subtotalGrossAmount",
+  "discountTotalAmount",
+  "taxTotalAmount",
+  "grandTotalNetAmount",
+  "grandTotalGrossAmount",
+  "paidTotalAmount",
+  "outstandingAmount",
+  "metadata",
+] as const;
+
+function toAuditISOString(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  return null;
+}
+
+function auditValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date || right instanceof Date) {
+    const leftIso = toAuditISOString(left);
+    const rightIso = toAuditISOString(right);
+    return leftIso !== null && rightIso !== null && leftIso === rightIso;
+  }
+  return isDeepStrictEqual(left, right);
+}
+
+function buildAuditChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, { from: unknown; to: unknown }> {
+  const changedKeys = keys.filter((key) => !auditValuesEqual(before[key], after[key]));
+  return buildChanges(before, after, changedKeys);
+}
+
+function selectInvoiceUpdateChangeKeys(
+  input: z.infer<typeof invoiceUpdateSchema>,
+): Array<(typeof invoiceUpdateChangeKeys)[number]> {
+  return invoiceUpdateChangeKeys.filter((key) =>
+    key === "status"
+      ? input.statusEntryId !== undefined
+      : input[key as keyof z.infer<typeof invoiceUpdateSchema>] !== undefined,
+  );
+}
+
+function applyInvoiceHeaderUpdate(
+  invoice: SalesInvoice,
+  input: z.infer<typeof invoiceUpdateSchema>,
+  resolvedStatus: string | null | undefined,
+): void {
+  if (input.invoiceNumber !== undefined) invoice.invoiceNumber = input.invoiceNumber;
+  if (input.statusEntryId !== undefined) {
+    invoice.statusEntryId = input.statusEntryId;
+    invoice.status = resolvedStatus ?? null;
+  }
+  if (input.issueDate !== undefined) invoice.issueDate = input.issueDate;
+  if (input.dueDate !== undefined) invoice.dueDate = input.dueDate;
+  if (input.currencyCode !== undefined) invoice.currencyCode = input.currencyCode;
+  if (input.subtotalNetAmount !== undefined) invoice.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) invoice.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
+  if (input.discountTotalAmount !== undefined) invoice.discountTotalAmount = toNumericString(input.discountTotalAmount);
+  if (input.taxTotalAmount !== undefined) invoice.taxTotalAmount = toNumericString(input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) invoice.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) invoice.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.paidTotalAmount !== undefined) invoice.paidTotalAmount = toNumericString(input.paidTotalAmount);
+  if (input.outstandingAmount !== undefined) invoice.outstandingAmount = toNumericString(input.outstandingAmount);
+  if (input.metadata !== undefined) invoice.metadata = input.metadata;
+}
+
 const updateInvoiceCommand: CommandHandler<
   z.infer<typeof invoiceUpdateSchema>,
   { invoiceId: string }
@@ -8841,29 +9664,12 @@ const updateInvoiceCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(invoice, parsed, [
-      "invoiceNumber",
-      "statusEntryId",
-      "status",
-      "issueDate",
-      "dueDate",
-      "currencyCode",
-      "subtotalNetAmount",
-      "subtotalGrossAmount",
-      "discountTotalAmount",
-      "taxTotalAmount",
-      "grandTotalNetAmount",
-      "grandTotalGrossAmount",
-      "paidTotalAmount",
-      "outstandingAmount",
-      "metadata",
-    ]);
-
+    let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
-      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
+      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
     }
 
-    Object.assign(invoice, changes);
+    applyInvoiceHeaderUpdate(invoice, parsed, resolvedStatus);
     invoice.updatedAt = new Date();
     await em.flush();
 
@@ -8899,11 +9705,18 @@ const updateInvoiceCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadInvoiceSnapshot(em, result.invoiceId);
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const before = snapshots.before as InvoiceGraphSnapshot | undefined;
     const after = snapshots.after as InvoiceGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
+    const changes = before
+      ? buildAuditChanges(
+          before.invoice as unknown as Record<string, unknown>,
+          after.invoice as unknown as Record<string, unknown>,
+          selectInvoiceUpdateChangeKeys(input),
+        )
+      : {};
     return {
       actionLabel: translate("sales.audit.invoices.update", "Update invoice"),
       resourceKind: "sales.invoice",
@@ -8912,6 +9725,7 @@ const updateInvoiceCommand: CommandHandler<
       organizationId: after.invoice.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: { before, after } satisfies InvoiceUndoPayload,
       },
@@ -9180,8 +9994,8 @@ const createCreditMemoCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       creditMemoNumber: ensuredCreditMemoNumber,
-      orderId: parsed.orderId ?? null,
-      invoiceId: parsed.invoiceId ?? null,
+      order: parsed.orderId ? em.getReference(SalesOrder, parsed.orderId) : null,
+      invoice: parsed.invoiceId ? em.getReference(SalesInvoice, parsed.invoiceId) : null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       reason: parsed.reason ?? null,
@@ -9320,6 +10134,52 @@ const createCreditMemoCommand: CommandHandler<
   },
 };
 
+const creditMemoUpdateChangeKeys = [
+  "creditMemoNumber",
+  "statusEntryId",
+  "status",
+  "reason",
+  "issueDate",
+  "currencyCode",
+  "subtotalNetAmount",
+  "subtotalGrossAmount",
+  "taxTotalAmount",
+  "grandTotalNetAmount",
+  "grandTotalGrossAmount",
+  "metadata",
+] as const;
+
+function selectCreditMemoUpdateChangeKeys(
+  input: z.infer<typeof creditMemoUpdateSchema>,
+): Array<(typeof creditMemoUpdateChangeKeys)[number]> {
+  return creditMemoUpdateChangeKeys.filter((key) =>
+    key === "status"
+      ? input.statusEntryId !== undefined
+      : input[key as keyof z.infer<typeof creditMemoUpdateSchema>] !== undefined,
+  );
+}
+
+function applyCreditMemoHeaderUpdate(
+  creditMemo: SalesCreditMemo,
+  input: z.infer<typeof creditMemoUpdateSchema>,
+  resolvedStatus: string | null | undefined,
+): void {
+  if (input.creditMemoNumber !== undefined) creditMemo.creditMemoNumber = input.creditMemoNumber;
+  if (input.statusEntryId !== undefined) {
+    creditMemo.statusEntryId = input.statusEntryId;
+    creditMemo.status = resolvedStatus ?? null;
+  }
+  if (input.reason !== undefined) creditMemo.reason = input.reason;
+  if (input.issueDate !== undefined) creditMemo.issueDate = input.issueDate;
+  if (input.currencyCode !== undefined) creditMemo.currencyCode = input.currencyCode;
+  if (input.subtotalNetAmount !== undefined) creditMemo.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) creditMemo.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
+  if (input.taxTotalAmount !== undefined) creditMemo.taxTotalAmount = toNumericString(input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) creditMemo.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) creditMemo.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.metadata !== undefined) creditMemo.metadata = input.metadata;
+}
+
 const updateCreditMemoCommand: CommandHandler<
   z.infer<typeof creditMemoUpdateSchema>,
   { creditMemoId: string }
@@ -9348,26 +10208,12 @@ const updateCreditMemoCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(creditMemo, parsed, [
-      "creditMemoNumber",
-      "statusEntryId",
-      "status",
-      "reason",
-      "issueDate",
-      "currencyCode",
-      "subtotalNetAmount",
-      "subtotalGrossAmount",
-      "taxTotalAmount",
-      "grandTotalNetAmount",
-      "grandTotalGrossAmount",
-      "metadata",
-    ]);
-
+    let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
-      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
+      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
     }
 
-    Object.assign(creditMemo, changes);
+    applyCreditMemoHeaderUpdate(creditMemo, parsed, resolvedStatus);
     creditMemo.updatedAt = new Date();
     await em.flush();
 
@@ -9403,11 +10249,18 @@ const updateCreditMemoCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadCreditMemoSnapshot(em, result.creditMemoId);
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const before = snapshots.before as CreditMemoGraphSnapshot | undefined;
     const after = snapshots.after as CreditMemoGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
+    const changes = before
+      ? buildAuditChanges(
+          before.creditMemo as unknown as Record<string, unknown>,
+          after.creditMemo as unknown as Record<string, unknown>,
+          selectCreditMemoUpdateChangeKeys(input),
+        )
+      : {};
     return {
       actionLabel: translate("sales.audit.credit_memos.update", "Update credit memo"),
       resourceKind: "sales.credit_memo",
@@ -9416,6 +10269,7 @@ const updateCreditMemoCommand: CommandHandler<
       organizationId: after.creditMemo.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: { before, after } satisfies CreditMemoUndoPayload,
       },
@@ -9431,8 +10285,12 @@ const updateCreditMemoCommand: CommandHandler<
     ensureOrganizationScope(ctx, creditMemo.organizationId);
     ensureTenantScope(ctx, creditMemo.tenantId);
     creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
-    creditMemo.orderId = before.creditMemo.orderId;
-    creditMemo.invoiceId = before.creditMemo.invoiceId;
+    creditMemo.order = before.creditMemo.orderId
+      ? em.getReference(SalesOrder, before.creditMemo.orderId)
+      : null;
+    creditMemo.invoice = before.creditMemo.invoiceId
+      ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+      : null;
     creditMemo.statusEntryId = before.creditMemo.statusEntryId;
     creditMemo.status = before.creditMemo.status;
     creditMemo.reason = before.creditMemo.reason;
@@ -9535,8 +10393,12 @@ const deleteCreditMemoCommand: CommandHandler<
       organizationId: before.creditMemo.organizationId,
       tenantId: before.creditMemo.tenantId,
       creditMemoNumber: before.creditMemo.creditMemoNumber,
-      orderId: before.creditMemo.orderId,
-      invoiceId: before.creditMemo.invoiceId,
+      order: before.creditMemo.orderId
+        ? em.getReference(SalesOrder, before.creditMemo.orderId)
+        : null,
+      invoice: before.creditMemo.invoiceId
+        ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+        : null,
       statusEntryId: before.creditMemo.statusEntryId,
       status: before.creditMemo.status,
       reason: before.creditMemo.reason,

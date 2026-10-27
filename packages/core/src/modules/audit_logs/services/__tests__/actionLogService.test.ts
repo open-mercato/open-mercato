@@ -1,4 +1,9 @@
-import { ActionLogService } from '../actionLogService'
+import { ActionLogService, SCHEMA_UUID_REGEX } from '../actionLogService'
+import { uuid } from '@open-mercato/core/modules/audit_logs/data/validators'
+import {
+  buildActionLogQueryHarness,
+  type ActionLogQueryRow,
+} from './actionLogServiceQueryHarness'
 
 type OrGroup = { __group: 'or'; children: unknown[] }
 type ExpressionBuilderMock = ((...args: unknown[]) => unknown) & {
@@ -141,6 +146,21 @@ describe('ActionLogService normalizeInput', () => {
     expect(normalized.relatedResourceId).toBeNull()
   })
 
+  it('normalizes onBehalfOfUserId: keeps a valid uuid, defaults null otherwise (Wave 4 P2)', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      normalizeInput: (input: Record<string, unknown> | null) => Record<string, unknown>
+    }
+
+    // Additive default: absent on-behalf-of is null (existing rows/readers unaffected).
+    expect(serviceWithPrivateAccess.normalizeInput(null).onBehalfOfUserId).toBeNull()
+    expect(serviceWithPrivateAccess.normalizeInput({ commandId: 'cmd' }).onBehalfOfUserId).toBeNull()
+    expect(serviceWithPrivateAccess.normalizeInput({
+      commandId: 'cmd',
+      onBehalfOfUserId: '33333333-3333-4333-8333-333333333333',
+    }).onBehalfOfUserId).toBe('33333333-3333-4333-8333-333333333333')
+  })
+
   it('normalizes only UUID actor ids into the uuid-backed actor column', () => {
     const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
     const serviceWithPrivateAccess = service as unknown as {
@@ -197,6 +217,236 @@ describe('ActionLogService normalizeInput', () => {
       actorUserId: 'not-a-uuid',
     })
     expect(garbage.actorUserId).toBeNull()
+  })
+
+  it('keeps the system actor identifier in the log context instead of discarding it', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'example.todos.create',
+      actorUserId: 'system:example_customers_sync:outbound',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(parsed.actorUserId).toBeNull()
+    expect(parsed.context).toEqual({ systemActor: 'system:example_customers_sync:outbound' })
+    expect(parsed.tenantId).toBe('33333333-3333-4333-8333-333333333333')
+  })
+
+  it('merges the system actor into an existing context without clobbering it', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'scheduler.schedules.run',
+      actorUserId: 'system:scheduler',
+      context: { source: 'system', scheduleId: 'schedule-1' },
+    })
+
+    expect(parsed.context).toEqual({
+      source: 'system',
+      scheduleId: 'schedule-1',
+      systemActor: 'system:scheduler',
+    })
+  })
+
+  it('persists canonical user and api-key subjects without changing the UUID actor column', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const realUser = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'customers.people.update',
+      actorUserId: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(realUser.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
+    expect(realUser.context).toEqual({ actorSubject: '11111111-1111-4111-8111-111111111111' })
+
+    const apiKey = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'api.something',
+      actorUserId: 'api_key:22222222-2222-4222-8222-222222222222',
+    })
+    expect(apiKey.actorUserId).toBe('22222222-2222-4222-8222-222222222222')
+    expect(apiKey.context).toEqual({ actorSubject: 'api_key:22222222-2222-4222-8222-222222222222' })
+  })
+
+  it('marks a system-originated entry as a system source while keeping the actor column null', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'example.todos.create',
+      actorUserId: 'system:example_customers_sync:outbound',
+    })
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, parsed)
+
+    expect(created.actorUserId).toBeNull()
+    expect(created.sourceKey).toBe('system')
+    expect(created.contextJson).toEqual({ systemActor: 'system:example_customers_sync:outbound' })
+  })
+
+  it('keeps every actor id the create schema accepts in the uuid-backed actor column', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const schemaAcceptedActors = [
+      '00000000-0000-0000-0000-000000000000',
+      'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      '01900000-0000-7000-8000-000000000000',
+      '44444444-4444-6444-8444-444444444444',
+      '11111111-1111-4111-8111-111111111111',
+    ]
+
+    for (const actorUserId of schemaAcceptedActors) {
+      const parsed = serviceWithPrivateAccess.parseCreateInput({
+        commandId: 'scheduler.schedules.run',
+        actorUserId,
+      })
+
+      expect(parsed.actorUserId).toBe(actorUserId)
+      expect(parsed.context).toEqual({ actorSubject: actorUserId })
+    }
+  })
+
+  it('leaves the scheduler system actor queryable so undo and redo keep resolving its entries', () => {
+    const schedulerSystemActorId = '00000000-0000-0000-0000-000000000000'
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'scheduler.schedules.run',
+      actorUserId: schedulerSystemActorId,
+    }))
+
+    expect(created.actorUserId).toBe(schedulerSystemActorId)
+    expect(created.sourceKey).toBe('ui')
+    expect(created.contextJson).toEqual({ actorSubject: schedulerSystemActorId })
+  })
+
+  it('drops an unrecognized actor instead of recording it as an automated principal', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    for (const actorUserId of ['not-a-uuid', 'system:', 'api_key:not-a-uuid']) {
+      const parsed = serviceWithPrivateAccess.parseCreateInput({
+        commandId: 'example.todos.create',
+        actorUserId,
+      })
+      const created = serviceWithPrivateAccess.createLogEntity({
+        create: (_entity, payload) => payload,
+      }, parsed)
+
+      expect(created.actorUserId).toBeNull()
+      expect(created.sourceKey).toBe('system')
+      expect(created.contextJson).toBeNull()
+    }
+  })
+
+  it('unwraps an api key actor to any uuid the create schema accepts, not only v4', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const wrappedActors = [
+      '00000000-0000-0000-0000-000000000000',
+      '01900000-0000-7000-8000-000000000000',
+      '22222222-2222-4222-8222-222222222222',
+    ]
+
+    for (const actorUserId of wrappedActors) {
+      const parsed = serviceWithPrivateAccess.parseCreateInput({
+        commandId: 'api.something',
+        actorUserId: `api_key:${actorUserId}`,
+      })
+
+      expect(parsed.actorUserId).toBe(actorUserId)
+      expect(parsed.context).toEqual({ actorSubject: `api_key:${actorUserId}` })
+    }
+  })
+
+  it('trims a padded actor id into the actor column rather than treating it as a system actor', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'customers.people.update',
+      actorUserId: '  11111111-1111-4111-8111-111111111111  ',
+    })
+
+    expect(parsed.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
+    expect(parsed.context).toEqual({ actorSubject: '11111111-1111-4111-8111-111111111111' })
+  })
+
+  it('caps the preserved system actor identifier so a corrupted subject cannot bloat the context column', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+
+    const parsed = serviceWithPrivateAccess.parseCreateInput({
+      commandId: 'example.todos.create',
+      actorUserId: `system:${'a'.repeat(600)}`,
+    })
+
+    expect(parsed.actorUserId).toBeNull()
+    expect((parsed.context as Record<string, unknown>).systemActor).toBe(`system:${'a'.repeat(248)}`)
+  })
+
+  it('keeps the zod-runtime-missing fallback regex in parity with the create schema', () => {
+    const candidates = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-1222-8222-222222222222',
+      '33333333-3333-5333-9333-333333333333',
+      '44444444-4444-6444-a444-444444444444',
+      '01900000-0000-7000-8000-000000000000',
+      '55555555-5555-8555-b555-555555555555',
+      '00000000-0000-0000-0000-000000000000',
+      'ffffffff-ffff-ffff-ffff-ffffffffffff',
+      '66666666-6666-9666-8666-666666666666',
+      '77777777-7777-4777-7777-777777777777',
+      '11111111-1111-4111-8111-11111111111',
+      'system:example_customers_sync:outbound',
+      'not-a-uuid',
+      '',
+    ]
+
+    for (const candidate of candidates) {
+      expect([candidate, SCHEMA_UUID_REGEX.test(candidate)])
+        .toEqual([candidate, uuid.safeParse(candidate).success])
+    }
   })
 
   it('populates projection columns when creating a log entity', () => {
@@ -304,6 +554,161 @@ describe('ActionLogService.list pagination', () => {
   })
 })
 
+describe('ActionLogService API-key replay freshness queries', () => {
+  const keyId = '22222222-2222-4222-8222-222222222222'
+  const keySubject = `api_key:${keyId}`
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '33333333-3333-4333-8333-333333333333'
+  const baseTime = new Date('2026-10-04T10:00:00.000Z')
+
+  const row = (
+    id: string,
+    overrides: Partial<ActionLogQueryRow> = {},
+  ): ActionLogQueryRow => ({
+    id,
+    actorUserId: keyId,
+    commandId: 'auth.users.update',
+    contextJson: { actorSubject: keySubject },
+    createdAt: baseTime,
+    deletedAt: null,
+    executionState: 'done',
+    organizationId,
+    resourceId: 'user-1',
+    resourceKind: 'auth.user',
+    tenantId,
+    undoToken: `${id}-token`,
+    updatedAt: baseTime,
+    ...overrides,
+  })
+
+  const queries = [
+    {
+      name: 'latestUndoableForActor',
+      executionState: 'done',
+      invoke: (service: ActionLogService) => service.latestUndoableForActor(keySubject, { tenantId, organizationId }),
+    },
+    {
+      name: 'latestUndoableForResource',
+      executionState: 'done',
+      invoke: (service: ActionLogService) => service.latestUndoableForResource({
+        actorUserId: keySubject,
+        tenantId,
+        organizationId,
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+      }),
+    },
+    {
+      name: 'latestUndoneForActor',
+      executionState: 'undone',
+      invoke: (service: ActionLogService) => service.latestUndoneForActor(keySubject, { tenantId, organizationId }),
+    },
+  ] as const
+  const queryCases = queries.flatMap((query) => [
+    { ...query, encryptionEnabled: false, storage: 'plaintext' },
+    { ...query, encryptionEnabled: true, storage: 'encrypted' },
+  ])
+
+  it.each(queryCases)('$name ($storage) keeps canonical key history ahead of newer same-UUID user and malformed rows', async ({ encryptionEnabled, executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const rows = [
+      row('canonical', { executionState, undoToken }),
+      row('newer-legacy', {
+        contextJson: { source: 'api' },
+        createdAt: new Date('2026-10-04T10:03:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:03:00.000Z'),
+      }),
+      row('same-uuid-user', {
+        contextJson: { actorSubject: keyId },
+        createdAt: new Date('2026-10-04T10:02:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:02:00.000Z'),
+      }),
+      row('malformed', {
+        contextJson: { actorSubject: `${keySubject}:malformed` },
+        createdAt: new Date('2026-10-04T10:01:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:01:00.000Z'),
+      }),
+    ]
+    const { service } = buildActionLogQueryHarness(rows, { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'canonical' })
+  })
+
+  it.each(queryCases)('$name ($storage) retains the bounded legacy row fallback', async ({ encryptionEnabled, executionState, invoke }) => {
+    const legacy = row('legacy', {
+      contextJson: { source: 'api' },
+      executionState,
+      undoToken: executionState === 'done' ? 'legacy-token' : null,
+    })
+    const { service } = buildActionLogQueryHarness([legacy], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'legacy' })
+  })
+
+  it.each(queryCases)('$name ($storage) fails closed when only same-UUID user and malformed rows exist', async ({ encryptionEnabled, executionState, invoke }) => {
+    const undoToken = executionState === 'undone' ? null : 'token'
+    const { service } = buildActionLogQueryHarness([
+      row('same-uuid-user', { contextJson: { actorSubject: keyId }, executionState, undoToken }),
+      row('malformed', { contextJson: { actorSubject: null }, executionState, undoToken }),
+      row('malformed-context', { contextJson: [] as never, executionState, undoToken }),
+    ], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toBeNull()
+  })
+
+  it.each(queries)('$name uses deletion-safe encrypted keyset scanning when an eligible row leaves the first page', async ({ executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
+      contextJson: { source: 'api' },
+      createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      executionState,
+      undoToken,
+      updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+    }))
+    const rows = [
+      ...legacyRows,
+      row('canonical', { executionState, undoToken }),
+    ]
+    const { find, service } = buildActionLogQueryHarness(rows, {
+      encryptionEnabled: true,
+      afterFind: (mutableRows, callCount) => {
+        if (callCount !== 1) return
+        const firstPageRow = mutableRows.find((entry) => entry.id === 'legacy-99')
+        if (firstPageRow) firstPageRow.executionState = executionState === 'done' ? 'undone' : 'redone'
+      },
+    })
+
+    await expect(invoke(service))
+      .resolves.toMatchObject({ id: 'canonical' })
+    expect(find).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(queries)('$name preserves the direct plaintext canonical-first query', async ({ executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
+      contextJson: { source: 'api' },
+      createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      executionState,
+      undoToken,
+      updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+    }))
+    const { find, findOne, service } = buildActionLogQueryHarness([
+      ...legacyRows,
+      row('canonical', { executionState, undoToken }),
+    ])
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'canonical' })
+    expect(find).not.toHaveBeenCalled()
+    expect(findOne).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () => {
   function buildServiceWithNativeUpdate(affected: number) {
     const nativeUpdate = jest.fn(async () => affected)
@@ -341,5 +746,58 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     const [, filter, update] = nativeUpdate.mock.calls[0]
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'undoing', deletedAt: null })
     expect(update).toEqual({ executionState: 'done' })
+  })
+
+  it('uses the supplied transactional EntityManager for an undo claim', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate }
+
+    expect(await service.claimForUndo('log-1', transactionalEm as never)).toBe(true)
+    expect(transactionalUpdate).toHaveBeenCalledTimes(1)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('claimForRedo atomically consumes only an undone source on the supplied transaction', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate }
+
+    expect(await service.claimForRedo('log-1', transactionalEm as never)).toBe(true)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    const [, filter, update] = transactionalUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'undone', deletedAt: null })
+    expect(update).toEqual({ executionState: 'redone', undoToken: null })
+  })
+})
+
+describe('ActionLogService transactional return isolation', () => {
+  it('decrypts a detached copy instead of mutating the transaction-managed log', async () => {
+    const service = new ActionLogService({} as never)
+    const managed = { id: 'log-1', executionState: 'done' }
+    const detached = await (
+      service as unknown as {
+        decryptDetachedEntry: (entry: typeof managed) => Promise<typeof managed>
+      }
+    ).decryptDetachedEntry(managed)
+
+    expect(detached).toEqual(managed)
+    expect(detached).not.toBe(managed)
+  })
+})
+
+describe('ActionLogService markRedone', () => {
+  it('finalizes the redo source on a forked EntityManager instead of the shared request EM', async () => {
+    const log = { id: 'log-1', executionState: 'undone', undoToken: 'token' }
+    const fork = { findOne: jest.fn().mockResolvedValue(log), flush: jest.fn().mockResolvedValue(undefined) }
+    const em = { fork: jest.fn(() => fork), findOne: jest.fn(), flush: jest.fn() }
+    const service = new ActionLogService(em as unknown as ConstructorParameters<typeof ActionLogService>[0])
+
+    await expect(service.markRedone('log-1')).resolves.toBe(log)
+
+    expect(log).toMatchObject({ executionState: 'redone', undoToken: null })
+    expect(fork.flush).toHaveBeenCalledTimes(1)
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })

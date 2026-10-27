@@ -8,9 +8,15 @@ import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
-import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  canDispatchScheduleQueueTarget,
+  getSchedulerQueueRequiredFeatures,
+  sanitizeSchedulerTargetPayload,
+  validateSchedulerTargetPayload,
+} from '../lib/safeQueueTargets'
 
 const logger = createLogger('scheduler').child({ component: 'local' })
 
@@ -31,14 +37,19 @@ export interface LocalSchedulerConfig {
  * 
  * Features:
  * - PostgreSQL polling (configurable interval, default 30s)
- * - PostgreSQL advisory locks for duplicate prevention
+ * - In-process duplicate prevention across overlapping poll ticks
  * - Supports both queue and command targets
  * - Emits the same events as async strategy
  * - Updates nextRunAt after execution
- * 
+ *
  * Limitations:
  * - Polling delay (up to configured interval)
- * - Single instance only (no distributed locking across instances)
+ * - Single instance only (no distributed locking across instances). Duplicate
+ *   prevention is in-process only: the advisory lock serialises the claim, not
+ *   the execution, and nextRunAt is advanced only after the target has run, so
+ *   two processes polling the same database will both execute a due schedule.
+ *   Run exactly one process with QUEUE_STRATEGY=local, or use the async
+ *   strategy, which locks across instances.
  * - Higher database load than async strategy
  * 
  * Set QUEUE_STRATEGY=local to use this service.
@@ -68,6 +79,9 @@ export class LocalSchedulerService {
 
     this.isRunning = true
     logger.info('Starting polling engine', { pollIntervalMs: this.config.pollIntervalMs })
+    logger.warn(
+      'Local scheduler strategy provides no cross-process protection: duplicate prevention is in-process only, so a second process polling the same database will execute the same due schedule. Run exactly one process with QUEUE_STRATEGY=local, or use the async strategy for distributed locking.',
+    )
 
     // Run initial poll immediately
     await this.poll()
@@ -253,18 +267,45 @@ export class LocalSchedulerService {
       throw new Error('Target queue is required for queue target type')
     }
 
+    // Dispatch-time reauthorization (#5213): provenance is verified against the
+    // live registry (module rows must own their queue), API rows must target
+    // opted-in queues.
+    if (!canDispatchScheduleQueueTarget(schedule)) {
+      throw new Error(`Queue is not an approved scheduler target: ${schedule.targetQueue}`)
+    }
+
+    const payloadIssue = validateSchedulerTargetPayload(schedule.targetQueue, schedule.targetPayload)
+    if (payloadIssue) {
+      throw new Error(`Invalid payload for scheduler queue ${schedule.targetQueue}: ${payloadIssue}`)
+    }
+
+    if (schedule.scopeType !== 'system') {
+      for (const feature of getSchedulerQueueRequiredFeatures(schedule.targetQueue)) {
+        const hasFeature = await this.checkFeature({ ...schedule, requireFeature: feature } as ScheduledJob)
+        if (!hasFeature) {
+          throw new Error(`Tenant lacks feature required by scheduler queue ${schedule.targetQueue}: ${feature}`)
+        }
+      }
+    }
+
     const queue = this.queueFactory(schedule.targetQueue)
 
     // Deliver the same flat contract as the asynchronous execute-schedule
     // worker: targetPayload fields on the root, scheduler-owned scope and
     // idempotency fields applied last. Local mode runs each firing exactly
     // once, so the firing timestamp is a valid logical execution key.
-    await queue.enqueue(buildQueueTargetPayload({
-      targetPayload: schedule.targetPayload,
-      tenantId: schedule.tenantId,
-      organizationId: schedule.organizationId,
-      idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
-    }))
+    // Author-supplied scope/envelope keys never survive dispatch (#5213).
+    const sanitizedPayload = sanitizeSchedulerTargetPayload(schedule.targetPayload, schedule)
+
+    await queue.enqueue({
+      ...buildQueueTargetPayload({
+        targetPayload: sanitizedPayload,
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+        idempotencyKey: buildSchedulerIdempotencyKey(schedule.id, Date.now()),
+      }),
+      _jobOrigin: 'scheduler' as const,
+    })
 
     logger.info('Enqueued job to target queue', { scheduleId: schedule.id, targetQueue: schedule.targetQueue })
   }
@@ -278,7 +319,7 @@ export class LocalSchedulerService {
     }
 
     const commandBus = new CommandBus()
-    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    const actorUserId = resolveScheduledCommandActorUserId(schedule)
     await assertSchedulerSafeCommandAuthorized({
       commandId: schedule.targetCommand,
       actorUserId,

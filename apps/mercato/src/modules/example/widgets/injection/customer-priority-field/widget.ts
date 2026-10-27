@@ -13,6 +13,7 @@ type PriorityListResponse = {
 const widget: InjectionFieldWidget = {
   metadata: {
     id: 'example.injection.customer-priority-field',
+    requiredModules: ['customers'],
     priority: 50,
   },
   fields: [

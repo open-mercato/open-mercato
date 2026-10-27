@@ -6,6 +6,7 @@ import { getAllIntegrations } from '@open-mercato/shared/modules/integrations/ty
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
+import { resolveStartControlMap } from '../lib/start-controls'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['data_sync.view'] },
@@ -55,6 +56,8 @@ export async function GET(req: Request) {
           runMode: adapter.runMode ?? 'generic',
           canStartRun: adapter.runMode !== 'provider',
           supportedEntities: adapter.supportedEntities,
+          runParameters: adapter.runParameters ?? [],
+          startControls: resolveStartControlMap(adapter),
           hasCredentials: Boolean(credentials),
           isEnabled,
           settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,

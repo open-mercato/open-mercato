@@ -4,7 +4,8 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { DataTable, RowActions, Button } from '@open-mercato/ui'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -73,6 +74,7 @@ export default function UserEntitiesTable() {
   return (
     <DataTable
       title={t('entities.user.table.title', 'User Entities')}
+      titleHeadingLevel={1}
       actions={(
         <>
           <Button variant="outline" onClick={() => {

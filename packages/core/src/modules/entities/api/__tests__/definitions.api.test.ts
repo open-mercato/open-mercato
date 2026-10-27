@@ -25,14 +25,16 @@ const mockCache = {
   set: jest.fn(async () => undefined),
 }
 
+const mockResolveContainerValue = jest.fn((key: string) => {
+  if (key === 'em') return mockEm
+  if (key === 'cache') return mockCache
+  if (key === 'rbacService') return mockRbac
+  return null
+})
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: (key: string) => {
-      if (key === 'em') return mockEm
-      if (key === 'cache') return mockCache
-      if (key === 'rbacService') return mockRbac
-      return null
-    },
+    resolve: mockResolveContainerValue,
   }),
 }))
 
@@ -69,6 +71,49 @@ describe('entities/definitions API', () => {
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['*'], organizations: null })
     mockResolveOrganizationScopeForRequest.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-1' })
+  })
+
+  it('denies reads with an explicit empty organization scope before EM, cache, or RBAC access', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      tenantId: 'tenant-1',
+      selectedId: 'org-1',
+      filterIds: [],
+      allowedIds: ['org-1'],
+    })
+
+    await expect(GET(
+      new Request('http://x/api/entities/definitions?entityId=customers:customer_person'),
+    )).rejects.toEqual(expect.objectContaining({ status: 403, body: { error: 'Forbidden' } }))
+
+    expect(mockResolveContainerValue).not.toHaveBeenCalled()
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockCache.get).not.toHaveBeenCalled()
+    expect(mockRbac.loadAcl).not.toHaveBeenCalled()
+  })
+
+  it('denies mutations with an explicit empty allowed scope before EM, cache, or RBAC access', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      tenantId: 'tenant-1',
+      selectedId: 'org-1',
+      filterIds: null,
+      allowedIds: [],
+    })
+
+    await expect(POST(new Request('http://x/api/entities/definitions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        entityId: 'customers:customer_person',
+        key: 'scope_probe',
+        kind: 'text',
+        configJson: { label: 'Scope probe' },
+      }),
+    }))).rejects.toEqual(expect.objectContaining({ status: 403, body: { error: 'Forbidden' } }))
+
+    expect(mockResolveContainerValue).not.toHaveBeenCalled()
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(mockCache.get).not.toHaveBeenCalled()
+    expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   it('does not expose definitions when the caller lacks Data Designer and owning-module view access', async () => {
@@ -197,6 +242,50 @@ describe('entities/definitions API', () => {
     expect(status?.defaultValue).toBe('customer')
     expect(isVip?.defaultValue).toBe(true)
     expect(notes?.defaultValue).toBeUndefined()
+  })
+
+  it('exposes relation targets only for relation-kind fields', async () => {
+    mockEm.find
+      .mockResolvedValueOnce([
+        {
+          key: 'goods',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Goods', relatedEntityId: 'custom:goods' },
+        },
+        {
+          key: 'missing_target',
+          kind: 'relation',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Missing target', relatedEntityId: '  ' },
+        },
+        {
+          key: 'notes',
+          kind: 'text',
+          entityId: 'custom:stock_in',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          updatedAt: new Date(),
+          configJson: { label: 'Notes', relatedEntityId: 'custom:goods' },
+        },
+      ])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://x/api/entities/definitions?entityId=custom:stock_in'),
+    )
+
+    expect(response.status).toBe(200)
+    const items = (await response.json()).items as Array<Record<string, unknown>>
+    expect(items.find((item) => item.key === 'goods')?.relatedEntityId).toBe('custom:goods')
+    expect(items.find((item) => item.key === 'missing_target')?.relatedEntityId).toBeUndefined()
+    expect(items.find((item) => item.key === 'notes')?.relatedEntityId).toBeUndefined()
   })
 
   it('passes phone defaultCountryIso2 from configJson into the normalized response (#62)', async () => {

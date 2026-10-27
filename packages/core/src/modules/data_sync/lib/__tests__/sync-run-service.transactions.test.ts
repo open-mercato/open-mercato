@@ -143,7 +143,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
     mockLookups(run, { cursor: 'old-cursor' })
 
     const service = createSyncRunService(em as any)
-    await service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, 2)
+    await service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, { expectedBatchesCompleted: 2 })
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       SyncRun,
@@ -167,7 +167,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
     mockLookups(run, null)
 
     const service = createSyncRunService(em as any)
-    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'first-cursor', SCOPE, 0)
+    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'first-cursor', SCOPE, { expectedBatchesCompleted: 0 })
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       SyncRun,
@@ -185,7 +185,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
 
     const service = createSyncRunService(em as any)
     await expect(
-      service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, 2),
+      service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, { expectedBatchesCompleted: 2 }),
     ).rejects.toBeInstanceOf(SyncRunOwnershipConflictError)
 
     expect(em.rollback).toHaveBeenCalledTimes(1)
@@ -203,7 +203,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
 
     const service = createSyncRunService(em as any)
     await expect(
-      service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'repeated-cursor', SCOPE, 2),
+      service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'repeated-cursor', SCOPE, { expectedBatchesCompleted: 2 }),
     ).rejects.toBeInstanceOf(SyncRunOwnershipConflictError)
 
     expect(em.rollback).toHaveBeenCalledTimes(1)
@@ -216,7 +216,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
 
     const service = createSyncRunService(em as any)
     await expect(
-      service.commitBatchProgress('run-1', { createdCount: 1 }, 'new-cursor', SCOPE, 2),
+      service.commitBatchProgress('run-1', { createdCount: 1 }, 'new-cursor', SCOPE, { expectedBatchesCompleted: 2 }),
     ).rejects.toThrow(/must advance batchesCompleted/)
 
     expect(em.nativeUpdate).not.toHaveBeenCalled()
@@ -283,5 +283,50 @@ describe('SyncRunService.markStatus — stalled-job recovery', () => {
     )
     expect(em.refresh).toHaveBeenCalledWith(run)
     expect(result).toBe(run)
+  })
+
+  it('atomically claims a terminal status only from a non-terminal or identical status', async () => {
+    const em = buildFakeEm()
+    const run = buildRun({ status: 'running' })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    const result = await service.markStatus('run-1', 'cancelled', SCOPE)
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({
+        id: 'run-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        status: { $in: ['pending', 'running', 'paused', 'cancelled'] },
+      }),
+      expect.objectContaining({ status: 'cancelled' }),
+    )
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.refresh).toHaveBeenCalledWith(run)
+    expect(result).toBe(run)
+  })
+
+  it('returns the terminal winner when a concurrent transition wins the compare-and-swap', async () => {
+    const em = buildFakeEm()
+    em.nativeUpdate.mockResolvedValueOnce(0)
+    const run = buildRun({ status: 'failed', lastError: 'adapter rejected credentials' })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    const result = await service.markStatus('run-1', 'cancelled', SCOPE)
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({
+        status: { $in: ['pending', 'running', 'paused', 'cancelled'] },
+      }),
+      expect.objectContaining({ status: 'cancelled' }),
+    )
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.refresh).toHaveBeenCalledWith(run)
+    expect(result).toBe(run)
+    expect(result?.status).toBe('failed')
   })
 })

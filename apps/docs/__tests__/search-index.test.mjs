@@ -16,4 +16,8 @@ test('production build emits a non-empty docs search index', async () => {
     indexedDocuments.some((document) => document.u === '/introduction/use-cases'),
     'search index must contain the introduction page',
   );
+  assert.ok(
+    indexedDocuments.some((document) => document.u === '/framework/modules/reference-example-module'),
+    'search index must contain the Reference Example Module showcase page',
+  );
 });

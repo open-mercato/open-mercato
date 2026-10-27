@@ -190,7 +190,7 @@ The change is additive for imports, function signatures, DI keys, and shared typ
 
 The intentional behavioral contract change is that browser/JWT feature arrays no longer expose `*` or namespace wildcards. External consumers must check for concrete feature IDs rather than inspect wildcard strings. This is documented in `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md`.
 
-No feature ID is renamed or removed. The `example.manage` null override is an inert runtime probe, not a declared feature removal.
+No feature ID is renamed or removed. The `example.manage` null override is an inert runtime probe: the example module declares the feature so the override has something to null, but nothing gates on it, so nulling it removes no capability.
 
 ## Risks & Impact Review
 

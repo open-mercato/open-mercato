@@ -13,10 +13,14 @@ import type {
 } from '@open-mercato/shared/modules/navigation/backendChrome'
 import {
   buildAdminNav,
+  buildProfileSections,
   buildSettingsSections,
   computeSettingsPathPrefixes,
   convertToSectionNavGroups,
+  mergeSectionsWithDiscovered,
   type AdminNavItem,
+  type SettingsSection,
+  type SettingsSectionItem,
 } from '@open-mercato/ui/backend/utils/nav'
 import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/lucideRegistry'
 import { profilePathPrefixes, profileSections } from './profile-sections'
@@ -33,8 +37,8 @@ import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   applySidebarPreference,
+  findSidebarPreference,
   loadFirstRoleSidebarPreference,
-  loadSidebarPreference,
 } from '@open-mercato/core/modules/auth/services/sidebarPreferencesService'
 import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 
@@ -106,6 +110,36 @@ export const settingsSectionOrder: Record<string, number> = {
   'settings.sections.featureToggles': 8,
 }
 
+/**
+ * Profile section weights, keyed by the untranslated group id, exactly like `settingsSectionOrder`.
+ *
+ * Only the built-in account section is ranked; a module contributing its own profile group sorts
+ * after it on the shared 999 fallback rather than displacing the account pages.
+ */
+export const profileSectionOrder: Record<string, number> = {
+  'profile.sections.account': 1,
+}
+
+/**
+ * Path prefixes that put the shell into profile mode: the static list plus every href the resolved
+ * profile sections actually link to.
+ *
+ * `computeSettingsPathPrefixes` is deliberately not reused — it also registers each item's parent
+ * directory, which is harmless for `/backend/settings/*` but would hand profile mode a whole
+ * unrelated subtree if a module hosts its profile page outside `/backend/profile/`.
+ */
+function resolveProfilePathPrefixes(sections: SettingsSection[]): string[] {
+  const prefixes = new Set(profilePathPrefixes)
+  const visitItems = (items: SettingsSectionItem[]) => {
+    for (const item of items) {
+      prefixes.add(item.href)
+      if (item.children?.length) visitItems(item.children)
+    }
+  }
+  for (const section of sections) visitItems(section.items)
+  return Array.from(prefixes)
+}
+
 type NavGroupWithWeight = Omit<BackendChromeNavGroup, 'id' | 'defaultName' | 'items'> & {
   id: string
   defaultName: string
@@ -138,6 +172,29 @@ async function serializeIconMarkup(icon: React.ReactNode | undefined): Promise<s
   }
 }
 
+const NAV_ITEM_FALLBACK_WEIGHT = 10_000
+
+/**
+ * The weight a nav entry sorts by, using the same `priority ?? order` precedence as `buildAdminNav`.
+ *
+ * `serializeNavItem` emits this resolved number rather than the raw declaration, including the
+ * fallback, so a consumer that re-sorts by the field it receives lands on the order it was served in.
+ * Emitting the raw `priority ?? order` would leave `order` undefined on any page declaring neither —
+ * and the `(a.order ?? 0) - (b.order ?? 0)` idiom this codebase uses elsewhere would then hoist those
+ * pages to the top instead of leaving them last (#4845).
+ */
+function resolveNavItemWeight(item: AdminNavItem): number {
+  return item.priority ?? item.order ?? NAV_ITEM_FALLBACK_WEIGHT
+}
+
+function sortNavItemsByWeight(items: AdminNavItem[]): AdminNavItem[] {
+  return [...items].sort((a, b) => {
+    const weightDifference = resolveNavItemWeight(a) - resolveNavItemWeight(b)
+    if (weightDifference !== 0) return weightDifference
+    return a.title.localeCompare(b.title)
+  })
+}
+
 async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
   return {
     id: item.href,
@@ -149,7 +206,10 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     pageContext: item.pageContext,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
-    children: item.children ? await Promise.all(item.children.map((child) => serializeNavItem(child))) : undefined,
+    order: resolveNavItemWeight(item),
+    children: item.children
+      ? await Promise.all(sortNavItemsByWeight(item.children).map((child) => serializeNavItem(child)))
+      : undefined,
   }
 }
 
@@ -160,6 +220,7 @@ const defaultGroupOrder = [
   'wms.nav.group',
   'resources.nav.group',
   'staff.nav.group',
+  'staff.time_tracking.nav.group',
   'entities.nav.group',
   'directory.nav.group',
   'attachments.nav.group',
@@ -196,7 +257,7 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
   const defaultGroupCount = groupOrder.length
   groups.forEach((group, index) => {
     const rank = groupOrderIndex.get(group.id)
-    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : NAV_ITEM_FALLBACK_WEIGHT
     group.weight =
       (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
       Math.min(Math.max(fallbackWeight, 0), 999_999)
@@ -205,13 +266,12 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
 }
 
 async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight[]> {
-  const groupMap = new Map<string, NavGroupWithWeight>()
+  const groupMap = new Map<string, Omit<NavGroupWithWeight, 'items'> & { entries: AdminNavItem[] }>()
   for (const entry of entries) {
-    const weight = entry.priority ?? entry.order ?? 10_000
-    const serializedItem = await serializeNavItem(entry)
+    const weight = resolveNavItemWeight(entry)
     const existing = groupMap.get(entry.groupId)
     if (existing) {
-      existing.items.push(serializedItem)
+      existing.entries.push(entry)
       if (weight < existing.weight) existing.weight = weight
       continue
     }
@@ -219,11 +279,18 @@ async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight
       id: entry.groupId,
       name: entry.group,
       defaultName: entry.groupDefaultName,
-      items: [serializedItem],
+      entries: [entry],
       weight,
     })
   }
-  return normalizeGroupWeights(Array.from(groupMap.values()))
+  const groups: NavGroupWithWeight[] = []
+  for (const { entries: groupItems, ...group } of groupMap.values()) {
+    groups.push({
+      ...group,
+      items: await Promise.all(sortNavItemsByWeight(groupItems).map((entry) => serializeNavItem(entry))),
+    })
+  }
+  return normalizeGroupWeights(groups)
 }
 
 function adoptSidebarDefaults(groups: NavGroupWithWeight[]): NavGroupWithWeight[] {
@@ -404,7 +471,7 @@ export async function resolveBackendChromePayload({
 
   const effectiveUserId = auth.isApiKey ? auth.userId : auth.sub
   if (effectiveUserId) {
-    userPreference = await loadSidebarPreference(em, {
+    userPreference = await findSidebarPreference(em, {
       userId: effectiveUserId,
       tenantId: scopedTenantId,
       organizationId: scopedOrganizationId,
@@ -426,6 +493,14 @@ export async function resolveBackendChromePayload({
       buildSettingsSections(entries, settingsSectionOrder),
       translate,
     ),
+  )
+
+  // The profile sidebar mirrors the profile dropdown: the static baseline covers the `navHidden`
+  // pages route discovery drops, and every other `pageContext: 'profile'` page is derived from the
+  // manifest so a module adding one lands in both surfaces at once (#5594).
+  const resolvedProfileSections = mergeSectionsWithDiscovered(
+    profileSections,
+    buildProfileSections(entries, profileSectionOrder),
   )
 
   const requestOrganizationId = request ? getSelectedOrganizationFromRequest(request) : null
@@ -475,8 +550,10 @@ export async function resolveBackendChromePayload({
     groups: appliedGroups.map(({ weight: _weight, ...group }) => group),
     settingsSections,
     settingsPathPrefixes: computeSettingsPathPrefixes(buildSettingsSections(entries, settingsSectionOrder)),
-    profileSections: await serializeSectionGroups(profileSections),
-    profilePathPrefixes,
+    profileSections: await serializeSectionGroups(
+      convertToSectionNavGroups(resolvedProfileSections, translate),
+    ),
+    profilePathPrefixes: resolveProfilePathPrefixes(resolvedProfileSections),
     grantedFeatures,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
     brand,

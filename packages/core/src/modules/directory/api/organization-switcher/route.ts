@@ -129,7 +129,19 @@ export async function GET(req: NextRequest) {
 
     const rawTenantParam = url.searchParams.get('tenantId')
     const cookieTenant = getSelectedTenantFromRequest(req)
-    const actorTenantId = typeof auth.tenantId === 'string' && auth.tenantId.trim().length > 0 ? auth.tenantId.trim() : null
+    const normalizeTenantId = (value: unknown): string | null =>
+      typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+
+    const authTenantId = normalizeTenantId(auth.tenantId)
+    // `auth.tenantId` is the tenant the session is currently scoped to, which a super-admin's
+    // cookie override replaces. The tenant they actually belong to survives under `actorTenantId`,
+    // so the "no selection" fallback below has to read that field — mirroring `organizationScope`.
+    // Reading `auth.tenantId` instead landed a scoped-away super-admin on `tenantRecords[0]`, the
+    // alphabetically-first tenant in the instance, rather than their own.
+    const actorTenantField = (auth as { actorTenantId?: string | null }).actorTenantId
+    const actorHomeTenantId = actorTenantField === undefined
+      ? authTenantId
+      : normalizeTenantId(actorTenantField)
     const actorIsSuperAdmin = auth.isSuperAdmin === true
 
     let requestedTenantId = rawTenantParam ?? (cookieTenant ?? undefined)
@@ -144,12 +156,12 @@ export async function GET(req: NextRequest) {
         name: typeof tenant.name === 'string' && tenant.name.length > 0 ? tenant.name : String(tenant.id),
         isActive: tenant.isActive !== false,
       }))
-      if (!tenantId) tenantId = actorTenantId ?? (tenantRecords[0]?.id ?? null)
+      if (!tenantId) tenantId = actorHomeTenantId ?? (tenantRecords[0]?.id ?? null)
       if (tenantId && tenantRecords.length && !tenantRecords.some((record) => record.id === tenantId)) {
         tenantId = tenantRecords[0]?.id ?? tenantId
       }
     } else {
-      tenantId = actorTenantId
+      tenantId = authTenantId
     }
 
     if (!tenantId) {
@@ -206,7 +218,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const scopedOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+    const scopedOrgId = authTenantId && authTenantId === tenantId ? auth.orgId ?? null : null
     const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: scopedOrgId })
     const aclIsSuperAdmin = acl?.isSuperAdmin === true
     const effectiveIsSuperAdmin = actorIsSuperAdmin || aclIsSuperAdmin

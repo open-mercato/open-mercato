@@ -19,6 +19,7 @@
 | `di.ts` | `register(container)` | DI registrar (Awilix) |
 | `acl.ts` | `features` | Feature-based permissions |
 | `setup.ts` | `setup: ModuleSetupConfig` | Tenant initialization, role features, customer role features |
+| `runtime.ts` | `runtime: ModuleRuntime` | Process-wide runtime started once per process (worker loop, broker subscription, poller) — SPEC-072 |
 | `ce.ts` | `entities` | Custom entities / custom field sets |
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
@@ -62,6 +63,7 @@
 - Generated files split into two buckets — see [Generated Files: versioned vs ephemeral](#generated-files-versioned-vs-ephemeral):
   - **Ephemeral** (gitignored, regenerated on every `yarn generate`, wiped by `yarn clean-generated`): `apps/mercato/.mercato/generated/`, `packages/*/generated/`, `src/generated/`. Never edit manually and never depend on them being present in a fresh clone before `yarn generate` runs.
   - **Versioned** (committed `*.generated.ts` files living next to source — e.g. `apps/mercato/src/official-modules.generated.ts`, `packages/core/src/generated-shims/entities.ids.generated.ts`, `packages/ui/src/backend/fields/registry.generated.ts`): also never edit by hand, but they MUST stay in git because they encode source-of-truth state (module activation, frozen ID maps, registry shape) that must travel with the repo and survive `yarn clean-generated`.
+- New modules start strict on DS lint: the PR that scaffolds a module MUST add a full `error`-severity override block for the `om-ds/*` rules to the escalation section of `eslint.ds.config.mjs` (new code has no baseline debt — see `.ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md`, Workstream 2)
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `yarn generate` after adding/modifying module files
 - Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache and stale Turbopack module-graph fingerprints can both hide structural changes until they are purged. The structural command purges `nav:*` Redis keys and bumps mtimes on `.mercato/generated/*.generated.{ts,checksum}` so Turbopack re-evaluates the import graph without a dev-server restart. If Turbopack still serves a stale compiled chunk after that, run `yarn dev:reset` to clear `.mercato/next/dev` plus legacy `.next` caches and restart `yarn dev`.
@@ -76,7 +78,7 @@ The codebase has two categories of generated files. Both are auto-written by too
 
 | Category | Where it lives | Tracked in git? | Survives `yarn clean-generated`? | Use it for |
 |---|---|---|---|---|
-| **Ephemeral** | `apps/mercato/.mercato/generated/`, `packages/*/generated/`, `src/generated/` (all matched by `.gitignore`) | No | No — wiped by `find -name generated -exec rm -rf` in `scripts/clean-generated.sh` | Per-build artifacts that `yarn generate` re-emits deterministically from in-repo source (module registries, indexer barrels, OpenAPI types, etc.). Safe to delete; safe to re-run. |
+| **Ephemeral** | `apps/mercato/.mercato/generated/`, `packages/*/generated/`, `src/generated/` (all matched by `.gitignore`) | No | No — wiped by the `generated`-directory sweep in `scripts/clean-generated.mjs` | Per-build artifacts that `yarn generate` re-emits deterministically from in-repo source (module registries, indexer barrels, OpenAPI types, etc.). Safe to delete; safe to re-run. |
 | **Versioned** | Next to source as `<name>.generated.ts` / `<name>.generated.tsx` / `<name>-generated.d.ts` — e.g. `apps/mercato/src/official-modules.generated.ts`, `packages/core/src/generated-shims/entities.ids.generated.ts`, `packages/ui/src/backend/fields/registry.generated.ts`, `packages/ui/src/backend/icons/lucideRegistry.generated.tsx`, `packages/ai-assistant/src/modules/ai_assistant/lib/ai-{tools,agents}-generated.d.ts` | Yes | Yes — they are NOT inside any `generated/` folder and NOT inside `.mercato`, so the find-and-delete pattern doesn't match them | Source-of-truth state that must travel with the repo: module-activation config (`official-modules.json` → `official-modules.generated.ts`), frozen entity-id maps that protect against typos at type-check time, and registry shapes that other typed code imports. |
 
-**Before moving a versioned generated file into a `generated/` folder:** read `.ai/specs/2026-05-19-official-modules-generated-location-decision.md` — `scripts/clean-generated.sh` wipes every `generated/` folder, so a move requires coordinated changes to `.gitignore` and the clean script. Don't do it piecemeal.
+**Before moving a versioned generated file into a `generated/` folder:** read `.ai/specs/2026-05-19-official-modules-generated-location-decision.md` — `scripts/clean-generated.mjs` wipes every `generated/` folder, so a move requires coordinated changes to `.gitignore` and the clean script. Don't do it piecemeal.

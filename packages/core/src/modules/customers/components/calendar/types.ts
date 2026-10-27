@@ -18,7 +18,7 @@ export type CalendarRange = { from: Date; to: Date }
 
 const calendarParticipantSchema = z
   .object({
-    userId: z.string(),
+    userId: z.string().optional(),
     name: z.string().optional(),
     email: z.string().optional(),
   })
@@ -33,6 +33,7 @@ export const calendarInteractionPayloadSchema = z
     scheduledAt: z.string().nullable().optional(),
     occurredAt: z.string().nullable().optional(),
     durationMinutes: z.number().nullable().optional(),
+    timezone: z.string().nullable().optional(),
     allDay: z.boolean().nullable().optional(),
     location: z.string().nullable().optional(),
     participants: z.array(calendarParticipantSchema).nullable().optional(),
@@ -49,7 +50,7 @@ export const calendarInteractionPayloadSchema = z
 
 export type CalendarInteractionPayload = z.infer<typeof calendarInteractionPayloadSchema>
 
-export type CalendarParticipant = { userId: string; name?: string; email?: string }
+export type CalendarParticipant = { userId?: string; name?: string; email?: string; status?: string }
 
 export interface CalendarItem {
   id: string

@@ -27,6 +27,50 @@ const TEMPLATE_PREFIX_PATTERN = /(?<![a-zA-Z_])(?:t|translate)\(\s*`([a-zA-Z0-9_
 // Pattern 4: Detect dynamic t() calls for counting (variable args, template literals, etc.).
 const DYNAMIC_CALL_PATTERN = /(?<![a-zA-Z_])(?:t|translate)\(\s*(?!['"])[a-zA-Z`{]/g
 
+// Gallery entries carry a `code:` template literal holding the snippet their copy
+// button yields (see design_system/gallery/types.ts). Those snippets illustrate how
+// a consumer would call `t()`, so their keys belong to the module being documented
+// and need not exist in any dictionary — scanning them reports documentation prose
+// as missing keys. Blanking the sample bodies (whitespace-for-whitespace, so line
+// numbers still point at real code) keeps the surrounding file scanned normally.
+const CODE_SAMPLE_OPENING_PATTERN = /\bcode:\s*`/g
+
+function blankNonNewlines(text) {
+  return text.replace(/[^\n]/g, ' ')
+}
+
+export function maskCodeSamples(text) {
+  let result = ''
+  let cursor = 0
+  for (const match of text.matchAll(CODE_SAMPLE_OPENING_PATTERN)) {
+    const bodyStart = match.index + match[0].length
+    if (bodyStart <= cursor) continue
+    let index = bodyStart
+    let interpolationDepth = 0
+    while (index < text.length) {
+      const char = text[index]
+      if (char === '\\') {
+        index += 2
+        continue
+      }
+      if (char === '$' && text[index + 1] === '{') {
+        interpolationDepth++
+        index += 2
+        continue
+      }
+      if (char === '}' && interpolationDepth > 0) {
+        interpolationDepth--
+      } else if (char === '`' && interpolationDepth === 0) {
+        break
+      }
+      index++
+    }
+    result += text.slice(cursor, bodyStart) + blankNonNewlines(text.slice(bodyStart, index))
+    cursor = index
+  }
+  return result + text.slice(cursor)
+}
+
 export function buildPrefixIndex(allTranslationKeys) {
   const index = new Map()
   for (const key of allTranslationKeys) {
@@ -77,7 +121,8 @@ function lineNumberAt(lineStarts, offset) {
  * bare dotted literals) are counted as usage but are validated against known
  * keys, so an unknown literal there is just an ordinary string.
  */
-export function scanText(text, allTranslationKeys, { file = '<inline>' } = {}) {
+export function scanText(rawText, allTranslationKeys, { file = '<inline>' } = {}) {
+  const text = maskCodeSamples(rawText)
   const keySet = allTranslationKeys instanceof Set
     ? allTranslationKeys
     : new Set(allTranslationKeys)

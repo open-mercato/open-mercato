@@ -347,6 +347,49 @@ describe('RichEditor — custom variant + compound API', () => {
   })
 })
 
+// jsdom has no layout engine, so the page-overflow bug this guards against
+// (the hidden measurement row is wider than its column and grows the document)
+// cannot be reproduced by measuring here. What these tests pin instead is the
+// containment structure the fix relies on: the measurement row sits inside its
+// own clipping layer, and the visible toolbar sits outside it so the clip never
+// swallows the toolbar's own drop shadow.
+describe('RichEditor — auto toolbar measurement row containment', () => {
+  const renderAutoToolbar = () => {
+    const { container } = render(<RichEditor value="" onChange={jest.fn()} variant="full" />)
+    const clip = container.querySelector('[data-slot="rich-editor-toolbar-measure-clip"]')!
+    const toolbar = container.querySelector('[data-slot="rich-editor-toolbar"]')!
+    return { clip, toolbar }
+  }
+
+  it('clips the hidden measurement row in its own layer so it cannot widen the page', () => {
+    const { clip } = renderAutoToolbar()
+    expect(clip).not.toBeNull()
+    expect(clip.getAttribute('aria-hidden')).toBe('true')
+    expect(clip.className).toContain('absolute')
+    expect(clip.className).toContain('inset-0')
+    expect(clip.className).toContain('overflow-hidden')
+
+    const measureRow = clip.firstElementChild!
+    expect(measureRow.className).toContain('invisible')
+    expect(measureRow.className).toContain('absolute')
+    expect(measureRow.className).toContain('flex-nowrap')
+    expect(measureRow.childElementCount).toBeGreaterThan(0)
+  })
+
+  it('keeps the visible toolbar outside the clipping layer so shadow-xs still paints', () => {
+    const { clip, toolbar } = renderAutoToolbar()
+    expect(clip.contains(toolbar)).toBe(false)
+    expect(toolbar.className).toContain('shadow-xs')
+  })
+
+  it('leaves the toolbar wrapper unclipped', () => {
+    const { toolbar } = renderAutoToolbar()
+    const wrapper = toolbar.parentElement!
+    expect(wrapper.className).toContain('relative')
+    expect(wrapper.className).not.toContain('overflow-hidden')
+  })
+})
+
 describe('RichEditorDropdownButton + RichEditorTextDropdown', () => {
   it("RichEditorDropdownButton renders inside <RichEditor variant='custom'>", () => {
     render(
@@ -407,5 +450,64 @@ describe('RichEditorDropdownButton + RichEditorTextDropdown', () => {
     const trigger = screen.getByRole('button', { name: 'Pick color' })
     const swatch = trigger.querySelector('[data-slot="rich-editor-color-swatch"]') as HTMLElement
     expect(swatch?.style.backgroundColor).toMatch(/rgb\(125,\s*82,\s*244\)|#7d52f4/i)
+  })
+})
+
+describe('RichEditor — source toolbar layouts', () => {
+  it.each([
+    ['01', ['Header', 'Font size', 'Bold', 'Italic', 'Underline', 'Strikethrough', 'Align', 'Add comment', 'Link', 'Mention', 'More']],
+    ['02', ['Header', 'Font size', 'More']],
+    ['03', ['Bold', 'Italic', 'Underline', 'Strikethrough', 'Align', 'More']],
+    ['04', ['Add comment', 'Link', 'Mention', 'More']],
+  ] as const)('renders the source %s composition and keeps other commands in More', (design, names) => {
+    render(<RichEditor value="" onChange={jest.fn()} toolbarDesign={design} />)
+    expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(names)
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Numbered list' }))
+    expect(execMock).toHaveBeenCalledWith('insertOrderedList', false, undefined)
+  })
+
+  it('updates toolbar composition, translations and callbacks when value stays unchanged', () => {
+    const onChange = jest.fn()
+    const oldComment = jest.fn()
+    const newComment = jest.fn()
+    const { rerender } = render(<RichEditor value="" onChange={onChange} toolbarDesign="02" onComment={oldComment} />)
+    rerender(<RichEditor value="" onChange={onChange} toolbarDesign="04" labels={{ comment: 'Komentarz' }} onComment={newComment} />)
+    expect(screen.queryByRole('button', { name: 'Header' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Komentarz' }))
+    expect(newComment).toHaveBeenCalledTimes(1)
+    expect(oldComment).not.toHaveBeenCalled()
+  })
+
+  it('keeps all source toolbar commands disabled', () => {
+    render(<RichEditor value="" onChange={jest.fn()} toolbarDesign="01" disabled />)
+    for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled()
+  })
+
+  it('counts draft text before blur without changing the onChange contract', () => {
+    const onChange = jest.fn()
+    const { container } = render(<RichEditor value="" onChange={onChange} toolbarDesign="03" maxLength={5} />)
+    const content = screen.getByRole('textbox')
+    content.textContent = 'Draft text'
+    fireEvent.input(content)
+    expect(container.querySelector('[data-slot="rich-editor-counter"]')).toHaveTextContent('10/5')
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.blur(content)
+    expect(onChange).toHaveBeenLastCalledWith('Draft text')
+  })
+
+  it('preserves selected formatting and escapes literal markup when applying a font size', () => {
+    render(<RichEditor value="<p><strong>Bold &lt;word&gt;</strong></p>" onChange={jest.fn()} toolbarDesign="02" />)
+    const content = screen.getByRole('textbox')
+    content.innerHTML = '<p><strong>Bold &lt;word&gt;</strong></p>'
+    const range = document.createRange()
+    range.selectNodeContents(content.querySelector('p')!)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+    fireEvent.click(screen.getByRole('button', { name: 'Font size' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '20px' }))
+    expect(execMock).toHaveBeenCalledWith('insertHTML', false, expect.stringContaining('font-size: 20px'))
+    expect(execMock).toHaveBeenCalledWith('insertHTML', false, expect.stringContaining('<strong>Bold &lt;word&gt;</strong>'))
+    expect(execMock).not.toHaveBeenCalledWith('removeFormat', expect.anything(), expect.anything())
   })
 })

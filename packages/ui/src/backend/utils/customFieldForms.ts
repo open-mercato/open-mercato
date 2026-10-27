@@ -136,6 +136,7 @@ export function buildFormFieldFromCustomFieldDef(
             label,
             type: 'custom',
             ...baseProps,
+            ...(FieldRegistry.inputRendersOwnError(def.kind) ? { rendersOwnError: true } : {}),
             component: (props) => input({ ...props, def }),
           }
         }
@@ -192,6 +193,7 @@ export function buildFormFieldFromCustomFieldDef(
           label,
           type: 'custom',
           ...baseProps,
+          ...(FieldRegistry.inputRendersOwnError(def.kind) ? { rendersOwnError: true } : {}),
           component: (props) => input({ ...props, def }),
         }
       }

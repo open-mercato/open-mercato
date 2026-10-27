@@ -67,6 +67,33 @@ if (enabledModules.some((entry) => entry.id === 'example')) {
   )
 }
 
+function writeModulesConfigWithSupervisorOverrides(rootDir: string) {
+  const srcDir = path.join(rootDir, 'src')
+  fs.mkdirSync(srcDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(srcDir, 'modules.ts'),
+    `
+const supervisorPolicy = { workers: { 'events:dispatch': null } }
+export const enabledModules = [
+  {
+    id: 'events',
+    from: '@open-mercato/events',
+    overrides: {
+      workers: {
+        'events:dispatch': null,
+        'events:replacement': { id: 'events:replacement', queue: 'events-v2', concurrency: 2, handler() {} },
+      },
+      cli: { start: null },
+    },
+  },
+  { id: 'scheduler', overrides: supervisorPolicy },
+  { id: 'queue', overrides: { ...supervisorPolicy } },
+]
+`,
+    'utf8',
+  )
+}
+
 describe('resolver enterprise module toggle', () => {
   const originalEnv = process.env.OM_ENABLE_ENTERPRISE_MODULES
   const originalResolverMarker = (globalThis as Record<string, unknown>).__resolver_evaluated__
@@ -139,5 +166,28 @@ describe('resolver enterprise module toggle', () => {
         { id: 'example_customers_sync', from: '@app' },
       ]),
     )
+  })
+
+  it('marks inline worker and CLI overrides for the full dev bootstrap', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolver-supervisor-overrides-'))
+    writeModulesConfigWithSupervisorOverrides(tempDir)
+
+    expect(createResolver(tempDir).loadEnabledModules()).toEqual([
+      {
+        id: 'events',
+        from: '@open-mercato/events',
+        devSupervisorRequiresFullBootstrap: true,
+      },
+      {
+        id: 'scheduler',
+        from: '@open-mercato/core',
+        devSupervisorRequiresFullBootstrap: true,
+      },
+      {
+        id: 'queue',
+        from: '@open-mercato/core',
+        devSupervisorRequiresFullBootstrap: true,
+      },
+    ])
   })
 })
