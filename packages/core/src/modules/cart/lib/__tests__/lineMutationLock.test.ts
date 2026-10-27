@@ -1,6 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
-import { withCartLineMutationLock } from '../lineMutationLock'
+import { CartLineMutationLockTimeoutError, withCartLineMutationLock } from '../lineMutationLock'
 
 function createManager(initialTransaction = false) {
   let active = initialTransaction
@@ -26,6 +25,7 @@ test('a contended cart releases its transaction before backing off and never run
   await jest.advanceTimersByTimeAsync(0)
   expect(manager.rollback).toHaveBeenCalledTimes(1)
   expect(manager.isInTransaction()).toBe(false)
+  expect(manager.flush).not.toHaveBeenCalled()
   expect(mutate).not.toHaveBeenCalled()
   expect(manager.execute).toHaveBeenCalledWith(
     'select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked',
@@ -36,6 +36,25 @@ test('a contended cart releases its transaction before backing off and never run
   expect(mutate).toHaveBeenCalledTimes(1)
   expect(manager.commit).toHaveBeenCalledTimes(1)
   expect(manager.rollback).toHaveBeenCalledTimes(1)
+})
+
+test('the fifteen-second deadline expires only after releasing a contended transaction without mutations', async () => {
+  jest.useFakeTimers()
+  const { manager, em } = createManager()
+  manager.execute.mockResolvedValue([{ locked: false }])
+  const mutate = jest.fn(async () => undefined)
+  const pending = withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add')
+  const rejected = expect(pending).rejects.toBeInstanceOf(CartLineMutationLockTimeoutError)
+  await jest.advanceTimersByTimeAsync(15_000)
+  await rejected
+  expect(manager.isInTransaction()).toBe(false)
+  expect(manager.rollback).toHaveBeenCalled()
+  expect(manager.flush).not.toHaveBeenCalled()
+  expect(mutate).not.toHaveBeenCalled()
+  expect(manager.commit).not.toHaveBeenCalled()
+  const attempts = manager.begin.mock.calls.length
+  await jest.advanceTimersByTimeAsync(5_000)
+  expect(manager.begin).toHaveBeenCalledTimes(attempts)
 })
 
 test('a mutation failure rolls back and propagates without retrying its writes', async () => {
@@ -49,12 +68,13 @@ test('a mutation failure rolls back and propagates without retrying its writes',
   expect(manager.commit).not.toHaveBeenCalled()
 })
 
-test('expired contention rolls back without running a mutation', async () => {
+test('an advisory query failure propagates without retrying or running mutations', async () => {
   const { manager, em } = createManager()
-  manager.execute.mockResolvedValue([{ locked: false }])
+  const error = new Error('[internal] Database query failed')
+  manager.execute.mockRejectedValue(error)
   const mutate = jest.fn(async () => undefined)
-  await expect(withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add', 0))
-    .rejects.toEqual(new AdvisoryLockUnavailableError('deadline', 'cart:lines:cart-a'))
+  await expect(withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add')).rejects.toBe(error)
+  expect(manager.execute).toHaveBeenCalledTimes(1)
   expect(manager.rollback).toHaveBeenCalledTimes(1)
   expect(mutate).not.toHaveBeenCalled()
 })
@@ -73,12 +93,24 @@ test('an ambient transaction keeps ownership of its lock, commit, and rollback',
   expect(manager.rollback).not.toHaveBeenCalled()
 })
 
+test('an ambient mutation failure is returned to its transaction owner without replay', async () => {
+  const { manager, em } = createManager(true)
+  const error = new Error('[internal] Mutation failed')
+  const mutate = jest.fn(async () => { throw error })
+  await expect(withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.bulkAdd')).rejects.toBe(error)
+  expect(mutate).toHaveBeenCalledTimes(1)
+  expect(manager.execute).toHaveBeenCalledTimes(1)
+  expect(manager.isInTransaction()).toBe(true)
+  expect(manager.commit).not.toHaveBeenCalled()
+  expect(manager.rollback).not.toHaveBeenCalled()
+})
+
 test('a failed rollback does not retry while its connection remains in a transaction', async () => {
   const { manager, em } = createManager()
   manager.execute.mockResolvedValue([{ locked: false }])
   manager.rollback.mockRejectedValue(new Error('[internal] Rollback failed'))
   const mutate = jest.fn(async () => undefined)
-  await expect(withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add', 0))
+  await expect(withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add'))
     .rejects.toThrow('[internal] Cart line mutation lock is busy')
   expect(manager.begin).toHaveBeenCalledTimes(1)
   expect(manager.execute).toHaveBeenCalledTimes(1)
