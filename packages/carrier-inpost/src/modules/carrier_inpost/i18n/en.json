@@ -1,0 +1,19 @@
+{
+  "carrier_inpost.config.action.configureCredentials": "Configure credentials",
+  "carrier_inpost.config.credential.apiToken": "API Token (Bearer) — from InPost Manager → API → Tokens",
+  "carrier_inpost.config.credential.organizationId": "Organization ID — UUID visible in the InPost Manager URL after /organizations/",
+  "carrier_inpost.config.help": "Configure your InPost API token and organization ID in Integration credentials. Available services: Paczkomat lockers (standard & express) and courier delivery.",
+  "carrier_inpost.config.requiredCredentials": "Required credentials:",
+  "carrier_inpost.description": "Ship parcels via InPost lockers (Paczkomat) and courier delivery with real-time tracking.",
+  "carrier_inpost.feature.configure": "Configure InPost settings",
+  "carrier_inpost.feature.view": "View InPost configuration",
+  "carrier_inpost.tabs.settings": "InPost settings",
+  "carrier_inpost.title": "InPost",
+  "carrier_inpost.tracking.errorFetch": "Failed to fetch tracking info",
+  "carrier_inpost.tracking.errorLoadShipments": "Failed to load shipments",
+  "carrier_inpost.tracking.loading": "Loading tracking...",
+  "carrier_inpost.tracking.noEvents": "No tracking events yet.",
+  "carrier_inpost.tracking.noShipment": "No InPost shipment found for this order.",
+  "carrier_inpost.tracking.title": "InPost Tracking",
+  "carrier_inpost.tracking.trackingNumber": "Tracking number"
+}
