@@ -6,7 +6,7 @@
 // members found" for what was actually a failed request; and the confirm button
 // only went `disabled` while saving, so a slow POST read as a frozen dialog.
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 
@@ -35,16 +35,20 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+let mockTranslator = mockTranslate
+let mockScopeVersion = 1
+let mockSearch = ''
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslator }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeVersion: () => 1,
+  useOrganizationScopeVersion: () => mockScopeVersion,
 }))
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
   usePathname: () => '/backend/staff/time-tracking/projects/project-1',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mockSearch),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -81,7 +85,10 @@ jest.mock('@open-mercato/ui/backend/charts', () => ({
 }))
 
 jest.mock('../../../../../../lib/time-tracking-ui/ProjectTeamDrawer', () => ({
-  ProjectTeamDrawer: () => null,
+  ProjectTeamDrawer: () => {
+    const [draft, setDraft] = React.useState('')
+    return <input aria-label="Team draft" value={draft} onChange={(event) => setDraft(event.target.value)} />
+  },
 }))
 
 /**
@@ -145,6 +152,9 @@ let teamMemberLookupFails = false
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockTranslator = mockTranslate
+  mockScopeVersion = 1
+  mockSearch = ''
   teamMemberLookupFails = false
   createCrudMock.mockResolvedValue({})
   deleteCrudMock.mockResolvedValue({})
@@ -258,5 +268,33 @@ describe('add employee dialog — pending affordance', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('dialog')).toBeNull()
     })
+  })
+})
+
+
+describe('project team draft lifecycle', () => {
+  it('keeps the open team draft mounted when the translator changes', async () => {
+    mockSearch = 'panel=team'
+    const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Team draft' }), { target: { value: 'pending member' } })
+
+    mockTranslator = (...args: Parameters<typeof mockTranslate>) => mockTranslate(...args)
+    await act(async () => { view.rerender(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />) })
+
+    expect(screen.getByRole('textbox', { name: 'Team draft' })).toHaveValue('pending member')
+  })
+
+  it.each(['project', 'scope'])('reloads the team draft after a real %s change', async (change) => {
+    mockSearch = 'panel=team'
+    const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Team draft' }), { target: { value: 'pending member' } })
+
+    if (change === 'scope') mockScopeVersion += 1
+    await act(async () => {
+      view.rerender(<TimesheetProjectDetailPage params={{ id: change === 'project' ? OTHER_STAFF_ID : PROJECT_ID }} />)
+    })
+
+    expect(screen.getByRole('textbox', { name: 'Team draft' })).toHaveValue('')
+    expect(apiCallMock.mock.calls.filter(([url]) => String(url).startsWith('/api/staff/timesheets/time-projects?'))).toHaveLength(2)
   })
 })
