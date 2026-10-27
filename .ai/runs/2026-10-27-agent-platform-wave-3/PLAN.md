@@ -47,6 +47,7 @@
 | 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | done | de5757eb6 |
 | 5 | 5.4 | Add an example integrity agent and resolver to agent_examples | dispatch | done | pending |
 | 5 | 5.5 | Cover the integrity pipeline with integration tests | dispatch | done | pending |
+| 5 | 5.6 | Fix the guardrail-checks and context-bundles list entity ids | inline | done | pending |
 | 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | todo | — |
 | 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | todo | — |
 | 6 | 6.3 | Cover the structure panel with an integration test | dispatch | todo | — |
@@ -243,6 +244,9 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
 
 #### 5.5 Cover the integrity pipeline with integration tests
 - `TC-AGENT-INT-*`: what runs without a model provider (registration errors surfaced, `GET /guardrail-checks?kind=evidence_quote` filter validation, artifact route `kind=raw_output` 404/403 contract); model-dependent cases gated by the provider skip. Self-contained fixtures.
+
+#### 5.6 Fix the guardrail-checks and context-bundles list entity ids
+- Checkpoint-7 fix-forward (pre-existing on `main`). Both CRUD list routes declared an `ENTITY_TYPE` that names no registered entity (`agent_orchestrator:guardrail_check`, `agent_orchestrator:context_bundle`), so the query engine derived non-existent tables (`guardrail_checks`, `context_bundles`) and every list request returned 500 `DATABASE_ERROR`. Use the registered ids (`agent_guardrail_check`, `agent_context_bundle`) and guard every AO route `ENTITY_TYPE` against the registered entities.
 
 ### Phase 6 — DocStructure P3 (attachments, OSS)
 
