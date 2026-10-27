@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 
 import { DOCKER_PROBE_TIMEOUT_MS, classifyDockerProbe } from '../dev-docker-availability.mjs'
@@ -57,7 +58,7 @@ test('keeps the probe timeout bounded', () => {
 
 for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scripts/dev.mjs']) {
   const runtimeSource = readFileSync(new URL(runtimePath, import.meta.url), 'utf8')
-  const start = runtimeSource.indexOf('let dockerUnavailableNoticeShown = false')
+  const start = runtimeSource.indexOf('function resolveOpencodeComposeArgs()')
   const end = runtimeSource.indexOf('async function checkOpencodeMcpWiring()', start)
   assert.ok(start >= 0 && end > start)
   const restartSource = runtimeSource.slice(start, end)
@@ -73,10 +74,13 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
       classifyDockerProbe,
       console: { log() {}, warn: (message) => warnings.push(message) },
       updateSplashState: (state) => activities.push(state),
-      opencodeRestartCommand: () => 'docker restart mercato-opencode',
+      fs: { existsSync: (candidate) => candidate.endsWith('starters/docker/compose.infra.yml') },
+      path,
+      process: { cwd: () => '/repo', env: {} },
+      mcpPort: 3123,
       spawnSync: (command, args, options) => {
         calls.push({ command, args: Array.from(args), options })
-        return args[0] === 'ps' ? probeResult : { status: 0 }
+        return args.includes('ps') ? probeResult : { status: 0 }
       },
     })
     return { result: Array.from(result), calls, warnings, activities }
@@ -89,15 +93,18 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
       assert.deepEqual(result, [false, false])
       assert.equal(calls.length, 1)
       assert.equal(calls[0].command, 'docker')
-      assert.deepEqual(calls[0].args, ['ps', '--format', '{{.Names}}'])
+      assert.deepEqual(calls[0].args, [
+        'compose', '--project-directory', '.', '-f', 'starters/docker/compose.infra.yml',
+        'ps', '-q', 'opencode',
+      ])
       assert.equal(calls[0].options.timeout, DOCKER_PROBE_TIMEOUT_MS)
       assert.equal(warnings.filter((message) => message.includes('Skipping')).length, 1)
       assert.equal(activities.length, 0)
     })
   }
 
-  test(`${runtimePath} skips unrelated containers without warning`, () => {
-    const { result, calls, warnings, activities } = runRestart({ status: 0, stdout: 'mercato-postgres\n' })
+  test(`${runtimePath} skips a stopped OpenCode service without warning`, () => {
+    const { result, calls, warnings, activities } = runRestart({ status: 0, stdout: '' })
 
     assert.deepEqual(result, [false, false])
     assert.equal(calls.length, 1)
@@ -105,13 +112,17 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
     assert.equal(activities.length, 0)
   })
 
-  test(`${runtimePath} still restarts the running OpenCode container once`, () => {
-    const { result, calls, warnings, activities } = runRestart({ status: 0, stdout: 'mercato-opencode\n' })
+  test(`${runtimePath} recreates the running OpenCode service once with the selected MCP endpoint`, () => {
+    const { result, calls, warnings, activities } = runRestart({ status: 0, stdout: 'container-id\n' })
 
     assert.deepEqual(result, [true, false])
     assert.equal(calls.length, 2)
     assert.equal(calls[1].command, 'docker')
-    assert.deepEqual(calls[1].args, ['restart', 'mercato-opencode'])
+    assert.deepEqual(calls[1].args, [
+      'compose', '--project-directory', '.', '-f', 'starters/docker/compose.infra.yml',
+      'up', '-d', '--no-deps', '--force-recreate', 'opencode',
+    ])
+    assert.equal(calls[1].options.env.OPENCODE_MCP_URL, 'http://host.docker.internal:3123/mcp')
     assert.equal(warnings.length, 0)
     assert.equal(activities.length, 1)
   })

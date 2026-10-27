@@ -59,6 +59,21 @@ function resolveMemorySamplerImport() {
   throw new Error('Unable to resolve dev memory sampler module')
 }
 
+function resolveDevSessionGuardImport() {
+  const candidates = [
+    new URL('./dev-session-guard.mjs', import.meta.url),
+    new URL('../../../scripts/dev-session-guard.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev session guard module')
+}
+
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
@@ -118,6 +133,7 @@ const {
   inferDevMemoryMarkerFromLine,
   resolveMemoryTraceIntervalMs,
 } = await import(resolveMemorySamplerImport())
+const { acquireDevSession } = await import(resolveDevSessionGuardImport())
 
 const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -227,6 +243,32 @@ const runtimeWarmupState = {
   retryAttempts: 0,
   tenantId: readNonEmptyEnvValue('OM_DEV_WARMUP_TENANT_ID') ?? null,
   tenantLookupAttempted: false,
+}
+
+function resolveDevSessionWorkspaceRoot() {
+  const inheritedRoot = process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim()
+  if (inheritedRoot) return inheritedRoot
+  const monorepoRoot = path.resolve(process.cwd(), '..', '..')
+  if (fs.existsSync(path.join(monorepoRoot, 'packages')) && fs.existsSync(path.join(monorepoRoot, 'apps', 'mercato'))) {
+    return monorepoRoot
+  }
+  return process.cwd()
+}
+
+const devSessionUrl = process.env.APP_URL?.trim()
+  || process.env.NEXT_PUBLIC_APP_URL?.trim()
+  || `http://localhost:${process.env.PORT?.trim() || '3000'}`
+let devSession
+try {
+  devSession = acquireDevSession({
+    workspaceRoot: resolveDevSessionWorkspaceRoot(),
+    mode: `app-runtime:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
+    url: devSessionUrl,
+    role: 'app-runtime',
+  })
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 
 function clearWarmupReadyFile() {
@@ -652,6 +694,7 @@ function spawnMercato(args) {
   })
 
   children.add(child)
+  devSession.registerChild(child, `app:${args.join(' ')}`)
   child.on('exit', () => {
     children.delete(child)
   })
@@ -1285,6 +1328,7 @@ async function finalizeRuntimeProcess(exitCode) {
   } catch (error) {
     console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
   }
+  devSession.release()
   process.exit(exitCode)
 }
 

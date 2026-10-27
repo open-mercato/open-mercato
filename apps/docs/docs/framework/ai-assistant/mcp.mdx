@@ -33,6 +33,10 @@ The server runs in one of two modes depending on how you intend to use it:
 You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY not set` message on the in-app AI Assistant **Settings page** is only a status badge for the production/web-chat path — it does **not** block Claude Code connecting via `mcp:dev`.
 :::
 
+:::note Managed MCP during `yarn dev`
+The root and standalone `yarn dev` launchers manage `mcp:serve-http` separately from the direct commands above. `MCP_PORT` is their preferred port: when another process already owns it, the launcher selects a free port and prints the resulting endpoint. That endpoint is propagated to the managed app and to a running OpenCode compose service. Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values are never replaced.
+:::
+
 :::info Route modules outside Next.js
 Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato` CLI (and with it every `mercato ai_assistant` command) therefore installs a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook` (also re-exported from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook`) before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
 :::

@@ -1,16 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
   MCP_DEFAULT_PORT,
+  buildManagedMcpAppEnv,
   buildMcpCliArgs,
   deriveMcpHealthUrl,
   isFastMcpCrash,
+  isManagedMcpReadiness,
   isKeyRotationOutput,
   looksLikeMissingAiAssistantModule,
+  looksLikeMcpPortCollision,
+  looksLikeMcpServerListening,
   looksLikeMissingKeyOwner,
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
@@ -18,6 +23,7 @@ import {
   nextMcpRestartDelayMs,
   resolveMcpKeyFilePath,
   resolveMcpPort,
+  selectAvailableMcpPort,
   shouldRetryMcpProvisioning,
   shouldStartMcp,
 } from '../dev-mcp.mjs'
@@ -57,6 +63,24 @@ test('resolveMcpPort parses MCP_PORT and rejects invalid values', () => {
   assert.equal(resolveMcpPort({ MCP_PORT: 'nope' }), MCP_DEFAULT_PORT)
   assert.equal(resolveMcpPort({ MCP_PORT: '0' }), MCP_DEFAULT_PORT)
   assert.equal(resolveMcpPort({ MCP_PORT: '70000' }), MCP_DEFAULT_PORT)
+})
+
+test('selectAvailableMcpPort preserves a free preference and falls back when occupied', async () => {
+  const preferred = await selectAvailableMcpPort(0)
+  assert.equal(await selectAvailableMcpPort(preferred), preferred)
+
+  const occupied = createServer()
+  await new Promise((resolve, reject) => {
+    occupied.once('error', reject)
+    occupied.listen({ port: preferred, host: '127.0.0.1', exclusive: true }, resolve)
+  })
+  try {
+    const fallback = await selectAvailableMcpPort(preferred)
+    assert.notEqual(fallback, preferred)
+    assert.ok(fallback > 0 && fallback <= 65535)
+  } finally {
+    await new Promise((resolve) => occupied.close(resolve))
+  }
 })
 
 test('resolveMcpKeyFilePath defaults under .mercato/mcp-shared and honors the env override', () => {
@@ -108,6 +132,51 @@ test('buildMcpCliArgs routes through the app workspace in monorepo mode', () => 
 
 test('deriveMcpHealthUrl points at localhost health endpoint', () => {
   assert.equal(deriveMcpHealthUrl(3001), 'http://localhost:3001/health')
+})
+
+test('buildManagedMcpAppEnv propagates the selected port without replacing explicit external configuration', () => {
+  assert.deepEqual(buildManagedMcpAppEnv({
+    enabled: true,
+    port: 3123,
+    keyFilePath: '/repo/.mercato/mcp-api-key',
+    env: {},
+  }), {
+    MCP_SERVER_API_KEY_FILE: '/repo/.mercato/mcp-api-key',
+    MCP_URL: 'http://localhost:3123',
+  })
+  assert.deepEqual(buildManagedMcpAppEnv({
+    enabled: true,
+    port: 3123,
+    keyFilePath: '/repo/.mercato/mcp-api-key',
+    env: {
+      MCP_SERVER_API_KEY: 'external-key',
+      MCP_URL: 'https://external.example/mcp',
+    },
+  }), {})
+  assert.deepEqual(buildManagedMcpAppEnv({ enabled: false, port: 3123, keyFilePath: '/tmp/key', env: {} }), {})
+})
+
+test('isManagedMcpReadiness rejects stale probes and accepts only the current listening child', () => {
+  const ready = {
+    childListening: true,
+    childExitCode: null,
+    childSignalCode: null,
+    attemptedPort: 3123,
+    currentPort: 3123,
+    responseOk: true,
+  }
+  assert.equal(isManagedMcpReadiness(ready), true)
+  assert.equal(isManagedMcpReadiness({ ...ready, childListening: false }), false)
+  assert.equal(isManagedMcpReadiness({ ...ready, childExitCode: 1 }), false)
+  assert.equal(isManagedMcpReadiness({ ...ready, attemptedPort: 3001 }), false)
+  assert.equal(isManagedMcpReadiness({ ...ready, responseOk: false }), false)
+})
+
+test('MCP lifecycle output classifiers distinguish bind collisions and child readiness', () => {
+  assert.equal(looksLikeMcpPortCollision(['Error: listen EADDRINUSE: address already in use :::3001']), true)
+  assert.equal(looksLikeMcpPortCollision(['connect ECONNREFUSED 127.0.0.1:3001']), false)
+  assert.equal(looksLikeMcpServerListening(['{"msg":"Server listening","port":3002}']), true)
+  assert.equal(looksLikeMcpServerListening(['Endpoint ready http://localhost:3002/mcp']), false)
 })
 
 test('output classifiers detect rotation, permission, and uninitialized-database lines', () => {

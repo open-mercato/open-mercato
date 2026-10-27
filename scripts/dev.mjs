@@ -33,13 +33,19 @@ import {
 import { DOCKER_PROBE_TIMEOUT_MS, classifyDockerProbe } from './dev-docker-availability.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import {
+  MCP_DEFAULT_PORT,
   MCP_HEALTH_POLL_INTERVAL_MS,
   MCP_HEALTH_TIMEOUT_MS,
   MCP_MAX_FAST_CRASHES,
+  MCP_MAX_PORT_SELECTION_ATTEMPTS,
+  buildManagedMcpAppEnv,
   buildMcpCliArgs,
   deriveMcpHealthUrl,
   isFastMcpCrash,
+  isManagedMcpReadiness,
   isKeyRotationOutput,
+  looksLikeMcpPortCollision,
+  looksLikeMcpServerListening,
   looksLikeMissingKeyOwner,
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
@@ -47,6 +53,7 @@ import {
   nextMcpRestartDelayMs,
   resolveMcpKeyFilePath,
   resolveMcpPort,
+  selectAvailableMcpPort,
   shouldRetryMcpProvisioning,
   shouldStartMcp,
 } from './dev-mcp.mjs'
@@ -66,6 +73,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { acquireDevSession } from './dev-session-guard.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
@@ -230,7 +238,8 @@ const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT ===
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
 const withMcp = shouldStartMcp({ args, env: process.env, appOnly })
-const mcpPort = resolveMcpPort(process.env)
+let mcpPort = resolveMcpPort(process.env)
+const preferredMcpPort = mcpPort
 const mcpKeyFilePath = resolveMcpKeyFilePath(process.env, process.cwd())
 // Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
 // translated into env vars and forwarded to the spawned package watcher, which
@@ -327,6 +336,7 @@ async function finalizeDevProcess(exitCode) {
   }
   closeSplashServer()
   closeDevLogSession()
+  devSession?.release()
   process.exit(exitCode)
 }
 
@@ -337,6 +347,7 @@ let splashUrl = null
 let devGateway = null
 let devUpstreamPort = null
 let managedAppChild = null
+let devSession = null
 let restartRequestedReason = null
 // Gateway mode answers a startup-stage failure by keeping the supervisor alive
 // instead of shutting down, so the startup pipeline has to stop itself. Without
@@ -507,7 +518,8 @@ function spawnCommand(command, commandArgs, options = {}) {
   const teeRequested = options.mirrorOutput === true
   const teeActive = teeRequested && !devLogTeeDisabled
   const logFile = devLogTeeDisabled ? null : (options.logFile ?? null)
-  const needsLoggedPipe = teeActive || logFile != null
+  const captureRequested = typeof options.onLine === 'function'
+  const needsLoggedPipe = teeActive || logFile != null || captureRequested
 
   let stdio
   if (needsLoggedPipe) {
@@ -542,9 +554,17 @@ function spawnCommand(command, commandArgs, options = {}) {
       : undefined)
   } else if (teeActive) {
     attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
+  } else if (teeRequested && captureRequested) {
+    attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
+  }
+
+  if (captureRequested && child.stdout && child.stderr) {
+    connectLineStream(child.stdout, options.onLine)
+    connectLineStream(child.stderr, options.onLine)
   }
 
   children.add(child)
+  devSession?.registerChild(child, options.sessionRole ?? label)
 
   child.on('close', (code, signal) => {
     children.delete(child)
@@ -687,6 +707,8 @@ function buildSplashChildEnv(options = {}) {
         OM_DEV_LOG_ANNOUNCED: '1',
       }
 
+  Object.assign(childEnv, devSession?.childEnv ?? {})
+
   if (!splashChildStateFile) {
     const env = {
       ...childEnv,
@@ -794,15 +816,12 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
 }
 
 function buildMcpAppEnv() {
-  if (!withMcp) return {}
-  const env = {}
-  if (!process.env.MCP_SERVER_API_KEY && !process.env.MCP_SERVER_API_KEY_FILE) {
-    env.MCP_SERVER_API_KEY_FILE = mcpKeyFilePath
-  }
-  if (!process.env.MCP_URL) {
-    env.MCP_URL = `http://localhost:${mcpPort}`
-  }
-  return env
+  return buildManagedMcpAppEnv({
+    enabled: withMcp,
+    port: mcpPort,
+    keyFilePath: mcpKeyFilePath,
+    env: process.env,
+  })
 }
 
 function buildAppDevEnv(options = {}) {
@@ -2275,17 +2294,14 @@ function sleepUnlessShuttingDown(ms) {
 }
 
 function spawnMcpCommand(subcommandArgs, label, onLine) {
-  const child = spawnCommand(yarnCommand, buildMcpCliArgs(subcommandArgs, { isMonorepo }), {
+  return spawnCommand(yarnCommand, buildMcpCliArgs(subcommandArgs, { isMonorepo }), {
     label,
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
     nonFatal: true,
+    onLine,
+    sessionRole: label,
   })
-  if (onLine && child.stdout && child.stderr) {
-    connectLineStream(child.stdout, onLine)
-    connectLineStream(child.stderr, onLine)
-  }
-  return child
 }
 
 async function provisionMcpApiKey() {
@@ -2344,13 +2360,25 @@ async function provisionMcpApiKey() {
   return false
 }
 
-async function waitForMcpHealthy() {
-  const healthUrl = deriveMcpHealthUrl(mcpPort)
+async function waitForMcpHealthy(child, port, isListening) {
+  const healthUrl = deriveMcpHealthUrl(port)
   const deadline = Date.now() + MCP_HEALTH_TIMEOUT_MS
   while (!shuttingDown && Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) return false
+    if (!isListening()) {
+      await sleepUnlessShuttingDown(MCP_HEALTH_POLL_INTERVAL_MS)
+      continue
+    }
     try {
       const response = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) })
-      if (response.ok) return true
+      if (isManagedMcpReadiness({
+        childListening: isListening(),
+        childExitCode: child.exitCode,
+        childSignalCode: child.signalCode,
+        attemptedPort: port,
+        currentPort: mcpPort,
+        responseOk: response.ok,
+      })) return true
     } catch {
       // Not listening yet — keep polling until the deadline.
     }
@@ -2375,21 +2403,32 @@ async function fetchOpencodeMcpStatus() {
 
 // The OpenCode entrypoint reads the MCP key ONCE at container start. When the
 // key appears or rotates after that (headerless start on a slow first run, a
-// reseeded database), the container holds a stale binding until restarted —
+// reseeded database), the container holds a stale binding until recreated —
 // do it automatically, once per dev session so a broken hop can't loop it.
 let opencodeKeyRefreshNeeded = false
+let opencodeEndpointRefreshNeeded = false
 let opencodeRestartAttempted = false
 
 // The monorepo keeps its compose files under starters/docker/; a standalone app
 // scaffolded by create-app keeps them at its own root and gates the OpenCode
 // service behind the `agents` profile. Print the command that actually exists
 // for the layout we are running in.
-function opencodeRestartCommand() {
+function resolveOpencodeComposeArgs() {
   const infraCompose = path.join(process.cwd(), 'starters', 'docker', 'compose.infra.yml')
   if (fs.existsSync(infraCompose)) {
-    return 'docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode'
+    return ['compose', '--project-directory', '.', '-f', 'starters/docker/compose.infra.yml']
   }
-  return 'docker compose --profile agents restart opencode'
+  const standaloneCompose = path.join(process.cwd(), 'docker-compose.yml')
+  if (fs.existsSync(standaloneCompose)) {
+    return ['compose', '--project-directory', '.', '--profile', 'agents', '-f', 'docker-compose.yml']
+  }
+  return null
+}
+
+function opencodeRestartCommand() {
+  const composeArgs = resolveOpencodeComposeArgs()
+  if (!composeArgs) return 'restart the OpenCode container with its compose project'
+  return `docker ${[...composeArgs, 'up', '-d', '--no-deps', '--force-recreate', 'opencode'].join(' ')}`
 }
 
 // Docker is optional. Explain the skip once per dev session so a developer who
@@ -2400,33 +2439,40 @@ function noteDockerUnavailable(detail) {
   if (dockerUnavailableNoticeShown) return
   dockerUnavailableNoticeShown = true
   console.warn(`ℹ️ Skipping the OpenCode container refresh — ${detail}.`)
-  console.warn('   ↳ Docker is optional: it is only used to restart the containerized OpenCode agent.')
+  console.warn('   ↳ Docker is optional: it is only used to recreate the containerized OpenCode agent.')
   console.warn('   ↳ The app, the dev server and the MCP server are unaffected.')
 }
 
-// Returns the running container names, or null when Docker cannot answer.
-function listDockerContainerNames() {
+function isOpencodeContainerRunning(composeArgs) {
   const probe = classifyDockerProbe(
-    spawnSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8', timeout: DOCKER_PROBE_TIMEOUT_MS }),
+    spawnSync('docker', [...composeArgs, 'ps', '-q', 'opencode'], { encoding: 'utf8', timeout: DOCKER_PROBE_TIMEOUT_MS }),
   )
   if (!probe.available) {
     noteDockerUnavailable(probe.detail)
-    return null
+    return false
   }
-  return probe.names
+  return probe.names.length > 0
 }
 
 function restartOpencodeContainer(reason) {
   if (opencodeRestartAttempted || shuttingDown) return false
   opencodeRestartAttempted = true
-  const names = listDockerContainerNames()
-  if (names === null || !names.includes('mercato-opencode')) return false
-  console.log(`🔄 ${reason} — restarting the OpenCode container to pick up the fresh MCP key...`)
-  updateSplashState({ activity: 'Restarting OpenCode to pick up the fresh MCP key' })
-  const restart = spawnSync('docker', ['restart', 'mercato-opencode'], { encoding: 'utf8', timeout: 120_000 })
+  const composeArgs = resolveOpencodeComposeArgs()
+  if (!composeArgs || !isOpencodeContainerRunning(composeArgs)) return false
+  console.log(`🔄 ${reason} — recreating the OpenCode container with the current MCP endpoint...`)
+  updateSplashState({ activity: 'Recreating OpenCode with the current MCP endpoint' })
+  const environment = { ...process.env }
+  if (!process.env.OPENCODE_MCP_URL) {
+    environment.OPENCODE_MCP_URL = `http://host.docker.internal:${mcpPort}/mcp`
+  }
+  const restart = spawnSync(
+    'docker',
+    [...composeArgs, 'up', '-d', '--no-deps', '--force-recreate', 'opencode'],
+    { encoding: 'utf8', timeout: 120_000, env: environment },
+  )
   if (restart.error || restart.status !== 0) {
-    console.warn('⚠️ Could not restart the OpenCode container automatically.')
-    console.warn(`   ↳ restart it manually: ${opencodeRestartCommand()}`)
+    console.warn('⚠️ Could not recreate the OpenCode container automatically.')
+    console.warn(`   ↳ recreate it manually: ${opencodeRestartCommand()}`)
     return false
   }
   return true
@@ -2453,25 +2499,36 @@ async function checkOpencodeMcpWiring() {
 
 async function runMcpLifecycle() {
   let fastCrashes = 0
+  let bindRaceAttempts = 0
   while (!shuttingDown) {
     const provisioned = await provisionMcpApiKey()
     if (!provisioned || shuttingDown) return
 
     const startedAt = Date.now()
     const capturedLines = []
-    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(mcpPort)], 'MCP server', verbose ? null : (line) => {
+    const attemptedPort = mcpPort
+    let childListening = false
+    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(attemptedPort)], 'MCP server', (line) => {
       capturedLines.push(line)
       if (capturedLines.length > 200) capturedLines.shift()
+      if (looksLikeMcpServerListening([line])) childListening = true
     })
 
-    void waitForMcpHealthy().then(async (healthy) => {
+    void waitForMcpHealthy(child, attemptedPort, () => childListening).then(async (healthy) => {
       if (!healthy || shuttingDown) return
-      const readyMessage = `MCP server ready on http://localhost:${mcpPort}/mcp`
+      if (child.exitCode !== null || attemptedPort !== mcpPort) return
+      const readyMessage = `MCP server ready on http://localhost:${attemptedPort}/mcp`
       console.log(`🔌 ${readyMessage}`)
       updateSplashState({ activity: readyMessage })
-      if (opencodeKeyRefreshNeeded) {
+      if (opencodeKeyRefreshNeeded || opencodeEndpointRefreshNeeded) {
+        const refreshReason = opencodeKeyRefreshNeeded && opencodeEndpointRefreshNeeded
+          ? 'MCP API key and endpoint changed'
+          : opencodeKeyRefreshNeeded
+            ? 'MCP API key was rotated'
+            : `MCP selected port ${attemptedPort}`
         opencodeKeyRefreshNeeded = false
-        if (restartOpencodeContainer('MCP API key was rotated')) {
+        opencodeEndpointRefreshNeeded = false
+        if (restartOpencodeContainer(refreshReason)) {
           await sleepUnlessShuttingDown(30_000)
         }
       }
@@ -2482,6 +2539,23 @@ async function runMcpLifecycle() {
     if (shuttingDown || isGracefulShutdownResult(result)) return
 
     const exitCode = resolveChildExitCode(result)
+    if (looksLikeMcpPortCollision(capturedLines)) {
+      bindRaceAttempts += 1
+      if (bindRaceAttempts >= MCP_MAX_PORT_SELECTION_ATTEMPTS) {
+        console.error(`❌ MCP could not bind after ${bindRaceAttempts} port-selection attempts.`)
+        console.error('   ↳ stop the process racing for local ports, set MCP_PORT to an available port, or restart the dev runner.')
+        return
+      }
+      const previousPort = attemptedPort
+      mcpPort = await selectAvailableMcpPort(0)
+      opencodeEndpointRefreshNeeded = !process.env.OPENCODE_MCP_URL
+      console.warn(`⚠️ MCP port ${previousPort} was claimed before startup completed; retrying on ${mcpPort}.`)
+      if (!process.env.MCP_URL && managedAppChild && !managedAppChild.killed) {
+        restartManagedRuntime(`MCP endpoint moved to http://localhost:${mcpPort}`)
+      }
+      continue
+    }
+    bindRaceAttempts = 0
     fastCrashes = isFastMcpCrash(Date.now() - startedAt) ? fastCrashes + 1 : 0
     if (fastCrashes >= MCP_MAX_FAST_CRASHES) {
       console.error(`❌ MCP server keeps crashing (exit ${exitCode}) — giving up on restarts. The app keeps running without MCP.`)
@@ -2703,7 +2777,25 @@ async function runClassicStandaloneDev() {
   launchStandaloneDev()
 }
 
+async function prepareMcpEndpoint() {
+  if (!withMcp) return true
+  try {
+    mcpPort = await selectAvailableMcpPort(preferredMcpPort)
+  } catch (error) {
+    console.error(`❌ Unable to select an MCP port: ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return false
+  }
+
+  if (mcpPort !== preferredMcpPort) {
+    console.log(`🔌 MCP port ${preferredMcpPort} is unavailable; selected http://localhost:${mcpPort}/mcp`)
+  }
+  opencodeEndpointRefreshNeeded = !process.env.OPENCODE_MCP_URL && mcpPort !== MCP_DEFAULT_PORT
+  return true
+}
+
 async function main() {
+  if (!await prepareMcpEndpoint()) return
   printDevLogLocation()
   devRuntime.start()
   await startSplashServer()
@@ -2766,6 +2858,27 @@ async function main() {
   }
 
   await runStandardDev()
+}
+
+function resolveDevSessionMode() {
+  const topology = gatewayMode ? 'proxy' : 'direct'
+  const output = classic ? 'classic' : verbose ? 'verbose' : 'compact'
+  if (greenfield) return `greenfield:${topology}:${output}`
+  if (setupMode) return `setup:${topology}:${output}`
+  if (appOnly) return `app-only:${topology}:${output}`
+  return `dev:${topology}:${output}`
+}
+
+try {
+  devSession = acquireDevSession({
+    workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim() || process.cwd(),
+    mode: resolveDevSessionMode(),
+    url: resolveExpectedAppBaseUrl(),
+    role: 'dev-runner',
+  })
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 
 memoryTrace?.start()

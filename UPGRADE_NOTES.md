@@ -24,6 +24,25 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Dev launchers reject shared-workspace sessions and recover occupied MCP ports (#8044, #8046)
+
+The root and standalone `yarn dev` launchers now claim their canonical workspace before changing
+build caches, generated files, configuration, migrations, or development data. A second mutable
+dev launch in the same checkout exits non-zero and identifies the owning PID, mode, and URL when
+available. This prevents `yarn dev:greenfield` and similar commands from deleting manifests or
+resetting data underneath an active session. Managed parent/child processes share one claim, and
+stale claims are recovered after their processes exit.
+
+**Operator action:** stop the existing session before starting another in the same checkout. To
+run two sessions, use separate checkouts and databases; changing only the HTTP or MCP port does not
+isolate Next output, generated files, package artifacts, workers, or destructive database actions.
+
+`MCP_PORT` is now the managed server's preferred port. When it is occupied, the launcher selects a
+free port and propagates the resulting endpoint to the app and a running OpenCode compose service.
+Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values remain authoritative. No command, flag,
+or environment-variable name changed. See
+`.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` for the lifecycle details.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
