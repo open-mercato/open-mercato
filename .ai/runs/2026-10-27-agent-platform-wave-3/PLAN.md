@@ -48,9 +48,9 @@
 | 5 | 5.4 | Add an example integrity agent and resolver to agent_examples | dispatch | done | 4c9cc2ecc |
 | 5 | 5.5 | Cover the integrity pipeline with integration tests | dispatch | done | a9d897dd7 |
 | 5 | 5.6 | Fix the guardrail-checks and context-bundles list entity ids | inline | done | eb96121a3 |
-| 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | done | pending |
-| 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | done | pending |
-| 6 | 6.3 | Cover the structure panel with an integration test | dispatch | done | pending |
+| 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | done | da81ad140 |
+| 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | done | e2b661492 |
+| 6 | 6.3 | Cover the structure panel with an integration test | dispatch | done | 818f0e12f |
 | 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | todo | — |
 

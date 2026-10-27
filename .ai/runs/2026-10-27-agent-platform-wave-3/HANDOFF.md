@@ -1,16 +1,16 @@
 # Handoff — 2026-10-27-agent-platform-wave-3
 
-**Last updated:** 2026-10-27T11:52:46Z
+**Last updated:** 2026-10-27T12:21:39Z
 **Branch:** feat/agent-platform-wave-3 (stacked on feat/agent-platform-wave-2 @ 2d3734ed6)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8018 (draft)
-**Current phase/step:** Phase 6 Step 6.1
-**Last commit:** checkpoint 7 — docs(runs): checkpoint 7 — steps 5.4..5.6 verified
+**Current phase/step:** Phase 7 Step 7.1
+**Last commit:** checkpoint 8 — docs(runs): checkpoint 8 — steps 6.1..6.3 verified
 
 ## What just happened
-- Phase 5 (Integrity P2) complete: example integrity agent + resolver, TC-AGENT-INT specs, and a fix for the pre-existing 500 on the guardrail-checks / context-bundles lists (5.6). Checkpoint 7: 21 integration specs passed, 4 skipped (model).
+- Phase 6 (DocStructure P3) complete: get_document_sections tool, Structure tab panel, TC-ATT-STRUCT-007. Checkpoint 8 ran the structure specs (6 passed) and captured UI screenshots.
 
 ## Next concrete action
-- Step 6.1 — Add the attachments.get_document_sections AI tool.
+- Step 7.1 — Mirror the new env vars into the app and create-app template.
 
 ## Blockers / open questions
 - none. Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).

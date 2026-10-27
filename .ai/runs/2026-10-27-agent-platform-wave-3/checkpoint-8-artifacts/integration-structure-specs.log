@@ -1,0 +1,7 @@
+  ✓  1 packages/core/src/modules/attachments/__integration__/TC-ATT-STRUCT-001.spec.ts:15:3 › TC-ATT-STRUCT-001: PDF document structure outline › extracts a rulebook PDF and exposes chapter 8 with clause 8.12 on its page (1.6s)
+  ✓  2 packages/core/src/modules/attachments/__integration__/TC-ATT-STRUCT-002.spec.ts:17:3 › TC-ATT-STRUCT-002: document sections lookup and paging › finds clause 8.12 by number label with locator and citation, and pages by keyset (1.4s)
+  ✓  3 packages/core/src/modules/attachments/__integration__/TC-ATT-STRUCT-003.spec.ts:29:3 › TC-ATT-STRUCT-003: requesting extraction and access control › queues re-extraction for managers, forbids viewers and hides the attachment from another organization (3.7s)
+  ✓  4 packages/core/src/modules/attachments/__integration__/TC-ATT-STRUCT-004.spec.ts:38:3 › TC-ATT-STRUCT-004: deleting an attachment purges its structure › returns 404 from every structure route after the attachment is deleted (1.3s)
+  ✓  5 packages/core/src/modules/attachments/__integration__/TC-ATT-STRUCT-005.spec.ts:16:3 › TC-ATT-STRUCT-005: §-numbered regulation excerpt › extracts §-numbered sections under their part (153ms)
+  ✓  6 packages/core/src/modules/attachments/__integration__/TC-ATT-STRUCT-007.spec.ts:90:3 › TC-ATT-STRUCT-007: document structure panel in the attachment dialog › shows the outline to viewers and the Re-extract action only to managers (6.0s)
+  6 passed (2.4m)

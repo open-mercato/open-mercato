@@ -88,3 +88,8 @@
 - AO jest 1996, agent_examples jest 4, i18n, typecheck, lint, template sync, build:app --force: pass.
 - Environment: a restarted ephemeral env reuses build artifacts younger than 600 s; use `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=0` after source changes.
 - 5.4/5.5 decisions: `support.policy_check` uses a static in-code policy catalogue (no entities/migrations; resolver ignores scope, documented as global example data); its result `kind` is `'research'` (the two older example agents use `'researcher'` — pre-existing inconsistency, untouched); TC-AGENT-INT-001/002 seed run + check rows directly in the DB (no create API), like TC-AGENT-PERF; TC-AGENT-INT-004 is model-gated.
+
+## 2026-10-27T12:21:39Z — checkpoint 8 (Steps 6.1..6.3, Phase 6 close)
+- TC-ATT-STRUCT-001..005 + 007 passed against the rebuilt ephemeral app; screenshots captured for the structure panel (admin, viewer), the MCP exposure section and the Playground picker.
+- Decisions from executors: the tool returns `not_found` when the tool context has no organization (no superadmin org fallback); items carry `page` = start page; the Structure tab shows for every file type (images can be OCR'd; unsupported types show the API's skip reason); `AttachmentsSection` callers without `canManageStructure` fall back to `/api/auth/feature-check`; second-level outline nodes always offer expand (childCount unknown at maxDepth 2).
+- Evidence upload: the tracker descriptor's evidence-branch upload would create a branch on the public upstream repo via the API; agent writes to upstream go through the user, so screenshots are committed in the run folder and embedded with commit-pinned raw URLs after the user pushes.
