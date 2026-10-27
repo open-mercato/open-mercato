@@ -119,7 +119,7 @@ const countSchema = z.preprocess(coerceNumeric, z.number().int().nonnegative())
 const nonNegativeNumberSchema = z.preprocess(coerceNumeric, z.number().finite().nonnegative())
 const stringListSchema = z.preprocess(toStringList, z.array(z.string()).min(1))
 const booleanSchema = z.preprocess(coerceBoolean, z.boolean())
-const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/)
+const sha256Schema = z.string().regex(/^(sha256:)?[0-9a-f]{64}$/)
 
 const TYPED_ATTRIBUTE_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   [GEN_AI_ATTRIBUTES.operationName]: textSchema,

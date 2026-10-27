@@ -40,7 +40,7 @@ export type IngestTraceResult = {
  * storage with the key stamped on the row's artifact-key column. Attribute /
  * context payloads with no artifact-key column stay capped inline only.
  */
-const SUMMARY_CHAR_LIMIT = 4000
+export const SUMMARY_CHAR_LIMIT = 4000
 
 function capSummary(value: unknown): unknown {
   if (value === undefined || value === null) return value ?? null

@@ -6,14 +6,24 @@ import {
   type RawStepEvent,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/loop-step-extraction'
 import type { TraceIngest, TraceSpanIngest } from '../../data/validators'
-import { ingestTrace } from '../trace/traceIngestionService'
+import { ingestTrace, SUMMARY_CHAR_LIMIT } from '../trace/traceIngestionService'
 import { createArtifactOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { invalidateAgentRunCache } from '../crudCache'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
-import type { RunManifestInput } from '../trace/runManifest'
+import type { RunManifestCaptureLevel, RunManifestInput } from '../trace/runManifest'
 import { buildRunManifestSpan } from '../trace/runManifestEntry'
+import {
+  GEN_AI_ATTRIBUTES,
+  GEN_AI_OPERATIONS,
+  GEN_AI_OUTPUT_TYPES,
+  LEGACY_LLM_ATTRIBUTES,
+  OM_LLM_ATTRIBUTES,
+  STOP_SEQUENCES_MAX_COUNT,
+  STOP_SEQUENCE_MAX_CHARS,
+} from '../trace/genAiAttributes'
+import { computeCostMicros } from './modelPricing'
 import type { NativeModelCallRecord } from './nativeModelCallRecorder'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
@@ -67,6 +77,8 @@ export type NativeTraceInput = {
   fallbackCall?: NativeModelCallRecord | null
   /** Run manifest facts; when present the payload carries one `run.manifest` system span. */
   manifest?: RunManifestInput | null
+  /** Per-step metadata level; `off` keeps the legacy llm span attributes only. Defaults to `metadata`. */
+  captureLevel?: RunManifestCaptureLevel
 }
 
 /**
@@ -111,11 +123,119 @@ function resolveModelId(input: NativeTraceInput): string | null {
   return fromSteps ?? input.fallbackModel ?? null
 }
 
+type SpanAttributes = Record<string, unknown>
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function assignNumber(target: SpanAttributes, key: string, value: unknown): void {
+  if (isFiniteNumber(value)) target[key] = value
+}
+
+function assignText(target: SpanAttributes, key: string, value: string | null | undefined): void {
+  if (typeof value === 'string' && value.length > 0) target[key] = value
+}
+
+function capStopSequences(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  return values
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .slice(0, STOP_SEQUENCES_MAX_COUNT)
+    .map((value) => value.slice(0, STOP_SEQUENCE_MAX_CHARS))
+}
+
+function buildRequestParameterAttributes(call: NativeModelCallRecord): SpanAttributes {
+  const settings = call.callSettings
+  const params: SpanAttributes = {}
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestTemperature, settings.temperature)
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestTopP, settings.topP)
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestTopK, settings.topK)
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestMaxTokens, settings.maxOutputTokens)
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestSeed, settings.seed)
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestPresencePenalty, settings.presencePenalty)
+  assignNumber(params, GEN_AI_ATTRIBUTES.requestFrequencyPenalty, settings.frequencyPenalty)
+  const stopSequences = capStopSequences(settings.stopSequences)
+  if (stopSequences.length > 0) params[GEN_AI_ATTRIBUTES.requestStopSequences] = stopSequences
+  if (Object.keys(params).length === 0) params[OM_LLM_ATTRIBUTES.paramsDefaults] = true
+  return params
+}
+
+function buildCallMetadataAttributes(
+  call: NativeModelCallRecord,
+  fallbackUsage: { inputTokens?: number; outputTokens?: number } | null | undefined,
+): SpanAttributes {
+  const attributes: SpanAttributes = {
+    [GEN_AI_ATTRIBUTES.operationName]: GEN_AI_OPERATIONS.chat,
+    [GEN_AI_ATTRIBUTES.outputType]: GEN_AI_OUTPUT_TYPES.json,
+  }
+  assignText(attributes, GEN_AI_ATTRIBUTES.providerName, call.provider)
+  assignText(attributes, GEN_AI_ATTRIBUTES.requestModel, call.requestModel)
+  assignText(attributes, GEN_AI_ATTRIBUTES.responseModel, call.responseModel)
+  assignText(attributes, GEN_AI_ATTRIBUTES.responseId, call.responseId)
+  Object.assign(attributes, buildRequestParameterAttributes(call))
+  const inputTokens = isFiniteNumber(call.usage.inputTokens) ? call.usage.inputTokens : fallbackUsage?.inputTokens
+  const outputTokens = isFiniteNumber(call.usage.outputTokens) ? call.usage.outputTokens : fallbackUsage?.outputTokens
+  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageInputTokens, inputTokens)
+  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageOutputTokens, outputTokens)
+  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageCacheReadInputTokens, call.usage.cachedInputTokens)
+  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageReasoningOutputTokens, call.usage.reasoningTokens)
+  if (call.finishReason) attributes[GEN_AI_ATTRIBUTES.responseFinishReasons] = [call.finishReason]
+  assignNumber(attributes, OM_LLM_ATTRIBUTES.latencyMs, call.latencyMs)
+  const cost = computeCostMicros(call.responseModel ?? call.requestModel, { inputTokens, outputTokens })
+  if (cost) {
+    attributes[OM_LLM_ATTRIBUTES.costMicros] = cost.micros
+    attributes[OM_LLM_ATTRIBUTES.costCurrency] = cost.currency
+    attributes[OM_LLM_ATTRIBUTES.costPricingSource] = cost.pricingSource
+  } else {
+    attributes[OM_LLM_ATTRIBUTES.costPricingSource] = 'unknown'
+  }
+  assignText(attributes, OM_LLM_ATTRIBUTES.promptSystemSha256, call.systemSha256)
+  assignText(attributes, OM_LLM_ATTRIBUTES.toolsSha256, call.toolsSha256)
+  assignNumber(attributes, OM_LLM_ATTRIBUTES.toolsCount, call.toolCount)
+  assignNumber(attributes, OM_LLM_ATTRIBUTES.messagesCount, call.messageCount)
+  assignText(attributes, OM_LLM_ATTRIBUTES.contentRequestSha256, call.requestSha256)
+  assignNumber(attributes, OM_LLM_ATTRIBUTES.contentRequestBytes, call.requestBytes)
+  assignText(attributes, OM_LLM_ATTRIBUTES.contentResponseSha256, call.responseSha256)
+  assignNumber(attributes, OM_LLM_ATTRIBUTES.contentResponseBytes, call.responseBytes)
+  attributes[OM_LLM_ATTRIBUTES.contentStatus] = 'disabled'
+  attributes[OM_LLM_ATTRIBUTES.captureFidelity] = call.fidelity
+  return attributes
+}
+
+function fitsSpanAttributeCap(attributes: SpanAttributes): boolean {
+  return JSON.stringify(attributes).length <= SUMMARY_CHAR_LIMIT
+}
+
+/**
+ * Llm span attributes for one model call: the legacy keys always, plus the
+ * gen_ai / om metadata keys when a call record exists and the capture level is
+ * not `off`. The result always fits the ingest attribute cap — stop sequences
+ * are dropped first, then the metadata keys, so the span is never truncated.
+ */
+function buildLlmSpanAttributes(
+  legacy: SpanAttributes | null,
+  call: NativeModelCallRecord | null | undefined,
+  captureLevel: RunManifestCaptureLevel,
+  fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null,
+): SpanAttributes | null {
+  if (captureLevel === 'off' || !call) return legacy
+  const metadata = buildCallMetadataAttributes(call, fallbackUsage)
+  const combined = { ...(legacy ?? {}), ...metadata }
+  if (fitsSpanAttributeCap(combined)) return combined
+  const withoutStopSequences = Object.fromEntries(
+    Object.entries(combined).filter(([key]) => key !== GEN_AI_ATTRIBUTES.requestStopSequences),
+  )
+  if (fitsSpanAttributeCap(withoutStopSequences)) return withoutStopSequences
+  return legacy
+}
+
 /**
  * Pure mapping from the runner's step records to the `ingestTrace` payload.
  * Spans-only at the run level (no status/output) per spec decision H2.
  */
 export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
+  const captureLevel = input.captureLevel ?? 'metadata'
   const spans: TraceSpanIngest[] = []
   let sequence = 0
   let cursorMs = input.startedAtMs
@@ -133,11 +253,16 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
       endedAt: isoAt(step.endedAtMs),
       durationMs: Math.max(0, step.endedAtMs - stepStartMs),
       status: 'ok',
-      attributes: {
-        inputTokens: step.usage.inputTokens,
-        outputTokens: step.usage.outputTokens,
-        finishReason: step.finishReason,
-      },
+      attributes: buildLlmSpanAttributes(
+        {
+          [LEGACY_LLM_ATTRIBUTES.inputTokens]: step.usage.inputTokens,
+          [LEGACY_LLM_ATTRIBUTES.outputTokens]: step.usage.outputTokens,
+          [LEGACY_LLM_ATTRIBUTES.finishReason]: step.finishReason,
+        },
+        step.call,
+        captureLevel,
+        step.usage,
+      ),
     })
     for (let toolIndex = 0; toolIndex < step.toolCalls.length; toolIndex += 1) {
       const toolCall = step.toolCalls[toolIndex]
@@ -169,6 +294,17 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
   }
 
   if (spans.length === 0) {
+    const syntheticAttributes = buildLlmSpanAttributes(
+      input.fallbackUsage
+        ? {
+            [LEGACY_LLM_ATTRIBUTES.inputTokens]: input.fallbackUsage.inputTokens ?? 0,
+            [LEGACY_LLM_ATTRIBUTES.outputTokens]: input.fallbackUsage.outputTokens ?? 0,
+          }
+        : null,
+      input.fallbackCall,
+      captureLevel,
+      input.fallbackUsage,
+    )
     spans.push({
       externalSpanId: `${input.runId}:0`,
       sequence: 0,
@@ -178,14 +314,7 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
       endedAt: isoAt(input.endedAtMs),
       durationMs: Math.max(0, input.endedAtMs - input.startedAtMs),
       status: 'ok',
-      ...(input.fallbackUsage
-        ? {
-            attributes: {
-              inputTokens: input.fallbackUsage.inputTokens ?? 0,
-              outputTokens: input.fallbackUsage.outputTokens ?? 0,
-            },
-          }
-        : {}),
+      ...(syntheticAttributes ? { attributes: syntheticAttributes } : {}),
     })
   }
 

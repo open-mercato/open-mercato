@@ -151,6 +151,18 @@ describe('readLlmSpanMetadata', () => {
     expect(metadata.paramsDefaults).toBe(true)
   })
 
+  it('accepts sha256 values with or without the sha256: prefix used by the run manifest', () => {
+    const prefixed = `sha256:${systemHash}`
+    const metadata = readLlmSpanMetadata({
+      [OM_LLM_ATTRIBUTES.promptSystemSha256]: prefixed,
+      [OM_LLM_ATTRIBUTES.toolsSha256]: toolsHash,
+      [OM_LLM_ATTRIBUTES.contentRequestSha256]: `sha256:${'c'.repeat(63)}`,
+    })
+    expect(metadata.promptSystemSha256).toBe(prefixed)
+    expect(metadata.toolsSha256).toBe(toolsHash)
+    expect(metadata.contentRequestSha256).toBeUndefined()
+  })
+
   it('prefers gen_ai usage over legacy keys and ignores unknown keys', () => {
     const metadata = readLlmSpanMetadata({
       inputTokens: 1,
