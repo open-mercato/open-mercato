@@ -39,6 +39,7 @@
 | 4 | 4.9 | Add the otel:export backfill CLI | dispatch | done | pending |
 | 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | done | pending |
 | 4 | 4.11 | Cover OTel export with integration tests | dispatch | done | pending |
+| 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | todo | — |
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | todo | — |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | todo | — |
 
@@ -209,6 +210,11 @@ Shorthand: `AA` = `packages/ai-assistant/src/modules/ai_assistant`, `AO` = `pack
 - `TC-AGENT-OTEL-001`: settings round-trip + 422 for `content: 'full'` + test-span endpoint returns a clear disabled response when the deployment switch is off (works in the ephemeral app without env changes).
 - `TC-AGENT-OTEL-002`: with a fake OTLP receiver (Node HTTP server on a free port) — only when the app was started with `OM_AGENT_OTEL_EXPORT=on` and the endpoint pointing at the receiver (skip with an explicit reason otherwise): ingest a run through the HMAC `trace/ingest` route (no LLM needed), poll the receiver, assert one `invoke_agent` span with the deterministic trace id, child spans, tenant resource attributes and no content keys; tenant opted out → no request.
 - `TC-AGENT-OTEL-003`: CLI `--dry-run` output parses as OTLP JSON (unit-level if invoking the CLI from Playwright is not supported; record the reason).
+
+#### 4.11-review-fix Share module-config cache entries between routes and background workers
+- Found by TC-AGENT-OTEL-002: `module-config-service` (core `configs`) caches through the tenant-aware cache wrapper, which prefixes keys with the AsyncLocalStorage tenant. API routes write under `tenant:<id>:`; persistent subscribers and workers read under `tenant:global:`, so background readers see stale settings for up to the 60 s TTL (OTel export opt-in/out, trace capture policy, auto-approval policy). The user approved fixing it in core in this PR.
+- Run every cache get/set/delete in the service under `runWithCacheTenant(<record tenantId or null>)` so the key scope depends only on the row, not on the caller. Unit test: write inside one tenant context, read inside another (global) → fresh value; invalidation reaches both.
+- Remove the 62 s TTL waits from `TC-AGENT-OTEL-002`.
 
 ### Phase 5 — Close
 
