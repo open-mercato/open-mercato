@@ -553,6 +553,10 @@ Every mutating command starts with `enforceCommandOptimisticLock({ resourceKind:
 
 The lock check runs before any entity manager work; the entity mutations themselves run inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` (§3.1a) — not a raw SQL `UPDATE ... WHERE`, because the write flow interleaves external service calls (`catalogBuyerPricingService.resolveLinePrice`, `promotionsService`, `salesCalculationService`) with entity mutations, which is exactly the "mutate → external work → mutate again" shape `withAtomicFlush` exists to protect against a dropped scalar update.
 
+`cart.lines.add` and `.bulkAdd` serialize on the existing PostgreSQL transaction advisory key `cart:lines:<cartId>`. A top-level command uses `pg_try_advisory_xact_lock` as the first atomic phase. An unsuccessful attempt rolls back before any mutation or flush, then waits with bounded exponential backoff and jitter outside the transaction. It retries only that private contention signal; no completed mutation or other error is replayed. This releases pooled connections for pricing and promotion services that fork another EntityManager while the lock holder is active. Top-level contention has a 15-second wait budget. Once an unsuccessful attempt has rolled back, expiration returns `503 cart_busy` with `{ error, code }`, `Retry-After: 1` and `Cache-Control: no-store`; no line mutation or successful idempotency response has been recorded. Clients may retry the same request after one second, preserving its `Idempotency-Key`. Only this private, pre-mutation cart timeout is retryable; unrelated lock errors, mutation failures and uncertain commit outcomes retain their existing error handling.
+
+The command keeps its captured, scoped EntityManager and existing managed cart identity throughout the successful atomic phases. The shared `withAdvisoryXactLock` helper is not a drop-in replacement: it supplies a separate transaction manager to its callback, while these phases capture the original manager and call services with their own forks. An already active caller-owned transaction retains the original blocking advisory statement and owns commit/rollback; the command cannot release that connection or restart its caller's transaction.
+
 ### 8.2 Idempotency
 
 Mutations accept an `Idempotency-Key`. A repeated key within the cart's lifetime returns the original result without re-applying — this is what makes "add to cart" safe under a double-tap or a retried request on a flaky mobile connection. The idempotency lookup precedes the §8.1 optimistic-lock check (clarified 2026-09-30): a retry of a mutation that landed but lost its response carries the pre-mutation `updatedAt`, so a lock check that ran first would answer it with a `409` against the cart the original request itself changed.
@@ -761,6 +765,8 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 | R15 | Proposal authoring reachable by a cart token | **High** | `cart` | Every other route on `/api/cart` is token-bound, so authoring is written the same way by symmetry. A leaked token (R6) then lets an attacker inject priced lines into the buyer's own proposal tray, rendered in the store's branding and one click from the basket — phishing with the merchant's trust behind it. | §10: `POST /proposals` requires an authenticated principal holding `cart.proposals.author` and accepts no cart token and is the single route on this base path a token alone cannot reach; accept/reject/preview stay token-bound because there the token holder *is* the buyer. Asserted by a test that presents a valid cart token with no principal and expects `401` | Low |
 | R16 | Actor attribution lost or unverifiable | Medium | `cart` | `added_by_actor_id` is written from request input rather than from the authenticated principal, so a caller attributes a line to another rep — or the column is left NULL on a path nobody remembered, and commission silently under-reports. | `added_by_actor_type`/`_id` are set by the command from `ctx.auth`, never from the request body, and are non-nullable for `rep`/`ai_agent`; a test asserts a body-supplied actor id is ignored. `CartMergeLog` records the merging actor with the same rule | Low |
 
+| R17 | Advisory waiters exhaust the connection pool | **High** | `cart` | Parallel adds occupy all pooled connections waiting on the cart lock, so the holder cannot run a pricing/promotion query through a fork. Two processes contending on different carts can reproduce the same failure even with a local per-cart mutex. | §8.1: unsuccessful try-lock attempts roll back before mutations and release their connection during backoff; same scoped manager and atomic phases after acquisition; native PostgreSQL tests cover pools 2/20 and two-process cross-cart contention | Caller-owned ambient transactions retain their existing connection ownership; top-level sustained contention returns the documented pre-mutation 503 after its 15-second budget |
+
 ---
 
 ## 14) Integration Coverage
@@ -914,6 +920,7 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 | `quantity_increment_violation` | 422 | Carries `nearestValid` (§5.5) |
 | `quantity_below_min` | 422 | |
 | `quantity_capped` | 200 (warning) | Above `maxOrderQuantity`, capped rather than rejected |
+| `cart_busy` | 503 | `lines.add`/`.bulkAdd` did not acquire the cart line lock within 15 seconds; no line mutation ran. Retry the same request after `Retry-After: 1`, preserving `Idempotency-Key` |
 | `cart_locked` | 423 | Carries `checkoutSessionId` (§9) |
 | `cart_has_unavailable_lines` | 409 | `cart.lock` refused while a line is flagged (F7) |
 | `cart_not_active` | 409 | **(rev 9 — F15, corrected 2026-10-23 — #7880)** A write was attempted against a merged, expired or converted cart; the response carries the cart's actual `status`. An `abandoned` basket is not refused — §9's `abandoned → active` applies: the write reactivates it and extends `expires_at` |
@@ -948,6 +955,8 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 ---
 
 ## 16a) Migration & Backward Compatibility (rev 9 — previously missing, per the Release 4 analysis §2)
+
+**2026-10-27 contention response (user-approved):** existing route URLs, request bodies, successful response schemas and database structure are unchanged. `POST /api/cart/current/lines` and `/lines/bulk` add the documented `503 cart_busy` response after 15 seconds of top-level lock contention. Clients should respect `Retry-After: 1` and retry the same body/idempotency key; they must not treat a generic 500 or an uncertain commit outcome as this safe pre-mutation rejection. No database or server configuration migration is required.
 
 `cart` is greenfield: no implementation exists anywhere in the repository, so no deprecation protocol is triggered and no bridge is owed for any rename this revision makes.
 
@@ -989,11 +998,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 
 ## 18) Changelog
 
-### 2026-10-27 — cart line lock contention releases pooled connections
+### 2026-10-27 (connection release during cart line contention)
 
-- `cart.lines.add` and `cart.lines.bulkAdd` retain their existing per-cart transaction lock, phase flushes, and post-commit side effects. A contended first-phase try-lock now rolls back its empty transaction before bounded backoff, preserving pooled connections for the lock holder's pricing and promotion queries. No mutation phase runs until the lock is acquired; a mutation failure is never replayed. Calls that join an ambient transaction retain its lock and commit/rollback ownership.
-- Risk addressed: 20 blocking same-cart transactions can occupy the default 20-connection pool while the lock holder needs another connection, causing an acquisition timeout and a raw 500. No API, entity, command input, lock key, or arithmetic contract changes.
-- Validation: all 221 cart unit tests pass, including five contention/rollback regressions. A native PostgreSQL probe with 20 parallel adds and a nested query per add produces exactly one line at quantity 20 and a cart total of 20 with both 20-connection and 2-connection pools; the former blocking-lock pattern reproduces a connection acquisition timeout. `TC-CART-CONC-05` keeps its existing live API assertions for the full application CI gate.
+- Keep PostgreSQL serialization and the existing `withAtomicFlush` phases for `cart.lines.add`/`.bulkAdd`, but release top-level contended transactions before waiting. Retry only pre-mutation lock contention, preserve caller-owned ambient transactions, and stop on an unsuccessful rollback. No schema change. The user-approved 15-second top-level lock deadline maps only the private pre-mutation timeout to `503 cart_busy` with `Retry-After: 1`; API documentation and five locales describe the retry response.
+- Validation: 232 cart tests across 20 suites; unit and HTTP-boundary regressions cover empty rollback before timeout, exact retry headers/body, no successful idempotency record, no command replay and unchanged handling of mutation/commit-unknown errors. Seven lock regressions cover acquisition, deadline, rollback and ambient ownership. Native PostgreSQL proofs perform 20 concurrent adds with pools 20 and 2 (one line, quantity/total 20), and two processes with pool 2 each (40 adds, one line, quantity/total 40). Injected failures after flushed writes roll back and permit the next add. A two-process/two-cart counterexample confirms that a local mutex alone still exhausts both pools; try-lock rollback releases both waiters before mutation, lets both nested pricing queries finish, and applies each of the four mutations exactly once.
 
 ### 2026-10-24 (re-review M1 — PR #7592)
 

@@ -4,6 +4,7 @@
   "cart.audit.lines.bulkAdd": "Add cart lines (bulk)",
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
+  "cart.errors.busy": "장바구니가 사용 중입니다. 다시 시도해 주세요.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

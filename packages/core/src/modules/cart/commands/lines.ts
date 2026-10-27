@@ -57,6 +57,7 @@ import {
 } from '../lib/visibility'
 import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visibility'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
+import { withCartLineMutationLock } from '../lib/lineMutationLock'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { buildRecomputeCartTotalsPhase } from '../lib/reprice'
 import type { CartPriceChange } from '../lib/reprice'
@@ -64,7 +65,6 @@ import { buildPromotionsEffectsPhase } from '../lib/promotionContext'
 import type { CartPromotionWarning } from '../lib/promotionContext'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { recordBasketMutationActivity } from '../lib/cartActivity'
-import { withCartLineMutationLock } from '../lib/lineMutationLock'
 import { emitCartEvent } from '../events'
 // Type-only — erased at compile time, so this carries none of the runtime circularity risk
 // a VALUE import would: `commands/cart.ts` already imports `emitVisibilityRejectedEvent`
