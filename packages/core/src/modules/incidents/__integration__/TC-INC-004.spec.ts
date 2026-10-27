@@ -196,10 +196,18 @@ test.describe('TC-INC-004: Incident RBAC and organization isolation', () => {
       await setUserAclVisibility(request, superadminToken, {
         userId: userBId,
         organizations: [orgBId],
+        features: ['incidents.*'],
       })
       userBToken = await getAuthToken(request, userEmail, password)
       expect(getTokenContext(userBToken).organizationId, 'cross-scope user home org should be org B').toBe(orgBId)
       expect(getTokenContext(userBToken).tenantId, 'cross-scope user should share the admin tenant').toBe(adminScope.tenantId)
+      const featureCheck = await apiRequest(request, 'POST', '/api/auth/feature-check', {
+        token: userBToken,
+        data: { features: ['incidents.incident.view', 'incidents.incident.manage'] },
+      })
+      expect(featureCheck.status(), 'cross-org principal feature check should succeed').toBe(200)
+      const featureResult = await readJsonSafe<{ ok?: boolean }>(featureCheck)
+      expect(featureResult?.ok, 'organization isolation must be tested with incident permissions granted').toBe(true)
 
       const originalTitle = uniqueTitle('INC org A')
       incidentId = await createIncident(request, adminToken, adminScope, originalTitle)

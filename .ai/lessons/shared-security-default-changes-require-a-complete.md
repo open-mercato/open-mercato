@@ -1,6 +1,6 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache","events","example","create_app"]
+modules: ["shared","auth","cache","events","example","create_app","incidents"]
 areas: ["integration","testing","module-data"]
 topics: ["access-control","data-scoping","events"]
 ---
@@ -26,3 +26,5 @@ topics: ["access-control","data-scoping","events"]
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+- 2026-10-27 · incidents: an organization-only user ACL is an absolute override, so a new override with no feature grants is correctly rejected. Isolation fixtures must submit their intended feature set and prove it is effective before asserting that cross-organization reads and writes are denied.
