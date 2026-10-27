@@ -239,9 +239,8 @@ Unless the caller passes `createProgressJob: false`, every run started through
 `startDataSyncRun` (`lib/start-run.ts`) — the run route, Retry, the scheduled
 worker and provider-owned routes — creates a `ProgressJob` that `ProgressTopBar`
 shows to every user with `progress.view`; its Cancel works for the user who
-started the run (`progress.cancel`) or anyone holding `progress.manage`.
-An adapter may describe that
-job per entity type:
+started the run (`progress.cancel`) or anyone holding `progress.manage`. An
+adapter may describe that job per entity type:
 
 ```typescript
 describeProgressJob: ({ entityType }) =>
