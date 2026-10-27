@@ -144,6 +144,8 @@ export type BuildPromotionsEffectsPhaseParams = {
   createdGiftLines: CartLine[]
   /** Gift `CartLine`s removed because their promotion no longer applies, same reason. */
   removedGiftLines: CartLine[]
+  /** The cart currency's amount precision, resolved before the transaction (`max(4, currency decimals)`). */
+  amountDecimalPlaces?: number
 }
 
 /**
@@ -161,7 +163,7 @@ export type BuildPromotionsEffectsPhaseParams = {
  * `resolvePromotionsServiceScope`/`resolvePromotionsServiceAuthAndScope`).
  */
 export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseParams): () => Promise<void> {
-  const { em, container, cart, lines, assortmentScope, tenantScope, now, adjustments, warnings, createdGiftLines, removedGiftLines } = params
+  const { em, container, cart, lines, assortmentScope, tenantScope, now, adjustments, warnings, createdGiftLines, removedGiftLines, amountDecimalPlaces } = params
 
   return async () => {
     const promotionsService = container.resolve<PromotionsService>('promotionsService')
@@ -382,7 +384,7 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
           taxRate: null,
           configuration: null,
         },
-        context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+        context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode, amountDecimalPlaces },
       })
 
       const giftLine = em.create(CartLine, {

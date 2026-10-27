@@ -11,7 +11,7 @@ import type {
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
 import { Cart, CartLine } from '../data/entities'
-import { absDecimal, decimalToString } from '@open-mercato/shared/lib/decimal'
+import { absDecimal, decimalToString, resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 import { resolvedPriceString, samePrice } from './exactPricing'
 
 // Step 5.1 — the whole-cart re-pricing engine behind the `cart.reprice` command (triggers
@@ -152,6 +152,7 @@ async function computeLineTotals(
   salesCalculationService: SalesCalculationService,
   cart: Cart,
   line: CartLine,
+  amountDecimalPlaces: number,
 ): Promise<Record<string, unknown>> {
   const result = await salesCalculationService.calculateLine({
     documentKind: 'quote',
@@ -169,7 +170,7 @@ async function computeLineTotals(
       taxRate: line.taxRate !== null ? Number(line.taxRate) : null,
       configuration: line.configuration ?? null,
     },
-    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode, amountDecimalPlaces },
   })
   return result as unknown as Record<string, unknown>
 }
@@ -205,6 +206,7 @@ export function buildCartLineRepricePhases(
   const buyerPricingService = container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
   const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
   const pricingContext = buildPricingContext(cart)
+  const amountDecimalPlaces = resolveAmountDecimalPlaces(currencyDecimalPlaces)
 
   // Step 7.1 — §4.2/§6a.2: a flagged line is excluded from re-pricing (same reasoning as the
   // totals/evaluate exclusion below — it is not for sale right now). A `promotion`-origin
@@ -240,7 +242,7 @@ export function buildCartLineRepricePhases(
     const oldNet = line.unitPriceNet ?? null
     const oldGross = line.unitPriceGross ?? null
     applyPriceSnapshot(line, resolved, now)
-    line.lineTotals = await computeLineTotals(salesCalculationService, cart, line)
+    line.lineTotals = await computeLineTotals(salesCalculationService, cart, line, amountDecimalPlaces)
     touched.push(line)
 
     const newNet = line.unitPriceNet ?? null
@@ -310,6 +312,7 @@ export function buildRecomputeCartTotalsPhase(
   now: Date,
   changes: CartPriceChange[],
   adjustments: SalesAdjustmentDraft[] = [],
+  currencyDecimalPlaces: number | null = null,
 ): () => Promise<void> {
   return async () => {
     const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
@@ -322,6 +325,7 @@ export function buildRecomputeCartTotalsPhase(
         tenantId: cart.tenantId,
         organizationId: cart.organizationId,
         currencyCode: cart.currencyCode,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         metadata: { source: 'cart', cartId: cart.id },
       },
     })

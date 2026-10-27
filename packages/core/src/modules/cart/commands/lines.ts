@@ -72,6 +72,7 @@ import { emitCartEvent } from '../events'
 // `cart.reprice` without importing its handler object.
 import type { CartRepriceInput, CartRepriceResult } from './cart'
 import { resolveCartCurrencyDecimalPlaces, resolvedPriceString, samePrice } from '../lib/exactPricing'
+import { resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 
 // Step 4.6 — `cart.lines.add`, `.update`, `.remove`, `.bulkAdd`. Builds directly on Step
 // 4.4's `evaluateCartVisibility` (§6a) and Step 4.5's `cart.create`/`cart.get` + the
@@ -404,6 +405,7 @@ async function computeLineTotals(
     unitPriceGrossExact?: string | null
     taxRate: number | null
     configuration: Record<string, unknown> | null
+    amountDecimalPlaces: number
   },
 ): Promise<Record<string, unknown>> {
   const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
@@ -423,7 +425,12 @@ async function computeLineTotals(
       taxRate: params.taxRate,
       configuration: params.configuration,
     },
-    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+    context: {
+      tenantId: cart.tenantId,
+      organizationId: cart.organizationId,
+      currencyCode: cart.currencyCode,
+      amountDecimalPlaces: params.amountDecimalPlaces,
+    },
   })
   return result as unknown as Record<string, unknown>
 }
@@ -755,8 +762,9 @@ function buildCartPromotionsAndTotalsPhases(params: {
   createdGiftLines: CartLine[]
   removedGiftLines: CartLine[]
   promotionWarnings: CartPromotionWarning[]
+  currencyDecimalPlaces: number | null
 }): Array<() => Promise<void>> {
-  const { em, container, cart, scope, assortmentScope, now, createdGiftLines, removedGiftLines, promotionWarnings } = params
+  const { em, container, cart, scope, assortmentScope, now, createdGiftLines, removedGiftLines, promotionWarnings, currencyDecimalPlaces } = params
   container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
 
   const lines: CartLine[] = []
@@ -786,9 +794,10 @@ function buildCartPromotionsAndTotalsPhases(params: {
     warnings: promotionWarnings,
     createdGiftLines,
     removedGiftLines,
+    amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
   })
 
-  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments)
+  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments, currencyDecimalPlaces)
 
   return [fetchLinesPhase, promotionsPhase, totalsPhase]
 }
@@ -989,6 +998,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
             unitPriceGross: resolved.amountGross,
             unitPriceNetExact: resolved.amountNetExact,
             unitPriceGrossExact: resolved.amountGrossExact,
+            amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
             taxRate: resolved.taxRatePercent,
             configuration: existing.configuration ?? null,
           })
@@ -1042,6 +1052,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           unitPriceGross: resolved.amountGross,
           unitPriceNetExact: resolved.amountNetExact,
           unitPriceGrossExact: resolved.amountGrossExact,
+          amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
           taxRate: resolved.taxRatePercent,
           configuration: fields.configuration,
         })
@@ -1054,6 +1065,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
       // Step 8.2 (QA F12) — whole-cart promotions re-evaluation + totals recompute, gated
       // on the mutation phase above actually accepting the line (never on a rejection).
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,
@@ -1239,6 +1251,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         unitPriceGross: resolved.amountGross,
         unitPriceNetExact: resolved.amountNetExact,
         unitPriceGrossExact: resolved.amountGrossExact,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         taxRate: resolved.taxRatePercent,
         configuration: line.configuration ?? null,
       })
@@ -1274,6 +1287,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         line.quantity = String(finalQuantity)
       },
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,
@@ -1332,6 +1346,8 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     // line from a `merged`/`expired`/`converted` cart and the promotions/totals recompute
     // below would persist new `Cart.totals` on a cart whose order has already been finalized.
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
+    // Resolved before the locked transaction below, so it never needs a second pooled connection.
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
     const assortmentScope = resolveEnforcedScope(cart, rawScope)
 
     const line = await findOneWithDecryption(em, CartLine, { id: input.lineId, cartId: cart.id, tenantId, organizationId, deletedAt: null }, {}, scope)
@@ -1354,6 +1370,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
         line.deletedAt = now
       },
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,
@@ -1597,6 +1614,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
           unitPriceGross: resolved.amountGross,
           unitPriceNetExact: resolved.amountNetExact,
           unitPriceGrossExact: resolved.amountGrossExact,
+          amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
           taxRate: resolved.taxRatePercent,
           configuration: existingLine.configuration ?? null,
         })
@@ -1646,6 +1664,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         unitPriceGross: resolved.amountGross,
         unitPriceNetExact: resolved.amountNetExact,
         unitPriceGrossExact: resolved.amountGrossExact,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         taxRate: resolved.taxRatePercent,
         configuration: fields.configuration,
       })
@@ -1675,6 +1694,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       },
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,

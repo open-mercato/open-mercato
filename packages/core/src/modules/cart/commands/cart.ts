@@ -34,6 +34,7 @@ import type { CartRepriceTriggerReason } from '../lib/triggers'
 import { buildWholeCartRevisibilityPhase } from '../lib/visibility'
 import { emitVisibilityRejectedEvent } from './lines'
 import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
+import { resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 
 // Step 4.5 — the first two commands in the §3.1a list: `cart.create` and `cart.get`, the
 // route edge's two entry points. Step 5.1 adds `cart.reprice` (§5.2 triggers 2-4) to this
@@ -766,13 +767,14 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
       warnings: promotionWarnings,
       createdGiftLines,
       removedGiftLines,
+      amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
     })
 
     // `lines` is mutated in place by `promotionsPhase` (gift lines pushed/removed) — the
     // totals phase closes over the SAME array reference and filters/maps it at its own
     // execution time (after `promotionsPhase` has already run), so it always sees the
     // current set without a second DB round trip.
-    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes, adjustments)
+    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes, adjustments, currencyDecimalPlaces)
 
     // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
     // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one
