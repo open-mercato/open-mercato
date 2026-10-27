@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","sync_excel","customers"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","sync_excel"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -13,7 +13,7 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 
 `TC-SX-009` intermittently created duplicate people or addresses because its polling helper manually drained `data-sync-import` while the ephemeral app also ran its background worker. The local queue supports concurrent producers but explicitly does not lease jobs between concurrent consumers. A focused reproduction delivered one queued job twice through two consumer instances. Keep the uniqueness assertions and poll the app worker; manually drain only when `AUTO_SPAWN_WORKERS` is explicitly disabled, using the shared boolean parser with the runner's default of `true`. The same restriction applies to event-queue drains.
 
-`TC-CRM-065` selected ten people with the table header checkbox while its scenario owned only three fixtures. The blocked fixture was already visible on the unfiltered page, so waiting for that row did not prove that the debounced search had settled. A later unrelated deletion error replaced the expected dependency toast. Await the matching search response, select exact fixture rows, assert the confirmation count, and query post-mutation state by fixture IDs. Keep the dependency-toast assertion rather than accepting an unrelated error.
+`TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, and selected count before any bulk mutation. Select exact fixture rows, retain the dependency-toast assertion, and verify post-mutation state by fixture IDs.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 

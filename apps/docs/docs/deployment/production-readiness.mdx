@@ -17,6 +17,7 @@ Record the owner and evidence for each item. Do not paste secret values into tic
    - [ ] Point every required DNS record at the intended ingress and remove stale records. Check both IPv4 and IPv6 when both are published.
    - [ ] Install a valid certificate with its complete chain, automate renewal, and alert before expiry.
    - [ ] Redirect HTTP to HTTPS and confirm the application is not directly reachable on an unintended public port.
+   - [ ] With bundled Traefik, use Compose 2.24.4+, recreate affected containers after upgrading, and verify the merged configuration and running containers publish neither the app nor collaboration ports. Migrate direct-port health probes to HTTPS and expose optional collaboration through WSS. Follow the [bundled Traefik migration and deployment checks](https://github.com/open-mercato/open-mercato/blob/main/docker/traefik/README.md#private-application-ports-and-migration), including any local overrides.
    - [ ] Forward the original host, client address, and protocol through the proxy, and trust forwarded headers only from the known proxy hops. For a self-managed host, start from the [VPS nginx example](../installation/vps#https-with-a-reverse-proxy).
    - [ ] Keep PostgreSQL, Redis, search, and internal worker endpoints off the public internet.
    - [ ] Set edge request-size, timeout, rate-limit, and administrative-route policies deliberately; do not rely on unreviewed provider defaults.
