@@ -13,12 +13,15 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
+import { workflowDefinitionMutationResponseSchema, workflowErrorSchema } from '../../../openapi'
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -46,7 +49,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!params.id.startsWith('code:')) {
       return NextResponse.json(
@@ -75,10 +78,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
+    // Pin to the latest version so the override targets a deterministic row.
     const existingOverride = await em.findOne(WorkflowDefinition, {
       workflowId: codeDef.workflowId,
       tenantId,
-    })
+    }, { orderBy: { version: 'DESC' } })
 
     let saved: WorkflowDefinition
     if (existingOverride) {
@@ -165,6 +169,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition customized successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error customizing workflow definition', { err: error })
     return NextResponse.json({ error: 'Failed to customize workflow definition' }, { status: 500 })
   }
@@ -183,6 +188,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow definition customized successfully',
+          schema: workflowDefinitionMutationResponseSchema,
           example: {
             data: {
               id: '123e4567-e89b-12d3-a456-426614174000',
@@ -196,11 +202,13 @@ export const openApi = {
         {
           status: 400,
           description: 'Not a code-based id',
+          schema: workflowErrorSchema,
           example: { error: 'Customize is only supported for code-based workflow definitions' },
         },
         {
           status: 404,
           description: 'Code workflow not found',
+          schema: workflowErrorSchema,
           example: { error: 'Workflow definition not found' },
         },
       ],

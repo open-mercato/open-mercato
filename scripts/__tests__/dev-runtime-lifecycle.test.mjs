@@ -69,7 +69,8 @@ for (const relPath of SUPERVISOR_FILES) {
   test(`${relPath} probes the managed runtime directly rather than through the gateway`, () => {
     const source = read(relPath)
     assert.match(source, /function resolveRuntimeProbeBaseUrl\(\)/)
-    assert.match(source, /if \(gatewayMode && devUpstreamPort\) return `http:\/\/127\.0\.0\.1:\$\{devUpstreamPort\}`/)
+    assert.match(source, /upstreamPort: gatewayMode \? devUpstreamPort : null/)
+    assert.match(source, /runtimeUrl: readSplashChildState\(\)\?\.readyUrl/)
   })
 
   test(`${relPath} fails clearly on a public port collision instead of moving the gateway`, () => {
@@ -106,9 +107,14 @@ for (const relPath of SUPERVISOR_FILES) {
   test(`${relPath} clears child state before opening each runtime generation`, () => {
     const source = read(relPath)
 
+    // Each entry is the function that actually spawns a runtime child. The
+    // monorepo path spawns from inside `runAppLifecycle`'s restart loop rather
+    // than from `launchMonorepoAppDev`, so every restart re-opens a generation
+    // and must clear the previous child's state first — assert it where the
+    // spawn lives, not where the launch is merely kicked off.
     for (const launcher of [
       'function launchStandaloneDev(options = {}) {',
-      'function launchMonorepoAppDev() {',
+      'async function runAppLifecycle() {',
     ]) {
       const start = source.indexOf(launcher)
       assert.notEqual(start, -1, `missing ${launcher}`)

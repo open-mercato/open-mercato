@@ -1,8 +1,28 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { ListIntegrationLogsQuery } from '../data/validators'
 import { IntegrationLog } from '../data/entities'
+
+const logger = createLogger('integrations')
+
+/**
+ * The error an `integration_logs` row at `level: 'error'` is reported as.
+ *
+ * A named type rather than a bare `Error` because every integration failure in
+ * the product funnels through one line below: backends that fingerprint on the
+ * error class would otherwise group these together with unrelated framework
+ * errors. The per-row `code` is what separates them from each other.
+ */
+export class IntegrationLogError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IntegrationLogError'
+  }
+}
 
 export type IntegrationLogAnalytics = {
   lastActivityAt: string | null
@@ -38,6 +58,81 @@ type LogInput = {
   payload?: Record<string, unknown> | null
 }
 
+/**
+ * Report an error row outward, so recording it is also reporting it.
+ *
+ * The row is the durable record; this is the signal. Message, `code` and opaque
+ * ids only — `payload` carries the failed item itself and MUST NOT leave the
+ * database. Wrapped because observability may never alter behaviour: the row is
+ * already flushed by the time this runs, and a telemetry fault degrades to a
+ * warning rather than failing the write its caller depends on.
+ *
+ * The row's own `code` is free-form and written by any module that resolves this
+ * service, third-party ones included, so it is narrowed to a fingerprint before
+ * it is reported: a code the backend cannot group on is worth less than the
+ * catch-all every integration error already shares.
+ */
+function reportErrorLog(input: LogInput, scope: IntegrationScope): void {
+  try {
+    getTelemetryRuntime()?.reportError(new IntegrationLogError(input.message), {
+      module: 'integrations',
+      code: groupableCode(input.code, 'integrations.log_error'),
+      attributes: {
+        integrationId: input.integrationId,
+        runId: input.runId ?? undefined,
+        scopeEntityType: input.scopeEntityType ?? undefined,
+        scopeEntityId: input.scopeEntityId ?? undefined,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report an integration error log to telemetry', {
+      integrationId: input.integrationId,
+      err: telemetryError as Error,
+    })
+  }
+}
+
+const LATEST_LOGS_DEFAULT_LIMIT = 1
+const LATEST_LOGS_MAX_LIMIT = 20
+
+function clampLatestLogsLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return LATEST_LOGS_DEFAULT_LIMIT
+  return Math.min(Math.max(Math.floor(limit), 1), LATEST_LOGS_MAX_LIMIT)
+}
+
+/**
+ * @internal Newest-first rows of one integration and scope whose `code` is one of `codes`,
+ * optionally narrowed to rows whose `payload.disconnectId` equals `disconnectId` and to rows
+ * created at or after `createdFrom`.
+ * `limit` defaults to 1 and is clamped to 1–20.
+ */
+export async function findLatestIntegrationLogsByCodes(
+  em: EntityManager,
+  integrationId: string,
+  codes: readonly string[],
+  scope: IntegrationScope,
+  options?: { disconnectId?: string; createdFrom?: Date; limit?: number },
+): Promise<IntegrationLog[]> {
+  if (codes.length === 0) return []
+  const where: FilterQuery<IntegrationLog> = {
+    integrationId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    code: { $in: [...codes] },
+  }
+  if (options?.disconnectId !== undefined) where.payload = { disconnectId: options.disconnectId }
+  if (options?.createdFrom !== undefined) where.createdAt = { $gte: options.createdFrom }
+  return findWithDecryption(
+    em,
+    IntegrationLog,
+    where,
+    { orderBy: { createdAt: 'DESC' }, limit: clampLatestLogsLimit(options?.limit) },
+    scope,
+  )
+}
+
 export function createIntegrationLogService(em: EntityManager) {
   return {
     async write(input: LogInput, scope: IntegrationScope): Promise<IntegrationLog> {
@@ -54,6 +149,7 @@ export function createIntegrationLogService(em: EntityManager) {
         tenantId: scope.tenantId,
       })
       await em.persist(row).flush()
+      if (input.level === 'error') reportErrorLog(input, scope)
       return row
     },
 

@@ -11,6 +11,10 @@ import {
   safeWebhookFetch,
   UnsafeWebhookUrlError,
 } from './url-safety'
+import {
+  invalidateWebhookSubscriptionCacheFor,
+  type WebhookCacheDependencyResolver,
+} from './subscription-cache'
 
 export interface WebhookDeliveryJob {
   deliveryId: string
@@ -27,6 +31,7 @@ export interface CreateWebhookDeliveryInput {
 
 type ProcessWebhookDeliveryOptions = {
   scheduleRetries?: boolean
+  resolver?: WebhookCacheDependencyResolver
 }
 
 type WebhookBody = {
@@ -211,6 +216,7 @@ export async function processWebhookDeliveryJob(
       delivery,
       canRetry: shouldRetryStatus(response.status),
       scheduleRetries: options.scheduleRetries !== false,
+      resolver: options.resolver,
       fallbackMessage: `HTTP ${response.status}`,
     })
 
@@ -254,6 +260,7 @@ export async function processWebhookDeliveryJob(
       delivery,
       canRetry: true,
       scheduleRetries: options.scheduleRetries !== false,
+      resolver: options.resolver,
       fallbackMessage: delivery.errorMessage,
     })
 
@@ -318,6 +325,7 @@ type HandleFailedDeliveryInput = {
   canRetry: boolean
   scheduleRetries: boolean
   fallbackMessage: string
+  resolver?: WebhookCacheDependencyResolver
 }
 
 async function handleFailedDelivery(input: HandleFailedDeliveryInput): Promise<void> {
@@ -364,17 +372,19 @@ async function handleFailedDelivery(input: HandleFailedDeliveryInput): Promise<v
     })
   }
 
+  await input.em.flush()
+
   if (webhook.autoDisableThreshold > 0 && webhook.consecutiveFailures >= webhook.autoDisableThreshold) {
     webhook.isActive = false
+    await input.em.flush()
     await emitWebhooksEvent('webhooks.webhook.disabled', {
       webhookId: webhook.id,
       organizationId: webhook.organizationId,
       tenantId: webhook.tenantId,
       consecutiveFailures: webhook.consecutiveFailures,
     })
+    await invalidateWebhookSubscriptionCacheFor(input.resolver, webhook.tenantId)
   }
-
-  await input.em.flush()
 }
 
 function normalizeWebhookBody(eventType: string, payload: Record<string, unknown>): WebhookBody {

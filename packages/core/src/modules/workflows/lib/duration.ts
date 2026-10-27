@@ -1,53 +1,167 @@
+export type Iso8601DurationParts = {
+  years: number
+  months: number
+  weeks: number
+  days: number
+  hours: number
+  minutes: number
+  seconds: number
+}
+
 /**
- * Parse ISO 8601 duration to milliseconds
+ * Full ISO 8601 duration grammar: `P[nY][nM][nW][nD][T[nH][nM][nS]]`.
+ *
+ * The lookaheads reject the designator-only forms `P`, `PT` and `P1DT`, and the
+ * anchors reject anything with trailing junk. `M` before `T` is months, `M`
+ * after it is minutes — the distinction the hand-rolled parsers this replaces
+ * could not make.
+ */
+const ISO_8601_DURATION_PATTERN =
+  /^P(?=\d|T\d)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?=\d)(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/
+
+const SIMPLE_DURATION_PATTERN = /^(\d+)(d|h|m|s)$/
+
+const MS_PER_SECOND = 1000
+const MS_PER_MINUTE = 60 * MS_PER_SECOND
+const MS_PER_HOUR = 60 * MS_PER_MINUTE
+const MS_PER_DAY = 24 * MS_PER_HOUR
+
+/**
+ * Parse an ISO 8601 duration into its calendar components.
+ *
+ * Pure and total: returns `null` for anything that is not a valid ISO 8601
+ * duration, so callers decide how to surface the problem.
+ *
+ * @param duration - Duration string (e.g. "PT30M", "P1W", "P1DT12H")
+ * @returns Parsed components, or `null` when the string is not ISO 8601
+ */
+export function parseIso8601Duration(duration: string): Iso8601DurationParts | null {
+  const match = duration.match(ISO_8601_DURATION_PATTERN)
+  if (!match) return null
+
+  return {
+    years: parseInt(match[1] || '0', 10),
+    months: parseInt(match[2] || '0', 10),
+    weeks: parseInt(match[3] || '0', 10),
+    days: parseInt(match[4] || '0', 10),
+    hours: parseInt(match[5] || '0', 10),
+    minutes: parseInt(match[6] || '0', 10),
+    seconds: parseInt(match[7] || '0', 10),
+  }
+}
+
+/**
+ * Add an ISO 8601 duration to a date using calendar arithmetic.
+ *
+ * Years, months, weeks and days advance the calendar (so "P1M" lands on the
+ * same day of the next month whatever its length), while hours, minutes and
+ * seconds are added as elapsed time.
+ *
+ * @param from - Anchor date
+ * @param parts - Parsed duration components
+ * @returns A new date; `from` is never mutated
+ */
+export function addIso8601Duration(from: Date, parts: Iso8601DurationParts): Date {
+  const result = new Date(from.getTime())
+
+  if (parts.years) result.setFullYear(result.getFullYear() + parts.years)
+  if (parts.months) result.setMonth(result.getMonth() + parts.months)
+
+  const days = parts.weeks * 7 + parts.days
+  if (days) result.setDate(result.getDate() + days)
+
+  const elapsedMs =
+    parts.hours * MS_PER_HOUR + parts.minutes * MS_PER_MINUTE + parts.seconds * MS_PER_SECOND
+
+  return elapsedMs ? new Date(result.getTime() + elapsedMs) : result
+}
+
+/**
+ * Parse a duration to milliseconds
  *
  * Supports:
- * - ISO 8601: PT5M (5 minutes), PT1H (1 hour), P1D (1 day), P3D (3 days)
+ * - ISO 8601: PT30M (30 minutes), PT1H (1 hour), P1D (1 day), P1W (1 week), P1DT12H
  * - Simple formats: 5m, 1h, 3d, 30s
+ *
+ * Years and months are rejected here because they have no fixed millisecond
+ * length — use `parseIso8601Duration` + `addIso8601Duration` when the duration
+ * is anchored to a date.
  *
  * @param duration - Duration string
  * @returns Duration in milliseconds
  */
 export function parseDuration(duration: string): number {
-  // Try ISO 8601 format first: P[n]DT[n]H[n]M[n]S
-  const iso8601Regex = /P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?/
-  const iso8601Match = duration.match(iso8601Regex)
+  const parts = parseIso8601Duration(duration)
 
-  if (iso8601Match && iso8601Match[0] === duration) {
-    const days = parseInt(iso8601Match[1] || '0')
-    const hours = parseInt(iso8601Match[2] || '0')
-    const minutes = parseInt(iso8601Match[3] || '0')
-    const seconds = parseInt(iso8601Match[4] || '0')
+  if (parts) {
+    if (parts.years || parts.months) {
+      throw new Error(
+        `Duration ${duration} uses years or months, which have no fixed length in milliseconds`
+      )
+    }
 
     return (
-      days * 24 * 60 * 60 * 1000 +
-      hours * 60 * 60 * 1000 +
-      minutes * 60 * 1000 +
-      seconds * 1000
+      (parts.weeks * 7 + parts.days) * MS_PER_DAY +
+      parts.hours * MS_PER_HOUR +
+      parts.minutes * MS_PER_MINUTE +
+      parts.seconds * MS_PER_SECOND
     )
   }
 
-  // Try simple format: 1d, 5h, 30m, 45s
-  const simpleRegex = /^(\d+)(d|h|m|s)$/
-  const simpleMatch = duration.match(simpleRegex)
+  const simpleMatch = duration.match(SIMPLE_DURATION_PATTERN)
 
   if (simpleMatch) {
-    const value = parseInt(simpleMatch[1])
-    const unit = simpleMatch[2]
+    const value = parseInt(simpleMatch[1], 10)
 
-    switch (unit) {
+    switch (simpleMatch[2]) {
       case 'd':
-        return value * 24 * 60 * 60 * 1000
+        return value * MS_PER_DAY
       case 'h':
-        return value * 60 * 60 * 1000
+        return value * MS_PER_HOUR
       case 'm':
-        return value * 60 * 1000
+        return value * MS_PER_MINUTE
       case 's':
-        return value * 1000
+        return value * MS_PER_SECOND
     }
   }
 
   throw new Error(`Invalid duration format: ${duration}`)
+}
+
+/**
+ * Resolve a deadline from a duration anchored to a point in time.
+ *
+ * Accepts every format `parseDuration` accepts plus the calendar-only ISO 8601
+ * components (years, months), which are applied as calendar arithmetic. Throws
+ * on an unparseable duration — a deadline the author got wrong must surface,
+ * never quietly become some default.
+ *
+ * @param duration - Duration string (e.g. "PT30M", "P3D", "P1DT12H")
+ * @param from - Anchor date, defaults to now
+ * @returns The resolved deadline
+ */
+export function calculateDueDate(duration: string, from: Date = new Date()): Date {
+  const parts = parseIso8601Duration(duration)
+  if (parts) return addIso8601Duration(from, parts)
+
+  return new Date(from.getTime() + parseDuration(duration))
+}
+
+export function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
+  if (config.until) {
+    const targetDate = new Date(config.until)
+    if (isNaN(targetDate.getTime())) {
+      throw new Error(`WAIT activity: invalid "until" datetime: ${config.until}`)
+    }
+    const delayMs = targetDate.getTime() - Date.now()
+    return Math.max(0, delayMs)
+  }
+
+  if (config.duration) {
+    return parseDuration(config.duration)
+  }
+
+  throw new Error('WAIT activity requires "duration" (e.g., "PT5M", "1h") or "until" (ISO 8601 datetime)')
 }
 
 /**
