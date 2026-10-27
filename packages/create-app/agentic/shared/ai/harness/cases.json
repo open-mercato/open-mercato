@@ -21858,7 +21858,7 @@
     ],
     "owner": {
       "kind": "facts",
-      "path": ".ai/guides/modules/incidents.md",
+      "path": ".ai/guides/modules/incidents/index.md",
       "ruleIds": [
         "BC-01",
         "BC-04"
@@ -21883,16 +21883,13 @@
         "AGENTS.md",
         ".ai/guides/architecture.md",
         ".ai/skills/om-help/SKILL.md",
-        ".ai/guides/modules/incidents.md"
+        ".ai/guides/modules/incidents/index.md"
       ],
       "allowedExtra": [
         ".ai/guides/contracts.md",
-        ".ai/guides/modules/notifications.md",
-        ".ai/guides/modules/customers.md",
+        ".ai/guides/modules/notifications/index.md",
+        ".ai/guides/modules/customers/index.md",
         ".ai/skills/om-data-model-design/SKILL.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",
@@ -21943,7 +21940,7 @@
     ],
     "owner": {
       "kind": "facts",
-      "path": ".ai/guides/modules/design_system.md",
+      "path": ".ai/guides/modules/design_system/index.md",
       "ruleIds": [
         "BC-01",
         "BC-04"
@@ -21968,15 +21965,12 @@
         "AGENTS.md",
         ".ai/guides/architecture.md",
         ".ai/skills/om-help/SKILL.md",
-        ".ai/guides/modules/design_system.md"
+        ".ai/guides/modules/design_system/index.md"
       ],
       "allowedExtra": [
         ".ai/guides/contracts.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-backend-ui-design/SKILL.md"
-      ],
-      "warn": [
-        "node_modules/@open-mercato/*/src/**"
       ],
       "forbidden": [
         ".env*",

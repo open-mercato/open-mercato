@@ -3926,7 +3926,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 240)
+  assert.equal(cases.length, 242)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

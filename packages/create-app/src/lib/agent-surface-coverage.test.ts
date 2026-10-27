@@ -382,12 +382,12 @@ test('the 242-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/documents/index.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'reuse-installed-documents', 'per-document-access', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
-      'OMH-241': {
-      contexts: ['.ai/guides/modules/incidents.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+    'OMH-241': {
+      contexts: ['.ai/guides/modules/incidents/index.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
     'OMH-242': {
-      contexts: ['.ai/guides/modules/design_system.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      contexts: ['.ai/guides/modules/design_system/index.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'app-module-activation', 'acl-features', 'smallest-validation'],
     },
   }
@@ -435,8 +435,8 @@ test('the 242-case catalog routes audited installed-module, runtime, and AI/prov
     'OMH-202': { factSheet: '.ai/guides/modules/wms/index.md', skill: 'om-help' },
     'OMH-229': { factSheet: '.ai/guides/modules/eudr/index.md', skill: 'om-help' },
     'OMH-234': { factSheet: '.ai/guides/modules/documents/index.md', skill: 'om-help' },
-      'OMH-241': { factSheet: '.ai/guides/modules/incidents.md', skill: 'om-help' },
-    'OMH-242': { factSheet: '.ai/guides/modules/design_system.md', skill: 'om-help' },
+    'OMH-241': { factSheet: '.ai/guides/modules/incidents/index.md', skill: 'om-help' },
+    'OMH-242': { factSheet: '.ai/guides/modules/design_system/index.md', skill: 'om-help' },
   }
   for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)
