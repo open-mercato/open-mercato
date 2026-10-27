@@ -10,6 +10,7 @@ import { acquireAgentRunSlot, type AgentRunSlotRelease } from './admission'
 import { withAgentActor } from '../identity/agentWriteScope'
 import { registerAgentKindNoBypassSubscriber } from '../identity/agentNoBypassSubscriber'
 import { AgentNotFoundError } from './errors'
+import { enforceAgentInvocable } from '../access/agentInvokeAccess'
 import type { AgentRunCtx } from './persistence'
 
 export type { AgentRunCtx } from './persistence'
@@ -17,6 +18,7 @@ export type { AgentRunCtx } from './persistence'
 // re-exported so every existing `from './agentRuntime'` import keeps working.
 export {
   AgentNotFoundError,
+  AgentInvokeDeniedError,
   AgentRunTimeoutError,
   AgentOutputInvalidError,
   AgentGuardrailBlockedError,
@@ -52,6 +54,7 @@ export class AgentRuntimeService {
     await ensureAgentsLoaded()
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
+    await enforceAgentInvocable(this.container, entry, ctx)
 
     // Runtime no-bypass enforcement (Wave 4 Phase 3, layer B-b). When the run is
     // bound to a provisioned agent principal (`ctx.runAs`), bind the async-scoped

@@ -23,6 +23,7 @@ import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { withRunContext } from './runContext'
+import { resolveInvoker } from '../access/agentInvokeAccess'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
@@ -417,6 +418,7 @@ export class NativeAgentRunner {
                 // Writes never execute directly (read-only policy + proposal → effector).
                 enableTools: true,
                 trace: { persist: false },
+                ...(ctx.callSettings ? { callSettings: ctx.callSettings } : {}),
                 ...(traceEnabled ? { observe: runObserver } : {}),
                 ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
               })
@@ -428,6 +430,7 @@ export class NativeAgentRunner {
               return objectResult.object
             }),
           ctx.source,
+          resolveInvoker(ctx) ?? undefined,
         ),
       )
       const raced = await Promise.race([

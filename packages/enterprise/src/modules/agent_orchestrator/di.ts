@@ -37,6 +37,7 @@ import {
   verifyIdJagAssertion,
 } from './lib/identity/agentAuthMdService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import { warnIfAgentInvokeEnforcementDisabled } from './lib/access/agentInvokeAccess'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { AgentWorkspaceManager } from './lib/runtime/agentWorkspaceManager'
@@ -69,6 +70,7 @@ registerWorkInboxSources([
 ])
 
 export function register(container: AppContainer) {
+  warnIfAgentInvokeEnforcementDisabled()
   container.register({
     AgentRun: asValue(AgentRun),
     AgentProposal: asValue(AgentProposal),

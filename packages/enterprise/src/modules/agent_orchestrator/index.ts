@@ -16,8 +16,15 @@ export { features } from './acl'
 // Public re-exports (single source of the SDK + result contract).
 export { defineAgent, getAgentEntry, listAgentEntries } from './lib/sdk/defineAgent'
 export type { DefineAgentInput, AgentRegistryEntry, AgentResultKind } from './lib/sdk/defineAgent'
-export { AgentRuntimeService, AgentNotFoundError, AgentOutputInvalidError, AgentGuardrailBlockedError } from './lib/runtime/agentRuntime'
+export {
+  AgentRuntimeService,
+  AgentNotFoundError,
+  AgentInvokeDeniedError,
+  AgentOutputInvalidError,
+  AgentGuardrailBlockedError,
+} from './lib/runtime/agentRuntime'
 export type { AgentRunCtx } from './lib/runtime/agentRuntime'
+export type { AgentInvoker, AgentEntryPoint } from './lib/runtime/persistence'
 export { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
 export type {
   AgentWorkflowBridge,

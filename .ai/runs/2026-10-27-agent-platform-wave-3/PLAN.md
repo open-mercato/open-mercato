@@ -24,7 +24,7 @@
 | 1 | 1.5 | Show the MCP exposure section on the AI assistant settings page | dispatch | done | 4bb405adb |
 | 1 | 1.6 | Document agent tools in the MCP and agents docs | dispatch:cheap | done | 6256f5a5a |
 | 2 | 2.1 | Declare requiredFeatures on AO agents and forward them to defineAiAgent | dispatch | done | 4901c900c |
-| 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | todo | — |
+| 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | done | e640c1b17 |
 | 2 | 2.3 | Map invoke denials on the run, rerun, delegate, workflow and eval paths | dispatch | todo | — |
 | 2 | 2.4 | Filter the agent list by invocability and expose invocable | dispatch | todo | — |
 | 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | todo | — |

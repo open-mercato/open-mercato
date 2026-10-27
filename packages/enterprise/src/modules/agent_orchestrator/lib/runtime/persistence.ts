@@ -11,6 +11,11 @@ import type { AgentResultKind } from '../sdk/defineAgent'
 import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import { resolveRunAgentVersion } from '../trace/definitionHash'
+import type { RunManifestEntryPoint } from '../trace/runManifest'
+import type {
+  AiAgentCallSettings,
+  AiAgentRunChannel,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 
 /**
  * Shared persistence + scope helpers used by BOTH agent runtimes (in-process
@@ -82,7 +87,29 @@ export type AgentRunCtx = {
    * delegations inherit the tag automatically because they inherit this ctx.
    */
   source?: 'runtime' | 'eval'
+  /**
+   * The identity whose ACL decides whether this agent may be invoked, distinct
+   * from the execution identity. Absent ⇒ derived from `userId` as
+   * `{ kind: 'user' }` (BC for third-party callers of `agentRuntime.run`).
+   */
+  invoker?: AgentInvoker
+  /** Which door started the run; recorded for observability. */
+  entryPoint?: AgentEntryPoint
+  /** The ai-assistant door when the run came through it (`ai_assistant` / `tool`). */
+  channel?: AiAgentRunChannel
+  /** Shared correlation id across the run tree and its audit rows. */
+  correlationId?: string
+  /** Per-call model settings, forwarded to `runAiAgentObject` by the native runner. */
+  callSettings?: AiAgentCallSettings
 }
+
+export type AgentInvoker =
+  | { kind: 'user'; userId: string }
+  | { kind: 'api_key'; apiKeyId: string; ownerUserId: string | null }
+  | { kind: 'workflow'; actingUserId: string }
+  | { kind: 'agent_token'; agentUserId: string; onBehalfOfUserId: string | null; grantId: string }
+
+export type AgentEntryPoint = RunManifestEntryPoint
 
 export type AgentRunAs = {
   /** The provisioned agent principal's `auth.User` id — actor on every write. */

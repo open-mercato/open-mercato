@@ -6,7 +6,7 @@ import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
-import { getCurrentRunId, getCurrentRunSource } from './lib/runtime/runContext'
+import { getCurrentRunId, getCurrentRunInvoker, getCurrentRunSource } from './lib/runtime/runContext'
 import { webSearchTool, webFetchTool } from './lib/webSearch/tools'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
@@ -113,6 +113,7 @@ const delegateAgentTool: AiToolDefinition = {
       // neither resolves (the nested run is then a top-level run).
       const parentRunId = getCurrentRunId() ?? (await resolveParentRunIdFromSession(ctx))
       const delegatedSource = getCurrentRunSource()
+      const parentInvoker = getCurrentRunInvoker()
       const result = await agentRuntime.run(agentId, input, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
@@ -125,6 +126,8 @@ const delegateAgentTool: AiToolDefinition = {
         // Inherit the parent's origin so an eval replay's sub-agent runs are not
         // counted as production traffic in the agent's metric rollups.
         ...(delegatedSource ? { source: delegatedSource } : {}),
+        ...(parentInvoker ? { invoker: parentInvoker } : {}),
+        entryPoint: 'delegate',
       })
       // Whatever the sub-agent produced, handed back verbatim under its own key:
       // the orchestrator reads a finding, an intent and a file list differently,
