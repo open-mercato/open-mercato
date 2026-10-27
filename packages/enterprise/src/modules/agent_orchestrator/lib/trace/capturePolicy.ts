@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   TRACE_CAPTURE_LEVELS,
   traceCapturePolicySchema,
@@ -176,5 +177,59 @@ export function resolveCaptureLevel(input: ResolveCaptureLevelInput): RunManifes
     source,
     retentionDays: policy.retentionDays,
     redactPii: policy.redactPii,
+  }
+}
+
+/**
+ * The capture a run falls back to when the policy cannot be resolved: metadata
+ * only, decided by the deployment. Never a looser level than the default.
+ */
+export function fallbackRunCapture(): RunManifestCapture {
+  return {
+    level: DEPLOYMENT_DEFAULT_FALLBACK,
+    source: 'deployment',
+    retentionDays: DEFAULT_TRACE_CAPTURE_POLICY.retentionDays,
+    redactPii: DEFAULT_TRACE_CAPTURE_POLICY.redactPii,
+  }
+}
+
+export type ResolveRunCaptureInput = {
+  tenantId: string | null
+  agentId: string
+  runSource?: TraceCaptureRunSource
+  now?: Date
+  env?: EnvLike
+}
+
+/**
+ * Reads the tenant policy and resolves one run's capture level. Never throws:
+ * any failure logs, reports, and yields {@link fallbackRunCapture} so a policy
+ * problem can never fail a run.
+ */
+export async function resolveRunCapture(
+  container: AwilixContainer,
+  input: ResolveRunCaptureInput,
+): Promise<RunManifestCapture> {
+  try {
+    const { policy, source } = await readTraceCapturePolicy(container, input.tenantId)
+    return resolveCaptureLevel({
+      policy,
+      policySource: source,
+      agentId: input.agentId,
+      runSource: input.runSource,
+      now: input.now,
+      env: input.env,
+    })
+  } catch (error) {
+    logger.warn('trace capture policy resolution failed; using metadata capture', {
+      agentId: input.agentId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'agent_orchestrator',
+      code: 'trace_capture_policy_resolve_failed',
+      attributes: { agentId: input.agentId },
+    })
+    return fallbackRunCapture()
   }
 }

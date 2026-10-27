@@ -14,6 +14,7 @@ import {
   computeManifestSha256,
   runManifestExternalSpanId,
   type RunManifestAgentSource,
+  type RunManifestCapture,
   type RunManifestInput,
   type RunManifestInvoker,
   type RunManifestRuntime,
@@ -28,6 +29,7 @@ export type AgentRunManifestOptions = {
   observation?: Pick<RunObservationSnapshot, 'knowledge'> | null
   traceparent?: string | null
   integrityRawOutputKey?: string | null
+  capture?: RunManifestCapture | null
 }
 
 function compareCodePoints(left: string, right: string): number {
@@ -134,6 +136,7 @@ export function buildAgentRunManifestInput(options: AgentRunManifestOptions): Ru
       : null,
     traceparent: options.traceparent ?? null,
     ...(options.integrityRawOutputKey ? { integrityRawOutputKey: options.integrityRawOutputKey } : {}),
+    ...(options.capture ? { capture: options.capture } : {}),
   }
 }
 

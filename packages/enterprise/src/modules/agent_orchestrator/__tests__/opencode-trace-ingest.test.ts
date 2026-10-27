@@ -118,7 +118,7 @@ function findIngestInput(bus: { executed: RecordedCommand[] }): IngestCommandInp
     | undefined
 }
 
-function makeHarness() {
+function makeHarness(options: { capturePolicy?: unknown } = {}) {
   const executed: RecordedCommand[] = []
   const commandBus = {
     executed,
@@ -132,6 +132,9 @@ function makeHarness() {
   const em = { fork: () => ({}) }
   const agentRunSessionStore = new InMemoryAgentRunSessionStore()
   const registrations: Record<string, unknown> = { rbacService, em, agentRunSessionStore }
+  if (options.capturePolicy !== undefined) {
+    registrations.moduleConfigService = { getRecord: async () => ({ value: options.capturePolicy }) }
+  }
   const container = {
     resolve(name: string) {
       if (name in registrations) return registrations[name]
@@ -374,6 +377,48 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     expect(attributes).not.toHaveProperty('om.model.resolved')
     expect(attributes).not.toHaveProperty('om.provider')
     expect(attributes['om.invoker']).toEqual({ kind: 'user', userId: 'user-1', apiKeyId: null, ownerUserId: null })
+  })
+
+  it('records the deployment default capture in the manifest when the tenant saved no policy', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'capture default' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'metadata',
+      source: 'deployment',
+      retentionDays: 30,
+      redactPii: false,
+    })
+  })
+
+  it('records the tenant capture policy in the manifest', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness({ capturePolicy: { level: 'off', retentionDays: 7 } })
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'capture tenant' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'off',
+      source: 'tenant',
+      retentionDays: 7,
+      redactPii: false,
+    })
   })
 
   it('records the invoker, entry point and correlation id from the run context in the manifest', async () => {

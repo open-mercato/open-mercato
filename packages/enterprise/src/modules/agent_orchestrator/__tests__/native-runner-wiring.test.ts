@@ -114,10 +114,13 @@ function registerNativeAgent(id: string): AgentRegistryEntry {
   return entry
 }
 
-function makeService(): AgentRuntimeService {
+function makeService(options: { capturePolicy?: unknown } = {}): AgentRuntimeService {
   const container = {
     resolve(name: string) {
       if (name === 'em') return { fork: () => ({}) }
+      if (name === 'moduleConfigService' && options.capturePolicy !== undefined) {
+        return { getRecord: async () => ({ value: options.capturePolicy }) }
+      }
       throw new Error(`[internal] unexpected resolve("${name}")`)
     },
   }
@@ -517,6 +520,86 @@ describe('post-run trace capture', () => {
     const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
     expect(traceInput.steps).toEqual([])
     expect(traceInput.fallbackCall).toMatchObject({ callId: 'call-1', fidelity: 'exact', toolCount: 0 })
+  })
+
+  it('records the deployment default capture in the manifest when the tenant saved no policy', async () => {
+    registerNativeAgent('native.capture_default_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    await makeService().run('native.capture_default_agent', {}, runCtx)
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.captureLevel).toBe('metadata')
+    const payload = buildNativeTracePayload(traceInput)
+    const manifest = (payload.spans ?? []).find((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'metadata',
+      source: 'deployment',
+      retentionDays: 30,
+      redactPii: false,
+    })
+  })
+
+  it('applies a per-agent override and the eval level from the tenant policy', async () => {
+    registerNativeAgent('native.capture_agent_override')
+    registerNativeAgent('native.capture_eval_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    const service = makeService({
+      capturePolicy: {
+        level: 'metadata',
+        evalLevel: 'off',
+        retentionDays: 14,
+        redactPii: true,
+        perAgent: { 'native.capture_agent_override': { level: 'off' } },
+      },
+    })
+
+    await service.run('native.capture_agent_override', {}, runCtx)
+    await service.run('native.capture_eval_agent', {}, { ...runCtx, source: 'eval' })
+
+    const overrideInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(overrideInput.manifest?.capture).toEqual({ level: 'off', source: 'agent', retentionDays: 14, redactPii: true })
+    expect(overrideInput.captureLevel).toBe('off')
+    const evalInput = captureNativeRunTraceMock.mock.calls[1][2] as NativeTraceInput
+    expect(evalInput.manifest?.capture).toEqual({ level: 'off', source: 'tenant', retentionDays: 14, redactPii: true })
+  })
+
+  it('capture level off skips the model-call handlers but keeps the prompt observer', async () => {
+    registerNativeAgent('native.capture_level_off_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const observe = args.observe as ModelCallObserverArg & { onPromptResolved?: unknown }
+      expect(observe.onPromptResolved).toEqual(expect.any(Function))
+      expect(observe.onModelCallStart).toBeUndefined()
+      expect(observe.onModelCallEnd).toBeUndefined()
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> }
+      await loop.onStepFinish?.({ toolCalls: [], finishReason: 'stop', usage: { inputTokens: 5, outputTokens: 2 } })
+      return VALID_MODEL_OUTPUT
+    })
+
+    await makeService({ capturePolicy: { level: 'off' } }).run('native.capture_level_off_agent', {}, runCtx)
+
+    expect(runAiAgentObjectMock).toHaveBeenCalledTimes(1)
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.captureLevel).toBe('off')
+    expect(traceInput.steps[0].call).toBeUndefined()
+    const llmSpan = (buildNativeTracePayload(traceInput).spans ?? []).find((span) => span.kind === 'llm')
+    expect(Object.keys(llmSpan?.attributes ?? {}).sort()).toEqual(['finishReason', 'inputTokens', 'outputTokens'])
+  })
+
+  it('a malformed tenant policy falls back to metadata capture without failing the run', async () => {
+    registerNativeAgent('native.capture_malformed_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const result = await makeService({ capturePolicy: { level: 'verbose' } }).run(
+      'native.capture_malformed_agent',
+      {},
+      runCtx,
+    )
+
+    expect(result.kind).toBe('research')
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.captureLevel).toBe('metadata')
+    expect(traceInput.manifest?.capture).toMatchObject({ level: 'metadata', source: 'deployment' })
   })
 
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {

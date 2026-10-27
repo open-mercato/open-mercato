@@ -14,7 +14,8 @@ import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant
 import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
-import type { RunManifestInput } from '../trace/runManifest'
+import type { RunManifestCapture, RunManifestInput } from '../trace/runManifest'
+import { resolveRunCapture } from '../trace/capturePolicy'
 import {
   type AgentResult,
   type AttemptedTool,
@@ -258,19 +259,28 @@ export class NativeAgentRunner {
     const stepRecords: NativeStepRecord[] = []
     const traceparent = traceEnabled ? captureManifestTraceparent() : null
     const runObservation = createRunObservationCollector()
+    const runCapture: RunManifestCapture | null = traceEnabled
+      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
+      : null
     let promptResolved: AiAgentPromptResolvedEvent | null = null
     const modelCalls = createNativeModelCallCollector()
-    const runObserver = {
+    const promptObserver = {
       onPromptResolved(event: AiAgentPromptResolvedEvent): void {
         promptResolved = event
       },
-      onModelCallStart(event: AiAgentModelCallStartEvent): void {
-        modelCalls.observer.onModelCallStart(event)
-      },
-      onModelCallEnd(event: AiAgentModelCallEndEvent): void {
-        modelCalls.observer.onModelCallEnd(event)
-      },
     }
+    const runObserver =
+      runCapture?.level === 'off'
+        ? promptObserver
+        : {
+            ...promptObserver,
+            onModelCallStart(event: AiAgentModelCallStartEvent): void {
+              modelCalls.observer.onModelCallStart(event)
+            },
+            onModelCallEnd(event: AiAgentModelCallEndEvent): void {
+              modelCalls.observer.onModelCallEnd(event)
+            },
+          }
     const integrityRules = entry.integrity?.length ? entry.integrity : null
     const integrityToolCalls: IntegrityToolCall[] = []
     let integrityRawOutputKey: string | null = null
@@ -413,6 +423,7 @@ export class NativeAgentRunner {
           observation: runObservation.snapshot(),
           traceparent,
           integrityRawOutputKey,
+          capture: runCapture,
         })
       } catch (err) {
         logger.warn('native run manifest build failed', {
@@ -454,6 +465,7 @@ export class NativeAgentRunner {
           fallbackModel: entry.defaultModel ?? null,
           fallbackCall: attached.fallbackCall,
           manifest: buildManifest(),
+          ...(runCapture ? { captureLevel: runCapture.level } : {}),
         },
       ).catch((err: unknown) => {
         logger.warn('native trace capture rejected for run', {

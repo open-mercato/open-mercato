@@ -13,6 +13,8 @@ import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, buildRunManifestSpan, captureManifestTraceparent } from '../trace/runManifestEntry'
+import { resolveRunCapture } from '../trace/capturePolicy'
+import type { RunManifestCapture } from '../trace/runManifest'
 import { isNativeTraceCaptureEnabled } from './nativeTraceCapture'
 import { type AgentResult } from '../../data/validators'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
@@ -175,6 +177,9 @@ export class OpenCodeAgentRunner {
     const session = await this.client.createSession()
     const traceCaptureEnabled = isNativeTraceCaptureEnabled()
     const traceparent = traceCaptureEnabled ? captureManifestTraceparent() : null
+    const runCapture = traceCaptureEnabled
+      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
+      : null
 
     const runId = await createRun(this.commandBus, commandCtx, {
       source: ctx.source,
@@ -416,7 +421,7 @@ export class OpenCodeAgentRunner {
       if (startedAtMs != null) {
         const endedAtMs = Date.now()
         const manifestSpan = traceCaptureEnabled
-          ? this.buildManifestSpan(runId, entry, ctx, traceparent, startedAtMs)
+          ? this.buildManifestSpan(runId, entry, ctx, traceparent, startedAtMs, runCapture)
           : null
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
@@ -469,11 +474,12 @@ export class OpenCodeAgentRunner {
     ctx: AgentRunCtx,
     traceparent: string | null,
     startedAtMs: number,
+    capture: RunManifestCapture | null,
   ): TraceSpanIngest | null {
     try {
       return buildRunManifestSpan({
         runId,
-        manifest: buildAgentRunManifestInput({ entry, ctx, runtime: 'opencode', traceparent }),
+        manifest: buildAgentRunManifestInput({ entry, ctx, runtime: 'opencode', traceparent, capture }),
         sequence: 0,
         recordedAtMs: startedAtMs,
       })

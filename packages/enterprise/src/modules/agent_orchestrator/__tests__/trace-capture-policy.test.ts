@@ -4,7 +4,9 @@ import {
   DEFAULT_TRACE_CAPTURE_POLICY,
   TRACE_CAPTURE_CONFIG_MODULE,
   TRACE_CAPTURE_CONFIG_NAME,
+  fallbackRunCapture,
   readTraceCapturePolicy,
+  resolveRunCapture,
   resolveCaptureLevel,
   resolveDeploymentCaptureCeiling,
   resolveDeploymentCaptureDefault,
@@ -214,5 +216,45 @@ describe('resolveCaptureLevel', () => {
       level: 'full',
       source: 'tenant',
     })
+  })
+})
+
+describe('resolveRunCapture', () => {
+  test('resolves the stored tenant policy for the agent and run source', async () => {
+    const { container } = makeContainer({
+      value: {
+        level: 'metadata',
+        evalLevel: 'full',
+        perAgent: { 'support.triage': { level: 'off' } },
+      },
+    })
+    await expect(
+      resolveRunCapture(container as never, { tenantId: TENANT_ID, agentId: 'support.triage', now: NOW, env: {} }),
+    ).resolves.toMatchObject({ level: 'off', source: 'agent' })
+    await expect(
+      resolveRunCapture(container as never, {
+        tenantId: TENANT_ID,
+        agentId: 'sales.qualifier',
+        runSource: 'eval',
+        now: NOW,
+        env: {},
+      }),
+    ).resolves.toMatchObject({ level: 'full', source: 'tenant' })
+  })
+
+  test('falls back to metadata capture when resolution throws', async () => {
+    const { container } = makeContainer(null)
+    const throwingEnv = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('env unavailable')
+        },
+      },
+    )
+    await expect(
+      resolveRunCapture(container as never, { tenantId: TENANT_ID, agentId: 'support.triage', env: throwingEnv }),
+    ).resolves.toEqual(fallbackRunCapture())
+    expect(fallbackRunCapture()).toEqual({ level: 'metadata', source: 'deployment', retentionDays: 30, redactPii: false })
   })
 })
