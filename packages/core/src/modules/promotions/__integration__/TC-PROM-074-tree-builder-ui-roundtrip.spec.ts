@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { createPromotionFixture, deletePromotionIfExists, uniqueStamp } from './helpers';
@@ -26,6 +26,27 @@ import { createPromotionFixture, deletePromotionIfExists, uniqueStamp } from './
  * fixture's `POST /api/promotions` call, so the test proves the UI gap QA
  * flagged (F1) is actually closed end to end.
  */
+// Every save makes the page and the tree builder refetch the promotion to pick up its new
+// `updatedAt`; a save sent before both refetches have landed and rendered carries the stale
+// version and 409s. Waits for both, then lets React commit.
+async function saveAndAwaitPromotionRefetch(page: Page, promotionId: string, save: () => Promise<void>): Promise<void> {
+  const refetched = new Promise<void>((resolve) => {
+    let finished = 0;
+    const onFinished = (finishedRequest: Request) => {
+      if (finishedRequest.method() !== 'GET') return;
+      if (new URL(finishedRequest.url()).pathname !== `/api/promotions/${promotionId}`) return;
+      finished += 1;
+      if (finished < 2) return;
+      page.off('requestfinished', onFinished);
+      resolve();
+    };
+    page.on('requestfinished', onFinished);
+  });
+  await save();
+  await refetched;
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
 test.describe('TC-PROM-074: tree builder save/reload with nested groups and benefits', () => {
   test('a rule, a benefit, and a nested child group with its own rule all round-trip through the UI', async ({ page, request }) => {
     test.setTimeout(120_000);
@@ -54,8 +75,10 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       await eligibleCurrenciesField.getByRole('button', { name: /^USD/ }).click();
       // CrudForm renders both a sticky and an inline submit button at once (same
       // established pattern TC-PROM-083 already disambiguates with .first()).
-      await page.getByRole('button', { name: 'Save promotion' }).first().click();
-      await expect(page.getByText('Promotion saved')).toBeVisible();
+      await saveAndAwaitPromotionRefetch(page, fixture.id, async () => {
+        await page.getByRole('button', { name: 'Save promotion' }).first().click();
+        await expect(page.getByText('Promotion saved')).toBeVisible();
+      });
       await expect(page.getByText('Record changed')).toHaveCount(0);
 
       // --- Regression (M1): a SECOND metadata save, right after the first
@@ -67,8 +90,10 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
       // of the test is `true` again.
       await expect(cumulativeCheckbox).toBeChecked();
       await cumulativeCheckbox.click();
-      await page.getByRole('button', { name: 'Save promotion' }).first().click();
-      await expect(page.getByText('Promotion saved')).toBeVisible();
+      await saveAndAwaitPromotionRefetch(page, fixture.id, async () => {
+        await page.getByRole('button', { name: 'Save promotion' }).first().click();
+        await expect(page.getByText('Promotion saved')).toBeVisible();
+      });
       await expect(page.getByText('Record changed')).toHaveCount(0);
 
       await expect(page.getByText('Rules & Benefits')).toBeVisible();
@@ -144,8 +169,10 @@ test.describe('TC-PROM-074: tree builder save/reload with nested groups and bene
 
       // --- Save, then prove the round trip via a real browser reload --------
       await expect(page.getByText('Unsaved changes')).toBeVisible();
-      await page.getByRole('button', { name: 'Save rules' }).click();
-      await expect(page.getByText('Rule tree saved').first()).toBeVisible();
+      await saveAndAwaitPromotionRefetch(page, fixture.id, async () => {
+        await page.getByRole('button', { name: 'Save rules' }).click();
+        await expect(page.getByText('Rule tree saved').first()).toBeVisible();
+      });
 
       // --- Regression (M1, other direction): a metadata save right after the
       // tree save, without an intervening reload, must not 409 either — the
