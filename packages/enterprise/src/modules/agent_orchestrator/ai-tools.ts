@@ -8,6 +8,7 @@ import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkill
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId, getCurrentRunInvoker, getCurrentRunSource } from './lib/runtime/runContext'
 import { AGENT_INVOKE_DENIED_CODE, isAgentInvokeDeniedError } from './lib/runtime/errors'
+import { agentResultPayload } from './lib/runtime/agentResultPayload'
 import { webSearchTool, webFetchTool } from './lib/webSearch/tools'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
@@ -130,16 +131,7 @@ const delegateAgentTool: AiToolDefinition = {
         ...(parentInvoker ? { invoker: parentInvoker } : {}),
         entryPoint: 'delegate',
       })
-      // Whatever the sub-agent produced, handed back verbatim under its own key:
-      // the orchestrator reads a finding, an intent and a file list differently,
-      // and flattening them here would make them indistinguishable.
-      const data =
-        result.kind === 'research'
-          ? result.data
-          : result.kind === 'proposal'
-            ? result.proposal
-            : { artifacts: result.artifacts, summary: result.summary }
-      return { ok: true as const, agentId, data }
+      return { ok: true as const, agentId, data: agentResultPayload(result) }
     } catch (err) {
       if (isAgentInvokeDeniedError(err)) {
         return { ok: false as const, agentId, error: AGENT_INVOKE_DENIED_CODE }

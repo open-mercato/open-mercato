@@ -37,6 +37,8 @@ import {
   verifyIdJagAssertion,
 } from './lib/identity/agentAuthMdService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import { createAiAgentRunDispatcher } from './lib/runtime/aiAgentRunDispatcher'
+import { AI_AGENT_RUN_DISPATCHER_DI_KEY } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
 import { warnIfAgentInvokeEnforcementDisabled } from './lib/access/agentInvokeAccess'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
@@ -136,6 +138,7 @@ export function register(container: AppContainer) {
         commandBus,
       }),
     ).proxy().scoped(),
+    [AI_AGENT_RUN_DISPATCHER_DI_KEY]: asFunction(() => createAiAgentRunDispatcher(container)).proxy().scoped(),
     dispositionService: asFunction(() => new DispositionServiceImpl(container)).scoped(),
     // Phase 1 runtime guardrails: deterministic output schema + tool-scope
     // backstop checks. Pure/stateless aside from the container it persists through.
