@@ -143,3 +143,5 @@ curl -X GET "$BASE_URL/dashboards/users/widgets?userId=$USER_ID" \
 ```
 
 Response mirrors the role endpoint but reflects direct user overrides. Combine both responses to build a complete widget catalog for custom dashboards.
+
+Overrides are read and saved under the target user's own tenant and organization, the same scope that user's dashboard reads. The `organizationId` query parameter is ignored. Callers whose organization visibility is restricted receive `403` for users outside it.

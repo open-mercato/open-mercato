@@ -249,8 +249,8 @@ export async function PUT(req: Request) {
 
 const userWidgetsQuerySchema = z.object({
   userId: z.string().uuid(),
-  tenantId: z.string().uuid().optional(),
-  organizationId: z.string().uuid().optional(),
+  tenantId: z.string().uuid().optional().describe('Superadmin only: tenant to look the user up in. Defaults to the caller\'s own tenant.'),
+  organizationId: z.string().uuid().optional().describe('Deprecated and ignored: overrides are read from the target user\'s own organization.'),
 })
 
 const userWidgetsGetDoc: OpenApiMethodDoc = {
@@ -264,7 +264,7 @@ const userWidgetsGetDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Missing user identifier', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
-    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets, or the target user\'s organization is outside your organization visibility', schema: dashboardsErrorSchema },
   ],
 }
 
@@ -283,7 +283,7 @@ const userWidgetsPutDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid payload or unknown widgets', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
-    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets, or the target user\'s organization is outside your organization visibility', schema: dashboardsErrorSchema },
   ],
 }
 

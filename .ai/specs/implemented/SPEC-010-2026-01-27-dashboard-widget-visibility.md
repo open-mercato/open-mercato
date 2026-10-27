@@ -180,6 +180,28 @@ Returns the user's dashboard layout with widgets filtered by their features.
 
 **Note:** Only widgets where the user has ALL required features are included.
 
+### User Widget Overrides
+
+**GET/PUT** `/api/dashboards/users/widgets` (feature `dashboards.admin.assign-widgets`)
+
+A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.tenantId, target.organizationId)`, taken from the target `User` row loaded on the server. This is the scope `GET /api/dashboards/layout` reads for that user (`resolveAllowedWidgetIds` with the target's own `auth.tenantId`/`auth.orgId`). The caller's session scope and request parameters never choose the key. The GET `organizationId` query parameter is deprecated and ignored; `tenantId` only selects the tenant a superadmin looks the user up in.
+
+| Caller | Target | Result |
+|---|---|---|
+| Any non-superadmin | Other tenant, or unknown id | `404` |
+| Non-superadmin, unrestricted organization visibility | Same tenant | Allowed |
+| Non-superadmin, restricted organization visibility | Organization outside the visible set, or no organization | `403` |
+| Superadmin | User of the `tenantId` query tenant, else of the superadmin's own tenant (any tenant when they have none) | Allowed, no organization check |
+
+The organization check matches `assertActorCanAccessUserTarget` in the auth module, which answers `403` for the same users on the user ACL routes.
+
+#### Migration & Backward Compatibility
+
+- Before this change the row was keyed by the caller's session scope. Overrides saved for a user in another organization or tenant answered `200` but never applied. They now apply.
+- New `403` on GET and PUT for non-superadmin callers whose organization visibility excludes the target's organization. Before, both answered `200`. There is no bridge: keeping the old behaviour would let a restricted assigner change the dashboard of users in organizations they cannot see, now that the override takes effect.
+- Rows saved under the wrong scope are not migrated. They are ignored unless the target user later moves into that organization, when the stale override would apply. Operators can delete them from `dashboard_user_widgets`.
+- No schema, event, ACL feature or response field changes. `resolveWidgetAssignmentTargetAccess` gains an optional `allowedOrganizationIds` parameter; callers that omit it, such as the role widgets route, behave as before.
+
 ---
 
 ## Configuration
@@ -562,6 +584,9 @@ curl -H "Authorization: Bearer <token>" \
 ---
 
 ## Changelog
+
+### 2026-10-28
+- Documented the user widget override scope: rows are keyed by the target user's own tenant and organization, and restricted assigners need organization visibility of the target.
 
 ### 2026-01-29
 - Documented `lazyDashboardWidget` usage to avoid importing client components during CLI discovery.
