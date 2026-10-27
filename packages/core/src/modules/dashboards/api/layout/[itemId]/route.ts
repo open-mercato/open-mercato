@@ -6,7 +6,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutItemPatchSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { normalizeLayoutState, serializeLayoutStateForStoredShape } from '@open-mercato/core/modules/dashboards/lib/layoutState'
-import { hasFeature } from '@open-mercato/shared/security/features'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   runCrudMutationGuardAfterSuccess,
