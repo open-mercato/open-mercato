@@ -280,8 +280,36 @@ describe('entities decrypt-database CLI', () => {
     expect(output).toContain('estimated encrypted candidates')
     expect(output).toContain('not a proof of absence')
     expect(error).toBeInstanceOf(Error)
-    expect(error!.message).toContain('could not be inspected')
+    expect(error!.message).toContain('Encryption check incomplete')
     expect(error!.message).toContain('audit_logs:access_log')
+    expect(execute).not.toHaveBeenCalledWith('BEGIN')
+    warnSpy.mockRestore()
+    logSpy.mockRestore()
+  })
+
+  it('--check mode: reports sample-query failures and exits as incomplete', async () => {
+    setupDefaultMapFind()
+    execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-1' }]
+      if (sql.includes('SELECT') && sql.includes('access_logs')) {
+        throw new Error('permission denied for table access_logs')
+      }
+      return []
+    })
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--check'])
+      .then(() => null, (caughtError: Error) => caughtError)
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Could not sample audit_logs:access_log'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('permission denied'))
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('estimated encrypted candidates')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('Sample queries failed for audit_logs:access_log')
     expect(execute).not.toHaveBeenCalledWith('BEGIN')
     warnSpy.mockRestore()
     logSpy.mockRestore()

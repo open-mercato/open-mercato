@@ -55,3 +55,4 @@ Harden fallback encryption logging and the entities key-rotation/decryption oper
 - [x] Post-review fix: widen argv redaction to `--password` / `--api-key` and the seeds-only `--key`
 - [x] Post-review fix: stop the map preflight aborting on maps with nothing to process, aggregate the real failures with their row ids and remediation
 - [x] Post-review fix: keep `decrypt-database --check` diagnosing past an unreachable DEK, then exit non-zero as incomplete
+- [x] Post-review fix: fail `decrypt-database --check` after reporting sample-query failures instead of treating them as empty results

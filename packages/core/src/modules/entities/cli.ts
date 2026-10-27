@@ -888,6 +888,7 @@ const decryptDatabase: ModuleCli = {
       // not a reason to abort mid-inspection. Report every uninspectable entity, inspect the
       // rest, and let the closing gate below make the incomplete run exit non-zero.
       const uninspectableEntityIds: string[] = []
+      const failedSampleScopes: string[] = []
       for (const { map, mapMeta } of resolvedMaps) {
         const { entityId, meta, fields, tenantId } = mapMeta
         const dek = await getDek(tenantId).catch(() => null)
@@ -907,10 +908,19 @@ const decryptDatabase: ModuleCli = {
         })
         const colList = Array.from(new Set([pk, ...fieldCols]))
         for (const scope of scopes) {
-          const sampleRows = await conn.execute(
-            `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? LIMIT 100`,
-            [scope.tenantId, scope.organizationId],
-          ).catch(() => [])
+          let sampleRows: unknown
+          try {
+            sampleRows = await conn.execute(
+              `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? LIMIT 100`,
+              [scope.tenantId, scope.organizationId],
+            )
+          } catch (error: unknown) {
+            const scopeLabel = scope.organizationId ?? 'global'
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            console.warn(`⚠ Could not sample ${entityId} for organization ${scopeLabel}: ${errorMessage}`)
+            failedSampleScopes.push(`${entityId} (organization_id=${scopeLabel})`)
+            continue
+          }
           for (const row of Array.isArray(sampleRows) ? sampleRows : []) {
             let rowHasEncrypted = false
             for (const fieldRule of fields) {
@@ -939,11 +949,16 @@ const decryptDatabase: ModuleCli = {
         console.log(`malformed payloads (sampled): ${malformedPayloadCountSampled}`)
       }
       console.log('not a proof of absence — run full command + rerun --check to confirm')
-      if (uninspectableEntityIds.length) {
+      if (uninspectableEntityIds.length || failedSampleScopes.length) {
+        const unavailableDekSummary = uninspectableEntityIds.length
+          ? ` No DEK was available for ${uninspectableEntityIds.join(', ')}.`
+          : ''
+        const failedSampleSummary = failedSampleScopes.length
+          ? ` Sample queries failed for ${failedSampleScopes.join(', ')}.`
+          : ''
         failCli(
-          `${uninspectableEntityIds.length} entity/entities could not be inspected because no DEK was available `
-            + `(${uninspectableEntityIds.join(', ')}). The counts above cover only the rest, so treat this check as `
-            + 'incomplete.',
+          `Encryption check incomplete.${unavailableDekSummary}${failedSampleSummary} `
+            + 'The counts above cover only successfully inspected scopes.',
         )
       }
       return
