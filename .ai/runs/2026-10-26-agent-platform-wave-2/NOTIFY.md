@@ -61,3 +61,6 @@
 
 ## 2026-10-27T00:40:00Z — checkpoint 6 (Steps 4.1..4.5)
 - Eval manifests, freeze-on-start + merge, pinned replay, snapshot pinning (API + CLI), report sameness/drift + start-dialog picker. AO jest 1638/1638, guards, build:app --force, i18n, lint green. UI pass skipped (AO not registrable locally).
+
+## 2026-10-27T03:30:00Z — final gate
+- Validation gate green, with a Jest worker crash (`SIGSEGV`) in `@open-mercato/cli` that passes alone. Integration 2774 passed / 11 failed (10 known failures on main + TC-CRM-065, flaky, passes alone) / 7 flaky. DS lint clean. Next: `om-auto-review-pr --autofix`.

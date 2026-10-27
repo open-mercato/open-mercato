@@ -1,16 +1,16 @@
 # Handoff — 2026-10-26-agent-platform-wave-2
 
-**Last updated:** 2026-10-27T00:40:00Z
+**Last updated:** 2026-10-27T03:30:00Z
 **Branch:** feat/agent-platform-wave-2 (stacked on feat/agent-platform-wave-1, PR #7794)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8011 (draft, claimed)
-**Current phase/step:** Phase 4 Step 4.6
-**Last commit:** f4e3e82d0 — feat(agent_orchestrator): report dataset sameness and drift, and pick a snapshot when starting an eval run
+**Current phase/step:** all Steps done; final gate passed; review pass next
+**Last commit:** 86fd2743a — docs(specs): record wave 2 implementation, deviations and upgrade notes
 
 ## What just happened
-- Phases 0–3 done; Phase 4 Steps 4.1–4.5 done (checkpoint 6 green).
+- Phases 0–5 done (33 Tasks rows). Final gate recorded in final-gate-checks.md.
 
 ## Next concrete action
-- Step 4.6 — cover pinned eval replays with an integration test.
+- Run `om-auto-review-pr 8011 --autofix`, apply fixes as `X.Y-review-fix` Steps, then labels, summary, mark ready, release lock.
 
 ## Blockers / open questions
 - Agent pushes to upstream are blocked; the user pushes with `! git -C <worktree> push upstream feat/agent-platform-wave-2` at checkpoints.
