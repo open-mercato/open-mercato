@@ -17,7 +17,8 @@ import { composeInternalMessage, decodeJwtSubject, deleteMessageIfExists } from 
  * A recipient deleting a message only hides it for themselves. If the sender
  * then deletes the message for everyone, the recipient undoing their own
  * earlier delete must restore only their recipient row and must not bring the
- * globally deleted message back for every participant.
+ * globally deleted message back for every participant. The sender undoing
+ * their own global delete still restores the message.
  */
 test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global delete', () => {
   test('recipient undo after a sender global delete leaves the message deleted', async ({ request }) => {
@@ -88,6 +89,42 @@ test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global del
       expect(persisted.message?.deleted_at, 'messages.deleted_at stays set after the recipient undo').not.toBeNull();
       expect(persisted.recipient?.deleted_at, 'the recipient row itself is restored').toBeNull();
       expect(persisted.recipient?.status).toBe('unread');
+    } finally {
+      await deleteMessageIfExists(request, senderToken, messageId);
+    }
+  });
+
+  test('sender undo of a global delete restores the message with its content', async ({ request }) => {
+    skipIfUndoTestsDisabled();
+    let messageId: string | null = null;
+    let senderToken: string | null = null;
+
+    try {
+      const composed = await composeInternalMessage(request, {
+        subject: `QA TC-API-MSG-023 global ${Date.now()}`,
+      });
+      messageId = composed.messageId;
+      senderToken = composed.senderToken;
+
+      const senderDelete = await apiRequest(request, 'DELETE', `/api/messages/${messageId}`, {
+        token: senderToken,
+      });
+      expect(senderDelete.status()).toBe(200);
+      const senderDeleteOperation = expectOperation(senderDelete, 'global delete');
+
+      const senderDetailAfterDelete = await apiRequest(request, 'GET', `/api/messages/${messageId}`, {
+        token: senderToken,
+      });
+      expect(senderDetailAfterDelete.status()).toBe(404);
+
+      await undoOk(request, senderToken, senderDeleteOperation.undoToken, 'global delete');
+
+      const senderDetailAfterUndo = await apiRequest(request, 'GET', `/api/messages/${messageId}`, {
+        token: senderToken,
+      });
+      expect(senderDetailAfterUndo.status()).toBe(200);
+      const detailBody = (await senderDetailAfterUndo.json()) as { subject?: unknown };
+      expect(detailBody.subject).toBe(composed.subject);
     } finally {
       await deleteMessageIfExists(request, senderToken, messageId);
     }

@@ -106,9 +106,7 @@ describe('messages.messages.delete_for_actor undo', () => {
     expect(emFork.flush).toHaveBeenCalledTimes(1)
   })
 
-  it('undoing a global delete still restores the message', async () => {
-    const command = mockRegisteredCommands.get('messages.messages.delete_for_actor')
-
+  function mockGlobalDeleteUndoPayload() {
     extractUndoPayloadMock.mockReturnValue({
       before: {
         messageId,
@@ -125,20 +123,35 @@ describe('messages.messages.delete_for_actor undo', () => {
         recipientDeletedAt: null,
       },
     })
+  }
+
+  it('undoing a global delete still restores the message', async () => {
+    const command = mockRegisteredCommands.get('messages.messages.delete_for_actor')
+    mockGlobalDeleteUndoPayload()
     const message = { deletedAt: new Date('2026-01-02T00:00:00.000Z') as Date | null }
     const { emFork, ctx } = buildUndoContext(message, null)
 
     await command!.undo!({ logEntry: { tenantId: 'tenant-1', organizationId: 'org-1' }, ctx })
 
     expect(message.deletedAt).toBeNull()
+    expect(emFork.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads the message for a global delete undo through the decrypting helper scoped to the log tenant', async () => {
+    const command = mockRegisteredCommands.get('messages.messages.delete_for_actor')
+    mockGlobalDeleteUndoPayload()
+    const message = { deletedAt: new Date('2026-01-02T00:00:00.000Z') as Date | null }
+    const { emFork, ctx } = buildUndoContext(message, null)
+
+    await command!.undo!({ logEntry: { tenantId: 'tenant-1', organizationId: 'org-1' }, ctx })
+
     expect(findOneWithDecryption).toHaveBeenCalledWith(
       emFork,
       Message,
-      { id: messageId },
+      { id: messageId, tenantId: 'tenant-1' },
       undefined,
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
-    expect(emFork.findOne).not.toHaveBeenCalledWith(MessageRecipient, expect.anything())
-    expect(emFork.flush).toHaveBeenCalledTimes(1)
+    expect(emFork.findOne).not.toHaveBeenCalled()
   })
 })
