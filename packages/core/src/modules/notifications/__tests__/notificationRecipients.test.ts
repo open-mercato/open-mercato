@@ -1,4 +1,4 @@
-import { getScopedNotificationRecipientUserIds } from '../lib/notificationRecipients'
+import { getScopedCustomerUserRecipientIds, getScopedNotificationRecipientUserIds } from '../lib/notificationRecipients'
 
 describe('getScopedNotificationRecipientUserIds', () => {
   it('filters recipients by id, live status, tenant, and organization', async () => {
@@ -38,5 +38,27 @@ describe('getScopedNotificationRecipientUserIds', () => {
     await getScopedNotificationRecipientUserIds(db as never, 'tenant-1', null, ['user-1'])
 
     expect(query.where).not.toHaveBeenCalledWith('users.organization_id', '=', expect.anything())
+  })
+})
+
+describe('getScopedCustomerUserRecipientIds', () => {
+  it('filters customer users by id, active and live status, tenant, and organization', async () => {
+    const query: Record<string, jest.Mock> = {}
+    query.where = jest.fn(() => query)
+    query.select = jest.fn(() => query)
+    query.execute = jest.fn().mockResolvedValue([{ customer_user_id: 'customer-1' }])
+    const db = {
+      selectFrom: jest.fn(() => query),
+    }
+
+    const result = await getScopedCustomerUserRecipientIds(db as never, 'tenant-1', 'org-1', ['customer-1', 'user-2'])
+
+    expect(db.selectFrom).toHaveBeenCalledWith('customer_users')
+    expect(query.where).toHaveBeenCalledWith('customer_users.id', 'in', ['customer-1', 'user-2'])
+    expect(query.where).toHaveBeenCalledWith('customer_users.deleted_at', 'is', null)
+    expect(query.where).toHaveBeenCalledWith('customer_users.is_active', '=', true)
+    expect(query.where).toHaveBeenCalledWith('customer_users.tenant_id', '=', 'tenant-1')
+    expect(query.where).toHaveBeenCalledWith('customer_users.organization_id', '=', 'org-1')
+    expect(result).toEqual(['customer-1'])
   })
 })

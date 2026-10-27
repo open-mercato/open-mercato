@@ -88,6 +88,21 @@ export const createFeatureNotificationSchema = baseNotificationFieldsSchema
   .extend({ requiredFeature: z.string().min(1).max(100) })
   .refine(titleRequiredRefinement.refine, { message: titleRequiredRefinement.message })
 
+export const createCustomerUserNotificationSchema = z.object({
+  recipientCustomerUserIds: z.array(z.string().uuid()).min(1).max(1000),
+  type: z.string().min(1).max(100),
+  titleKey: z.string().min(1).max(200),
+  bodyKey: z.string().min(1).max(200).optional(),
+  titleVariables: z.record(z.string(), z.string()).optional(),
+  bodyVariables: z.record(z.string(), z.string()).optional(),
+  linkHref: safeRelativeHrefSchema.optional(),
+  sourceModule: z.string().min(1),
+  sourceEntityType: z.string().optional(),
+  sourceEntityId: z.string().uuid().optional(),
+  groupKey: z.string().optional(),
+  severity: notificationSeveritySchema.optional().default('info'),
+})
+
 export const listNotificationsSchema = z.object({
   status: z.union([notificationStatusSchema, z.array(notificationStatusSchema)]).optional(),
   type: z.string().optional(),
@@ -136,6 +151,7 @@ export type CreateNotificationInput = z.infer<typeof createNotificationSchema>
 export type CreateBatchNotificationInput = z.infer<typeof createBatchNotificationSchema>
 export type CreateRoleNotificationInput = z.infer<typeof createRoleNotificationSchema>
 export type CreateFeatureNotificationInput = z.infer<typeof createFeatureNotificationSchema>
+export type CreateCustomerUserNotificationInput = z.input<typeof createCustomerUserNotificationSchema>
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
 export type NotificationDeliveryConfigInput = z.infer<typeof notificationDeliveryConfigSchema>

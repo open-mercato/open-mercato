@@ -3,7 +3,15 @@ import { type Kysely, sql } from 'kysely'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { Notification, type NotificationStatus } from '../data/entities'
-import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
+import {
+  createCustomerUserNotificationSchema,
+  type CreateNotificationInput,
+  type CreateBatchNotificationInput,
+  type CreateCustomerUserNotificationInput,
+  type CreateRoleNotificationInput,
+  type CreateFeatureNotificationInput,
+  type ExecuteActionInput,
+} from '../data/validators'
 import {
   NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE,
   type NotificationPollData,
@@ -22,8 +30,10 @@ import { buildNotificationReadScopeWhere } from './notificationScope'
 import {
   getRecipientUserIdsForFeature,
   getRecipientUserIdsForRole,
+  getScopedCustomerUserRecipientIds,
   getScopedNotificationRecipientUserIds,
 } from './notificationRecipients'
+import { IN_APP_CHANNEL } from './strategies/in-app-delivery-strategy'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getNotificationType } from './notification-type-registry'
@@ -86,6 +96,27 @@ async function assertNotificationRecipientsInScope(
   )
 
   if (scopedRecipientUserIds.length !== recipientUserIds.length) {
+    throw new CrudHttpError(404, { error: 'Notification recipient not found' })
+  }
+}
+
+async function assertCustomerUserRecipientsInScope(
+  em: EntityManager,
+  recipientCustomerUserIds: string[],
+  ctx: NotificationServiceContext,
+): Promise<void> {
+  const organizationId = normalizeOrgScope(ctx.organizationId)
+  if (!organizationId) {
+    throw new CrudHttpError(404, { error: 'Notification recipient not found' })
+  }
+  const scopedRecipientIds = await getScopedCustomerUserRecipientIds(
+    getDb(em),
+    ctx.tenantId,
+    organizationId,
+    recipientCustomerUserIds,
+  )
+
+  if (scopedRecipientIds.length !== recipientCustomerUserIds.length) {
     throw new CrudHttpError(404, { error: 'Notification recipient not found' })
   }
 }
@@ -247,6 +278,16 @@ export interface NotificationService {
   createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
   createForFeature(input: CreateFeatureNotificationServiceInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  /**
+   * Creates in-app (portal bell) notifications for customer portal users. Recipients must be active,
+   * non-deleted `customer_users` of the context tenant and organization; any other id rejects the
+   * whole call with 404. Rows are stored with `channels: ['in_app']` and never dispatched to email or
+   * push, so only the live SSE events (`notifications.notification.created` / `batch_created`) fire.
+   */
+  createForCustomerUsers?(
+    input: CreateCustomerUserNotificationInput,
+    ctx: NotificationServiceContext,
+  ): Promise<Notification[]>
   markAsRead(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
   markAllAsRead(ctx: NotificationServiceContext): Promise<number>
   dismiss(notificationId: string, ctx: NotificationServiceContext): Promise<Notification>
@@ -425,6 +466,29 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
+
+      return notifications
+    },
+
+    async createForCustomerUsers(input, ctx) {
+      const parsed = createCustomerUserNotificationSchema.parse(input)
+      const { recipientCustomerUserIds, ...content } = parsed
+      const uniqueRecipientIds = Array.from(new Set(recipientCustomerUserIds))
+      const channels = [IN_APP_CHANNEL]
+      const notifications: Notification[] = []
+      const writeEm = rootEm.fork()
+
+      await writeEm.transactional(async (tx) => {
+        await assertCustomerUserRecipientsInScope(tx, uniqueRecipientIds, ctx)
+        for (const recipientId of uniqueRecipientIds) {
+          const notification = await createOrRefreshNotification(tx, content, recipientId, ctx, channels)
+          notifications.push(notification)
+        }
+        await tx.flush()
+      })
+
+      await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications

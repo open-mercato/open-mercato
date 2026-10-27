@@ -56,6 +56,26 @@ export async function getScopedNotificationRecipientUserIds(
   return users.map((user) => user.user_id)
 }
 
+export async function getScopedCustomerUserRecipientIds(
+  db: Kysely<any>,
+  tenantId: string,
+  organizationId: string,
+  recipientCustomerUserIds: string[],
+): Promise<string[]> {
+  const builder: any = db
+  const customerUsers = await builder
+    .selectFrom('customer_users')
+    .where('customer_users.id', 'in', recipientCustomerUserIds)
+    .where('customer_users.deleted_at', 'is', null)
+    .where('customer_users.is_active', '=', true)
+    .where('customer_users.tenant_id', '=', tenantId)
+    .where('customer_users.organization_id', '=', organizationId)
+    .select('customer_users.id as customer_user_id')
+    .execute() as Array<{ customer_user_id: string }>
+
+  return customerUsers.map((row) => row.customer_user_id)
+}
+
 export async function getRecipientUserIdsForRole(
   db: Kysely<any>,
   tenantId: string,

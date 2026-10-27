@@ -7,7 +7,7 @@ The notifications module provides in-app notifications and reactive client-side 
 Notification delivery to the UI is SSE-driven:
 
 - Server emits `notifications.notification.created` with `clientBroadcast: true`
-- Server emits `notifications.notification.batch_created` for fan-out operations (`createBatch`, `createForRole`, `createForFeature`)
+- Server emits `notifications.notification.batch_created` for fan-out operations (`createBatch`, `createForRole`, `createForFeature`, `createForCustomerUsers`)
 - Payload includes scoped audience fields (`tenantId`, `organizationId`, `recipientUserId`) and the full `NotificationDto`
 - UI consumes the stream through `useNotifications` (SSE-first strategy hook) and updates panel state immediately
 - Notification handlers from `notifications.handlers.ts` (SPEC-043) are dispatched on arrival without polling
