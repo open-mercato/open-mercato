@@ -1,0 +1,98 @@
+---
+title: Trace capture policy and step metadata
+description: How Agent Orchestrator decides what each LLM step records, the per-step span attributes, and who may change the policy.
+---
+
+# Trace capture policy and step metadata
+
+Every LLM step of an Agent Orchestrator run answers four questions: which model, with which parameters, how many tokens, and at what cost. What a step records is governed by a per-tenant **trace capture policy**.
+
+## Capture levels
+
+| Level | What a step records |
+| --- | --- |
+| `off` | The legacy span attributes only (`inputTokens`, `outputTokens`, `finishReason`). Output is byte-identical to earlier releases. |
+| `metadata` | Model, parameters as sent, usage, cost, latency, response id, content hashes and sizes, capture fidelity. No prompt or response content. Default. |
+| `full` | Accepted as a policy value, but records metadata only for now. Content capture has not shipped yet, so spans carry `om.content.status = disabled` and the settings page says so. |
+
+## Resolution order
+
+For each run the level is resolved from the most specific source to the least specific:
+
+1. An unexpired per-agent override (`perAgent`, optionally time-boxed with `until`).
+2. The tenant policy: `evalLevel` for evaluation runs when set, otherwise `level`.
+3. The deployment default (`OM_AGENT_TRACE_CONTENT_DEFAULT`, default `metadata`).
+
+The result is then clamped to the **deployment ceiling** (`OM_AGENT_TRACE_CONTENT_MAX`, default `full`). A level that the ceiling lowers is reported with source `deployment`. An unrecognized environment value falls back to `metadata` for the default and never to a looser level. A tenant that never saved a policy uses the deployment default, and per-agent overrides apply only to tenants that saved one.
+
+The resolved capture (`level`, `source`, `retentionDays`, `redactPii`) is written to the run manifest as `om.capture`, and the run page shows it.
+
+`OM_AGENT_TRACE_CAPTURE=off` remains the kill switch for per-step span capture on native runs.
+
+## Policy settings
+
+Stored in module config `agent_orchestrator/trace_capture_policy` per tenant:
+
+| Field | Meaning |
+| --- | --- |
+| `level` | Tenant level. Defaults to `metadata`. |
+| `evalLevel` | Optional level for evaluation runs. |
+| `perAgent` | Up to 200 overrides keyed by agent id, each with `level` and an optional `until` expiry. |
+| `retentionDays` | 1 to 3650, default 30. |
+| `redactPii` | Default `false`. |
+| `includeProviderBody` | Default `false`. |
+
+Manage it at `/backend/settings/trace-capture`, or through `GET` and `PUT /api/agent_orchestrator/trace-capture/settings`. Saves go through the undoable command `agent_orchestrator.traceCapturePolicy.update` and use optimistic locking on the row's `updatedAt`.
+
+## Step span attributes
+
+Each LLM span carries these keys when the level is `metadata` or above.
+
+| Attribute | Meaning |
+| --- | --- |
+| `gen_ai.operation.name`, `gen_ai.provider.name` | Operation and provider. |
+| `gen_ai.request.model` | Requested model. |
+| `gen_ai.request.temperature`, `top_p`, `top_k`, `max_tokens`, `seed`, `stop_sequences`, `presence_penalty`, `frequency_penalty` | Parameters as sent to the provider. Only values actually sent are recorded. |
+| `gen_ai.response.model`, `gen_ai.response.id`, `gen_ai.response.finish_reasons` | What the provider answered. |
+| `gen_ai.usage.input_tokens`, `output_tokens` | Token usage. |
+| `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.reasoning.output_tokens` | Cached input and reasoning tokens when reported. |
+| `om.cost.micros`, `om.cost.currency`, `om.cost.pricing_source` | Estimated cost, see below. |
+| `om.latency.ms` | Model call latency. |
+| `om.prompt.system.sha256`, `om.tools.sha256`, `om.tools.count`, `om.messages.count` | Hashes and counts for the request, never the text. |
+| `om.content.request.sha256`, `om.content.request.bytes`, and the `response` equivalents | Content hashes and sizes. |
+| `om.content.status` | `disabled` while content capture is unavailable. |
+| `om.capture.fidelity` | `exact`, `reconstructed` or `reported`. |
+| `om.params.defaults` | Parameters that were left to the provider default. |
+
+The legacy keys `inputTokens`, `outputTokens` and `finishReason` are still written, so existing consumers keep working.
+
+### Fidelity
+
+- `exact`: the step came from the model SDK hooks, one start and end per step.
+- `reconstructed`: the call was synthesized from a single object generation or a caller-supplied generator, so there is one step with no tool list.
+- `reported`: the numbers were reported by an external runtime rather than measured here.
+
+### Cost in micros
+
+`om.cost.micros` is the estimated cost in millionths of the currency unit (an integer), computed from the token counts and the price table. Prices come from the built-in table and can be overridden with `OM_AGENT_MODEL_PRICING` (JSON, per one million tokens); the currency is `OM_AGENT_COST_CURRENCY`. Cached and reasoning tokens have no separate price. When a model has no known price, no cost attributes are written.
+
+## Permissions
+
+| Feature | Grants |
+| --- | --- |
+| `agent_orchestrator.trace.view` | Reading traces, step metadata and the current capture policy. |
+| `agent_orchestrator.trace.view_content` | Changing the capture policy, and reading captured content once it ships. It depends on `trace.view`, is held by admin and superadmin through the module wildcard, and is not part of any narrower default role. |
+
+Saving the policy needs both `agent_orchestrator.agents.manage` and `agent_orchestrator.trace.view_content`.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OM_AGENT_TRACE_CAPTURE` | `on` | `off` disables per-step span capture on native runs. |
+| `OM_AGENT_TRACE_CONTENT_DEFAULT` | `metadata` | Deployment default level. |
+| `OM_AGENT_TRACE_CONTENT_MAX` | `full` | Deployment ceiling. Set `metadata` to forbid content capture everywhere. |
+| `OM_AGENT_MODEL_PRICING` | built-in table | JSON price override. |
+| `OM_AGENT_COST_CURRENCY` | `USD` | Currency label for cost. |
+
+See also [Exporting agent traces to OpenTelemetry](./agent-trace-otel-export).

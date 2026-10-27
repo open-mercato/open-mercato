@@ -445,6 +445,8 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/ui-parts",
             "framework/ai-assistant/attachments",
             "framework/ai-assistant/web-research",
+            "framework/ai-assistant/agent-trace-capture",
+            "framework/ai-assistant/agent-trace-otel-export",
             "framework/ai-assistant/mutation-approvals",
             "framework/ai-assistant/launcher",
             "framework/ai-assistant/overrides",

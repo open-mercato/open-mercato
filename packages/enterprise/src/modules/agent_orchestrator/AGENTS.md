@@ -191,6 +191,11 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 - Never let an agent write outside its own Command — the fail-closed `agentNoBypassSubscriber` rejects any flush-time write not inside the agent's command path.
 - Never expose cross-tenant runs, proposals, traces, or principals; never mutate append-only audit rows.
 
+## Trace Capture and OTel Export (`lib/trace/`)
+
+- Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes; `full` records metadata only (never write content until the content-capture phase ships). Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
+- OTel export is opt-in (deployment switch + tenant setting + allowlist) and fail-open: never throw into a run, report failures with `reportError` codes. Never export encrypted or free-text fields; pass string attributes through `redactAttributeValues`; derive ids only via `lib/trace/otel/ids.ts`. No `@opentelemetry/*` imports. Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-*.mdx`.
+
 ## Web Egress (`web_search` / `web_fetch`)
 
 Read-only web access for agents (spec `.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md`). Two `defineAiTool`s on the existing `open-mercato` MCP server; agents opt in via `tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]` in `AGENT.md` (example: `apps/mercato/src/modules/agent_examples/agents/deal_web_researcher/`).

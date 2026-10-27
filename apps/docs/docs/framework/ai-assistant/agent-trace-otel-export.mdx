@@ -1,0 +1,112 @@
+---
+title: Exporting agent traces to OpenTelemetry
+description: Opt-in export of Agent Orchestrator runs to any OTLP backend with GenAI semantic conventions, including privacy rules, retries and backfill.
+---
+
+# Exporting agent traces to OpenTelemetry
+
+Agent Orchestrator can send persisted runs to any backend that accepts OTLP over HTTP with JSON (Jaeger, Grafana Tempo, a vendor collector). Spans use the OpenTelemetry GenAI semantic conventions (`gen_ai.*`, version 1.43) plus `om.*` attributes for platform concepts. Export is opt-in, fail-open and never affects a run.
+
+## Enabling export
+
+Export happens only when all of these hold:
+
+1. **Deployment switch**: `OM_AGENT_OTEL_EXPORT=on`, with a usable http(s) endpoint and the `http/json` protocol.
+2. **Tenant opt-in**: the tenant enables export on `/backend/settings/otel-export`.
+3. **Allowlist**: if the tenant set an agent allowlist, the run's agent is on it. No allowlist exports every agent.
+4. **Source**: the run's source is listed in `OM_AGENT_OTEL_EXPORT_SOURCES` (default `runtime,eval`).
+
+Tenant settings are stored in module config `agent_orchestrator/otel_export`: `enabled`, `content` (`none` or `full`), `exportUserIds` and `agentAllowlist`. A malformed or unreadable record disables export for the tenant. Saving needs `agent_orchestrator.agents.manage`, and `content = full` additionally needs `agent_orchestrator.trace.view_content` and a deployment that allows content export. Content is not exported yet, so `full` has no effect on the payload today.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OM_AGENT_OTEL_EXPORT` | off | Deployment master switch. |
+| `OM_AGENT_OTEL_EXPORT_ENDPOINT` | none | OTLP traces URL. Falls back to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, then `OTEL_EXPORTER_OTLP_ENDPOINT` plus `/v1/traces`. |
+| `OM_AGENT_OTEL_EXPORT_HEADERS` | none | Request headers as `key=value` pairs (URL-encoded values). Falls back to `OTEL_EXPORTER_OTLP_HEADERS`. |
+| `OM_AGENT_OTEL_EXPORT_PROTOCOL` | `http/json` | Only `http/json` is supported; anything else disables export. |
+| `OM_AGENT_OTEL_EXPORT_CONTENT` | `deny` | `allow` lets tenants opt into content export once it ships. |
+| `OM_AGENT_OTEL_EXPORT_DELAY_MS` | `30000` | Delay between run completion and export, so late spans are included. Maximum 24 hours. |
+| `OM_AGENT_OTEL_SERVICE_NAME` | `open-mercato-agents` | `service.name` resource attribute. |
+| `OM_AGENT_OTEL_EXPORT_SOURCES` | `runtime,eval` | Run sources that may be exported. |
+| `OM_AGENT_OTEL_TRACE_URL_TEMPLATE` | none | Link template for the run page. Must contain the token `{traceId}`. |
+| `RATE_LIMIT_AGENT_ORCH_OTEL_EXPORT_TEST_POINTS` | `1` | Test-span requests allowed per window, per tenant. |
+| `RATE_LIMIT_AGENT_ORCH_OTEL_EXPORT_TEST_DURATION` | `10` | Window in seconds. |
+| `RATE_LIMIT_AGENT_ORCH_OTEL_EXPORT_TEST_BLOCK_DURATION` | none | Optional block time in seconds after the limit is hit. |
+
+The endpoint and headers stay server-side. They are never logged, returned by the API or shown in the UI, and the HTTP client does not follow redirects, so credentials never leave the configured host.
+
+## What is exported
+
+Per run: the run span, its LLM, tool and agent spans with the attributes from [Trace capture policy and step metadata](./agent-trace-capture), proposal dispositions, guardrail checks as span events, evaluation results, and the workflow span for runs that belong to a workflow. Resource attributes carry the service name, version, deployment environment, tenant and organization ids and the GenAI semconv version.
+
+## What is never exported
+
+- Run input and output, proposal payloads, tool-call summaries, evaluation evidence, and process input, failure reasons or subject titles. These are encrypted or free text.
+- Prompt and response content. Only hashes, sizes and counts leave the system.
+- User ids, unless the tenant turns on `exportUserIds`.
+
+String attributes pass through a redaction step that masks email addresses, authorization schemes and secret-looking keys before they are sent.
+
+## Deterministic ids
+
+Trace, run, span, workflow and disposition ids are derived by hashing stable identifiers, not generated randomly. The trace id is anchored on the workflow instance when there is one, otherwise on the root run, so every run of a workflow lands in one trace. Re-exporting a run produces the same ids, which lets a backend merge repeated exports of the same spans, and the run page can show the trace id and a deep link without extra storage.
+
+## Delivery guarantees
+
+Delivery is **at-least-once**. The queue has no job-id deduplication, so a retry after an ambiguous failure, or a manual backfill, can deliver a run twice. Because ids are deterministic, backends that deduplicate on span id collapse the copies; others may show duplicates.
+
+A persistent subscriber on `agent_orchestrator.run.completed` and `agent_orchestrator.run.ingested` enqueues a job on the `agent-orchestrator-otel-export` queue, delayed by `OM_AGENT_OTEL_EXPORT_DELAY_MS`. The worker re-checks the gate, builds the payload and sends it:
+
+- `2xx`: success.
+- `429`, `502`, `503`, `504`, timeouts and network errors: retried with exponential backoff (5 s, 10 s, 20 s, up to 5 minutes), honoring `Retry-After`, for at most 5 attempts.
+- Any other status: dropped and reported as an error.
+
+Failures are reported through the error reporter and recorded as export health; they never fail the run.
+
+## Health and test span
+
+The settings page shows the last success and last error code for the tenant, and the system health panel has an OTel export line (down when the deployment is off, unknown before the first attempt, degraded after an error, ok otherwise).
+
+Use **Send test span** (`POST /api/agent_orchestrator/otel-export/test`) to send one synthetic `om.export.test` span. A backend rejection returns `ok: false` with a normal response; a disabled deployment returns `409`, and exceeding the rate limit returns `429`.
+
+## Trace link
+
+Set `OM_AGENT_OTEL_TRACE_URL_TEMPLATE` to your backend's trace URL with the `{traceId}` token, for example `http://127.0.0.1:16686/trace/{traceId}`. When the deployment and tenant both export, the run page shows the trace id and an Open in tracing backend link. Templates that do not resolve to an http(s) URL are ignored.
+
+## Backfill CLI
+
+Replay persisted runs, for example after enabling export or after an outage:
+
+```bash
+# Inspect the OTLP payload of one run, no network and no queue (NDJSON on stdout)
+yarn mercato agent_orchestrator otel:export --run RUN_ID --dry-run
+
+# Enqueue every run in a window for one tenant
+yarn mercato agent_orchestrator otel:export --since 2026-10-01T00:00:00Z --until 2026-10-08T00:00:00Z --tenant TENANT_ID --limit 500
+```
+
+Options: `--run`, or `--since` with optional `--until`; `--tenant`; `--limit` (1 to 1000); `--dry-run`. Without `--dry-run` the deployment switch must be on, and each run still has to pass the tenant gate. The command prints how many runs were enqueued and why others were skipped.
+
+## Local collector and Jaeger
+
+A compose profile starts an OTLP collector that forwards to Jaeger:
+
+```bash
+docker compose --project-directory . -f starters/docker/compose.agent-otel.yml --profile agent-otel up
+```
+
+Then set:
+
+```bash
+OM_AGENT_OTEL_EXPORT=on
+OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4318/v1/traces
+OM_AGENT_OTEL_TRACE_URL_TEMPLATE=http://127.0.0.1:16686/trace/{traceId}
+```
+
+Open the Jaeger UI at `http://127.0.0.1:16686`.
+
+## Not included yet
+
+Prompt and response content events, protobuf transport, per-tenant endpoints, live streaming, and export of chat or copilot runs are not part of this release.
