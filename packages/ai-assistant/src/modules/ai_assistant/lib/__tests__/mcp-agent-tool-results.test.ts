@@ -81,6 +81,27 @@ describe('mcp-agent-tool-results', () => {
       expect(dispatcher.isAvailable).toHaveBeenCalledWith('ops.triage')
     })
 
+    it('keeps a tool whose agent is not yet in the cold dispatcher registry but is available', async () => {
+      const dispatcher = makeDispatcher([], true)
+      const result = await filterRunnableAgentTools([orchestratorTool], makeContainer(dispatcher))
+      expect(result.map((tool) => tool.name)).toEqual(['ops.triage.run'])
+      expect(dispatcher.isAvailable).toHaveBeenCalledWith('ops.triage')
+    })
+
+    it('keeps a locally known agent tool without asking a non-owning dispatcher', async () => {
+      mockKnownAgents.add('catalog.assistant')
+      const dispatcher = makeDispatcher([], false)
+      const result = await filterRunnableAgentTools([agentTool], makeContainer(dispatcher))
+      expect(result.map((tool) => tool.name)).toEqual(['catalog.assistant.run'])
+      expect(dispatcher.isAvailable).not.toHaveBeenCalled()
+    })
+
+    it('drops an unknown agent tool when the non-owning dispatcher reports it unavailable', async () => {
+      const dispatcher = makeDispatcher([], false)
+      const result = await filterRunnableAgentTools([plainTool, orchestratorTool], makeContainer(dispatcher))
+      expect(result.map((tool) => tool.name)).toEqual(['customers.list_people'])
+    })
+
     it.each<[string, boolean | Error]>([
       ['reports it unavailable', false],
       ['throws while checking availability', new Error('boom')],

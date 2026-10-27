@@ -64,6 +64,8 @@ export {
   AiAgentDispatchDeniedError,
   isAiAgentDispatchDeniedError,
   resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
+  type ResolveDispatchOwnerOptions,
   type AiAgentRunDispatcher,
   type AiAgentRunDispatchInput,
   type AiAgentRunDispatchResult,

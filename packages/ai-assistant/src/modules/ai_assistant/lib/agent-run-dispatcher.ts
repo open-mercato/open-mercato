@@ -86,3 +86,22 @@ export function resolveAiAgentRunDispatcher(
     return null
   }
 }
+
+export type ResolveDispatchOwnerOptions = {
+  knownLocally: boolean
+}
+
+export async function resolveDispatchOwner(
+  dispatcher: AiAgentRunDispatcher | null | undefined,
+  agentId: string,
+  options: ResolveDispatchOwnerOptions,
+): Promise<boolean> {
+  if (!dispatcher) return false
+  if (dispatcher.owns(agentId)) return true
+  if (options.knownLocally) return false
+  try {
+    return await dispatcher.isAvailable(agentId)
+  } catch {
+    return false
+  }
+}

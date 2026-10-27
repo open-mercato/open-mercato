@@ -253,6 +253,20 @@ describe('defineAgentTool', () => {
     expect(dispatcher.runObject).not.toHaveBeenCalled()
   })
 
+  it('dispatches an agent missing from the ai-assistant registry when the cold dispatcher reports it available', async () => {
+    const dispatcher = buildDispatcher({ owns: () => false })
+    const result = await buildTool().handler({ input: 'x' }, buildContext({}, dispatcher))
+    expect(result).toEqual({ result: { verdict: 'ok' }, agentId: AGENT_ID, runId: null, agentRunId: 'ao-run-1' })
+    expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+  })
+
+  it('returns AGENT_DISPATCHER_UNAVAILABLE for an agent neither registry knows', async () => {
+    const dispatcher = buildDispatcher({ owns: () => false, isAvailable: async () => false })
+    const error = await buildTool().handler({ input: 'x' }, buildContext({}, dispatcher)).catch((caught) => caught)
+    expect(error).toMatchObject({ code: 'AGENT_DISPATCHER_UNAVAILABLE' })
+    expect(dispatcher.runObject).not.toHaveBeenCalled()
+  })
+
   it('times out a dispatcher run and aborts its signal', async () => {
     let capturedSignal: AbortSignal | undefined
     const dispatcher = buildDispatcher()

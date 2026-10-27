@@ -1,6 +1,10 @@
 import { z, type ZodType, type ZodTypeAny } from 'zod'
 import { getAgent, loadAgentRegistry } from './agent-registry'
-import { resolveAiAgentRunDispatcher } from './agent-run-dispatcher'
+import {
+  resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
+  type AiAgentRunDispatcher,
+} from './agent-run-dispatcher'
 import { jsonSchemaToZod } from './schema-utils'
 import type { AiToolAgentRef, AiToolMcpOptions } from './types'
 
@@ -121,14 +125,20 @@ async function isAgentToolRunnable(
 ): Promise<boolean> {
   const dispatcher = resolveAiAgentRunDispatcher(container)
   if (dispatcher && dispatcher.owns(agentRef.agentId)) {
-    try {
-      return await dispatcher.isAvailable(agentRef.agentId)
-    } catch {
-      return false
-    }
+    return isDispatcherAgentAvailable(dispatcher, agentRef.agentId)
   }
   await loadAgentRegistry()
-  return Boolean(getAgent(agentRef.agentId))
+  const knownLocally = Boolean(getAgent(agentRef.agentId))
+  if (knownLocally) return true
+  return resolveDispatchOwner(dispatcher, agentRef.agentId, { knownLocally })
+}
+
+async function isDispatcherAgentAvailable(dispatcher: AiAgentRunDispatcher, agentId: string): Promise<boolean> {
+  try {
+    return await dispatcher.isAvailable(agentId)
+  } catch {
+    return false
+  }
 }
 
 export async function filterRunnableAgentTools<TTool extends McpStructuredResultTool>(

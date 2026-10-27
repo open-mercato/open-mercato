@@ -40,3 +40,8 @@
   - Core `workflows` `failInvokeAgentStep` now records the error's string `code` in `errorData.code` / `details.code` (additive; any coded agent error).
   - With `OM_AGENT_INVOKE_ENFORCEMENT=off`, `GET /agents` reports every agent `invocable: true`, matching the runtime.
 - Review note for the final pass: the run/rerun 403 body carries an English `error` string, like the routes' other errors; the Playground translates the code.
+
+## 2026-10-27T09:00:40Z — Step 3.2 decision: run-object input mapping for dispatched agents
+- AO agents take a free-form input (no input schema; the native runner passes a string as-is and JSON-stringifies anything else into the prompt). `run-object` receives chat `messages`, so a dispatched run gets the content string when the body is a single `user` message, and the messages array otherwise. No typed-input mapping exists on this door; callers with a typed input use the AO run route.
+- `agent_invoke_denied` from the dispatcher maps to `403 agent_features_denied` with a generic message (no feature names); `agent_principal_missing` (or a caller with no tenant/org/principal) maps to `409 agent_principal_missing`. Natively registered AO agents still go through `checkAgentPolicy` first, whose existing 403 message lists the agent's features (unchanged route behavior).
+- Dispatcher runs use a 120 000 ms route timeout (same default as `defineAgentTool`).

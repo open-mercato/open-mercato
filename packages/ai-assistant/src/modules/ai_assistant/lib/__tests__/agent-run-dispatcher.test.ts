@@ -3,6 +3,7 @@ import {
   AiAgentDispatchDeniedError,
   isAiAgentDispatchDeniedError,
   resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
   type AiAgentRunDispatcher,
 } from '../agent-run-dispatcher'
 
@@ -77,5 +78,44 @@ describe('AiAgentDispatchDeniedError', () => {
     expect(error.code).toBe('agent_principal_missing')
     expect(error.message).toBe('[internal] no principal')
     expect(isAiAgentDispatchDeniedError(new Error('other'))).toBe(false)
+  })
+})
+
+describe('resolveDispatchOwner', () => {
+  function makeOwnerDispatcher(owns: boolean, available: boolean | Error) {
+    return {
+      owns: jest.fn(() => owns),
+      isAvailable: jest.fn(async () => {
+        if (available instanceof Error) throw available
+        return available
+      }),
+      runObject: jest.fn(),
+    }
+  }
+
+  it('returns false without a dispatcher', async () => {
+    await expect(resolveDispatchOwner(null, 'ops.triage', { knownLocally: false })).resolves.toBe(false)
+  })
+
+  it('lets dispatcher ownership win over the local registry without an availability check', async () => {
+    const dispatcher = makeOwnerDispatcher(true, false)
+    await expect(resolveDispatchOwner(dispatcher, 'ops.triage', { knownLocally: true })).resolves.toBe(true)
+    expect(dispatcher.isAvailable).not.toHaveBeenCalled()
+  })
+
+  it('keeps a locally known agent on the ai-assistant path when the dispatcher does not own it', async () => {
+    const dispatcher = makeOwnerDispatcher(false, true)
+    await expect(resolveDispatchOwner(dispatcher, 'ops.triage', { knownLocally: true })).resolves.toBe(false)
+    expect(dispatcher.isAvailable).not.toHaveBeenCalled()
+  })
+
+  it.each<[string, boolean | Error, boolean]>([
+    ['available', true, true],
+    ['unavailable', false, false],
+    ['throwing', new Error('boom'), false],
+  ])('awaits availability for an unknown agent the dispatcher reports %s (cold registry)', async (_label, available, expected) => {
+    const dispatcher = makeOwnerDispatcher(false, available)
+    await expect(resolveDispatchOwner(dispatcher, 'ops.triage', { knownLocally: false })).resolves.toBe(expected)
+    expect(dispatcher.isAvailable).toHaveBeenCalledWith('ops.triage')
   })
 })

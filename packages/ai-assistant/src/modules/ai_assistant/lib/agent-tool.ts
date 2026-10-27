@@ -8,6 +8,7 @@ import type { AiAgentRunChannel } from './agent-call-contract'
 import {
   isAiAgentDispatchDeniedError,
   resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
   type AiAgentRunDispatchCaller,
   type AiAgentRunDispatcher,
 } from './agent-run-dispatcher'
@@ -226,6 +227,12 @@ async function runThroughAiAssistant<TInput>(
   }
 }
 
+async function isOwnedByDispatcher(dispatcher: AiAgentRunDispatcher, agentId: string): Promise<boolean> {
+  if (dispatcher.owns(agentId)) return true
+  await loadAgentRegistry()
+  return resolveDispatchOwner(dispatcher, agentId, { knownLocally: Boolean(getAgent(agentId)) })
+}
+
 export function defineAgentTool<TInput, TOutput = unknown>(
   spec: DefineAgentToolSpec<TInput, TOutput>,
 ): AiToolDefinition<TInput, AgentToolResult<TOutput>> {
@@ -235,10 +242,10 @@ export function defineAgentTool<TInput, TOutput = unknown>(
     const correlationId = resolveCorrelationId(context)
     const genericSpec = spec as DefineAgentToolSpec<TInput, unknown>
     const dispatcher = resolveAiAgentRunDispatcher(context.container)
-    const outcome =
-      dispatcher && dispatcher.owns(spec.agentId)
-        ? await runThroughDispatcher(dispatcher, genericSpec, input, context, correlationId, timeoutMs)
-        : await runThroughAiAssistant(genericSpec, input, context, correlationId, timeoutMs)
+    const owner = dispatcher && (await isOwnedByDispatcher(dispatcher, spec.agentId)) ? dispatcher : null
+    const outcome = owner
+      ? await runThroughDispatcher(owner, genericSpec, input, context, correlationId, timeoutMs)
+      : await runThroughAiAssistant(genericSpec, input, context, correlationId, timeoutMs)
     return outcome as AgentToolResult<TOutput>
   }
   const tool: AiToolDefinition<TInput, AgentToolResult<TOutput>> = {

@@ -11,6 +11,7 @@ const authMock = jest.fn()
 const loadAclMock = jest.fn()
 const createRequestContainerMock = jest.fn()
 const runAiAgentObjectMock = jest.fn()
+let containerDispatcher: unknown = null
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
@@ -25,6 +26,7 @@ jest.mock('../../../../lib/agent-runtime', () => ({
 }))
 
 import { POST } from '../route'
+import { AiAgentDispatchDeniedError } from '../../../../lib/agent-run-dispatcher'
 
 function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>,
@@ -64,6 +66,7 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    containerDispatcher = null
     resetAgentRegistryForTests()
     toolRegistry.clear()
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
@@ -76,6 +79,7 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     createRequestContainerMock.mockResolvedValue({
       resolve: (name: string) => {
         if (name === 'rbacService') return { loadAcl: loadAclMock }
+        if (name === 'aiAgentRunDispatcher' && containerDispatcher) return containerDispatcher
         return null
       },
     })
@@ -393,5 +397,211 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(response.status).toBe(409)
     const json = await response.json()
     expect(json.code).toBe('tool_not_whitelisted')
+  })
+
+  describe('dispatcher-owned agents', () => {
+    const AO_AGENT = 'ops.triage'
+    const AGENT_RUN_ID = 'ao-run-1'
+
+    function makeDispatcher(options: { owned?: string[]; available?: boolean } = {}) {
+      const owned = options.owned ?? [AO_AGENT]
+      return {
+        owns: jest.fn((agentId: string) => owned.includes(agentId)),
+        isAvailable: jest.fn(async () => options.available ?? true),
+        runObject: jest.fn(async () => ({
+          result: { verdict: 'ok' },
+          agentRunId: AGENT_RUN_ID,
+          usage: { inputTokens: 3, outputTokens: 4 },
+          finishReason: null,
+        })),
+      }
+    }
+
+    function seedNativeAoAgent(requiredFeatures?: string[]) {
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: AO_AGENT,
+          moduleId: 'ops',
+          executionMode: 'object',
+          readOnly: true,
+          output: { schemaName: 'Triage', schema: z.object({ verdict: z.string() }) },
+          ...(requiredFeatures ? { requiredFeatures } : {}),
+        }),
+      ])
+    }
+
+    function postAgent(messages: Array<{ role: string; content: string }> = [{ role: 'user', content: 'triage this' }], extra: Record<string, unknown> = {}) {
+      return POST(
+        buildRequest({ agent: AO_AGENT, messages, ...extra }, { 'x-correlation-id': 'corr-123' }) as any,
+      )
+    }
+
+    it('delegates an owned agent to the dispatcher and returns runId null with agentRunId', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+
+      const response = await postAgent(undefined, { callSettings: { temperature: 0.2 } })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        runId: null,
+        agentRunId: AGENT_RUN_ID,
+        object: { verdict: 'ok' },
+        usage: { inputTokens: 3, outputTokens: 4 },
+      })
+      expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+      expect(dispatcher.runObject).toHaveBeenCalledWith({
+        agentId: AO_AGENT,
+        input: 'triage this',
+        caller: {
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          userId: 'user-1',
+          apiKeyId: null,
+          features: ['ai_assistant.view'],
+          isSuperAdmin: false,
+        },
+        channel: 'run-object',
+        via: 'route',
+        correlationId: 'corr-123',
+        callSettings: { temperature: 0.2 },
+        timeoutMs: 120000,
+      })
+    })
+
+    it('passes the messages array when more than one message is sent', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+      const messages = [
+        { role: 'system', content: 'be brief' },
+        { role: 'user', content: 'triage this' },
+      ]
+
+      await postAgent(messages)
+
+      expect(dispatcher.runObject).toHaveBeenCalledWith(expect.objectContaining({ input: messages }))
+    })
+
+    it('binds an API-key caller to the key and its owner', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+      authMock.mockResolvedValueOnce({
+        sub: 'api_key:key-1',
+        tenantId: 'tenant-1',
+        orgId: 'org-1',
+        isApiKey: true,
+        keyId: 'key-1',
+        userId: 'owner-1',
+      })
+
+      await postAgent()
+
+      expect(dispatcher.runObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          caller: expect.objectContaining({ userId: 'owner-1', apiKeyId: 'key-1' }),
+        }),
+      )
+    })
+
+    it('runs the agent feature policy before dispatching a natively registered agent', async () => {
+      seedNativeAoAgent(['ops.triage.run'])
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(403)
+      expect((await response.json()).code).toBe('agent_features_denied')
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
+
+    it('maps a dispatcher invoke denial to 403 without echoing feature names', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      dispatcher.runObject.mockRejectedValueOnce(new AiAgentDispatchDeniedError('agent_invoke_denied', AO_AGENT))
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(403)
+      const json = await response.json()
+      expect(json).toEqual({ error: 'Access to this agent is denied.', code: 'agent_features_denied' })
+    })
+
+    it('maps a missing principal denial to 409', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      dispatcher.runObject.mockRejectedValueOnce(new AiAgentDispatchDeniedError('agent_principal_missing', AO_AGENT))
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(409)
+      expect((await response.json()).code).toBe('agent_principal_missing')
+    })
+
+    it('returns 409 without dispatching when the caller has no tenant scope', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+      authMock.mockResolvedValueOnce({ sub: 'user-1', tenantId: null, orgId: null })
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(409)
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 when the owning dispatcher reports the agent unavailable', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher({ available: false })
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe('agent_unknown')
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
+
+    it('keeps the ai-assistant path for agents the dispatcher does not own', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher({ owned: [] })
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(200)
+      expect((await response.json()).runId).toBe(RUN_ID)
+      expect(runAiAgentObjectMock).toHaveBeenCalledTimes(1)
+      expect(dispatcher.isAvailable).not.toHaveBeenCalled()
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
+
+    it('dispatches a file agent missing from both registries on a cold process when it is available', async () => {
+      const dispatcher = makeDispatcher({ owned: [] })
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(200)
+      expect((await response.json()).agentRunId).toBe(AGENT_RUN_ID)
+      expect(dispatcher.isAvailable).toHaveBeenCalledWith(AO_AGENT)
+      expect(dispatcher.runObject).toHaveBeenCalledTimes(1)
+      expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 for an unknown agent the dispatcher does not have either', async () => {
+      const dispatcher = makeDispatcher({ owned: [], available: false })
+      containerDispatcher = dispatcher
+
+      const response = await postAgent()
+
+      expect(response.status).toBe(404)
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
   })
 })

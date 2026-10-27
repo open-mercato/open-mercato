@@ -30,7 +30,7 @@
 | 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | done | 5bd01eec8 |
 | 2 | 2.6 | Record invoker, entry point, channel and correlation id in the run manifest | dispatch | done | 843c1cb6e |
 | 3 | 3.1 | Implement the AO agent run dispatcher and register it | dispatch:capable | done | 8da8e7ab7 |
-| 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | todo | — |
+| 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | done | 91a89b8cd |
 | 3 | 3.3 | Add the agent-token run route behind OM_AGENT_API_ENABLED | dispatch:capable | todo | — |
 | 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | todo | — |
 | 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | todo | — |
