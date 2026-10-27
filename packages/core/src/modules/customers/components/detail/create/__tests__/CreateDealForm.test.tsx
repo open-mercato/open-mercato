@@ -46,6 +46,11 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
   createCrud: (...args: unknown[]) => mockCreateCrud(...args),
 }))
@@ -199,6 +204,7 @@ beforeEach(() => {
   mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
   mockTriggerSpotEvent.mockReset()
   mockTriggerSpotEvent.mockResolvedValue({ ok: true })
+  mockReportError.mockClear()
 })
 
 const dispatchedSpotEvents = () => mockTriggerSpotEvent.mock.calls.map((call) => call[0] as string)
@@ -368,6 +374,76 @@ describe('CreateDealForm injection lifecycle (#5915 review)', () => {
 
     await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/backend/customers/deals'))
+  })
+
+  it('reports a handled onBeforeSave dispatch failure to telemetry', async () => {
+    const thrown = new Error('widget exploded before the write')
+    mockTriggerSpotEvent.mockImplementation(async (event: string) => {
+      if (event === 'onBeforeSave') throw thrown
+      return { ok: true }
+    })
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() =>
+      expect(mockReportError).toHaveBeenCalledWith(
+        thrown,
+        expect.objectContaining({ module: 'customers', code: 'customers.deal_create_before_save_failed' }),
+      ),
+    )
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+  })
+
+  it('reports a handled onAfterSave dispatch failure to telemetry', async () => {
+    const thrown = new Error('widget exploded after the write')
+    mockTriggerSpotEvent.mockImplementation(async (event: string) => {
+      if (event === 'onAfterSave') throw thrown
+      return { ok: true }
+    })
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() =>
+      expect(mockReportError).toHaveBeenCalledWith(
+        thrown,
+        expect.objectContaining({ module: 'customers', code: 'customers.deal_create_after_save_failed' }),
+      ),
+    )
+  })
+
+  it('ignores a second click while the first submit is still awaiting a deferred onBeforeSave handler', async () => {
+    let resolveBeforeSave: ((value: { ok: true }) => void) | null = null
+    mockTriggerSpotEvent.mockImplementation((event: string) => {
+      if (event === 'onBeforeSave') {
+        return new Promise((resolve) => {
+          resolveBeforeSave = resolve
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+    const submitButton = screen.getAllByRole('button', { name: 'Create deal' })[0]
+
+    await act(async () => {
+      fireEvent.click(submitButton)
+      fireEvent.click(submitButton)
+      fireEvent.click(submitButton)
+    })
+
+    expect(dispatchedSpotEvents().filter((event) => event === 'onBeforeSave')).toHaveLength(1)
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveBeforeSave?.({ ok: true })
+    })
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(1))
+    expect(dispatchedSpotEvents()).toEqual(['onBeforeSave', 'onSave', 'onAfterSave'])
   })
 })
 
