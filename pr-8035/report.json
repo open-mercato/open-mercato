@@ -1,0 +1,155 @@
+{
+  "runId": "pr-8035-70cc8403b-ci-40554280334",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8035,
+    "title": "Warranty pinned-column surfaces",
+    "branch": "fix/issue-7997-warranty-pinned-surfaces",
+    "headSha": "70cc8403b64b1800744730a64167278a65486c22"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "CI ephemeral integration environment",
+    "role": "admin",
+    "startedByThisRepo": false,
+    "browserProvider": "playwright",
+    "source": "GitHub Actions CI artifact 12759170768; reviewed offline, not a separate manual browser session"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "light: /backend/warranty_claims; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "light-claims-empty-header.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "light: /backend/warranty_claims/registrations; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "light-registrations-empty-header.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "light: /backend/warranty_claims/troubleshooting-guides; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "light-guides-empty-header.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "light: /backend/warranty_claims/vendor-policies; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "light-policies-empty-header.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "light: /backend/warranty_claims/vendor-policies; create and filter own API policy fixture; rest",
+      "expected": "Both pinned headers and row edge cells match corresponding normal cells",
+      "observed": "<=1 RGB channel difference passed on first attempt; fixture cleaned in finally",
+      "result": "PASS",
+      "screenshot": "light-policy-rest.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "light: /backend/warranty_claims/vendor-policies; create and filter own API policy fixture; hover",
+      "expected": "Both pinned headers and row edge cells match corresponding normal cells",
+      "observed": "<=1 RGB channel difference passed on first attempt; fixture cleaned in finally",
+      "result": "PASS",
+      "screenshot": "light-policy-hover.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "light: populated policy; resize viewport to 600x900",
+      "expected": "Sticky positioning disabled on mobile",
+      "observed": "Every sticky-class element has non-sticky computed positioning",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "dark: /backend/warranty_claims; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "dark-claims-empty-header.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "dark: /backend/warranty_claims/registrations; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "dark-registrations-empty-header.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "dark: /backend/warranty_claims/troubleshooting-guides; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "dark-guides-empty-header.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "dark: /backend/warranty_claims/vendor-policies; filter by a unique no-results query",
+      "expected": "Empty table; both pinned headers match a visible normal header",
+      "observed": "Strict matching search response, rendered empty state, both pinned headers and <=1 RGB channel difference passed on first attempt",
+      "result": "PASS",
+      "screenshot": "dark-policies-empty-header.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "dark: /backend/warranty_claims/vendor-policies; create and filter own API policy fixture; rest",
+      "expected": "Both pinned headers and row edge cells match corresponding normal cells",
+      "observed": "<=1 RGB channel difference passed on first attempt; fixture cleaned in finally",
+      "result": "PASS",
+      "screenshot": "dark-policy-rest.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "dark: /backend/warranty_claims/vendor-policies; create and filter own API policy fixture; hover",
+      "expected": "Both pinned headers and row edge cells match corresponding normal cells",
+      "observed": "<=1 RGB channel difference passed on first attempt; fixture cleaned in finally",
+      "result": "PASS",
+      "screenshot": "dark-policy-hover.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "dark: populated policy; resize viewport to 600x900",
+      "expected": "Sticky positioning disabled on mobile",
+      "observed": "Every sticky-class element has non-sticky computed positioning",
+      "result": "PASS",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Automated visual scenario verdict only. All 76 integration tests passed, zero failures/flaky/skips; all ten new visual cases passed on first attempt.",
+    "Screenshots copied unmodified from exact-head CI artifacts. Desktop1280x900 and mobile600x900, device scale1; both themes.",
+    "Manual QA approval and formal external GitHub review remain separate. No qa-approved or qa-self-verified label applied.",
+    "Negative controls: original styles fail the actual pixel assertion; original unscoped search locator reproduces sidebar input and response timeout.",
+    "No local authenticated app was available; no separate interactive/manual exploration was run.",
+    "Populated rest/hover checked on Vendor policies; all four list headers checked empty. Populated rows/hover on other three routes and manual horizontal scrolling were not separately exercised."
+  ]
+}
