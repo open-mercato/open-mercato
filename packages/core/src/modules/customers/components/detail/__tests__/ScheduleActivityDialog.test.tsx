@@ -16,6 +16,7 @@ const readApiResultOrThrowMock = jest.fn()
 const setConflictMock = jest.fn()
 const apiCallOrThrowMock = apiCallOrThrow as jest.Mock
 const flashMock = flash as jest.Mock
+const mutationPayloadMock = jest.fn()
 
 function createScheduleState(overrides: Record<string, unknown> = {}) {
   return {
@@ -91,7 +92,10 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: async <T,>({ operation }: { operation: () => Promise<T> }) => operation(),
+    runMutation: async <T,>({ operation, mutationPayload }: { operation: () => Promise<T>; mutationPayload: unknown }) => {
+      mutationPayloadMock(mutationPayload)
+      return operation()
+    },
     retryLastMutation: async () => true,
   }),
 }))
@@ -189,6 +193,7 @@ describe('ScheduleActivityDialog', () => {
     readApiResultOrThrowMock.mockReset()
     apiCallOrThrowMock.mockReset()
     flashMock.mockReset()
+    mutationPayloadMock.mockReset()
     setConflictMock.mockReset()
     mockScheduleState = createScheduleState()
     mockUseRealScheduleState = false
@@ -254,6 +259,7 @@ describe('ScheduleActivityDialog', () => {
       const payload = JSON.parse(init.body) as Record<string, unknown>
       expect(init.method).toBe('PUT')
       expect(payload.interactionType).toBe('qa-custom-type')
+      expect(mutationPayloadMock).toHaveBeenCalledWith(expect.objectContaining({ interactionType: 'qa-custom-type' }))
       expect(payload.title).toBe('Note test edited')
       expect(payload).not.toHaveProperty('durationMinutes')
       expect(payload).not.toHaveProperty('priority')

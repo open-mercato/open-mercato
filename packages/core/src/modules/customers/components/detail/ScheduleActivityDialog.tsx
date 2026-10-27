@@ -514,7 +514,7 @@ export function ScheduleActivityDialog({
         {
           operation: isSaveEdit ? 'updateActivity' : 'createActivity',
           interactionId: editData?.id ?? null,
-          interactionType: state.activityType,
+          interactionType: payload.interactionType,
         },
       )
       flash(t('customers.schedule.saved', 'Activity scheduled'), 'success')
