@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import type { AgentInvoker } from './persistence'
 
 /**
@@ -17,7 +18,14 @@ import type { AgentInvoker } from './persistence'
  * runner / not in this async context), so it does NOT populate `parent_run_id` —
  * that path's nested-run recording is a documented follow-up.
  */
-type RunContext = { runId: string; source?: 'runtime' | 'eval'; invoker?: AgentInvoker }
+export type RunToolCallSink = (toolCall: IntegrityToolCall) => void
+
+type RunContext = {
+  runId: string
+  source?: 'runtime' | 'eval'
+  invoker?: AgentInvoker
+  toolCallSink?: RunToolCallSink
+}
 
 const runIdStorage = new AsyncLocalStorage<RunContext>()
 
@@ -31,14 +39,18 @@ const runIdStorage = new AsyncLocalStorage<RunContext>()
  *
  * `invoker` rides along so a nested `delegate_agent` run is invoke-checked
  * against the PARENT run's invoker, never laundered through the tool caller.
+ *
+ * `toolCallSink` lets a nested in-process run forward its tool calls to the
+ * parent run (the `tool_consulted` rule's `includeSubRuns`).
  */
 export function withRunContext<T>(
   runId: string,
   fn: () => Promise<T>,
   source?: 'runtime' | 'eval',
   invoker?: AgentInvoker,
+  toolCallSink?: RunToolCallSink,
 ): Promise<T> {
-  return runIdStorage.run({ runId, source, invoker }, fn)
+  return runIdStorage.run({ runId, source, invoker, ...(toolCallSink ? { toolCallSink } : {}) }, fn)
 }
 
 /** The current in-process agent run id, or undefined outside a run context. */
@@ -54,4 +66,9 @@ export function getCurrentRunSource(): 'runtime' | 'eval' | undefined {
 /** The current run's invoker, so a nested delegation is checked against it. */
 export function getCurrentRunInvoker(): AgentInvoker | undefined {
   return runIdStorage.getStore()?.invoker
+}
+
+/** The current run's tool-call sink, so a nested run can forward its tool calls. */
+export function getCurrentRunToolCallSink(): RunToolCallSink | undefined {
+  return runIdStorage.getStore()?.toolCallSink
 }

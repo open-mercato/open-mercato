@@ -11,6 +11,7 @@ import {
 import type { CheckOutputArgs, GuardrailService } from '../guardrailService'
 import { evaluateEvidenceQuote } from './rules/evidenceQuote'
 import { evaluateReferenceExists } from './rules/referenceExists'
+import { evaluateToolConsulted } from './rules/toolConsulted'
 import type {
   IntegrityRuleContext,
   IntegrityRuleEvaluator,
@@ -29,6 +30,7 @@ export type IntegrityRuleEvaluators = Partial<{
 export const INTEGRITY_RULE_EVALUATORS: IntegrityRuleEvaluators = {
   evidence_quote: evaluateEvidenceQuote,
   reference_exists: evaluateReferenceExists,
+  tool_consulted: evaluateToolConsulted,
 }
 
 export type OutputPipelineArgs = {
@@ -36,6 +38,7 @@ export type OutputPipelineArgs = {
   rawObject: unknown
   input: unknown
   toolCalls: readonly IntegrityToolCall[]
+  subRunToolCalls?: readonly IntegrityToolCall[]
   grounding?: CheckOutputArgs['grounding']
   guardrailService: Pick<GuardrailService, 'checkOutput'>
   capability: string
@@ -178,6 +181,7 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
         output: structuredClone(current),
         input: args.input,
         toolCalls: args.toolCalls,
+        ...(args.subRunToolCalls ? { subRunToolCalls: args.subRunToolCalls } : {}),
         guardrailSetVersion: args.guardrailSetVersion,
         ...(args.scope ? { scope: args.scope } : {}),
         ...(args.container ? { container: args.container } : {}),

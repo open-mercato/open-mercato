@@ -26,6 +26,11 @@ export type IntegrityRuleContext = {
   input: unknown
   /** In-memory tool calls of the run, in call order. */
   toolCalls: readonly IntegrityToolCall[]
+  /**
+   * In-memory tool calls of the run's in-process `delegate_agent` sub-runs, in
+   * call order; collected only when a rule opts in with `includeSubRuns`.
+   */
+  subRunToolCalls?: readonly IntegrityToolCall[]
   /** Version of the integrity rule set the check rows pin. */
   guardrailSetVersion: string
   scope?: IntegrityRuleScope

@@ -863,3 +863,148 @@ describe('output pipeline wiring', () => {
     expect(runAiAgentObjectMock.mock.calls[0][0].loop).toBeUndefined()
   })
 })
+
+describe('tool_consulted wiring', () => {
+  const consultedSchema = z.object({
+    kind: z.literal('proposal'),
+    proposal: z.object({ findings: z.array(z.object({ ruleId: z.string() })) }),
+  })
+
+  function registerConsultedAgent(id: string, rule: Record<string, unknown> = {}): AgentRegistryEntry {
+    const existing = getAgentEntry(id)
+    if (existing) return existing
+    const entry: AgentRegistryEntry = {
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'proposal',
+      schema: consultedSchema,
+      tools: ['acme.get_rule'],
+      skills: [],
+      subAgents: [],
+      label: 'Tool consulted wiring test agent',
+      description: 'Proposal agent for tool_consulted wiring tests.',
+      instructions: 'propose',
+      runtime: 'native',
+      integrity: [
+        integrityRuleSchema.parse({
+          id: 'rules-read',
+          kind: 'tool_consulted',
+          cites: 'proposal.findings[*].ruleId',
+          tools: ['acme.get_rule'],
+          returned: ['id'],
+          ...rule,
+        }),
+      ],
+    }
+    registerFileAgent(entry)
+    return entry
+  }
+
+  const PROPOSAL = { kind: 'proposal', proposal: { findings: [{ ruleId: 'R1' }] } }
+
+  function toolStep(toolName: string, id: string): Record<string, unknown> {
+    return {
+      toolCalls: [{ toolCallId: `call-${id}`, toolName, input: { id } }],
+      toolResults: [{ toolCallId: `call-${id}`, toolName, output: { id } }],
+      finishReason: 'tool-calls',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      response: { modelId: 'test-model' },
+    }
+  }
+
+  type LoopArg = {
+    onStepFinish?: (event: unknown) => Promise<void>
+    prepareStep?: (state: unknown) => unknown
+  }
+
+  function persistedConsultedCheck(): { result: string; evidence?: Record<string, unknown> } | undefined {
+    const persisted = persistVerdictMock.mock.calls[0][2] as {
+      verdict: { checks: Array<{ kind: string; result: string; evidence?: Record<string, unknown> }> }
+    }
+    return persisted.verdict.checks.find((check) => check.kind === 'tool_consulted')
+  }
+
+  it('evaluates from collected tool calls with trace capture off', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    registerConsultedAgent('native.consulted_trace_off_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      await (args.loop as LoopArg).onStepFinish?.(toolStep('acme__get_rule', 'R1'))
+      return { mode: 'generate', object: PROPOSAL, usage: { inputTokens: 1, outputTokens: 1 } }
+    })
+
+    await makeService().run('native.consulted_trace_off_agent', {}, runCtx)
+
+    expect(captureNativeRunTraceMock).not.toHaveBeenCalled()
+    expect(persistedConsultedCheck()?.result).toBe('pass')
+    expect((runAiAgentObjectMock.mock.calls[0][0].loop as LoopArg).prepareStep).toBeUndefined()
+  })
+
+  it('flags a citation the run never fetched', async () => {
+    registerConsultedAgent('native.consulted_miss_agent')
+    runAiAgentObjectMock.mockResolvedValue({ mode: 'generate', object: PROPOSAL, usage: { inputTokens: 1, outputTokens: 1 } })
+
+    const result = await makeService().run('native.consulted_miss_agent', {}, runCtx)
+
+    expect(result).toEqual(PROPOSAL)
+    expect(persistedConsultedCheck()).toMatchObject({ result: 'warn', evidence: { holdsAutoApproval: true } })
+  })
+
+  it('enforce: prepare_step forces a required tool choice until a matching call succeeded', async () => {
+    registerConsultedAgent('native.consulted_enforce_agent', { enforce: 'prepare_step' })
+    const observed: unknown[] = []
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as LoopArg
+      observed.push(await loop.prepareStep?.({}))
+      await loop.onStepFinish?.(toolStep('acme__search', 'R1'))
+      observed.push(await loop.prepareStep?.({}))
+      await loop.onStepFinish?.(toolStep('acme__get_rule', 'R1'))
+      observed.push(await loop.prepareStep?.({}))
+      return { mode: 'generate', object: PROPOSAL, usage: { inputTokens: 1, outputTokens: 1 } }
+    })
+
+    await makeService().run('native.consulted_enforce_agent', {}, runCtx)
+
+    expect(observed).toEqual([{ toolChoice: 'required' }, { toolChoice: 'required' }, undefined])
+    expect(persistedConsultedCheck()?.result).toBe('pass')
+  })
+
+  it('shadow mode does not install the prepare-step enforcement', async () => {
+    process.env.OM_AGENT_INTEGRITY = 'off'
+    registerConsultedAgent('native.consulted_enforce_shadow_agent', { enforce: 'prepare_step' })
+    runAiAgentObjectMock.mockResolvedValue({ mode: 'generate', object: PROPOSAL, usage: { inputTokens: 1, outputTokens: 1 } })
+
+    await makeService().run('native.consulted_enforce_shadow_agent', {}, runCtx)
+
+    expect((runAiAgentObjectMock.mock.calls[0][0].loop as LoopArg).prepareStep).toBeUndefined()
+  })
+
+  it('includeSubRuns counts the tool calls of an in-process nested run', async () => {
+    const service = makeService()
+    registerConsultedAgent('native.consulted_parent_agent', { includeSubRuns: true })
+    registerNativeAgent('native.consulted_child_agent')
+    registerConsultedAgent('native.consulted_parent_no_sub_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      if (args.agentId === 'native.consulted_child_agent') {
+        await (args.loop as LoopArg).onStepFinish?.(toolStep('acme__get_rule', 'R1'))
+        return VALID_MODEL_OUTPUT
+      }
+      await service.run('native.consulted_child_agent', {}, runCtx)
+      return { mode: 'generate', object: PROPOSAL, usage: { inputTokens: 1, outputTokens: 1 } }
+    })
+
+    await service.run('native.consulted_parent_agent', {}, runCtx)
+    const parentCheck = persistVerdictMock.mock.calls
+      .map((call) => call[2] as { verdict: { checks: Array<{ kind: string; result: string }> } })
+      .flatMap((persisted) => persisted.verdict.checks)
+      .find((check) => check.kind === 'tool_consulted')
+    expect(parentCheck?.result).toBe('pass')
+
+    persistVerdictMock.mockClear()
+    await service.run('native.consulted_parent_no_sub_agent', {}, runCtx)
+    const withoutSubRuns = persistVerdictMock.mock.calls
+      .map((call) => call[2] as { verdict: { checks: Array<{ kind: string; result: string }> } })
+      .flatMap((persisted) => persisted.verdict.checks)
+      .find((check) => check.kind === 'tool_consulted')
+    expect(withoutSubRuns?.result).toBe('warn')
+  })
+})

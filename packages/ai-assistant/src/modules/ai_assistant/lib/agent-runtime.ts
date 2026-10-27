@@ -2408,9 +2408,18 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * `toolChoice`) throws `AgentPolicyError` code
    * `loop_unsupported_in_object_mode`.
    *
+   * Exception: `prepareStep` is honoured on the `enableTools` tool-loop branch,
+   * composed under the wrapper-owned `prepareStep` exactly like chat mode (the
+   * caller's value replaces `agent.loop.prepareStep`). When `enableTools` is set
+   * but no tools resolve, the caller's `prepareStep` is dropped with a warning
+   * instead of failing the run; without `enableTools` it still throws.
+   *
    * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
-  loop?: Pick<AiAgentLoopConfig, 'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride'>
+  loop?: Pick<
+    AiAgentLoopConfig,
+    'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride' | 'prepareStep'
+  >
   /**
    * Optional escape-hatch callback receiving the fully prepared object-mode
    * options bag. When supplied the wrapper still enforces all policy guardrails
@@ -2794,10 +2803,17 @@ export async function runAiAgentObject<TSchema = unknown>(
       }
     }
 
-    if (input.loop) {
-      assertLoopObjectModeCompatible(input.loop)
+    let toollessLoop = input.loop
+    if (toollessLoop?.prepareStep && input.enableTools) {
+      logger.warn('Caller prepareStep dropped: the tool loop fell back to a toolless generateObject', {
+        agentId: agent.id,
+      })
+      toollessLoop = { ...toollessLoop, prepareStep: undefined }
     }
-    const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
+    if (toollessLoop) {
+      assertLoopObjectModeCompatible(toollessLoop)
+    }
+    const effectiveLoop = resolveEffectiveLoopConfig(agent, toollessLoop, WRAPPER_DEFAULT_LOOP_OBJECT)
     objectRunLoop = effectiveLoop
 
     const preparedObjectOptions: PreparedAiSdkObjectOptions = {

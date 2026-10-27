@@ -36,9 +36,13 @@ import {
 } from '../guardrails/integrity/integritySets'
 import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
+import {
+  buildToolConsultedPrepareStep,
+  collectEnforcedToolSets,
+} from '../guardrails/integrity/rules/toolConsulted'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
-import { withRunContext } from './runContext'
+import { getCurrentRunToolCallSink, withRunContext, type RunToolCallSink } from './runContext'
 import { resolveInvoker } from '../access/agentInvokeAccess'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
@@ -258,6 +262,23 @@ export class NativeAgentRunner {
     const integrityRules = entry.integrity?.length ? entry.integrity : null
     const integrityToolCalls: IntegrityToolCall[] = []
     let integrityRawOutputKey: string | null = null
+    const parentToolCallSink = getCurrentRunToolCallSink()
+    const collectSubRunToolCalls =
+      integrityRules?.some((rule) => rule.kind === 'tool_consulted' && rule.includeSubRuns) ?? false
+    const subRunToolCalls: IntegrityToolCall[] = []
+    const runToolCallSink: RunToolCallSink | undefined =
+      collectSubRunToolCalls || parentToolCallSink
+        ? (toolCall) => {
+            if (collectSubRunToolCalls) subRunToolCalls.push(toolCall)
+            parentToolCallSink?.(toolCall)
+          }
+        : undefined
+    const enforcedToolSets =
+      integrityRules && isAgentIntegrityEnforced() ? collectEnforcedToolSets(integrityRules) : []
+    const toolConsultedPrepareStep =
+      enforcedToolSets.length > 0
+        ? buildToolConsultedPrepareStep(enforcedToolSets, () => integrityToolCalls)
+        : null
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
     // workflow INVOKE_AGENT step (`ctx.workflowInstanceId` present) and an event bus is
@@ -307,19 +328,22 @@ export class NativeAgentRunner {
       }
     }
     const emitAgentAction = buildAgentActionEmitter()
-    const wireStepFinish = traceEnabled || emitAgentAction !== null || integrityRules !== null
+    const wireStepFinish =
+      traceEnabled || emitAgentAction !== null || integrityRules !== null || parentToolCallSink !== undefined
     const onAgentStepFinish = async (event: unknown): Promise<void> => {
-      if (traceEnabled || integrityRules) {
+      if (traceEnabled || integrityRules || parentToolCallSink) {
         const record = buildNativeStepRecord(event, Date.now())
         if (traceEnabled) stepRecords.push(record)
-        if (integrityRules) {
+        if (integrityRules || parentToolCallSink) {
           for (const toolCall of record.toolCalls) {
-            integrityToolCalls.push({
+            const integrityToolCall: IntegrityToolCall = {
               toolName: toolCall.toolName,
               args: toolCall.args,
               result: toolCall.result,
               ...(toolCall.error ? { error: toolCall.error.code } : {}),
-            })
+            }
+            if (integrityRules) integrityToolCalls.push(integrityToolCall)
+            parentToolCallSink?.(integrityToolCall)
           }
         }
       }
@@ -450,7 +474,14 @@ export class NativeAgentRunner {
                 trace: { persist: false },
                 ...(ctx.callSettings ? { callSettings: ctx.callSettings } : {}),
                 ...(traceEnabled ? { observe: runObserver } : {}),
-                ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
+                ...(wireStepFinish
+                  ? {
+                      loop: {
+                        onStepFinish: onAgentStepFinish,
+                        ...(toolConsultedPrepareStep ? { prepareStep: toolConsultedPrepareStep } : {}),
+                      },
+                    }
+                  : {}),
               })
               // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
               if (objectResult.mode === 'stream') {
@@ -461,6 +492,7 @@ export class NativeAgentRunner {
             }),
           ctx.source,
           resolveInvoker(ctx) ?? undefined,
+          runToolCallSink,
         ),
       )
       const raced = await Promise.race([
@@ -538,6 +570,7 @@ export class NativeAgentRunner {
           rawObject,
           input,
           toolCalls: integrityToolCalls,
+          ...(collectSubRunToolCalls ? { subRunToolCalls } : {}),
           grounding,
           guardrailService,
           capability: agentId,
