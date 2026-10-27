@@ -1,8 +1,8 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers"]
-areas: ["integration","testing","backend-ui"]
-topics: ["events","testing","workers","hydration","component-overrides","timers"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","cart"]
+areas: ["integration","testing","backend-ui","module-data"]
+topics: ["testing","workers","hydration","component-overrides","timers","transactions"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -12,6 +12,10 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
 
 `TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion because rerenders restarted the debounce, and the blocked fixture was already visible in the initial list. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, selected count, and confirmation count before any bulk mutation. Fixture visibility alone does not prove the filter has finished. Evidence: CI run `40225746832`, its retry trace, and `customers/__integration__/TC-CRM-065.spec.ts`.
+
+`TC-CRM-6442-list` timed out with a closed request context before its first owner read-back could finish. Its trace showed 30.4 seconds between a successful enqueue response and the first read-back attempt: a private in-process bootstrap/queue drain exhausted the 20-second test budget. Reuse `drainIntegrationQueue` so managed-worker tests observe queue completion without starting another consumer or cold bootstrapping the app.
+
+The cart `TC-CART-CONC-05` failure had a different root cause: blocking advisory waiters retained every pooled connection while the holder needed a separate pricing-service query. A local per-cart mutex passed one-cart tests but failed a native two-process/two-cart counterexample. Validate pool sizes and multiple processes/keys, release unsuccessful transaction attempts before backoff, and never replay mutation/uncertain-commit errors. A new deadline needs an explicit documented HTTP contract. Scope any no-write guarantee to the requested mutation phases: existing request preflight activity or repricing may already have persisted.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 
