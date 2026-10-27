@@ -1,5 +1,5 @@
 import { createServer as createHttpServer, request as sendHttp, type IncomingHttpHeaders, type Server } from 'node:http'
-import { connect as netConnect, createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net'
+import { connect as netConnect, createServer as createTcpServer, isIP, type AddressInfo, type Socket } from 'node:net'
 import type { LookupFn } from '@open-mercato/web-research'
 import { pinnedConnect, startEgressProxy, type EgressDialTarget, type EgressProxy } from '../egressProxy'
 
@@ -8,6 +8,7 @@ const RESET_IP = '93.184.216.35'
 const DEAD_IP = '93.184.216.36'
 const MALFORMED_IP = '93.184.216.37'
 const PUBLIC_IPV6 = '2606:2800:220:1:248:1893:25c8:1946'
+const PUBLIC_6TO4 = '2002:808:808::1'
 
 type Recorded = { host: string | undefined; url: string | undefined; headers: IncomingHttpHeaders }
 
@@ -101,6 +102,8 @@ async function buildHarness(): Promise<Harness> {
     'redirect.test': PUBLIC_IP,
     'private.test': '10.0.0.5',
     'metadata.test': '169.254.169.254',
+    'local-translation.test': '64:ff9b:1::a00:1',
+    'private-6to4.test': '2002:a00:1::1',
     'reset.test': RESET_IP,
     'dead.test': DEAD_IP,
     'malformed.test': MALFORMED_IP,
@@ -110,16 +113,16 @@ async function buildHarness(): Promise<Harness> {
     if (hostname === 'flip.test') {
       const address = flipAnswers.shift()
       if (!address) throw new Error('no answer')
-      return [{ address, family: 4 }]
+      return [{ address, family: isIP(address) }]
     }
     const address = table[hostname]
     if (!address) throw new Error(`ENOTFOUND ${hostname}`)
-    return [{ address, family: 4 }]
+    return [{ address, family: isIP(address) }]
   }
 
   const dials: EgressDialTarget[] = []
   const portFor = (addresses: readonly string[]): number => {
-    if (addresses.length === 1 && (addresses[0] === PUBLIC_IP || addresses[0] === PUBLIC_IPV6)) return publicPort
+    if (addresses.length === 1 && [PUBLIC_IP, PUBLIC_IPV6, PUBLIC_6TO4].includes(addresses[0])) return publicPort
     if (addresses.length === 1 && addresses[0] === RESET_IP) return resetPort
     if (addresses.length === 1 && addresses[0] === DEAD_IP) return deadPort
     if (addresses.length === 1 && addresses[0] === MALFORMED_IP) return malformedPort
@@ -229,6 +232,17 @@ describe('browser egress proxy (#7218)', () => {
     expect(harness.dials).toEqual([])
   })
 
+  it.each([
+    '[64:ff9b:1::a00:1]',
+    '[2002:a00:1::1]',
+    'local-translation.test',
+    'private-6to4.test',
+  ])('refuses CONNECT and HTTP egress to %s before dialling', async (host) => {
+    expect(await connectStatus(`${host}:443`)).toBe(403)
+    expect((await proxiedRequest(`http://${host}/secret`)).status).toBe(403)
+    expect(harness.dials).toEqual([])
+  })
+
   it.each(['a@b:1', 'public.test', 'public.test:0', 'public.test:70000', '[::1:443', 'public.test:443/x'])(
     'answers the malformed authority %s with 400',
     async (authority) => {
@@ -254,11 +268,11 @@ describe('browser egress proxy (#7218)', () => {
     expect(harness.dials[0]?.port).toBe(80)
   })
 
-  it('dials a bracketed public IPv6 literal through the pinned dial', async () => {
-    const { status, socket } = await openConnect(`[${PUBLIC_IPV6}]:443`)
+  it.each([PUBLIC_IPV6, PUBLIC_6TO4])('dials public IPv6 %s through the pinned dial', async (address) => {
+    const { status, socket } = await openConnect(`[${address}]:443`)
     socket.destroy()
     expect(status).toBe(200)
-    expect(harness.dials).toEqual([{ host: PUBLIC_IPV6, port: 443, addresses: [PUBLIC_IPV6] }])
+    expect(harness.dials).toEqual([{ host: address, port: 443, addresses: [address] }])
   })
 
   it('re-resolves every connection, so a host that turns private is refused', async () => {
