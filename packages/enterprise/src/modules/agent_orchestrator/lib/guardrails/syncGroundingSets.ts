@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentGuardrailSet } from '../../data/entities'
+import { guardrailSetBodySchema } from '../../data/validators'
 import { listGroundingSets, guardrailSetVersionFor } from './groundingSets'
 
 /**
@@ -47,7 +48,8 @@ export async function syncGroundingSets(
 /**
  * Resolve the CURRENT (latest-synced) grounding set for a capability under a scope:
  * the row whose `version` matches the code-declared set's content hash. Returns
- * null when the capability is not factual / not synced — the runtime then runs no
+ * null when the capability is not factual / not synced, or when the row is not a
+ * grounding body (integrity sets share the table) — the runtime then runs no
  * grounding gate for it.
  */
 export async function resolveCurrentGroundingSet(
@@ -64,5 +66,7 @@ export async function resolveCurrentGroundingSet(
     version,
   })
   if (!row) return null
+  const body = guardrailSetBodySchema.safeParse(row.body)
+  if (!body.success || body.data.kind !== 'grounding') return null
   return { version: row.version, body: row.body }
 }

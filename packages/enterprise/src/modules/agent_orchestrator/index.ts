@@ -48,6 +48,8 @@ export {
   guardrailEvidenceSchema,
   guardResultsSchema,
   guardrailSetBodySchema,
+  groundingSetBodySchema,
+  integritySetBodySchema,
   groundingClaimSchema,
   groundingCitationSchema,
   citableSourceSchema,
@@ -83,6 +85,9 @@ export type {
   GuardrailKindInput,
   GuardrailResultInput,
   GuardrailSetBody,
+  GroundingSetBody,
+  IntegritySetBody,
+  AgentGuardrailSetBody,
   GroundingClaim,
   GroundingCitation,
   CitableSource,
@@ -101,6 +106,14 @@ export {
 } from './lib/guardrails/groundingSets'
 export { checkGrounding, evaluateGrounding } from './lib/guardrails/grounding'
 export { syncGroundingSets, resolveCurrentGroundingSet } from './lib/guardrails/syncGroundingSets'
+export {
+  integritySetBodyFor,
+  integritySetVersionFor,
+  resolveIntegritySet,
+  syncIntegritySets,
+  isAgentIntegrityEnforced,
+  AGENT_INTEGRITY_ENV,
+} from './lib/guardrails/integrity/integritySets'
 
 // Context overlay (Phase 1) — TDCR resolver + registry + provenance schemas for
 // trace ("context assembled" panel), guardrails grounding, and compliance lineage.

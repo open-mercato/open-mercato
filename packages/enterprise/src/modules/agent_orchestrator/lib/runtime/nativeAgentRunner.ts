@@ -29,6 +29,11 @@ import {
   type OutputPipelineResult,
   type RawOutputPointer,
 } from '../guardrails/integrity/pipeline'
+import {
+  isAgentIntegrityEnforced,
+  resolveIntegritySet,
+  syncIntegritySets,
+} from '../guardrails/integrity/integritySets'
 import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
@@ -523,6 +528,9 @@ export class NativeAgentRunner {
       })
     }
 
+    const integritySet = integrityRules ? resolveIntegritySet(entry) : null
+    if (integritySet) await this.ensureIntegritySetSynced(ctx, entry)
+
     const guardrailService = new GuardrailService(this.container)
     const integrityOutcome: OutputPipelineResult | null = integrityRules
       ? await runOutputPipeline({
@@ -535,9 +543,10 @@ export class NativeAgentRunner {
           capability: agentId,
           allowedTools: resolveAgentEffectiveTools(entry),
           attemptedTools: buildAttemptedTools(integrityToolCalls),
-          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
           scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
           container: this.container,
+          shadow: !isAgentIntegrityEnforced(),
         })
       : null
     const rawOutputPointer = integrityOutcome?.changed
@@ -673,6 +682,28 @@ export class NativeAgentRunner {
         attributes: { runId },
       })
       return { status: 'storage_unavailable' }
+    }
+  }
+
+  /**
+   * Makes sure the integrity set the check rows pin exists in
+   * `agent_guardrail_sets` for this organization (tenants created before the set
+   * changed are synced on first use). Fail-open: a sync failure never fails the run.
+   */
+  private async ensureIntegritySetSynced(ctx: AgentRunCtx, entry: AgentRegistryEntry): Promise<void> {
+    try {
+      const em = (this.container.resolve('em') as EntityManager).fork()
+      await syncIntegritySets(em, { tenantId: ctx.tenantId, organizationId: ctx.organizationId }, [entry])
+    } catch (error) {
+      logger.warn('integrity set sync failed', {
+        agentId: entry.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'agent_orchestrator',
+        code: 'agent_orchestrator.integrity_set_sync_failed',
+        attributes: { agentId: entry.id },
+      })
     }
   }
 

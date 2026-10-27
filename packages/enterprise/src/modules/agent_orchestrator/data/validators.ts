@@ -922,7 +922,7 @@ export type CitableSource = z.infer<typeof citableSourceSchema>
 export const groundingSeverity = z.enum(['warn', 'block'])
 export type GroundingSeverity = z.infer<typeof groundingSeverity>
 
-export const guardrailSetBodySchema = z.object({
+export const groundingSetBodySchema = z.object({
   capability: z.string().min(1),
   /** Marks the capability factual — only factual capabilities run the grounding gate. */
   factual: z.boolean(),
@@ -936,7 +936,12 @@ export const guardrailSetBodySchema = z.object({
   /** Minimum citable-source score a citation must clear to be considered resolved. */
   minScore: z.number().default(0),
 })
-export type GuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
+export type GroundingSetBody = z.infer<typeof groundingSetBodySchema>
+/**
+ * The grounding set body. Kept as the grounding arm for backward compatibility;
+ * the stored `agent_guardrail_sets.body` is the `AgentGuardrailSetBody` union.
+ */
+export type GuardrailSetBody = GroundingSetBody
 
 // ── Output integrity (spec 2026-10-21-output-integrity-guardrails) ───────────
 /**
@@ -1097,8 +1102,30 @@ export const integrityEvidenceSchema = guardrailEvidenceSchema.extend({
     .object({ key: z.string().min(1).optional(), status: z.enum(['stored', 'storage_unavailable']) })
     .optional(),
   holdsAutoApproval: z.boolean().optional(),
+  /** Recorded under `OM_AGENT_INTEGRITY=off`: the rule was evaluated but its effect was not applied. */
+  shadow: z.boolean().optional(),
+  /** Under shadow mode, the rule would have blocked the run (the row records `warn`). */
+  wouldBlock: z.boolean().optional(),
 })
 export type IntegrityEvidence = z.infer<typeof integrityEvidenceSchema>
+
+/**
+ * An integrity guardrail SET body (spec `2026-10-21-output-integrity-guardrails`
+ * → Declaration): the parsed rules an agent declares, content-hashed to an
+ * `i1-…` version that every integrity check row pins. `capability` is the agent
+ * id. `untrustedInputs` is reserved for a later phase and synced as `[]`.
+ */
+export const integritySetBodySchema = z.object({
+  kind: z.literal('integrity'),
+  capability: z.string().min(1),
+  rules: integrityRulesSchema,
+  untrustedInputs: z.array(z.unknown()).default([]),
+})
+export type IntegritySetBody = z.infer<typeof integritySetBodySchema>
+
+/** Every guardrail set body stored in `agent_guardrail_sets`, discriminated by `kind`. */
+export const guardrailSetBodySchema = z.discriminatedUnion('kind', [groundingSetBodySchema, integritySetBodySchema])
+export type AgentGuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
 
 /** Run-level roll-up of every integrity rule's verdict. */
 export const integritySummarySchema = z.object({

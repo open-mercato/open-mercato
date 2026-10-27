@@ -879,7 +879,7 @@ export class AgentGuardrailSet {
   @Property({ name: 'version', type: 'varchar', length: 64 })
   version!: string
 
-  /** The grounding policy body. Shape enforced by Zod in data/validators.ts. */
+  /** The set body (`grounding` or `integrity`). Shape enforced by Zod `guardrailSetBodySchema` in data/validators.ts. */
   @Property({ name: 'body', type: 'jsonb' })
   body!: unknown
 

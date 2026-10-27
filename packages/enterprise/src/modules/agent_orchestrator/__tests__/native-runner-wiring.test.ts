@@ -60,6 +60,12 @@ jest.mock('../lib/guardrails/syncGroundingSets', () => ({
   resolveCurrentGroundingSet: jest.fn(async () => null),
 }))
 
+const syncIntegritySetsMock = jest.fn<Promise<number>, unknown[]>()
+jest.mock('../lib/guardrails/integrity/integritySets', () => {
+  const actual = jest.requireActual('../lib/guardrails/integrity/integritySets')
+  return { ...actual, syncIntegritySets: (...args: unknown[]) => syncIntegritySetsMock(...args) }
+})
+
 const captureNativeRunTraceMock = jest.fn<Promise<void>, unknown[]>()
 jest.mock('../lib/runtime/nativeTraceCapture', () => {
   const actual = jest.requireActual('../lib/runtime/nativeTraceCapture')
@@ -78,6 +84,7 @@ jest.mock('../lib/trace/artifactStore', () => {
 import { z } from 'zod'
 import { ARTIFACT_REFS } from '../lib/trace/artifactStore'
 import { integrityRuleSchema } from '../data/validators'
+import { resolveIntegritySet } from '../lib/guardrails/integrity/integritySets'
 import { AgentGuardrailBlockedError } from '../lib/runtime/errors'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
@@ -136,13 +143,16 @@ beforeEach(() => {
   checkOutputMock.mockReset().mockResolvedValue({ result: 'pass', checks: [] })
   persistVerdictMock.mockReset().mockResolvedValue([])
   putArtifactMock.mockReset().mockResolvedValue(null)
+  syncIntegritySetsMock.mockReset().mockResolvedValue(0)
   delete process.env.OM_AGENT_TRACE_CAPTURE
+  delete process.env.OM_AGENT_INTEGRITY
 })
 
 afterEach(() => {
   resetAgentAdmissionForTests()
   resetProviderBudgetForTests()
   delete process.env.OM_AGENT_TRACE_CAPTURE
+  delete process.env.OM_AGENT_INTEGRITY
 })
 
 describe('native run stamping', () => {
@@ -691,6 +701,60 @@ describe('output pipeline wiring', () => {
     expect(createProposalMock).not.toHaveBeenCalled()
     const persisted = persistVerdictMock.mock.calls[0][2] as { verdict: { result: string } }
     expect(persisted.verdict.result).toBe('block')
+  })
+
+  it('pins the agent integrity set version on the integrity check and syncs the set', async () => {
+    const entry = registerIntegrityAgent('native.integrity_version_agent', 'drop')
+    mockModelWithToolCall()
+
+    await makeService().run('native.integrity_version_agent', { content: CONTENT }, runCtx)
+
+    const expectedVersion = resolveIntegritySet(entry)?.version
+    expect(expectedVersion).toMatch(/^i1-[0-9a-f]{24}$/)
+    const persisted = persistVerdictMock.mock.calls[0][2] as {
+      verdict: { checks: Array<{ kind: string; guardrailSetVersion: string }> }
+    }
+    const integrityCheck = persisted.verdict.checks.find((check) => check.kind === 'evidence_quote')
+    expect(integrityCheck?.guardrailSetVersion).toBe(expectedVersion)
+    expect(syncIntegritySetsMock).toHaveBeenCalledTimes(1)
+    expect(syncIntegritySetsMock.mock.calls[0][1]).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(syncIntegritySetsMock.mock.calls[0][2]).toEqual([entry])
+  })
+
+  it('a failing integrity set sync never fails the run', async () => {
+    registerIntegrityAgent('native.integrity_sync_fail_agent', 'drop')
+    mockModelWithToolCall()
+    syncIntegritySetsMock.mockRejectedValue(new Error('db down'))
+
+    const logs = captureLogs()
+    try {
+      const result = await makeService().run('native.integrity_sync_fail_agent', { content: CONTENT }, runCtx)
+      expect(result).toEqual({ kind: 'proposal', proposal: { evidence: [{ quote: 'deliver within 30 days' }] } })
+      expect(JSON.stringify(logs.at('warn'))).toContain('integrity set sync failed')
+    } finally {
+      logs.restore()
+    }
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('OM_AGENT_INTEGRITY=off records the would-be block as a shadow warn and completes with the raw output', async () => {
+    process.env.OM_AGENT_INTEGRITY = 'off'
+    registerIntegrityAgent('native.integrity_shadow_agent', 'block')
+    mockModelWithToolCall()
+
+    const result = await makeService().run('native.integrity_shadow_agent', { content: CONTENT }, runCtx)
+
+    expect(result).toEqual({ kind: 'proposal', proposal: RAW_PROPOSAL.proposal })
+    expect(failRunMock).not.toHaveBeenCalled()
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+    expect(putArtifactMock).not.toHaveBeenCalled()
+    const persisted = persistVerdictMock.mock.calls[0][2] as {
+      verdict: { result: string; checks: Array<{ kind: string; result: string; evidence?: Record<string, unknown> }> }
+    }
+    expect(persisted.verdict.result).toBe('warn')
+    const integrityCheck = persisted.verdict.checks.find((check) => check.kind === 'evidence_quote')
+    expect(integrityCheck?.result).toBe('warn')
+    expect(integrityCheck?.evidence).toMatchObject({ shadow: true, wouldBlock: true })
   })
 
   it('keeps the single checkOutput call unchanged for agents without integrity', async () => {

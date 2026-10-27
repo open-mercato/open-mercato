@@ -40,6 +40,7 @@ import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { createAiAgentRunDispatcher } from './lib/runtime/aiAgentRunDispatcher'
 import { AI_AGENT_RUN_DISPATCHER_DI_KEY } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
 import { warnIfAgentInvokeEnforcementDisabled } from './lib/access/agentInvokeAccess'
+import { warnIfAgentIntegrityShadowMode } from './lib/guardrails/integrity/integritySets'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { AgentWorkspaceManager } from './lib/runtime/agentWorkspaceManager'
@@ -73,6 +74,7 @@ registerWorkInboxSources([
 
 export function register(container: AppContainer) {
   warnIfAgentInvokeEnforcementDisabled()
+  warnIfAgentIntegrityShadowMode()
   container.register({
     AgentRun: asValue(AgentRun),
     AgentProposal: asValue(AgentProposal),

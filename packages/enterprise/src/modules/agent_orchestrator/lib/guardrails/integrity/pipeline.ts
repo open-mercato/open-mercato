@@ -43,6 +43,7 @@ export type OutputPipelineArgs = {
   scope?: IntegrityRuleScope
   container?: AwilixContainer
   evaluators?: IntegrityRuleEvaluators
+  shadow?: boolean
 }
 
 export type OutputPipelineResult = {
@@ -116,12 +117,34 @@ async function evaluateRule(
 }
 
 /**
+ * Shadow mode (`OM_AGENT_INTEGRITY=off`): keeps the evaluated check but discards
+ * the rule's effect. A would-be block is recorded as `warn` with `wouldBlock`, so
+ * the row stays truthful about the finding without stopping the run.
+ */
+function toShadowOutcome(outcome: IntegrityRuleOutcome, input: unknown): IntegrityRuleOutcome {
+  const evidence = Object.fromEntries(
+    Object.entries(outcome.check.evidence ?? {}).filter(([key]) => key !== 'holdsAutoApproval'),
+  )
+  return {
+    output: input,
+    changed: false,
+    blocked: false,
+    check: {
+      ...outcome.check,
+      result: outcome.blocked ? 'warn' : outcome.check.result,
+      evidence: { ...evidence, shadow: true, ...(outcome.blocked ? { wouldBlock: true } : {}) },
+    },
+  }
+}
+
+/**
  * The output pipeline (spec `2026-10-21-output-integrity-guardrails` → Pipeline
  * order): 1 schema on the raw object, 2 integrity rules in declaration order
  * (each on an immutable copy of the previous output), 3 schema re-validation of
  * the repaired output, 4 grounding and 6 `tool_scope` (with the run's attempted
  * tools) on the final output. Reuses `checkOutput` for steps 1, 4 and 6 and
- * folds every check into one verdict; it never persists anything.
+ * folds every check into one verdict; it never persists anything. With `shadow`
+ * every rule is evaluated and recorded but the raw output stays final.
  */
 export async function runOutputPipeline(args: OutputPipelineArgs): Promise<OutputPipelineResult> {
   const rawOutput = args.rawObject
@@ -147,7 +170,7 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
   let changed = false
   const changedCheckIndexes: number[] = []
   for (const rule of args.entry.integrity ?? []) {
-    const outcome = await evaluateRule(
+    const evaluated = await evaluateRule(
       evaluators,
       {
         output: structuredClone(current),
@@ -159,6 +182,7 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
       },
       rule,
     )
+    const outcome = args.shadow ? toShadowOutcome(evaluated, current) : evaluated
     integrityChecks.push(outcome.check)
     if (outcome.blocked) {
       return {

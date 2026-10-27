@@ -40,7 +40,7 @@
 | 4 | 4.3 | Add the evidence_quote rule | dispatch | done | bcb0245a3 |
 | 4 | 4.4 | Run the output pipeline in the native runner and return the final output | dispatch:capable | done | 08a1dfad6 |
 | 4 | 4.5 | Store the raw model output as an encrypted artifact | dispatch | done | 12a9912c0 |
-| 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | todo | — |
+| 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | done | pending |
 | 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | todo | — |
 | 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | todo | — |
 | 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | todo | — |

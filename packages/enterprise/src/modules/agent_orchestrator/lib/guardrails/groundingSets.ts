@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { guardrailSetBodySchema, type GuardrailSetBody } from '../../data/validators'
+import { groundingSetBodySchema, type GuardrailSetBody } from '../../data/validators'
 
 /**
  * Code-first grounding guardrail SET registry (Wave 3, Phase 4).
@@ -31,7 +31,7 @@ export function guardrailSetVersionFor(body: GuardrailSetBody): string {
 }
 
 export function registerGroundingSet(body: GuardrailSetBody): void {
-  const parsed = guardrailSetBodySchema.parse(body)
+  const parsed = groundingSetBodySchema.parse(body)
   REGISTRY.set(parsed.capability, parsed)
 }
 
@@ -49,7 +49,7 @@ export function listGroundingSets(): GuardrailSetBody[] {
 // `deals.health_check` reads structured deal facts + retrieval fill (see the
 // context registry) — its proposal claims must trace to those cited sources.
 registerGroundingSet(
-  guardrailSetBodySchema.parse({
+  groundingSetBodySchema.parse({
     capability: 'deals.health_check',
     factual: true,
     kind: 'grounding',

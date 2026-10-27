@@ -5,6 +5,8 @@ import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
 import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
+import { syncIntegritySets } from './lib/guardrails/integrity/integritySets'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'setup' })
@@ -139,6 +141,27 @@ export const setup: ModuleSetupConfig = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
     })
+
+    // Output-integrity sets (`i1-…` content hash of each agent's declared rules)
+    // live in the same table, append-only per version. Best-effort: agent loading
+    // must not abort tenant init; the native runner also syncs a set on first use.
+    try {
+      const { ensureAgentsLoaded, listAgentEntries } = await import('./lib/sdk/defineAgent')
+      await ensureAgentsLoaded()
+      await syncIntegritySets(
+        ctx.em,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        listAgentEntries(),
+      )
+    } catch (error) {
+      logger.warn('failed to sync integrity guardrail sets', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'agent_orchestrator',
+        code: 'agent_orchestrator.integrity_set_sync_failed',
+      })
+    }
 
     // F2: register the per-org metric-rollup interval job. Best-effort + guarded
     // — a deployment without the scheduler module is a safe no-op, and a
