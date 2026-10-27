@@ -139,4 +139,3 @@ describe('section header layout at narrow widths', () => {
     expect(classesOf(actions)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'min-w-0']))
   })
 })
-
