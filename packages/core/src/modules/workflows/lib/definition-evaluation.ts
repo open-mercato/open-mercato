@@ -31,6 +31,10 @@ import {
 } from './definition-error-body'
 import { collectUnresolvedContextRefWarnings } from './expression-refs'
 import { definitionToGraph, validateWorkflowGraph } from './graph-utils'
+import {
+  collectUnsafeMappingTargetIssues,
+  mappingTargetIssuesForApi,
+} from './mapping-target-validation'
 
 /**
  * Problems-panel copy for an unresolved `{{context.*}}` reference. Shared so
@@ -128,7 +132,11 @@ export function evaluateWorkflowDefinition(
   const { nodes, edges } = definitionToGraph(definition, { autoLayout: false })
   const graphErrors = validateWorkflowGraph(nodes, edges)
   const parsed = workflowDefinitionDataSchema.safeParse(definition)
-  const zodIssues: ZodIssueLike[] = parsed.success ? [] : parsed.error.issues
+  const mappingIssues = collectUnsafeMappingTargetIssues(definition)
+  const zodIssues: ZodIssueLike[] = [
+    ...(parsed.success ? [] : parsed.error.issues),
+    ...mappingIssues,
+  ]
   const ledger = options.ledger ?? null
   const configWarnings: ZodIssueLike[] = [
     ...collectActivityConfigWarnings(definition),
@@ -150,7 +158,10 @@ export function evaluateWorkflowDefinition(
     valid: errors === 0,
     errorCount: errors,
     warningCount: warnings,
-    issues: parsed.success ? [] : normalizeDefinitionValidationIssues(parsed.error),
+    issues: [
+      ...(parsed.success ? [] : normalizeDefinitionValidationIssues(parsed.error)),
+      ...mappingTargetIssuesForApi(definition),
+    ],
     problems,
   }
 }

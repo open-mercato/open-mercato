@@ -9,13 +9,13 @@ Prevent workflow-authored input and output mappings from reaching inherited obje
 ## Scope
 
 - Add one workflows-internal safe object-path primitive shared by sub-workflow, agent-result, and parallel-join mapping sinks.
-- Reject mapping target paths containing `__proto__`, `constructor`, or `prototype` in the workflow definition schemas that own those mappings.
+- Reject mapping target paths containing `__proto__`, `constructor`, or `prototype` at first-party workflow authoring boundaries while preserving the exported validator contracts used by third-party modules.
 - Add focused regression tests proving malicious mappings neither validate nor pollute `Object.prototype` while normal nested mappings still work.
 
 ## Non-goals
 
 - Do not freeze `Object.prototype` or change Node.js process flags; those global controls have broader compatibility and deployment consequences than this sink-local fix requires.
-- Do not change workflow ACLs, API routes, persisted definition shapes, or valid mapping semantics.
+- Do not change workflow ACLs, persisted definition shapes, exported validator behavior, or valid mapping semantics.
 - Do not redesign source-path lookup or the workflow editor.
 
 ## Implementation Plan
@@ -27,7 +27,7 @@ Prevent workflow-authored input and output mappings from reaching inherited obje
 
 ### Phase 2: Authoring validation and regression coverage
 
-- Apply the safe target-path rule to sub-workflow, parallel-join, and invoke-agent mapping schemas.
+- Apply the safe target-path rule to sub-workflow, parallel-join, and invoke-agent mappings in the create/update API and the shared Studio/AI definition evaluator.
 - Add regression tests for schema rejection, runtime containment, and valid nested mappings.
 
 ### Phase 3: Verification and review
@@ -36,8 +36,8 @@ Prevent workflow-authored input and output mappings from reaching inherited obje
 
 ## Risks
 
-- Persisted workflow definitions containing prototype-bearing target segments will no longer validate or apply those entries. Those paths have no legitimate JSON-context meaning and retaining them would preserve the vulnerability.
-- Mapping schemas are split between generic step config and typed activity config; tests must cover both entry points so the runtime guard remains the final defense for legacy persisted data.
+- First-party authoring rejects new prototype-bearing target segments, while exported validators continue to parse legacy and third-party definitions. Runtime guards remain the final defense for persisted data.
+- Mapping configuration is split between generic step config and typed activities; tests must cover both entry points and the real execution boundary.
 
 ## Progress
 

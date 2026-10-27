@@ -28,6 +28,7 @@ import {
 } from '../../openapi'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../../lib/definition-error-body'
+import { mappingTargetIssuesForApi } from '../../../lib/mapping-target-validation'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
 import {
@@ -200,6 +201,15 @@ export async function PUT(
     }
 
     const input: UpdateWorkflowDefinitionApiInput = validation.data
+    const mappingIssues = input.definition
+      ? mappingTargetIssuesForApi(input.definition, ['definition'])
+      : []
+    if (mappingIssues.length > 0) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: mappingIssues },
+        { status: 400 }
+      )
+    }
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: tenantId ?? '',
       organizationId: organizationId ?? null,

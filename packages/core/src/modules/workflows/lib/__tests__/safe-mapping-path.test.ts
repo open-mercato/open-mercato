@@ -1,5 +1,5 @@
 import { afterEach } from '@jest/globals'
-import { isSafeMappingPath, safeGetNestedValue, safeSetNestedValue } from '../safe-mapping-path'
+import { isSafeMappingTargetPath, safeGetNestedValue, safeSetNestedValue } from '../safe-mapping-path'
 
 describe('safe workflow mapping paths', () => {
   afterEach(() => {
@@ -13,17 +13,21 @@ describe('safe workflow mapping paths', () => {
     'nested.constructor.value',
     'nested.prototype.value',
   ])('rejects prototype-bearing target path %s', (path) => {
-    expect(isSafeMappingPath(path)).toBe(false)
+    expect(isSafeMappingTargetPath(path)).toBe(false)
   })
 
-  test('reads only safe own-property paths', () => {
+  test('reads only own-property paths, including legitimate special-name fields', () => {
     const inherited = { inherited: 'nope' }
-    const source = Object.assign(Object.create(inherited), { own: { value: 42 } })
+    const source = Object.setPrototypeOf(
+      JSON.parse('{"own":{"value":42},"constructor":{"value":"ctor"},"prototype":{"value":"proto"},"__proto__":{"value":"json"}}'),
+      inherited,
+    )
 
     expect(safeGetNestedValue(source, 'own.value')).toBe(42)
     expect(safeGetNestedValue(source, 'inherited')).toBeUndefined()
-    expect(safeGetNestedValue(source, '__proto__')).toBeUndefined()
-    expect(safeGetNestedValue(source, 'constructor.prototype')).toBeUndefined()
+    expect(safeGetNestedValue(source, 'constructor.value')).toBe('ctor')
+    expect(safeGetNestedValue(source, 'prototype.value')).toBe('proto')
+    expect(safeGetNestedValue(source, '__proto__.value')).toBe('json')
   })
 
   test('writes valid nested paths without following inherited properties', () => {

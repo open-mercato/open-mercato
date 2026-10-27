@@ -33,7 +33,7 @@ import { logWorkflowEvent } from './event-logger'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
-import { isSafeMappingPath, safeGetNestedValue } from './safe-mapping-path'
+import { isSafeMappingTargetPath, safeGetNestedValue } from './safe-mapping-path'
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -107,11 +107,11 @@ interface ParallelContext {
 }
 
 export function applyParallelJoinOutputMapping(
-  context: Record<string, any>,
+  context: Record<string, unknown>,
   outputMapping: Record<string, string>,
 ): void {
   for (const [topKey, sourcePath] of Object.entries(outputMapping)) {
-    if (topKey === 'branches' || !isSafeMappingPath(topKey)) continue
+    if (topKey === 'branches' || !isSafeMappingTargetPath(topKey)) continue
     const value = safeGetNestedValue(context, sourcePath)
     if (value !== undefined) context[topKey] = value
   }

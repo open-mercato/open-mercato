@@ -1,6 +1,6 @@
 const FORBIDDEN_MAPPING_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
-export function isSafeMappingPath(path: string): boolean {
+export function isSafeMappingTargetPath(path: string): boolean {
   return !path.split('.').some((segment) => FORBIDDEN_MAPPING_PATH_SEGMENTS.has(segment))
 }
 
@@ -9,8 +9,6 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function safeGetNestedValue(source: unknown, path: string): unknown {
-  if (!isSafeMappingPath(path)) return undefined
-
   return path.split('.').reduce<unknown>((current, segment) => {
     if (!isObjectRecord(current) || !Object.hasOwn(current, segment)) return undefined
     return current[segment]
@@ -29,7 +27,7 @@ export function safeSetNestedValue(
   value: unknown,
 ): boolean {
   const segments = path.split('.')
-  if (!isSafeMappingPath(path)) return false
+  if (!isSafeMappingTargetPath(path)) return false
 
   const lastSegment = segments.pop()
   if (lastSegment === undefined) return false

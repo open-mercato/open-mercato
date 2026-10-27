@@ -42,20 +42,21 @@ describe('applyParallelJoinOutputMapping', () => {
     delete (Object.prototype as Record<string, unknown>).workflowPolluted
   })
 
-  test('keeps top-level mapping semantics and ignores unsafe target and source paths', () => {
-    const context: Record<string, any> = {
-      branches: { branchA: { result: 'approved' } },
-    }
+  test('keeps top-level mapping semantics, reads own special fields, and ignores unsafe targets', () => {
+    const context = JSON.parse(
+      '{"branches":{"branchA":{"result":"approved","constructor":{"value":"ctor"}}}}',
+    ) as Record<string, unknown>
     const outputMapping = JSON.parse(
-      '{"decision":"branches.branchA.result","literal.path":"branches.branchA.result","__proto__":"branches.branchA","fromPrototype":"constructor.prototype"}',
+      '{"decision":"branches.branchA.result","literal.path":"branches.branchA.result","constructorValue":"branches.branchA.constructor.value","__proto__":"branches.branchA"}',
     ) as Record<string, string>
 
     applyParallelJoinOutputMapping(context, outputMapping)
 
     expect(context).toEqual({
-      branches: { branchA: { result: 'approved' } },
+      branches: { branchA: { result: 'approved', constructor: { value: 'ctor' } } },
       decision: 'approved',
       'literal.path': 'approved',
+      constructorValue: 'ctor',
     })
     expect(Object.getPrototypeOf(context)).toBe(Object.prototype)
     expect(Object.prototype).not.toHaveProperty('workflowPolluted')

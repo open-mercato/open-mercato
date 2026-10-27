@@ -28,6 +28,7 @@ import {
 } from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
+import { mappingTargetIssuesForApi } from '../../lib/mapping-target-validation'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
 import {
   authorizeWorkflowGrantChange,
@@ -261,6 +262,13 @@ export async function POST(request: NextRequest) {
     }
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
+    const mappingIssues = mappingTargetIssuesForApi(input.definition, ['definition'])
+    if (mappingIssues.length > 0) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: mappingIssues },
+        { status: 400 }
+      )
+    }
 
     // New definitions default to strict interpolation (spec §3.6). The default
     // lives on the create path only — a schema-level default would flip

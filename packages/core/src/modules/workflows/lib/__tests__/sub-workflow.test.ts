@@ -355,6 +355,66 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
   // ============================================================================
 
   describe('Data Mapping', () => {
+    test('contains legacy unsafe targets through the executeStep boundary while reading own special fields', async () => {
+      const legacyParentDefinition = {
+        ...parentDefinition,
+        definition: {
+          ...parentDefinition.definition,
+          steps: [
+            ...parentDefinition.definition!.steps.slice(0, 1),
+            {
+              stepId: 'invoke-child',
+              stepName: 'Invoke Child Workflow',
+              stepType: 'SUB_WORKFLOW',
+              config: {
+                subWorkflowId: 'child-workflow',
+                inputMapping: JSON.parse(
+                  '{"safeInput":"payload.constructor.value","__proto__.workflowPolluted":"orderId"}',
+                ),
+                outputMapping: JSON.parse(
+                  '{"safeOutput":"result.prototype.value","constructor.prototype.workflowPolluted":"status"}',
+                ),
+              },
+            },
+            ...parentDefinition.definition!.steps.slice(2),
+          ],
+        },
+      }
+      const legacyParentInstance = {
+        ...parentInstance,
+        context: JSON.parse('{"orderId":"12345","payload":{"constructor":{"value":"ctor"}}}'),
+      }
+      const childContext = JSON.parse(
+        '{"status":"SUCCESS","result":{"prototype":{"value":"proto"}}}',
+      )
+      const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+      startWorkflowSpy.mockResolvedValue(childInstance as WorkflowInstance)
+      executeWorkflowSpy.mockResolvedValue({
+        status: 'COMPLETED',
+        currentStep: 'end',
+        context: childContext,
+        events: [],
+        executionTime: 100,
+      })
+      mockEm.findOne.mockResolvedValue(legacyParentDefinition as WorkflowDefinition)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        legacyParentInstance as WorkflowInstance,
+        'invoke-child',
+        { workflowContext: legacyParentInstance.context },
+        mockContainer,
+      )
+
+      expect(startWorkflowSpy.mock.calls[0][1].initialContext).toEqual({ safeInput: 'ctor' })
+      expect(result.outputData).toEqual({ safeOutput: 'proto' })
+      expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+
+      startWorkflowSpy.mockRestore()
+      executeWorkflowSpy.mockRestore()
+    })
+
     test('should map input data using dot notation', async () => {
       const nestedParentDef = {
         ...parentDefinition,
