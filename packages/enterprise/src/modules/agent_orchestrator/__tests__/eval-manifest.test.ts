@@ -313,7 +313,30 @@ describe('eval-set manifest', () => {
       const em = createFakeEm(new Map<unknown, Row[]>([[AgentEvalSuiteRun, [olderCarrier, ...newerRuns]]]), findCalls)
       expect(await resolveManifest(em, SCOPE, AGENT, version)).toEqual(manifest)
       expect(findCalls.filter((where) => '$or' in where)).toHaveLength(2)
-      expect(await findEvalSetCarrier(em, SCOPE, AGENT, version)).toBe(carrier.id)
+    })
+
+    it('bounds the start-time carrier dedupe to the most recent 200 runs without paging', async () => {
+      const { version, carrier } = await seededCarrier()
+      const base = Date.UTC(2026, 0, 1)
+      const newerRuns = (count: number): Row[] =>
+        Array.from({ length: count }, (_unused, index) => ({
+          id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          ...SCOPE,
+          agentDefinitionId: AGENT,
+          evalSetVersion: null,
+          createdAt: new Date(base + (index + 1) * 1000),
+          summary: {},
+        }))
+      const olderCarrier = { ...carrier, evalSetVersion: null, createdAt: new Date(base) }
+
+      const beyondCalls: Row[] = []
+      const beyond = createFakeEm(new Map<unknown, Row[]>([[AgentEvalSuiteRun, [olderCarrier, ...newerRuns(250)]]]), beyondCalls)
+      expect(await findEvalSetCarrier(beyond, SCOPE, AGENT, version)).toBeNull()
+      expect(beyondCalls).toHaveLength(1)
+      expect(beyondCalls.filter((where) => '$or' in where)).toHaveLength(0)
+
+      const within = createFakeEm(new Map<unknown, Row[]>([[AgentEvalSuiteRun, [olderCarrier, ...newerRuns(150)]]]))
+      expect(await findEvalSetCarrier(within, SCOPE, AGENT, version)).toBe(carrier.id)
     })
 
     it('pages past runs that share a creation timestamp without skipping any', async () => {

@@ -369,20 +369,30 @@ export async function resolveManifest(
   return scanSuiteRuns(em, scope, agentId, (page) => bodyFromCandidates(em, scope, agentId, version, page))
 }
 
+/**
+ * Start-time body dedupe only: looks at the most recent CARRIER_SCAN_LIMIT suite
+ * runs. A miss just stores the body again, so this stays bounded; only pin
+ * resolution (`resolveManifest`) scans every run.
+ */
 export async function findEvalSetCarrier(
   em: EntityManager,
   scope: ManifestScope,
   agentId: string,
   version: string,
 ): Promise<string | null> {
-  return scanSuiteRuns(em, scope, agentId, async (page) => {
-    for (const candidate of page) {
-      const pointer = readEvalSetPointer(candidate.summary)
-      if (pointer?.version !== version || pointer.body === undefined) continue
-      if (verifiedBody(pointer.body, agentId, version)) return candidate.id
-    }
-    return null
-  })
+  const candidates = await findWithDecryption(
+    em,
+    AgentEvalSuiteRun,
+    { ...scope, agentDefinitionId: agentId },
+    { orderBy: { createdAt: 'desc', id: 'desc' }, limit: CARRIER_SCAN_LIMIT },
+    scope,
+  )
+  for (const candidate of candidates) {
+    const pointer = readEvalSetPointer(candidate.summary)
+    if (pointer?.version !== version || pointer.body === undefined) continue
+    if (verifiedBody(pointer.body, agentId, version)) return candidate.id
+  }
+  return null
 }
 
 export function buildEvalSetPointer(options: {
