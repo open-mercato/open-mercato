@@ -2,6 +2,8 @@
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { mapRouteErrorToResponse } from '../currentCartRoute'
+import { CartLineMutationLockTimeoutError } from '../lineMutationLock'
+import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 
 // Closes a coverage gap `command-interceptor-http-coverage.test.ts` (packages/core/src/
 // __tests__/) cannot see on its own: that guard's own AST scan is file-scoped and does not
@@ -51,6 +53,35 @@ describe('mapRouteErrorToResponse command interceptor rejections', () => {
     const response = await mapRouteErrorToResponse(new Error('boom'))
 
     expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: 'Unexpected error' })
+  })
+})
+
+
+describe('cart line lock timeout HTTP boundary', () => {
+  it('maps only the cart pre-mutation timeout to retryable 503 without disclosing the cart key', async () => {
+    const response = await mapRouteErrorToResponse(new CartLineMutationLockTimeoutError())
+    expect(response.status).toBe(503)
+    expect(response.headers.get('Retry-After')).toBe('1')
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    await expect(response.json()).resolves.toEqual({ error: 'Cart is busy. Please try again.', code: 'cart_busy' })
+  })
+
+  it('recognizes its private timeout across duplicated module instances', async () => {
+    let error: unknown
+    jest.isolateModules(() => {
+      const duplicate: typeof import('../lineMutationLock') = require('../lineMutationLock')
+      error = new duplicate.CartLineMutationLockTimeoutError()
+    })
+    expect(error).not.toBeInstanceOf(CartLineMutationLockTimeoutError)
+    const response = await mapRouteErrorToResponse(error)
+    expect(response.status).toBe(503)
+  })
+
+  it.each(['deadline', 'transient_db', 'commit_unknown'] as const)('does not mark another advisory lock %s retryable', async (reason) => {
+    const response = await mapRouteErrorToResponse(new AdvisoryLockUnavailableError(reason, 'cart:lines:cart-a'))
+    expect(response.status).toBe(500)
+    expect(response.headers.get('Retry-After')).toBeNull()
     await expect(response.json()).resolves.toEqual({ error: 'Unexpected error' })
   })
 })

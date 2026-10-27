@@ -1,7 +1,21 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 import { calculateBackoffDelayMs } from '@open-mercato/shared/lib/delivery/retry'
+
+const CART_LINE_LOCK_TIMEOUT = Symbol.for('@open-mercato/cart:LineMutationLockTimeout')
+
+export class CartLineMutationLockTimeoutError extends Error {
+  readonly [CART_LINE_LOCK_TIMEOUT] = true
+
+  constructor() {
+    super('[internal] Cart line mutation lock wait deadline exceeded')
+    this.name = 'CartLineMutationLockTimeoutError'
+  }
+}
+
+export function isCartLineMutationLockTimeoutError(error: unknown): error is CartLineMutationLockTimeoutError {
+  return typeof error === 'object' && error !== null && Reflect.get(error, CART_LINE_LOCK_TIMEOUT) === true
+}
 
 export async function withCartLineMutationLock(
   em: EntityManager,
@@ -37,9 +51,9 @@ export async function withCartLineMutationLock(
     }
 
     const remainingMs = deadline - Date.now()
-    if (remainingMs <= 0) throw new AdvisoryLockUnavailableError('deadline', key)
+    if (remainingMs <= 0) throw new CartLineMutationLockTimeoutError()
     const delayMs = calculateBackoffDelayMs(Math.min(attempt, 5), { baseDelayMs: 50, maxJitterMs: 25 })
     await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, remainingMs)))
-    if (Date.now() >= deadline) throw new AdvisoryLockUnavailableError('deadline', key)
+    if (Date.now() >= deadline) throw new CartLineMutationLockTimeoutError()
   }
 }
