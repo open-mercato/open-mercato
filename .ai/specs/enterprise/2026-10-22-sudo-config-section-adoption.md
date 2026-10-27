@@ -1,23 +1,23 @@
-# Sudo configuration section adoption
+# Sudo configuration edit/delete section adoption
 
 **Status:** Proposed
 **Implementation ownership:** Open Mercato core team members only
-**Depends on:** `.ai/specs/2026-10-22-crudform-section-overrides-framework.md`, `.ai/specs/enterprise/2026-10-22-sudo-config-optimistic-locking.md`
-**Related:** `.ai/specs/enterprise/2026-10-22-crudform-section-adoption.md`
+**Depends on:** `.ai/specs/2026-10-22-crudform-section-overrides-framework.md`, `.ai/specs/2026-10-22-crudform-section-adoption-inventory.md`, `.ai/specs/enterprise/2026-10-22-sudo-config-optimistic-locking.md`
+**Related:** `.ai/specs/enterprise/2026-10-27-sudo-config-create-section-adoption.md`, `.ai/specs/enterprise/2026-10-22-crudform-section-adoption.md`
 
 ## TLDR
 
-Adopt the section-override framework on `SudoConfigCrudPage` with exact create/edit surfaces, two stable sections, mandatory interactive sudo challenge, immutable policy-header composition, and the already-landed sudo-config locking contract. This work is independent of both MFA reset and the prerequisite locking implementation.
+Adopt the section-override framework on the edit alternative of `SudoConfigCrudPage` with exact update/delete surfaces, two stable sections, mandatory interactive sudo challenge, immutable policy-header composition, and the already-landed sudo-config locking contract. Create adoption is an independent runtime work unit that needs no locking prerequisite; both adopters consume the inventory governance prerequisite.
 
 ## Overview
 
-The shared renderer has create and edit callers. Both render `target` and `details`; edit additionally loads a record and exposes delete. Every mutation first calls `requireSudo('security.sudo.manage')` and sends `x-sudo-token`. The locking prerequisite already carries `updatedAt`, enforces one command-bound check, returns the refreshed update version, and surfaces standard conflicts. This adopter consumes that contract without owning or duplicating it.
+The shared renderer has independently deployable create and edit callers. This spec owns only edit, which renders `target` and `details`, loads an existing record, and exposes update/delete. Every mutation first calls `requireSudo('security.sudo.manage')` and sends `x-sudo-token`. The locking prerequisite already carries `updatedAt`, enforces one command-bound check, returns the refreshed update version, and surfaces standard conflicts. This adopter consumes that contract without owning or duplicating it. `.ai/specs/enterprise/2026-10-27-sudo-config-create-section-adoption.md` owns create.
 
 ## Problem Statement
 
 A section policy must not:
 
-- apply edit identity to create or reuse an update mutation binding for delete;
+- apply create identity to edit or reuse an update mutation binding for delete;
 - bypass the interactive challenge or `security.sudo.manage`;
 - let caller headers override policy identity;
 - lose schema transforms/cross-field validation when a section is hidden/replaced;
@@ -28,7 +28,7 @@ A section policy must not:
 
 ### Goals
 
-- Publish exact create/edit identity and `target`/`details` section contracts.
+- Publish exact edit identity and `target`/`details` section contracts.
 - Keep existing payload transforms, scope, sudo, command/audit/event, and UI feedback.
 - Use the framework immutable client to combine `x-sudo-token` with protected policy and optimistic-lock headers.
 - Preserve and consume the prerequisite's update/delete optimistic-lock contract.
@@ -39,23 +39,23 @@ A section policy must not:
 - Adopting MFA-reset or another enterprise form.
 - Adding a new generic header-merging helper; the framework prerequisite owns it.
 - Implementing optimistic locking, version responses, or conflict UI; the locking prerequisite owns them.
+- Adopting the create alternative; its framework-only runtime spec (with shared inventory governance) can ship or roll back independently.
 
 ## Stable Contract
 
-| Fact | Create | Edit |
-|---|---|---|
-| host | `crud-form:security.sudo-config` | `crud-form:security.sudo-config` |
-| variant | `create` | `edit` |
-| operation | `create` | `update` |
-| resource kind/id | `security.sudo_config` / absent | `security.sudo_config` / config id |
-| ordered sections | `target`, `details` | `target`, `details` |
-| surface entry | `security.sudo-config.create.create` | `security.sudo-config.edit.update` |
-| parent capability | `security.sudo-config.create/v1` | `security.sudo-config.update/v1` |
-| submit mutation surface | `security.sudo-config.create` | `security.sudo-config.update` |
-| façade | `POST /api/security/sudo/configs/section-policy` | `PUT /api/security/sudo/configs/:id/section-policy` |
-| prior version | forbidden | required from `updatedAt` |
+| Fact | Edit value |
+|---|---|
+| host | `crud-form:security.sudo-config` |
+| variant / operation | `edit` / `update` |
+| resource kind/id | `security.sudo_config` / config id |
+| ordered sections | `target`, `details` |
+| surface entry | `security.sudo-config.edit.update` |
+| parent capability | `security.sudo-config.update/v1` |
+| submit mutation surface | `security.sudo-config.update` |
+| façade | `PUT /api/security/sudo/configs/:id/section-policy` |
+| prior version | required from `updatedAt` |
 
-Edit additionally publishes surface entry `security.sudo-config.edit.delete`, capability `security.sudo-config.delete/v1`, mutation surface `security.sudo-config.delete`, request operation `delete`, and `DELETE /api/security/sudo/configs/:id/section-policy` with the same record version. The resolver issues one composition policy token covering the accepted edit alternative; update and delete then create distinct immutable bindings with their own surface entry, mutation surface, and request operation. Reusing the update binding for delete fails before I/O even though the composition token is shared.
+Edit also publishes surface entry `security.sudo-config.edit.delete`, capability `security.sudo-config.delete/v1`, mutation surface `security.sudo-config.delete`, request operation `delete`, and `DELETE /api/security/sudo/configs/:id/section-policy` with the same record version. The resolver issues one composition policy token covering the accepted edit alternative; update and delete then create distinct immutable bindings with their own surface entry, mutation surface, and request operation. Reusing the update binding for delete fails before I/O even though the composition token is shared.
 
 Data contracts are `security.sudo-config.target/v1` and `security.sudo-config.details/v1`. Exact field ownership:
 
@@ -69,8 +69,8 @@ The exact schema allocation is:
 | `targetIdentifier` trim + non-empty | `target` | projected value is trimmed before payload |
 | `label` trim/empty-to-null/max 200 | `target` | explicit null clears on update |
 | tenant/organization empty-to-null and UUID shape | `details` | explicit null clears; omitted leaf preserves on update |
-| `ttlSeconds` numeric coercion, integer, configured min/max/default | `details` | normative source is `lib/security-config.ts`: minimum 30, `OM_SECURITY_SUDO_MAX_TTL` default 1800 and floored at 30, `OM_SECURITY_SUDO_DEFAULT_TTL` default 300 and clamped to that range; defaults are create-only; update omission preserves |
-| `challengeMethod` enum/default and `isEnabled` boolean/default | `details` | normative enum is `data/constants.ts` `ChallengeMethod`: `auto`, `password`, `mfa`; default `auto`; `isEnabled` default `true`; defaults are create-only; update omission preserves |
+| `ttlSeconds` numeric coercion, integer, configured min/max | `details` | normative source is `lib/security-config.ts`: minimum 30 and `OM_SECURITY_SUDO_MAX_TTL` default 1800/floored at 30; update omission preserves |
+| `challengeMethod` enum and `isEnabled` boolean | `details` | normative enum is `data/constants.ts` `ChallengeMethod`: `auto`, `password`, `mfa`; update omission preserves |
 | organization requires tenant | composition plus authoritative server validator | exact error targets `tenantId`; hidden current leaves still participate |
 | tenant selection change clears organization | `details` UI adapter | server still rejects an incompatible complete state |
 
@@ -78,9 +78,9 @@ A replacement must publish compatible validators/transforms for every leaf it ow
 
 ## Proposed Solution
 
-The renderer declares two finite alternatives rather than independent mode arrays. Create rejects any prior version and never publishes delete. Edit consumes the prerequisite's `updatedAt` state and headers; the bound section client applies its exact request operation so delete cannot inherit update identity.
+The renderer's authored `edit` finite alternative points to this work unit; its sibling `create` alternative points to the separate create adopter. Edit consumes the prerequisite's `updatedAt` state and headers; the bound section client applies its exact request operation so delete cannot inherit update identity.
 
-Payload semantics are explicit. Create has no current record: a policy that merely hides either writable section is invalid, because required/defaulted payload would become implicit. A create replacement is accepted only if it provides the complete compatible data contract for that section. Update submits only active authorized leaves. Inside the command transaction, the domain adapter first loads one authoritative scoped current row, deep-merges submitted leaves into that same row snapshot, treats omission as preserve, treats explicit `null` as clear only for nullable `tenantId`, `organizationId`, and `label`, rejects unknown/duplicate leaves, and validates the complete merged state. Immediately before delegation/write it runs the prerequisite's single DI-aware guard against that same loaded row, then delegates once. A hidden leaf is never accepted from the browser.
+Update submits only active authorized leaves. Inside the prerequisite transaction, the domain adapter reloads the authoritative scoped row with `PESSIMISTIC_WRITE`, deep-merges submitted leaves into that locked snapshot, treats omission as preserve, treats explicit `null` as clear only for nullable `tenantId`, `organizationId`, and `label`, rejects unknown/duplicate leaves, and validates the complete merged state. Immediately before mutation it runs the prerequisite's single DI-aware guard against that same locked row, then mutates and flushes through the same transaction manager. A hidden leaf is never accepted from the browser.
 
 For each submit/delete:
 
@@ -89,8 +89,11 @@ For each submit/delete:
 3. on cancellation, return without creating a bound client or request;
 4. build the framework immutable client with policy, operation, `security.sudo_config`, resource id, and edit/delete expected version;
 5. add `x-sudo-token` as an ordinary required header; framework protected policy headers apply last;
-6. middleware auth/`security.sudo.manage` and scoped record authorization run before policy facts; the façade then validates host/target/operation/surface, body shape, and sudo token before delegating once;
-7. update/delete pass the expected version to the existing command, whose prerequisite guard is the only authoritative lock check; the façade performs no competing version read.
+6. middleware auth/`security.sudo.manage` and scoped record authorization run before the framework recomputes host/target/operation/surface policy facts;
+7. after strict initial route/body/header validation, the mandatory façade helper collects `getAllMutationGuardInstances()`, appends `bridgeLegacyGuard(container)`, and runs `runMutationGuards(...)` with the exact `update`/`delete` operation and `{ userFeatures }`; block responses use the framework's stable 422 envelope, while modified payload is merged and revalidated against active leaves, the accepted resource/policy facts, and the complete sudo-config schema;
+8. `requireSudo(req, 'security.sudo.manage')` validates the step-up token against the post-guard request;
+9. update/delete pass the expected version to the existing command, whose prerequisite optimistic-lock guard is the only authoritative version check; the façade performs no competing version read and every route delegates once;
+10. guard `afterSuccessCallbacks` run once after command success with the validated target id; callback failure is reported/logged without changing an already committed success response.
 
 The ready façade requires a well-formed expected header for update/delete even when an operator disables comparison through `OM_OPTIMISTIC_LOCK`; the prerequisite matrix controls whether the command enforces it. No-policy legacy routes retain the prerequisite's headerless compatibility behavior.
 
@@ -99,9 +102,9 @@ The ready façade requires a well-formed expected header for update/delete even 
 | Area | Change |
 |---|---|
 | `SudoConfigCrudPage.tsx` | Finite identity/descriptors, prerequisite version state, challenge then bound mutations |
-| enterprise security facts | Exact two surfaces, capabilities, data contracts, submit/delete operations |
-| section-policy façades | Auth/scope/policy/body/sudo gates, expected-token parsing, then existing commands |
-| update command adapter | Load one scoped row, merge/validate against it, then run the single prerequisite guard immediately before write |
+| enterprise security facts | Exact edit surface, update/delete capabilities, data contracts, and operations |
+| section-policy façades | Auth/scope/policy/body/mutation-guard/sudo gates, strict metadata/OpenAPI, expected-token parsing, then existing commands |
+| update command adapter | Reuse the prerequisite's transaction-held row lock; merge/validate, guard, mutate, and flush against one locked snapshot |
 | tests | Schema, header precedence, security/scope/lock, command events/audit, browser |
 
 No security-specific logic enters OSS framework packages.
@@ -112,11 +115,13 @@ No migration. `SudoChallengeConfig.updated_at`, version transport, mutation resp
 
 ## API Contracts
 
-Legacy `/api/security/sudo/configs` and item routes retain the exact compatibility matrix in the locking prerequisite. Additive policy façades accept projected active-leaf bodies plus protected policy headers. Edit/delete require the standard expected-version header built from the loaded record and delegate its enforcement to the command.
+Legacy item routes retain the exact compatibility matrix in the locking prerequisite. The additive edit policy façades accept at most 16 KiB of `application/json`; a larger body returns 413 before parsing. `PUT` uses `sudoConfigUpdateSchema.strict()` plus the active-leaf and complete-state validators, and `DELETE` rejects a non-empty body. Item params use `z.object({ id: z.string().uuid() }).strict()`. Both use the framework protected-header schemas plus `x-sudo-token: z.string().min(3).max(4096).regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)`, matching the existing signed token format; duplicate/comma-joined protected/sudo headers are rejected. Update/delete require the standard ISO expected-version header built from the loaded record and delegate its enforcement to the command.
+
+The routes export exact metadata: `PUT` and `DELETE` each require auth plus `security.sudo.manage`. Their `openApi` entries use the strict schemas and declare `PUT 200 { ok: true, updatedAt }` and `DELETE 200 { ok: true }` plus established `400/401/403/404/409/413/422/500` errors. The 409 schema is the union of `extension_policy_mismatch` and `optimistic_lock_conflict`; 422 is the framework's stable `{ error: 'mutation_guard_rejected', code: 'mutation_guard_rejected', details?: unknown }` guard envelope. A registered guard's original body is preserved under `details`; its arbitrary `errorStatus` is diagnostic-only at this façade boundary, so runtime guard registration cannot change the static OpenAPI status set.
 
 Policy mismatch returns exact HTTP `409` `extension_policy_mismatch` after auth/feature/scoped-record authorization and before body/sudo/command. Compound-invalid auth or scope failures never expose policy state. Version mismatch/record gone returns the standard `optimistic_lock_conflict` body and reaches `surfaceRecordConflict`. Other established response shapes remain unchanged.
 
-Exact successes are `POST 201 { id }`, `PUT 200 { ok: true, updatedAt }`, and `DELETE 200 { ok: true }`. Create/delete remove no existing response field; update uses the prerequisite's additive refreshed version.
+Exact successes are `PUT 200 { ok: true, updatedAt }` and `DELETE 200 { ok: true }`. Delete removes no existing response field; update uses the prerequisite's additive refreshed version.
 
 ## UI/UX
 
@@ -129,19 +134,30 @@ Exact successes are `POST 201 { id }`, `PUT 200 { ok: true, updatedAt }`, and `D
 
 No configured policy uses the complete base form and legacy routes from the locking prerequisite. Pending exposes no actions. Ready uses only the policy façades. Invalid configuration blocks. Removing policy returns to legacy behavior after the next resolver load; prior façade carriers no longer match current facts.
 
+## Frontend Architecture Contract
+
+- add no page-root client boundary, global-provider import, or route-specific code to shared bootstrap; enterprise descriptors stay lazy and host-local;
+- retain `CrudForm` as the form owner, use its framework-bound `updateCrud`/`deleteCrud` transports, and add no raw `fetch`, ambient headers, or duplicated conflict state;
+- the no-policy path adds no resolver request or descriptor cloning; a configured host makes one resolver request and exposes no controls while pending/failed;
+- Strict Mode and overlap tests prove cleanup, one sudo challenge and one request per action, isolated update/delete bindings, one command, and one guard callback sequence;
+- keep net page/form wiring under 120 LOC by placing generic schema/header/guard behavior in framework helpers; record `yarn check:client-boundaries`, browser-chunk diff, and hydration evidence;
+- continue using shared `LoadingMessage`, `ErrorMessage`, localized flashes, and the unified conflict bar without new design-system primitives.
+
 ## Edge Cases & Failure Scenarios
 
 | Case | Required behavior |
 |---|---|
-| Edit policy on create | Rejected; create identity remains exact |
-| Create carries prior version | Local/schema rejection before I/O |
+| Create policy or route used from edit | Rejected; edit identity remains exact |
 | Delete reuses update operation | Binding/façade rejection before command |
 | Sudo challenge cancelled/failed | No bound request/command |
 | Caller supplies protected policy header | Local rejection before I/O |
 | Sudo and policy headers present | Both arrive; neither overwrites the other |
+| Mutation guard blocks | Stable 422 guard envelope with registered body under `details`; no sudo validation, command, event/audit, or callback |
+| Mutation guard modifies active payload | Strict route, active-leaf, scope, and complete-state schemas revalidate it before sudo/command |
+| Mutation guard injects hidden/resource leaf | Reject before sudo/command; policy/resource facts cannot be rewritten |
+| Guard success callback fails | Report/log once; preserve the already committed success response |
 | Stale update/delete version | Exact optimistic 409; no mutation/audit/event |
 | Record deleted after load | Standard record-gone conflict without scope leakage |
-| Create hides a payload-owning section | Policy invalid unless a replacement supplies the complete compatible contract |
 | Update omits hidden leaf | Command preserves scoped current leaf; browser value is ignored |
 | Update sends explicit null | Only nullable tenant/organization/label clear; required leaves reject null |
 | Hidden field participates in invariant | Command merges scoped current state and validates; no unreachable client error |
@@ -154,7 +170,7 @@ No configured policy uses the complete base form and legacy routes from the lock
 | Policy bypasses sudo/auth/scope | Critical | Independent server gates and negative matrix | None accepted |
 | Header collision drops policy or sudo token | Critical | Framework immutable client and precedence tests | None accepted |
 | Concurrent edit/delete is overwritten | High | Landed locking prerequisite and required façade token | Explicit gate off disables comparison by operator choice |
-| Create/edit/delete identity collision | High | Finite alternatives and distinct operation facts | New modes need explicit contract |
+| Create/edit work-unit identity collision | High | Alternative-level inventory ownership and distinct specs/operation facts | New modes need explicit contract |
 | Invalid policy restores destructive controls | Critical | Blocking configured-host failure | Policy removal deliberately restores no-policy path |
 
 Rollback removes host eligibility/façade advertisement while retaining stable published contracts. The independently deployed optimistic-lock prerequisite remains.
@@ -165,42 +181,79 @@ All route/capability additions are optional. Existing legacy route behavior rema
 
 ## Phasing and Implementation Plan
 
-1. Add finite create/edit facts, explicit section validators/composition, and exact field ownership; pin no-policy behavior.
-2. Add exact create/update/delete façades and transactional update sequence—load scoped row, merge/validate, single guard against that row, delegate/write—and bind them only after a successful sudo challenge through the framework immutable client.
-3. Add unit/API tests for create replacement requirements, update omission/null semantics, exact schema rules, header precedence, policy/resource/operation, auth/feature/scope/sudo, inherited lock modes, events/audit, and responses.
-4. Add self-contained enterprise browser coverage for create/edit isolation, hide/replace, pending/failure, challenge cancellation, inherited conflict behavior, update/delete, and cleanup.
+1. Add the finite edit fact, explicit section validators/composition, exact field ownership, and alternative-level inventory work-unit link; pin no-policy behavior.
+2. Add exact update/delete façades and reuse the prerequisite sequence—scope preauthorization, transaction-held row reload, merge/validate, single guard, same-manager mutate/flush—and bind them only after a successful sudo challenge through the framework immutable client.
+3. Add unit/API tests for update omission/null semantics, strict params/body/header schemas, raw limits, metadata/OpenAPI parity, header precedence, policy/resource/operation, auth/feature/scope/sudo, mutation-guard block/modify/legacy/callback behavior, inherited lock modes, events/audit, and responses.
+4. Add self-contained enterprise browser coverage for edit versus sibling-create identity, hide/replace, pending/failure, challenge cancellation, inherited conflict behavior, update/delete, and cleanup.
 5. Run focused enterprise tests/build/typecheck, generated inventory gate, `git diff --check`, and configured validation with recorded command/status/artifacts.
 
 ## Integration Coverage
 
-- create/update/delete façade success and every policy/resource/operation mismatch;
+- update/delete façade success and every policy/resource/operation mismatch;
 - sudo challenge success/cancel/failure and header precedence;
 - auth/feature/tenant/org scope and non-leaking missing record;
-- prerequisite lock contract through façades: stale update/delete, record gone, gate modes, exact 409, conflict UI;
-- exact transform/refinement table with create-hide, update-hide, null-clear, and stale-hidden-leaf cases;
-- command audit plus `security.sudo.config.created|updated|deleted` exactly once;
-- browser create/edit identity, two successive saves, delete, blocking failure.
+- strict schemas/body limits, metadata/OpenAPI parity, and mutation-guard block/modify/legacy/after-success/callback-failure behavior;
+- prerequisite lock contract through façades: stale update/delete, record gone, gate modes, exact 409, conflict UI, and barrier-controlled contenders proving the row remains locked through commit;
+- exact transform/refinement table with update-hide, null-clear, and stale-hidden-leaf cases;
+- command audit plus `security.sudo.config.updated|deleted` exactly once;
+- browser edit/sibling-create identity isolation, two successive saves, delete, blocking failure.
 
 ## Acceptance Criteria
 
-1. Create/edit publish only the exact stable facts above; delete exists only on edit.
-2. No mutation bypasses policy (when configured), auth, `security.sudo.manage`, scope, or successful sudo challenge.
+1. Edit publishes only the exact stable facts above; delete exists only on edit, and create remains owned by its separate work unit.
+2. No mutation bypasses policy (when configured), auth, `security.sudo.manage`, scope, strict validation, mutation guards, or successful sudo challenge.
 3. Edit/delete consume the prerequisite's own-record version, single command guard, standard conflict body, and unified conflict UI without duplicating them.
 4. Framework-owned immutable header precedence preserves both policy and `x-sudo-token` without ambient leakage.
-5. Configured failure exposes no submit/delete; no-policy payload/routes/commands/events/audit remain pinned.
-6. Focused unit/API/browser and named validation gates pass.
-7. Implementation and review are performed by Open Mercato core team members.
+5. Guard success callbacks run once with the validated target id, and callback failure is reported without replacing a committed success.
+6. Configured failure exposes no submit/delete; no-policy payload/routes/commands/events/audit remain pinned.
+7. Strict route schemas, raw-body limits, metadata, OpenAPI, and the measurable frontend contract pass their named gates.
+8. Focused unit/API/browser and named validation gates pass.
+9. Implementation and review are performed by Open Mercato core team members.
 
-## Final Compliance Report
+## Final Compliance Report — 2026-10-27
 
-| Area | Status | Evidence required before implementation PR approval |
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md`
+- `.ai/specs/AGENTS.md`
+- `packages/enterprise/AGENTS.md`
+- `packages/core/AGENTS.md`
+- `packages/shared/AGENTS.md`
+- `packages/ui/AGENTS.md`
+- `packages/ui/src/backend/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| root security rules | Preserve auth, feature, tenant/org scope, interactive sudo, and non-enumerating failures | Compliant | Exact façade order and negative matrix are specified for update/delete |
+| root optimistic-lock rule | Edit/delete use their own version and the DI-aware lock seam | Compliant | The landed prerequisite's transaction-held row, single guard, exact 409, and refreshed version are reused |
+| `packages/core/AGENTS.md` → API Routes | Every route exports metadata/OpenAPI and validates exact input | Compliant | Strict params/body/header schemas, raw-body limits, full status matrices, and the stable guard-rejection envelope are specified |
+| UI guides | `CrudForm` mutations use immutable shared helpers, loading/error states, and conflict UI | Compliant | Policy/sudo/lock headers cannot collide; pending/failed controls block; `surfaceRecordConflict` is retained |
+| `.ai/specs/AGENTS.md` | One deployable adopter with API/UI coverage | Compliant | Only the sudo-config edit/delete alternative is in scope; create, locking, and MFA reset remain separate |
+| `BACKWARD_COMPATIBILITY.md` | Keep legacy routes and stable ids additive | Compliant | No-policy transport stays; new host/surface/capability/façade contracts are versioned/additive |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
 |---|---|---|
-| Scope cohesion | Ready | One sudo-config CRUD form family |
-| Security | Ready | Policy/auth/feature/scope/sudo negative matrix |
-| Concurrency | Ready | Landed prerequisite, exact façade propagation, successive-save proof |
-| Compatibility | Ready | Legacy/no-policy golden evidence and additive façades |
-| Ownership | Ready | Core-team-only implementation and review |
+| Data models match API contracts | Pass | Existing config/version fields match update/delete payload and response tables |
+| API contracts match UI/UX section | Pass | Edit/delete identity and ready/pending/invalid/no-policy behavior align |
+| Risks cover all write operations | Pass | Header, scope, sudo, validation, lock, and configured-failure paths are covered |
+| Commands defined for all mutations | Pass | Existing update/delete commands are delegated once through exact façades |
+| Cache strategy covers all read APIs | N/A | No cache change |
+| Frontend architecture contract is measurable | Pass | Client-boundary, request-count, Strict Mode, LOC, chunk, and hydration gates are explicit |
+
+### Non-Compliant Items
+
+None.
+
+### Verdict
+
+- **Fully compliant**: Approved — ready after the locking, framework, and inventory governance prerequisites land.
 
 ## Changelog
 
-- **2026-10-22:** Split sudo-config section adoption from MFA reset and its optimistic-locking prerequisite; pinned exact create/edit/delete identity, payload semantics, protected header composition, blocking failure behavior, and test evidence.
+- **2026-10-27:** Split create into its own framework-only runtime adopter with shared inventory governance; retained edit/delete on the transaction-held row-lock prerequisite with mandatory mutation guards, strict façade/OpenAPI contracts, measurable frontend gates, and barrier proof.
+- **2026-10-22:** Split sudo-config section adoption from MFA reset and its optimistic-locking prerequisite; initially pinned create/edit/delete identity before the alternative-level split.

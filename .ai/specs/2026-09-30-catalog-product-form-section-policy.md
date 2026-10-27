@@ -2,14 +2,14 @@
 
 **Status:** Proposed
 **Implementation ownership:** Open Mercato core team members only
-**Depends on:** `.ai/specs/2026-10-22-crudform-section-overrides-framework.md`, `.ai/specs/2026-10-22-attachment-section-policy-bridge.md`, `.ai/specs/2026-10-09-catalog-nested-offer-optimistic-locking.md`
+**Depends on:** `.ai/specs/2026-10-22-crudform-section-overrides-framework.md`, `.ai/specs/2026-10-22-attachment-section-policy-bridge.md`, `.ai/specs/2026-10-09-catalog-nested-offer-optimistic-locking.md`, `.ai/specs/2026-10-27-catalog-product-unit-conversion-version-refresh.md`, `.ai/specs/2026-10-27-catalog-variant-combination-claim.md`, `.ai/specs/2026-10-27-catalog-variant-generate-missing.md`
 **Related:** issue #6686, `.ai/specs/2026-09-04-crudform-group-visibility.md`
 
 ## TLDR
 
 Adopt the generic `CrudForm` section-override framework on the catalog product **edit** form. A standalone app module can add, hide, or replace any of the ten stable built-in sections through `entry.overrides.forms.sections` without copying the page. The catalog adapter owns explicit per-section client validation, payload leaves, dependencies, independent actions, and secondary writes so a hidden section neither blocks save nor clears or mutates stored data.
 
-This is a focused catalog adopter, independently deployable after the generic framework, attachment bridge, and nested-offer concurrency prerequisite land. Product create and repository-wide form adoption remain separate specs. Because the work changes protected catalog, `CrudForm`, override, action, and optimistic-lock surfaces, implementation and review are restricted to Open Mercato core team members.
+This is a focused catalog adopter, independently deployable after the generic framework, attachment bridge, nested-offer concurrency, unit-conversion version-refresh, variant-combination claim, and generate-missing prerequisites land. Product create and repository-wide form adoption remain separate specs. Because the work changes protected catalog, `CrudForm`, override, action, and optimistic-lock surfaces, implementation and review are restricted to Open Mercato core team members.
 
 ## Overview
 
@@ -52,6 +52,7 @@ The current form has these concrete failure modes:
 - Per-product, tenant-configured, or role-configured visibility.
 - Changing `CrudForm.hiddenGroupIds`.
 - Implementing nested-offer locking or shared attachment operations; those hard prerequisites have their own specs.
+- Implementing conversion version refresh/partial-progress retry or variant generation; those independently deployable capabilities have their own specs.
 - EUDR lifecycle or data-model changes.
 - Moving the existing inline section components solely for organization.
 
@@ -146,14 +147,14 @@ Metadata is server-owned at merge time:
 - both visible: merge their non-overlapping authorized leaves;
 - both hidden: omit metadata completely.
 
-The guarded product-policy façade loads the tenant/organization-scoped product under the parent optimistic lock, merges only active authorized leaves, then delegates to the existing product command. A stale parent version produces the standard `optimistic_lock_conflict`; current-version saves preserve the latest hidden leaves even if the browser loaded older values.
+The guarded product-policy façade delegates the parent version and projected payload to `catalog.products.update`. The prerequisite product command opens its transaction, acquires and refreshes the tenant/organization-scoped product with `PESSIMISTIC_WRITE`, re-runs the DI-aware `catalog.product` optimistic guard inside that transaction, and only then merges active authorized leaves with current hidden values. The façade's route-level check is defense in depth; a parent change between it and command execution still produces the standard `optimistic_lock_conflict` without restoring stale hidden leaves.
 
 ### 4. Secondary writes and dependencies
 
 - Hidden `product-uom` runs no conversion sync.
 - Hidden `categorize` sends no category/tag/offer leaves and runs no offer deletion.
 - Visible sections retain current write ordering and each child mutation uses its own current version.
-- `product-uom` carries every loaded conversion's `id` and `updatedAt`. Update/delete requests override the parent header with that conversion token, use `resourceKind: 'catalog.product_unit_conversion'`, route conflicts through `surfaceRecordConflict`, and stop remaining conversion work. Successful create/update responses return a fresh `updatedAt`; the page replaces conversion values and versions together so successive saves never synthesize or drop child tokens. Because conversions remain legacy post-parent secondary writes, a conversion conflict does not roll back the already committed parent update; tests pin that partial-success boundary and prove no later conversion/action runs.
+- The landed unit-conversion version-refresh prerequisite carries every conversion's authoritative `id`/`updatedAt`, owns child-header overrides and partial-progress retry state, and pins the legacy post-parent boundary. This adopter only activates or suppresses that existing synchronizer with `product-uom`; hidden runs none of it, while visible behavior is byte-for-byte delegated without redefining token refresh or failure semantics.
 - The versioned `offerChanges` capability and authoritative child snapshots from `.ai/specs/2026-10-09-catalog-nested-offer-optimistic-locking.md` must be implemented first; this adopter binds `categorize` only to that capability and never reintroduces the legacy browser pre-delete path.
 - `options` may read the loaded title without making details fields active.
 - `categorize` offer fallbacks come from the scoped locked product when details is hidden, not stale browser values.
@@ -166,24 +167,28 @@ Action-bearing sections publish exact guarded façade and delegated-provider fac
 
 Every row asserts resolver-selected host `catalog.product/<productId>`, which each façade independently scopes and authorizes:
 
-| Mutation surface id | Capability id | Guarded policy façade | Mutation target | Delegated provider | Lock |
-|---|---|---|---|---|---|
-| `catalog.product.edit.submit` | `catalog.product.edit.update/v1` | `PUT /api/catalog/products/:productId/section-policy` | `catalog.product/<productId>` | `catalog.product.update` | parent product version |
-| `catalog.product.edit.details.attachment.create` | `attachments.section-policy.create/v1` | `POST /api/attachments/section-policy` | `attachments.attachment`, id absent | shared attachment create operation | not applicable |
-| `catalog.product.edit.details.attachment.delete` | `attachments.section-policy.delete/v1` | `DELETE /api/attachments/section-policy?id=:id` | `attachments.attachment/<attachmentId>` | shared attachment delete operation | not applicable |
-| `catalog.product.edit.options.schema.create` | `catalog.product.option-schema.create/v1` | `POST /api/catalog/products/:productId/section-actions/option-schemas` | `catalog.option_schema`, id absent | existing option-schema create command | no prior version |
-| `catalog.product.edit.options.schema.update` | `catalog.product.option-schema.update/v1` | `PUT /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.option_schema/<schemaId>` | existing option-schema update command | option-schema row version |
-| `catalog.product.edit.options.schema.delete` | `catalog.product.option-schema.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.option_schema/<schemaId>` | existing option-schema delete command | option-schema row version |
-| `catalog.product.edit.variants.create` | `catalog.product.variant.create/v1` | `POST /api/catalog/products/:productId/section-actions/variants` | `catalog.product_variant`, id absent | existing variant create command | no prior version |
-| `catalog.product.edit.variants.generate` | `catalog.product.variant.generate/v1` | `POST /api/catalog/products/:productId/section-actions/variants/generate` | `catalog.product/<productId>` | existing generated-variant command | no prior version |
-| `catalog.product.edit.variants.update` | `catalog.product.variant.update/v1` | `PUT /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.product_variant/<variantId>` | existing variant update command | variant row version |
-| `catalog.product.edit.variants.delete` | `catalog.product.variant.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.product_variant/<variantId>` | existing variant delete command | variant row version |
+| Mutation surface id | Capability id | Guarded policy façade | Required feature | Mutation target | Delegated provider | Lock |
+|---|---|---|---|---|---|---|
+| `catalog.product.edit.submit` | `catalog.product.edit.update/v1` | `PUT /api/catalog/products/:productId/section-policy` | `catalog.products.manage` | `catalog.product/<productId>` | `catalog.products.update` | parent product version |
+| `catalog.product.edit.details.attachment.create` | `attachments.section-policy.create/v1` | `POST /api/attachments/section-policy` | `attachments.manage` | `attachments.attachment`, id absent | shared attachment create operation | not applicable |
+| `catalog.product.edit.details.attachment.delete` | `attachments.section-policy.delete/v1` | `DELETE /api/attachments/section-policy?id=:id` | `attachments.manage` | `attachments.attachment/<attachmentId>` | shared attachment delete operation | not applicable |
+| `catalog.product.edit.options.schema.create` | `catalog.product.option-schema.create/v1` | `POST /api/catalog/products/:productId/section-actions/option-schemas` | `catalog.settings.manage` | `catalog.option_schema`, id absent | `catalog.optionSchemas.create` | no prior version |
+| `catalog.product.edit.options.schema.update` | `catalog.product.option-schema.update/v1` | `PUT /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.settings.manage` | `catalog.option_schema/<schemaId>` | `catalog.optionSchemas.update` | option-schema row version |
+| `catalog.product.edit.options.schema.delete` | `catalog.product.option-schema.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.settings.manage` | `catalog.option_schema/<schemaId>` | `catalog.optionSchemas.delete` | option-schema row version |
+| `catalog.product.edit.variants.create` | `catalog.product.variant.create/v1` | `POST /api/catalog/products/:productId/section-actions/variants` | `catalog.variants.manage` | `catalog.product_variant`, id absent | `catalog.variants.create` | no prior version |
+| `catalog.product.edit.variants.generate` | `catalog.product.variant.generate/v1` | `POST /api/catalog/products/:productId/section-actions/variants/generate` | `catalog.variants.manage` | `catalog.product/<productId>` | prerequisite operation `catalog.variants.generate_missing` | parent product version |
+| `catalog.product.edit.variants.update` | `catalog.product.variant.update/v1` | `PUT /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.variants.manage` | `catalog.product_variant/<variantId>` | `catalog.variants.update` | variant row version |
+| `catalog.product.edit.variants.delete` | `catalog.product.variant.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.variants.manage` | `catalog.product_variant/<variantId>` | `catalog.variants.delete` | variant row version |
 
 The attachment prerequisite owns extraction and façade behavior. This adopter only declares the two matching surface ids and binds the details controls. “No entity-version lock” is not an auth exemption.
 
+For both attachment surfaces, this adopter publishes owner-binding id `catalog.product.attachments/v1`, lists it in the surfaces' `resourceBindingIds`, and maps framework host resource kind `catalog.product` to attachment entity id `catalog:catalog_product`. The product id maps to attachment `recordId`; create multipart input and a deleted attachment's stored `entityId`/`recordId` must match those exact accepted facts. The framework host kind is never compared directly with the colon-delimited attachment entity id. A missing or mismatched binding rejects the policy before attachment storage/database I/O.
+
 Stable data-contract ids are `catalog.product.edit.title/v1`, `catalog.product.edit.details-seo/v1`, `catalog.product.edit.option-schema/v1`, and `catalog.product.edit.offer-fallbacks/v1`. Every action request carries the accepted policy token and the exact parent/child resource binding required by its table row. A route, method, capability id, data-contract id, or resource binding mismatch returns the framework's exact `409 extension_policy_mismatch` before delegated domain code runs.
 
-The parent façade accepts the framework-projected product payload plus the prerequisite `offerChanges` envelope when `categorize` is active. It asserts and independently reauthorizes host and mutation target `catalog.product/<productId>`, request operation `update`, mutation surface `catalog.product.edit.submit`, and the parent's `updatedAt`; it merges hidden leaves from the scoped locked record, runs authoritative product validation, and delegates once to `catalog.product.update`.
+The generate-missing prerequisite owns `catalog.variants.generate_missing`, authoritative recomputation, stable ordering, concurrency, duplicate-only skip, partial-progress response, side-effect counts, ordinary route, and existing-page adoption. This adopter does not change that service. Its guarded section-action façade reauthorizes the exact host/resource/policy/parent version and delegates once; parity tests compare its success/error payload and one-service-call trace with the prerequisite route.
+
+The parent façade accepts the framework-projected product payload plus the prerequisite `offerChanges` envelope when `categorize` is active. It asserts and independently reauthorizes host and mutation target `catalog.product/<productId>`, request operation `update`, mutation surface `catalog.product.edit.submit`, and the parent's `updatedAt`; it delegates once to `catalog.products.update`, which performs the authoritative locked merge, validation, parent guard, and atomic product/offer write required by the prerequisite.
 
 Built-in and replacement controls use `runSectionMutation`. Hiding removes the controls but does not weaken the underlying legacy endpoint. A replacement activates only when its mutation-surface facts structurally match the accepted provider.
 
@@ -199,7 +204,9 @@ Product create receives no section-policy identity or runtime wiring and remains
 |---|---|
 | catalog product edit page | Bounded explicit identity and descriptor import wiring |
 | `components/productFormSections.ts` | Pure descriptors, schemas, composition validation, payload/dependency/action facts |
-| catalog product policy façade | Locked current-record merge and accepted-policy validation before existing command |
+| catalog product policy façade | Accepted-policy validation and one delegation; the product command owns the transaction-held parent lock/guard and current-record merge |
+| catalog unit-conversion sync | Consume the landed version-refresh/partial-progress synchronizer and bind it only when `product-uom` is active |
+| catalog variant generation | Consume the landed `catalog.variants.generate_missing` service and bind it through one guarded façade delegation |
 | catalog extension facts | Stable edit surface, ten section ids, dependencies, capabilities, actions |
 | test-only app fixture | Real app-level overrides under the integration fixture tree; never production-discovered or emitted by default |
 
@@ -207,11 +214,11 @@ The framework spec owns generic `shared`, `ui`, generator, and bootstrap changes
 
 ## Data Models
 
-No database entity, column, relation, index, or migration changes. The product and child records keep current schemas. Runtime descriptors and generated facts are code/build artifacts only.
+This adopter owns no database entity, column, relation, index, or migration change. The variant-combination prerequisite owns the additive internal key, catalog snapshot, backfill, and partial unique-index migrations; the generate-missing prerequisite consumes that claim and this adopter binds both the landed manual-create and generation contracts without redefining those artifacts. Runtime descriptors and generated facts are code/build artifacts only.
 
 ## API Contracts
 
-Legacy catalog routes retain their URLs and request/response behavior. Policy-enabled edit/actions use the exact additive guarded façade entry points above; attachment façade behavior is pinned by its prerequisite spec. Policy mismatch returns exact HTTP `409` code `extension_policy_mismatch`; record-version mismatch keeps `optimistic_lock_conflict` and is surfaced through `surfaceRecordConflict`.
+Legacy catalog routes retain their URLs and request/response behavior. Policy-enabled edit/actions use the exact additive guarded façade entry points and declarative features above; attachment façade behavior is pinned by its prerequisite spec. Every façade exports strict Zod-derived request/params/response schemas plus OpenAPI and runs the framework's mandatory mutation-guard/legacy-bridge/modified-payload/callback helper before the tabled provider. Create façades supply the helper with an extractor for the persisted product, offer, option-schema, or variant id returned by their domain operation, and API tests assert that exact id reaches every create callback. Policy mismatch returns exact HTTP `409` code `extension_policy_mismatch`; guard denial uses the framework's documented 422 envelope; record-version mismatch keeps `optimistic_lock_conflict` and is surfaced through `surfaceRecordConflict`.
 
 No existing response field is removed. Any additive response needed by the configured fixture must be documented and tested; nested offer snapshots belong to the separate locking spec.
 
@@ -248,6 +255,7 @@ No new primitive or user-facing policy editor is added.
 | Edit policy appears on create | Create has no policy identity and stays on its unchanged legacy flow |
 | Replacement exposes undeclared action | Action unavailable; façade rejects mismatched token |
 | Manifest changes during edit | `409 extension_policy_mismatch`; reload/retry guidance |
+| Two generators or manual create/generate target one complete option combination | Shared parent lock plus canonical live-row check produces one variant; the loser skips (generator) or receives the typed duplicate result (manual create) |
 | Configured policy fails bootstrap/dependency checks | `ErrorMessage`, `crud_form_section_policy_invalid` diagnostic, and zero mutation controls |
 
 ## Risks & Impact Review
@@ -258,6 +266,7 @@ No new primitive or user-facing policy editor is added.
 | Invisible validation blocks save | High | Explicit active section schemas, composition validator, custom-field projection | Domain authors must classify new cross-field rules |
 | Secondary writes still run | High | Descriptor-owned lifecycle and per-section tests | Indirect future actions need fact updates |
 | Action auth/locks weaken | High | Guarded façade delegates to existing provider and preserves ACL/scoping/locks | Misdeclared new surface fails closed |
+| Concurrent generation duplicates an option combination | Critical | Require the independently deployable claim and generate-missing prerequisites and delegate once to the landed service | Incomplete/non-finite combinations intentionally retain current behavior |
 | No-policy behavior drifts | High | Baseline payload/endpoint/order equivalence tests | Refactor must remain focused |
 | Client route grows | Medium | Pure descriptor module and declared LOC/bundle/RSS budgets | Existing route remains large |
 
@@ -273,7 +282,7 @@ The edit host id, `edit` variant, `update` operation, ten section ids, contribut
 
 1. Catalog descriptors and explicit active validation.
 2. Locked server adapter and metadata preservation.
-3. Secondary-write binding, dependencies, and catalog action façades after attachment/offer prerequisites.
+3. Secondary-write binding, dependencies, and catalog action façades after attachment, offer, conversion-refresh, and variant-generation prerequisites.
 4. Configured fixture, unit/integration/Playwright coverage, docs, and harness refresh.
 
 Each phase leaves the default no-policy edit flow working.
@@ -288,29 +297,30 @@ Each phase leaves the default no-policy edit flow working.
 
 ### Phase 2 — preservation adapter
 
-4. Add the catalog product policy façade/capability. Load the scoped current product under the parent optimistic lock, merge only active payload leaves, run authoritative domain validation, then delegate to the existing product command.
+4. Add the catalog product policy façade/capability. Validate accepted policy and delegate the parent token/projected payload once; inside `catalog.products.update`, acquire/refresh the scoped parent with `PESSIMISTIC_WRITE`, run the DI-aware parent guard, merge only active payload leaves with current hidden values, and run authoritative validation before mutation.
 5. Implement metadata leaf ownership and test details-visible/metadata-hidden, metadata-visible/details-hidden, both visible, both hidden, and concurrent hidden-leaf change preservation.
 6. Prove no-policy payload fields, endpoint selection, child-write order, events/audit, and optimistic-lock behavior match the pre-refactor baseline.
 
 ### Phase 3 — writes, dependencies, actions
 
-7. Move conversion sync, category/tag/versioned-offer projection, and other submit-coupled branches behind owning descriptors without changing visible-section ordering or the prerequisite offer-change protocol.
+7. Bind the landed conversion synchronizer, category/tag/versioned-offer projection, and other submit-coupled branches behind owning descriptors without changing visible-section ordering or any prerequisite's behavior.
 8. Publish `catalog.product.edit.title/v1`, `catalog.product.edit.details-seo/v1`, `catalog.product.edit.option-schema/v1`, and `catalog.product.edit.offer-fallbacks/v1`. Test dependency mismatch, widget disablement, and compatible replacement.
-9. Add the exact catalog option-schema/variant façades from the action table and bind them plus the prerequisite attachment façades through `runSectionMutation`; test ACL, scope, policy, resource, lock, conflict, reload, hide, and replacement behavior.
+9. Add the exact catalog option-schema/variant façades from the action table and bind them plus the prerequisite attachment façades through `runSectionMutation`; delegate the generate façade once to the landed `catalog.variants.generate_missing` operation without reimplementing its orchestration; publish and fingerprint `catalog.product.attachments/v1` as the exact `catalog.product` → `catalog:catalog_product` owner mapping; test ACL, scope, policy, owner mapping, resource, parent/child lock, conflict, reload, hide, replacement, and prerequisite parity.
 
 ### Phase 4 — end-to-end proof
 
 10. Add a self-contained, test-only fixture module under `.ai/qa/fixtures/crudform-section-policy/`; its `modules.ts` hides compliance/UoM, replaces one action-bearing section, adds one new display-only section positioned relative to a stable built-in id, and disables SEO when details is removed. Assert production module discovery and create-app default emission exclude it.
 11. Add Playwright coverage for absent/replaced/added cards, edit/create isolation, pending submit block, explicit update identity, replacement action, visible-field save, preserved compliance/conversions/custom fields/metadata, disabled widget handlers, and configured-policy blocking failure. Create and clean up every fixture record.
-12. Add API/integration tests for the exact parent façade binding/delegation, omission-preserves versus explicit-null-clears, capability mismatch, exact 409 shapes, legacy endpoint behavior, tenant/org scoping, permission denial, stale conversion update/delete, post-success conversion token refresh, and partial-success stop behavior.
+12. Add API/integration tests for the exact parent façade binding/delegation, omission-preserves versus explicit-null-clears, capability mismatch, exact 409 shapes, legacy endpoint behavior, tenant/org scoping, permission denial, and parity with the landed conversion/generation prerequisite success, conflict, and partial-progress contracts.
 13. Document the catalog recipe and distinction among `hiddenGroupIds`, `forms.sections`, and `widgets.injection`; refresh the standalone harness through `om-refresh-standalone-harness` with its required failure-first focused test and release report.
 14. Record `yarn check:client-boundaries`, focused catalog unit/integration/Playwright commands, create-source no-diff assertion, edit bundle gzip delta, hydration trace, dev RSS edit sample, standalone harness report path, and every configured validation command with exit status.
 
 ## Integration Coverage
 
-- Product policy façade: exact route/capability/surface/resource/operation, active leaf merge, hidden leaf preservation, explicit null clear, stale parent conflict, policy mismatch, wrong scope, one command delegation, and exact `crud_form_section_policy_invalid` diagnostic fields.
-- Independent actions: every tabled option-schema/variant route plus both prerequisite attachment routes, exact capability/surface ids, ACL, parent/child resource versions, and delegated-provider call count.
-- Conversion lifecycle: per-row update/delete tokens, fresh returned versions, stale-child unified conflict, no later child calls, and pinned already-committed-parent boundary.
+- Product policy façade: exact route/capability/surface/resource/operation/feature, transaction-locked active/hidden leaf merge, explicit null clear, mutation-guard block/modify/legacy/callback paths, barrier-controlled parent change after the route guard, stale parent conflict, policy mismatch, wrong scope, one command delegation, OpenAPI parity, and exact `crud_form_section_policy_invalid` diagnostic fields.
+- Independent actions: every tabled option-schema/variant route plus both prerequisite attachment routes, exact capability/surface ids, exact `catalog.product` → `catalog:catalog_product` owner binding, wrong owner kind/id rejection, ACL, parent/child resource versions, and delegated-provider call count.
+- Variant-generation binding: exact policy/capability/resource checks, one façade delegation, and response/error parity with the prerequisite; the prerequisite owns canonical order, contender, retry, and side-effect tests.
+- Conversion binding: hidden means zero synchronizer calls; visible delegates unchanged and preserves the prerequisite's returned versions, stale-child conflict, partial progress, and no-later-call outcomes.
 - Browser: configured `modules.ts` policy through bootstrap, real UI, save, reload, persistence, action replacement, and widget disablement.
 - No-policy baseline: golden request payload, endpoint URL/method, ordered command/event/audit trace, mutation headers, and two successive saves.
 
@@ -321,11 +331,13 @@ Each phase leaves the default no-policy edit flow working.
 3. Hidden sections contribute no unreachable client/custom-field errors, payload leaves, side effects, or actions.
 4. Saving a visible field preserves every hidden stored value, including conversions and nested metadata leaves.
 5. Pinned golden payloads and ordered traces prove visible sections retain current domain validation, exact lock bindings, event ids/payloads, audit records, and write ordering.
-6. Injected widgets are disabled through widget overrides, not card hiding; dependency mismatches fail closed.
-7. Create remains unaffected and policy-ineligible.
-8. Unknown ids and stale manifests expose no mutation controls and emit `crud_form_section_policy_invalid` with host, variant, operation, contribution id, and reason.
-9. Self-contained unit, API/integration, and configured Playwright tests ship with implementation.
-10. The named client-boundary, focused catalog, create-source no-diff, edit bundle, hydration, standalone harness, and configured validation gates pass with recorded artifacts; RSS is recorded as informational evidence.
+6. The product command refreshes and guards the parent under a transaction-held write lock before hidden-leaf merge; a post-route-check contender cannot be overwritten.
+7. The generate action delegates once to the landed generate-missing operation, and the conversion section delegates unchanged to the landed version-refresh synchronizer; this adopter owns no part of either domain algorithm.
+8. Injected widgets are disabled through widget overrides, not card hiding; dependency mismatches fail closed.
+9. Create remains unaffected and policy-ineligible.
+10. Unknown ids and stale manifests expose no mutation controls and emit `crud_form_section_policy_invalid` with host, variant, operation, contribution id, and reason.
+11. Self-contained unit, API/integration, and configured Playwright tests ship with implementation.
+12. The named client-boundary, focused catalog, create-source no-diff, edit bundle, hydration, standalone harness, and configured validation gates pass with recorded artifacts; RSS is recorded as informational evidence.
 
 ## Prior Review Finding Disposition
 
@@ -338,20 +350,49 @@ Each phase leaves the default no-policy edit flow working.
 | Four-argument component handle broke the public signature | Framework preserves the two-argument helper and encodes variant/operation in a separate scope string |
 | Hidden validation, custom fields, metadata, bootstrap, browser proof | Each has an explicit phase, invariant, and regression case above |
 
-## Final Compliance Report
+## Final Compliance Report — 2026-10-27
 
-| Area | Status | Evidence required before implementation PR approval |
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md`
+- `.ai/specs/AGENTS.md`
+- `packages/core/AGENTS.md`
+- `packages/core/src/modules/catalog/AGENTS.md`
+- `packages/ui/AGENTS.md`
+- `packages/ui/src/backend/AGENTS.md`
+- `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| root + catalog guides | Preserve tenant/organization scoping, command side effects, validation, and optimistic locking | Compliant | Every façade reauthorizes the product/child and delegates once to the named catalog command/service with its own version |
+| root + UI guides | Use `CrudForm`, shared API helpers, guarded writes, conflict UI, and localized shared states | Compliant | Framework-bound mutations, `surfaceRecordConflict`, `LoadingMessage`, and `ErrorMessage` are explicit |
+| `.ai/specs/AGENTS.md` | Keep one independently deployable capability and list API/UI integration coverage | Compliant | This file owns only catalog product edit adoption; framework, attachments, offer locking, conversion refresh, and variant generation are prerequisites/separate specs |
+| `BACKWARD_COMPATIBILITY.md` | Preserve stable routes, ids, events, and public helpers or use additive/versioned contracts | Compliant | Legacy route/behavior remains; new façades, facts, owner binding, and service operation are additive and versioned |
+| root security rules | Never trust client policy/resource facts as authorization | Compliant | Auth, feature, tenant/org, host, target, owner binding, policy, mutation guard, and lock checks are independently server enforced |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
 |---|---|---|
-| Scope cohesion | Ready | Catalog edit adopter only; framework/create/rollout/attachment/offer locking separate |
-| Data safety | Ready | Omission plus locked server merge; no browser-snapshot preservation |
-| Compatibility | Ready | Additive façades/facts; stable host and group ids retained |
-| Security/scoping | Ready | Existing ACL and tenant/org filters remain authoritative |
-| Integration coverage | Ready | All affected parent/action API and key UI paths listed |
-| Frontend architecture | Ready | Bounded route wiring and measurable gates |
-| Ownership | Ready | Implementation restricted to Open Mercato core team members |
+| Data models match API contracts | Pass | No adopter schema change; parent locking uses existing product/offer records and variant identity comes from the named prerequisite |
+| API contracts match UI/UX section | Pass | No-policy uses legacy transport; ready policy uses only the declared bound façades |
+| Risks cover all write operations | Pass | Parent submit, attachments, option schemas, variants, conversions, and offers are covered |
+| Commands defined for all mutations | Pass | Exact existing command ids and landed prerequisite service contracts are named; the adopter adds only guarded bindings |
+| Cache strategy covers all read APIs | N/A | No new cache or read API is introduced |
+
+### Non-Compliant Items
+
+None.
+
+### Verdict
+
+- **Fully compliant**: Approved — ready for implementation after its named prerequisites land.
 
 ## Changelog
 
+- **2026-10-27:** Split unit-conversion version refresh and generate-missing orchestration into independently deployable prerequisites; pinned the catalog product attachment-owner binding, corrected exact catalog command ids, closed the parent command check/write race, and required feature metadata, OpenAPI, and mutation guards on every policy façade.
 - **2026-10-22:** Split the generic framework into its own spec and refocused this document on catalog product edit. Defined explicit section validation/composition semantics, server-owned preservation, stable two-argument replacement handles through the framework scope helper, action façades, complete tests, and core-team-only implementation ownership.
 - **2026-10-09:** Generalized the original draft and audited catalog failure modes, actions, dependencies, bootstrap, and browser coverage.
 - **2026-09-30:** Initial catalog product section-policy draft for issue #6686.
