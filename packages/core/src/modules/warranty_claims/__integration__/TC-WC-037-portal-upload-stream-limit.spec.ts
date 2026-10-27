@@ -62,6 +62,9 @@ function sendChunkedUpload(method: 'POST' | 'PUT', cookieHeader: string, claimId
         req.destroy()
       })
     })
+    req.setTimeout(10_000, () => {
+      req.destroy(new Error('[internal] upload probe received no response within 10000 ms'))
+    })
     req.on('error', (error: NodeJS.ErrnoException) => {
       if (settled || error.code === 'EPIPE' || error.code === 'ECONNRESET') return
       reject(error)

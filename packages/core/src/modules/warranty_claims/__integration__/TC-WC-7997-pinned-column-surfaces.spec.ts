@@ -35,8 +35,8 @@ async function openList(page: Page, list: typeof lists[number], search: string) 
 async function expectMatchingSurfaces(page: Page, cells: Locator, testInfo: TestInfo, checkpoint: string) {
   const points = await cells.evaluateAll((elements) => elements.flatMap((element) => {
     const bounds = element.getBoundingClientRect()
-    const sampleX = Math.floor(bounds.left + 8)
-    const sampleY = Math.floor(bounds.bottom - 7)
+    const sampleX = Math.floor(Math.min(bounds.left + 24, bounds.right - 8))
+    const sampleY = Math.floor(bounds.bottom - 5)
     if (bounds.width === 0 || sampleX < 0 || sampleX >= window.innerWidth || sampleY < 0 || sampleY >= window.innerHeight) return []
     return [{ tag: element.tagName, pinned: getComputedStyle(element).position === 'sticky', sampleX, sampleY }]
   }))
