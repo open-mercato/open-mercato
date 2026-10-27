@@ -128,6 +128,18 @@ function getHandler(commandId = 'sales.orders.update') {
   return handler!
 }
 
+it('captures the exact order versions before and after an update in its audit snapshots', async () => {
+  const order = { ...makeOrder(), updatedAt: new Date('2026-10-27T10:00:00.000Z') }
+  const ctx = makeCtx(makeEm(order))
+  const handler = getHandler()
+  const input = { id: ORDER_ID, internalNotes: 'Updated note' }
+  const prepared = await handler.prepare?.(input, ctx)
+  expect(prepared?.before).toMatchObject({ order: { updatedAt: '2026-10-27T10:00:00.000Z' } })
+  order.updatedAt = new Date('2026-10-27T10:00:01.000Z')
+  const after = await handler.captureAfter?.(input, { order } as never, ctx)
+  expect(after).toMatchObject({ order: { updatedAt: '2026-10-27T10:00:01.000Z' } })
+})
+
 async function updateOrder(input: Record<string, unknown>) {
   const order = makeOrder()
   const em = makeEm(order)

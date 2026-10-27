@@ -11,6 +11,8 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readSafeDecryptedString } from '../lib/decryptionSafety'
+import { isInitialReplacementOrderApproval } from '../lib/replacementOrderUndo'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
@@ -3044,13 +3046,20 @@ async function dispatchSalesOrderDelete(
   ctx: CommandRuntimeContext,
   scope: WarrantyClaimScope,
   replacementOrderId: string,
+  expectedUpdatedAt?: string,
 ): Promise<void> {
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const dispatchContext = scrubbedDispatchContext(ctx)
+  if (expectedUpdatedAt) {
+    dispatchContext.request = new Request(ctx.request?.url ?? 'http://localhost', {
+      headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: expectedUpdatedAt },
+    })
+  }
   await commandBus.execute(
     'sales.orders.delete',
     {
       input: { id: replacementOrderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      ctx: scrubbedDispatchContext(ctx),
+      ctx: dispatchContext,
     },
   )
 }
@@ -3058,6 +3067,7 @@ async function dispatchSalesOrderDelete(
 const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderInput, ClaimCreateReplacementOrderResult> = {
   id: 'warranty_claims.claim.create_replacement_order',
   isUndoable: true,
+  redo: ({ input, ctx }) => createReplacementOrderCommand.execute({ ...input, updatedAt: undefined }, ctx),
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(claimCreateReplacementOrderSchema, rawInput)
     const scope = resolveScope(ctx, input)
@@ -3318,10 +3328,13 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
         const currentUpdatedAt = currentRow.updated_at
           ? new Date(currentRow.updated_at as string | Date).toISOString()
           : null
-        if (!replacementOrder.updatedAt || !currentUpdatedAt || currentUpdatedAt !== replacementOrder.updatedAt) {
+        if (!replacementOrder.updatedAt || !currentUpdatedAt || (
+          currentUpdatedAt !== replacementOrder.updatedAt
+          && !await isInitialReplacementOrderApproval(ctx, scope, replacementOrder.id, replacementOrder.updatedAt, currentUpdatedAt)
+        )) {
           throw new CrudHttpError(409, { error: 'warranty_claims.errors.replacementOrderChangedUndoAborted' })
         }
-        await dispatchSalesOrderDelete(ctx, scope, replacementOrder.id)
+        await dispatchSalesOrderDelete(ctx, scope, replacementOrder.id, currentUpdatedAt)
       } else {
         replacementOrderBridgeLogger.info('warranty_claims.claim.create_replacement_order undo found replacement order already absent', {
           claimId: before.id,

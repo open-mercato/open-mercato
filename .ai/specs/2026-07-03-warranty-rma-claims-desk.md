@@ -154,6 +154,12 @@ Three staff-invoked bridges create the sales documents a resolved claim implies.
 
 Undo compares the stored version token against the document's current `updated_at`: an exact match deletes the document and restores the claim snapshot; a mismatch or missing token aborts with 409; a definitively absent row (the lookup returns null) skips the delete and restores anyway. A degraded lookup is treated as a mismatch, not an absence, so a transient failure can never clear the claim link while the document still lives.
 
+For replacement orders, a version mismatch also permits the initial `null -> pending_approval` status initialization when scoped, decrypted audit history proves exactly one update between the saved and current versions. The update input may contain only the order ID and status entry; all other order fields and the lines, adjustments, addresses, tags, shipments, and payments must be unchanged. Additional related operations, missing evidence, later approval decisions, and earlier or later user edits still refuse undo. Deletion receives the order's own current optimistic-lock version. Redo discards the original claim body version while retaining current request-header locking.
+
+### Migration & Backward Compatibility
+
+Issue #8014 adds an optional ISO `updatedAt` field to sales order audit snapshots. HTTP schemas, database structures, commands, events, and ACLs are unchanged. Historical snapshots without version evidence retain the strict version-mismatch refusal; no evidence is fabricated or backfilled. Audit undo/redo routes translate domain-error keys using the caller's locale while retaining status codes and other error-body fields.
+
 | Bridge | Eligible lines | Notes |
 |--------|----------------|-------|
 | `create_sales_return` | `lineStatus ∈ approved\|received\|inspected\|resolved`, `orderLineId` present, whole-unit effective quantity > 0 | Sales caps each line at its shipped quantity; the rejection is translated to 400 `salesReturnQuantityRejected`. |
@@ -360,6 +366,7 @@ Playwright API-first specs in `packages/core/src/modules/warranty_claims/__integ
 | TC-WC-031 | Over-claim guards: sold-quantity hard gate on every write path; lines without an order-line reference unaffected; cross-claim cumulative over-claiming surfaced as an advisory signal |
 | TC-WC-032 | Return window: setting round-trips; out-of-window returns flagged without blocking |
 | TC-WC-033 | Replacement-order bridge: unauthenticated rejected; zero-priced replacement order created from `replace`-disposition lines, duplicates blocked; ineligible statuses and no-`replace`-line claims rejected |
+| TC-WC-040 | Replacement-order undo after stock approval initialization, redo with the original body version, and translated refusal after a user edits the order |
 | TC-WC-034 | Credit-memo bridge: unauthenticated rejected; receipt-capped, discount-aware memo at a 23% tax rate, duplicates blocked; restocking fees deducted, receipt evidence and status gates enforced, manual links validated |
 
 Unit coverage (`__tests__/`) pins the transition matrix, line rollups, number generation, command undo snapshots, `status`/`claimType` immutability, type-config resolution, grade→disposition gating, entitlement precedence, vendor-policy matching and auto-recovery idempotency, adjudication fallback, business-hours math and pause preservation, return-label `notConfigured`, enricher batch shape, decision-tree traversal, quantity gates, return-window math, the tracking subscriber (multi-match skip, absent table, infrastructure rethrow), and all three bridges (guards, header scrubbing, lost-race compensation, double-failure orphan precedence, the four undo branches, and the full credit amount contract).
@@ -526,3 +533,8 @@ Fully compliant — implemented and verified against the full validation gate.
 - Aligned the Claims Desk, claim detail, stage-aware edit states, registrations, vendor policies, troubleshooting guides, and portal claim list with the approved Figma workspace hierarchy.
 - Replaced the troubleshooting guide JSON authoring field with an interactive decision-tree canvas, node inspector, and dry-run walkthrough while preserving the existing recursive guide contract.
 - Added functional list segments for automatic/manual vendor policies and open/resolved portal claims as additive query filters; no lifecycle statuses or existing API paths changed.
+
+### 2026-10-27 — Replacement-order undo (#8014)
+- Permit a proven initial pending-approval update without weakening the refusal after other changes; add order-version evidence to audit snapshots.
+- Replay replacement creation without its stale body version, preserving current request locking; translate audit replay domain refusals at the route boundary.
+- Add command and route regressions plus `TC-WC-040` for the cross-module API flow.

@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/redo/route'
 import { buildActionLogQueryHarness } from '@open-mercato/core/modules/audit_logs/services/__tests__/actionLogServiceQueryHarness'
 
@@ -400,6 +401,34 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
     expect(mockRbac.userHasAllFeaturesWithEntityManager).not.toHaveBeenCalled()
   })
+  it.each([
+    ['warranty_claims.errors.receivingStatusInvalid', 'Cannot receive this claim line.'],
+    ['An already localized refusal', 'An already localized refusal'],
+  ])('translates the redo domain refusal %s and preserves conflict details', async (error, expected) => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    const log = {
+      id: 'log-undo', commandId: 'demo.command', actorUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1',
+      resourceKind: 'demo.resource', resourceId: 'res-1', executionState: 'undone',
+      commandPayload: { __redoInput: {} }, contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    mockCommandBus.execute.mockRejectedValueOnce(new CrudHttpError(409, { error, code: 'record_modified' }))
+    const i18n = await import('@open-mercato/shared/lib/i18n/server')
+    const translateSpy = jest.spyOn(i18n, 'resolveTranslations').mockResolvedValue({
+      translate: (key: string, fallback?: string) => key === 'warranty_claims.errors.receivingStatusInvalid'
+        ? 'Cannot receive this claim line.' : fallback ?? key,
+    } as Awaited<ReturnType<typeof i18n.resolveTranslations>>)
+    try {
+      const res = await POST(makeRequest({ logId: 'log-undo' }))
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toEqual({ error: expected, code: 'record_modified' })
+    } finally {
+      translateSpy.mockRestore()
+    }
+  })
+
   it('surfaces the status and body of an interceptor rejection that carries one', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({

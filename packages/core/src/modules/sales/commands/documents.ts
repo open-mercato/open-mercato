@@ -337,6 +337,7 @@ type QuoteAdjustmentSnapshot = {
 type OrderGraphSnapshot = {
   order: {
     id: string;
+    updatedAt?: string;
     organizationId: string;
     tenantId: string;
     orderNumber: string;
@@ -1978,6 +1979,7 @@ async function loadOrderSnapshot(
   return {
     order: {
       id: order.id,
+      updatedAt: order.updatedAt?.toISOString(),
       organizationId: order.organizationId,
       tenantId: order.tenantId,
       orderNumber: order.orderNumber,

@@ -19,6 +19,7 @@ const CUSTOMER_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const CONTACT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const CHANNEL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const REPLACEMENT_UPDATED_AT = '2026-07-17T09:30:00.000Z'
+const APPROVAL_UPDATED_AT = '2026-07-17T09:30:00.500Z'
 const CLAIM_UPDATED_AT = '2026-07-17T08:00:00.000Z'
 
 let mockClaims: Array<Record<string, unknown>> = []
@@ -38,6 +39,7 @@ const commandBusExecuteMock = jest.fn<
 >()
 const loggerErrorMock = jest.fn()
 const loggerInfoMock = jest.fn()
+const actionLogListMock = jest.fn()
 
 jest.mock('#generated/entities.ids.generated', () => {
   const createEntityProxy = (moduleId: string) => new Proxy({}, {
@@ -195,6 +197,7 @@ function makeCtx(): CommandRuntimeContext {
       resolve: (key: string) => {
         if (key === 'em') return { fork: () => fork }
         if (key === 'commandBus') return { execute: commandBusExecuteMock }
+        if (key === 'actionLogService') return { list: actionLogListMock }
         if (key === 'dataEngine') return { markOrmEntityChange: jest.fn() }
         throw new Error(`[internal] unregistered test dependency ${key}`)
       },
@@ -294,6 +297,34 @@ function createDispatch(): { input: Record<string, unknown>; ctx: CommandRuntime
   return call[1]
 }
 
+function approvalLog() {
+  const graph = {
+    order: {
+      id: CREATED_ORDER_ID,
+      updatedAt: REPLACEMENT_UPDATED_AT,
+      status: null,
+      statusEntryId: null,
+      internalNotes: null,
+    },
+    lines: [], adjustments: [], addresses: [], tags: [], shipments: [], payments: [], notes: [],
+  }
+  return {
+    commandId: 'sales.orders.update',
+    executionState: 'done',
+    resourceKind: 'sales.order',
+    resourceId: CREATED_ORDER_ID,
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    commandPayload: { __redoInput: { id: CREATED_ORDER_ID, statusEntryId: 'pending-entry' } },
+    snapshotBefore: graph,
+    snapshotAfter: {
+      ...graph,
+      order: { ...graph.order, updatedAt: APPROVAL_UPDATED_AT, status: 'pending_approval', statusEntryId: 'pending-entry' },
+      notes: [{ id: 'status-note', body: 'Status changed' }],
+    },
+  }
+}
+
 beforeEach(() => {
   mockClaims = []
   mockLines = []
@@ -320,6 +351,8 @@ beforeEach(() => {
   }))
   loggerErrorMock.mockReset()
   loggerInfoMock.mockReset()
+  actionLogListMock.mockReset()
+  actionLogListMock.mockResolvedValue({ items: [], total: 0 })
 })
 
 describe('warranty_claims.claim.create_replacement_order', () => {
@@ -601,7 +634,7 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     )
   })
 
-  it('undo deletes a token-matching order with a scrubbed context and restores the claim snapshot', async () => {
+  it('undo deletes a token-matching order with its own version and restores the claim snapshot', async () => {
     const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID, advanceReplacement: true })
     const logEntry = replacementUndoLog(claim)
 
@@ -609,9 +642,78 @@ describe('warranty_claims.claim.create_replacement_order', () => {
 
     const deleteCall = commandBusExecuteMock.mock.calls.find(([commandId]) => commandId === 'sales.orders.delete')
     expect(deleteCall?.[1].input).toEqual({ id: CREATED_ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
-    expect(deleteCall?.[1].ctx.request).toBeUndefined()
+    expect(deleteCall?.[1].ctx.request?.headers.get('x-om-ext-optimistic-lock-expected-updated-at')).toBe(REPLACEMENT_UPDATED_AT)
     expect(claim.replacementOrderId).toBeNull()
     expect(claim.advanceReplacement).toBe(false)
+  })
+
+  it('undo accepts the audited initial approval update between the saved and current versions', async () => {
+    const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID, advanceReplacement: true })
+    mockReplacementOrderRow = { id: CREATED_ORDER_ID, updated_at: APPROVAL_UPDATED_AT }
+    actionLogListMock.mockResolvedValue({ items: [approvalLog()], total: 1 })
+
+    await createReplacementOrderCommand.undo?.({ logEntry: replacementUndoLog(claim), ctx: makeCtx() } as never)
+
+    expect(actionLogListMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_ID, organizationId: ORG_ID, resourceKind: 'sales.order',
+      resourceId: CREATED_ORDER_ID, includeRelated: true, after: new Date(REPLACEMENT_UPDATED_AT),
+    }))
+    expect(commandBusExecuteMock).toHaveBeenCalledWith('sales.orders.delete', expect.anything())
+    const deleteCall = commandBusExecuteMock.mock.calls.find(([commandId]) => commandId === 'sales.orders.delete')
+    expect(deleteCall?.[1].ctx.request?.headers.get('x-om-ext-optimistic-lock-expected-updated-at')).toBe(APPROVAL_UPDATED_AT)
+    expect(claim.replacementOrderId).toBeNull()
+    expect(claim.advanceReplacement).toBe(false)
+  })
+
+  it.each([
+    ['an earlier user edit', (entry: ReturnType<typeof approvalLog>) => { entry.snapshotBefore.order.updatedAt = '2026-07-17T09:30:00.100Z' }],
+    ['a later user edit', (entry: ReturnType<typeof approvalLog>) => { entry.snapshotAfter.order.updatedAt = '2026-07-17T09:30:00.400Z' }],
+    ['an approval decision', (entry: ReturnType<typeof approvalLog>) => { entry.snapshotAfter.order.status = 'approved' }],
+    ['changed order data', (entry: ReturnType<typeof approvalLog>) => { Object.assign(entry.snapshotAfter.order, { internalNotes: 'User edit' }) }],
+    ['changed line data', (entry: ReturnType<typeof approvalLog>) => { Object.assign(entry.snapshotAfter, { lines: [{ id: 'new-line' }] }) }],
+    ['a different tenant', (entry: ReturnType<typeof approvalLog>) => { entry.tenantId = FOREIGN_ORDER_ID }],
+    ['a different organization', (entry: ReturnType<typeof approvalLog>) => { entry.organizationId = FOREIGN_ORDER_ID }],
+    ['a historical snapshot without versions', (entry: ReturnType<typeof approvalLog>) => { Object.assign(entry.snapshotBefore.order, { updatedAt: undefined }) }],
+    ['an additional input field', (entry: ReturnType<typeof approvalLog>) => { Object.assign(entry.commandPayload.__redoInput, { internalNotes: 'User edit' }) }],
+    ['an undone approval update', (entry: ReturnType<typeof approvalLog>) => { entry.executionState = 'undone' }],
+    ['a foreign order', (entry: ReturnType<typeof approvalLog>) => { entry.resourceId = FOREIGN_ORDER_ID }],
+    ['changed payment data', (entry: ReturnType<typeof approvalLog>) => { Object.assign(entry.snapshotAfter, { payments: [{ id: 'new-payment' }] }) }],
+    ['a changed dictionary entry', (entry: ReturnType<typeof approvalLog>) => { entry.snapshotAfter.order.statusEntryId = 'different-entry' }],
+  ])('undo refuses %s despite a pending-approval audit row', async (_label, mutate) => {
+    const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID, advanceReplacement: true })
+    const entry = approvalLog()
+    mutate(entry)
+    actionLogListMock.mockResolvedValue({ items: [entry], total: 1 })
+    mockReplacementOrderRow = { id: CREATED_ORDER_ID, updated_at: APPROVAL_UPDATED_AT }
+
+    await expect(createReplacementOrderCommand.undo?.({ logEntry: replacementUndoLog(claim), ctx: makeCtx() } as never))
+      .rejects.toMatchObject({ status: 409 })
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    expect(claim.replacementOrderId).toBe(CREATED_ORDER_ID)
+  })
+
+  it('undo refuses additional related operations even when the order has only reached pending approval', async () => {
+    const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID })
+    actionLogListMock.mockResolvedValue({ items: [approvalLog(), { commandId: 'sales.notes.create' }], total: 2 })
+    mockReplacementOrderRow = { id: CREATED_ORDER_ID, updated_at: APPROVAL_UPDATED_AT }
+
+    await expect(createReplacementOrderCommand.undo?.({ logEntry: replacementUndoLog(claim), ctx: makeCtx() } as never))
+      .rejects.toMatchObject({ status: 409 })
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('redo omits the original claim version while preserving the current request context', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine()
+    const ctx = makeCtx()
+
+    await createReplacementOrderCommand.redo?.({ input: executeInput({ updatedAt: CLAIM_UPDATED_AT }), ctx } as never)
+
+    expect(enforceWithGuardsMock).toHaveBeenCalledWith(ctx.container, expect.objectContaining({
+      expected: undefined, request: ctx.request,
+    }))
+    expect(commandBusExecuteMock).toHaveBeenCalledWith('sales.orders.create', expect.anything())
   })
 
   it.each([
