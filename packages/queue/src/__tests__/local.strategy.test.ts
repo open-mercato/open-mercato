@@ -1005,6 +1005,7 @@ describe('Queue - local strategy', () => {
     const queueDir = path.join('.mercato', 'queue', queueName)
     const queuePath = path.join(queueDir, 'queue.json')
     const activePath = path.join(queueDir, 'active.json')
+    const lockPath = path.join(queueDir, 'queue.lock')
 
     type Payload = { value: number }
 
@@ -1139,10 +1140,10 @@ describe('Queue - local strategy', () => {
         parked.push(await producer.enqueue({ value: 3 }, coalesce))
       })
 
-      // Both enqueues were answered with the running job's id, and only the last one survived.
       expect(parked).toEqual([first, first])
       const pending = readJson(queuePath)
       expect(pending).toHaveLength(1)
+      expect(pending[0].id).not.toBe(first)
       expect(pending[0].payload).toEqual({ value: 3 })
       expect(pending[0].coalesceKey).toBe('order-totals:42')
 
@@ -1153,7 +1154,7 @@ describe('Queue - local strategy', () => {
       await producer.close()
     })
 
-    test('the follow-up job keeps the id its producer was given', async () => {
+    test('the promoted follow-up keeps the latest parked enqueue id', async () => {
       const consumer = createQueue<Payload>(queueName, 'local')
       const producer = createQueue<Payload>(queueName, 'local')
       const coalesce = { coalesce: { key: 'order-totals:42' } }
@@ -1161,7 +1162,6 @@ describe('Queue - local strategy', () => {
 
       await producer.enqueue({ value: 1 }, coalesce)
       await whileFirstJobIsRunning(consumer, async () => {
-        // The id a caller is handed must name the run that eventually serves its payload.
         await producer.enqueue({ value: 2 }, coalesce)
         parkedId = readJson(queuePath)[0].coalesceNext.id
       })
@@ -1220,6 +1220,21 @@ describe('Queue - local strategy', () => {
       const stored = readJson(queuePath)
       expect(stored.map((job: { coalesceKey: string }) => job.coalesceKey))
         .toEqual(['order:42', 'something-else'])
+
+      await queue.close()
+    })
+
+    test('an explicit empty key opts out of a queue-level resolver', async () => {
+      const queue = createQueue<{ orderId: number }>(queueName, 'local', {
+        coalesceBy: (payload) => `order:${payload.orderId}`,
+      })
+
+      await queue.enqueue({ orderId: 42 })
+      await queue.enqueue({ orderId: 42 }, { coalesce: { key: '' } })
+
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(2)
+      expect(stored[1].coalesceKey).toBeUndefined()
 
       await queue.close()
     })
@@ -1316,6 +1331,70 @@ describe('Queue - local strategy', () => {
       expect(fs.existsSync(activePath)).toBe(false)
 
       await queue.close()
+    })
+
+    test('publishes the initial active lease before releasing the job-selection lock', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const firstId = await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      const secondId = await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:7' } })
+      const realWriteFile = fs.promises.writeFile
+      let observedActiveLeaseWrite = false
+      const writeFileSpy = jest.spyOn(fs.promises, 'writeFile').mockImplementation(
+        async (target, content, options) => {
+          if (typeof target === 'string' && path.basename(target).startsWith('active.json.')) {
+            observedActiveLeaseWrite = true
+            expect(fs.existsSync(lockPath)).toBe(true)
+            expect(JSON.parse(String(content)).jobIds).toEqual([firstId, secondId])
+          }
+          return realWriteFile(target, content, options)
+        },
+      )
+
+      try {
+        await queue.process(() => {}, { limit: 2 })
+        expect(observedActiveLeaseWrite).toBe(true)
+      } finally {
+        writeFileSpy.mockRestore()
+        await queue.close()
+      }
+    })
+
+    test('parks an enqueue for a later job whose payload was already selected into the batch', async () => {
+      const consumer = createQueue<Payload>(queueName, 'local')
+      const producer = createQueue<Payload>(queueName, 'local')
+      const runs: number[] = []
+      let releaseFirst!: () => void
+      const firstMayFinish = new Promise<void>((resolve) => { releaseFirst = resolve })
+      let firstStarted!: () => void
+      const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve })
+
+      await producer.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:1' } })
+      await producer.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:2' } })
+
+      const processing = consumer.process(async (job) => {
+        runs.push(job.payload.value)
+        if (job.payload.value === 1) {
+          firstStarted()
+          await firstMayFinish
+        }
+      }, { limit: 2 })
+
+      try {
+        await within(firstStartedPromise, 2000)
+        await producer.enqueue({ value: 3 }, { coalesce: { key: 'order-totals:2' } })
+      } finally {
+        releaseFirst()
+        await processing
+      }
+
+      expect(readJson(queuePath)).toEqual([
+        expect.objectContaining({ payload: { value: 3 }, coalesceKey: 'order-totals:2' }),
+      ])
+      await consumer.process((job) => { runs.push(job.payload.value) }, { limit: 1 })
+      expect(runs).toEqual([1, 2, 3])
+
+      await consumer.close()
+      await producer.close()
     })
 
     test('getJobCounts reports the running job as active rather than waiting', async () => {

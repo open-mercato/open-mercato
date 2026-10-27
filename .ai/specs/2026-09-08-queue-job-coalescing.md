@@ -66,10 +66,11 @@ coalesceBy?: CoalesceKeyResolver<T>
 
 - The key is scoped to one queue. An explicit `coalesce` overrides the queue's `coalesceBy`; a
   resolver returning `null`/`undefined` leaves that payload uncoalesced.
-- `enqueue` returns the id of the job that will serve the caller's payload. When the enqueue was
-  collapsed into an outstanding job that is a job the caller did not create; when it was parked
-  behind a running job it is the *running* job's id, and the follow-up carries the id minted for
-  this call.
+- `enqueue` returns the id of the outstanding job that caused the enqueue to collapse. A waiting
+  twin returns that waiting job's id. An enqueue behind a running job also returns the active job's
+  id while separately parking a follow-up; later arrivals replace the parked payload and id. This
+  matches BullMQ's return value, so callers must treat the result as the coalescing operation id,
+  not a completion receipt for one trigger.
 - Coalescing is **best-effort per strategy**: an implementation that does not honour it MUST still
   enqueue the job. Degrade toward a duplicate run, never toward a dropped one. But the guarantee
   itself is not advisory — an implementation MUST NOT discard an enqueue arriving while a job for
@@ -117,7 +118,9 @@ The narrowed structural type on `BullQueueInterface.add` — the package keeps `
 peer dependency and types it structurally — gains `deduplication`, and `enqueue` spreads it in only
 when a key resolves, as `{ id: key, keepLastIfActive: true }`. `deduplication: undefined` must never
 be emitted: BullMQ reads the key's presence as intent. Nothing else changes; on a coalesced add
-BullMQ's Lua returns the surviving job, and `enqueue` already returns `job.id ?? jobData.id`.
+BullMQ's Lua returns the outstanding job that caused an add to collapse, and `enqueue` already
+returns `job.id ?? jobData.id`. For an active twin, BullMQ stores the latest add as a separate
+proto-job and exposes that id only when the follow-up is promoted.
 
 `bullmq-deduplication-option.test.ts` asserts `keepLastIfActive` still exists in the installed
 BullMQ's public type and that its Lua still gates the stored follow-up on the active list. Unknown
@@ -141,7 +144,9 @@ One thing cannot be derived from `queue.json`: whether a job is running *right n
 `inFlightJobIds` set cannot answer it for a producer, and producers are in other processes — the
 documented topology is many producers and exactly one consumer. So the consumer publishes
 `active.json`, listing the jobs it has started and not yet finalized on disk, written with an atomic
-rename and without the queue lock (single writer). Producers read it inside their own locked segment.
+rename. The initial lease is published while the queue lock still protects job selection; later
+updates need no queue lock because there is only one writer. Producers read it inside their own
+locked segment.
 
 - **`enqueue`** — unchanged fast path when no key resolves. Otherwise, inside one locked segment: no
   record carries the key → append; the record is leased active → park the payload on it as
@@ -164,11 +169,13 @@ rename and without the queue lock (single writer). Producers read it inside thei
   README and the docs site all say so) rather than papered over, because making async match would
   cost a read-modify-write round trip on every coalesced add for a combination no caller in the repo
   uses. Delayed work should carry its own key, or none.
-- **`processBatch`** — publishes the lease before each handler runs, naming every job started so far
-  in the batch. It names all of them rather than only the current one because no record leaves
-  `queue.json` until the batch's closing write: a producer that saw a finished-but-still-stored job
-  as idle would drop an enqueue that job can no longer act on. On completion *or* attempt exhaustion
-  the record is removed and any parked follow-up is appended in the same write, so there is never a
+- **`processBatch`** — selects the batch and publishes every selected id in one queue-locked segment,
+  so a producer cannot slip between selection and lease publication or mistake a later batch job
+  whose payload was already read for a waiting one. It keeps all selected ids leased because no
+  record leaves `queue.json` until the batch's closing write: a producer that saw a selected or
+  finished-but-still-stored job as idle would drop an enqueue that job can no longer act on. On
+  completion *or* attempt exhaustion the record is removed and any parked follow-up is appended in
+  the same write, so there is never a
   moment when a burst could produce a third job for one key. A retry leaves the record, its key and
   its parked follow-up untouched, matching BullMQ, whose retry paths contain no deduplication code.
 - **Key resolution** is shared by both strategies in `src/coalescing.ts`, so `coalesceBy` and the
@@ -236,15 +243,27 @@ test establishes rather than a race it hopes to win, and each assertion waits fo
 count. That matters more than usual here because the suite runs on the shared `test` job, where a
 timing flake would block every PR in the repository and be read as an unrelated monorepo failure.
 
-`yarn workspace @open-mercato/queue test` — 136 tests, of which 3 skip without a Redis URL. The
+`yarn workspace @open-mercato/queue test` — 149 tests, of which 4 skip without a Redis URL. The
 local coalescing suite covers: a burst of ten collapsing to one job and one run; separate keys and
 uncoalesced jobs untouched; the key released on completion and on attempt exhaustion but surviving a
 retry; an enqueue during a run producing exactly one more run with the latest payload, driven from a
 second queue instance so the pass proves the active state was read from disk rather than from the
-in-process in-flight set; the follow-up keeping its producer's id; nothing parked when the twin is
-merely waiting; an immediate enqueue pulling a delayed twin forward while a delayed one never pushes
-an earlier twin back; a queue-level `coalesceBy` keying every enqueue, returning `null` to opt a
-payload out, and losing to an explicit per-enqueue key; the lease being published, cleared, and ignored when
-its owner is dead or when a consumer starts; a coalesced enqueue leaving `queue.json`'s inode and
-mtime untouched; an unparsable lease failing open; and records written before this feature still
-processing.
+in-process in-flight set; active-burst enqueues receiving the active job id while the latest parked
+id is preserved for promotion; nothing
+parked when the twin is merely waiting; an immediate enqueue pulling a delayed twin forward while a
+delayed one never pushes an earlier twin back; a queue-level `coalesceBy` keying every enqueue,
+returning `null` to opt a payload out, and losing to an explicit per-enqueue key (including an empty
+explicit key opting out); every selected job being leased before the selection lock is released;
+enqueues for later selected jobs being parked rather than lost; leases being cleared and ignored when their
+owner is dead or when a consumer starts; a coalesced enqueue leaving `queue.json`'s inode and mtime
+untouched; an unparsable lease failing open while reporting the error; and records written before
+this feature still processing. The real-Redis file also verifies BullMQ's active/follow-up id
+behavior and contains an always-running guard that fails the shared GitHub `test` job when its Redis
+URL is missing, preventing silent suite skips.
+
+## Changelog
+
+- 2026-10-27 — Rebased the implementation onto current `main`; documented active-burst enqueue ids
+  consistently with BullMQ, closed the selection-to-lease race, reported lease failures through
+  telemetry, and made missing Redis fail the shared CI test job instead of silently skipping coverage.
+- 2026-09-08 — Added queue-level and per-enqueue coalescing for local and BullMQ strategies.

@@ -412,8 +412,9 @@ export function createAsyncQueue<T = unknown>(
       ...(coalesceKey ? { deduplication: { id: coalesceKey, keepLastIfActive: true } } : {}),
     })
 
-    // On a coalesced add BullMQ returns the job that survived, so this is the id of the run the
-    // caller's payload will be served by — not necessarily a job this call created.
+    // On a coalesced add BullMQ returns the outstanding job that caused the add to collapse. When
+    // that job is active, BullMQ separately stores a proto-job for the follow-up; its id becomes
+    // visible only when promoted.
     return job.id ?? jobData.id
   }
 

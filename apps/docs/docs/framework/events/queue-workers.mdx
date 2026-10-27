@@ -57,7 +57,7 @@ const queue = createQueue<MyJobData>('my-queue', 'local', {
   my-queue/
     queue.json   # Array of queued jobs
     state.json   # Processing state (last processed ID)
-    active.json  # Jobs the consumer has started (created on demand)
+    active.json  # Jobs selected into the consumer's current batch (created on demand)
 ```
 
 **Characteristics:**
@@ -154,8 +154,10 @@ observe their writes. Triggers arriving while it is *running* are parked, and ex
 run starts when it finishes, carrying the latest payload. At most one active plus one waiting job
 exists per key.
 
-`enqueue` returns the id of the job that will serve your payload — which, when your enqueue was
-collapsed into an outstanding one, is a job you did not create.
+`enqueue` returns the id of the outstanding job that caused your enqueue to collapse. If that job is
+already running, the latest payload is stored for one follow-up run, but the returned id still names
+the active job; treat it as the coalescing operation id rather than a completion receipt for your
+individual trigger.
 
 ### Declaring the key on the queue
 
@@ -172,7 +174,7 @@ export function getOrderTotalsQueue() {
 ```
 
 Return `null` from `coalesceBy` to leave a payload uncoalesced. An explicit `coalesce` on an
-individual `enqueue` overrides the queue's resolver.
+individual `enqueue` overrides the queue's resolver; an empty explicit key opts that enqueue out.
 
 ### `delayMs` and a coalesce key do not mix
 

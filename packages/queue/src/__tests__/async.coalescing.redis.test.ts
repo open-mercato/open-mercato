@@ -31,6 +31,14 @@ import { createQueue } from '../factory'
 const redisUrl = process.env.QUEUE_TEST_REDIS_URL
 const describeWithRedis = redisUrl ? describe : describe.skip
 
+describe('Queue - async strategy coalescing CI configuration', () => {
+  it('provides Redis to the shared GitHub test job', () => {
+    if (process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_JOB === 'test') {
+      expect(redisUrl).toBeDefined()
+    }
+  })
+})
+
 /** Fails loudly rather than hanging until Jest's own timeout, which reports no useful state. */
 async function waitUntil(
   condition: () => boolean,
@@ -146,6 +154,40 @@ describeWithRedis('Queue - async strategy coalescing (real BullMQ)', () => {
   // exists so no call site can forget it.
   it('collapses the same burst when the key comes from a queue-level coalesceBy', async () => {
     expect(await runBurst({ coalesced: true, viaQueueResolver: true, expectedRuns: 2 })).toEqual([1, 10])
+  }, 60_000)
+
+  it('returns the active job id while BullMQ parks a separately identified follow-up', async () => {
+    const consumer = createQueue<{ revision: number }>(queueName, 'async', { concurrency: 1 })
+    const producer = createQueue<{ revision: number }>(queueName, 'async')
+    const firstRunMayFinish = createGate()
+    const runIds: string[] = []
+
+    try {
+      await consumer.process(async (_job, context) => {
+        runIds.push(context.jobId)
+        if (runIds.length === 1) await firstRunMayFinish.wait
+      })
+
+      const options = { coalesce: { key: 'order-totals:42' } }
+      const firstId = await producer.enqueue({ revision: 1 }, options)
+      await waitUntil(() => runIds.length === 1, 'the first job to enter its handler')
+
+      const collapsedIds = [
+        await producer.enqueue({ revision: 2 }, options),
+        await producer.enqueue({ revision: 3 }, options),
+      ]
+      firstRunMayFinish.open()
+      await waitUntil(() => runIds.length === 2, 'the parked follow-up to enter its handler')
+
+      expect(runIds[0]).toBe(firstId)
+      expect(collapsedIds).toEqual([firstId, firstId])
+      expect(runIds[1]).not.toBe(firstId)
+    } finally {
+      firstRunMayFinish.open()
+      await consumer.close()
+      await producer.clear()
+      await producer.close()
+    }
   }, 60_000)
 
   // The same burst uncoalesced, which is what the feature is measured against: ten triggers, ten

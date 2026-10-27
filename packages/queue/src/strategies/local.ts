@@ -21,8 +21,9 @@ type LocalState = {
  * record until it finishes. At most one exists per record: a later arrival overwrites it, so the
  * follow-up run always carries the latest payload.
  *
- * It keeps the id minted when the producer called `enqueue`, because that id was already returned to
- * the caller — the follow-up must be the job that id names.
+ * It keeps the id minted for the latest enqueue in the active burst, matching BullMQ's stored
+ * proto-job. The caller receives the active job's id because that is the outstanding job BullMQ
+ * reports for a deduplicated add; the follow-up id is internal until the job is promoted.
  */
 type CoalescedNextJob<T> = {
   id: string
@@ -41,12 +42,14 @@ type StoredJob<T> = QueuedJob<T> & {
 }
 
 /**
- * The consumer's record of which jobs it has started and not yet finalized on disk.
+ * The consumer's record of which jobs it selected into the current batch and has not yet finalized
+ * on disk. Selection captures the payload, so every selected id is leased before the lock opens —
+ * including jobs whose handlers have not started yet.
  *
  * Producers run in other processes, so `inFlightJobIds` cannot answer "is this job running right
  * now?" for them — and that question is the whole of `keepLastIfActive`. Hence a file. It has
- * exactly one writer (the strategy's single consumer, see the topology note above), so it needs
- * atomic replacement but not the queue lock.
+ * exactly one writer (the strategy's single consumer, see the topology note above), so it needs an
+ * atomic replacement.
  */
 type ActiveLease = {
   jobIds: string[]
@@ -112,7 +115,7 @@ const fsp = fs.promises
  * Jobs are stored in JSON files within a directory structure:
  * - `.mercato/queue/<name>/queue.json` - Array of queued jobs
  * - `.mercato/queue/<name>/state.json` - Processing state (last processed ID)
- * - `.mercato/queue/<name>/active.json` - Which jobs the consumer has started (created on demand)
+ * - `.mercato/queue/<name>/active.json` - Which jobs the consumer selected (created on demand)
  *
  * `EnqueueOptions.coalesce` is honoured here, not just by the `async` strategy, so development and
  * integration runs collapse bursts the way production does. A record carrying `coalesceKey` *is* the
@@ -515,6 +518,7 @@ export function createLocalQueue<T = unknown>(
       const readError = e as NodeJS.ErrnoException
       if (readError.code !== 'ENOENT') {
         logger.error('Failed to read the active-job lease; treating it as empty', { err: readError })
+        reportQueueError(readError, 'queue.active_lease_read_failed')
       }
       return null
     }
@@ -531,7 +535,9 @@ export function createLocalQueue<T = unknown>(
         host: typeof parsed.host === 'string' ? parsed.host : '',
       }
     } catch (e: unknown) {
-      logger.error('Failed to parse the active-job lease; discarding it', { err: e as Error })
+      const parseError = e as Error
+      logger.error('Failed to parse the active-job lease; discarding it', { err: parseError })
+      reportQueueError(parseError, 'queue.active_lease_parse_failed')
       await fsp.rm(activeFile, { force: true }).catch(() => {})
       return null
     }
@@ -562,10 +568,8 @@ export function createLocalQueue<T = unknown>(
   }
 
   /**
-   * Publishes the lease. Written with an atomic rename and *without* the queue lock: the lease has a
-   * single writer, and taking the lock per job would serialize every producer behind the consumer's
-   * handlers for no gain. Producers read it inside their own locked segment, so they observe either
-   * the previous document or this one, never a torn mix.
+   * Publishes the lease with an atomic rename while the queue lock still protects job selection,
+   * closing the gap where a producer could mistake a selected job for a waiting one.
    */
   async function writeActiveLease(jobIds: string[]): Promise<void> {
     await ensureDir()
@@ -581,16 +585,15 @@ export function createLocalQueue<T = unknown>(
   async function releaseActiveLease(): Promise<void> {
     await fsp.rm(activeFile, { force: true }).catch((err: unknown) => {
       logger.error('Failed to release the active-job lease', { err })
+      reportQueueError(err, 'queue.active_lease_release_failed')
     })
   }
 
   /**
    * Builds the follow-up job parked on a finalized record by `keepLastIfActive`.
    *
-   * Everything except the delay is carried over from the producer's enqueue — id, payload, creation
-   * time and trace metadata — so the run is attributed to the caller that triggered it. Only
-   * `availableAt` is recomputed, because a delay means "after the enqueue is acted on", and that
-   * moment is now.
+   * Everything except the delay comes from the latest producer enqueue. Only `availableAt` is
+   * recomputed, because a delay means "after the enqueue is acted on", and that moment is now.
    */
   function buildFollowUpJob(record: StoredJob<T>): StoredJob<T> | null {
     const next = record.coalesceNext
@@ -614,7 +617,7 @@ export function createLocalQueue<T = unknown>(
       .map((record) => record.coalesceKey ?? record.id)
     if (coalesceKeys.length === 0) return
     logger.warn(
-      'Discarded coalesced follow-up jobs whose ids were already returned to their callers',
+      'Discarded coalesced follow-up jobs while clearing the queue',
       { coalesceKeys },
     )
   }
@@ -706,20 +709,22 @@ export function createLocalQueue<T = unknown>(
     handler: JobHandler<T>,
     options?: ProcessOptions
   ): Promise<ProcessResult> {
-    const { state, jobs } = await withFileLock(async () => {
+    const { state, jobs, jobsToProcess } = await withFileLock(async () => {
       const stateRead = await readState()
       const jobsRead = await readQueue()
-      return { state: stateRead, jobs: jobsRead }
+      const pendingJobs = jobsRead.filter((job) => {
+        if (!job.availableAt) return true
+        return new Date(job.availableAt).getTime() <= Date.now()
+      })
+      const selectedJobs = options?.limit
+        ? pendingJobs.slice(0, options.limit)
+        : pendingJobs
+      if (selectedJobs.length > 0) {
+        await writeActiveLease(selectedJobs.map((job) => job.id))
+      }
+      return { state: stateRead, jobs: jobsRead, jobsToProcess: selectedJobs }
     })
     hasQueuedJobs = jobs.length > 0
-
-    const pendingJobs = jobs.filter((job) => {
-      if (!job.availableAt) return true
-      return new Date(job.availableAt).getTime() <= Date.now()
-    })
-    const jobsToProcess = options?.limit
-      ? pendingJobs.slice(0, options.limit)
-      : pendingJobs
 
     for (const job of jobsToProcess) {
       inFlightJobIds.add(job.id)
@@ -734,16 +739,10 @@ export function createLocalQueue<T = unknown>(
     // a `coalesceNext` on it while the handler ran. Rewriting it from the pre-run snapshot
     // would silently discard that enqueue.
     const retryPatches = new Map<string, { attemptCount: number; availableAt: string }>()
-    let leaseWritten = false
+    const leaseWritten = jobsToProcess.length > 0
 
     try {
-      for (let index = 0; index < jobsToProcess.length; index++) {
-        const job = jobsToProcess[index]
-        // Every job started so far, because none of them leaves `queue.json` until the batch's
-        // closing write. A producer that sees a finished-but-still-stored job as idle would drop an
-        // enqueue the job can no longer act on, so the lease only shrinks when the records do.
-        await writeActiveLease(jobsToProcess.slice(0, index + 1).map((leased) => leased.id))
-        leaseWritten = true
+      for (const job of jobsToProcess) {
         const attemptNumber = (job.attemptCount ?? 0) + 1
         try {
           await runJobInTrace(name, job.metadata, () =>
@@ -794,7 +793,7 @@ export function createLocalQueue<T = unknown>(
           const finalizedJobIds = new Set([...completedJobIds, ...deadJobIds])
           // A job that exhausted its attempts is finalized too, exactly as a completed one is.
           // Leaving its key behind would deduplicate every later enqueue onto a record that no
-          // longer exists, and would strand a follow-up whose id a caller already holds.
+          // longer exists, and would strand its follow-up.
           const followUpJobs = currentJobs
             .filter((j) => finalizedJobIds.has(j.id))
             .map((j) => buildFollowUpJob(j))
@@ -929,21 +928,22 @@ export function createLocalQueue<T = unknown>(
     handler: JobHandler<T>,
     options?: ProcessOptions
   ): Promise<ProcessResult> {
-    // A consumer is starting, and this strategy admits exactly one consumer per queue, so any lease
-    // already on disk belongs to a run that will never finish. Clearing it is the authoritative
-    // recovery from a crashed consumer: the jobs it named are still stored, so they simply run
-    // again, carrying any parked follow-up with them. The alternative — ageing leases out — would
-    // have to guess a ceiling on how long a handler may legitimately take.
-    await releaseActiveLease()
-
     // If limit is specified, do a single batch (backward compatibility)
     if (options?.limit) {
+      await releaseActiveLease()
       return processBatch(handler, options)
     }
 
     if (activeHandler) {
       await close()
     }
+
+    // A consumer is starting, and this strategy admits exactly one consumer per queue, so any lease
+    // still on disk belongs to a run that will never finish. Clearing it is the authoritative
+    // recovery from a crashed consumer: the jobs it named are still stored, so they simply run
+    // again, carrying any parked follow-up with them. The alternative — ageing leases out — would
+    // have to guess a ceiling on how long a handler may legitimately take.
+    await releaseActiveLease()
 
     // Start continuous polling mode (like BullMQ Worker)
     activeHandler = handler

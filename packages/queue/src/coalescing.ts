@@ -13,7 +13,6 @@ export function resolveCoalesceKey<T>(
   options?: EnqueueOptions,
   coalesceBy?: CoalesceKeyResolver<T>,
 ): string | undefined {
-  const explicitKey = options?.coalesce?.key
-  if (explicitKey) return explicitKey
+  if (options?.coalesce) return options.coalesce.key || undefined
   return coalesceBy?.(payload) || undefined
 }
