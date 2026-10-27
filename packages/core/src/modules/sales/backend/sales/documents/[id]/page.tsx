@@ -1954,7 +1954,7 @@ export default function SalesDocumentDetailPage({
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
   const mutationContextId = React.useMemo(
-    () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
+    () => `record-lock:sales.${kind}:${record?.id ?? 'pending'}`,
     [kind, record?.id],
   )
   const detailsInjectionSpotId = React.useMemo(
@@ -1967,6 +1967,7 @@ export default function SalesDocumentDetailPage({
     formId: string
     resourceKind: string
     resourceId?: string
+    operation?: 'delete'
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: mutationContextId,
@@ -3720,23 +3721,27 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      await runMutationWithContext(async () => {
-        const call = await apiCallOrThrow<{ orderId?: string }>(
-          '/api/sales/quotes/convert',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...buildOptimisticLockHeader(record.updatedAt),
+      const orderId = await runMutation({
+        operation: async () => {
+          const call = await apiCallOrThrow<{ orderId?: string }>(
+            '/api/sales/quotes/convert',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...buildOptimisticLockHeader(record.updatedAt),
+              },
+              body: JSON.stringify({ quoteId: record.id }),
             },
-            body: JSON.stringify({ quoteId: record.id }),
-          },
-          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-        )
-        const orderId = call.result?.orderId ?? record.id
-        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-        router.replace(`/backend/sales/orders/${orderId}`)
-      }, { quoteId: record.id })
+            { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+          )
+          return call.result?.orderId ?? record.id
+        },
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { quoteId: record.id },
+      })
+      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+      router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       logger.error('sales.documents.convert', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
@@ -3745,7 +3750,7 @@ export default function SalesDocumentDetailPage({
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
@@ -3754,7 +3759,10 @@ export default function SalesDocumentDetailPage({
       await runMutationWithContext(async () => {
         await apiCallOrThrow('/api/sales/quotes/send', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildOptimisticLockHeader(record.updatedAt),
+          },
           body: JSON.stringify({ quoteId: record.id, validForDays }),
         })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
@@ -3780,8 +3788,8 @@ export default function SalesDocumentDetailPage({
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     try {
-      await runMutationWithContext(async () => {
-        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
           apiCallOrThrow(endpoint, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
@@ -3789,8 +3797,10 @@ export default function SalesDocumentDetailPage({
           }, {
             errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
           }),
-        )
-      }, { id: record.id })
+        ),
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { id: record.id },
+      })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
@@ -3801,7 +3811,7 @@ export default function SalesDocumentDetailPage({
       }
     }
     setDeleting(false)
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
