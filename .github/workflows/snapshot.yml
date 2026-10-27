@@ -3,9 +3,11 @@ name: Develop Snapshot Release
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Every push to main (the next minor) publishes a snapshot. The channel and dist-tag keep the
+# `develop` name from the retired develop branch so `@open-mercato/*@develop` installs keep working.
 on:
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read

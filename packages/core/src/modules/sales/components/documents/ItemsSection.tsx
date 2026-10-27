@@ -22,6 +22,7 @@ import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import type { SalesLineRecord } from "./lineItemTypes";
 import {
   formatMoney,
@@ -163,6 +164,7 @@ export function SalesDocumentItemsSection({
   onItemsChange,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
@@ -582,7 +584,7 @@ export function SalesDocumentItemsSection({
       });
       if (!confirmed) return;
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             deleteCrud(resourcePath, {
@@ -597,7 +599,7 @@ export function SalesDocumentItemsSection({
                 "Failed to delete line.",
               ),
             }),
-        );
+        ), { id: line.id, [documentKey]: documentId });
         if (result.ok) {
           flash(t("sales.documents.items.deleted", "Line removed."), "success");
           await loadItems();
@@ -625,6 +627,7 @@ export function SalesDocumentItemsSection({
       resourcePath,
       t,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
