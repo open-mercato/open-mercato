@@ -665,6 +665,22 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     expect(claim.advanceReplacement).toBe(false)
   })
 
+  it('preserves the claim link when sales rejects an edit after approval evidence was validated', async () => {
+    const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID, advanceReplacement: true })
+    mockReplacementOrderRow = { id: CREATED_ORDER_ID, updated_at: APPROVAL_UPDATED_AT }
+    actionLogListMock.mockResolvedValue({ items: [approvalLog()], total: 1 })
+    const conflict = new CrudHttpError(409, { code: 'optimistic_lock_conflict' })
+    commandBusExecuteMock.mockRejectedValue(conflict)
+
+    await expect(createReplacementOrderCommand.undo?.({ logEntry: replacementUndoLog(claim), ctx: makeCtx() } as never))
+      .rejects.toBe(conflict)
+
+    expect(actionLogListMock).toHaveBeenCalledTimes(1)
+    expect(claim.replacementOrderId).toBe(CREATED_ORDER_ID)
+    expect(claim.advanceReplacement).toBe(true)
+    expect(mockEvents).toHaveLength(0)
+  })
+
   it.each([
     ['an earlier user edit', (entry: ReturnType<typeof approvalLog>) => { entry.snapshotBefore.order.updatedAt = '2026-07-17T09:30:00.100Z' }],
     ['a later user edit', (entry: ReturnType<typeof approvalLog>) => { entry.snapshotAfter.order.updatedAt = '2026-07-17T09:30:00.400Z' }],

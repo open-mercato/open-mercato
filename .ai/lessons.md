@@ -51,7 +51,7 @@ This catalog indexes 156 focused lessons. Route the task first, then read only r
 
 ### module-data
 
-- [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
+- [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared,sales,warranty_claims; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup

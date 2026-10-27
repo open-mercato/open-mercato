@@ -6605,6 +6605,15 @@ const deleteOrderCommand: CommandHandler<
       em,
       [
         async () => {
+          const lockedOrder = await findOneWithDecryption(
+            em,
+            SalesOrder,
+            { id, tenantId: order.tenantId, organizationId: order.organizationId },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            { tenantId: order.tenantId, organizationId: order.organizationId },
+          );
+          if (!lockedOrder) throw notFound("Sales order not found");
+          await enforceSalesDocumentOptimisticLock(ctx, lockedOrder, SALES_RESOURCE_KIND_ORDER);
           if (shipmentIds.length) {
             await em.nativeDelete(SalesShipmentItem, {
               shipment: { $in: shipmentIds },
@@ -6627,7 +6636,7 @@ const deleteOrderCommand: CommandHandler<
           });
           await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
           await em.nativeDelete(SalesOrderLine, { order: order.id });
-          em.remove(order);
+          em.remove(lockedOrder);
         },
       ],
       { transaction: true },

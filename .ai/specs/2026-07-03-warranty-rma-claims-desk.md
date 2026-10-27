@@ -154,7 +154,7 @@ Three staff-invoked bridges create the sales documents a resolved claim implies.
 
 Undo compares the stored version token against the document's current `updated_at`: an exact match deletes the document and restores the claim snapshot; a mismatch or missing token aborts with 409; a definitively absent row (the lookup returns null) skips the delete and restores anyway. A degraded lookup is treated as a mismatch, not an absence, so a transient failure can never clear the claim link while the document still lives.
 
-For replacement orders, a version mismatch also permits the initial `null -> pending_approval` status initialization when scoped, decrypted audit history proves exactly one update between the saved and current versions. The update input may contain only the order ID and status entry; all other order fields and the lines, adjustments, addresses, tags, shipments, and payments must be unchanged. Additional related operations, missing evidence, later approval decisions, and earlier or later user edits still refuse undo. Deletion receives the order's own current optimistic-lock version. Redo discards the original claim body version while retaining current request-header locking.
+For replacement orders, a version mismatch also permits the initial `null -> pending_approval` status initialization when scoped, decrypted audit history proves exactly one update between the saved and current versions. The update input may contain only the order ID and status entry; all other order fields and the lines, adjustments, addresses, tags, shipments, and payments must be unchanged. Additional related operations, missing evidence, later approval decisions, and earlier or later user edits still refuse undo. Deletion receives the order's own current optimistic-lock version and rechecks it against the refreshed order under a row lock held through the delete transaction. Redo discards the original claim body version while retaining current request-header locking.
 
 ### Migration & Backward Compatibility
 
@@ -536,5 +536,6 @@ Fully compliant — implemented and verified against the full validation gate.
 
 ### 2026-10-27 — Replacement-order undo (#8014)
 - Permit a proven initial pending-approval update without weakening the refusal after other changes; add order-version evidence to audit snapshots.
+- Recheck the replacement version under the sales order's transaction-held row lock before deleting, preserving the order and claim link if a concurrent edit lands after audit validation.
 - Replay replacement creation without its stale body version, preserving current request locking; translate audit replay domain refusals at the route boundary.
 - Add command and route regressions plus `TC-WC-040` for the cross-module API flow.
