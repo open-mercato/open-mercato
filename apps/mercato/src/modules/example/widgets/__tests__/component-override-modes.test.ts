@@ -36,6 +36,7 @@ import {
   type ComponentOverride,
 } from '@open-mercato/shared/modules/widgets/component-registry'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { calendarEventTypes, type CalendarEventTypePanelProps } from '@open-mercato/core/modules/customers/calendar-event-types'
 import englishCatalog from '../../i18n/en.json'
 import {
   ComponentOverrideShowcase,
@@ -43,9 +44,71 @@ import {
   OverrideShowcaseBase,
   withOverridingModule,
 } from '../../components/ComponentOverrideShowcase'
-import { componentOverrides, OVERRIDING_MODULE_ID, stampOverridingModule } from '../components'
+import { componentOverrides, OVERRIDING_MODULE_ID, stampOverridingModule, withExampleCalendarEventTypePanel } from '../components'
 
 const catalog = englishCatalog as Record<string, string>
+
+describe('example Visit panel wrapper', () => {
+  const DefaultPanel = () => React.createElement('div', { 'data-testid': 'default-calendar-panel' })
+  const Wrapped = withExampleCalendarEventTypePanel(DefaultPanel)
+  const baseProps: CalendarEventTypePanelProps = {
+    definition: { ...calendarEventTypes[0]!, provenance: {}, historical: false },
+    mode: 'create',
+    values: {},
+    errors: {},
+    disabled: false,
+    capabilities: { resourcesEnabled: true, staffEnabled: true },
+    setValue: jest.fn(),
+  }
+
+  it('keeps the standard panel props and maps server errors into its field aliases', () => {
+    const Original = jest.fn((props: CalendarEventTypePanelProps) => React.createElement('div', {
+      'data-testid': 'original-formatting', 'data-schedule-error': props.errors.ends, 'data-resource-error': props.errors.resources,
+    }))
+    const WrappedPanel = withExampleCalendarEventTypePanel(Original)
+    const values = { ...baseProps.values, customValue: 'preserved' }
+    const capabilities = { staffEnabled: false, resourcesEnabled: false }
+    const markup = renderToStaticMarkup(React.createElement(I18nProvider, { locale: 'en', dict: catalog },
+      React.createElement(WrappedPanel, { ...baseProps, values, capabilities,
+        definition: { ...baseProps.definition, key: 'visit' }, panelKey: 'example.visit',
+        errors: { scheduledAt: 'Invalid interval', linkedEntities: 'Invalid resource' },
+      })))
+    expect(markup).toContain('original-formatting')
+    expect(markup).toContain('data-schedule-error="Invalid interval"')
+    expect(markup).toContain('data-resource-error="Invalid resource"')
+    const received = Original.mock.calls[0]?.[0]
+    expect(received?.values).toBe(values)
+    expect(received?.capabilities).toBe(capabilities)
+    expect(received?.setValue).toBe(baseProps.setValue)
+    expect(received?.disabled).toBe(baseProps.disabled)
+    expect(markup).not.toContain('type="date"')
+    expect(markup).not.toContain('type="time"')
+  })
+
+  it('keeps other event types on the standard panel and renders the Visit availability panel for Visit', () => {
+    const meeting = renderToStaticMarkup(React.createElement(
+      I18nProvider,
+      { locale: 'en', dict: catalog },
+      React.createElement(Wrapped, baseProps),
+    ))
+    expect(meeting).toContain('default-calendar-panel')
+    expect(meeting).not.toContain('Visit availability')
+    expect(meeting).not.toContain('example-visit-panel')
+
+    const visit = renderToStaticMarkup(React.createElement(
+      I18nProvider,
+      { locale: 'en', dict: catalog },
+      React.createElement(Wrapped, {
+        ...baseProps,
+        definition: { ...baseProps.definition, key: 'visit', panelKey: 'example.visit' },
+        panelKey: 'example.visit',
+      }),
+    ))
+    expect(visit).toContain('Visit availability')
+    expect(visit).toContain('default-calendar-panel')
+    expect(visit).not.toContain('type="submit"')
+  })
+})
 
 const HostFallback = (props: unknown) =>
   React.createElement(

@@ -901,20 +901,9 @@ export function DealsSection({
   )
 
   React.useEffect(() => {
-    if (!onActionChange) return
-    const disabled = !scope || isLoading || pendingAction !== null
-    const action: SectionAction = {
-      label: addActionLabel,
-      onClick: () => {
-        if (!disabled) openCreateDialog()
-      },
-      disabled,
-    }
-    onActionChange(action)
-    return () => {
-      onActionChange(null)
-    }
-  }, [addActionLabel, isLoading, onActionChange, openCreateDialog, pendingAction, scope])
+    onActionChange?.(null)
+    return () => onActionChange?.(null)
+  }, [onActionChange])
 
   const isFormPending = pendingAction?.kind === 'create'
 

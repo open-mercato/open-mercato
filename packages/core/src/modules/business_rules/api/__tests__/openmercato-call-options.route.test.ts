@@ -12,6 +12,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+const mockAssertActorCanGrantRoles = jest.fn(async (_input: unknown) => undefined)
+
+jest.mock('../../../auth/lib/grantChecks', () => ({
+  assertActorCanGrantRoles: jest.fn((input: unknown) => mockAssertActorCanGrantRoles(input)),
+  isUserEffectivelySuperAdmin: jest.fn(async () => false),
+}))
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
@@ -77,6 +84,7 @@ beforeAll(async () => {
 describe('Business Rules API - /api/business_rules/openmercato-call-options', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockAssertActorCanGrantRoles.mockResolvedValue(undefined)
     registerTestModules()
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -171,5 +179,44 @@ describe('Business Rules API - /api/business_rules/openmercato-call-options', ()
     ])
     expect(JSON.stringify(body.apiKeys)).not.toContain('keyHash')
     expect(JSON.stringify(body.apiKeys)).not.toContain('secret')
+  })
+
+  test('lists only API keys whose roles the caller can grant and never session or one-time keys', async () => {
+    const tenantId = '123e4567-e89b-12d3-a456-426614174000'
+    const organizationId = '223e4567-e89b-12d3-a456-426614174000'
+    const baseKey = { tenantId, organizationId, expiresAt: null, deletedAt: null }
+    mockEm.find.mockImplementation(async (Entity: any, query: any) => {
+      if (Entity?.name === 'ApiKey') {
+        return [
+          { ...baseKey, id: 'grantable-key', name: 'Grantable profile', keyPrefix: 'omk_grant', rolesJson: ['role-limited'] },
+          { ...baseKey, id: 'privileged-key', name: 'Privileged profile', keyPrefix: 'omk_priv', rolesJson: ['role-superadmin'] },
+          { ...baseKey, id: 'session-key', name: '__session_abc__', keyPrefix: 'omk_sess', rolesJson: ['role-limited'], sessionToken: 'sess_abc' },
+          { ...baseKey, id: 'onetime-key', name: '__onetime__', keyPrefix: 'omk_once', rolesJson: ['role-limited'] },
+          { ...baseKey, id: 'operator-key', name: '__ops__', keyPrefix: 'omk_ops', rolesJson: ['role-limited'] },
+        ]
+      }
+      if (Entity?.name === 'Role') {
+        const ids: string[] = Array.isArray(query?.id?.$in) ? query.id.$in : []
+        return ids.map((id) => ({ id, name: id, tenantId }))
+      }
+      return []
+    })
+    mockAssertActorCanGrantRoles.mockImplementation(async (input: any) => {
+      if (input.roles.some((role: { id: string }) => role.id === 'role-superadmin')) {
+        const { forbidden } = jest.requireActual('@open-mercato/shared/lib/crud/errors') as typeof import('@open-mercato/shared/lib/crud/errors')
+        throw forbidden('Not allowed to grant')
+      }
+    })
+
+    const response = await GET(new Request('http://localhost:3000/api/business_rules/openmercato-call-options'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.apiKeys.map((key: { id: string }) => key.id)).toEqual(['grantable-key', 'operator-key'])
+    expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: 'user-1',
+      tenantId,
+      requireBoundRbac: true,
+    }))
   })
 })
