@@ -3,6 +3,7 @@ import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   CART_LINES_PATH,
   backdateCartTotalsComputedAt,
+  setCatalogPriceAmounts,
   cartStorefrontRequest,
   cleanupCartProductFixture,
   cleanupCartStorefrontFixture,
@@ -117,12 +118,18 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
     // drifted, isolating trigger 4.
     const thirtyOneMinutesAgo = new Date(Date.now() - 31 * 60 * 1000).toISOString();
     await backdateCartTotalsComputedAt(cart.cartId, thirtyOneMinutesAgo);
+    // `priceChanges` lists only lines whose price actually changed (§5.3, TC-CART-PRICE-07).
+    await setCatalogPriceAmounts(product.priceId, '11', '13.2');
 
-    const third = await cartStorefrontRequest(store.hostname, '/api/cart/current', { method: 'GET', cartToken: cart.token });
-    expect(third.status, third.text).toBe(200);
-    const thirdBody = third.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
-    expect(thirdBody.versionBumpReason).toBe('repricing');
-    expect(thirdBody.priceChanges).toEqual([expect.objectContaining({ reason: 'stale_snapshot' })]);
+    try {
+      const third = await cartStorefrontRequest(store.hostname, '/api/cart/current', { method: 'GET', cartToken: cart.token });
+      expect(third.status, third.text).toBe(200);
+      const thirdBody = third.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
+      expect(thirdBody.versionBumpReason).toBe('repricing');
+      expect(thirdBody.priceChanges).toEqual([expect.objectContaining({ reason: 'stale_snapshot' })]);
+    } finally {
+      await setCatalogPriceAmounts(product.priceId, '10', '12');
+    }
   });
 
   // TC-CART-PRICE-02: a real currency change and a real locale change each, independently,
@@ -143,6 +150,7 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
 
     try {
       await updateStoreLocaleAndCurrency(request, token, store.storeId, { defaultCurrencyCode: 'USD' });
+      await setCatalogPriceAmounts(product.priceId, '11', '13.2');
 
       const response = await cartStorefrontRequest(store.hostname, '/api/cart/current', { method: 'GET', cartToken: cart.token });
       expect(response.status, response.text).toBe(200);
@@ -160,6 +168,7 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
       expect(body.cart.locale).toBe('en');
     } finally {
       await updateStoreLocaleAndCurrency(request, token, store.storeId, { defaultCurrencyCode: 'EUR' });
+      await setCatalogPriceAmounts(product.priceId, '10', '12');
     }
   });
 
@@ -174,13 +183,14 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
     expect((baseline.body as { cart: { locale: string; currencyCode: string } }).cart.locale).toBe('en');
 
     await updateStoreLocaleAndCurrency(request, token, store.storeId, { supportedLocales: ['en', 'de'] });
+    await setCatalogPriceAmounts(product.priceId, '11', '13.2');
 
     // `?locale=de` is honored only because it is now in `store.supportedLocales` — the
     // currency stays untouched.
     const response = await cartStorefrontRequest(store.hostname, '/api/cart/current?locale=de', {
       method: 'GET',
       cartToken: cart.token,
-    });
+    }).finally(() => setCatalogPriceAmounts(product.priceId, '10', '12'));
     expect(response.status, response.text).toBe(200);
     const body = response.body as {
       cart: { currencyCode: string; locale: string };
