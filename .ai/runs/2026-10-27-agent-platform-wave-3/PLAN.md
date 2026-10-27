@@ -42,7 +42,7 @@
 | 4 | 4.5 | Store the raw model output as an encrypted artifact | dispatch | done | 12a9912c0 |
 | 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | done | 24b21b6cb |
 | 4 | 4.6-review-fix | Keep guardrailSetBodySchema grounding-only and add the union schema | inline | done | pending |
-| 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | todo | — |
+| 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | done | pending |
 | 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | todo | — |
 | 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | todo | — |
 | 5 | 5.4 | Add an example integrity agent and resolver to agent_examples | dispatch | todo | — |

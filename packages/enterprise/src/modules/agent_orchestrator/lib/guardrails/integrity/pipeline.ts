@@ -10,6 +10,7 @@ import {
 } from '../../../data/validators'
 import type { CheckOutputArgs, GuardrailService } from '../guardrailService'
 import { evaluateEvidenceQuote } from './rules/evidenceQuote'
+import { evaluateReferenceExists } from './rules/referenceExists'
 import type {
   IntegrityRuleContext,
   IntegrityRuleEvaluator,
@@ -27,6 +28,7 @@ export type IntegrityRuleEvaluators = Partial<{
 
 export const INTEGRITY_RULE_EVALUATORS: IntegrityRuleEvaluators = {
   evidence_quote: evaluateEvidenceQuote,
+  reference_exists: evaluateReferenceExists,
 }
 
 export type OutputPipelineArgs = {
