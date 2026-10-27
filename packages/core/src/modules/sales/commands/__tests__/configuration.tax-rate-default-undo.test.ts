@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesTaxRate } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -231,6 +232,26 @@ describe('sales tax-rate undo keeps a single default tax rate per scope', () => 
 
     expect(em.committed.record).toMatchObject({ id: RATE_ID, isDefault: true })
     expect(em.committed.othersDemoted).toBe(true)
+  })
+
+  it('scopes the restore lookup to the snapshot tenant and organization on update and delete undo', async () => {
+    const scopedWhere = { id: RATE_ID, tenantId: TENANT_ID, organizationId: ORG_ID }
+    const decryptionScope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+    const lookup = jest.mocked(findOneWithDecryption)
+
+    lookup.mockClear()
+    const updateEm = buildEm({ ...taxRateSnapshot({ isDefault: false }) })
+    await runUndo(
+      'sales.tax-rates.update',
+      { before: taxRateSnapshot({ isDefault: true }), after: taxRateSnapshot({ isDefault: false }) },
+      updateEm,
+    )
+    expect(lookup).toHaveBeenCalledWith(updateEm, SalesTaxRate, scopedWhere, {}, decryptionScope)
+
+    lookup.mockClear()
+    const deleteEm = buildEm(null)
+    await runUndo('sales.tax-rates.delete', { before: taxRateSnapshot({ isDefault: true }) }, deleteEm)
+    expect(lookup).toHaveBeenCalledWith(deleteEm, SalesTaxRate, scopedWhere, {}, decryptionScope)
   })
 
   it('leaves other tax rates untouched when the restored snapshot is not the default', async () => {

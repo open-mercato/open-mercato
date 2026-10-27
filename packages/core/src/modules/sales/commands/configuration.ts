@@ -599,7 +599,7 @@ async function restoreTaxRateFromSnapshot(
     let record = await findOneWithDecryption(
       tx,
       SalesTaxRate,
-      { id: before.id },
+      { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId },
       {},
       { tenantId: before.tenantId, organizationId: before.organizationId },
     )
