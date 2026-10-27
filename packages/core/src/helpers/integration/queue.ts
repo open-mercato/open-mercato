@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { expect } from '@playwright/test'
-import { createQueue } from '@open-mercato/queue'
+import { createQueue, getQueuePendingProbe } from '@open-mercato/queue'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type DrainQueueOptions = {
@@ -73,21 +73,17 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
 }
 
 async function waitForManagedQueue(queueName: string, options: Required<DrainQueueOptions>): Promise<number> {
-  const queue = createQueue(queueName, 'local', {
-    baseDir: process.env.QUEUE_BASE_DIR?.trim() || path.resolve(options.appRoot, '.mercato/queue'),
-  })
+  const baseDir = process.env.QUEUE_BASE_DIR?.trim() || path.resolve(options.appRoot, '.mercato/queue')
+  const queue = createQueue(queueName, 'local', { baseDir })
   try {
     const initial = await queue.getJobCounts()
-    let completed = initial.completed
     await expect.poll(async () => {
-      const counts = await queue.getJobCounts()
-      completed = counts.completed
-      if (counts.failed > initial.failed) {
-        throw new Error(`[internal] Managed integration queue ${queueName} failed ${counts.failed - initial.failed} job(s)`)
-      }
-      return counts.waiting + counts.active
+      const pending = await getQueuePendingProbe(queueName, 'local', { baseDir })
+      if (pending.error) throw new Error(`[internal] Cannot observe integration queue ${queueName}: ${pending.errorMessage}`)
+      return pending.ready + pending.active
     }, { message: `Integration queue ${queueName} should finish processing` }).toBe(0)
-    return completed - initial.completed
+    const final = await queue.getJobCounts()
+    return final.completed + final.failed - initial.completed - initial.failed
   } finally {
     await queue.close()
   }
