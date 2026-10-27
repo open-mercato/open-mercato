@@ -13,11 +13,12 @@
  *   tools: [customers.get_deal]    # read-only tool ids; block list also accepted
  *   skills: [deals.stage_playbook]
  *   subAgents: [deals.activity_scan]
+ *   requiredFeatures: [deals.health.run] # invoker ACL features; optional
  *   maxSteps: 12
  *   ---
  *   <markdown body → agent instructions>
  *
- * List keys (`tools`, `skills`, `subAgents`) accept BOTH the inline form
+ * List keys (`tools`, `skills`, `subAgents`, `requiredFeatures`) accept BOTH the inline form
  * `tools: [a, b]` and a block list (`- a` lines). Everything after the closing
  * `---` is the instructions body (trimmed). Returns null when a required field
  * (id, label, description) is missing.
@@ -26,7 +27,7 @@ import type { FileAgentFilesConfig } from './defineAgent'
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/
 
-const LIST_KEYS = ['tools', 'skills', 'subAgents'] as const
+const LIST_KEYS = ['tools', 'skills', 'subAgents', 'requiredFeatures'] as const
 type ListKey = (typeof LIST_KEYS)[number]
 
 const TRUTHY_TOKENS = new Set(['enabled', 'true', 'yes', '1', 'on'])
@@ -44,6 +45,7 @@ export type AgentMarkdown = {
   tools: string[]
   skills: string[]
   subAgents: string[]
+  requiredFeatures: string[]
   maxSteps?: number
   files?: FileAgentFilesConfig
   instructions: string
@@ -58,6 +60,7 @@ type Frontmatter = {
   tools?: string[]
   skills?: string[]
   subAgents?: string[]
+  requiredFeatures?: string[]
   maxSteps?: number
   filesEnabled?: boolean
   filesBash?: boolean
@@ -148,6 +151,7 @@ export function parseAgentMarkdown(raw: string): AgentMarkdown | null {
     tools: meta.tools ?? [],
     skills: meta.skills ?? [],
     subAgents: meta.subAgents ?? [],
+    requiredFeatures: meta.requiredFeatures ?? [],
     maxSteps: meta.maxSteps,
     files: meta.filesEnabled
       ? { enabled: true, inputs: true, outputs: true, bash: meta.filesBash ?? false }

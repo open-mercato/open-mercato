@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AgentFact, AgentRegistryEntry, FileAgentFilesConfig } from './defineAgent'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { normalizeAgentRequiredFeatures } from '../../data/validators'
 import { parseAgentMarkdown } from './agentMarkdown'
 import { parseAgentLocalSkillMarkdown } from './skillMarkdown'
 import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcomeSchema'
@@ -615,6 +616,7 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
     runtime: 'opencode',
     sampleInput: loadSampleInput(dir),
     facts: loadFacts(dir),
+    requiredFeatures: normalizeAgentRequiredFeatures(agent.id, agent.requiredFeatures),
   }
 
   const openCodeAgentFile = renderOpenCodeAgentFile({
@@ -735,6 +737,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     runtime: 'opencode',
     sampleInput: loadSampleInput(dir),
     facts: loadFacts(dir),
+    requiredFeatures: normalizeAgentRequiredFeatures(agent.id, agent.requiredFeatures),
     files: agent.files,
   }
 

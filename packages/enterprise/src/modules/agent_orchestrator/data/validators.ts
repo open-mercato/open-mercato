@@ -134,6 +134,37 @@ export type AgentResult<T = unknown> =
 export const agentTypeSchema = z.enum(['researcher', 'decision_maker', 'action'])
 export type AgentType = z.infer<typeof agentTypeSchema>
 
+export const AGENT_REQUIRED_FEATURE_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.*:-]*$/
+
+/**
+ * ACL features the INVOKER of an agent must hold (`defineAgent({ requiredFeatures })`
+ * and the `requiredFeatures` AGENT.md frontmatter key). Entries are trimmed, empty
+ * entries dropped and duplicates removed in declaration order; a malformed feature id
+ * fails validation so a typo can never silently widen access.
+ */
+export const agentRequiredFeaturesSchema = z
+  .array(z.string())
+  .transform((features) =>
+    Array.from(new Set(features.map((feature) => feature.trim()).filter(Boolean))),
+  )
+  .pipe(z.array(z.string().max(200).regex(AGENT_REQUIRED_FEATURE_PATTERN)).max(50))
+
+/**
+ * Normalise a declared `requiredFeatures` list; `undefined` when nothing is declared.
+ * Throws `[internal]` on a malformed entry.
+ */
+export function normalizeAgentRequiredFeatures(
+  agentId: string,
+  features: unknown,
+): string[] | undefined {
+  if (features === undefined || features === null) return undefined
+  const parsed = agentRequiredFeaturesSchema.safeParse(features)
+  if (!parsed.success) {
+    throw new Error(`[internal] agent "${agentId}" declares invalid requiredFeatures`)
+  }
+  return parsed.data.length > 0 ? parsed.data : undefined
+}
+
 /**
  * Trace-list filter facets (trace-eval overlay). `needs-review` is the union
  * facet the traces list tabs use: failed eval OR low confidence.

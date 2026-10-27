@@ -247,7 +247,7 @@ Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 
 ```
 agents/<agent_id>/
-├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
+├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,requiredFeatures?,maxSteps?) + body = instructions
 ├── OUTCOME.md          # frontmatter `kind: research|proposal|artifact` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
 ├── SAMPLE.json         # optional example input — Playground "Insert sample" button
 ├── FACTS.json          # optional Caseload fact declarations (see below)

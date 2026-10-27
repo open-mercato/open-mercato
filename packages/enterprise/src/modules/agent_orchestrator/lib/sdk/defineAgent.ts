@@ -6,7 +6,7 @@ import {
 import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentType } from '../../data/validators'
+import { normalizeAgentRequiredFeatures, type AgentType } from '../../data/validators'
 import { getSkillEntry } from './defineSkill'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
@@ -127,6 +127,13 @@ export interface DefineAgentInput {
    * it fall back to the panel's generic derivation.
    */
   facts?: AgentFact[]
+  /**
+   * ACL features the INVOKER must hold to run this agent. Normalised (trimmed,
+   * deduped, empties dropped) onto `AgentRegistryEntry.requiredFeatures` and
+   * forwarded to `defineAiAgent({ requiredFeatures })` so the ai-assistant policy
+   * check applies the same gate. Additive/BC-safe: omitted means no extra gate.
+   */
+  requiredFeatures?: string[]
 }
 
 /**
@@ -192,6 +199,8 @@ export interface AgentRegistryEntry {
   outcomeSchema?: JsonSchemaNode
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
+  /** Normalised invoker features (see DefineAgentInput); undefined when the agent declares none. */
+  requiredFeatures?: string[]
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
@@ -237,6 +246,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const subAgents = input.subAgents ?? []
   const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
+  const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
 
   registry.set(input.id, {
     id: input.id,
@@ -260,6 +270,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     runtime: 'native',
     sampleInput: input.sampleInput,
     facts: input.facts,
+    requiredFeatures,
   })
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
@@ -288,6 +299,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     defaultModel: input.defaultModel,
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
+    ...(requiredFeatures ? { requiredFeatures } : {}),
   })
   const registered = registry.get(input.id)
   if (registered) registered.aiDefinitionHash = computeAgentDefinitionHash(aiDefinition)
@@ -534,6 +546,7 @@ async function loadFileAgents(): Promise<void> {
         outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
+        requiredFeatures: normalizeAgentRequiredFeatures(descriptor.id, descriptor.requiredFeatures),
         tokenUsage: descriptor.tokenUsage,
         sourceFiles: descriptor.sourceFiles,
       })
