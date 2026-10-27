@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentGuardrailSet } from '../../data/entities'
-import { guardrailSetBodySchema } from '../../data/validators'
+import { agentGuardrailSetBodySchema } from '../../data/validators'
 import { listGroundingSets, guardrailSetVersionFor } from './groundingSets'
 
 /**
@@ -66,7 +66,7 @@ export async function resolveCurrentGroundingSet(
     version,
   })
   if (!row) return null
-  const body = guardrailSetBodySchema.safeParse(row.body)
+  const body = agentGuardrailSetBodySchema.safeParse(row.body)
   if (!body.success || body.data.kind !== 'grounding') return null
   return { version: row.version, body: row.body }
 }

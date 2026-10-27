@@ -48,6 +48,7 @@ export {
   guardrailEvidenceSchema,
   guardResultsSchema,
   guardrailSetBodySchema,
+  agentGuardrailSetBodySchema,
   groundingSetBodySchema,
   integritySetBodySchema,
   groundingClaimSchema,

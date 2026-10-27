@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { AgentGuardrailSet } from '../data/entities'
 import {
+  agentGuardrailSetBodySchema,
   guardrailSetBodySchema,
   integrityRuleSchema,
   type IntegrityRule,
@@ -110,11 +111,12 @@ describe('guardrail set body union', () => {
   it('parses existing grounding bodies unchanged', () => {
     const grounding = resolveGroundingSet(GROUNDING_CAPABILITY)
     expect(grounding).not.toBeNull()
+    expect(agentGuardrailSetBodySchema.parse(grounding)).toEqual(grounding)
     expect(guardrailSetBodySchema.parse(grounding)).toEqual(grounding)
   })
 
   it('parses integrity bodies and defaults untrustedInputs', () => {
-    const parsed = guardrailSetBodySchema.parse({
+    const parsed = agentGuardrailSetBodySchema.parse({
       kind: 'integrity',
       capability: 'test.integrity_agent',
       rules: [quoteRule()],
@@ -124,7 +126,13 @@ describe('guardrail set body union', () => {
   })
 
   it('rejects an unknown kind', () => {
-    expect(guardrailSetBodySchema.safeParse({ kind: 'other', capability: 'x' }).success).toBe(false)
+    expect(agentGuardrailSetBodySchema.safeParse({ kind: 'other', capability: 'x' }).success).toBe(false)
+  })
+
+  it('keeps guardrailSetBodySchema grounding-only for backward compatibility', () => {
+    expect(
+      guardrailSetBodySchema.safeParse({ kind: 'integrity', capability: 'test.integrity_agent', rules: [quoteRule()] }).success,
+    ).toBe(false)
   })
 })
 

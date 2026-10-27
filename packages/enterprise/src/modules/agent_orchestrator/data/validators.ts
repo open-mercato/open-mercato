@@ -938,9 +938,10 @@ export const groundingSetBodySchema = z.object({
 })
 export type GroundingSetBody = z.infer<typeof groundingSetBodySchema>
 /**
- * The grounding set body. Kept as the grounding arm for backward compatibility;
- * the stored `agent_guardrail_sets.body` is the `AgentGuardrailSetBody` union.
+ * The grounding set body schema under its original public name (grounding-only).
+ * Stored `agent_guardrail_sets.body` values are parsed with `agentGuardrailSetBodySchema`.
  */
+export const guardrailSetBodySchema = groundingSetBodySchema
 export type GuardrailSetBody = GroundingSetBody
 
 // ── Output integrity (spec 2026-10-21-output-integrity-guardrails) ───────────
@@ -1124,8 +1125,8 @@ export const integritySetBodySchema = z.object({
 export type IntegritySetBody = z.infer<typeof integritySetBodySchema>
 
 /** Every guardrail set body stored in `agent_guardrail_sets`, discriminated by `kind`. */
-export const guardrailSetBodySchema = z.discriminatedUnion('kind', [groundingSetBodySchema, integritySetBodySchema])
-export type AgentGuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
+export const agentGuardrailSetBodySchema = z.discriminatedUnion('kind', [groundingSetBodySchema, integritySetBodySchema])
+export type AgentGuardrailSetBody = z.infer<typeof agentGuardrailSetBodySchema>
 
 /** Run-level roll-up of every integrity rule's verdict. */
 export const integritySummarySchema = z.object({

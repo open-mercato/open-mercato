@@ -40,7 +40,8 @@
 | 4 | 4.3 | Add the evidence_quote rule | dispatch | done | bcb0245a3 |
 | 4 | 4.4 | Run the output pipeline in the native runner and return the final output | dispatch:capable | done | 08a1dfad6 |
 | 4 | 4.5 | Store the raw model output as an encrypted artifact | dispatch | done | 12a9912c0 |
-| 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | done | pending |
+| 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | done | 24b21b6cb |
+| 4 | 4.6-review-fix | Keep guardrailSetBodySchema grounding-only and add the union schema | inline | done | pending |
 | 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | todo | — |
 | 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | todo | — |
 | 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | todo | — |
@@ -217,6 +218,9 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
 - `lib/guardrails/integrity/integritySets.ts`: content hash `i1-` + 24 hex (mirroring `g1-`), registry populated from `defineAgent` declarations, `syncIntegritySets` in `setup.ts` next to grounding; `guardrailSetBodySchema` becomes a discriminated union `grounding | integrity` (existing grounding bodies parse unchanged); check rows carry `guardrailSetVersion` = integrity set version.
 - `OM_AGENT_INTEGRITY=off`: evaluate and record, never drop/repair/block; boot log.
 - Unit tests (hash stable across key order, sync idempotent, shadow mode leaves output unchanged).
+
+#### 4.6-review-fix Keep guardrailSetBodySchema grounding-only and add the union schema
+- `guardrailSetBodySchema` / `GuardrailSetBody` are exported on `main`; turning the schema into the union changes its parse type (BACKWARD_COMPATIBILITY.md: types are STABLE). Keep it as the grounding schema (alias of `groundingSetBodySchema`) and add `agentGuardrailSetBodySchema` (union) for internal readers.
 
 ### Phase 5 — Integrity P2: references, consultation, custom (AO + shared)
 
