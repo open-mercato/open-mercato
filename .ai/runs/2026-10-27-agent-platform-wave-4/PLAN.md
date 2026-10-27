@@ -22,7 +22,7 @@
 | 1 | 1.4 | Write gen_ai and om attributes on native llm spans | dispatch:capable | done | 81f8e2e3d |
 | 2 | 2.1 | Add the trace capture policy schema and resolver | dispatch | done | pending |
 | 2 | 2.2 | Apply the capture policy to native and OpenCode runs and record om.capture | dispatch:capable | done | pending |
-| 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | todo | — |
+| 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | done | pending |
 | 2 | 2.4 | Add the trace capture settings API and undoable command | dispatch | todo | — |
 | 2 | 2.5 | Add the trace capture settings page | dispatch | todo | — |
 | 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | todo | — |
