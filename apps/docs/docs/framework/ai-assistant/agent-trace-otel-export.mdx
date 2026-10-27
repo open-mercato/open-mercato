@@ -16,7 +16,7 @@ Export happens only when all of these hold:
 3. **Allowlist**: if the tenant set an agent allowlist, the run's agent is on it. No allowlist exports every agent.
 4. **Source**: the run's source is listed in `OM_AGENT_OTEL_EXPORT_SOURCES` (default `runtime,eval`).
 
-Tenant settings are stored in module config `agent_orchestrator/otel_export`: `enabled`, `content` (`none` or `full`), `exportUserIds` and `agentAllowlist`. A malformed or unreadable record disables export for the tenant. Saving needs `agent_orchestrator.agents.manage`, and `content = full` additionally needs `agent_orchestrator.trace.view_content` and a deployment that allows content export. Content is not exported yet, so `full` has no effect on the payload today.
+Tenant settings are stored in module config `agent_orchestrator/otel_export`: `enabled`, `content` (`none` or `full`), `exportUserIds` and `agentAllowlist`. A malformed or unreadable record disables export for the tenant. Saving needs `agent_orchestrator.agents.manage`. Content export is not available yet, so saving `content = full` is refused with `422`: `content_export_not_allowed` when the deployment does not allow content, otherwise `content_export_unavailable`.
 
 ## Environment variables
 

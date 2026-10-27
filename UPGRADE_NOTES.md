@@ -498,6 +498,18 @@ Specs: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/
 
 **Fixed:** `GET /api/agent_orchestrator/guardrail-checks` and `GET /api/agent_orchestrator/context-bundles` returned `500 DATABASE_ERROR` on every request; they now list rows.
 
+### Agent run step metadata, trace capture policy and OpenTelemetry export
+
+Specs: [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-run-observability-full-fidelity.md) (Phase 2), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md) (Phase 1). Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-capture.mdx` and `agent-trace-otel-export.mdx`.
+
+**Agent Orchestrator `llm` spans carry per-step model-call metadata.** Native runs now write `gen_ai.*` / `om.*` attributes on each `llm` span: parameters as sent, token usage including cached and reasoning tokens, `om.cost.micros`, latency, response id, request/response hashes and `om.capture.fidelity`. The legacy `inputTokens` / `outputTokens` / `finishReason` keys are kept. The trace page shows a "Model calls" card. Readers should use `readLlmSpanMetadata` rather than reading keys directly.
+
+**Trace capture policy.** Each tenant can choose `off`, `metadata` (default) or `full` at `/backend/settings/trace-capture`, with per-agent time-boxed overrides and a separate level for eval runs. `full` records metadata only until content capture ships. Deployment defaults come from `OM_AGENT_TRACE_CONTENT_DEFAULT` and the ceiling from `OM_AGENT_TRACE_CONTENT_MAX`. The new ACL feature `agent_orchestrator.trace.view_content` (admin and superadmin through the module wildcard; not granted to narrower roles) is required to change the policy. **Action:** grant `agent_orchestrator.trace.view_content` to any custom role that should manage capture.
+
+**OpenTelemetry export (opt-in, off by default).** With `OM_AGENT_OTEL_EXPORT=on` and an endpoint (`OM_AGENT_OTEL_EXPORT_ENDPOINT`, or the platform `OTEL_EXPORTER_OTLP_*` variables), tenants that opt in at `/backend/settings/otel-export` export finished runs as OTLP/HTTP JSON with GenAI semantic conventions. Exports carry metadata only, never prompts, responses or encrypted fields. Delivery is at-least-once with deterministic trace and span ids. Backfill with `yarn mercato agent_orchestrator otel:export`. A local collector and Jaeger profile ships in `starters/docker/compose.agent-otel.yml`. `GET /api/agent_orchestrator/runs/:id` gains an additive `otel` field.
+
+**Fixed:** module configuration cached by `moduleConfigService` was scoped by the caller's cache tenant, so persistent subscribers and workers could read settings up to 60 s stale after a change made through an API route (this affected the agent auto-approval policy). Cache entries are now scoped by the configuration row; the cache key version changed, so existing entries are simply re-read.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

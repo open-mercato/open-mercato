@@ -386,3 +386,20 @@ None.
 
 ### 2026-10-22
 - Q2 resolved: Phase 2 content export is approved with the three locks: deployment `OM_AGENT_OTEL_EXPORT_CONTENT=allow`, tenant `content: 'full'`, and run capture level `full`.
+
+### 2026-10-27
+- Phase 1 implemented (agent platform wave 4, stacked PR #8061), with no new dependency and no `@opentelemetry/*` import:
+  - `lib/trace/otel/{ids,otlpJson,loadRunExportBundle,mapAgentRunToOtlp,otelAttributes,exportSettings,otlpHttpClient,exportHealth,exportJob,exportBackfill,traceLink}.ts` and `lib/trace/redactStrings.ts`.
+  - Queue `agent-orchestrator-otel-export`, persistent subscribers on `agent_orchestrator.run.completed` / `.run.ingested`, worker `agent_orchestrator:otel-export` (re-checks tenant settings from the run row; retry with backoff and `Retry-After`, max 5 attempts; `reportError` codes `agent_orchestrator.otel_export_failed` / `_rejected`).
+  - `GET|PUT /otel-export/settings` (command `agent_orchestrator.otelExportSettings.update`, optimistic lock), `POST /otel-export/test` (1 per 10 s per tenant), settings page `/backend/settings/otel-export`, system-health line `otelExport`, additive `otel: { traceId, url } | null` on `GET /runs/:id` with an "Open in tracing backend" link, CLI `otel:export`, compose profile `starters/docker/compose.agent-otel.yml`.
+  - Integration: `TC-AGENT-OTEL-001/002` (delivery to a fake OTLP receiver, opt-out sends nothing); the CLI dry-run is a unit test.
+- Deviations:
+  - **No queue job-id dedupe**: the queue only supports `delayMs`. Delivery is at-least-once with deterministic ids, and a retry re-sends every chunk of the run.
+  - **Export health** (`lastSuccessAt`, `lastErrorAt`, `lastErrorCode`) lives in module config `otel_export_health` (no DDL). There is no per-tenant settings cache.
+  - **`content: 'full'` is always refused** with 422: `content_export_not_allowed` when the deployment denies content, else `content_export_unavailable` (Phase 2).
+  - **The deployment counts as enabled** only with the switch on, `http/json`, and a usable http(s) endpoint. The client never follows redirects.
+  - **Data the mapper cannot export yet:** no `om.proposal.option_count` (options live in the encrypted payload), no guardrail `rule_id` (no column), no process re-run link (no reader). The re-run link is emitted only when the original's trace id is known; otherwise the run span gets `om.run.rerun_of`. No code writes `proposal-execution:<id>` effector spans today, so `om.proposal.execute` stays empty until something does.
+  - **Pending proposals emit no disposition span.** Raw attributes of tool and system spans are not exported.
+  - **`service.version` and the scope version** are `APP_VERSION`.
+  - **The test-span 429** is covered by unit tests only, because the ephemeral app disables rate limiting.
+

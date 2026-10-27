@@ -302,3 +302,10 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
   - DocStructure P3.
 - Found and fixed while verifying: the AO `guardrail-checks` and `context-bundles` list routes returned 500 on every request (unregistered entity ids).
 - New follow-up (pre-existing): the AO OAuth identity routes declare `POST: {}`, so they require a staff session.
+
+- Wave 4 implemented on one PR (#8061), stacked on wave 3:
+  - Observability P2 (per-step `gen_ai.*` metadata, cost micros, capture policy, `trace.view_content`).
+  - OTel P1 (opt-in replay exporter to OTLP/HTTP JSON).
+- Found and fixed while verifying: module-config cache entries were scoped by the caller's cache tenant, so background workers read settings up to 60 s stale (affected the new policies and the existing auto-approval policy).
+- Next: wave 5 (Observability P3–P4, Chat P3–P4, Integrity P3–P5, Identity P2–P4, Eval P3–P5), best split into about three PRs.
+

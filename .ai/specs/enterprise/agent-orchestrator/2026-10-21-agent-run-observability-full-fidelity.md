@@ -572,3 +572,17 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **The Actions link is not rendered**, because the identity spec's route does not exist yet.
   - **`om.capture` is omitted until a capture policy exists (Phase 2).** The builder emits it only when the caller passes an explicit capture input.
 - Test environment: the repo has no scripted LLM provider (`OM_AI_PROVIDER=scripted` was assumed). `TC-AGENT-TRACE-004` therefore skips without a configured provider.
+- Phase 2 implemented (agent platform wave 4, stacked PR #8061):
+  - The native runner consumes `onModelCallStart` / `onModelCallEnd` (`lib/runtime/nativeModelCallRecorder.ts`) and writes the per-step `gen_ai.*` / `om.*` keys of the "LLM span attributes" table on every `llm` span that has a call record (`lib/runtime/nativeTraceCapture.ts`). Legacy keys are kept. Key strings live in `lib/trace/genAiAttributes.ts`, which also holds `readLlmSpanMetadata` and the ingest normalizer.
+  - `computeCostMicros` in `modelPricing.ts` gives `om.cost.micros` / `.currency` / `.pricing_source`. The run total stays `cost_minor`.
+  - Capture policy: `traceCapturePolicySchema`, `lib/trace/capturePolicy.ts` (resolution order, `OM_AGENT_TRACE_CONTENT_DEFAULT`, ceiling `OM_AGENT_TRACE_CONTENT_MAX`), applied once per run by the native and OpenCode runners. The manifest carries `om.capture` again.
+  - `GET|PUT /api/agent_orchestrator/trace-capture/settings`, undoable command `agent_orchestrator.traceCapturePolicy.update`, settings page `/backend/settings/trace-capture`, new feature `agent_orchestrator.trace.view_content`. The trace page shows a "Model calls" card.
+  - Ingested `llm` spans that carry `gen_ai.*` / `om.*` keys are normalized before storage.
+- Deviations:
+  - **`full` records metadata only** until Phase 3: spans write `om.content.status = "disabled"` and the settings page says so.
+  - **Fidelity:** the plain `generateObject` / `streamObject` branches are `exact` because ai-assistant issues them with the exact inputs. Only the caller-supplied `input.generateObject` callback is `reconstructed`, marked by the additive `callerManaged` flag on `AiAgentModelCallStartEvent` (next to the additive `synthesized` flag).
+  - **Ingest normalization only runs** on `llm` spans that already carry a `gen_ai.*` / `om.*` key, so legacy-only spans and level `off` stay byte-identical.
+  - **Settings are locked optimistically** on the module-config row's `updatedAt`. Undo writes `null` because the config service has no delete; a `null` value reads as the default.
+  - **A non-tenant (default) policy never applies per-agent overrides**; a level lowered by the ceiling reports `source: 'deployment'`.
+- Fixed while verifying: module-config cache entries were scoped by the caller's cache tenant, so persistent subscribers and workers read settings up to 60 s stale after a route wrote them. `module-config-service` now scopes each cache entry by its row (cache key `v3`).
+
