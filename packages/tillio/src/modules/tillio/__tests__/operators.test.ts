@@ -234,6 +234,121 @@ describe('detachOperator', () => {
     const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: unknown[] }
     expect(saved.operators).toHaveLength(0)
   })
+
+  function attachedOperator(token: string, id = 'ringostat-1') {
+    return { id, plugin: 'Ringostat', config: { key: 'x' }, token, tenantDomain: 'd', envFingerprint: 'fp' }
+  }
+
+  function gatedDeleteConfig() {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const deleteConfig = jest.fn(async () => {
+      calls += 1
+      if (calls === 1) await gate
+    })
+    return { deleteConfig, release: () => release() }
+  }
+
+  function flushPending(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve))
+  }
+
+  it('keeps an operator attached while its revocation call was in flight', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig()
+    mockClient({ deleteConfig, addConfig: jest.fn().mockResolvedValue({ token: 'tok-B' }) })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
+      .resolves.toEqual({ ok: true, detached: true, revoked: true })
+    const attached = await attachOperator(
+      { credentialsService: service, scope, appUrl, withLock: passThroughLock },
+      { plugin: 'Ringostat', config: { key: 'b' } },
+    )
+    const savesBeforeRelease = (service.save as jest.Mock).mock.calls.length
+    release()
+
+    await expect(slowDetach).resolves.toEqual({ ok: true, detached: true, revoked: true })
+    expect(attached.token).toBe('tok-B')
+    expect((service.save as jest.Mock).mock.calls).toHaveLength(savesBeforeRelease)
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: Array<{ token: string }>; defaultOperatorId: string | null }
+    expect(saved.operators.map((entry) => entry.token)).toEqual(['tok-B'])
+    expect(saved.defaultOperatorId).toBe('ringostat-1')
+  })
+
+  it('removes nothing on a forced detach whose record was replaced meanwhile', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    mockClient({
+      deleteConfig: jest.fn(async () => {
+        await gate
+        throw new TillioApiError('nope', 422, 'invalid')
+      }),
+    })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const forced = detachOperator({ credentialsService: service, scope }, 'ringostat-1', { force: true })
+    await flushPending()
+    store[TILLIO_OPERATORS_INTEGRATION_ID] = { operators: [attachedOperator('tok-B')], defaultOperatorId: 'ringostat-1' }
+    release()
+
+    await expect(forced).resolves.toEqual({ ok: true, detached: true, revoked: false })
+    expect(service.save).not.toHaveBeenCalled()
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: Array<{ token: string }> }
+    expect(saved.operators.map((entry) => entry.token)).toEqual(['tok-B'])
+  })
+
+  it('writes from the blob as it stands after the revocation, not from the first read', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig()
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const pending = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    store[TILLIO_OPERATORS_INTEGRATION_ID] = {
+      operators: [attachedOperator('tok-A'), attachedOperator('tok-other', 'other-1')],
+      defaultOperatorId: 'other-1',
+    }
+    release()
+
+    await expect(pending).resolves.toEqual({ ok: true, detached: true, revoked: true })
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: Array<{ id: string }>; defaultOperatorId: string | null }
+    expect(saved.operators.map((entry) => entry.id)).toEqual(['other-1'])
+    expect(saved.defaultOperatorId).toBe('other-1')
+  })
+
+  it('hands the default to an operator stored meanwhile when the detached one was the default', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig()
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const pending = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    store[TILLIO_OPERATORS_INTEGRATION_ID] = {
+      operators: [attachedOperator('tok-A'), attachedOperator('tok-other', 'other-1')],
+      defaultOperatorId: 'ringostat-1',
+    }
+    release()
+
+    await pending
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: Array<{ id: string }>; defaultOperatorId: string | null }
+    expect(saved.operators.map((entry) => entry.id)).toEqual(['other-1'])
+    expect(saved.defaultOperatorId).toBe('other-1')
+  })
 })
 
 describe('classifyTillioError', () => {
