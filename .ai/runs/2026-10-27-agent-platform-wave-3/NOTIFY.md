@@ -21,3 +21,11 @@
 
 ## 2026-10-27T07:37:13Z — subagent delegation
 - Two read-only Explore subagents surveyed the code (MCP/identity, integrity/doc-structure) before planning.
+
+## 2026-10-27T08:12:10Z — draft PR opened
+- https://github.com/open-mercato/open-mercato/pull/8018 (draft, claimed: assignee + in-progress + claim comment) after the user's first push.
+
+## 2026-10-27T08:12:10Z — checkpoint 1 (Steps 1.1..1.5)
+- ai-assistant jest 158/158 suites, shared ai 67 tests, typecheck, lint, i18n sync/usage, build:app --force: pass. UI browser check skipped (no dev server for this worktree); McpExposureSection covered by an RTL test.
+- Subagent delegations: one executor per Step (1.1–1.5), sequential.
+- Decisions from executors: `AgentToolError` lives in its own file (import cycle with tool-executor); agent-tool `requiredFeatures` are materialized by the tool loader after loading the agent registry; `outputSchema` is not advertised for mutation tools (pending-approval results would fail SDK output validation); `createDevMcpServer` keeps its sync signature with an optional pre-filtered tool list.

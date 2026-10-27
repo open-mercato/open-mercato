@@ -17,11 +17,11 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add the agent run dispatcher port and soft resolver | dispatch | done | f3dfec032 |
-| 1 | 1.2 | Add defineAgentTool with the ai-assistant engine and dispatcher routing | dispatch:capable | done | 32d519d4c |
-| 1 | 1.3 | Synthesize agent tools from defineAiAgent mcpTool declarations | dispatch | done | 422a70039 |
-| 1 | 1.4 | Return structured agent-tool results on every MCP server and tools/execute | dispatch:capable | done | 732655c5a |
-| 1 | 1.5 | Show the MCP exposure section on the AI assistant settings page | dispatch | done | dd4b492ff |
+| 1 | 1.1 | Add the agent run dispatcher port and soft resolver | dispatch | done | 5be83a2f0 |
+| 1 | 1.2 | Add defineAgentTool with the ai-assistant engine and dispatcher routing | dispatch:capable | done | 4eb813fdc |
+| 1 | 1.3 | Synthesize agent tools from defineAiAgent mcpTool declarations | dispatch | done | d194ba22a |
+| 1 | 1.4 | Return structured agent-tool results on every MCP server and tools/execute | dispatch:capable | done | b22b07521 |
+| 1 | 1.5 | Show the MCP exposure section on the AI assistant settings page | dispatch | done | 4bb405adb |
 | 1 | 1.6 | Document agent tools in the MCP and agents docs | dispatch:cheap | todo | — |
 | 2 | 2.1 | Declare requiredFeatures on AO agents and forward them to defineAiAgent | dispatch | todo | — |
 | 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | todo | — |
