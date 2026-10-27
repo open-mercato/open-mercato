@@ -333,6 +333,7 @@ export function createSynthesizedModelCall(
             responseFormat: lightweight ? undefined : cloneForObserver(context.responseFormat),
             callSettings: cloneForObserver(context.callSettings),
             startedAtMs,
+            synthesized: true,
           }),
         { agentId: context.agentId, callId },
       )
@@ -413,6 +414,7 @@ function toLightweightStartEvent(event: AiAgentModelCallStartEvent): AiAgentMode
     responseFormat: undefined,
     callSettings: cloneForObserver(event.callSettings),
     startedAtMs: event.startedAtMs,
+    ...(event.synthesized ? { synthesized: true } : {}),
   }
 }
 

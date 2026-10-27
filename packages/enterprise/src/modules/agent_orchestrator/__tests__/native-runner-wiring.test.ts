@@ -437,6 +437,88 @@ describe('post-run trace capture', () => {
     expect(attributes['om.correlation_id']).toBe('corr-1')
   })
 
+  type ModelCallObserverArg = {
+    onModelCallStart?: (event: Record<string, unknown>) => void | Promise<void>
+    onModelCallEnd?: (event: Record<string, unknown>) => void | Promise<void>
+  }
+
+  function modelCallStart(callId: string, stepNumber: number, extra: Record<string, unknown> = {}) {
+    return {
+      callId,
+      stepNumber,
+      provider: 'test-provider',
+      modelId: 'test-model',
+      system: 'secret system prompt',
+      messages: [{ role: 'user', content: 'secret user message' }],
+      tools: [{ type: 'function', name: 'customers__get_deal', inputSchema: { type: 'object' } }],
+      responseFormat: { type: 'json', name: 'research' },
+      callSettings: { temperature: 0.1 },
+      startedAtMs: 100 + stepNumber,
+      ...extra,
+    }
+  }
+
+  function modelCallEnd(callId: string, finishReason: string) {
+    return {
+      callId,
+      finishReason,
+      responseId: `resp-${callId}`,
+      responseModelId: 'test-model-2026',
+      usage: { inputTokens: 5, outputTokens: 2, cachedInputTokens: 1 },
+      content: [{ type: 'text', text: 'secret model answer' }],
+      responseTimeMs: 12,
+      endedAtMs: 200,
+    }
+  }
+
+  it('attaches observed model calls to the step records in order', async () => {
+    registerNativeAgent('native.model_call_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const observe = args.observe as ModelCallObserverArg
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> }
+      await observe.onModelCallStart?.(modelCallStart('call-1', 0))
+      await observe.onModelCallEnd?.(modelCallEnd('call-1', 'tool-calls'))
+      await loop.onStepFinish?.({ toolCalls: [], finishReason: 'tool-calls', usage: { inputTokens: 5, outputTokens: 2 } })
+      await observe.onModelCallStart?.(modelCallStart('call-2', 1))
+      await observe.onModelCallEnd?.(modelCallEnd('call-2', 'stop'))
+      await loop.onStepFinish?.({ toolCalls: [], finishReason: 'stop', usage: { inputTokens: 5, outputTokens: 2 } })
+      return VALID_MODEL_OUTPUT
+    })
+
+    await makeService().run('native.model_call_agent', {}, runCtx)
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.steps.map((step) => step.call?.callId)).toEqual(['call-1', 'call-2'])
+    expect(traceInput.steps[0].call).toMatchObject({
+      stepNumber: 0,
+      fidelity: 'exact',
+      requestModel: 'test-model',
+      responseModel: 'test-model-2026',
+      finishReason: 'tool-calls',
+      usage: { inputTokens: 5, outputTokens: 2, cachedInputTokens: 1 },
+      toolCount: 1,
+      messageCount: 1,
+    })
+    expect(traceInput.fallbackCall).toBeNull()
+    expect(JSON.stringify(traceInput)).not.toContain('secret')
+  })
+
+  it('routes a synthesized call without step records to the fallback call', async () => {
+    registerNativeAgent('native.fallback_call_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const observe = args.observe as ModelCallObserverArg
+      await observe.onModelCallStart?.(modelCallStart('call-1', 0, { tools: undefined, synthesized: true }))
+      await observe.onModelCallEnd?.(modelCallEnd('call-1', 'stop'))
+      return VALID_MODEL_OUTPUT
+    })
+
+    await makeService().run('native.fallback_call_agent', {}, runCtx)
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.steps).toEqual([])
+    expect(traceInput.fallbackCall).toMatchObject({ callId: 'call-1', fidelity: 'reconstructed', toolCount: 0 })
+  })
+
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {
     process.env.OM_AGENT_TRACE_CAPTURE = 'off'
     registerNativeAgent('native.capture_off_agent')

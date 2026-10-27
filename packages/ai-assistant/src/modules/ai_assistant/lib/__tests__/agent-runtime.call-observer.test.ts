@@ -201,6 +201,7 @@ describe('agent runtime model-call observer', () => {
       expect(starts).toHaveLength(2)
       expect(ends).toHaveLength(2)
       expect(starts.map((event) => event.stepNumber)).toEqual([0, 1])
+      expect(starts.map((event) => event.synthesized)).toEqual([undefined, undefined])
       expect(toolNamesOf(starts[0])).toEqual(['customers__read_deal'])
       expect(toolNamesOf(starts[1])).toEqual(['customers__read_person'])
       const firstPrompt = (currentModel.doStreamCalls[0] as unknown as { prompt: Array<{ role: string; content: unknown }> }).prompt
@@ -354,6 +355,7 @@ describe('agent runtime model-call observer', () => {
       tools: undefined,
       callSettings: { temperature: 0.2, seed: 7 },
       responseFormat: { type: 'json', name: 'Product' },
+      synthesized: true,
     })
     expect(starts[0].system).toContain('System prompt base.')
     expect(starts[0].messages.length).toBeGreaterThan(0)

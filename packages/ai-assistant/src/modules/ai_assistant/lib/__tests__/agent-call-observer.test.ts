@@ -9,6 +9,7 @@ import {
   extractObservedCallSettings,
   instructionsToSystem,
   isLightweightCallObserver,
+  markLightweightCallObserver,
   normalizeModelCallUsage,
   observeStreamedObjectEnd,
   readSynthesizedResultMetadata,
@@ -212,6 +213,7 @@ describe('agent-call-observer adapter', () => {
         responseFormat: { type: 'json', name: 'Thing' },
         callSettings: { temperature: 0 },
         startedAtMs: 100,
+        synthesized: true,
       }),
     ])
     expect(ends).toEqual([
@@ -307,6 +309,40 @@ describe('lightweight recorder observer path', () => {
     expect(ends[0].content).toEqual([{ type: 'text', text: 'Hello' }])
     expect(ends[0].providerMetadata).toEqual({ testProvider: { cached: true } })
     expect(recorder.snapshot().modelCalls).toHaveLength(1)
+  })
+
+  it('marks synthesized start events and keeps the marker for lightweight composed observers', async () => {
+    const recorder = createAgentRunRecorderObserver()
+    const lightweightStarts: AiAgentModelCallStartEvent[] = []
+    const realStarts: AiAgentModelCallStartEvent[] = []
+    const lightweightCaller = markLightweightCallObserver({
+      onModelCallStart: (event: AiAgentModelCallStartEvent) => {
+        lightweightStarts.push(event)
+      },
+    })
+    const fullCaller = {
+      onModelCallStart: (event: AiAgentModelCallStartEvent) => {
+        realStarts.push(event)
+      },
+    }
+    const observe = composeCallObservers(fullCaller, lightweightCaller, recorder.observer)
+    const synthesized = createSynthesizedModelCall(observe, {
+      agentId: 'demo.agent',
+      provider: 'test-provider',
+      modelId: 'model-a',
+      system: 'System.',
+      messages: [],
+      responseFormat: undefined,
+      callSettings: {},
+    })
+    await synthesized?.start()
+    expect(realStarts[0].synthesized).toBe(true)
+    expect(lightweightStarts[0].synthesized).toBe(true)
+
+    const hooks = createModelCallObserverHooks(observe, { agentId: 'demo.agent', now: () => 1 })
+    await hooks?.onLanguageModelCallStart(buildStartEvent())
+    expect('synthesized' in realStarts[1]).toBe(false)
+    expect('synthesized' in lightweightStarts[1]).toBe(false)
   })
 
   it('synthesized calls skip message clones for a lightweight observer', async () => {

@@ -3,7 +3,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
-import type { AiAgentPromptResolvedEvent } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import type {
+  AiAgentModelCallEndEvent,
+  AiAgentModelCallStartEvent,
+  AiAgentPromptResolvedEvent,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { bindRunObservation, createRunObservationCollector } from '@open-mercato/shared/lib/ai/run-observation'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
@@ -52,6 +56,7 @@ import {
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
 } from './nativeTraceCapture'
+import { attachModelCallsToSteps, createNativeModelCallCollector } from './nativeModelCallRecorder'
 import {
   AgentGuardrailBlockedError,
   AgentOutputInvalidError,
@@ -254,9 +259,16 @@ export class NativeAgentRunner {
     const traceparent = traceEnabled ? captureManifestTraceparent() : null
     const runObservation = createRunObservationCollector()
     let promptResolved: AiAgentPromptResolvedEvent | null = null
+    const modelCalls = createNativeModelCallCollector()
     const runObserver = {
       onPromptResolved(event: AiAgentPromptResolvedEvent): void {
         promptResolved = event
+      },
+      onModelCallStart(event: AiAgentModelCallStartEvent): void {
+        modelCalls.observer.onModelCallStart(event)
+      },
+      onModelCallEnd(event: AiAgentModelCallEndEvent): void {
+        modelCalls.observer.onModelCallEnd(event)
       },
     }
     const integrityRules = entry.integrity?.length ? entry.integrity : null
@@ -428,17 +440,19 @@ export class NativeAgentRunner {
       // The capture catches internally; the defensive catch here guarantees a
       // rejected capture can never fail the run regardless of the capture
       // implementation.
+      const attached = attachModelCallsToSteps(stepRecords, modelCalls.records())
       await captureNativeRunTrace(
         this.container,
         { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
         {
           runId,
           agentId,
-          steps: stepRecords,
+          steps: attached.steps,
           startedAtMs: modelStartMs,
           endedAtMs: Date.now(),
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
+          fallbackCall: attached.fallbackCall,
           manifest: buildManifest(),
         },
       ).catch((err: unknown) => {

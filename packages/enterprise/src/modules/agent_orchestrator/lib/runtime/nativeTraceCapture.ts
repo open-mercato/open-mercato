@@ -14,6 +14,7 @@ import { invalidateAgentRunCache } from '../crudCache'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 import type { RunManifestInput } from '../trace/runManifest'
 import { buildRunManifestSpan } from '../trace/runManifestEntry'
+import type { NativeModelCallRecord } from './nativeModelCallRecorder'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
@@ -48,6 +49,7 @@ export type NativeStepRecord = {
   toolCalls: NativeStepToolCall[]
   /** Wall-clock ms when the step's onStepFinish fired. */
   endedAtMs: number
+  call?: NativeModelCallRecord
 }
 
 export type NativeTraceInput = {
@@ -62,6 +64,7 @@ export type NativeTraceInput = {
   fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
+  fallbackCall?: NativeModelCallRecord | null
   /** Run manifest facts; when present the payload carries one `run.manifest` system span. */
   manifest?: RunManifestInput | null
 }

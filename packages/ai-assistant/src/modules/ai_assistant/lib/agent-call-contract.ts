@@ -41,6 +41,7 @@ export type AiAgentModelCallStartEvent = {
   responseFormat: unknown | undefined
   callSettings: AiAgentCallSettings
   startedAtMs: number
+  synthesized?: boolean
 }
 
 export type AiAgentModelCallUsage = {
