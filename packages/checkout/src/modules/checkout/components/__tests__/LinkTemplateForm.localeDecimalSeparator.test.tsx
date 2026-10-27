@@ -54,7 +54,7 @@ jest.mock('../LogoUploadField', () => ({
   LogoUploadField: () => null,
 }))
 
-import { PricingSection, PriceListEditor, toSubmittedAmount } from '../LinkTemplateForm'
+import { normalizeFormValues, PricingSection, PriceListEditor, toSubmittedAmount } from '../LinkTemplateForm'
 
 function renderPricingSection(initialValues: Record<string, unknown>) {
   const setValue = jest.fn()
@@ -164,6 +164,16 @@ describe('LinkTemplateForm locale decimal separator (issue #5828)', () => {
         'checkout.linkTemplateForm.priceList.aria.amount',
       ) as HTMLInputElement
       expect(amountInput.value).toBe('25,99')
+    })
+
+    it('shows a loaded exact amount with the locale comma and every digit', () => {
+      const values = normalizeFormValues(
+        { fixedPriceAmount: 1234.567891234567891234, fixedPriceAmountExact: '1234.567891234567891234' },
+        undefined,
+        'pl-PL',
+      )
+      expect(values.fixedPriceAmount).toBe('1234,567891234567891234')
+      expect(toSubmittedAmount(values.fixedPriceAmount, 'pl-PL')).toBe('1234.567891234567891234')
     })
   })
 

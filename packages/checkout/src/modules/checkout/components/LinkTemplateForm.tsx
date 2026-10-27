@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatLocaleNumberInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
+import { formatLocaleDecimalInput, formatLocaleNumberInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { decimalToString, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import {
   AlertTriangle,
@@ -286,7 +286,11 @@ function normalizeLegalDocuments(value: unknown): LegalDocumentsValue {
   }
 }
 
-function normalizeFormValues(value: FormValues | null | undefined, t?: TranslateFn): FormValues {
+function toAmountInputValue(exact: string | null, locale?: string): string | null {
+  return exact === null ? null : formatLocaleDecimalInput(exact, locale)
+}
+
+export function normalizeFormValues(value: FormValues | null | undefined, t?: TranslateFn, locale?: string): FormValues {
   const defaults = createDefaultValues(t)
   const source = isRecord(value) ? value : {}
   const customFields = isRecord(source.customFields) ? source.customFields : {}
@@ -311,10 +315,13 @@ function normalizeFormValues(value: FormValues | null | undefined, t?: Translate
     customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema, t),
     legalDocuments: normalizeLegalDocuments(source.legalDocuments),
     priceListItems: normalizePriceListItems(source.priceListItems),
-    fixedPriceAmount: resolveExactDecimal(source.fixedPriceAmountExact, source.fixedPriceAmount),
-    fixedPriceOriginalAmount: resolveExactDecimal(source.fixedPriceOriginalAmountExact, source.fixedPriceOriginalAmount),
-    customAmountMin: resolveExactDecimal(source.customAmountMinExact, source.customAmountMin),
-    customAmountMax: resolveExactDecimal(source.customAmountMaxExact, source.customAmountMax),
+    fixedPriceAmount: toAmountInputValue(resolveExactDecimal(source.fixedPriceAmountExact, source.fixedPriceAmount), locale),
+    fixedPriceOriginalAmount: toAmountInputValue(
+      resolveExactDecimal(source.fixedPriceOriginalAmountExact, source.fixedPriceOriginalAmount),
+      locale,
+    ),
+    customAmountMin: toAmountInputValue(resolveExactDecimal(source.customAmountMinExact, source.customAmountMin), locale),
+    customAmountMax: toAmountInputValue(resolveExactDecimal(source.customAmountMaxExact, source.customAmountMax), locale),
     fixedPriceCurrencyCode: readString(source.fixedPriceCurrencyCode).trim().toUpperCase() || 'USD',
     customAmountCurrencyCode: readString(source.customAmountCurrencyCode).trim().toUpperCase() || 'USD',
     sendStartEmail: readBoolean(source.sendStartEmail, true),
@@ -1407,7 +1414,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const [isApplyingTemplate, setIsApplyingTemplate] = React.useState(false)
   const [formInstanceKey, setFormInstanceKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
-    recordId ? null : normalizeFormValues(createDefaultValues(t), t),
+    recordId ? null : normalizeFormValues(createDefaultValues(t), t, locale),
   )
   const [notFound, setNotFound] = React.useState(false)
 
@@ -1469,7 +1476,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const applyTemplate = React.useCallback(async (nextTemplateId: string | null) => {
     if (recordId || mode !== 'link') return
     if (!nextTemplateId) {
-      replaceInitialValues(normalizeFormValues(createDefaultValues(t), t))
+      replaceInitialValues(normalizeFormValues(createDefaultValues(t), t, locale))
       return
     }
     setIsApplyingTemplate(true)
@@ -1487,12 +1494,12 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
           ...result,
           slug: '',
           templateId: nextTemplateId,
-        }, t),
+        }, t, locale),
       )
     } finally {
       setIsApplyingTemplate(false)
     }
-  }, [mode, recordId, rememberTemplateOptions, replaceInitialValues, t])
+  }, [locale, mode, recordId, rememberTemplateOptions, replaceInitialValues, t])
 
   React.useEffect(() => {
     if (mode !== 'link' || recordId) return
@@ -1507,7 +1514,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     void readApiResultOrThrow<FormValues>(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`)
       .then((result) => {
         if (!active) return
-        replaceInitialValues(normalizeFormValues(result, t))
+        replaceInitialValues(normalizeFormValues(result, t, locale))
       })
       .catch((error) => {
         if (!active) return
@@ -1515,12 +1522,12 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
           setNotFound(true)
           return
         }
-        replaceInitialValues(normalizeFormValues({}, t))
+        replaceInitialValues(normalizeFormValues({}, t, locale))
       })
     return () => {
       active = false
     }
-  }, [mode, recordId, replaceInitialValues, t])
+  }, [locale, mode, recordId, replaceInitialValues, t])
 
   React.useEffect(() => {
     if (recordId || mode !== 'link' || !templateId) return

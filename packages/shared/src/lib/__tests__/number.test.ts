@@ -1,4 +1,5 @@
 import {
+  formatLocaleDecimalInput,
   formatLocaleNumberInput,
   parseLocaleDecimal,
   parseLocaleNumber,
@@ -161,6 +162,23 @@ describe('formatLocaleNumberInput (issue #6309)', () => {
     for (const value of [2.5, -0.125, 1234.56, 0.1 + 0.2, 7]) {
       for (const locale of ['pl-PL', 'de-DE', 'en-US', 'fr-FR']) {
         expect(parseLocaleNumber(formatLocaleNumberInput(value, locale), locale)).toBe(value)
+      }
+    }
+  })
+})
+
+describe('formatLocaleDecimalInput', () => {
+  it('redisplays an exact decimal with the locale separator and every digit', () => {
+    expect(formatLocaleDecimalInput('1234.567891234567891234', 'pl-PL')).toBe('1234,567891234567891234')
+    expect(formatLocaleDecimalInput('-0.000000000000000000000001', 'de-DE')).toBe('-0,000000000000000000000001')
+    expect(formatLocaleDecimalInput('40.0000', 'pl-PL')).toBe('40')
+    expect(formatLocaleDecimalInput(2.5, 'en-US')).toBe('2.5')
+  })
+
+  it('round-trips through parseLocaleDecimal', () => {
+    for (const value of ['1234.567891234567891234', '-0.125', '7', '0.000000000000000000000001']) {
+      for (const locale of ['pl-PL', 'de-DE', 'en-US', 'fr-FR']) {
+        expect(parseLocaleDecimal(formatLocaleDecimalInput(value, locale), locale)).toBe(value)
       }
     }
   })

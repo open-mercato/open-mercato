@@ -1,4 +1,4 @@
-import { decimalToString, isDecimalInput } from './decimal'
+import { decimalToString, isDecimalInput, type DecimalInput } from './decimal'
 
 type LocaleNumberSeparators = { group: string; decimal: string }
 
@@ -129,6 +129,17 @@ function normalizeLocaleNumber(input: string | null | undefined, locale?: string
  */
 export function formatLocaleNumberInput(value: number, locale?: string): string {
   const serialized = String(value)
+  const { decimal } = resolveLocaleNumberSeparators(locale)
+  return decimal === '.' ? serialized : serialized.replace('.', decimal)
+}
+
+/**
+ * Exact counterpart of `formatLocaleNumberInput` for decimal strings: renders every digit
+ * (`1234.567891234567891234` → `1234,567891234567891234` under `pl-PL`) in plain notation,
+ * without grouping. The output round-trips through `parseLocaleDecimal`.
+ */
+export function formatLocaleDecimalInput(value: DecimalInput, locale?: string): string {
+  const serialized = decimalToString(value)
   const { decimal } = resolveLocaleNumberSeparators(locale)
   return decimal === '.' ? serialized : serialized.replace('.', decimal)
 }
