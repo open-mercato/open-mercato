@@ -56,7 +56,7 @@
 | 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | 3695a39e2 |
 | 7 | 7.3-review-fix | Fix the agent-tool review findings in ai-assistant and the attachment dialog | inline | done | ad435a969 |
 | 7 | 7.3-review-fix-2 | Fix the agent_orchestrator review findings | inline | done | d0a08f52b |
-| 7 | 7.3-review-fix-3 | Check the agent policy before rejecting unsupported dispatch options | inline | done | pending |
+| 7 | 7.3-review-fix-3 | Check the agent policy before rejecting unsupported dispatch options | inline | done | 0f55604de |
 
 ## Goal
 

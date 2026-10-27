@@ -97,3 +97,10 @@
 ## 2026-10-27T13:45:42Z — final gate
 - validation.commands: pass except `yarn test` → one real failure (feature-policy coverage) fixed in Step 7.3; channel-fcm SIGSEGV and docs OOM are environmental (pass when re-run).
 - Full integration: 2911 passed, 48 failed — all outside this branch (11 known on main, 36 SSO/security not mounted without their module flags and passing when enabled, TC-SX-009 known flaky). DS lint clean.
+
+## 2026-10-27T15:40:24Z — review pass (om-auto-review-pr --autofix)
+- Two parallel read-only reviewers (OSS packages / agent_orchestrator). Findings: 2 major (agent tools dropped `pendingActionIds`; API-key `/tools/execute` callers reached the dispatcher as `api_key:<id>`), 11 minor/nit; inherited: CodeQL false positive on wave-1 `prepare-mutation.ts` (tracked on #7794). Posted as a COMMENT review (self-review, no approval).
+- Fixed in 7.3-review-fix (ai-assistant + dialog), 7.3-review-fix-2 (agent_orchestrator), 7.3-review-fix-3 (re-review nit). Re-review approvable; typecheck, lint, ai-assistant 2181 / AO 2008 tests, 27 integration specs pass.
+
+## 2026-10-27T15:40:24Z — run complete
+- PR https://github.com/open-mercato/open-mercato/pull/8018 — all Tasks rows done; awaiting the user's push, then ready flip and lock release.
