@@ -1,16 +1,16 @@
 # Handoff — 2026-10-27-agent-platform-wave-3
 
-**Last updated:** 2026-10-27T10:54:23Z
+**Last updated:** 2026-10-27T11:23:29Z
 **Branch:** feat/agent-platform-wave-3 (stacked on feat/agent-platform-wave-2 @ 2d3734ed6)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8018 (draft)
-**Current phase/step:** Phase 4 Step 4.6
-**Last commit:** checkpoint 5 — docs(runs): checkpoint 5 — steps 4.1..4.5 verified
+**Current phase/step:** Phase 5 Step 5.4
+**Last commit:** checkpoint 6 — docs(runs): checkpoint 6 — steps 4.6..5.3 verified
 
 ## What just happened
-- Resumed after the safety checkpoint. Steps 4.1–4.5 landed (integrity declarations, normalization, evidence_quote, output pipeline, raw-output artifact). Checkpoint 5 passed.
+- Phase 4 (Integrity P1) complete incl. a BC fix keeping `guardrailSetBodySchema` grounding-only. Steps 5.1–5.3 landed (reference_exists, tool_consulted, custom). Checkpoint 6 passed.
 
 ## Next concrete action
-- Step 4.6 — Hash and sync integrity sets and add the shadow-mode switch.
+- Step 5.4 — Add an example integrity agent and resolver to agent_examples.
 
 ## Blockers / open questions
 - none. Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).

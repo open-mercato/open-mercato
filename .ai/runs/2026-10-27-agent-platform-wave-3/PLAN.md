@@ -41,10 +41,10 @@
 | 4 | 4.4 | Run the output pipeline in the native runner and return the final output | dispatch:capable | done | 08a1dfad6 |
 | 4 | 4.5 | Store the raw model output as an encrypted artifact | dispatch | done | 12a9912c0 |
 | 4 | 4.6 | Hash and sync integrity sets and add the shadow-mode switch | dispatch | done | 24b21b6cb |
-| 4 | 4.6-review-fix | Keep guardrailSetBodySchema grounding-only and add the union schema | inline | done | pending |
-| 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | done | pending |
-| 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | done | pending |
-| 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | done | pending |
+| 4 | 4.6-review-fix | Keep guardrailSetBodySchema grounding-only and add the union schema | inline | done | c7a891da5 |
+| 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | done | 42e73eb21 |
+| 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | done | 578aada95 |
+| 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | done | de5757eb6 |
 | 5 | 5.4 | Add an example integrity agent and resolver to agent_examples | dispatch | todo | — |
 | 5 | 5.5 | Cover the integrity pipeline with integration tests | dispatch | todo | — |
 | 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | todo | — |
