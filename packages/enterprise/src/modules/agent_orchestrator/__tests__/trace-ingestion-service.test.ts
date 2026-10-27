@@ -1,6 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ingestTrace } from '../lib/trace/traceIngestionService'
 import { AgentRun, AgentSpan, AgentToolCall } from '../data/entities'
+import {
+  GEN_AI_ATTRIBUTES,
+  OM_LLM_ATTRIBUTES,
+  normalizeGenAiAttributes,
+} from '../lib/trace/genAiAttributes'
 
 /**
  * Minimal in-memory EntityManager fake covering the surface ingestTrace uses
@@ -349,5 +354,124 @@ describe('ingestTrace — estimated cost (null-only, data-honesty §3.2)', () =>
     await ingestTrace(second.em, SCOPE, { ...basePayload(), inputTokens: 500, outputTokens: 500 })
     const withoutModel = second.storeFor(AgentRun)[0]
     expect(withoutModel.costMinor ?? null).toBeNull()
+  })
+})
+
+describe('ingestTrace — gen_ai attribute normalization on llm spans', () => {
+  function payloadWithSpan(kind: 'llm' | 'tool' | 'system', attributes: Record<string, unknown>) {
+    return {
+      runtime: 'external',
+      externalRunId: `run-gen-ai-${kind}`,
+      agentId: 'deals.health_check',
+      status: 'ok' as const,
+      spans: [
+        {
+          externalSpanId: 'span-1',
+          sequence: 0,
+          name: 'chat gpt-5-mini',
+          kind,
+          startedAt: '2026-06-23T00:00:00.000Z',
+          attributes,
+        },
+      ],
+    }
+  }
+
+  async function ingestSpanAttributes(kind: 'llm' | 'tool' | 'system', attributes: Record<string, unknown>) {
+    const { em, storeFor } = createFakeEm()
+    await ingestTrace(em, SCOPE, payloadWithSpan(kind, attributes))
+    return storeFor(AgentSpan)[0].attributes as Record<string, unknown>
+  }
+
+  it('backfills legacy keys when an external adapter sends only gen_ai keys', async () => {
+    const stored = await ingestSpanAttributes('llm', {
+      [GEN_AI_ATTRIBUTES.requestModel]: 'gpt-5-mini',
+      [GEN_AI_ATTRIBUTES.usageInputTokens]: 120,
+      [GEN_AI_ATTRIBUTES.usageOutputTokens]: '45',
+      [GEN_AI_ATTRIBUTES.responseFinishReasons]: ['stop'],
+    })
+
+    expect(stored).toEqual({
+      [GEN_AI_ATTRIBUTES.requestModel]: 'gpt-5-mini',
+      [GEN_AI_ATTRIBUTES.usageInputTokens]: 120,
+      [GEN_AI_ATTRIBUTES.usageOutputTokens]: 45,
+      [GEN_AI_ATTRIBUTES.responseFinishReasons]: ['stop'],
+      inputTokens: 120,
+      outputTokens: 45,
+      finishReason: 'stop',
+    })
+  })
+
+  it('drops a wrong-typed gen_ai value and keeps unknown keys', async () => {
+    const stored = await ingestSpanAttributes('llm', {
+      [GEN_AI_ATTRIBUTES.requestTemperature]: 'warm',
+      [GEN_AI_ATTRIBUTES.usageInputTokens]: -3,
+      [OM_LLM_ATTRIBUTES.captureFidelity]: 'guessed',
+      [GEN_AI_ATTRIBUTES.providerName]: 'openai',
+      'vendor.custom': { nested: true },
+    })
+
+    expect(stored).toEqual({
+      [GEN_AI_ATTRIBUTES.providerName]: 'openai',
+      'vendor.custom': { nested: true },
+    })
+  })
+
+  it('stores a legacy-only llm span exactly as sent', async () => {
+    const attributes = { inputTokens: 60, outputTokens: 30, finishReason: 'stop' }
+
+    expect(await ingestSpanAttributes('llm', attributes)).toEqual(attributes)
+  })
+
+  it('leaves non-llm span attributes untouched', async () => {
+    const attributes = {
+      [GEN_AI_ATTRIBUTES.usageInputTokens]: 'not-a-number',
+      [GEN_AI_ATTRIBUTES.responseFinishReasons]: ['stop'],
+    }
+
+    expect(await ingestSpanAttributes('tool', attributes)).toEqual(attributes)
+    expect(await ingestSpanAttributes('system', attributes)).toEqual(attributes)
+  })
+
+  it('is a no-op on native-shaped attributes that are already normalized', async () => {
+    const hash = `sha256:${'ab'.repeat(32)}`
+    const nativeAttributes = {
+      inputTokens: 100,
+      outputTokens: 20,
+      finishReason: 'tool-calls',
+      [GEN_AI_ATTRIBUTES.operationName]: 'chat',
+      [GEN_AI_ATTRIBUTES.outputType]: 'json',
+      [GEN_AI_ATTRIBUTES.providerName]: 'openai',
+      [GEN_AI_ATTRIBUTES.requestModel]: 'gpt-5-mini',
+      [GEN_AI_ATTRIBUTES.responseModel]: 'gpt-5-mini',
+      [GEN_AI_ATTRIBUTES.responseId]: 'resp_1',
+      [GEN_AI_ATTRIBUTES.requestTemperature]: 0.2,
+      [GEN_AI_ATTRIBUTES.requestMaxTokens]: 512,
+      [GEN_AI_ATTRIBUTES.requestStopSequences]: ['END'],
+      [GEN_AI_ATTRIBUTES.responseFinishReasons]: ['tool-calls'],
+      [GEN_AI_ATTRIBUTES.usageInputTokens]: 100,
+      [GEN_AI_ATTRIBUTES.usageOutputTokens]: 20,
+      [GEN_AI_ATTRIBUTES.usageCacheReadInputTokens]: 40,
+      [GEN_AI_ATTRIBUTES.usageReasoningOutputTokens]: 5,
+      [OM_LLM_ATTRIBUTES.latencyMs]: 480,
+      [OM_LLM_ATTRIBUTES.costMicros]: 65,
+      [OM_LLM_ATTRIBUTES.costCurrency]: 'USD',
+      [OM_LLM_ATTRIBUTES.costPricingSource]: 'default',
+      [OM_LLM_ATTRIBUTES.promptSystemSha256]: hash,
+      [OM_LLM_ATTRIBUTES.toolsSha256]: hash,
+      [OM_LLM_ATTRIBUTES.toolsCount]: 3,
+      [OM_LLM_ATTRIBUTES.messagesCount]: 2,
+      [OM_LLM_ATTRIBUTES.contentRequestSha256]: hash,
+      [OM_LLM_ATTRIBUTES.contentRequestBytes]: 2048,
+      [OM_LLM_ATTRIBUTES.contentResponseSha256]: hash.slice('sha256:'.length),
+      [OM_LLM_ATTRIBUTES.contentResponseBytes]: 256,
+      [OM_LLM_ATTRIBUTES.contentStatus]: 'disabled',
+      [OM_LLM_ATTRIBUTES.captureFidelity]: 'exact',
+    }
+
+    const stored = await ingestSpanAttributes('llm', nativeAttributes)
+
+    expect(stored).toEqual(nativeAttributes)
+    expect(normalizeGenAiAttributes(stored)).toEqual(stored)
   })
 })

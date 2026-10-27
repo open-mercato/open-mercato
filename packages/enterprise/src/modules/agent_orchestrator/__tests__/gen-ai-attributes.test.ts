@@ -5,6 +5,7 @@ import {
   OM_LLM_ATTRIBUTES,
   STOP_SEQUENCES_MAX_COUNT,
   STOP_SEQUENCE_MAX_CHARS,
+  hasGenAiVocabularyKey,
   normalizeGenAiAttributes,
   readLlmSpanMetadata,
 } from '../lib/trace/genAiAttributes'
@@ -251,5 +252,18 @@ describe('normalizeGenAiAttributes', () => {
     expect(() => normalizeGenAiAttributes(hostile)).not.toThrow()
     expect(() => readLlmSpanMetadata(hostile)).not.toThrow()
     expect(readLlmSpanMetadata(hostile).source).toBe('none')
+  })
+})
+
+describe('hasGenAiVocabularyKey', () => {
+  it('detects any typed gen_ai or om key, valid or not', () => {
+    expect(hasGenAiVocabularyKey({ [GEN_AI_ATTRIBUTES.usageInputTokens]: 'bad' })).toBe(true)
+    expect(hasGenAiVocabularyKey({ [OM_LLM_ATTRIBUTES.captureFidelity]: 'exact' })).toBe(true)
+  })
+
+  it('is false for legacy-only, unknown-key and non-record attributes', () => {
+    expect(hasGenAiVocabularyKey({ inputTokens: 1, finishReason: 'stop', 'vendor.key': 1 })).toBe(false)
+    expect(hasGenAiVocabularyKey(null)).toBe(false)
+    expect(hasGenAiVocabularyKey(['gen_ai.request.model'])).toBe(false)
   })
 })

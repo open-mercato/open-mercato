@@ -510,6 +510,21 @@ describe('ingest integration (idempotent upsert onto the stamped run)', () => {
     expect(storeFor(AgentSpan)).toHaveLength(3)
     expect(storeFor(AgentToolCall)).toHaveLength(1)
   })
+  it('stores native llm span attributes unchanged through the ingest normalizer', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = buildNativeTracePayload({ ...baseInput(), steps: stepsWithCall(buildCall()) })
+
+    await ingestTrace(em, { tenantId: 't1', organizationId: 'o1' }, payload)
+
+    const storedByExternal = new Map(
+      storeFor(AgentSpan).map((span) => [span.externalSpanId, span.attributes]),
+    )
+    const llmSpans = (payload.spans ?? []).filter((span) => span.kind === 'llm')
+    expect(llmSpans.length).toBeGreaterThan(0)
+    for (const span of llmSpans) {
+      expect(storedByExternal.get(span.externalSpanId)).toEqual(span.attributes)
+    }
+  })
 })
 
 describe('captureNativeRunTrace', () => {

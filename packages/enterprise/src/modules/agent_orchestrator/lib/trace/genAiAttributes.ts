@@ -361,6 +361,11 @@ function capStopSequences(values: string[]): string[] {
   return values.slice(0, STOP_SEQUENCES_MAX_COUNT).map((value) => value.slice(0, STOP_SEQUENCE_MAX_CHARS))
 }
 
+export function hasGenAiVocabularyKey(attributes: unknown): boolean {
+  if (!isPlainRecord(attributes)) return false
+  return Object.keys(attributes).some((key) => Object.prototype.hasOwnProperty.call(TYPED_ATTRIBUTE_SCHEMAS, key))
+}
+
 export function normalizeGenAiAttributes(attributes: Record<string, unknown>): Record<string, unknown>
 export function normalizeGenAiAttributes(attributes: unknown): unknown
 export function normalizeGenAiAttributes(attributes: unknown): unknown {
