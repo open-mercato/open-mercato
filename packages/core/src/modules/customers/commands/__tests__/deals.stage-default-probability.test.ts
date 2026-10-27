@@ -227,7 +227,8 @@ describe('customers.deals.update — stage default probability', () => {
     )
     expect(deal.title).toBe('Renamed')
     expect(deal.probability).toBe(42)
-    expect(em.findOne).not.toHaveBeenCalledWith(CustomerPipeline, expect.anything(), expect.anything())
+    const pipelineLookups = em.findOne.mock.calls.filter(([entity]) => entity === CustomerPipeline)
+    expect(pipelineLookups).toHaveLength(1)
   })
 
   it('applies the terminal stage default when a deal is closed as won', async () => {
