@@ -39,7 +39,7 @@ Every path that asks for current ACL state includes `deletedAt: null`:
 - super-admin target protection and exclusion lists in `grantChecks.ts`;
 - role/user ACL GET and PUT routes;
 - protected role filtering in the roles list;
-- setup reconciliation and execution-principal provisioning;
+- setup reconciliation, core execution-principal provisioning and enterprise agent-principal provisioning;
 - command snapshots used by delete/update undo.
 - notification role/feature recipient resolution.
 
