@@ -24,3 +24,7 @@
 - Steps 3.1..3.3 verified: typecheck, AO jest 2104 (+1 suite re-run alone after a worker SIGSEGV), TC-AGENT-TRACE-005 2 passed / 1 skipped (no LLM).
 - Screenshots in checkpoint-3-artifacts/. Observability P2 complete.
 - Delegations: executors for 3.1, 3.2, 3.3 (3.3 ran the spec against the ephemeral app started by the main session).
+
+## 2026-10-27T18:17:02Z — checkpoint 4
+- Steps 4.1..4.5 verified: typecheck, AO jest 2235/2235. No UI in this window.
+- Delegations: executors for 4.1, 4.2 (cheap tier), 4.3, 4.4, 4.5.

@@ -28,11 +28,11 @@
 | 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | done | c993656a0 |
 | 3 | 3.2 | Normalize gen_ai attributes on ingested llm spans | dispatch | done | 0ae12afcd |
 | 3 | 3.3 | Cover step metadata and capture settings with integration tests | dispatch | done | 1092be826 |
-| 4 | 4.1 | Add deterministic OTel ids and the OTLP JSON encoder | dispatch | done | pending |
-| 4 | 4.2 | Add string redaction for exported attributes | dispatch:cheap | done | pending |
-| 4 | 4.3 | Load a run export bundle with tenant scoping | dispatch | done | pending |
-| 4 | 4.4 | Map an agent run to OTLP resource spans | dispatch:capable | done | pending |
-| 4 | 4.5 | Add OTel export settings resolution and the OTLP HTTP client | dispatch | done | pending |
+| 4 | 4.1 | Add deterministic OTel ids and the OTLP JSON encoder | dispatch | done | 594eef24a |
+| 4 | 4.2 | Add string redaction for exported attributes | dispatch:cheap | done | 0df0bab6b |
+| 4 | 4.3 | Load a run export bundle with tenant scoping | dispatch | done | 6a1c06c66 |
+| 4 | 4.4 | Map an agent run to OTLP resource spans | dispatch:capable | done | b2636d2a4 |
+| 4 | 4.5 | Add OTel export settings resolution and the OTLP HTTP client | dispatch | done | 0107e7fdf |
 | 4 | 4.6 | Add the export queue, subscribers and worker with retry | dispatch:capable | todo | — |
 | 4 | 4.7 | Add the OTel export settings and test-span APIs | dispatch | todo | — |
 | 4 | 4.8 | Add the OTel export settings page, health line and trace link | dispatch | todo | — |
