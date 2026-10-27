@@ -32,6 +32,7 @@ import {
 } from './schedule'
 import type { ActivityType, ScheduleActivityEditData } from './schedule'
 import { PRIORITY_NUMBER, priorityFromNumber, type EditorPriority } from '../../lib/calendar/editorPayload'
+import { selectedEventType, useEventTypeCatalog } from '../calendar/editor/useEventTypeCatalog'
 
 const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ className?: string }>; labelKey: string; fallback: string }> = [
   { type: 'meeting', icon: Users, labelKey: 'customers.schedule.types.meeting', fallback: 'Meeting' },
@@ -140,8 +141,34 @@ export function ScheduleActivityDialog({
   defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
-  const state = useScheduleFormState({ open, editData: editData ?? null })
-  const visibleFields = FIELD_VISIBILITY[state.activityType]
+  const needsTypeCatalog = Boolean(editData?.interactionType && !TYPE_TABS.some(({ type }) => type === editData.interactionType))
+  const catalog = useEventTypeCatalog(open && needsTypeCatalog)
+  const definition = needsTypeCatalog ? selectedEventType(catalog.items, editData!.interactionType!) : null
+  const baseKind = definition?.behavior.baseKind
+  const initialActivityType = baseKind === 'event' ? 'meeting' : baseKind
+  const resolvedEditData = React.useMemo(
+    () => editData && initialActivityType ? { ...editData, interactionType: initialActivityType } : editData,
+    [editData, initialActivityType],
+  )
+  const state = useScheduleFormState({ open, editData: resolvedEditData ?? null })
+  const [typeChanged, setTypeChanged] = React.useState(false)
+  React.useEffect(() => { setTypeChanged(false) }, [open, editData])
+  const keepsCustomType = needsTypeCatalog && !typeChanged && state.activityType === initialActivityType
+  const catalogPending = needsTypeCatalog && catalog.status !== 'ready'
+  const visibleFields = React.useMemo(() => {
+    const fields = new Set(FIELD_VISIBILITY[state.activityType])
+    if (!keepsCustomType || !definition) return fields
+    const configured = definition.behavior.fields
+    if (!configured.endTime) fields.delete('duration')
+    if (!configured.allDay) fields.delete('allDay')
+    if (!configured.recurrence) fields.delete('recurrence')
+    if (configured.location === 'none') fields.delete('location')
+    if (configured.people === 'none') {
+      fields.delete('participants')
+      fields.delete('guestPermissions')
+    }
+    return fields
+  }, [state.activityType, keepsCustomType, definition])
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const isEditing = Boolean(editData?.id)
   const chrome = TYPE_CHROME[state.activityType]
@@ -244,6 +271,7 @@ export function ScheduleActivityDialog({
       snapshotSettleCountRef.current = 0
       return
     }
+    if (catalogPending) return
     if (snapshotOpenKeyRef.current !== openKey) {
       snapshotOpenKeyRef.current = openKey
       snapshotSettleCountRef.current = 0
@@ -253,7 +281,7 @@ export function ScheduleActivityDialog({
       initialSnapshotRef.current = formSnapshot
       snapshotSettleCountRef.current += 1
     }
-  }, [open, openKey, formSnapshot])
+  }, [open, openKey, formSnapshot, catalogPending])
 
   const isDirty = React.useCallback(() => {
     if (initialSnapshotRef.current == null) return false
@@ -372,12 +400,14 @@ export function ScheduleActivityDialog({
   const isDateMissing = isDateRequired(state.activityType) && !trimmedDate
   const isTimeMissing = isTimeRequired(state.activityType) && !state.allDay && !trimmedStartTime
   const isSubmitDisabled =
+    catalogPending ||
     state.saving ||
     !state.title.trim() ||
     isDateMissing ||
     isTimeMissing
 
   const handleSave = React.useCallback(async () => {
+    if (catalogPending) return
     if (!state.title.trim()) return
     if (isDateMissing) {
       flash(t('customers.activities.errors.dateRequired', 'Date is required'), 'error')
@@ -428,39 +458,43 @@ export function ScheduleActivityDialog({
       // the activity's record on multi-entity pages like the deal detail view. This
       // dialog has no entity picker, so an edit must never silently re-link (#6050).
       const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
+      const hiddenFieldValue = keepsCustomType && isSaveEdit ? undefined : null
+      const preservesSchedule = keepsCustomType && isSaveEdit && !visibleFields.has('date')
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
         entityId: payloadEntityId,
         dealId,
-        interactionType: state.activityType,
+        interactionType: keepsCustomType ? editData!.interactionType : state.activityType,
         title: state.title.trim(),
         body: state.description.trim() || null,
         // The dialog has no status control, so an edit must leave the stored status
         // (and its `occurredAt`) alone instead of re-opening a completed activity (#6481).
         ...(isSaveEdit ? {} : { status: 'planned' }),
-        date: trimmedDate || null,
-        time: trimmedDate ? timeForPayload || null : null,
+        date: preservesSchedule ? undefined : trimmedDate || null,
+        time: preservesSchedule ? undefined : trimmedDate ? timeForPayload || null : null,
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
         // Only tasks expose the priority control, so other types leave the column
         // untouched rather than clearing it on a type switch (#5943).
         priority: state.activityType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
-        scheduledAt,
-        durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
-        location: visibleFields.has('location') ? (state.location.trim() || null) : null,
-        allDay: visibleFields.has('allDay') ? state.allDay : null,
-        recurrenceRule: visibleFields.has('recurrence') ? recurrenceRule : null,
+        scheduledAt: preservesSchedule ? undefined : scheduledAt,
+        durationMinutes: visibleFields.has('duration') ? (state.allDay ? null : state.duration) : hiddenFieldValue,
+        location: visibleFields.has('location') ? (state.location.trim() || null) : hiddenFieldValue,
+        allDay: visibleFields.has('allDay') ? state.allDay : hiddenFieldValue,
+        recurrenceRule: visibleFields.has('recurrence') ? recurrenceRule : hiddenFieldValue,
         recurrenceEnd: visibleFields.has('recurrence') && state.recurrenceEndType === 'date' && state.recurrenceEndDate
           ? new Date(state.recurrenceEndDate).toISOString()
-          : null,
-        participants: visibleFields.has('participants') && state.participants.length > 0
-          ? state.participants.map((p) => ({ userId: p.userId, name: p.name, email: p.email, status: p.status ?? 'pending' }))
-          : null,
-        guestPermissions: visibleFields.has('participants') && state.participants.length > 0 ? state.guestPermissions : null,
+          : visibleFields.has('recurrence') ? null : hiddenFieldValue,
+        participants: visibleFields.has('participants')
+          ? state.participants.length > 0
+            ? state.participants.map((p) => ({ userId: p.userId, name: p.name, email: p.email, status: p.status ?? 'pending' }))
+            : null
+          : hiddenFieldValue,
+        guestPermissions: visibleFields.has('participants') ? (state.participants.length > 0 ? state.guestPermissions : null) : hiddenFieldValue,
         linkedEntities: state.linkedEntities.length > 0
           ? state.linkedEntities.map((e) => ({ id: e.id, type: e.type, label: e.label }))
           : null,
-        reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : null,
-        visibility: visibleFields.has('visibility') ? state.visibility : null,
+        reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : hiddenFieldValue,
+        visibility: visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
@@ -511,7 +545,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
@@ -551,6 +585,20 @@ export function ScheduleActivityDialog({
         <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-4 bg-background p-6">
 
+        {catalogPending && (
+          <Alert status={catalog.status === 'error' ? 'error' : 'information'}>
+            <AlertDescription>
+              {t(catalog.status === 'error' ? 'customers.calendar.editor.catalogLoadFailed' : 'customers.calendar.editor.catalogLoading')}
+            </AlertDescription>
+            {catalog.status === 'error' && (
+              <Button type="button" variant="outline" onClick={catalog.retry}>
+                {t('customers.calendar.errors.retry')}
+              </Button>
+            )}
+          </Alert>
+        )}
+
+        {!catalogPending && <>
         {/* Conflict warning */}
         {state.conflict && (
           <Alert status="warning" className="rounded-lg">
@@ -569,7 +617,7 @@ export function ScheduleActivityDialog({
               <button
                 key={type}
                 type="button"
-                onClick={() => state.setActivityType(type)}
+                onClick={() => { setTypeChanged(true); state.setActivityType(type) }}
                 aria-pressed={isActive}
                 className={cn(
                   'flex h-[80px] flex-col items-center justify-center gap-2 rounded-md border text-[14px] font-semibold transition-colors',
@@ -801,6 +849,7 @@ export function ScheduleActivityDialog({
           visibility={state.visibility}
           setVisibility={state.setVisibility}
         />
+        </>}
 
         </div>
         </div>
