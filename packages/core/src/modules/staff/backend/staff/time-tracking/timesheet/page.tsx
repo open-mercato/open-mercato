@@ -89,6 +89,7 @@ import {
   toProjectOption,
   toTaskOption,
 } from '../../../../lib/time-tracking-ui/timeEntryDialogState'
+import { readErrorMessage } from '../../../../lib/time-tracking-ui/timeEntryListData'
 import { deriveInterval } from '../../../../lib/time-tracking/interval'
 import { GridView, type GridRowMode } from './GridView'
 
@@ -535,7 +536,7 @@ export default function TimesheetPage() {
         await loadData()
       } catch (error) {
         logger.error('staff.time_tracking.timesheet quick add failed', { err: error })
-        flash(t('staff.timesheets.my.errors.save', 'Failed to save timesheets.'), 'error')
+        flash(readErrorMessage(error, t('staff.timesheets.my.errors.save', 'Failed to save timesheets.')), 'error')
       }
     },
     [data.staffMemberId, loadData, retryLastMutation, runMutation, t],
@@ -559,7 +560,10 @@ export default function TimesheetPage() {
         await loadData()
       } catch (error) {
         logger.error('staff.time_tracking.timesheet duplicate failed', { err: error })
-        flash(t('staff.time_tracking.entries.errors.duplicate', 'Could not duplicate the time entry.'), 'error')
+        flash(
+          readErrorMessage(error, t('staff.time_tracking.entries.errors.duplicate', 'Could not duplicate the time entry.')),
+          'error',
+        )
       }
     },
     [loadData, retryLastMutation, runMutation, t],

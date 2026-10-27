@@ -7,8 +7,8 @@ const ATTACHMENT_ID = '123e4567-e89b-42d3-a456-426614174002'
 
 const mockLoadPortalOwnedClaim = jest.fn()
 const mockUpload = jest.fn()
-const mockRemoveFlush = jest.fn(async () => undefined)
-const mockEm = { remove: jest.fn(() => ({ flush: mockRemoveFlush })) }
+const mockRemoveAttachmentRecord = jest.fn()
+const mockEm = {}
 
 jest.mock('../lib/portalAuthGuard', () => ({
   resolveLinkedCustomerAuth: jest.fn(async () => ({
@@ -43,6 +43,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/core/modules/attachments/lib/thumbnailCache', () => ({
   clearAttachmentThumbnailCache: jest.fn(async () => undefined),
+}))
+
+jest.mock('@open-mercato/core/modules/attachments/lib/storageReferences', () => ({
+  removeAttachmentRecord: (...args: unknown[]) => mockRemoveAttachmentRecord(...args),
 }))
 
 jest.mock('../lib/portalClaimAccess', () => ({
@@ -128,6 +132,7 @@ describe('warranty portal attachment upload size limit', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID })
+    mockRemoveAttachmentRecord.mockResolvedValue({ removed: true, releaseStorage: false })
     mockUpload.mockResolvedValue({
       id: 'attachment-1',
       url: '/api/attachments/file/attachment-1',
