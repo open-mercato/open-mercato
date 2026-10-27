@@ -137,6 +137,7 @@ export async function GET(req: Request) {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         layoutJson: items,
+        createdAt: new Date(),
       })
       em.persist(layout)
       hasChanged = true

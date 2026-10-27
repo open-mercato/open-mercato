@@ -127,7 +127,7 @@ describe('#5041: dashboards layout PUT with an empty widget registry', () => {
 
     expect(response.status).toBe(200)
     expect(body).toEqual({ ok: true })
-    expect(storedLayout.layoutJson.map((item: any) => item.widgetId)).toEqual(['sales-summary'])
+    expect(storedLayout.layoutJson).toMatchObject({ items: [{ widgetId: 'sales-summary' }] })
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
@@ -142,7 +142,7 @@ describe('#5041: dashboards layout PUT with an empty widget registry', () => {
     const response = await PUT(buildRequest(savedItems))
 
     expect(response.status).toBe(200)
-    expect(storedLayout.layoutJson).toEqual([])
+    expect(storedLayout.layoutJson).toEqual({ items: [] })
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 })
