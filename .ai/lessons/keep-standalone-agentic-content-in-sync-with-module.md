@@ -2,7 +2,7 @@
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
 areas: ["architecture","framework-context"]
-topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing","context-budget","backward-compatibility"]
+topics: ["auto-discovery","generated-files","package-runtime","testing","context-budget","backward-compatibility"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
