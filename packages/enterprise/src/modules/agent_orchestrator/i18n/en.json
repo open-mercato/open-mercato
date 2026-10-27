@@ -236,6 +236,7 @@
   "agent_orchestrator.audit.kpi.total": "Decisions",
   "agent_orchestrator.audit.kpi.totalSub": "Agent decisions logged",
   "agent_orchestrator.audit.log.serverPaginatedNote": "The log is paginated server-side across all decisions; narrow it with the disposition filter.",
+  "agent_orchestrator.audit.otelExportSettings.update": "Update OTel export settings",
   "agent_orchestrator.audit.title": "Audit log",
   "agent_orchestrator.audit.traceCapturePolicy.update": "Update trace capture policy",
   "agent_orchestrator.caseload.actions.approveAria": "Approve proposal",

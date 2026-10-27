@@ -236,6 +236,7 @@
   "agent_orchestrator.audit.kpi.total": "Decyzje",
   "agent_orchestrator.audit.kpi.totalSub": "Decyzje agentów w logu",
   "agent_orchestrator.audit.log.serverPaginatedNote": "Dziennik jest stronicowany po stronie serwera dla wszystkich decyzji; zawęź go filtrem decyzji.",
+  "agent_orchestrator.audit.otelExportSettings.update": "Aktualizacja ustawień eksportu OTel",
   "agent_orchestrator.audit.title": "Dziennik audytu",
   "agent_orchestrator.audit.traceCapturePolicy.update": "Aktualizacja zasad przechwytywania śladów",
   "agent_orchestrator.caseload.actions.approveAria": "Zatwierdź propozycję",

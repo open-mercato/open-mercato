@@ -34,7 +34,7 @@
 | 4 | 4.4 | Map an agent run to OTLP resource spans | dispatch:capable | done | b2636d2a4 |
 | 4 | 4.5 | Add OTel export settings resolution and the OTLP HTTP client | dispatch | done | 0107e7fdf |
 | 4 | 4.6 | Add the export queue, subscribers and worker with retry | dispatch:capable | done | pending |
-| 4 | 4.7 | Add the OTel export settings and test-span APIs | dispatch | todo | — |
+| 4 | 4.7 | Add the OTel export settings and test-span APIs | dispatch | done | pending |
 | 4 | 4.8 | Add the OTel export settings page, health line and trace link | dispatch | todo | — |
 | 4 | 4.9 | Add the otel:export backfill CLI | dispatch | todo | — |
 | 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | todo | — |

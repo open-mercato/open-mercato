@@ -236,6 +236,7 @@
   "agent_orchestrator.audit.kpi.total": "Entscheidungen",
   "agent_orchestrator.audit.kpi.totalSub": "Protokollierte Agentenentscheidungen",
   "agent_orchestrator.audit.log.serverPaginatedNote": "Das Protokoll wird serverseitig über alle Entscheidungen paginiert; grenzen Sie es mit dem Entscheidungsfilter ein.",
+  "agent_orchestrator.audit.otelExportSettings.update": "OTel-Exporteinstellungen aktualisieren",
   "agent_orchestrator.audit.title": "Audit-Protokoll",
   "agent_orchestrator.audit.traceCapturePolicy.update": "Trace-Erfassungsrichtlinie aktualisieren",
   "agent_orchestrator.caseload.actions.approveAria": "Vorschlag genehmigen",

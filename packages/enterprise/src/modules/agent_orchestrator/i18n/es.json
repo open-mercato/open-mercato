@@ -236,6 +236,7 @@
   "agent_orchestrator.audit.kpi.total": "Decisiones",
   "agent_orchestrator.audit.kpi.totalSub": "Decisiones de agentes registradas",
   "agent_orchestrator.audit.log.serverPaginatedNote": "El registro se pagina en el servidor sobre todas las decisiones; acótalo con el filtro de decisión.",
+  "agent_orchestrator.audit.otelExportSettings.update": "Actualizar la configuración de exportación OTel",
   "agent_orchestrator.audit.title": "Registro de auditoría",
   "agent_orchestrator.audit.traceCapturePolicy.update": "Actualizar la política de captura de trazas",
   "agent_orchestrator.caseload.actions.approveAria": "Aprobar propuesta",
