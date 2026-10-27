@@ -1,10 +1,10 @@
-import { createQueue } from '@open-mercato/queue'
+import { createQueue, getQueuePendingProbe } from '@open-mercato/queue'
 import { drainIntegrationQueue } from '../queue'
 
 const mockDrainQueue = jest.fn()
 const mockRunnerLoaded = jest.fn()
 
-jest.mock('@open-mercato/queue', () => ({ createQueue: jest.fn() }))
+jest.mock('@open-mercato/queue', () => ({ createQueue: jest.fn(), getQueuePendingProbe: jest.fn() }))
 jest.mock('../queue-runner', () => {
   mockRunnerLoaded()
   return { drainQueueFromAppRoot: mockDrainQueue }
@@ -29,6 +29,7 @@ describe('drainIntegrationQueue', () => {
     delete process.env.OM_AUTO_SPAWN_WORKERS
     process.env.QUEUE_BASE_DIR = '/tmp/integration-queue-test'
     close.mockResolvedValue(undefined)
+    jest.mocked(getQueuePendingProbe).mockReset().mockResolvedValue({ queueName: 'events', strategy: 'local', ready: 0, active: 0, delayedFuture: 0, error: false })
     jest.mocked(createQueue).mockReturnValue({ getJobCounts, close } as never)
   })
 
@@ -36,8 +37,10 @@ describe('drainIntegrationQueue', () => {
 
   it('waits for the existing worker to finish queued and active jobs without bootstrapping another consumer', async () => {
     getJobCounts.mockResolvedValueOnce(counts({ waiting: 1, completed: 4 }))
-      .mockResolvedValueOnce(counts({ active: 1, completed: 4 }))
       .mockResolvedValue(counts({ completed: 5 }))
+    jest.mocked(getQueuePendingProbe)
+      .mockResolvedValueOnce({ queueName: 'events', strategy: 'local', ready: 1, active: 0, delayedFuture: 0, error: false })
+      .mockResolvedValueOnce({ queueName: 'events', strategy: 'local', ready: 0, active: 1, delayedFuture: 0, error: false })
     await expect(drainIntegrationQueue('events')).resolves.toBe(1)
     expect(mockDrainQueue).not.toHaveBeenCalled()
     expect(mockRunnerLoaded).not.toHaveBeenCalled()
@@ -45,12 +48,30 @@ describe('drainIntegrationQueue', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it('fails and releases the observer when the worker exhausts a job', async () => {
+  it('returns completed failures for callers to inspect instead of rejecting expected failed jobs', async () => {
     getJobCounts.mockResolvedValueOnce(counts({ waiting: 1, failed: 2 }))
       .mockResolvedValue(counts({ failed: 3 }))
-    await expect(drainIntegrationQueue('events')).rejects.toThrow('failed 1 job(s)')
+    await expect(drainIntegrationQueue('events')).resolves.toBe(1)
     expect(close).toHaveBeenCalledTimes(1)
     expect(mockDrainQueue).not.toHaveBeenCalled()
+  })
+
+  it('does not wait for scheduled future jobs that an explicit drain would leave queued', async () => {
+    getJobCounts.mockResolvedValue(counts({ waiting: 1 }))
+    jest.mocked(getQueuePendingProbe).mockResolvedValue({
+      queueName: 'events', strategy: 'local', ready: 0, active: 0, delayedFuture: 1, error: false,
+    })
+    await expect(drainIntegrationQueue('events')).resolves.toBe(0)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects unavailable queue storage rather than treating it as idle', async () => {
+    getJobCounts.mockResolvedValue(counts())
+    jest.mocked(getQueuePendingProbe).mockResolvedValue({
+      queueName: 'events', strategy: 'local', ready: 0, active: 0, delayedFuture: 0, error: true, errorMessage: 'unreadable',
+    })
+    await expect(drainIntegrationQueue('events')).rejects.toThrow('Cannot observe integration queue events: unreadable')
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it.each(['false', 'off', '0'])('drains in the current process when automatic workers are %s', async (value) => {
