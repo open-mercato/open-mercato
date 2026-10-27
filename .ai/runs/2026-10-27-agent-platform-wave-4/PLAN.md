@@ -42,7 +42,7 @@
 | 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | done | 4c0445581 |
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | done | f4b704570, 8f5ff20aa |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | done | bd6c75aa8 |
-| 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | pending |
+| 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | 9a0f3c245 |
 
 ## Goal
 

@@ -41,3 +41,6 @@
 - Steps 4.6..4.11-review-fix verified: build, typecheck, AO jest 2341/2341, core 101/101, integration 5 passed / 1 skipped on a rebuilt app with the OTel exporter env.
 - Cache-scope fix confirmed end-to-end (TC-AGENT-OTEL-002 without TTL waits).
 - Delegations: executors for 4.6..4.11 and 4.11-review-fix (4.10 cheap tier).
+
+## 2026-10-27T21:10:39Z — final gate
+- Validation gate green after 5.2-review-fix (core guard registrations); integration 2954 passed, 12 failed (all pre-existing, load-only or flaky — classified in final-gate-checks.md), 3 flaky; DS lint clean.
