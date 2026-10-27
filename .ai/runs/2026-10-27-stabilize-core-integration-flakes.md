@@ -2,34 +2,30 @@
 
 ## Overview
 
-Fix the unrelated core integration-test failures that block PR #7875 without changing that security PR. This run consolidates and improves the overlapping work proposed in #8016 and #8017, with credit retained for the original diagnosis by @mobinea.
+Fix the remaining unrelated core integration-test failure that blocks PR #7875 without changing that security PR. PR #8030 landed the cart and communication-channel repairs while this run was being triaged, so this branch now carries forward only the still-needed catalog worker-race fix from #8017, with credit retained for the original diagnosis by @mobinea.
 
 ## Goal
 
-Make the cart, catalog bulk-create, and communication-channel integration scenarios deterministic under the ephemeral CI harness without extending per-test or per-hook timeouts.
+Make the catalog bulk-create integration scenario deterministic under the ephemeral CI harness without extending per-test timeouts.
 
 ## Scope
 
-- Remove an unnecessary cold application bootstrap from the HTTP-only cart scenario.
-- Run the command-backed cart fixture setup inside its already-budgeted test body instead of a separately timed `beforeAll` hook.
-- Prevent catalog and communication-channel tests from starting competing queue consumers when the ephemeral app already auto-spawns workers.
-- Poll the observable email-delivery state when server workers own queue processing.
+- Prevent the catalog integration test from starting a competing queue consumer when the ephemeral app already auto-spawns workers.
 - Preserve fallback queue drains for environments where auto-spawned workers are disabled.
 
 ## Non-goals
 
-- No production cart, catalog, communication-channel, queue, API, or database behavior changes.
+- No production catalog, queue, API, or database behavior changes.
 - No global or per-test timeout increases.
 - No fix for the broader queue-job fencing issue tracked by #6008.
 - No changes to PR #7875's tenant-scope implementation.
+- No duplicate cart or communication-channel edits already merged through #8030.
 
 ## Implementation Plan
 
-### Phase 1: Deterministic test setup and queue ownership
+### Phase 1: Deterministic queue ownership
 
-- Remove the unused bootstrap from the HTTP-only cart test.
-- Localize the command-backed cart fixture lifecycle to the test body so the suite timeout applies without a hook override.
-- Make catalog and email-hub queue progression respect the ephemeral server's worker ownership and poll terminal state where needed.
+- Make catalog queue progression respect the ephemeral server's worker ownership and continue polling the existing progress-job terminal state.
 
 ### Phase 2: Verification and delivery
 
@@ -40,18 +36,16 @@ Make the cart, catalog bulk-create, and communication-channel integration scenar
 ## Risks
 
 - Worker-owned polling could expose a real worker-startup failure; bounded diagnostics must retain the last observed state.
-- The command-backed cart test must clean up partially created fixtures if setup fails midway.
 - `AUTO_SPAWN_WORKERS` and `OM_AUTO_SPAWN_WORKERS` precedence must mirror the application runtime.
-- #8016 and #8017 overlap this work; the resulting PR must credit those contributions and clearly identify itself as the consolidated replacement.
+- #8017 overlaps this work; the resulting PR must credit that contribution and clearly identify itself as the focused replacement for its remaining catalog change.
 
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
-### Phase 1: Deterministic test setup and queue ownership
+### Phase 1: Deterministic queue ownership
 
-- [ ] 1.1 Remove unnecessary cart bootstrap and localize command-backed fixture lifecycle
-- [ ] 1.2 Prevent competing queue consumers and poll worker-owned email delivery
+- [x] 1.1 Prevent the catalog integration test from competing with auto-spawned queue workers — b1a0effaf
 
 ### Phase 2: Verification and delivery
 
