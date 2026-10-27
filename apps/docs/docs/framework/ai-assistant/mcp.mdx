@@ -157,7 +157,7 @@ The same switch is available programmatically as the optional `McpServerOptions.
 
 ## What's available & how to use it
 
-After a correct setup with an `admin`-scoped API key, the MCP server exposes **70 tools** total, organized into three groups. The key thing to internalize: MCP serves **tools**, and any documented API route is reachable through the Code Mode meta-tools — you do not get one MCP tool per route, and you do not connect to agents over MCP.
+After a correct setup with an `admin`-scoped API key, the MCP server exposes **70 tools** total, organized into three groups. The key thing to internalize: MCP serves **tools**, and any documented API route is reachable through the Code Mode meta-tools — you do not get one MCP tool per route, and an agent only appears over MCP when it is published as [one tool](#agent-tools).
 
 | Group | Tools | Required feature | What it does |
 |-------|-------|------------------|--------------|
@@ -189,11 +189,131 @@ To reach **any** endpoint from MCP, use the two Code Mode meta-tools — `search
 
 :::note Tools vs agents
 
-MCP serves **tools, not agents**. The typed AI agents (`defineAiAgent` definitions such as `catalog.catalog_assistant`, `catalog.merchandising_assistant`, and the customers agents) are a **separate in-app surface** served by the Next.js app at `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` and listed at `GET /api/ai_assistant/ai/agents`. The MCP server does **not** expose agents as a connectable surface — you cannot "run an agent" end-to-end over MCP.
+MCP serves **tools**; an agent can be published as **one tool** (see [Agent tools](#agent-tools)). The typed AI agents (`defineAiAgent` definitions such as `catalog.catalog_assistant`, `catalog.merchandising_assistant`, and the customers agents) are otherwise a **separate in-app surface** served by the Next.js app at `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` and listed at `GET /api/ai_assistant/ai/agents`. The MCP server does **not** expose the chat orchestration layer: an MCP client calls an agent only through the single tool the agent opts into, and gets one structured result back.
 
-You can still **see** the agent catalog from within MCP: `meta.list_agents` enumerates the agents the caller is allowed to invoke, and `meta.describe_agent` returns an agent's details. And because every tool an agent is allowed to call is itself in the MCP tool list, an MCP client already has the full underlying toolset — just not the agent orchestration layer.
+You can still **see** the agent catalog from within MCP: `meta.list_agents` enumerates the agents the caller is allowed to invoke, and `meta.describe_agent` returns an agent's details. And because every tool an agent is allowed to call is itself in the MCP tool list, an MCP client already has the full underlying toolset.
 
 :::
+
+### Agent tools {#agent-tools}
+
+An agent tool is a normal MCP tool whose handler runs an AI agent once and returns the agent's structured output. It shows up in `tools/list` next to the other tools, is called through `tools/call` (or `POST /api/ai_assistant/tools/execute`), and is subject to the same [exposure config](#exposure-config), ACL checks and audit as any other tool.
+
+#### Publishing an agent: `mcpTool`
+
+Add `mcpTool` to the agent definition. It is valid only for an object-mode agent that declares `output`; the tool loader logs an error and skips any other declaration.
+
+```ts
+import { z } from 'zod'
+import { defineAiAgent } from '@open-mercato/ai-assistant'
+
+export const aiAgents = [
+  defineAiAgent({
+    id: 'catalog.title_reviewer',
+    moduleId: 'catalog',
+    label: 'Title reviewer',
+    description: 'Scores a product title and suggests a better one.',
+    systemPrompt: 'Review the product title you are given.',
+    allowedTools: ['catalog.list_products'],
+    requiredFeatures: ['catalog.products.view'],
+    executionMode: 'object',
+    output: {
+      schemaName: 'TitleReview',
+      schema: z.object({ score: z.number(), suggestion: z.string() }),
+    },
+    mcpTool: {},
+  }),
+]
+```
+
+| `mcpTool` field | Default | Notes |
+|-----------------|---------|-------|
+| `name` | `<agentId>.run` | Tool name. A name that is already registered is rejected. |
+| `description` | the agent `description` (or `label`) | Shown to MCP clients. |
+| `inputSchema` | `z.object({ input: z.string() })` | Zod input schema. With the default schema the `input` string is the prompt. A custom schema without `toPrompt` is sent to the agent as JSON. |
+| `toPrompt` | the `input` string | Turns validated input into the agent prompt. |
+| `requiredFeatures` | the agent's `requiredFeatures` | Must cover every feature the agent requires (superset rule); a narrower list is rejected. An agent with no required features accepts any list. |
+| `expose` | `true` | `false` keeps the tool out of `tools/list` and rejects it on the `mcp` and `tools-api` channels. |
+
+The result schema advertised to clients is built from the agent's `output.schema`.
+
+#### Any engine: `defineAgentTool`
+
+`defineAgentTool` is the single helper behind `mcpTool`. Use it directly in a module's `ai-tools.ts` for an agent that is not an `ai_assistant` agent, for example one owned by another engine, or when you need full control of the tool name and schemas.
+
+```ts
+import { z } from 'zod'
+import { defineAgentTool } from '@open-mercato/ai-assistant'
+
+export const aiTools = [
+  defineAgentTool({
+    name: 'catalog.review_title',
+    description: 'Scores a product title and suggests a better one.',
+    agentId: 'catalog.title_reviewer',
+    inputSchema: z.object({ title: z.string().min(1) }),
+    outputSchema: z.object({ score: z.number(), suggestion: z.string() }),
+    toPrompt: (input) => `Review this product title: ${input.title}`,
+    requiredFeatures: ['catalog.products.view'],
+    timeoutMs: 60_000,
+  }),
+]
+```
+
+The default timeout is 120 seconds. The tool is registered as a non-mutation tool tagged `agent`, with an `agentRef` that links it to its agent.
+
+#### How the call runs
+
+1. If a registered dispatcher owns the agent id, the call goes through it. Otherwise the `ai_assistant` runtime runs the agent in object mode, after the agent policy check (`requiredFeatures`, execution mode).
+2. The handler returns `{ result, agentId, runId, agentRunId }`. `runId` is the `ai_assistant` run id; `agentRunId` is the run id assigned by a dispatcher engine. Each is `null` when the other engine ran the agent.
+3. Output that does not match the schema fails the call.
+
+#### Result shape
+
+An MCP agent tool call returns:
+
+- `structuredContent`: `{ result, agentId, runId, agentRunId }`, where `result` matches the agent's output schema;
+- one JSON text block with the same payload, for clients that ignore `structuredContent`;
+- `_meta.correlationId`, as for every MCP result.
+
+`tools/list` advertises the matching `outputSchema` (`result` typed from the agent's output, plus the three id fields). `POST /api/ai_assistant/tools/execute` returns the same payload as its tool result.
+
+#### Read-only by default
+
+On the `mcp` and `tools-api` channels the agent runs read-only: its mutation tools are stripped, whatever the agent's own `mutationPolicy` says. The exception is `OM_MCP_MUTATION_MODE=approval`: the agent keeps its own `mutationPolicy`, and its writes are queued as pending actions exactly like other [mutation tools](#mutation-modes) (the result lists the `pendingActionIds`). `direct` and `deny` never enable agent writes.
+
+#### Availability and errors
+
+- An agent tool is **hidden** from `tools/list` and the `/api/ai_assistant/tools?view=mcp` view when the agent cannot run on this deployment: it is not in the registry, or the engine that owns it reports it unavailable.
+- The caller needs the tool's `requiredFeatures` to see or call it, and the agent's own policy is checked again at call time.
+
+| Code | Meaning |
+|------|---------|
+| `AGENT_POLICY_DENIED` | The agent policy or the dispatcher refused the call: missing agent features, a disallowed execution mode, no resolvable calling user or tenant scope. |
+| `AGENT_DISPATCHER_UNAVAILABLE` | The agent id is unknown to this deployment, or the engine that owns it is not available. |
+
+Switch agent tools off for a server with `--no-agent-tools` or `OM_MCP_AGENT_TOOLS=false` (see [exposure config](#exposure-config)). `/tools/execute` is not affected by that switch, as for every exposure setting except the mutation mode.
+
+#### The `aiAgentRunDispatcher` port
+
+`ai_assistant` does not know about other agent engines. An engine, such as Agent Orchestrator, registers an object under the DI key `aiAgentRunDispatcher` that implements:
+
+```ts
+interface AiAgentRunDispatcher {
+  owns(agentId: string): boolean
+  isAvailable(agentId: string): Promise<boolean>
+  runObject(input: AiAgentRunDispatchInput): Promise<AiAgentRunDispatchResult>
+}
+```
+
+The key is resolved soft-optionally: when nothing is registered, or the registered value does not have these three methods, agent tools run through the `ai_assistant` runtime only. For an agent id the dispatcher `owns`, `runObject` receives the agent id, the input, the caller (tenant, organization, user, API key id, features, superuser flag), the channel (`mcp`, `tools-api` or `chat`), `via: 'tool'`, the correlation id and the timeout, and returns `{ result, agentRunId }`. It signals a refusal by throwing `AiAgentDispatchDeniedError`, which surfaces as `AGENT_POLICY_DENIED`.
+
+#### Audit
+
+A call to an agent tool writes the usual `access_logs` row (see [Audit of MCP tool calls](#audit-of-mcp-tool-calls)) with three extra `context` fields: `agentId`, `aiAgentRunId` (the `runId` above) and `agentRunId`, so a call can be traced to the agent run it started.
+
+#### MCP exposure view
+
+`GET /api/ai_assistant/tools?view=mcp` (feature `ai_assistant.view`) returns the effective MCP exposure of every tool the caller may use, as the HTTP server resolves it from the process environment (CLI flags are not visible to the app): `mutationMode`, `allowlist`, `denylist`, `agentToolsEnabled`, and per tool `name`, `module`, `exposed`, `hiddenReason`, `isMutation` and `agentRef`. `hiddenReason` is one of `expose_false`, `denylist`, `not_allowlisted`, `mutation_mode`, `agent_tools_off` or `agent_unavailable`. Agent tools whose agent cannot run are listed as hidden with `agent_unavailable`. The AI Assistant settings page shows the same data in a read-only **MCP exposure** section. Without `view`, the endpoint keeps returning the plain tool list.
 
 ## Exposure, audit and mutation modes
 
@@ -266,7 +386,7 @@ Every `tools/call` on the three servers and every `POST /api/ai_assistant/tools/
 | `resource_id` | the tool name |
 | `access_type` | `call` |
 | actor | the session user, else the API key's session user, else the key's `createdBy` user |
-| `context` | `channel` (`mcp` / `tools-api`), `mcpServer` (`http` / `dev` / `stdio` / `null`), `apiKeyId`, `sessionKeyId`, `principal`, `outcome` (`ok`, `denied`, `invalid_input`, `error`, `mutation_denied`, `pending_approval`, `dispatcher_unavailable`), `errorCode`, `durationMs`, `isMutation`, `pendingActionIds`, `correlationId`, `argKeys` |
+| `context` | `channel` (`mcp` / `tools-api`), `mcpServer` (`http` / `dev` / `stdio` / `null`), `apiKeyId`, `sessionKeyId`, `principal`, `outcome` (`ok`, `denied`, `invalid_input`, `error`, `mutation_denied`, `pending_approval`, `dispatcher_unavailable`), `errorCode`, `durationMs`, `isMutation`, `agentId`, `aiAgentRunId`, `agentRunId` (agent tools only, otherwise `null`), `pendingActionIds`, `correlationId`, `argKeys` |
 
 Argument **values** are never stored, only the argument names (`argKeys`, without `_sessionToken`).
 

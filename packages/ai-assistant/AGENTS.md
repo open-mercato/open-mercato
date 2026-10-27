@@ -1440,6 +1440,10 @@ Full reference: [`mcp.mdx`](../../apps/docs/docs/framework/ai-assistant/mcp.mdx)
 - MUST audit every `tools/call` and `/tools/execute` via `recordMcpToolCall` (`lib/mcp-audit.ts`, `access_logs` kind `ai_assistant.mcp_tool_call`): best-effort, bounded, argument names only (never values), correlation id from `x-correlation-id` echoed as `_meta.correlationId`.
 - MUST pass `channel` + `mutationMode` to `executeTool` from MCP/tools-api callers. `deny` hides and refuses mutations (`MUTATION_REQUIRES_APPROVAL`); `approval` queues an `ai_pending_actions` row (`channel` `mcp`/`tools-api`) and never runs the handler. Raw-tool rows are re-checked at confirm (`tool_not_exposed`, `approver_features_denied`, `requester_revoked`, `requester_features_denied`) and executed as the approver. Chat rows stay owner-only; MCP rows are owner-or-approver (`ai_assistant.pending_actions.approve`).
 
+### Agent Tools
+
+Guide: `mcp.mdx` → "Agent tools". Publish agents only via `defineAgentTool` or `mcpTool`; resolve the `aiAgentRunDispatcher` DI key soft-optionally (`resolveAiAgentRunDispatcher`), never import its implementer; stay read-only on `mcp`/`tools-api` unless the mutation mode is `approval`.
+
 ### Return Standard Error Responses
 
 | Code | Message | When returned |
@@ -1601,14 +1605,6 @@ Replaced the Vercel AI SDK with OpenCode: the chat API routes to OpenCode, sessi
 
 **Lesson learned:** Exposing hundreds of individual tools overwhelms the AI context — use meta-tools the agent can search. Superseded by Code Mode (2026-02-22); the tools and files these entries described (`api_discover`, `api_schema`, `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`) were deleted in #1876. See git history for the detail.
 
-### Previous Changes
-
-See git history for earlier changes including:
-- Zod 4 schema handling fixes
-- Debug panel addition
-- CLI tools fixes
-- Raycast-style command palette rewrite
-
 ---
 
 ## Upgrading / Operator rollout notes
@@ -1691,11 +1687,3 @@ For a live end-to-end walkthrough against a real LLM:
 6. Force a partial-success case (e.g., stale-version on one row) and confirm the result card renders the mixed outcome correctly.
 
 ---
-
-## Future Development
-
-Refer to git history and specs for planned features:
-- AI Agent Authorization & Impersonation
-- Actor + Subject model for audit trails
-- Permission tiers for rate limiting
-- Enhanced confirmation flow

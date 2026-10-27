@@ -65,6 +65,7 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `acceptedMediaTypes` | no | Subset of `image` \| `pdf` \| `file`. |
 | `executionMode` | no (default `chat`) | `chat` or `object`. See below. |
 | `output` | no | Structured-output schema when `executionMode === 'object'`. |
+| `mcpTool` | no | Publishes an object-mode agent (with `output`) as one tool for chat, MCP and `/tools/execute`. Fields `name` (default `<agentId>.run`), `description`, `inputSchema` (default `{ input: string }`), `toPrompt`, `requiredFeatures` (default the agent's own, must cover them) and `expose`. See [Agent tools](#agent-tools). |
 | `defaultProvider` | no | Provider id this agent prefers (e.g. `'openai'`, `'anthropic'`). Must match a registered provider id. Omit for generic shipped agents so `OM_AI_PROVIDER` controls the runtime default. Set this only when an agent's `defaultModel` intentionally requires a specific provider; paired provider/model defaults fail closed if the provider is not configured. Phase 1 of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`. |
 | `defaultModel` | no | Optional agent-level model pin fed through the factory (see [Overview](./overview#model-resolution-order)). Omit for generic shipped agents so `OM_AI_MODEL` controls the runtime default. Accepts a plain id (`claude-haiku-4-5`) or a slash-qualified `<provider>/<model>` shorthand (e.g. `openai/gpt-5-mini`). The slash prefix must match a registered provider id; DeepInfra-style ids that contain slashes are kept intact via the registry-membership guard. |
 | `maxSteps` | no | **Deprecated.** Use `loop.maxSteps` instead. Honored as an alias when `loop` is omitted. |
@@ -274,6 +275,51 @@ export const attributeExtractor: AiAgentDefinition = {
 ```
 
 The runtime delegates to Vercel AI SDK's `generateObject` / `streamObject` and returns the parsed result.
+
+## Agent tools
+
+An object-mode agent can be published as one tool, so an MCP client, `POST /api/ai_assistant/tools/execute` or another agent can call it and get the structured output back. Declare `mcpTool` on the agent; the tool loader registers one tool per declaration at startup.
+
+```ts
+export const titleReviewer = defineAiAgent({
+  id: 'catalog.title_reviewer',
+  moduleId: 'catalog',
+  label: 'Title reviewer',
+  description: 'Scores a product title and suggests a better one.',
+  systemPrompt: 'Review the product title you are given.',
+  allowedTools: ['catalog.list_products'],
+  requiredFeatures: ['catalog.products.view'],
+  executionMode: 'object',
+  output: {
+    schemaName: 'TitleReview',
+    schema: z.object({ score: z.number(), suggestion: z.string() }),
+  },
+  mcpTool: {},
+})
+```
+
+With `mcpTool: {}` the tool is named `catalog.title_reviewer.run`, takes `{ input: string }` and requires the agent's own `requiredFeatures`. A custom `requiredFeatures` must cover every feature the agent requires, otherwise the declaration is rejected with a logged error; `mcpTool` on a chat-mode agent, or on an agent with no `output`, is rejected the same way.
+
+For an agent that is not an `ai_assistant` agent (for example one owned by another engine), or when you want your own tool name and schemas, use `defineAgentTool` in the module's `ai-tools.ts`:
+
+```ts
+import { z } from 'zod'
+import { defineAgentTool } from '@open-mercato/ai-assistant'
+
+export const aiTools = [
+  defineAgentTool({
+    name: 'catalog.review_title',
+    description: 'Scores a product title and suggests a better one.',
+    agentId: 'catalog.title_reviewer',
+    inputSchema: z.object({ title: z.string().min(1) }),
+    outputSchema: z.object({ score: z.number(), suggestion: z.string() }),
+    toPrompt: (input) => `Review this product title: ${input.title}`,
+    requiredFeatures: ['catalog.products.view'],
+  }),
+]
+```
+
+The tool returns `{ result, agentId, runId, agentRunId }`. Agent tools are read-only on the MCP and tools-API channels unless `OM_MCP_MUTATION_MODE=approval`. Result shape, error codes (`AGENT_POLICY_DENIED`, `AGENT_DISPATCHER_UNAVAILABLE`), the `aiAgentRunDispatcher` port and audit fields are documented in [MCP](./mcp#agent-tools).
 
 ## End-to-end example
 
