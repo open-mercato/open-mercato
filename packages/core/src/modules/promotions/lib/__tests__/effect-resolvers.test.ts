@@ -402,3 +402,39 @@ describe('rounding — true half-up, not Math.round half-away-from-zero-for-posi
     expect(effect.amountNet).toBe('-3')
   })
 })
+
+describe('exact decimal amounts', () => {
+  it('keeps every digit of an 18-decimal currency instead of losing them to floats', () => {
+    const b = benefit('cart_discount', 'order', { discountType: 'percentage', value: '10', labels })
+    const ctx = context({
+      currency: 'ETH',
+      currencyFractionDigits: 18,
+      items: [item({ quantity: '3', unitPriceNet: '0.000000000000000011', unitPriceGross: '0.123456789012345678' })],
+    })
+    const [effect] = resolveEffects([b], ctx, 'promo-1') as CartDiscountEffect[]
+    expect(effect.amountNet).toBe('-0.000000000000000003')
+    expect(effect.amountGross).toBe('-0.037037036703703703')
+  })
+
+  it('meets a tier threshold exactly at a boundary floats cannot represent', () => {
+    const b = benefit('tiered_discount', 'order', {
+      tiers: [{ threshold: '0.3', discountType: 'fixed', value: '0.05' }],
+      labels,
+    })
+    const ctx = context({
+      items: [
+        item({ lineId: 'a', quantity: '1', unitPriceNet: '0.1', unitPriceGross: '0.1' }),
+        item({ lineId: 'b', quantity: '1', unitPriceNet: '0.2', unitPriceGross: '0.2' }),
+      ],
+    })
+    const [effect] = resolveEffects([b], ctx, 'promo-1') as CartDiscountEffect[]
+    expect(effect.amountNet).toBe('-0.05')
+  })
+
+  it('falls back to the ISO minor units of the currency when no fraction digits are given', () => {
+    const b = benefit('cart_discount', 'order', { discountType: 'percentage', value: '33', labels })
+    const ctx = context({ currency: 'KWD', items: [item({ unitPriceNet: '1.000', unitPriceGross: '1.000' })] })
+    const [effect] = resolveEffects([b], ctx, 'promo-1') as CartDiscountEffect[]
+    expect(effect.amountNet).toBe('-0.330')
+  })
+})

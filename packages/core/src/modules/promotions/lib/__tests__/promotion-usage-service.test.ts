@@ -514,4 +514,27 @@ describe('PromotionUsageService.getBudgetConsumed', () => {
     const consumed = await service.getBudgetConsumed(asEm(em), promotion.id as string, ORG, TENANT, 'USD')
     expect(consumed).toBe('7.50')
   })
+
+  it('keeps every digit of discounts finer than a cent', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+
+    for (const [orderId, amount] of [['order-1', '-0.000000000000000001'], ['order-2', '-0.000000000000000002']]) {
+      await service.registerUsage(
+        asEm(em),
+        {
+          orderId,
+          orderType: 'order',
+          customerId: null,
+          currency: 'USD',
+          appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect(amount)])],
+        },
+        SCOPE,
+      )
+    }
+
+    const consumed = await service.getBudgetConsumed(asEm(em), promotion.id as string, ORG, TENANT, 'USD')
+    expect(consumed).toBe('0.000000000000000003')
+  })
 })
