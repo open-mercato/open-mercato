@@ -29,3 +29,14 @@
 - ai-assistant jest 158/158 suites, shared ai 67 tests, typecheck, lint, i18n sync/usage, build:app --force: pass. UI browser check skipped (no dev server for this worktree); McpExposureSection covered by an RTL test.
 - Subagent delegations: one executor per Step (1.1–1.5), sequential.
 - Decisions from executors: `AgentToolError` lives in its own file (import cycle with tool-executor); agent-tool `requiredFeatures` are materialized by the tool loader after loading the agent registry; `outputSchema` is not advertised for mutation tools (pending-approval results would fail SDK output validation); `createDevMcpServer` keeps its sync signature with an optional pre-filtered tool list.
+
+## 2026-10-27T08:45:29Z — checkpoint 2 (Steps 1.6, 2.1..2.4)
+- AO jest 185 suites / 1715 tests, core workflows, cli agent-files, ai-assistant jest, i18n, typecheck, lint, build:app --force: pass. UI browser check skipped (no dev env; AO not registrable in the ephemeral app).
+- Decisions from executors:
+  - File agents never reach an ai-assistant definition (`registerFileAgent` skips `defineAiAgent`), so their `requiredFeatures` are enforced only by the AO runtime check.
+  - The file-agent manifest is regenerated only with `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`. Unrelated generator drift in the two type-import lines of `file-agents.generated.ts` was reverted to the committed form, so the commit carries only the new key.
+  - Invoker ACL loading fails closed (no grants on RBAC error or when the org restriction excludes the run's org); this only affects agents that declare `requiredFeatures`.
+  - OpenCode `delegate_agent` runs in the MCP process without a run context, so the child is checked against the tool caller's user.
+  - Core `workflows` `failInvokeAgentStep` now records the error's string `code` in `errorData.code` / `details.code` (additive; any coded agent error).
+  - With `OM_AGENT_INVOKE_ENFORCEMENT=off`, `GET /agents` reports every agent `invocable: true`, matching the runtime.
+- Review note for the final pass: the run/rerun 403 body carries an English `error` string, like the routes' other errors; the Playground translates the code.

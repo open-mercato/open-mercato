@@ -22,11 +22,11 @@
 | 1 | 1.3 | Synthesize agent tools from defineAiAgent mcpTool declarations | dispatch | done | d194ba22a |
 | 1 | 1.4 | Return structured agent-tool results on every MCP server and tools/execute | dispatch:capable | done | b22b07521 |
 | 1 | 1.5 | Show the MCP exposure section on the AI assistant settings page | dispatch | done | 4bb405adb |
-| 1 | 1.6 | Document agent tools in the MCP and agents docs | dispatch:cheap | done | 6256f5a5a |
-| 2 | 2.1 | Declare requiredFeatures on AO agents and forward them to defineAiAgent | dispatch | done | 4901c900c |
-| 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | done | e640c1b17 |
-| 2 | 2.3 | Map invoke denials on the run, rerun, delegate, workflow and eval paths | dispatch | done | bc383fb20 |
-| 2 | 2.4 | Filter the agent list by invocability and expose invocable | dispatch | done | 6c425caff |
+| 1 | 1.6 | Document agent tools in the MCP and agents docs | dispatch:cheap | done | 1ed6bf8a3 |
+| 2 | 2.1 | Declare requiredFeatures on AO agents and forward them to defineAiAgent | dispatch | done | 891041691 |
+| 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | done | 3f32eb6bc |
+| 2 | 2.3 | Map invoke denials on the run, rerun, delegate, workflow and eval paths | dispatch | done | 221d70670 |
+| 2 | 2.4 | Filter the agent list by invocability and expose invocable | dispatch | done | abd0e1f0e |
 | 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | todo | — |
 | 2 | 2.6 | Record invoker, entry point, channel and correlation id in the run manifest | dispatch | todo | — |
 | 3 | 3.1 | Implement the AO agent run dispatcher and register it | dispatch:capable | todo | — |
