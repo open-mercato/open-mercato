@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { buildAgentToolOutputSchema } from '../agent-tool'
 import { createMcpServer } from '../mcp-server'
 import { createDevMcpServer } from '../mcp-dev-server'
 import { DEFAULT_MCP_EXPOSURE_CONFIG, type McpExposureConfig } from '../mcp-exposure'
@@ -11,6 +12,8 @@ type ToolCallHandler = (args: unknown) => Promise<unknown>
 const mockCapturedHandlers = new Map<unknown, (request: unknown) => Promise<unknown>>()
 const mockRegisteredTools = new Map<string, McpToolDefinition>()
 const mockDevToolHandlers = new Map<string, ToolCallHandler>()
+const mockDevToolConfigs = new Map<string, Record<string, unknown>>()
+const mockKnownAgents = new Set<string>()
 const mockExecuteTool = jest.fn()
 const accessLogEntries: McpAuditAccessLogInput[] = []
 
@@ -23,7 +26,8 @@ jest.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
 }))
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: class {
-    registerTool(name: string, _config: unknown, handler: ToolCallHandler) {
+    registerTool(name: string, config: Record<string, unknown>, handler: ToolCallHandler) {
+      mockDevToolConfigs.set(name, config)
       mockDevToolHandlers.set(name, handler)
     }
   },
@@ -48,6 +52,10 @@ jest.mock('../tool-registry', () => ({
 jest.mock('../tool-executor', () => ({
   ...jest.requireActual('../tool-executor'),
   executeTool: (...args: unknown[]) => mockExecuteTool(...args),
+}))
+jest.mock('../agent-registry', () => ({
+  loadAgentRegistry: jest.fn(async () => undefined),
+  getAgent: (agentId: string) => (mockKnownAgents.has(agentId) ? { id: agentId } : undefined),
 }))
 jest.mock('../tool-loader', () => ({
   loadAllModuleTools: jest.fn(),
@@ -81,7 +89,10 @@ function makeContainer(): McpServerOptions['container'] {
           }),
         }
       }
-      return { loadAcl: jest.fn(async () => ({ features: CALLER_FEATURES, isSuperAdmin: false })) }
+      if (name === 'rbacService') {
+        return { loadAcl: jest.fn(async () => ({ features: CALLER_FEATURES, isSuperAdmin: false })) }
+      }
+      throw new Error(`[internal] ${name} not registered`)
     },
   } as unknown as McpServerOptions['container']
 }
@@ -134,6 +145,8 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
     mockRegisteredTools.clear()
     mockCapturedHandlers.clear()
     mockDevToolHandlers.clear()
+    mockDevToolConfigs.clear()
+    mockKnownAgents.clear()
     mockExecuteTool.mockReset()
     accessLogEntries.length = 0
     jest.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -256,6 +269,114 @@ describe('MCP tool-call audit in the stdio and dev servers', () => {
       errorCode: null,
       pendingActionIds: ['pa-1'],
       correlationId: result._meta?.correlationId,
+    })
+  })
+
+  describe('agent tools', () => {
+    const agentPayload = {
+      result: { summary: 'ok' },
+      agentId: 'customers.summary_agent',
+      runId: null,
+      agentRunId: 'ao-run-1',
+    }
+
+    beforeEach(() => {
+      mockKnownAgents.add('customers.summary_agent')
+      registerTool({
+        name: 'customers.summary_agent.run',
+        requiredFeatures: ['customers.people.view'],
+        agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+        mcp: { outputSchema: buildAgentToolOutputSchema(z.object({ summary: z.string() })) },
+      })
+      registerTool({
+        name: 'customers.unknown_agent.run',
+        requiredFeatures: ['customers.people.view'],
+        agentRef: { agentId: 'customers.unknown_agent', engine: 'ai-assistant' },
+      })
+    })
+
+    it.each<[string, (name: string, toolArgs: Record<string, unknown>) => Promise<ToolResult>]>([
+      ['stdio', callStdioTool],
+      ['dev', callDevTool],
+    ])('returns structuredContent and audits the run ids on the %s server', async (_server, callTool) => {
+      mockExecuteTool.mockResolvedValue({ success: true, result: agentPayload })
+
+      const result = await callTool('customers.summary_agent.run', { id: SECRET_ARG_VALUE })
+
+      expect(result.isError).toBeUndefined()
+      expect(result.structuredContent).toEqual(agentPayload)
+      expect(JSON.parse(result.content[0].text)).toEqual(agentPayload)
+      expect(result._meta?.correlationId).toEqual(expect.any(String))
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({
+        outcome: 'ok',
+        agentId: 'customers.summary_agent',
+        aiAgentRunId: null,
+        agentRunId: 'ao-run-1',
+        correlationId: result._meta?.correlationId,
+      })
+      expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+    })
+
+    it.each<[string, (name: string, toolArgs: Record<string, unknown>) => Promise<ToolResult>]>([
+      ['stdio', callStdioTool],
+      ['dev', callDevTool],
+    ])('keeps non-agent results text-only on the %s server', async (_server, callTool) => {
+      mockExecuteTool.mockResolvedValue({ success: true, result: { ok: true } })
+
+      const result = await callTool('customers.list_people', { id: 'p-1' })
+
+      expect(result.structuredContent).toBeUndefined()
+      expect(result.content[0].text).toBe(JSON.stringify({ ok: true }, null, 2))
+      expect(accessLogEntries[0].context).toMatchObject({ agentId: null, aiAgentRunId: null, agentRunId: null })
+    })
+
+    it('returns AGENT_DISPATCHER_UNAVAILABLE as an error result from the stdio server', async () => {
+      mockExecuteTool.mockResolvedValue({
+        success: false,
+        error: 'unavailable',
+        errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+      })
+
+      const result = await callStdioTool('customers.unknown_agent.run', {})
+
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toEqual({ error: 'unavailable', code: 'AGENT_DISPATCHER_UNAVAILABLE' })
+      expect(accessLogEntries[0].context).toMatchObject({
+        outcome: 'dispatcher_unavailable',
+        agentId: 'customers.unknown_agent',
+      })
+    })
+
+    it('lists the outputSchema and hides agent tools that cannot run on the stdio server', async () => {
+      await createMcpServer({
+        config: { name: 'test-mcp', version: '0.0.0' },
+        container: makeContainer(),
+        context: { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' },
+      })
+      const handler = mockCapturedHandlers.get(ListToolsRequestSchema)
+      if (!handler) throw new Error('[internal] tools/list handler was not registered')
+
+      const listed = (await handler({})) as { tools: Array<{ name: string; outputSchema?: Record<string, unknown> }> }
+
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
+        'customers.list_people',
+        'customers.summary_agent.run',
+        'customers.update_person',
+      ])
+      expect(listed.tools.find((tool) => tool.name === 'customers.summary_agent.run')?.outputSchema).toMatchObject({
+        type: 'object',
+        properties: { result: expect.any(Object), agentId: expect.any(Object) },
+      })
+      expect(listed.tools.find((tool) => tool.name === 'customers.list_people')?.outputSchema).toBeUndefined()
+    })
+
+    it('registers the outputSchema only for tools that declare one on the dev server', async () => {
+      mockExecuteTool.mockResolvedValue({ success: true, result: { ok: true } })
+      await callDevTool('customers.list_people', { id: 'p-1' })
+
+      expect(mockDevToolConfigs.get('customers.summary_agent.run')?.outputSchema).toBeDefined()
+      expect(mockDevToolConfigs.get('customers.list_people')?.outputSchema).toBeUndefined()
     })
   })
 

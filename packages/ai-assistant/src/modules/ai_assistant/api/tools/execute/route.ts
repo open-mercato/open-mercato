@@ -15,8 +15,13 @@ import {
   type McpAuditOutcome,
 } from '../../../lib/mcp-audit'
 import { resolveMcpExposureConfig, type McpMutationMode } from '../../../lib/mcp-exposure'
+import {
+  resolveAgentToolAuditIds,
+  toAgentToolCallPayload,
+  type AgentToolAuditIds,
+} from '../../../lib/mcp-agent-tool-results'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import type { McpToolContext } from '../../../lib/types'
+import type { AiToolDefinition, McpToolContext } from '../../../lib/types'
 
 const logger = createLogger('ai_assistant')
 
@@ -27,7 +32,11 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Execute a specific MCP tool by name',
       responses: [
-        { status: 200, description: 'Tool executed. Returns `{ success: true, result }`.' },
+        {
+          status: 200,
+          description:
+            'Tool executed. Returns `{ success: true, result }`. For an agent tool `result` is `{ result, agentId, runId, agentRunId }`.',
+        },
         {
           status: 202,
           description:
@@ -80,10 +89,12 @@ export async function POST(req: NextRequest) {
     outcome: McpAuditOutcome,
     errorCode: string | null,
     pendingActionIds: string[] | null = null,
+    agentAuditIds: AgentToolAuditIds = {},
   ) => {
     if (!auditedToolName || auditRecorded) return Promise.resolve()
     auditRecorded = true
     return recordMcpToolCall(auditContainer, {
+      ...agentAuditIds,
       toolName: auditedToolName,
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
@@ -158,7 +169,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
+    const registeredTool = getToolRegistry().getTool(toolName) as AiToolDefinition | undefined
+    await audit(
+      mapToolResultToAuditOutcome(result),
+      result.errorCode ?? null,
+      null,
+      resolveAgentToolAuditIds(registeredTool, result.success ? result.result : undefined),
+    )
 
     if (
       result.errorCode === 'MUTATION_REQUIRES_APPROVAL' ||
@@ -177,9 +194,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const agentPayload = registeredTool ? toAgentToolCallPayload(registeredTool, result.result) : null
     return NextResponse.json({
       success: true,
-      result: result.result,
+      result: agentPayload ?? result.result,
     })
   } catch (error) {
     logger.error('AI Tools — Error executing tool', { err: error, correlationId })

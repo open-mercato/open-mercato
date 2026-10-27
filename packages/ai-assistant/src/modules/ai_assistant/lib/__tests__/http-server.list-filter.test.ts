@@ -3,11 +3,15 @@ import type { AddressInfo } from 'node:net'
 import { z } from 'zod'
 import { createMcpHttpRequestHandler } from '../http-server'
 import { DEFAULT_MCP_EXPOSURE_CONFIG, resolveMcpExposureConfig, type McpExposureConfig } from '../mcp-exposure'
+import { buildAgentToolOutputSchema } from '../agent-tool'
 import type { AiToolDefinition, McpServerConfig, McpToolDefinition } from '../types'
 
 const mockRegisteredTools = new Map<string, McpToolDefinition>()
 const mockFindApiKeyBySecret = jest.fn()
 const mockFindSessionApiKeyWithSecret = jest.fn()
+const mockKnownAgents = new Set<string>()
+let mockDispatcher: { owns: (agentId: string) => boolean; isAvailable: () => Promise<boolean>; runObject: () => void } | null =
+  null
 
 jest.mock('../tool-registry', () => ({
   getToolRegistry: () => ({
@@ -16,6 +20,10 @@ jest.mock('../tool-registry', () => ({
   }),
 }))
 jest.mock('../tool-executor', () => ({ executeTool: jest.fn() }))
+jest.mock('../agent-registry', () => ({
+  loadAgentRegistry: jest.fn(async () => undefined),
+  getAgent: (agentId: string) => (mockKnownAgents.has(agentId) ? { id: agentId } : undefined),
+}))
 jest.mock('../tool-loader', () => ({
   loadAllModuleTools: jest.fn(),
   indexToolsForSearch: jest.fn(),
@@ -48,7 +56,11 @@ function makeContainer() {
     loadAcl: jest.fn(async (subject: string) => aclBySubject.get(subject) ?? { features: [], isSuperAdmin: false }),
   }
   return {
-    resolve: (key: string) => (key === 'rbacService' ? rbacService : {}),
+    resolve: (key: string) => {
+      if (key === 'rbacService') return rbacService
+      if (key === 'aiAgentRunDispatcher' && mockDispatcher) return mockDispatcher
+      return {}
+    },
   }
 }
 
@@ -68,10 +80,12 @@ async function startHandler(exposureConfig: McpExposureConfig): Promise<string> 
   return `http://127.0.0.1:${address.port}`
 }
 
+type ListedTool = { name: string; outputSchema?: Record<string, unknown> }
+
 async function listTools(
   baseUrl: string,
   extraHeaders: Record<string, string> = {},
-): Promise<{ status: number; names: string[]; body: unknown }> {
+): Promise<{ status: number; names: string[]; body: unknown; tools: ListedTool[] }> {
   const response = await fetch(`${baseUrl}/mcp`, {
     method: 'POST',
     headers: {
@@ -82,9 +96,10 @@ async function listTools(
     },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
   })
-  const body = (await response.json()) as { result?: { tools?: Array<{ name: string }> } }
-  const names = (body.result?.tools ?? []).map((tool) => tool.name).sort()
-  return { status: response.status, names, body }
+  const body = (await response.json()) as { result?: { tools?: ListedTool[] } }
+  const tools = body.result?.tools ?? []
+  const names = tools.map((tool) => tool.name).sort()
+  return { status: response.status, names, body, tools }
 }
 
 describe('MCP HTTP server — tools/list filtered per principal', () => {
@@ -93,6 +108,9 @@ describe('MCP HTTP server — tools/list filtered per principal', () => {
     aclBySubject.clear()
     mockFindApiKeyBySecret.mockReset()
     mockFindSessionApiKeyWithSecret.mockReset()
+    mockKnownAgents.clear()
+    mockKnownAgents.add('catalog.catalog_assistant')
+    mockDispatcher = null
 
     registerTool({ name: 'context_whoami' })
     registerTool({ name: 'customers.list_people', requiredFeatures: ['customers.people.view'] })
@@ -103,6 +121,7 @@ describe('MCP HTTP server — tools/list filtered per principal', () => {
       name: 'catalog.agent_tool',
       requiredFeatures: ['catalog.products.view'],
       agentRef: { agentId: 'catalog.catalog_assistant', engine: 'ai-assistant' },
+      mcp: { outputSchema: buildAgentToolOutputSchema(z.object({ summary: z.string() })) },
     })
 
     mockFindApiKeyBySecret.mockImplementation(async (_em: unknown, secret: string) =>
@@ -141,6 +160,31 @@ describe('MCP HTTP server — tools/list filtered per principal', () => {
     const result = await listTools(baseUrl, { 'x-om-session-token': SESSION_TOKEN })
     expect(result.status).toBe(200)
     expect(result.names).toEqual(['catalog.agent_tool', 'catalog.list_products', 'context_whoami'])
+  })
+
+  it('advertises the agent tool outputSchema and leaves other tools without one', async () => {
+    const baseUrl = await startHandler({ ...DEFAULT_MCP_EXPOSURE_CONFIG })
+    const result = await listTools(baseUrl, { 'x-om-session-token': SESSION_TOKEN })
+    const agentTool = result.tools.find((tool) => tool.name === 'catalog.agent_tool')
+    expect(agentTool?.outputSchema).toMatchObject({
+      type: 'object',
+      properties: { result: expect.any(Object), agentId: expect.any(Object), runId: expect.any(Object) },
+    })
+    expect(result.tools.find((tool) => tool.name === 'catalog.list_products')?.outputSchema).toBeUndefined()
+  })
+
+  it('hides an agent tool whose agent is unknown and not owned by a dispatcher', async () => {
+    mockKnownAgents.clear()
+    const baseUrl = await startHandler({ ...DEFAULT_MCP_EXPOSURE_CONFIG })
+    const result = await listTools(baseUrl, { 'x-om-session-token': SESSION_TOKEN })
+    expect(result.names).toEqual(['catalog.list_products', 'context_whoami'])
+  })
+
+  it('hides an agent tool whose owning dispatcher reports it unavailable', async () => {
+    mockDispatcher = { owns: () => true, isAvailable: async () => false, runObject: () => undefined }
+    const baseUrl = await startHandler({ ...DEFAULT_MCP_EXPOSURE_CONFIG })
+    const result = await listTools(baseUrl, { 'x-om-session-token': SESSION_TOKEN })
+    expect(result.names).toEqual(['catalog.list_products', 'context_whoami'])
   })
 
   it('rejects an invalid session token header with 401', async () => {

@@ -17,6 +17,13 @@ import {
 } from './mcp-exposure'
 import { jsonSchemaToZod } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
+import {
+  advertisedOutputZodSchema,
+  buildToolSuccessResponse,
+  filterRunnableAgentTools,
+  resolveAgentToolAuditIds,
+  type AgentToolAuditIds,
+} from './mcp-agent-tool-results'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
 import {
   EMPTY_MCP_AUDIT_IDENTITY,
@@ -29,7 +36,7 @@ import {
   type McpAuditIdentity,
   type McpAuditOutcome,
 } from './mcp-audit'
-import type { McpToolContext } from './types'
+import type { McpToolContext, McpToolDefinition } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
 const logger = createLogger('ai_assistant')
@@ -84,7 +91,8 @@ export function createDevMcpServer(
   isSuperAdmin: boolean,
   debug: boolean,
   exposureConfig: McpExposureConfig = resolveMcpExposureConfig(process.env),
-  auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY
+  auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY,
+  candidateTools?: McpToolDefinition[]
 ): McpServer {
   const server = new McpServer(
     { name: 'open-mercato-mcp-dev', version: '0.1.0' },
@@ -92,7 +100,7 @@ export function createDevMcpServer(
   )
 
   const registry = getToolRegistry()
-  const tools = Array.from(registry.getTools().values())
+  const tools = candidateTools ?? Array.from(registry.getTools().values())
 
   const accessibleTools = filterToolsForCaller(tools, exposureConfig, { features: authFeatures, isSuperAdmin })
 
@@ -122,12 +130,15 @@ export function createDevMcpServer(
       safeSchema = z.object({}).passthrough()
     }
 
+    const outputSchema = advertisedOutputZodSchema(tool)
+
     try {
       server.registerTool(
         tool.name,
         {
           description: tool.description,
           inputSchema: safeSchema,
+          ...(outputSchema ? { outputSchema } : {}),
           annotations: buildMcpToolAnnotations(tool),
         },
         async (args: unknown) => {
@@ -142,10 +153,12 @@ export function createDevMcpServer(
           const audit = (
             outcome: McpAuditOutcome,
             errorCode: string | null,
-            pendingActionIds: string[] | null = null
+            pendingActionIds: string[] | null = null,
+            agentAuditIds: AgentToolAuditIds = resolveAgentToolAuditIds(tool)
           ) =>
             recordMcpToolCall(toolContext.container, {
               ...auditIdentity,
+              ...agentAuditIds,
               toolName: tool.name,
               tenantId: toolContext.tenantId,
               organizationId: toolContext.organizationId,
@@ -183,7 +196,12 @@ export function createDevMcpServer(
             return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
           }
 
-          await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
+          await audit(
+            mapToolResultToAuditOutcome(result),
+            result.errorCode ?? null,
+            null,
+            resolveAgentToolAuditIds(tool, result.success ? result.result : undefined)
+          )
 
           if (!result.success) {
             log(`Tool error: ${result.error}`)
@@ -201,17 +219,7 @@ export function createDevMcpServer(
             )
           }
 
-          return attachCorrelationMeta(
-            {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify(result.result, null, 2),
-                },
-              ],
-            },
-            correlationId
-          )
+          return attachCorrelationMeta(buildToolSuccessResponse(tool, result.result), correlationId)
         }
       )
     } catch (error) {
@@ -430,6 +438,10 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
       })
 
       // Create server with pre-authenticated context (no session tokens needed)
+      const runnableTools = await filterRunnableAgentTools(
+        Array.from(getToolRegistry().getTools().values()),
+        toolContext.container
+      )
       const mcpServer = createDevMcpServer(
         toolContext,
         authResult.features,
@@ -441,7 +453,8 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
           apiKeySessionUserId: authResult.keySessionUserId ?? null,
           apiKeyCreatedBy: authResult.keyCreatedBy ?? null,
           sessionUserId: null,
-        }
+        },
+        runnableTools
       )
 
       // Connect server to transport

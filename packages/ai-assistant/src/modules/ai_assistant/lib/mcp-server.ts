@@ -6,6 +6,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { toolInputJsonSchema } from './tool-input-schema'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
+import {
+  advertisedOutputJsonSchema,
+  buildToolSuccessResponse,
+  filterRunnableAgentTools,
+  resolveAgentToolAuditIds,
+  type AgentToolAuditIds,
+} from './mcp-agent-tool-results'
 import { getToolRegistry } from './tool-registry'
 import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
@@ -144,7 +151,10 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const registry = getToolRegistry()
     const tools = Array.from(registry.getTools().values())
 
-    const accessibleTools = filterToolsForCaller(tools, exposureConfig, { features: userFeatures, isSuperAdmin })
+    const accessibleTools = await filterRunnableAgentTools(
+      filterToolsForCaller(tools, exposureConfig, { features: userFeatures, isSuperAdmin }),
+      container
+    )
 
     if (config.debug) {
       writeStderrLine(
@@ -153,12 +163,16 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     }
 
     return {
-      tools: accessibleTools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: toolInputJsonSchema(tool.inputSchema),
-        annotations: buildMcpToolAnnotations(tool),
-      })),
+      tools: accessibleTools.map((tool) => {
+        const outputSchema = advertisedOutputJsonSchema(tool)
+        return {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: toolInputJsonSchema(tool.inputSchema),
+          ...(outputSchema ? { outputSchema } : {}),
+          annotations: buildMcpToolAnnotations(tool),
+        }
+      }),
     }
   })
 
@@ -177,10 +191,12 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const audit = (
       outcome: McpAuditOutcome,
       errorCode: string | null,
-      pendingActionIds: string[] | null = null
+      pendingActionIds: string[] | null = null,
+      agentAuditIds: AgentToolAuditIds = resolveAgentToolAuditIds(getToolRegistry().getTool(name))
     ) =>
       recordMcpToolCall(container, {
         ...auditIdentity,
+        ...agentAuditIds,
         toolName: name,
         tenantId,
         organizationId,
@@ -235,7 +251,12 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
     }
 
-    await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
+    await audit(
+      mapToolResultToAuditOutcome(result),
+      result.errorCode ?? null,
+      null,
+      resolveAgentToolAuditIds(registeredTool, result.success ? result.result : undefined)
+    )
 
     if (!result.success) {
       return attachCorrelationMeta(
@@ -252,17 +273,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       )
     }
 
-    return attachCorrelationMeta(
-      {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(result.result, null, 2),
-          },
-        ],
-      },
-      correlationId
-    )
+    return attachCorrelationMeta(buildToolSuccessResponse(registeredTool, result.result), correlationId)
   })
 
   return server

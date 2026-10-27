@@ -93,6 +93,8 @@ const ERROR_CODE_OUTCOMES: Record<string, McpAuditOutcome> = {
   MUTATION_REQUIRES_APPROVAL: 'mutation_denied',
   MUTATION_REQUESTER_UNRESOLVED: 'mutation_denied',
   DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
+  AGENT_DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
+  AGENT_POLICY_DENIED: 'denied',
 }
 
 export function extractArgKeys(input: unknown): string[] {

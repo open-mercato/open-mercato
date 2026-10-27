@@ -129,6 +129,56 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     expect(accessLogEntries[0].context).toMatchObject({ outcome: 'error', errorCode: 'EXCEPTION' })
   })
 
+  it('returns the agent payload and records the run ids for an agent tool', async () => {
+    getToolMock.mockReturnValue({
+      name: 'customers.summary_agent.run',
+      agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+    })
+    const payload = { result: { summary: 'ok' }, agentId: 'customers.summary_agent', runId: 'run-1', agentRunId: null }
+    executeToolMock.mockResolvedValue({ success: true, result: { ...payload, internal: 'dropped' } })
+
+    const response = await POST(
+      buildRequest({ toolName: 'customers.summary_agent.run', args: { input: SECRET_ARG_VALUE } }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true, result: payload })
+    expect(accessLogEntries).toHaveLength(1)
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'ok',
+      isMutation: false,
+      agentId: 'customers.summary_agent',
+      aiAgentRunId: 'run-1',
+      agentRunId: null,
+      argKeys: ['input'],
+    })
+    expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+  })
+
+  it('records the agent id and dispatcher_unavailable when an agent tool cannot run', async () => {
+    getToolMock.mockReturnValue({
+      name: 'customers.summary_agent.run',
+      agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+    })
+    executeToolMock.mockResolvedValue({
+      success: false,
+      error: 'unavailable',
+      errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+    })
+
+    const response = await POST(buildRequest({ toolName: 'customers.summary_agent.run', args: {} }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ success: false, error: 'unavailable' })
+    expect(accessLogEntries[0].context).toMatchObject({
+      outcome: 'dispatcher_unavailable',
+      errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+      agentId: 'customers.summary_agent',
+      aiAgentRunId: null,
+      agentRunId: null,
+    })
+  })
+
   it('writes no row when toolName is missing', async () => {
     const response = await POST(buildRequest({ args: {} }))
 

@@ -12,6 +12,13 @@ import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures }
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import {
+  advertisedOutputZodSchema,
+  buildToolSuccessResponse,
+  filterRunnableAgentTools,
+  resolveAgentToolAuditIds,
+  type AgentToolAuditIds,
+} from './mcp-agent-tool-results'
+import {
   collectMcpExposureWarnings,
   filterToolsForCaller,
   isToolExposed,
@@ -303,7 +310,10 @@ async function createMcpServerForRequest(
     { capabilities: { tools: {} } }
   )
 
-  const tools = filterToolsForCaller(listRegistryTools(), exposureConfig, listPrincipal)
+  const tools = await filterRunnableAgentTools(
+    filterToolsForCaller(listRegistryTools(), exposureConfig, listPrincipal),
+    toolContext.container
+  )
 
   if (config.debug) {
     logger.debug('Registering tools filtered for list principal (ACL also checked per-call)', {
@@ -354,6 +364,8 @@ async function createMcpServerForRequest(
       })
     }
 
+    const outputSchema = advertisedOutputZodSchema(tool)
+
     // Wrap in try/catch to handle any remaining edge cases
     try {
       server.registerTool(
@@ -361,6 +373,7 @@ async function createMcpServerForRequest(
         {
           description: tool.description,
           inputSchema: safeSchema,
+          ...(outputSchema ? { outputSchema } : {}),
           annotations: buildMcpToolAnnotations(tool),
         },
         async (args: unknown) => {
@@ -387,9 +400,11 @@ async function createMcpServerForRequest(
             response: McpToolCallResponse,
             outcome: McpAuditOutcome,
             errorCode: string | null,
-            pendingActionIds: string[] | null = null
+            pendingActionIds: string[] | null = null,
+            agentAuditIds: AgentToolAuditIds = resolveAgentToolAuditIds(tool)
           ) => {
             await recordMcpToolCall(toolContext.container, {
+              ...agentAuditIds,
               toolName: tool.name,
               tenantId: effectiveContext.tenantId,
               organizationId: effectiveContext.organizationId,
@@ -514,16 +529,11 @@ async function createMcpServerForRequest(
 
             logger.debug('Tool call succeeded', { toolName: tool.name, correlationId })
             return complete(
-              {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify(result.result, null, 2),
-                  },
-                ],
-              },
+              buildToolSuccessResponse(tool, result.result),
               outcome,
-              null
+              null,
+              null,
+              resolveAgentToolAuditIds(tool, result.result)
             )
           } catch (err) {
             logger.error('Tool call threw', { toolName: tool.name, err, correlationId })

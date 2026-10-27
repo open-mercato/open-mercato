@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createMcpHttpRequestHandler } from '../http-server'
 import { DEFAULT_MCP_EXPOSURE_CONFIG } from '../mcp-exposure'
 import { MCP_AUDIT_RESOURCE_KIND, type McpAuditAccessLogInput } from '../mcp-audit'
+import { buildAgentToolOutputSchema } from '../agent-tool'
 import type { AiToolDefinition, McpServerConfig, McpToolDefinition, ToolExecutionResult } from '../types'
 
 const mockRegisteredTools = new Map<string, McpToolDefinition>()
@@ -20,6 +21,10 @@ jest.mock('../tool-registry', () => ({
 jest.mock('../tool-executor', () => ({
   ...jest.requireActual('../tool-executor'),
   executeTool: (...args: [string, unknown, unknown, unknown?]) => mockExecuteTool(...args),
+}))
+jest.mock('../agent-registry', () => ({
+  loadAgentRegistry: jest.fn(async () => undefined),
+  getAgent: (agentId: string) => (agentId === 'customers.summary_agent' ? { id: agentId } : undefined),
 }))
 jest.mock('../tool-loader', () => ({
   loadAllModuleTools: jest.fn(),
@@ -313,6 +318,72 @@ describe('MCP HTTP server — tools/call audit', () => {
       outcome: 'denied',
       errorCode: 'SESSION_EXPIRED',
       principal: 'api_key',
+    })
+  })
+
+  describe('agent tools', () => {
+    beforeEach(() => {
+      registerTool({
+        name: 'customers.summary_agent.run',
+        requiredFeatures: ['customers.people.view'],
+        agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+        mcp: { outputSchema: buildAgentToolOutputSchema(z.object({ summary: z.string() })) },
+      })
+    })
+
+    it('returns structuredContent with the run ids and records them in the audit row', async () => {
+      const payload = { result: { summary: 'ok' }, agentId: 'customers.summary_agent', runId: 'run-1', agentRunId: null }
+      mockExecuteTool.mockResolvedValue({ success: true, result: payload })
+      const baseUrl = await startHandler()
+
+      const body = await callTool(baseUrl, 'customers.summary_agent.run', { id: SECRET_ARG_VALUE }, { 'x-correlation-id': 'corr-agent' })
+
+      expect(body.result?.isError).toBeUndefined()
+      expect(body.result?.structuredContent).toEqual(payload)
+      expect(JSON.parse(body.result?.content?.[0]?.text ?? '{}')).toEqual(payload)
+      expect(body.result?._meta).toEqual({ correlationId: 'corr-agent' })
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({
+        outcome: 'ok',
+        agentId: 'customers.summary_agent',
+        aiAgentRunId: 'run-1',
+        agentRunId: null,
+        correlationId: 'corr-agent',
+        argKeys: ['id'],
+      })
+      expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+    })
+
+    it('surfaces AGENT_DISPATCHER_UNAVAILABLE as an error result with the code', async () => {
+      mockExecuteTool.mockResolvedValue({
+        success: false,
+        error: 'Tool "customers.summary_agent.run" cannot run: its agent is not available',
+        errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+      })
+      const baseUrl = await startHandler()
+
+      const body = await callTool(baseUrl, 'customers.summary_agent.run', {})
+
+      expect(body.result?.isError).toBe(true)
+      expect(body.result?.structuredContent).toBeUndefined()
+      expect(JSON.parse(body.result?.content?.[0]?.text ?? '{}').code).toBe('AGENT_DISPATCHER_UNAVAILABLE')
+      expect(accessLogEntries[0].context).toMatchObject({
+        outcome: 'dispatcher_unavailable',
+        errorCode: 'AGENT_DISPATCHER_UNAVAILABLE',
+        agentId: 'customers.summary_agent',
+        aiAgentRunId: null,
+        agentRunId: null,
+      })
+    })
+
+    it('leaves non-agent tool rows without agent ids', async () => {
+      mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
+      const baseUrl = await startHandler()
+
+      const body = await callTool(baseUrl, 'customers.list_people', {})
+
+      expect(body.result?.structuredContent).toBeUndefined()
+      expect(accessLogEntries[0].context).toMatchObject({ agentId: null, aiAgentRunId: null, agentRunId: null })
     })
   })
 
