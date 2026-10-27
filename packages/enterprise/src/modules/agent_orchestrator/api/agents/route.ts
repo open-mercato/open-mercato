@@ -9,7 +9,7 @@ import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContrac
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 import { agentTypeSchema } from '../../data/validators'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
   isAgentInvocable,
   isAgentInvokeEnforcementEnabled,
@@ -108,7 +108,7 @@ export async function GET(req: Request) {
     })
   }
   const enforcementEnabled = isAgentInvokeEnforcementEnabled()
-  const isManager = acl !== null && (acl.isSuperAdmin || hasAllFeatures(acl.features, [AGENTS_MANAGE_FEATURE]))
+  const isManager = acl !== null && authorizeFeatures([AGENTS_MANAGE_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
 
   const items = entries
     .map((entry) => ({ entry, invocable: !enforcementEnabled || isAgentInvocable(entry, acl) }))

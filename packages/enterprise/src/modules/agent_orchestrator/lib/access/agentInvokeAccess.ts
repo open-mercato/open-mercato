@@ -1,5 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
@@ -113,8 +113,8 @@ export function isAgentInvocable(
 ): boolean {
   const required = entry.requiredFeatures ?? []
   if (required.length === 0) return true
-  if (acl?.isSuperAdmin) return true
-  return acl !== null && hasAllFeatures(acl.features, required)
+  if (acl === null) return false
+  return authorizeFeatures(required, { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
 }
 
 export function assertAgentInvocable(

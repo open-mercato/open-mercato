@@ -52,7 +52,8 @@
 | 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | done | e2b661492 |
 | 6 | 6.3 | Cover the structure panel with an integration test | dispatch | done | 818f0e12f |
 | 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | 1fe4d70ea |
-| 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | done | pending |
+| 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | done | fbccb7647 |
+| 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | pending |
 
 ## Goal
 
@@ -269,6 +270,9 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
 
 #### 7.2 Update the specs, roadmap and upgrade notes for wave 3
 - 2026-10-27 changelog entries in the four specs + roadmap (implementation deviations: no `mutationPolicyOverride`, channel on `McpToolContext`, panel in `packages/ui`, no chat object branch, no `emitCitations`), `UPGRADE_NOTES.md` (invoke enforcement may deny previously allowed AO runs; `OM_AGENT_INVOKE_ENFORCEMENT=off` kill switch; agent tools on MCP).
+
+#### 7.3 Route invoke and grant checks through authorizeFeatures
+- Final-gate fix-forward: `packages/core/src/__tests__/feature-policy-authorization-coverage.test.ts` forbids low-level ACL matchers (`@open-mercato/shared/security/features`) in server modules. `agentInvokeAccess.ts`, the AO `GET /agents` route and `workflows/lib/agent-invoke-grant-warnings.ts` used `hasAllFeatures`; they now use `authorizeFeatures` from `@open-mercato/shared/security/featurePolicy`, which also applies removed-feature and disabled-module handling.
 
 ## Risks
 

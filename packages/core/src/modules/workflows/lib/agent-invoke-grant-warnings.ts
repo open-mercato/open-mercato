@@ -16,7 +16,7 @@
  * Warnings carry the step and agent ids only, never feature names.
  */
 
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { normalizeGrantedFeatures } from './definition-grant'
 
 export const AGENT_INVOKE_NOT_COVERED_WARNING = 'agent_invoke_not_covered' as const
@@ -92,7 +92,7 @@ export function findAgentInvokeGrantWarnings(
   for (const reference of collectInvokeAgentReferences(definition)) {
     const required = requiredByAgent.get(reference.agentId)
     if (!required || required.length === 0) continue
-    if (hasAllFeatures(grant, required)) continue
+    if (authorizeFeatures(required, { grantedFeatures: grant })) continue
     warnings.push({ code: AGENT_INVOKE_NOT_COVERED_WARNING, stepId: reference.stepId, agentId: reference.agentId })
   }
   return warnings
