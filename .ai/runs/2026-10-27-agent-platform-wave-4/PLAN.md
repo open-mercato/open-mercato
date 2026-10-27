@@ -16,7 +16,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Add the gen_ai attribute vocabulary and ingest normalizer | dispatch | done | pending |
-| 1 | 1.2 | Add computeCostMicros with a pricing source | dispatch:cheap | todo | — |
+| 1 | 1.2 | Add computeCostMicros with a pricing source | dispatch:cheap | done | pending |
 | 1 | 1.3 | Collect model-call observer records in the native runner | dispatch:capable | todo | — |
 | 1 | 1.4 | Write gen_ai and om attributes on native llm spans | dispatch:capable | todo | — |
 | 2 | 2.1 | Add the trace capture policy schema and resolver | dispatch | todo | — |
