@@ -3,6 +3,8 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getIntegration, type IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { IntegrationState } from '../data/entities'
 
+const STATE_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+
 export type ResolvedIntegrationState = {
   isEnabled: boolean
   apiVersion: string | null
@@ -83,38 +85,42 @@ export function createIntegrationStateService(em: EntityManager) {
       >,
       scope: IntegrationScope,
     ): Promise<IntegrationState> {
-      const current = await this.get(integrationId, scope)
-      const resolvedBefore = await this.resolveState(integrationId, scope)
-      const enableTransition =
-        input.isEnabled === true && resolvedBefore.isEnabled === false
+      return em.transactional(async (txEm) => {
+        await txEm.execute(STATE_LOCK_SQL, [
+          `integrations:state:${scope.tenantId}:${scope.organizationId}:${integrationId}`,
+        ])
+        const current = await createIntegrationStateService(txEm).get(integrationId, scope)
+        const isEnabledBefore = current?.isEnabled ?? resolveDefinitionDefaults(integrationId).isEnabled
+        const enableTransition = input.isEnabled === true && isEnabledBefore === false
 
-      if (current) {
-        if (input.isEnabled !== undefined) current.isEnabled = input.isEnabled
-        if (input.apiVersion !== undefined) current.apiVersion = input.apiVersion
-        if (input.reauthRequired !== undefined) current.reauthRequired = input.reauthRequired
-        if (input.lastHealthStatus !== undefined) current.lastHealthStatus = input.lastHealthStatus
-        if (input.lastHealthCheckedAt !== undefined) current.lastHealthCheckedAt = input.lastHealthCheckedAt
-        if (input.lastHealthLatencyMs !== undefined) current.lastHealthLatencyMs = input.lastHealthLatencyMs
-        if (input.enabledAt !== undefined) current.enabledAt = input.enabledAt
-        else if (enableTransition) current.enabledAt = new Date()
-        await em.flush()
-        return current
-      }
+        if (current) {
+          if (input.isEnabled !== undefined) current.isEnabled = input.isEnabled
+          if (input.apiVersion !== undefined) current.apiVersion = input.apiVersion
+          if (input.reauthRequired !== undefined) current.reauthRequired = input.reauthRequired
+          if (input.lastHealthStatus !== undefined) current.lastHealthStatus = input.lastHealthStatus
+          if (input.lastHealthCheckedAt !== undefined) current.lastHealthCheckedAt = input.lastHealthCheckedAt
+          if (input.lastHealthLatencyMs !== undefined) current.lastHealthLatencyMs = input.lastHealthLatencyMs
+          if (input.enabledAt !== undefined) current.enabledAt = input.enabledAt
+          else if (enableTransition) current.enabledAt = new Date()
+          await txEm.flush()
+          return current
+        }
 
-      const created = em.create(IntegrationState, {
-        integrationId,
-        isEnabled: input.isEnabled ?? false,
-        apiVersion: input.apiVersion,
-        reauthRequired: input.reauthRequired ?? false,
-        lastHealthStatus: input.lastHealthStatus,
-        lastHealthCheckedAt: input.lastHealthCheckedAt,
-        lastHealthLatencyMs: input.lastHealthLatencyMs,
-        enabledAt: input.enabledAt !== undefined ? input.enabledAt : enableTransition ? new Date() : undefined,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      })
-      await em.persist(created).flush()
-      return created
+        const created = txEm.create(IntegrationState, {
+          integrationId,
+          isEnabled: input.isEnabled ?? false,
+          apiVersion: input.apiVersion,
+          reauthRequired: input.reauthRequired ?? false,
+          lastHealthStatus: input.lastHealthStatus,
+          lastHealthCheckedAt: input.lastHealthCheckedAt,
+          lastHealthLatencyMs: input.lastHealthLatencyMs,
+          enabledAt: input.enabledAt !== undefined ? input.enabledAt : enableTransition ? new Date() : undefined,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        })
+        await txEm.persist(created).flush()
+        return created
+      }, { clear: true })
     },
 
     async resolveApiVersion(integrationId: string, scope: IntegrationScope): Promise<string | undefined> {
