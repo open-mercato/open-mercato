@@ -469,7 +469,12 @@ const FEATURED_WIDGET_ICON: Record<string, typeof Sparkles> = {
 function AddWidgetDialog({ open, widgets, titleFor, onOpenChange, onAdd }: { open: boolean; widgets: DashboardWidgetCatalogItem[]; titleFor: (meta: DashboardWidgetCatalogItem) => string; onOpenChange: (open: boolean) => void; onAdd: (meta: DashboardWidgetCatalogItem) => void }) {
   const t = useT()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
-  React.useEffect(() => { if (open) setSelectedId(widgets[0]?.id ?? null) }, [open, widgets])
+  React.useEffect(() => {
+    setSelectedId((current) => {
+      if (!open) return null
+      return widgets.some((widget) => widget.id === current) ? current : (widgets[0]?.id ?? null)
+    })
+  }, [open, widgets])
   const featured = widgets.filter((widget) => FEATURED_WIDGET_IDS.has(widget.id))
   const rest = widgets.filter((widget) => !FEATURED_WIDGET_IDS.has(widget.id))
   const selected = widgets.find((widget) => widget.id === selectedId) ?? null

@@ -3,17 +3,21 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { getDashboardWidgets, loadDashboardWidgetModule } from '../widgetRegistry'
 import { DashboardHeader } from '../v2/DashboardHeader'
 import { DashboardScreenV2, reorderLayoutItems } from '../v2/DashboardScreenV2'
 import { sizeToSpanClass } from '../v2/GridLayout'
-import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
+import type { DashboardWidgetComponentProps, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
+}))
+
+jest.mock('@open-mercato/ui/backend/detail', () => ({
+  ErrorMessage: ({ label }: { label: string }) => <div role="alert">{label}</div>,
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -129,6 +133,52 @@ describe('DashboardScreenV2', () => {
     await waitFor(() => {
       expect(seenRanges).toContainEqual(range)
     })
+  })
+
+  it('preserves the selected widget when another module finishes loading in the add dialog', async () => {
+    const firstWidget = {
+      ...layoutResponse.widgets[0],
+      id: 'dashboards.analytics.aiInsights',
+      title: 'AI insights',
+      loaderKey: 'insights.loader',
+    }
+    const customMetric = {
+      ...layoutResponse.widgets[0],
+      id: 'dashboards.analytics.customMetric',
+      title: 'Custom metric',
+      loaderKey: 'metric.loader',
+    }
+    let finishInsightsLoad!: (module: DashboardWidgetModule) => void
+    const pendingInsights = new Promise<DashboardWidgetModule>((resolve) => { finishInsightsLoad = resolve })
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { ...layoutResponse, widgets: [firstWidget, customMetric, ...layoutResponse.widgets] },
+    })
+    ;(loadDashboardWidgetModule as jest.Mock).mockImplementation((loaderKey: string) => {
+      if (loaderKey === firstWidget.loaderKey) return pendingInsights
+      return Promise.resolve({
+        metadata: { id: loaderKey === customMetric.loaderKey ? customMetric.id : 'foo', title: 'Widget' },
+        Widget: () => null,
+        ...(loaderKey === customMetric.loaderKey ? {
+          SetupWizard: () => <div role="dialog" aria-label="Create custom metric" />,
+        } : {}),
+      })
+    })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add widget' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Custom metric' }))
+
+    await act(async () => {
+      finishInsightsLoad({ metadata: { id: firstWidget.id, title: firstWidget.title }, Widget: () => null })
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add widget' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Create custom metric' })).toBeInTheDocument()
+    expect((apiCall as jest.Mock).mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
   })
 
   it.each([
