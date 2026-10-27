@@ -42,15 +42,17 @@ jest.mock('../lib/runtime/persistence', () => ({
   },
 }))
 
+const checkOutputMock = jest.fn<Promise<unknown>, [Record<string, unknown>]>()
+const persistVerdictMock = jest.fn<Promise<unknown>, unknown[]>()
 jest.mock('../lib/guardrails/guardrailService', () => ({
   GUARDRAIL_SET_VERSION: 'test-version',
-  persistVerdict: jest.fn(async () => ({})),
+  persistVerdict: (...args: unknown[]) => persistVerdictMock(...args),
   GuardrailService: class {
     async checkInput() {
       return { result: 'pass', checks: [] }
     }
-    async checkOutput() {
-      return { result: 'pass', checks: [] }
+    async checkOutput(args: Record<string, unknown>) {
+      return checkOutputMock(args)
     }
   },
 }))
@@ -68,6 +70,8 @@ jest.mock('../lib/runtime/nativeTraceCapture', () => {
 })
 
 import { z } from 'zod'
+import { integrityRuleSchema } from '../data/validators'
+import { AgentGuardrailBlockedError } from '../lib/runtime/errors'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
@@ -122,6 +126,8 @@ beforeEach(() => {
   failRunMock.mockReset().mockResolvedValue(undefined)
   createProposalMock.mockReset().mockResolvedValue(undefined)
   captureNativeRunTraceMock.mockReset().mockResolvedValue(undefined)
+  checkOutputMock.mockReset().mockResolvedValue({ result: 'pass', checks: [] })
+  persistVerdictMock.mockReset().mockResolvedValue([])
   delete process.env.OM_AGENT_TRACE_CAPTURE
 })
 
@@ -571,5 +577,140 @@ describe('confidence + usage/cost stamping (data-honesty §3.2)', () => {
     const input = failRunMock.mock.calls[0][2] as Record<string, unknown>
     expect(input.inputTokens).toBe(700)
     expect(input.outputTokens).toBe(50)
+  })
+})
+
+describe('output pipeline wiring', () => {
+  const CONTENT = 'The supplier shall deliver within 30 days. Late delivery incurs a penalty of 2% per week.'
+  const integritySchema = z.object({
+    kind: z.literal('proposal'),
+    proposal: z.object({ evidence: z.array(z.object({ quote: z.string() })) }),
+  })
+
+  function registerIntegrityAgent(id: string, onViolation: 'drop' | 'block'): AgentRegistryEntry {
+    const existing = getAgentEntry(id)
+    if (existing) return existing
+    const entry: AgentRegistryEntry = {
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'proposal',
+      schema: integritySchema,
+      tools: ['customers.get_deal'],
+      skills: [],
+      subAgents: [],
+      label: 'Integrity wiring test agent',
+      description: 'Proposal agent for output pipeline wiring tests.',
+      instructions: 'propose',
+      runtime: 'native',
+      integrity: [
+        integrityRuleSchema.parse({
+          id: 'quotes',
+          kind: 'evidence_quote',
+          items: 'proposal.evidence[*]',
+          quote: 'quote',
+          source: { input: 'content' },
+          onViolation,
+        }),
+      ],
+    }
+    registerFileAgent(entry)
+    return entry
+  }
+
+  const RAW_PROPOSAL = {
+    kind: 'proposal',
+    proposal: { evidence: [{ quote: 'deliver within 30 days' }, { quote: 'free shipping forever' }] },
+  }
+
+  function mockModelWithToolCall(): void {
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [{ toolCallId: 'call-1', toolName: 'customers__get_deal', input: { id: 'd1' } }],
+        toolResults: [{ toolCallId: 'call-1', toolName: 'customers__get_deal', output: { title: 'Big deal' } }],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 5, outputTokens: 2 },
+        response: { modelId: 'test-model' },
+      })
+      return { mode: 'generate', object: RAW_PROPOSAL, usage: { inputTokens: 5, outputTokens: 2 } }
+    })
+  }
+
+  it('runs the pipeline and persists, completes and proposes the final output', async () => {
+    registerIntegrityAgent('native.integrity_drop_agent', 'drop')
+    mockModelWithToolCall()
+
+    const service = makeService()
+    const result = await service.run('native.integrity_drop_agent', { content: CONTENT }, runCtx)
+
+    const finalProposal = { evidence: [{ quote: 'deliver within 30 days' }] }
+    expect(result).toEqual({ kind: 'proposal', proposal: finalProposal })
+    const completeInput = completeRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(completeInput.output).toEqual({ kind: 'proposal', proposal: finalProposal })
+    const proposalInput = createProposalMock.mock.calls[0][2] as Record<string, unknown>
+    expect(proposalInput.payload).toEqual(finalProposal)
+    const persisted = persistVerdictMock.mock.calls[0][2] as { verdict: { result: string; checks: Array<{ kind: string }> } }
+    expect(persisted.verdict.result).toBe('warn')
+    expect(persisted.verdict.checks.map((check) => check.kind)).toContain('evidence_quote')
+  })
+
+  it('collects tool calls for tool_scope with trace capture off, without capturing a trace', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    registerIntegrityAgent('native.integrity_tools_agent', 'drop')
+    mockModelWithToolCall()
+
+    const service = makeService()
+    await service.run('native.integrity_tools_agent', { content: CONTENT }, runCtx)
+
+    expect(captureNativeRunTraceMock).not.toHaveBeenCalled()
+    expect(checkOutputMock).toHaveBeenCalledTimes(2)
+    const finalCall = checkOutputMock.mock.calls[1][0]
+    expect(finalCall.attemptedTools).toEqual([{ name: 'customers.get_deal', isMutation: false }])
+    expect(finalCall.allowedTools).toEqual(['customers.get_deal'])
+    expect(finalCall.output).toEqual({ kind: 'proposal', proposal: { evidence: [{ quote: 'deliver within 30 days' }] } })
+  })
+
+  it('fails the run with a guardrail block when an integrity rule blocks', async () => {
+    registerIntegrityAgent('native.integrity_block_agent', 'block')
+    mockModelWithToolCall()
+
+    const service = makeService()
+    const failure = service.run('native.integrity_block_agent', { content: CONTENT }, runCtx)
+    await expect(failure).rejects.toBeInstanceOf(AgentGuardrailBlockedError)
+    await expect(failure).rejects.toMatchObject({ kind: 'evidence_quote', phase: 'output' })
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    expect(completeRunMock).not.toHaveBeenCalled()
+    expect(createProposalMock).not.toHaveBeenCalled()
+    const persisted = persistVerdictMock.mock.calls[0][2] as { verdict: { result: string } }
+    expect(persisted.verdict.result).toBe('block')
+  })
+
+  it('keeps the single checkOutput call unchanged for agents without integrity', async () => {
+    const entry = registerNativeAgent('native.no_integrity_parity_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.no_integrity_parity_agent', {}, runCtx)
+
+    expect(checkOutputMock).toHaveBeenCalledTimes(1)
+    expect(checkOutputMock.mock.calls[0][0]).toEqual({
+      capability: 'native.no_integrity_parity_agent',
+      schema: entry.schema,
+      output: VALID_MODEL_OUTPUT.object,
+      allowedTools: [],
+      grounding: undefined,
+    })
+    expect('attemptedTools' in checkOutputMock.mock.calls[0][0]).toBe(false)
+  })
+
+  it('does not wire the step hook for agents without integrity when trace capture is off', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    registerNativeAgent('native.no_integrity_hook_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.no_integrity_hook_agent', {}, runCtx)
+
+    expect(runAiAgentObjectMock.mock.calls[0][0].loop).toBeUndefined()
   })
 })

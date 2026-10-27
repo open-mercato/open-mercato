@@ -338,6 +338,19 @@ export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
   return registry.get(id)
 }
 
+/**
+ * The effective read-only tool allowlist `defineAgent` forwards to `defineAiAgent`:
+ * the agent's own tools, every tool its skills contribute, and the delegation
+ * tool when it declares sub-agents.
+ */
+export function resolveAgentEffectiveTools(
+  entry: Pick<AgentRegistryEntry, 'tools' | 'skills' | 'subAgents'>,
+): string[] {
+  const skillTools = entry.skills.flatMap((skillId) => getSkillEntry(skillId)?.tools ?? [])
+  const delegationTools = entry.subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
+  return Array.from(new Set([...entry.tools, ...skillTools, ...delegationTools]))
+}
+
 export function listAgentEntries(): AgentRegistryEntry[] {
   return [...registry.values()]
 }

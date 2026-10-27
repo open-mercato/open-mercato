@@ -6,12 +6,14 @@ import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai
 import type { AiAgentPromptResolvedEvent } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { bindRunObservation, createRunObservationCollector } from '@open-mercato/shared/lib/ai/run-observation'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
+import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
 import type { RunManifestInput } from '../trace/runManifest'
 import {
   type AgentResult,
+  type AttemptedTool,
   type CitableSource,
   type GuardResults,
   type GuardrailSetBody,
@@ -20,6 +22,8 @@ import {
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
+import { normalizeToolName, runOutputPipeline, type OutputPipelineResult } from '../guardrails/integrity/pipeline'
+import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { withRunContext } from './runContext'
@@ -239,9 +243,8 @@ export class NativeAgentRunner {
         promptResolved = event
       },
     }
-    const recordStep = async (event: unknown): Promise<void> => {
-      stepRecords.push(buildNativeStepRecord(event, Date.now()))
-    }
+    const integrityRules = entry.integrity?.length ? entry.integrity : null
+    const integrityToolCalls: IntegrityToolCall[] = []
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
     // workflow INVOKE_AGENT step (`ctx.workflowInstanceId` present) and an event bus is
@@ -291,9 +294,22 @@ export class NativeAgentRunner {
       }
     }
     const emitAgentAction = buildAgentActionEmitter()
-    const wireStepFinish = traceEnabled || emitAgentAction !== null
+    const wireStepFinish = traceEnabled || emitAgentAction !== null || integrityRules !== null
     const onAgentStepFinish = async (event: unknown): Promise<void> => {
-      if (traceEnabled) await recordStep(event)
+      if (traceEnabled || integrityRules) {
+        const record = buildNativeStepRecord(event, Date.now())
+        if (traceEnabled) stepRecords.push(record)
+        if (integrityRules) {
+          for (const toolCall of record.toolCalls) {
+            integrityToolCalls.push({
+              toolName: toolCall.toolName,
+              args: toolCall.args,
+              result: toolCall.result,
+              ...(toolCall.error ? { error: toolCall.error.code } : {}),
+            })
+          }
+        }
+      }
       if (emitAgentAction) await emitAgentAction(event)
     }
 
@@ -499,17 +515,35 @@ export class NativeAgentRunner {
     }
 
     const guardrailService = new GuardrailService(this.container)
-    const verdict = await guardrailService.checkOutput({
-      capability: agentId,
-      schema: entry.schema,
-      output: rawObject,
-      allowedTools: entry.tools,
-      grounding,
-    })
+    const integrityOutcome: OutputPipelineResult | null = integrityRules
+      ? await runOutputPipeline({
+          entry,
+          rawObject,
+          input,
+          toolCalls: integrityToolCalls,
+          grounding,
+          guardrailService,
+          capability: agentId,
+          allowedTools: resolveAgentEffectiveTools(entry),
+          attemptedTools: buildAttemptedTools(integrityToolCalls),
+          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+          container: this.container,
+        })
+      : null
+    const verdict = integrityOutcome
+      ? integrityOutcome.verdict
+      : await guardrailService.checkOutput({
+          capability: agentId,
+          schema: entry.schema,
+          output: rawObject,
+          allowedTools: entry.tools,
+          grounding,
+        })
     const guardEm = (this.container.resolve('em') as EntityManager).fork()
     const guardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
 
-    const parsed = entry.schema.safeParse(rawObject)
+    const parsed = entry.schema.safeParse(integrityOutcome ? integrityOutcome.finalOutput : rawObject)
     if (!parsed.success || verdict.result === 'block') {
       // Persist the block check(s) + emit `guardrail.tripped` BEFORE failing the
       // run, then preserve the existing AgentOutputInvalidError fail semantics.
@@ -617,6 +651,33 @@ export class NativeAgentRunner {
 }
 
 const RUN_TIMED_OUT = Symbol('agent-run-timed-out')
+
+function resolveToolIsMutation(toolName: string): boolean | undefined {
+  try {
+    const tool = getToolRegistry().getTool(toolName) as { isMutation?: boolean } | undefined
+    return tool ? tool.isMutation === true : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Maps the run's in-memory tool calls to the `tool_scope` backstop input: model-safe
+ * names (`a__b`) are normalized back to registry ids, and `isMutation` comes from the
+ * tool registry when the tool is known there.
+ */
+function buildAttemptedTools(toolCalls: readonly IntegrityToolCall[]): AttemptedTool[] {
+  const seen = new Set<string>()
+  const attempted: AttemptedTool[] = []
+  for (const toolCall of toolCalls) {
+    const name = normalizeToolName(toolCall.toolName)
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    const isMutation = resolveToolIsMutation(name)
+    attempted.push(isMutation === undefined ? { name } : { name, isMutation })
+  }
+  return attempted
+}
 
 /**
  * Wall-clock deadline for one native agent run. Mirrors the OpenCode
