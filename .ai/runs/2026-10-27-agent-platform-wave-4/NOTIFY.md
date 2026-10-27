@@ -36,3 +36,8 @@
 
 ## 2026-10-27T19:33:38Z — decision: module-config cache fix in core
 - TC-AGENT-OTEL-002 found that background workers read module-config cache entries under `tenant:global:` while routes write under `tenant:<id>:` (stale up to 60 s). The user chose to fix it in core `configs` in this PR (row 4.11-review-fix).
+
+## 2026-10-27T19:43:17Z — checkpoint 5
+- Steps 4.6..4.11-review-fix verified: build, typecheck, AO jest 2341/2341, core 101/101, integration 5 passed / 1 skipped on a rebuilt app with the OTel exporter env.
+- Cache-scope fix confirmed end-to-end (TC-AGENT-OTEL-002 without TTL waits).
+- Delegations: executors for 4.6..4.11 and 4.11-review-fix (4.10 cheap tier).

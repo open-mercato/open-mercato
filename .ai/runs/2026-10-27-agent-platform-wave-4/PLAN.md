@@ -33,13 +33,13 @@
 | 4 | 4.3 | Load a run export bundle with tenant scoping | dispatch | done | 6a1c06c66 |
 | 4 | 4.4 | Map an agent run to OTLP resource spans | dispatch:capable | done | b2636d2a4 |
 | 4 | 4.5 | Add OTel export settings resolution and the OTLP HTTP client | dispatch | done | 0107e7fdf |
-| 4 | 4.6 | Add the export queue, subscribers and worker with retry | dispatch:capable | done | pending |
-| 4 | 4.7 | Add the OTel export settings and test-span APIs | dispatch | done | pending |
-| 4 | 4.8 | Add the OTel export settings page, health line and trace link | dispatch | done | pending |
-| 4 | 4.9 | Add the otel:export backfill CLI | dispatch | done | pending |
-| 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | done | pending |
-| 4 | 4.11 | Cover OTel export with integration tests | dispatch | done | pending |
-| 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | done | pending |
+| 4 | 4.6 | Add the export queue, subscribers and worker with retry | dispatch:capable | done | f5ce9ad8d |
+| 4 | 4.7 | Add the OTel export settings and test-span APIs | dispatch | done | 09210829c |
+| 4 | 4.8 | Add the OTel export settings page, health line and trace link | dispatch | done | e473d6a8b |
+| 4 | 4.9 | Add the otel:export backfill CLI | dispatch | done | 95b8b5ee0 |
+| 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | done | 4538d2f96 |
+| 4 | 4.11 | Cover OTel export with integration tests | dispatch | done | 30684277a |
+| 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | done | 4c0445581 |
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | todo | — |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | todo | — |
 
