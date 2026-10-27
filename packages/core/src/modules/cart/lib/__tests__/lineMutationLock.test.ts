@@ -72,3 +72,16 @@ test('an ambient transaction keeps ownership of its lock, commit, and rollback',
   expect(manager.commit).not.toHaveBeenCalled()
   expect(manager.rollback).not.toHaveBeenCalled()
 })
+
+test('a failed rollback does not retry while its connection remains in a transaction', async () => {
+  const { manager, em } = createManager()
+  manager.execute.mockResolvedValue([{ locked: false }])
+  manager.rollback.mockRejectedValue(new Error('[internal] Rollback failed'))
+  const mutate = jest.fn(async () => undefined)
+  await expect(withCartLineMutationLock(em, 'cart-a', [mutate], 'cart.lines.add', 0))
+    .rejects.toThrow('[internal] Cart line mutation lock is busy')
+  expect(manager.begin).toHaveBeenCalledTimes(1)
+  expect(manager.execute).toHaveBeenCalledTimes(1)
+  expect(manager.isInTransaction()).toBe(true)
+  expect(mutate).not.toHaveBeenCalled()
+})
