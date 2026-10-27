@@ -34,6 +34,18 @@ describe('useProcessDefinitionsLiveUpdates', () => {
     expect(reload).toHaveBeenCalledTimes(2)
   })
 
+  it('uses one trailing reload when an execution broadcast arrives during reconnect recovery', () => {
+    const reload = jest.fn()
+    renderHook(() => useProcessDefinitionsLiveUpdates(reload))
+    act(() => {
+      emit('om:bridge:reconnected')
+      emit('agent_orchestrator.process.execution.started')
+    })
+    act(() => { jest.advanceTimersByTime(5000) })
+    expect(reload).toHaveBeenCalledTimes(2)
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
   it('catches an external mutation that commits after the reconnect refresh', () => {
     let lastExecution = 'failed'
     const reload = jest.fn(() => lastExecution)

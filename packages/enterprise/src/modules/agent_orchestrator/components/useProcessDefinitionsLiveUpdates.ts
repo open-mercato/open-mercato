@@ -14,7 +14,11 @@ export function useProcessDefinitionsLiveUpdates(reload: () => void): void {
     if (catchUpTimer.current) clearTimeout(catchUpTimer.current)
   }, [])
 
-  useAppEvent('agent_orchestrator.process.execution.*', coalescedReload)
+  useAppEvent('agent_orchestrator.process.execution.*', () => {
+    if (catchUpTimer.current) clearTimeout(catchUpTimer.current)
+    catchUpTimer.current = null
+    coalescedReload()
+  })
   useAppEvent('om:bridge:reconnected', () => {
     coalescedReload()
     if (catchUpTimer.current) clearTimeout(catchUpTimer.current)
