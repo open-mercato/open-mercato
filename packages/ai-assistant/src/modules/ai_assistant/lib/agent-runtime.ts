@@ -2453,6 +2453,8 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   trace?: AiAgentRunTraceOptions
   callSettings?: AiAgentCallSettings
   observe?: AiAgentCallObserver
+  /** Caller-owned signal; aborting it aborts the run's model calls. */
+  abortSignal?: AbortSignal
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
@@ -2495,6 +2497,15 @@ export type RunAiAgentObjectStreamResult<TSchema> = {
 export type RunAiAgentObjectResult<TSchema> =
   | RunAiAgentObjectGenerateResult<TSchema>
   | RunAiAgentObjectStreamResult<TSchema>
+
+function linkCallerAbortSignal(signal: AbortSignal | undefined, controller: AbortController): void {
+  if (!signal) return
+  if (signal.aborted) {
+    controller.abort(signal.reason)
+    return
+  }
+  signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
+}
 
 function normalizeObjectMessages(input: string | UIMessage[]): UIMessage[] {
   if (typeof input === 'string') {
@@ -2676,6 +2687,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     : undefined
 
   const abortController = new AbortController()
+  linkCallerAbortSignal(input.abortSignal, abortController)
   const objectInputText = extractLatestUserText(normalizedMessages) || null
   const objectModelSource = toAgentRunModelSource(resolvedObjectModel.source)
   let objectRunLoop: AiAgentLoopConfig = {}

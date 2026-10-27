@@ -22,6 +22,7 @@ import {
   buildToolSuccessResponse,
   filterRunnableAgentTools,
   resolveAgentToolAuditIds,
+  resolveAgentToolPendingActionIds,
   type AgentToolAuditIds,
 } from './mcp-agent-tool-results'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
@@ -196,11 +197,12 @@ export function createDevMcpServer(
             return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
           }
 
+          const toolResultValue = result.success ? result.result : undefined
           await audit(
             mapToolResultToAuditOutcome(result),
             result.errorCode ?? null,
-            null,
-            resolveAgentToolAuditIds(tool, result.success ? result.result : undefined)
+            resolveAgentToolPendingActionIds(tool, toolResultValue),
+            resolveAgentToolAuditIds(tool, toolResultValue)
           )
 
           if (!result.success) {

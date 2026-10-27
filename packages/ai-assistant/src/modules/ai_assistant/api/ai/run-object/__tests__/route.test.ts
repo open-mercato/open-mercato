@@ -506,6 +506,35 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
       )
     })
 
+    it.each<[string, Record<string, unknown>]>([
+      ['attachmentIds', { attachmentIds: ['att-1'] }],
+      ['pageContext', { pageContext: { pageId: 'page-1' } }],
+      ['modelOverride', { modelOverride: 'openai/gpt-5-mini' }],
+    ])('returns 422 dispatch_option_unsupported when %s is sent for a dispatched agent', async (_label, extra) => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+
+      const response = await postAgent(undefined, extra)
+
+      expect(response.status).toBe(422)
+      const body = await response.json()
+      expect(body.code).toBe('dispatch_option_unsupported')
+      expect(body.error).not.toContain(AO_AGENT)
+      expect(dispatcher.runObject).not.toHaveBeenCalled()
+    })
+
+    it('dispatches when attachmentIds is an empty array', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      containerDispatcher = dispatcher
+
+      const response = await postAgent(undefined, { attachmentIds: [] })
+
+      expect(response.status).toBe(200)
+      expect(dispatcher.runObject).toHaveBeenCalledTimes(1)
+    })
+
     it('runs the agent feature policy before dispatching a natively registered agent', async () => {
       seedNativeAoAgent(['ops.triage.run'])
       const dispatcher = makeDispatcher()

@@ -263,19 +263,19 @@ The default timeout is 120 seconds. The tool is registered as a non-mutation too
 
 #### How the call runs
 
-1. If a registered dispatcher owns the agent id, the call goes through it. Otherwise the `ai_assistant` runtime runs the agent in object mode, after the agent policy check (`requiredFeatures`, execution mode).
-2. The handler returns `{ result, agentId, runId, agentRunId }`. `runId` is the `ai_assistant` run id; `agentRunId` is the run id assigned by a dispatcher engine. Each is `null` when the other engine ran the agent.
+1. When the `ai_assistant` registry knows the agent, the agent policy check (`requiredFeatures`, execution mode) runs first. If a registered dispatcher owns the agent id, the call then goes through it, and the dispatcher runs its own checks. Otherwise the `ai_assistant` runtime runs the agent in object mode.
+2. The handler returns `{ result, agentId, runId, agentRunId }`, plus `pendingActionIds` when the run queued writes for approval. `runId` is the `ai_assistant` run id; `agentRunId` is the run id assigned by a dispatcher engine. Each is `null` when the other engine ran the agent.
 3. Output that does not match the schema fails the call.
 
 #### Result shape
 
 An MCP agent tool call returns:
 
-- `structuredContent`: `{ result, agentId, runId, agentRunId }`, where `result` matches the agent's output schema;
+- `structuredContent`: `{ result, agentId, runId, agentRunId }`, where `result` matches the agent's output schema, plus `pendingActionIds` when the run queued writes for approval;
 - one JSON text block with the same payload, for clients that ignore `structuredContent`;
 - `_meta.correlationId`, as for every MCP result.
 
-`tools/list` advertises the matching `outputSchema` (`result` typed from the agent's output, plus the three id fields). `POST /api/ai_assistant/tools/execute` returns the same payload as its tool result.
+`tools/list` advertises the matching `outputSchema` (`result` typed from the agent's output, the three id fields, and the optional `pendingActionIds`). `POST /api/ai_assistant/tools/execute` returns the same payload as its tool result.
 
 #### Read-only by default
 
@@ -331,7 +331,7 @@ export const aiTools = [
 - **Input.** The validated tool input is passed to the agent as its run input, unchanged. `toPrompt` is not used on this path.
 - **Output.** `result` is the agent's result payload: the `data` of a research result, the proposal of a proposal agent, or `{ artifacts, summary }` for a file agent. The response carries `runId: null` and the orchestrator run id in `agentRunId`.
 - **Invoke permission.** Declare `requiredFeatures` on the agent: on `defineAgent({ requiredFeatures })`, or with the `requiredFeatures` key in the `AGENT.md` frontmatter. Use features that already exist in an `acl.ts`. The orchestrator checks that the invoker holds them at every entry point: its run and rerun routes, the Playground, `delegate_agent`, workflow `INVOKE_AGENT` steps, eval replay, `POST /api/ai_assistant/ai/run-object`, agent tools, and the agent-token route below. A denial returns `agent_invoke_denied`, without the feature names. The tool's `requiredFeatures` must include every feature the agent requires.
-- **Run-object delegation.** `POST /api/ai_assistant/ai/run-object` with an orchestrator agent id hands the run to the dispatcher too. That response carries `runId: null` and `agentRunId`.
+- **Run-object delegation.** `POST /api/ai_assistant/ai/run-object` with an orchestrator agent id hands the run to the dispatcher too. That response carries `runId: null` and `agentRunId`. Such a run does not accept `attachmentIds`, `pageContext` or `modelOverride`: a request setting any of them returns `422` with `dispatch_option_unsupported`.
 - **Agent-token route.** An external agent can run one agent with its own agent token instead of a staff session: `POST /api/agent_orchestrator/agent-api/agents/{id}/run` with `Authorization: Bearer <agent token>`. The route returns 404 unless `OM_AGENT_API_ENABLED=true`, is rate-limited per client IP, and requires a token whose scopes include `agent_orchestrator.agents.run` or `agent:<id>`. Every token failure is the same 401. The run executes as the token principal, so the agent's `requiredFeatures` are checked against that principal's role.
 - **Kill switch.** `OM_AGENT_INVOKE_ENFORCEMENT=off` turns invoke denials into log entries (a warning is logged at boot). Use it only to unblock a rollout, and turn it back on.
 - **Module disabled.** Without `agent_orchestrator` no dispatcher is registered and nothing else knows the agent id. The tool is then hidden from `tools/list`, a direct call returns `AGENT_DISPATCHER_UNAVAILABLE`, and the MCP server starts normally.

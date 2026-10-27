@@ -16,6 +16,7 @@ import {
   buildToolSuccessResponse,
   filterRunnableAgentTools,
   resolveAgentToolAuditIds,
+  resolveAgentToolPendingActionIds,
   type AgentToolAuditIds,
 } from './mcp-agent-tool-results'
 import {
@@ -532,7 +533,7 @@ async function createMcpServerForRequest(
               buildToolSuccessResponse(tool, result.result),
               outcome,
               null,
-              null,
+              resolveAgentToolPendingActionIds(tool, result.result),
               resolveAgentToolAuditIds(tool, result.result)
             )
           } catch (err) {

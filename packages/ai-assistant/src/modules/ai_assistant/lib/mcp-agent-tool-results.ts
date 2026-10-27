@@ -20,6 +20,7 @@ export type AgentToolCallPayload = {
   agentId: string
   runId: string | null
   agentRunId: string | null
+  pendingActionIds?: string[]
 }
 
 export type AgentToolAuditIds = {
@@ -45,6 +46,12 @@ function readNullableString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+function readPendingActionIds(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const ids = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+  return ids.length > 0 ? ids : null
+}
+
 export function resolveAdvertisedOutputSchema(tool: McpStructuredResultTool): ZodTypeAny | null {
   if (tool.isMutation === true) return null
   return tool.mcp?.outputSchema ?? null
@@ -59,14 +66,9 @@ export function toolOutputJsonSchema(schema: ZodTypeAny): Record<string, unknown
   }
 }
 
-export function advertisedOutputJsonSchema(tool: McpStructuredResultTool): Record<string, unknown> | null {
-  const schema = resolveAdvertisedOutputSchema(tool)
-  return schema ? toolOutputJsonSchema(schema) : null
-}
+type AdvertisedOutputSchema = { jsonSchema: Record<string, unknown>; zodSchema: ZodType }
 
-export function advertisedOutputZodSchema(tool: McpStructuredResultTool): ZodType | null {
-  const jsonSchema = advertisedOutputJsonSchema(tool)
-  if (!jsonSchema) return null
+function toPassthroughZod(jsonSchema: Record<string, unknown>): ZodType | null {
   try {
     const converted = jsonSchemaToZod(jsonSchema)
     return converted instanceof z.ZodObject ? converted.passthrough() : null
@@ -75,33 +77,52 @@ export function advertisedOutputZodSchema(tool: McpStructuredResultTool): ZodTyp
   }
 }
 
+function resolveAdvertisedOutput(tool: McpStructuredResultTool): AdvertisedOutputSchema | null {
+  const schema = resolveAdvertisedOutputSchema(tool)
+  const jsonSchema = schema ? toolOutputJsonSchema(schema) : null
+  const zodSchema = jsonSchema ? toPassthroughZod(jsonSchema) : null
+  return jsonSchema && zodSchema ? { jsonSchema, zodSchema } : null
+}
+
+export function advertisedOutputJsonSchema(tool: McpStructuredResultTool): Record<string, unknown> | null {
+  return resolveAdvertisedOutput(tool)?.jsonSchema ?? null
+}
+
+export function advertisedOutputZodSchema(tool: McpStructuredResultTool): ZodType | null {
+  return resolveAdvertisedOutput(tool)?.zodSchema ?? null
+}
+
 export function toAgentToolCallPayload(
   tool: McpStructuredResultTool,
   value: unknown,
 ): AgentToolCallPayload | null {
   if (!tool.agentRef) return null
   const record = isPlainRecord(value) ? value : {}
+  const pendingActionIds = readPendingActionIds(record.pendingActionIds)
   return {
     result: 'result' in record ? record.result : value,
     agentId: readNullableString(record.agentId) ?? tool.agentRef.agentId,
     runId: readNullableString(record.runId),
     agentRunId: readNullableString(record.agentRunId),
+    ...(pendingActionIds ? { pendingActionIds } : {}),
   }
 }
 
+export function resolveAgentToolPendingActionIds(
+  tool: McpStructuredResultTool | undefined,
+  value: unknown,
+): string[] | null {
+  if (!tool?.agentRef || value === undefined) return null
+  return toAgentToolCallPayload(tool, value)?.pendingActionIds ?? null
+}
+
 export function buildToolSuccessResponse(tool: McpStructuredResultTool, value: unknown): McpToolSuccessResponse {
-  const agentPayload = toAgentToolCallPayload(tool, value)
-  if (agentPayload) {
-    return {
-      content: [{ type: 'text', text: JSON.stringify(agentPayload, null, 2) }],
-      structuredContent: agentPayload,
-    }
-  }
+  const payload: unknown = toAgentToolCallPayload(tool, value) ?? value
   const response: McpToolSuccessResponse = {
-    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
   }
-  if (resolveAdvertisedOutputSchema(tool) && isPlainRecord(value)) {
-    response.structuredContent = value
+  if (resolveAdvertisedOutput(tool) && isPlainRecord(payload)) {
+    response.structuredContent = payload
   }
   return response
 }

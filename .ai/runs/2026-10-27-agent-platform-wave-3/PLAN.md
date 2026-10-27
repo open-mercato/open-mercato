@@ -54,6 +54,7 @@
 | 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | 1fe4d70ea |
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | done | fbccb7647 |
 | 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | 3695a39e2 |
+| 7 | 7.3-review-fix | Fix the agent-tool review findings in ai-assistant and the attachment dialog | inline | done | pending |
 
 ## Goal
 
@@ -273,6 +274,16 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
 
 #### 7.3 Route invoke and grant checks through authorizeFeatures
 - Final-gate fix-forward: `packages/core/src/__tests__/feature-policy-authorization-coverage.test.ts` forbids low-level ACL matchers (`@open-mercato/shared/security/features`) in server modules. `agentInvokeAccess.ts`, the AO `GET /agents` route and `workflows/lib/agent-invoke-grant-warnings.ts` used `hasAllFeatures`; they now use `authorizeFeatures` from `@open-mercato/shared/security/featurePolicy`, which also applies removed-feature and disabled-module handling.
+
+#### 7.3-review-fix Fix the agent-tool review findings in ai-assistant and the attachment dialog
+- `om-auto-review-pr --autofix` findings on PR #8018:
+  - Agent tools return optional `pendingActionIds` (result, output schema, `structuredContent`), and all three MCP servers plus `/tools/execute` record them in the audit row, matching `mcp.mdx`.
+  - API-key callers dispatch as the key owner: `executeTool` fills the additive `McpToolContext.requesterUserId`, and `buildDispatchCaller` prefers it when an API key is present (same rule as `run-object`).
+  - The agent-tool timeout aborts a local run: additive `runAiAgentObject({ abortSignal })` links to the run's internal controller; stream-mode `await outcome.object` now sits inside the timeout race.
+  - The dispatcher path runs the explicit-`requiredFeatures` superset check and `checkAgentPolicy` when the ai-assistant registry knows the agent.
+  - `run-object` returns `422 dispatch_option_unsupported` when `attachmentIds`, `pageContext` or `modelOverride` is sent for a dispatched agent.
+  - `buildToolSuccessResponse` and the `outputSchema` advertisement share one predicate (object JSON schema that converts to a Zod object); `structuredContent` only when advertised and the value is a record.
+  - `AttachmentMetadataDialog` hides the Save footer on the Structure tab; Escape still closes.
 
 ## Risks
 

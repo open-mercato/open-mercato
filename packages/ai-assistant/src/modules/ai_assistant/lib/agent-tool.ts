@@ -23,6 +23,7 @@ export type AgentToolResult<TOutput> = {
   agentId: string
   runId: string | null
   agentRunId: string | null
+  pendingActionIds?: string[]
 }
 
 export type DefineAgentToolSpec<TInput, TOutput> = {
@@ -50,6 +51,7 @@ export function buildAgentToolOutputSchema(resultSchema?: ZodTypeAny): ZodTypeAn
     agentId: z.string(),
     runId: z.string().nullable(),
     agentRunId: z.string().nullable(),
+    pendingActionIds: z.array(z.string()).optional(),
   })
 }
 
@@ -80,11 +82,12 @@ function buildDispatchCaller(agentId: string, context: McpToolContext): AiAgentR
   if (!context.tenantId || !context.organizationId) {
     throw new AgentToolError('AGENT_POLICY_DENIED', agentId, 'agent_principal_missing')
   }
+  const apiKeyId = resolveApiKeyId(context)
   return {
     tenantId: context.tenantId,
     organizationId: context.organizationId,
-    userId: context.userId,
-    apiKeyId: resolveApiKeyId(context),
+    userId: apiKeyId ? (context.requesterUserId ?? context.userId) : context.userId,
+    apiKeyId,
     features: context.userFeatures,
     isSuperAdmin: context.isSuperAdmin,
   }
@@ -119,6 +122,28 @@ function validateAgainst(schema: ZodTypeAny | undefined, value: unknown, toolNam
   return parsed.data
 }
 
+type LocalAgentDefinition = NonNullable<ReturnType<typeof getAgent>>
+
+function assertLocalAgentPolicy<TInput>(
+  spec: DefineAgentToolSpec<TInput, unknown>,
+  agent: LocalAgentDefinition,
+  context: McpToolContext,
+): void {
+  if (spec.requiredFeatures && !isAgentToolFeatureSuperset(spec.requiredFeatures, agent.requiredFeatures)) {
+    throw new Error(
+      `[internal] Agent tool "${spec.name}" requiredFeatures must cover every feature agent "${spec.agentId}" requires`,
+    )
+  }
+  const decision = checkAgentPolicy({
+    agentId: spec.agentId,
+    authContext: { userFeatures: context.userFeatures, isSuperAdmin: context.isSuperAdmin },
+    requestedExecutionMode: 'object',
+  })
+  if (!decision.ok) {
+    throw new AgentToolError('AGENT_POLICY_DENIED', spec.agentId, decision.code)
+  }
+}
+
 async function runThroughDispatcher<TInput>(
   dispatcher: AiAgentRunDispatcher,
   spec: DefineAgentToolSpec<TInput, unknown>,
@@ -127,6 +152,9 @@ async function runThroughDispatcher<TInput>(
   correlationId: string,
   timeoutMs: number,
 ): Promise<AgentToolResult<unknown>> {
+  await loadAgentRegistry()
+  const localAgent = getAgent(spec.agentId)
+  if (localAgent) assertLocalAgentPolicy(spec, localAgent, context)
   if (!(await dispatcher.isAvailable(spec.agentId))) {
     throw new AgentToolError('AGENT_DISPATCHER_UNAVAILABLE', spec.agentId)
   }
@@ -170,19 +198,7 @@ async function runThroughAiAssistant<TInput>(
   if (!agent) {
     throw new AgentToolError('AGENT_DISPATCHER_UNAVAILABLE', spec.agentId)
   }
-  if (spec.requiredFeatures && !isAgentToolFeatureSuperset(spec.requiredFeatures, agent.requiredFeatures)) {
-    throw new Error(
-      `[internal] Agent tool "${spec.name}" requiredFeatures must cover every feature agent "${spec.agentId}" requires`,
-    )
-  }
-  const decision = checkAgentPolicy({
-    agentId: spec.agentId,
-    authContext: { userFeatures: context.userFeatures, isSuperAdmin: context.isSuperAdmin },
-    requestedExecutionMode: 'object',
-  })
-  if (!decision.ok) {
-    throw new AgentToolError('AGENT_POLICY_DENIED', spec.agentId, decision.code)
-  }
+  assertLocalAgentPolicy(spec, agent, context)
   const userId = context.userId
   if (!userId) {
     throw new AgentToolError('AGENT_POLICY_DENIED', spec.agentId, 'agent_principal_missing')
@@ -190,8 +206,8 @@ async function runThroughAiAssistant<TInput>(
   const prompt = spec.toPrompt ? spec.toPrompt(input) : defaultToPrompt(input)
   const channel = context.channel ?? 'agent'
   try {
-    const outcome = await withTimeout(spec.name, timeoutMs, () =>
-      runAiAgentObject({
+    const outcome = await withTimeout(spec.name, timeoutMs, async (signal) => {
+      const run = await runAiAgentObject({
         agentId: spec.agentId,
         input: prompt,
         authContext: {
@@ -209,15 +225,21 @@ async function runThroughAiAssistant<TInput>(
         apiKeyId: resolveApiKeyId(context),
         correlationId,
         trace: { channel: toAgentRunChannel(context.channel), correlationId },
-      }),
-    )
-    const object = outcome.mode === 'generate' ? outcome.object : await outcome.object
-    const agentValidated = validateAgainst(agent.output?.schema, object, spec.name)
+        abortSignal: signal,
+      })
+      if (run.mode === 'generate') {
+        return { object: run.object, runId: run.runId, pendingActionIds: run.pendingActionIds }
+      }
+      return { object: await run.object, runId: run.runId, pendingActionIds: undefined }
+    })
+    const agentValidated = validateAgainst(agent.output?.schema, outcome.object, spec.name)
+    const pendingActionIds = outcome.pendingActionIds ?? []
     return {
       result: validateAgainst(spec.outputSchema, agentValidated, spec.name),
       agentId: spec.agentId,
       runId: outcome.runId ?? null,
       agentRunId: null,
+      ...(pendingActionIds.length > 0 ? { pendingActionIds: [...pendingActionIds] } : {}),
     }
   } catch (error) {
     if (error instanceof AgentPolicyError) {

@@ -44,7 +44,7 @@ describe('executeTool with agent tools', () => {
       channel: 'mcp',
       mutationMode: 'deny',
       correlationId: 'corr-1',
-      requester: { userId: 'user-1', apiKeyId: 'key-1' },
+      requester: { userId: 'owner-1', apiKeyId: 'key-1' },
     })
     const handlerContext = handler.mock.calls[0][1] as McpToolContext
     expect(handlerContext).toMatchObject({
@@ -52,6 +52,7 @@ describe('executeTool with agent tools', () => {
       mutationMode: 'deny',
       correlationId: 'corr-1',
       apiKeyId: 'key-1',
+      requesterUserId: 'owner-1',
     })
     expect(handlerContext.tool?.name).toBe(TOOL_NAME)
   })
@@ -62,6 +63,7 @@ describe('executeTool with agent tools', () => {
     const handlerContext = handler.mock.calls[0][1] as McpToolContext
     expect(handlerContext.channel).toBeUndefined()
     expect(handlerContext.mutationMode).toBeUndefined()
+    expect(handlerContext.requesterUserId).toBeUndefined()
   })
 
   it('maps an agent policy denial to AGENT_POLICY_DENIED without echoing feature names', async () => {

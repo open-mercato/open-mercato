@@ -86,7 +86,9 @@ export const openApi: OpenApiRouteDoc = {
         'requires the agent to declare `executionMode: "object"`. Returns the generated object in ' +
         'a single JSON response (no streaming). Agents owned by a registered agent run dispatcher ' +
         '(for example agent orchestrator agents) are delegated to it: the response then carries ' +
-        '`runId: null` and the dispatcher run id in `agentRunId`.',
+        '`runId: null` and the dispatcher run id in `agentRunId`. Dispatched agents do not accept ' +
+        '`attachmentIds`, `pageContext`, or `modelOverride`; a request setting any of them is rejected ' +
+        'with 422 `dispatch_option_unsupported`.',
       requestBody: {
         contentType: 'application/json',
         description:
@@ -108,7 +110,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Caller lacks agent-level or tool-level required features.' },
         { status: 404, description: 'Unknown agent id.' },
         { status: 409, description: 'Agent/tool/execution-mode policy violation, or no principal to run a dispatched agent as.' },
-        { status: 422, description: 'Agent does not support object-mode execution.' },
+        { status: 422, description: 'Agent does not support object-mode execution, or a dispatched agent received an unsupported option (`dispatch_option_unsupported`).' },
         { status: 500, description: 'Internal runtime failure.' },
       ],
     },
@@ -176,6 +178,10 @@ function buildDispatchCaller(
   }
 }
 
+function hasUnsupportedDispatchOption(body: AiRunObjectRequest): boolean {
+  return Boolean(body.attachmentIds?.length) || body.pageContext !== undefined || Boolean(body.modelOverride)
+}
+
 function principalMissingResponse(): NextResponse {
   return jsonError(409, 'No principal is available to run this agent.', 'agent_principal_missing')
 }
@@ -190,6 +196,9 @@ async function dispatchRunObject(params: {
   correlationId: string
 }): Promise<NextResponse> {
   const { dispatcher, agentId, body, auth, acl, knownLocally, correlationId } = params
+  if (hasUnsupportedDispatchOption(body)) {
+    return jsonError(422, 'This agent does not support the requested options.', 'dispatch_option_unsupported')
+  }
   if (knownLocally) {
     const decision = checkAgentPolicy({
       agentId,

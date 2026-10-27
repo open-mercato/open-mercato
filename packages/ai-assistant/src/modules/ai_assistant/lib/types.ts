@@ -41,6 +41,11 @@ export interface McpToolContext {
   mutationMode?: McpMutationMode
   /** API key that authenticated the call, when the caller used one. */
   apiKeyId?: string | null
+  /**
+   * User the call is attributed to, populated by `executeTool` from its
+   * requester: the key owner for API-key callers, else the session user.
+   */
+  requesterUserId?: string | null
   /** Correlation id shared by the call's audit row and any run it starts. */
   correlationId?: string | null
 }

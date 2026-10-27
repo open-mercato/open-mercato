@@ -279,6 +279,98 @@ describe('defineAgentTool', () => {
     expect(capturedSignal?.aborted).toBe(true)
   })
 
+  it('returns pendingActionIds when the local run queued writes and advertises them as optional', async () => {
+    seedAgent()
+    runAiAgentObjectMock.mockResolvedValue({
+      mode: 'generate',
+      object: { verdict: 'good' },
+      runId: 'run-1',
+      pendingActionIds: ['pa-1', 'pa-2'],
+    })
+    const tool = buildTool()
+    const result = await tool.handler({ input: 'x' }, buildContext({ channel: 'mcp', mutationMode: 'approval' }))
+    expect(result).toEqual({
+      result: { verdict: 'good' },
+      agentId: AGENT_ID,
+      runId: 'run-1',
+      agentRunId: null,
+      pendingActionIds: ['pa-1', 'pa-2'],
+    })
+    const outputSchema = tool.mcp?.outputSchema
+    expect(outputSchema?.safeParse(result).success).toBe(true)
+    expect(outputSchema?.safeParse({ result: {}, agentId: AGENT_ID, runId: null, agentRunId: null }).success).toBe(true)
+  })
+
+  it('omits pendingActionIds when the local run queued nothing', async () => {
+    seedAgent()
+    runAiAgentObjectMock.mockResolvedValue({ mode: 'generate', object: { verdict: 'good' }, runId: 'run-1', pendingActionIds: [] })
+    const result = await buildTool().handler({ input: 'x' }, buildContext())
+    expect(result).not.toHaveProperty('pendingActionIds')
+  })
+
+  it('passes the timeout signal to the local run and aborts it on timeout', async () => {
+    seedAgent()
+    let capturedSignal: AbortSignal | undefined
+    runAiAgentObjectMock.mockImplementation(({ abortSignal }: { abortSignal: AbortSignal }) => {
+      capturedSignal = abortSignal
+      return new Promise(() => undefined)
+    })
+    const tool = buildTool({ timeoutMs: 5 })
+    await expect(tool.handler({ input: 'x' }, buildContext())).rejects.toThrow(/timed out/)
+    expect(capturedSignal).toBeInstanceOf(AbortSignal)
+    expect(capturedSignal?.aborted).toBe(true)
+  })
+
+  it('times out a stream-mode local run whose object never settles', async () => {
+    seedAgent()
+    let capturedSignal: AbortSignal | undefined
+    runAiAgentObjectMock.mockImplementation(async ({ abortSignal }: { abortSignal: AbortSignal }) => {
+      capturedSignal = abortSignal
+      return { mode: 'stream', object: new Promise(() => undefined), runId: 'run-1' }
+    })
+    const tool = buildTool({ timeoutMs: 5 })
+    await expect(tool.handler({ input: 'x' }, buildContext())).rejects.toThrow(/timed out/)
+    expect(capturedSignal?.aborted).toBe(true)
+  })
+
+  it('sends the API key owner as the dispatcher caller userId', async () => {
+    const dispatcher = buildDispatcher()
+    await buildTool().handler(
+      { input: 'x' },
+      buildContext(
+        { userId: 'api_key:key-9', apiKeyId: 'key-9', requesterUserId: 'owner-1', channel: 'tools-api' },
+        dispatcher,
+      ),
+    )
+    expect(dispatcher.runObject.mock.calls[0][0].caller).toMatchObject({ userId: 'owner-1', apiKeyId: 'key-9' })
+  })
+
+  it('keeps the session user as the dispatcher caller userId without an API key', async () => {
+    const dispatcher = buildDispatcher()
+    await buildTool().handler({ input: 'x' }, buildContext({ requesterUserId: 'someone-else' }, dispatcher))
+    expect(dispatcher.runObject.mock.calls[0][0].caller).toMatchObject({ userId: 'user-1', apiKeyId: null })
+  })
+
+  it('runs the agent policy check before dispatching a locally known agent', async () => {
+    seedAgent()
+    const dispatcher = buildDispatcher()
+    const error = await buildTool()
+      .handler({ input: 'x' }, buildContext({ userFeatures: [] }, dispatcher))
+      .catch((caught) => caught)
+    expect(error).toMatchObject({ code: 'AGENT_POLICY_DENIED', denyCode: 'agent_features_denied' })
+    expect(dispatcher.runObject).not.toHaveBeenCalled()
+  })
+
+  it('checks explicit requiredFeatures against a locally known agent before dispatching', async () => {
+    seedAgent({ requiredFeatures: ['catalog.products.view', 'catalog.products.manage'] })
+    const dispatcher = buildDispatcher()
+    const tool = buildTool({ requiredFeatures: ['catalog.products.view'] })
+    await expect(
+      tool.handler({ input: 'x' }, buildContext({ userFeatures: ['catalog.*'] }, dispatcher)),
+    ).rejects.toThrow(/requiredFeatures must cover/)
+    expect(dispatcher.runObject).not.toHaveBeenCalled()
+  })
+
   it('maps tool channels to agent run channels', () => {
     expect(toAgentRunChannel('mcp')).toBe('mcp')
     expect(toAgentRunChannel('tools-api')).toBe('tools-api')

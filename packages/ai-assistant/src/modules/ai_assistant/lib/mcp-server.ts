@@ -11,6 +11,7 @@ import {
   buildToolSuccessResponse,
   filterRunnableAgentTools,
   resolveAgentToolAuditIds,
+  resolveAgentToolPendingActionIds,
   type AgentToolAuditIds,
 } from './mcp-agent-tool-results'
 import { getToolRegistry } from './tool-registry'
@@ -251,11 +252,12 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
     }
 
+    const toolResultValue = result.success ? result.result : undefined
     await audit(
       mapToolResultToAuditOutcome(result),
       result.errorCode ?? null,
-      null,
-      resolveAgentToolAuditIds(registeredTool, result.success ? result.result : undefined)
+      resolveAgentToolPendingActionIds(registeredTool, toolResultValue),
+      resolveAgentToolAuditIds(registeredTool, toolResultValue)
     )
 
     if (!result.success) {

@@ -117,6 +117,56 @@ describe('runAiAgentObject — generate mode', () => {
     expect(callArg.model.id).toBe('provider-default-model')
   })
 
+  it('aborts the model call when the caller abortSignal fires', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extractor',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        mutationPolicy: 'read-only',
+        output: { schemaName: 'ExtractedAttributes', schema: z.object({ name: z.string() }) },
+      }),
+    ])
+    const callerController = new AbortController()
+
+    await runAiAgentObject({
+      agentId: 'catalog.extractor',
+      input: 'extract please',
+      authContext: baseAuth,
+      abortSignal: callerController.signal,
+    })
+
+    const modelSignal = (generateObjectMock.mock.calls[0][0] as { abortSignal: AbortSignal }).abortSignal
+    expect(modelSignal).not.toBe(callerController.signal)
+    expect(modelSignal.aborted).toBe(false)
+    callerController.abort()
+    expect(modelSignal.aborted).toBe(true)
+  })
+
+  it('starts with an aborted model signal when the caller signal is already aborted', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extractor',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        mutationPolicy: 'read-only',
+        output: { schemaName: 'ExtractedAttributes', schema: z.object({ name: z.string() }) },
+      }),
+    ])
+    const callerController = new AbortController()
+    callerController.abort()
+
+    await runAiAgentObject({
+      agentId: 'catalog.extractor',
+      input: 'extract please',
+      authContext: baseAuth,
+      abortSignal: callerController.signal,
+    })
+
+    const modelSignal = (generateObjectMock.mock.calls[0][0] as { abortSignal: AbortSignal }).abortSignal
+    expect(modelSignal.aborted).toBe(true)
+  })
+
   it('runtime output override wins over agent-level output', async () => {
     const agentSchema = z.object({ a: z.string() })
     const overrideSchema = z.object({ b: z.number() })

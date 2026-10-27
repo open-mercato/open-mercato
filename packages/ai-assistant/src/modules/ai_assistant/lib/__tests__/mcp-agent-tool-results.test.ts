@@ -6,6 +6,7 @@ import {
   buildToolSuccessResponse,
   filterRunnableAgentTools,
   resolveAgentToolAuditIds,
+  resolveAgentToolPendingActionIds,
   toAgentToolCallPayload,
   type McpStructuredResultTool,
 } from '../mcp-agent-tool-results'
@@ -130,6 +131,43 @@ describe('mcp-agent-tool-results', () => {
       })
     })
 
+    it('includes pendingActionIds in the agent payload when present', () => {
+      const value = {
+        result: { summary: 'ok' },
+        agentId: 'catalog.assistant',
+        runId: 'run-1',
+        agentRunId: null,
+        pendingActionIds: ['pa-1'],
+      }
+      const response = buildToolSuccessResponse(agentTool, value)
+      expect(response.structuredContent).toEqual(value)
+      expect(advertisedOutputZodSchema(agentTool)?.safeParse(response.structuredContent).success).toBe(true)
+    })
+
+    it('drops empty or malformed pendingActionIds from the agent payload', () => {
+      expect(toAgentToolCallPayload(agentTool, { result: 1, pendingActionIds: [] })).not.toHaveProperty('pendingActionIds')
+      expect(toAgentToolCallPayload(agentTool, { result: 1, pendingActionIds: 'pa-1' })).not.toHaveProperty('pendingActionIds')
+    })
+
+    it('keeps an agent tool without an advertised output schema text-only', () => {
+      const tool: McpStructuredResultTool = { name: 'ops.triage.run', agentRef: { agentId: 'ops.triage', engine: 'dispatcher' } }
+      const response = buildToolSuccessResponse(tool, { result: 1 })
+      expect(response.structuredContent).toBeUndefined()
+      expect(JSON.parse(response.content[0].text)).toEqual({ result: 1, agentId: 'ops.triage', runId: null, agentRunId: null })
+    })
+
+    it('neither advertises nor emits structuredContent for a non-object output schema', () => {
+      const tool: McpStructuredResultTool = { name: 'catalog.count', mcp: { outputSchema: z.number() } }
+      expect(advertisedOutputJsonSchema(tool)).toBeNull()
+      expect(advertisedOutputZodSchema(tool)).toBeNull()
+      expect(buildToolSuccessResponse(tool, 3)).toEqual({ content: [{ type: 'text', text: '3' }] })
+    })
+
+    it('emits no structuredContent when an advertised tool returns a non-record value', () => {
+      const tool: McpStructuredResultTool = { name: 'catalog.stats', mcp: { outputSchema: z.object({ count: z.number() }) } }
+      expect(buildToolSuccessResponse(tool, [1, 2]).structuredContent).toBeUndefined()
+    })
+
     it('keeps non-agent tools without an output schema text-only', () => {
       const response = buildToolSuccessResponse({ name: 'customers.list_people' }, { items: [] })
       expect(response).toEqual({ content: [{ type: 'text', text: JSON.stringify({ items: [] }, null, 2) }] })
@@ -169,6 +207,21 @@ describe('mcp-agent-tool-results', () => {
 
     it('returns null for tools without an output schema', () => {
       expect(advertisedOutputJsonSchema({ name: 'customers.list_people' })).toBeNull()
+    })
+  })
+
+  describe('resolveAgentToolPendingActionIds', () => {
+    it('returns the agent run pending action ids', () => {
+      expect(resolveAgentToolPendingActionIds(agentTool, { result: {}, pendingActionIds: ['pa-1', 'pa-2'] })).toEqual([
+        'pa-1',
+        'pa-2',
+      ])
+    })
+
+    it('returns null for non-agent tools, missing results and runs without pending actions', () => {
+      expect(resolveAgentToolPendingActionIds({ name: 'x' }, { pendingActionIds: ['pa-1'] })).toBeNull()
+      expect(resolveAgentToolPendingActionIds(agentTool, undefined)).toBeNull()
+      expect(resolveAgentToolPendingActionIds(agentTool, { result: {} })).toBeNull()
     })
   })
 

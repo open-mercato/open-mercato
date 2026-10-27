@@ -717,6 +717,7 @@ export function AttachmentMetadataDialog({
                 isLoading={!initialValues || loading}
                 loadingMessage={loadMessage}
                 submitLabel={t('attachments.library.metadata.save', 'Save')}
+                hideFooterActions={dialogTab !== 'details'}
                 extraActions={
                   <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                     {t('attachments.library.metadata.cancel', 'Cancel')}

@@ -17,6 +17,7 @@ import {
 import { resolveMcpExposureConfig, type McpMutationMode } from '../../../lib/mcp-exposure'
 import {
   resolveAgentToolAuditIds,
+  resolveAgentToolPendingActionIds,
   toAgentToolCallPayload,
   type AgentToolAuditIds,
 } from '../../../lib/mcp-agent-tool-results'
@@ -170,11 +171,12 @@ export async function POST(req: NextRequest) {
     }
 
     const registeredTool = getToolRegistry().getTool(toolName) as AiToolDefinition | undefined
+    const toolResultValue = result.success ? result.result : undefined
     await audit(
       mapToolResultToAuditOutcome(result),
       result.errorCode ?? null,
-      null,
-      resolveAgentToolAuditIds(registeredTool, result.success ? result.result : undefined),
+      resolveAgentToolPendingActionIds(registeredTool, toolResultValue),
+      resolveAgentToolAuditIds(registeredTool, toolResultValue),
     )
 
     if (

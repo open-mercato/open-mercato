@@ -145,6 +145,7 @@ function buildHandlerContext(
   if (options.mutationMode) handlerContext.mutationMode = options.mutationMode
   if (options.correlationId) handlerContext.correlationId = options.correlationId
   if (options.requester && options.requester.apiKeyId) handlerContext.apiKeyId = options.requester.apiKeyId
+  if (options.requester && options.requester.userId) handlerContext.requesterUserId = options.requester.userId
   return handlerContext
 }
 
