@@ -52,3 +52,55 @@ export const integrationsListResponseSchema = createPagedListResponseSchema(inte
 export const buildIntegrationsCrudOpenApi = createCrudOpenApiFactory({
   defaultTag: 'Integrations',
 })
+
+export const integrationOAuthGrantSummarySchema = z.object({
+  status: z.enum(['active', 'invalidated', 'unavailable']),
+})
+
+export const integrationDetailPageConfigSchema = z.object({
+  widgetSpotId: z.string().optional(),
+  hiddenTabs: z.array(z.enum(['credentials', 'version', 'health', 'logs', 'data-sync-schedule'])).optional(),
+  connectTabId: z.string().optional(),
+})
+
+export const integrationDetailStateSchema = z.object({
+  isEnabled: z.boolean(),
+  apiVersion: z.string().nullable(),
+  reauthRequired: z.boolean(),
+  lastHealthStatus: z.string().nullable(),
+  lastHealthCheckedAt: z.string().nullable(),
+  lastHealthLatencyMs: z.number().nullable(),
+  enabledAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+})
+
+export const integrationDetailDefinitionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  hub: z.string().optional(),
+  providerKey: z.string().optional(),
+  bundleId: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  detailPage: integrationDetailPageConfigSchema.optional(),
+}).passthrough()
+
+export const integrationDetailResponseSchema = z.object({
+  integration: integrationDetailDefinitionSchema,
+  bundle: z.object({ id: z.string(), title: z.string() }).passthrough().optional(),
+  bundleIntegrations: z.array(
+    integrationDetailDefinitionSchema.extend({
+      isEnabled: z.boolean(),
+      state: integrationDetailStateSchema,
+    }),
+  ),
+  state: integrationDetailStateSchema,
+  hasCredentials: z.boolean(),
+  credentialsUpdatedAt: z.string().nullable(),
+  healthStatus: integrationMarketplaceHealthStatusSchema,
+  analytics: integrationAnalyticsSchema,
+  oauthGrant: integrationOAuthGrantSummarySchema
+    .nullable()
+    .describe('Status of the tenant-level OAuth grant of the active organization; null when the integration has no live grant'),
+})
