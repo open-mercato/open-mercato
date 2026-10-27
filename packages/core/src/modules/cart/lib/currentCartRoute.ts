@@ -10,6 +10,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { getCartCommand } from '../commands/cart'
 import type { CartGetByTokenInput, CartSummary } from '../commands/cart'
 import type { CartPriceChange } from './reprice'
+import { isCartLineMutationLockTimeoutError } from './lineMutationLock'
 import { isCartStoreContextUnavailableError, resolveCartRouteContext } from './routeContext'
 import type { ResolveCartRouteContextOptions, ResolvedCartRouteContext } from './routeContext'
 
@@ -173,6 +174,13 @@ const logger = createLogger('cart').child({ component: 'api' })
  * unexpected 500, logged and reported.
  */
 export async function mapRouteErrorToResponse(error: unknown): Promise<NextResponse> {
+  if (isCartLineMutationLockTimeoutError(error)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('cart.errors.busy', 'Cart is busy. Please try again.'), code: 'cart_busy' },
+      { status: 503, headers: { 'Retry-After': '1', 'Cache-Control': 'no-store' } },
+    )
+  }
   if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
   const interceptorRejection = getCommandInterceptorHttpRejection(error)
   if (interceptorRejection) return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
