@@ -1366,6 +1366,25 @@
     });
   }
 
+  function handleScreenDialogKey(event) {
+    var isEscape = event.key === 'Escape';
+    var isConfirm = event.key === 'Enter' && (event.metaKey || event.ctrlKey);
+    if (!isEscape && !isConfirm) return false;
+    var active = document.activeElement;
+    var modal = (active && active.closest && active.closest('.screen .modal')) ||
+      document.querySelector('.screen.is-current .modal');
+    var foot = modal && modal.querySelector('.modal-foot');
+    if (!foot) return false;
+    var hint = foot.querySelector('.t-hint');
+    var target = isEscape
+      ? foot.querySelector('.btn-outline')
+      : (hint && hint.textContent.indexOf('⌘') !== -1 ? foot.querySelector('.row .btn:not(.btn-outline):not([disabled])') : null);
+    if (!target) return false;
+    event.preventDefault();
+    target.click();
+    return true;
+  }
+
   function closeScreenMenu() {
     var menu = document.getElementById('screen-menu');
     var toggle = document.getElementById('screen-menu-toggle');
@@ -1604,6 +1623,7 @@
         flashToast('Re-anchor cancelled.');
         return;
       }
+      if (!event.defaultPrevented && handleScreenDialogKey(event)) return;
       if (event.key === 'Escape' && panel.classList.contains('open')) closePanel();
       if (event.key === 'Escape') closeLocationSwitchers();
       if (event.key === 'Escape') closePortalNotifications();
