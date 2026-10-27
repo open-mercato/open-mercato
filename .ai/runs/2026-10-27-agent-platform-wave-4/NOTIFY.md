@@ -28,3 +28,8 @@
 ## 2026-10-27T18:17:02Z — checkpoint 4
 - Steps 4.1..4.5 verified: typecheck, AO jest 2235/2235. No UI in this window.
 - Delegations: executors for 4.1, 4.2 (cheap tier), 4.3, 4.4, 4.5.
+
+## 2026-10-27T19:02:58Z — Step 4.11 finding (escalate)
+- Tenant OTel export settings changes reach the export subscriber and worker only after the module-config cache TTL (60 s). `ModuleConfigService.setValue` refreshes the cache entry under the request's tenant cache scope (`tenant:<id>:`), while the subscriber/worker read it in the global cache scope (`tenant:global:`), so a tenant opt-out still exports runs for up to 60 s (reproduced on the ephemeral app; same pattern applies to other AO module-config reads off the request path). Fix belongs in core `configs/lib/module-config-service.ts` (scope cache ops by `scope.tenantId`) or in AO reads via `runWithCacheTenant` — not done here (cross-package, ask first). TC-AGENT-OTEL-002 waits out the TTL after each settings change; drop the waits once fixed.
+- The test-span 429 cannot be exercised in the ephemeral app (`OM_INTEGRATION_TEST` disables rate limiting); TC-AGENT-OTEL-001 accepts 200 with a note, unit test covers 429.
+- TC-AGENT-OTEL-003 (CLI dry-run) is a unit test in `__tests__/otel-export-backfill.test.ts` through the real `cli.ts` command: no integration spec shells out to the CLI.
