@@ -17,6 +17,7 @@ Record the owner and evidence for each item. Do not paste secret values into tic
    - [ ] Point every required DNS record at the intended ingress and remove stale records. Check both IPv4 and IPv6 when both are published.
    - [ ] Install a valid certificate with its complete chain, automate renewal, and alert before expiry.
    - [ ] Redirect HTTP to HTTPS and confirm the application is not directly reachable on an unintended public port.
+   - [ ] With bundled Traefik, use Compose 2.24.4+, recreate affected containers after upgrading, and verify the merged configuration and running containers publish neither the app nor collaboration ports. Migrate direct-port health probes to HTTPS and expose optional collaboration through WSS. Follow the [bundled Traefik migration and deployment checks](https://github.com/open-mercato/open-mercato/blob/main/docker/traefik/README.md#private-application-ports-and-migration), including any local overrides.
    - [ ] Forward the original host, client address, and protocol through the proxy, and trust forwarded headers only from the known proxy hops. For a self-managed host, start from the [VPS nginx example](../installation/vps#https-with-a-reverse-proxy).
    - [ ] Keep PostgreSQL, Redis, search, and internal worker endpoints off the public internet.
    - [ ] Set edge request-size, timeout, rate-limit, and administrative-route policies deliberately; do not rely on unreviewed provider defaults.
@@ -109,6 +110,7 @@ Record the owner and evidence for each item. Do not paste secret values into tic
 9. **Validate the release before production traffic.**
 
    - [ ] Run generation, the production build, tests, and migration checks for the exact commit or immutable artifact being released.
+   - [ ] [Scan the standalone app](./readiness-scanner) locally and in CI before deployment, then inside the deployed staging and production workloads with their own runtime configuration. Resolve weak/default credentials and keep local plaintext secret files out of the deployed artifact; assign owners and evidence to remaining review warnings.
    - [ ] Rehearse the release in a production-like environment using sanitized or synthetic data.
    - [ ] Smoke-test HTTPS, sign-in, authorization boundaries, representative create/update/delete flows against a real database, file handling, background work, email/webhook delivery, and every business-critical integration.
    - [ ] Verify health checks fail when a required dependency is unavailable and recover when it returns.
@@ -133,7 +135,15 @@ Record the owner and evidence for each item. Do not paste secret values into tic
 
 ## Readiness scanner
 
-Use the [Open Mercato Readiness Scanner](https://github.com/open-mercato/mercato-readiness-scanner) to review a standalone app for production-readiness gaps before go-live. It performs read-only checks of local configuration and documentation without opening live `.env*` files, running application scripts, or contacting services, and can export Markdown and JSON reports with remediation guidance. Follow the scanner repository's README for setup and usage.
+Run the [Open Mercato Readiness Scanner](./readiness-scanner) against your standalone app locally before deployment, then inside the staging and production workloads before serving traffic:
+
+```bash
+npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high
+```
+
+Scanning is read-only. Credential checks are always enabled: supported root `.env*` files, visible runtime credentials, and supported Compose settings are assessed in memory without exposing values in findings. A strong injected secret does not hide an unsafe value still present in a deployed environment file. Resolve weak/default credentials and use runtime secret injection rather than shipping plaintext secret files.
+
+See the [scanner guide](./readiness-scanner) for all CLI options, reports, CI exit codes, local safe fixes with `apply`, server prerequisites, and the distinction between local warnings and production failures. KMS and secret-injection warnings still require operator review even on a correctly configured server.
 
 Use its findings alongside this checklist. Static checks cannot prove that deployed TLS, backups, restore procedures, alerts, or provider settings work; operators must verify those items in the deployed environment.
 
