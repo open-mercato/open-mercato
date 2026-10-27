@@ -38,6 +38,30 @@ their existing unconstrained meaning. Operators: audit custom modules and saved
 filter presets before upgrading. No database migration or configuration change
 is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
 
+### Bundled Traefik keeps app and collaboration ports private (#7833)
+
+The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
+legacy root duplicate) now removes inherited `app` and `documents-collab`
+host-port publications. Previously the public app port could bypass Traefik's
+TLS and custom-domain ForwardAuth controls. This applies to production and dev
+stacks, including the dev splash port. `APP_PORT` no longer exposes the app
+when the overlay is used. The optional collaboration profile still requires
+explicit enablement and no longer exposes port 4101 with bundled Traefik.
+
+**Operator action:** use Docker Compose **2.24.4+**, inspect the merged config
+including local overlays, and run `up -d` with the deployment's full file/profile
+chain to recreate affected containers. Move direct app-port health probes to
+the public HTTPS hostname. For Documents collaboration, configure a TLS
+WebSocket proxy and set `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` to its public `wss://`
+URL before rebuilding the app; retain the sidecar's token and Origin checks.
+Verify the recreated containers no longer publish these ports.
+
+Deployments that deliberately use an external proxy or direct access can
+continue to omit the bundled Traefik overlay; their base-file port mappings
+are unchanged. Host-local proxies and diagnostics can use a final loopback-only
+override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
+No application API, database, or module-code migration is required.
+
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
 The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
