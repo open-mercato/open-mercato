@@ -2853,6 +2853,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       messages: modelMessages,
       responseFormat: objectResponseFormat,
       callSettings: effectiveCallSettings,
+      callerManaged: Boolean(input.generateObject),
     })
     await synthesizedModelCall?.start()
 

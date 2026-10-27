@@ -88,7 +88,7 @@ function buildPendingCall(event: AiAgentModelCallStartEvent): PendingModelCall {
     callSettings: stripProviderOptions(callSettings),
     hasProviderOptions: callSettings.providerOptions !== undefined,
     startedAtMs: event.startedAtMs,
-    fidelity: event.synthesized === true ? 'reconstructed' : 'exact',
+    fidelity: event.callerManaged === true ? 'reconstructed' : 'exact',
     requestSha256: request.sha256,
     requestBytes: request.bytes,
     systemSha256: typeof event.system === 'string' ? computeManifestSha256(event.system) : null,

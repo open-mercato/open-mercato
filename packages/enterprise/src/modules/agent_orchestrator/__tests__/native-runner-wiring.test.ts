@@ -516,7 +516,7 @@ describe('post-run trace capture', () => {
 
     const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
     expect(traceInput.steps).toEqual([])
-    expect(traceInput.fallbackCall).toMatchObject({ callId: 'call-1', fidelity: 'reconstructed', toolCount: 0 })
+    expect(traceInput.fallbackCall).toMatchObject({ callId: 'call-1', fidelity: 'exact', toolCount: 0 })
   })
 
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {

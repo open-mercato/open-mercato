@@ -128,10 +128,17 @@ describe('createNativeModelCallCollector', () => {
     expect(second.records()[0].requestSha256).toBe(first.records()[0].requestSha256)
   })
 
-  it('marks synthesized calls as reconstructed and handles a toolless call', () => {
+  it('keeps SDK-synthesized object calls exact', () => {
+    const collector = createNativeModelCallCollector()
+    collector.observer.onModelCallStart(startEvent({ synthesized: true, tools: undefined }))
+    collector.observer.onModelCallEnd(endEvent())
+    expect(collector.records()[0].fidelity).toBe('exact')
+  })
+
+  it('marks caller-managed calls as reconstructed and handles a toolless call', () => {
     const collector = createNativeModelCallCollector()
     collector.observer.onModelCallStart(
-      startEvent({ synthesized: true, tools: undefined, system: undefined, callSettings: {} }),
+      startEvent({ synthesized: true, callerManaged: true, tools: undefined, system: undefined, callSettings: {} }),
     )
     collector.observer.onModelCallEnd(endEvent({ responseTimeMs: 0, endedAtMs: 1300 }))
     const [record] = collector.records()

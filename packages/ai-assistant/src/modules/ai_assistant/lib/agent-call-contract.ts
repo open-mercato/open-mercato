@@ -42,6 +42,7 @@ export type AiAgentModelCallStartEvent = {
   callSettings: AiAgentCallSettings
   startedAtMs: number
   synthesized?: boolean
+  callerManaged?: boolean
 }
 
 export type AiAgentModelCallUsage = {

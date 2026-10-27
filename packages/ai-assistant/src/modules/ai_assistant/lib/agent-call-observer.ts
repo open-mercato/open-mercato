@@ -306,6 +306,7 @@ export function createSynthesizedModelCall(
     messages: unknown[]
     responseFormat: unknown
     callSettings: AiAgentCallSettings
+    callerManaged?: boolean
     now?: () => number
   },
 ): SynthesizedModelCall | undefined {
@@ -334,6 +335,7 @@ export function createSynthesizedModelCall(
             callSettings: cloneForObserver(context.callSettings),
             startedAtMs,
             synthesized: true,
+            ...(context.callerManaged ? { callerManaged: true } : {}),
           }),
         { agentId: context.agentId, callId },
       )
@@ -415,6 +417,7 @@ function toLightweightStartEvent(event: AiAgentModelCallStartEvent): AiAgentMode
     callSettings: cloneForObserver(event.callSettings),
     startedAtMs: event.startedAtMs,
     ...(event.synthesized ? { synthesized: true } : {}),
+    ...(event.callerManaged ? { callerManaged: true } : {}),
   }
 }
 

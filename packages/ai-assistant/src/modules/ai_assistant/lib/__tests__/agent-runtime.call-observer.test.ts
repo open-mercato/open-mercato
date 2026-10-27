@@ -357,6 +357,7 @@ describe('agent runtime model-call observer', () => {
       responseFormat: { type: 'json', name: 'Product' },
       synthesized: true,
     })
+    expect(starts[0].callerManaged).toBeUndefined()
     expect(starts[0].system).toContain('System prompt base.')
     expect(starts[0].messages.length).toBeGreaterThan(0)
     expect(pickSentSettings(currentModel.doGenerateCalls[0] as unknown as Record<string, unknown>)).toEqual(
@@ -385,6 +386,7 @@ describe('agent runtime model-call observer', () => {
     })
     expect(starts).toHaveLength(1)
     expect(starts[0].stepNumber).toBe(0)
+    expect(starts[0]).toMatchObject({ synthesized: true, callerManaged: true })
     expect(ends).toHaveLength(1)
     expect(ends[0]).toMatchObject({
       callId: starts[0].callId,

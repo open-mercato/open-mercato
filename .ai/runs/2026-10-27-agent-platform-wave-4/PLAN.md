@@ -18,6 +18,7 @@
 | 1 | 1.1 | Add the gen_ai attribute vocabulary and ingest normalizer | dispatch | done | pending |
 | 1 | 1.2 | Add computeCostMicros with a pricing source | dispatch:cheap | done | pending |
 | 1 | 1.3 | Collect model-call observer records in the native runner | dispatch:capable | done | pending |
+| 1 | 1.3-review-fix | Mark only caller-managed object calls as reconstructed | inline | done | pending |
 | 1 | 1.4 | Write gen_ai and om attributes on native llm spans | dispatch:capable | todo | — |
 | 2 | 2.1 | Add the trace capture policy schema and resolver | dispatch | todo | — |
 | 2 | 2.2 | Apply the capture policy to native and OpenCode runs and record om.capture | dispatch:capable | todo | — |
@@ -103,6 +104,9 @@ Shorthand: `AA` = `packages/ai-assistant/src/modules/ai_assistant`, `AO` = `pack
 - Keep the observer cheap: hashing runs once per call; failures inside it are swallowed by the existing safety wrapper.
 - Add optional `call?: NativeModelCallRecord` to `NativeStepRecord`; merge by order (n-th `onModelCallEnd` ↔ n-th `onStepFinish`); calls with no matching step (object branches without tool loop) go to `fallbackCall` used by the synthetic llm span.
 - Unit tests with a mocked `runAiAgentObject` that fires start/end events: merge by order, fallback call, hash stability, content not retained.
+
+#### 1.3-review-fix Mark only caller-managed object calls as reconstructed
+- The spec reserves `reconstructed` for the caller-supplied `input.generateObject` callback; plain `generateObject` / `streamObject` are issued by ai-assistant with the exact inputs, so they are `exact`. Additive `callerManaged?: boolean` on `AiAgentModelCallStartEvent`, set by `runAiAgentObject` for the callback branch; the AO recorder maps it to `reconstructed`.
 
 #### 1.4 Write gen_ai and om attributes on native llm spans
 - `buildNativeTracePayload` writes, per llm span, the legacy keys plus the metadata keys from 1.1 when a call record exists: params as sent (absent ⇒ key omitted; `om.params.defaults = true` when all absent), usage, finish reasons array, `om.latency.ms`, `om.cost.micros` / `.currency` / `.pricing_source` via `computeCostMicros(responseModel ?? requestModel, …)`, hashes/sizes, `om.capture.fidelity`, `gen_ai.output.type = 'json'`, `om.content.status = 'disabled'`.
