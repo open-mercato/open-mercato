@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.9 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, and review fixes) |
+| **Status** | Specification (v4.10 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, and deleted default sales channel) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -95,6 +95,7 @@ GET https://firda.pl/products/czerwona-sukienka
   │        EcommerceStoreDomainBinding by domainMappingId (+ longest pathPrefix match)
   │        ⋈ EcommerceStore (status = 'active')
   │        ⋈ EcommerceStoreChannelBinding (isDefault = true)
+  │        ⟕ sales_channels (by id, same tenant/org; missing → no default binding, 503)
   │        → storeId, salesChannelId, priceKindId, assortmentScope, requireAuthentication
   │
   ├─ 6. Buyer identity (optional portal session: cookie customer_auth_token or Bearer)
@@ -421,7 +422,7 @@ Earlier versions resolved steps 2–5 in one SQL join over `domain_mappings`, `e
 
 Now:
 1. **Step 2** is `domainMappingService.resolveByHostname(host)` via DI. On the hot path it is a cache hit.
-2. **Steps 3–5** are **one** `ecommerce` query: bindings by `domain_mapping_id` with longest-prefix match on `path_prefix`, joined to the store (`status = 'active'`) and its default channel binding, all `ecommerce` tables.
+2. **Steps 3–5** are **one** `ecommerce` query: bindings by `domain_mapping_id` with longest-prefix match on `path_prefix`, joined to the store (`status = 'active'`) and its default channel binding. The only non-`ecommerce` table is a `LEFT JOIN` of `sales_channels` by primary key (same tenant and organization), which tells whether the default binding's sales channel still exists. `sales` is a required module and has no channel cache of its own, so this does not duplicate another module's cache the way reading `domain_mappings` did.
 
 A three-round-trip implementation of steps 3–5 is still a defect: this path runs on every uncached request, including static asset routes that carry a Host header. R2's P95 budget is unchanged.
 
@@ -769,6 +770,7 @@ Renumbered from v3's `TC-EC-*`; cases covering moved scope now live in the specs
 - Draft store → 404 by default, 403 with `OM_ECOMMERCE_DEV_STORE_SLUG=true`
 - Archived store → 410
 - Missing default channel binding → 503 plus one admin notification; a burst of requests within the hour produces no second notification (throttling)
+- Deleted default sales channel → 503 right after the delete; the bindings are kept, and undoing the channel delete restores 200 (TC-ECOM-018)
 - Longest-prefix match with two bindings on one host (R6)
 - `?storeSlug=` works with `OM_ECOMMERCE_DEV_STORE_SLUG=true` and is rejected with the flag unset, regardless of `NODE_ENV`
 - Resolution of steps 2–5 issues one `domainMappingService` call (a cache hit when warm) and exactly one `ecommerce` query
@@ -902,7 +904,7 @@ Open:
 
 ### 2026-10-24 — v4.10 (deleted default sales channel)
 
-- §4.1 / §8 — `sales.channels.delete` hard-deletes the channel row, but resolution kept serving a default channel binding that pointed at it. The resolution query now accepts a default binding only while its sales channel exists in the same tenant and organization, so such a store answers `503 store_misconfigured` like a store with no default binding. The cached candidates carry an `ecommerce-sales-channel:{id}` tag that `sales.channel.*` evicts, which also brings the store back when the delete is undone. The binding rows are left untouched, matching R3's keep-and-diagnose approach for dangling references.
+- §4.1, §6.2, §8, §8.1, §16 — `sales.channels.delete` hard-deletes the channel row, but resolution kept serving a default channel binding that pointed at it. The resolution query now accepts a default binding only while its sales channel exists in the same tenant and organization, so such a store answers `503 store_misconfigured` like a store with no default binding. The cached candidates carry an `ecommerce-sales-channel:{id}` tag that `sales.channel.*` evicts, which also brings the store back when the delete is undone. The binding rows are left untouched, matching R3's keep-and-diagnose approach for dangling references.
 
 ### 2026-10-13 — v4.9 (review fixes, PR #7142)
 

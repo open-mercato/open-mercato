@@ -24,7 +24,14 @@ jest.mock('../../events', () => ({
   emitEcommerceEvent: jest.fn(async () => undefined),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn(), child: jest.fn() }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
 const mockedEmit = emitEcommerceEvent as jest.Mock
+const mockedLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger() as { warn: jest.Mock }
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -341,6 +348,11 @@ describe('resolveStoreFromRequest — host resolution', () => {
     )
     const throttle = harness.cacheSets.find((entry) => entry.key.includes('misconfigured'))
     expect(throttle?.ttl).toBe(3_600_000)
+    expect(mockedLogger.warn).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      'Store has no default channel binding; answering 503',
+      expect.not.objectContaining({ salesChannelId: expect.anything() }),
+    )
   })
 
   it('answers 503 when the default channel binding references a sales channel that no longer exists', async () => {
@@ -352,6 +364,10 @@ describe('resolveStoreFromRequest — host resolution', () => {
       'ecommerce.store.misconfigured',
       expect.objectContaining({ storeId: 'store-root', reason: 'channel_binding_missing' }),
       expect.objectContaining({ persistent: true, tenantId: TENANT_ID, organizationId: ORG_ID }),
+    )
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      'Store default channel binding references a sales channel that no longer exists; answering 503',
+      expect.objectContaining({ storeId: 'store-root', salesChannelId: 'sales-channel-store-root' }),
     )
     const [query] = harness.queries
     expect(query.sql).toContain('left join "sales_channels" as "sc"')
