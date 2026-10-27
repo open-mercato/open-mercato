@@ -17,7 +17,7 @@ Dependency reports follow the framework convention: only `Depends on` is a direc
 
 The generic framework can ship without enabling a domain host. Catalog product edit is the first complex adopter. The remaining repository surface spans unrelated modules, APIs, schemas, side effects, security boundaries, and repositories, so it is a program rather than one deployable feature.
 
-The historical snapshot at source SHA `7187041c2` found 139 production `CrudForm` JSX invocations in 131 files, including 102 grouped invocations across 98 files. Those counts are review context only. The versioned merge-head inventory contract is defined by `.ai/specs/2026-10-22-crudform-section-adoption-inventory.md` and is the sole source of current records.
+The reviewed 2026-10-27 merge-head audit found 140 scanned OSS `CrudForm` JSX invocations in 131 files, including 105 grouped invocations across 100 files. Eight invocations in six Todo/UMES/example/template files are explicitly `sample-harness`, leaving 132 production invocations in 125 files, including 99 grouped invocations across 96 files. The enterprise owner lane separately found seven production invocations in seven files, two grouped and five ungrouped; the optional official-modules checkout was absent and was not counted. Those counts are review context only. The versioned inventory contract in `.ai/specs/2026-10-22-crudform-section-adoption-inventory.md` is the sole source of current records after implementation.
 
 ## Problem Statement
 
@@ -59,8 +59,8 @@ Each finite inventory alternative points to exactly one work unit with one state
 
 ```ts
 type AdoptionWorkUnitState =
-  | { state: 'ready'; adopterSpec: string; designReview: ApprovedDesignReview; implementationPr: string }
-  | { state: 'planned'; adopterSpec: string; designReview: ApprovedDesignReview; specPr: string }
+  | { state: 'ready'; adopterSpec: string; designReview: ApprovedProviderReview; implementationPr: string; implementationReview: ApprovedProviderReview }
+  | { state: 'planned'; adopterSpec: string; designReview: ApprovedProviderReview; specPr: string }
   | { state: 'deferred'; issue: string; owner: string; revisitBy: string }
   | { state: 'compatibility-only'; rationale: string }
 
@@ -71,8 +71,8 @@ type ExternalCoordinationEntry = {
 }
 ```
 
-- `adopterSpec` is a repository path under the owning repository's correct spec directory with all mandatory spec sections and a complete Final Compliance Report. `designReview` is exact-head evidence for an approving GitHub review or the review automation's structured approval comment; the static inventory validates its shape and the link verifier rejects missing, self-declared, stale-head, or non-approved evidence.
-- `implementationPr` satisfies the link verifier's current-PR-or-merged causal evidence rule and names the exact work-unit ids.
+- `adopterSpec` is a repository path under the owning repository's correct spec directory with all mandatory spec sections and a complete Final Compliance Report. `designReview` is exact-head evidence for a provider-native approving review by an eligible non-author; comments and external run ids are supplemental only. The static inventory validates its shape and the link verifier rejects missing, self-authored, stale-head, or non-approved evidence.
+- `implementationPr` satisfies the link verifier's current-PR-or-merged causal evidence rule and names the exact work-unit ids; `implementationReview` is a separate provider-native eligible non-author approval pinned to that implementation head and cannot be replaced by `designReview`.
 - `specPr` is verified as an open approved-design or merged spec PR, not free text.
 - `deferred.issue` is verified as an open tracker URL with the declared assignee, explicit host ids, blocking reason, and unexpired ISO `revisitBy` date.
 - `ExternalCoordinationEntry` is link-only, is not an inventory record, and is sufficient for OSS completion when repository, owner, and evidence link resolve; it does not claim the external work shipped.
@@ -86,8 +86,9 @@ A dedicated adopter spec may cover multiple alternatives/invocations only when t
 
 The OSS production program is technically complete when:
 
+- the completion query selects only records with `scope: 'oss'` and `participation: 'production'`, while reporting every `sample-harness` record in a separate non-production section;
 - every OSS production grouped alternative work unit is `ready`;
-- every OSS compatibility-only alternative satisfies the inventory rule;
+- every OSS production compatibility-only alternative satisfies the inventory rule;
 - there are zero OSS production `planned` or `deferred` work units;
 - every link-only external coordination entry has a valid repository/owner plus owning spec/issue link;
 - all ready adopter implementation PRs, the static inventory gate, and the tracker-backed link-verification gate are green.
@@ -224,6 +225,7 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Reconciled the current OSS and enterprise CrudForm audit totals and removed unverifiable structured-comment approval from readiness evidence.
 - **2026-10-27:** Split static inventory from tracker-backed link verification, made approved exact-head design review representable per finite-alternative work unit, made external coordination link-only and owner-repository scoped, and completed the mandatory compliance report.
 - **2026-10-22:** Converted the repository-wide implementation draft into a non-implementing program index. Split inventory/CI into its own prerequisite, required module/tightly coupled adopter specs, separated samples/harness, and made OSS completion independent of intentional enterprise/official-module delivery.
 - **2026-10-09:** Initial repository-wide adoption follow-up draft.

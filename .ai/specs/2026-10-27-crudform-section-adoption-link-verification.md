@@ -43,16 +43,20 @@ Add a verifier command that reads the committed owner-scoped inventory artifacts
 
 ### Approved design review
 
-`designReview.url` must resolve to an approving GitHub review or the review automation's structured approval comment. Its reviewed head must equal `designReview.reviewedHeadSha`, and that SHA must equal the owning spec PR's current head or merged reviewed head as applicable. A formal approving review must be from an eligible non-author. When the automation shares the PR author's provider identity and cannot submit a formal self-review, its structured comment is valid only when it contains the exact head, independent review run/report id, validation source, and approve verdict. A manifest-authored declaration or ordinary prose comment that merely says “approved,” a dismissed/request-changes verdict, or approval against an older head is invalid.
+`designReview.url` must resolve to a provider-native approving review submitted by an eligible non-author. Its reviewed head must equal `designReview.reviewedHeadSha`, and that SHA must equal the owning spec PR's current head or merged reviewed head as applicable. The verifier derives the reviewer login and author login from provider data and rejects equality. Automation comments and external run/report ids may be retained as supplemental diagnostics, but they cannot satisfy `designReview`, even when an independent agent produced them, because the configured tracker cannot authenticate that external report's identity, reviewed head, or verdict. A manifest-authored declaration, ordinary prose comment, dismissed/request-changes verdict, or approval against an older head is invalid.
+
+For owner lanes whose specs require Open Mercato core-team implementation and review, the configured tracker descriptor supplies a provider-neutral `coreTeamEligibility` resolver backed by an immutable team id or explicit login allowlist. The verifier checks the author of the state-bearing evidence PR (implementation PR for `ready`, spec PR for `planned`) and the approving reviewer, records only boolean eligibility plus sanitized failure codes, and rejects a missing/unavailable eligibility resolver. Team membership is never inferred from repository write access, labels, comment text, or manifest declarations.
 
 ### Ready implementation PR
 
-A `ready.implementationPr` is valid only when either:
+A `ready.implementationPr` is valid only when `ready.implementationReview` resolves to a provider-native approving review on that exact implementation PR head from an eligible non-author and either:
 
 1. it is the current pull request, its base equals the tracker-configured base, the provider-reported head equals the CI event's `pull_request.head.sha` rather than GitHub's synthetic merge SHA, and its body contains `CrudForm-Adoption-Work-Units: <comma-separated invocationId#alternative.id values>` including the exact work unit; or
 2. it is merged to the configured base, its merge SHA is an ancestor of the provider-reported validation head, and its body contains the same exact work-unit marker.
 
 The referenced adopter spec must exist in the static manifest and the PR must change or explicitly name it. A sibling alternative cannot inherit readiness.
+
+Design approval and implementation approval are distinct evidence. `designReview` remains pinned to the spec/design PR head; `implementationReview` is pinned to the implementation PR head and cannot reuse the design review URL or reviewer record unless the provider independently reports a second approval on the implementation PR. For core-team owner lanes, the verifier checks eligibility of the spec PR author/design reviewer while `planned`, and additionally the implementation PR author/implementation reviewer before `ready`.
 
 ### Planned spec PR
 
@@ -180,8 +184,9 @@ This is additive tooling. It consumes schema-versioned static artifacts without 
 
 ## Integration Coverage
 
-- Design review: eligible non-author approved/requested/dismissed review, invalid plain self-declaration, exact/stale/missing head, same-identity structured automation comment with independent run evidence, and unavailable provider.
-- Implementation PR: current exact event head, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker.
+- Design review: eligible non-author approved/requested/dismissed review, invalid self-review/comment/external-run attestation, exact/stale/missing head, and unavailable provider.
+- Core-team ownership: eligible/ineligible implementation author and reviewer, immutable team-id and explicit-allowlist adapters, missing eligibility resolver, provider outage, and proof that repository permission or comment text cannot substitute for membership.
+- Implementation PR: provider-native eligible non-author implementation approval at exact head; current exact event head, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker; design-review reuse rejection.
 - Planned PR: open approved design, merged, draft/unapproved, closed unmerged, wrong spec or marker.
 - Deferred issue: open/closed, assigned/unassigned/wrong owner, exact/missing ids, valid/expired date at UTC boundary.
 - External reference: correct/wrong repository and owner, accessible/missing spec or issue, no source/topology capture.
@@ -191,8 +196,8 @@ This is additive tooling. It consumes schema-versioned static artifacts without 
 ## Acceptance Criteria
 
 1. Every non-compatibility work unit and external coordination reference receives one fail-closed provider-backed result.
-2. Exact-head design approval cannot be a plain self-declaration, stale, dismissed, or inferred from spec prose; same-identity automation is accepted only through the structured independent-run comment contract.
-3. Ready implementation evidence proves the exact work-unit marker and current-PR or merged-to-base ancestry contract.
+2. Exact-head design approval is a provider-native approving review from an eligible non-author; self-review, comments, external run ids, stale reviews, dismissed reviews, and spec prose never satisfy it.
+3. Ready implementation evidence proves an independent provider-native non-author implementation approval, exact work-unit marker, and current-PR or merged-to-base ancestry contract.
 4. Planned and deferred evidence enforce exact spec/work-unit/owner/state/date semantics.
 5. Provider unavailability is distinct from invalid evidence but both fail the required job after bounded retries.
 6. No credential, response body, optional source topology, current SHA, validation time, or check URL enters committed artifacts.
@@ -242,4 +247,6 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Split planned design approval from ready implementation-PR approval and made core-team author/reviewer eligibility state-specific.
+- **2026-10-27:** Removed unverifiable same-identity comment attestation; required provider-native non-author approval and provider-backed core-team eligibility for owner lanes that declare that governance rule.
 - **2026-10-27:** Split tracker-backed evidence resolution and required network CI activation from the offline static inventory capability.

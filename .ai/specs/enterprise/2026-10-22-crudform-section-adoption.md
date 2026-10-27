@@ -51,7 +51,7 @@ Keep a commercial coordination record that maps each available enterprise finite
 
 ## Coordination Contract
 
-- The enterprise owner runs the shared scanner with an explicit enterprise scope/root/output and owns the resulting manifest; adopter PRs supply facts but do not redefine the schema.
+- The enterprise owner runs `yarn crud-form-sections:inventory --scope enterprise --root packages/enterprise --output packages/enterprise/.ai/generated/crud-form-section-adoption` and owns deterministic `manifest.json`, `review.md`, and `completion.json` at that output. These artifacts use the shared schema/version and never enter the OSS artifact paths; adopter PRs supply facts but do not redefine the schema.
 - An enterprise alternative work unit becomes `ready` only in the enterprise-owned artifact after exact-head design approval and its named adopter implementation PR merges with green exact gates; readiness never propagates to a sibling alternative from the same invocation.
 - The OSS artifacts contain only stable enterprise repository/owner/spec-or-issue links. They never contain enterprise invocation topology and remain byte-identical when enterprise sources are absent or present.
 - A configured-but-invalid policy follows the framework blocking-failure contract. No dedicated enterprise spec may restore actionable base controls on policy failure.
@@ -64,6 +64,8 @@ This index changes no runtime architecture. Dedicated adopter specs own all beha
 ## Data Models
 
 No database or runtime model. Source-derived coordination state lives in the enterprise-owned manifest; the committed OSS completion artifact carries only repository/owner/evidence references, while remote validity exists only in the verifier's ephemeral report.
+
+The tracker descriptor configures immutable Open Mercato core-team eligibility by provider team id or explicit login allowlist. A `planned` transition proves the spec PR author and exact-head non-author design reviewer are eligible. A `ready` transition additionally proves the implementation PR author and a provider-native non-author implementation reviewer are eligible at the exact implementation head; it cannot reuse design approval as implementation review. Repository permission, labels, comments, or manifest prose cannot satisfy this rule; unavailable membership data fails closed.
 
 ## API Contracts
 
@@ -100,7 +102,7 @@ This index publishes no runtime contract. Dedicated specs own stable ids and dep
 
 ## Verification and Evidence
 
-For each enterprise alternative work unit, the enterprise-owned static report must name its exact-head design review, dedicated spec, implementation PR, exact stable facts, named API/UI/security tests, and rollback note; the tracker-backed verifier must resolve the remote evidence. The OSS static report retains only enterprise owner/repository/evidence references and the ephemeral verifier resolves those links. A renderer-wide or module-wide “ready” marker is invalid.
+For each enterprise alternative work unit, the enterprise-owned static report contains exactly the shared record/work-unit fields: stable invocation/alternative ids, finite facts, dedicated spec, exact-head formal design review, state, and implementation/spec PR evidence; `ready` also carries its exact-head formal implementation review. Named API/UI/security tests and rollback remain normative in the referenced adopter spec and PR evidence rather than adding undeclared manifest fields. The tracker-backed verifier resolves remote evidence and state-specific core-team eligibility. The OSS static report retains only enterprise owner/repository/evidence references. A renderer-wide or module-wide “ready” marker is invalid.
 
 ## Acceptance Criteria
 
@@ -148,5 +150,6 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Defined the enterprise inventory command/output paths, aligned its report to the shared schema, and made core-team actor/reviewer eligibility provider-verifiable.
 - **2026-10-27:** Added the independent link-verification prerequisite, moved source-derived enterprise inventory into an owner-scoped artifact, restricted OSS coordination to stable links, split MFA transaction hardening from its adopter, split sudo create from edit/delete at the finite-alternative work-unit boundary, and completed the mandatory compliance report.
 - **2026-10-22:** Converted the combined security implementation draft into a non-implementing enterprise index and split MFA-reset, sudo-config locking, and sudo-config section adoption into independent commercial specs while retaining intentional inventory coverage.

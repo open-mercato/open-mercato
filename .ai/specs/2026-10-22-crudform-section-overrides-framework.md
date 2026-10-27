@@ -281,7 +281,7 @@ The authenticated bootstrap endpoint is `POST /api/extensions/crud-form-sections
 const symbolicIdSchema = z.string().min(1).max(160)
   .regex(/^[a-z0-9][a-z0-9._:/-]*$/)
 const resourceIdSchema = z.string().min(1).max(256)
-  .regex(/^[\x21-\x7e]+$/)
+  .regex(/^[\x21-\x2b\x2d-\x7e]+$/)
 const roundTripIdSchema = z.string().min(3).max(192)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/)
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
@@ -366,6 +366,8 @@ export type CrudFormMutationBinding = {
 - delete builds its binding after `onBeforeDelete`, never from save headers;
 - the guarded façade reauthorizes the asserted host and validates policy identity, request operation, mutation-target binding, and mutation surface before delegating to the existing domain operation.
 
+`target-required` is an end-to-end atomicity contract, not merely a façade header check. The delegated provider must compare the expected target version at the authoritative mutation seam while excluding a competing write until commit: either reload the tenant/organization-scoped target with `PESSIMISTIC_WRITE`, call `enforceCommandOptimisticLockWithGuards` against that locked row inside the same transaction, mutate, flush, and commit through the same transaction manager; or perform a version-qualified atomic update/delete and require exactly one affected row. The façade may perform an earlier check only as defense in depth. `target-optional` uses the same atomic provider seam when a token is supplied and preserves its documented headerless compatibility otherwise. Provider capability registration fails when a required target provider lacks an explicit atomic lock/CAS declaration and contender coverage.
+
 Every policy façade is a custom write route and therefore uses the shared façade helper to enforce the repository mutation-guard contract. After auth/feature/scope/policy checks and initial route-body validation, the helper calls `getAllMutationGuardInstances()`, appends `bridgeLegacyGuard(container)` when present, and runs `runMutationGuards(...)` with the closest `create`/`update`/`delete` operation plus `{ userFeatures }`. Because registered guards can return arbitrary statuses and bodies that static `OpenApiRouteDoc.responses` cannot enumerate, a blocked guard is normalized at this new façade boundary to HTTP `422` with `{ "error": "mutation_guard_rejected", "code": "mutation_guard_rejected", "details": <registered errorBody> }`; the original guard body is preserved under `details`, while `errorStatus` is recorded only in an internal diagnostic and never changes the documented wire status. Every façade declares this bounded response, with `details: z.unknown().optional()`, in OpenAPI. A `modifiedPayload` is merged into the validated projected payload, then rechecked by the route Zod schema, the policy's authorized leaf/resource contract, and the complete domain validator; a guard cannot smuggle an inactive or undeclared leaf into the mutation.
 
 After one successful delegated mutation, every returned `afterSuccessCallbacks` item runs once. The helper accepts a required `resolveCommittedResourceId(result)` extractor for `create`; it must return the persisted non-empty resource id from the successful domain result before callbacks run. Update/delete use the already validated mutation target id. An absent/empty create id is an internal callback-contract failure: report it, skip callbacks rather than invoking them with a placeholder, and preserve the already committed success response. Callback failures are reported through the repository error-reporting/logger path but do not turn a committed write into an HTTP failure. The helper exposes no opt-out, and adapters test blocking plus the stable 422 envelope, payload modification, legacy bridging, callback ordering/failure, and the actual created id received by every create callback.
@@ -420,6 +422,13 @@ No new user-facing configuration UI or design-system primitive is added. A valid
 
 ## Frontend Architecture Contract
 
+| Route/surface | Server root | Client island owner | Data/request owner |
+|---|---|---|---|
+| existing backend routes rendering `CrudForm` | unchanged server root | existing `CrudForm` client boundary | route loader remains data owner; resolver owns only configured-host policy bootstrap |
+| configured form host | unchanged | lazy module-owned `*.client.tsx` descriptors | one bounded resolver request; immutable bound clients own mutations |
+| no-policy form host | unchanged | existing form island | existing calls only; zero resolver request |
+
+- client-boundary ledger: `CrudForm.tsx` remains client because it owns form state/interactions; resolver/hooks are client-only for subscriptions and browser mutation binding; module `*.client.tsx` leaves are lazy because they contain renderers/Zod runtime values; `form-sections.ts`, manifests, and policy facts remain server-safe and never gain `"use client"`;
 - zero new page-root client boundaries or route-specific imports in global providers;
 - generic resolver under 200 net LOC and `CrudForm` integration under 80 net LOC by extracting helpers;
 - empty-policy identity path performs no manifest subscription or descriptor cloning beyond current normalization;
@@ -442,6 +451,8 @@ No new user-facing configuration UI or design-system primitive is added. A valid
 | Custom client header collides with a protected name | Client fails before I/O; server independently rejects any value that does not recompute |
 | Parent and child mutations overlap | Distinct immutable clients; no header leakage |
 | Child uses parent version | Binding validation rejects before I/O |
+| Two target-required updates race | Provider-held lock or version-qualified CAS permits one matching write; the loser receives the standard optimistic conflict before mutation |
+| Target-required update races delete | The provider serializes or CAS-checks both; no request succeeds from a pre-lock snapshot and record-gone preserves the standard conflict contract |
 | Mutation guard blocks or rewrites payload | Return the stable HTTP 422 `mutation_guard_rejected` envelope with the registered body under `details`, or revalidate the rewritten active payload before delegation; hidden/undeclared leaves fail closed |
 | Post-success guard callback fails | Report/log once; preserve the already-committed success response |
 | Client/server manifest skew during resolve | Blocking `failed` before editable UI; a later deploy skew returns `409 extension_policy_mismatch`, no mutation |
@@ -488,7 +499,7 @@ Each phase leaves the default application working. No host advertises section op
 
 5. Register post-override semantic capabilities from enrichers/interceptors/guards and declarative display-only providers. Match canonical serialized facts, not ids alone.
 6. Dispatch `forms.sections` in server and client bootstrap, reject server-only-gated entries, and publish the configured-host ledger. Build the accepted manifest/fingerprint at server bootstrap and implement the exact authenticated resolve endpoint, strict Zod/body/cardinality/uniqueness bounds, metadata/provider features, OpenAPI/status map, canonical token encoding/limits, blocking failure response, and safe diagnostics.
-7. Add guarded façade helpers and a shared parser/builder for the eight protected headers. Validate token schema/current client/server fingerprint, reauthorized host assertion, mode, route, request operation, mutation target, mutation surface, exact resource-binding ids, and delegated provider after auth/ACL/scoped-target gates and before domain mutation; then collect/run mutation guards plus the legacy bridge, revalidate modified payloads against the policy/domain contracts, and run post-success callbacks through error reporting. Return the exact `extension_policy_mismatch` 409 body for policy mismatches.
+7. Add guarded façade helpers and a shared parser/builder for the eight protected headers. Validate token schema/current client/server fingerprint, reauthorized host assertion, mode, route, request operation, mutation target, mutation surface, exact resource-binding ids, and delegated provider after auth/ACL/scoped-target gates and before domain mutation; reject `target-required` providers without an atomic lock/CAS declaration; then collect/run mutation guards plus the legacy bridge, revalidate modified payloads against the policy/domain contracts, and run post-success callbacks through error reporting. Return the exact `extension_policy_mismatch` 409 body for policy mismatches.
 
 ### Phase 3 — UI integration
 
@@ -508,7 +519,7 @@ Each phase leaves the default application working. No host advertises section op
 
 - Discovery/bootstrap: package/app `form-sections.ts`, lazy runtime load, exact contribution lookup, deterministic order, disabled modules, server/browser parity, ungated/public-gated success, server-only-gated rejection, configured-host ledger, and stale-bundle blocking.
 - Resolve API/manifest: exact request/response, accepted and rejected capability/custom-field/no-op combinations, client/runtime/server fingerprint and mandatory round-trip revision skew, final-registry overrides, malformed/oversized/reconstructed token, exact 3072-byte decoded / 4096-character encoded boundaries and aggregate-overflow failed state, stale fingerprint, no-store/redaction, safe diagnostic fields.
-- Guarded façade: client collision rejection; server missing/duplicate/malformed/recomputed-value rejection; wrong route/operation/host/target/action; auth/ACL/scope precedence; mutation-guard block/modify/legacy bridge/after-success/callback-failure behavior; modified hidden-leaf rejection; ordinary domain plus optimistic-lock header composition; exact non-leaking 409; delegated provider invoked once.
+- Guarded façade: client collision rejection; comma-containing resource-id rejection; server missing/duplicate/malformed/recomputed-value rejection; wrong route/operation/host/target/action; auth/ACL/scope precedence; mutation-guard block/modify/legacy bridge/after-success/callback-failure behavior; modified hidden-leaf rejection; ordinary domain plus optimistic-lock header composition; `target-required` provider-declaration rejection and update/update plus update/delete contenders; exact non-leaking 409; delegated provider invoked once.
 - Browser fixture: server render → pending → ready without editable flash; add/hide/replace layout; submit/delete/action bindings; configured-host failure blocks every mutation control.
 - Compatibility: no-policy payload, endpoint selection, lifecycle order, `hiddenGroupIds`, and widget-disable behavior unchanged.
 
@@ -520,7 +531,7 @@ Each phase leaves the default application working. No host advertises section op
 4. `ComponentReplacementHandles.section(scope, sectionId)` remains a two-argument compatible surface.
 5. The framework never projects arbitrary host schemas; adopters provide explicit transformed section validators and a composition validator.
 6. No UI operation activates without an exact final semantic backend capability and dependency match.
-7. Policy-enabled requests use immutable request-bound clients with correct per-resource optimistic-lock binding.
+7. Policy-enabled requests use immutable request-bound clients with correct per-resource optimistic-lock binding, and every `target-required` delegated provider performs the compare/write atomically at its authoritative mutation seam.
 8. Every custom policy façade preserves mutation guards, legacy bridging, safe payload modification, and post-success callbacks without allowing inactive-leaf writes.
 9. Pending, failed, stale, and mismatched states never expose a partially active policy.
 10. No-policy forms retain the same rendered groups, validation result, payload, endpoint, lifecycle order, and mutation headers for pinned fixture inputs.
@@ -572,5 +583,6 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Made `target-required` an atomic delegated-provider lock/CAS contract with contender coverage, excluded commas from wire resource ids, and completed the route/client-boundary ownership map.
 - **2026-10-27:** Added versioned provider-owned resource-binding ids, the `form-sections.ts` lazy runtime discovery contract, server/browser override-dispatch parity and configured-host ledger, exact resolver/header validation and OpenAPI bounds, and mandatory mutation-guard/legacy-bridge/callback behavior for every policy façade.
 - **2026-10-22:** Extracted the independently deployable generic framework from the catalog adopter. Separated data-only shared facts from UI/domain runtime descriptors, preserved the two-argument component-handle contract, defined explicit transformed section validation and full-record invariant handling, and recorded core-team-only implementation ownership.

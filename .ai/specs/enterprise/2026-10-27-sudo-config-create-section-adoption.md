@@ -86,7 +86,8 @@ Policy grants no authority. Compound-invalid tests prove auth/feature/scope fail
 
 | Area | Change |
 |---|---|
-| `SudoConfigCrudPage.tsx` create caller | Explicit create identity, two descriptors, challenge then one bound create mutation |
+| `form-sections.ts` / `form-sections.client.tsx` | Server-safe discovered security facts plus lazy create runtime descriptors |
+| `SudoConfigCrudPage.tsx` create caller | Explicit create identity, descriptor consumption, challenge then one bound create mutation |
 | enterprise security facts | Create-only capability, data contracts, mutation surface, and alternative-level inventory ownership |
 | `POST .../section-policy` | Auth/scope/policy/body/guard/sudo gates, strict metadata/OpenAPI, command delegation |
 | `security.sudo.config.create` | Existing domain command/event/audit behavior, unchanged |
@@ -113,6 +114,13 @@ It exports `metadata = { POST: { requireAuth: true, requireFeatures: ['security.
 - cancelled challenge: existing localized cancellation flash, no request.
 
 ## Frontend Architecture Contract
+
+The server route root `packages/enterprise/src/modules/security/backend/security/sudo/create/page.tsx` remains server-owned and passes only configuration props into the existing client island.
+
+| Client file | Boundary reason | Importer | Heavy dependencies / provider scope | Cleanup and hydration risk | Rejected alternative |
+|---|---|---|---|---|---|
+| `components/SudoConfigCrudPage.tsx` | existing form/router state, `CrudForm`, sudo challenge, create handler | create server root above (and sibling edit root outside this work unit) | existing `SudoProvider`, UI, router; no new provider/dependency | one resolver subscription and one bound submit; pending blocks controls | converting the server root or adding a second client island duplicates ownership |
+| `form-sections.client.tsx` | lazy React/Zod security descriptors for the create alternative | generated CrudForm-section runtime registry only | descriptor/render imports only; no provider | lazy loader cleanup, fingerprint/hydration blocking, no editable flash | eager/global provider import would load security policy on unrelated routes |
 
 - no new page-root client boundary, provider, subscription, or shared-bootstrap route code;
 - `CrudForm` remains owner and uses framework-bound `createCrud`; no raw `fetch`, ambient header state, edit/delete branch, or conflict state is added;
@@ -226,4 +234,5 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Added the exact create route/client-island/data-owner map and file-level client-boundary ledger.
 - **2026-10-27:** Split sudo-config create from independently deployable edit/delete adoption; pinned framework-only runtime behavior plus inventory governance, create defaults/replacement rules, guard/sudo/OpenAPI behavior, and exact persisted callback identity.

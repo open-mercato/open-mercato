@@ -81,7 +81,8 @@ This action deliberately has no optimistic-lock token. The façade rejects an ex
 
 | Area | Change |
 |---|---|
-| `components/SecurityUserForm.tsx` | Identity, three descriptors, 1–1000 client validation, reset binding |
+| `form-sections.ts` / `form-sections.client.tsx` | Server-safe discovered security facts plus lazy enterprise runtime descriptors |
+| `components/SecurityUserForm.tsx` | Identity, descriptor consumption, 1–1000 client validation, reset binding |
 | `backend/security/users/[id]/page.tsx` | Sudo challenge, immutable bound request, exact flash/reload sequence |
 | enterprise security provider | Exact capability, context, dependency, and no-lock facts |
 | `api/users/[id]/mfa/reset/section-policy/route.ts` | Ordered auth/scope/policy/body/mutation-guard/sudo gates, strict metadata/OpenAPI, and command delegation |
@@ -120,6 +121,14 @@ Policy mismatch returns HTTP `409` `{ "error": "extension_policy_mismatch", "cod
 - challenge cancellation keeps the localized error flash and sends no request.
 
 ## Frontend Architecture Contract
+
+The route root `packages/enterprise/src/modules/security/backend/security/users/[id]/page.tsx` is already a client component and remains the data/action owner; this spec does not falsely convert or describe it as a server root. The policy resolver remains inside its existing `SecurityUserForm` island.
+
+| Client file | Boundary reason | Importer | Heavy dependencies / provider scope | Cleanup and hydration risk | Rejected alternative |
+|---|---|---|---|---|---|
+| `backend/security/users/[id]/page.tsx` | existing router, state/effects, guarded mutation, and sudo orchestration | Next route registry | existing `SudoProvider`, router, detail UI; no new provider or heavy dependency | existing load effect plus child resolver; no editable flash before ready | server-splitting the page would broaden this adopter and duplicate interactive orchestration |
+| `components/SecurityUserForm.tsx` | existing `CrudForm`, Zod runtime validation, dialog/action handlers | user-detail page above | existing UI/Zod only; resolver context stays form-local | one subscription, one submit/challenge, Strict Mode cleanup | hoisting policy state to the page would duplicate generic form behavior |
+| `form-sections.client.tsx` | new lazy React/Zod runtime descriptors | generated CrudForm-section runtime registry only | descriptor/render imports only; no provider | lazy loader and resolver unmount cleanup; fingerprint blocks stale hydration | eager import through a global provider would grow unrelated routes and violate module isolation |
 
 - add no page-root client boundary, global-provider import, or route-specific component to shared bootstrap; descriptors remain lazy enterprise-owned leaves;
 - keep policy resolution and mutation binding in the existing form/page split, use `apiCall` through the framework client, and add no raw `fetch` or ambient header state;
@@ -246,5 +255,6 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Added the exact route/client-island/data-owner map and file-level client-boundary ledger.
 - **2026-10-27:** Split transaction-held locking/effect ordering into its own prerequisite; retained only section adoption, mandatory mutation guards, strict route/OpenAPI contracts, measurable frontend behavior, and façade-level tests here.
 - **2026-10-22:** Split user MFA-reset adoption from sudo-config CRUD and pinned identity, context, façade precedence, command delegation, failure states, and core-team-only ownership.

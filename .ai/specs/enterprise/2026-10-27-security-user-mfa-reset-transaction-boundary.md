@@ -43,7 +43,7 @@ Both child queries use the transaction manager, deterministic id ordering, `Lock
 
 Overlapping resets serialize on matching rows. After the first commits, the second transaction re-evaluates current predicates and reports zero for rows already reset. A retry remains a separate accepted command under existing behavior.
 
-The transaction returns counts plus the immutable event payload. Only after commit does the service publish `security.mfa.reset`. Only after command execution, including event publication, succeeds does the command bus persist `security.audit.mfa.reset` and return to the route.
+The private transaction callback returns an internal, non-exported carrier containing counts plus the immutable event payload. The existing public `MfaAdminService.resetUserMfa` overloads remain `Promise<void>`: the method consumes that carrier to publish `security.mfa.reset` after commit and then resolves without a value. Only after command execution, including event publication, succeeds does the command bus persist `security.audit.mfa.reset` and return to the route.
 
 The event call deliberately retains its current non-persistent emit options. Despite the subscriber's `persistent: true` metadata, a non-persistent emit invokes it inline; it is therefore part of event publication, delays the command response, and has no queue retry. The combined handler creates the notification and then attempts email without a deterministic dedupe key, so a failure may leave a partial subscriber effect. This prerequisite documents that behavior and does not claim durable, asynchronous, idempotent, or exactly-once delivery.
 
@@ -60,8 +60,8 @@ This spec does not claim atomicity across the database, event bus, audit store, 
 
 | Area | Change |
 |---|---|
-| `commands/resetUserMfa.ts` | Preserve command id/input/auth contract; consume the transactional service result and existing audit contract |
-| `MfaAdminService.resetUserMfa` | Own one transaction, scoped held child-row locks, mutations/flush, and post-commit event publication |
+| `commands/resetUserMfa.ts` | Preserve command id/input/auth contract and await the existing public `Promise<void>` service contract |
+| `MfaAdminService.resetUserMfa` | Preserve public `Promise<void>` overloads; privately consume one transaction carrier for scoped held child-row locks, mutations/flush, and post-commit event publication |
 | existing legacy MFA-reset route | No transport/schema change; automatically consumes the hardened command |
 | event/audit subscribers | No identifier or payload removal; retain and test the current inline, logged-and-swallowed, non-retryable, potentially partial notification/email behavior |
 | focused tests | Barrier interleavings and injected read/flush/commit/event/audit failures |
@@ -76,7 +76,7 @@ No migration or record-shape change. Existing MFA method, recovery-code, audit, 
 
 No route, OpenAPI, request, response, metadata, or header contract changes. The existing legacy `POST /api/security/users/:userId/mfa/reset` and command input remain compatible. Success still returns the established response after command completion; failures retain the existing non-enumerating transport mapping.
 
-The internal service result is additive and typed: reset method count, recovery-code count, `resetAt`, and the existing event payload fields needed by the command/event chain. It is not exposed directly as a new HTTP shape.
+The transaction callback's internal carrier is typed with reset method count, recovery-code count, `resetAt`, and existing event payload fields. It is private to the service implementation and is neither exported nor returned by `resetUserMfa`; the established public service return remains `Promise<void>` and the HTTP shape is unchanged.
 
 The golden successful effect trace is: one `security.admin.mfa.reset` command; one transaction-scoped mutation and commit; one post-commit non-persistent `security.mfa.reset` emit with actor, target, scope, normalized reason, counts, and `resetAt`; inline `security:mfa-reset-notification` creation of notification type `security.mfa.reset` with source `security:mfa_reset/<userId>` followed by its email attempt when an email exists; command-bus persistence of audit label `security.audit.mfa.reset`, resource kind `security.user_mfa`, target user id, normalized reason payload, and source `security.admin.users`; then the caller's unchanged success response. The subscriber metadata is unchanged, but this emit is not queued and the spec makes no retry/exactly-once claim.
 
@@ -120,7 +120,7 @@ Rollback reverts the service/command implementation commit. No data migration or
 
 ## Migration & Backward Compatibility
 
-This is an in-place behavioral hardening of an existing command. It removes no field, identifier, route, event, audit label, notification type, DI key, or import path. Callers require no migration. The transaction and internal result are implementation details; any additive internal type is exported only if an existing package boundary requires it.
+This is an in-place behavioral hardening of an existing command. It removes no field, identifier, route, event, audit label, notification type, DI key, import path, or service signature. Callers require no migration. The transaction carrier is a private implementation detail and MUST NOT be exported or change the existing `Promise<void>` overloads.
 
 The prerequisite must merge before `.ai/specs/enterprise/2026-10-22-security-user-mfa-reset-section-adoption.md`. That adopter consumes this command unchanged and must not duplicate the transaction, row locks, or effect ordering.
 
@@ -128,7 +128,7 @@ The prerequisite must merge before `.ai/specs/enterprise/2026-10-22-security-use
 
 1. Add barrier/failure test seams through existing DI/test facilities without a production-only bypass.
 2. Move scoped target/method/code reads, mutations, and flush into one `em.transactional` callback using the transaction manager and deterministic pessimistic-write queries.
-3. Return counts/event data from the transaction, publish the existing event after commit, and retain the command bus's audit step after successful command execution.
+3. Return counts/event data only from the private transaction callback, consume it inside `resetUserMfa`, publish the existing event after commit, preserve the public `Promise<void>` overloads, and retain the command bus's audit step after successful command execution.
 4. Add service/command/legacy-route tests for empty state, timing boundaries, overlapping resets, rollback, event-infrastructure failure, logged-and-swallowed notification failure, logged-and-swallowed email failure after notification creation, a later explicit reset after that partial effect, audit failure, and the absence of automatic queue retry.
 5. Run focused enterprise build/typecheck/tests, `git diff --check`, and the configured validation gate.
 
@@ -141,6 +141,7 @@ The prerequisite must merge before `.ai/specs/enterprise/2026-10-22-security-use
 - injected scoped-read, mutation, flush, commit, event-infrastructure, notification, email-after-notification, and audit-persistence failures, distinguishing rejected infrastructure emits from logged-and-swallowed handler failures;
 - successful-path command/event/audit/notification ids and payload facts once per accepted command, plus explicit proof that swallowed handler failures still audit/respond successfully and a later explicit reset is a new command that may repeat a partial subscriber effect;
 - proof that no UI/API schema or optimistic-lock header is introduced.
+- compile-time compatibility proving both existing `resetUserMfa` overloads remain assignable to `Promise<void>` and no internal carrier is exported.
 
 ## Acceptance Criteria
 
@@ -148,7 +149,7 @@ The prerequisite must merge before `.ai/specs/enterprise/2026-10-22-security-use
 2. Child rows use deterministic `PESSIMISTIC_WRITE` queries through the transaction manager and remain locked through commit.
 3. Overlap and enrollment timing match the documented predicates and barrier tests.
 4. Database failure emits no event/audit; inline handler failures are logged/swallowed while audit and success continue; event-infrastructure and audit failures preserve the exact documented post-commit state; no path claims an automatic retry.
-5. Existing route, command, event, audit, notification, response, and authorization contracts remain compatible.
+5. Existing route, command, event, audit, notification, response, authorization, and public `resetUserMfa(...): Promise<void>` contracts remain compatible.
 6. No optimistic token, outbox, frontend change, or cross-module ORM relationship is added.
 7. Focused and configured validation gates pass.
 8. Implementation and review are performed by Open Mercato core team members.
@@ -199,4 +200,5 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Kept the typed transaction result private and explicitly preserved the exported `resetUserMfa(...): Promise<void>` service contract.
 - **2026-10-27:** Split MFA reset transaction-held locking and post-commit effect ordering from the section-policy adopter; pinned the existing non-persistent inline logged-and-swallowed notification/email failure boundary without claiming queue retry or exactly-once delivery.

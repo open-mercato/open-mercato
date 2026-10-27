@@ -2,7 +2,7 @@
 
 **Status:** Proposed
 **Implementation ownership:** Open Mercato core team members only
-**Depends on:** `.ai/specs/2026-10-22-crudform-section-overrides-framework.md`, `.ai/specs/2026-10-22-attachment-section-policy-bridge.md`, `.ai/specs/2026-10-09-catalog-nested-offer-optimistic-locking.md`, `.ai/specs/2026-10-27-catalog-product-unit-conversion-version-refresh.md`, `.ai/specs/2026-10-27-catalog-variant-combination-claim.md`, `.ai/specs/2026-10-27-catalog-variant-generate-missing.md`
+**Depends on:** `.ai/specs/2026-10-22-crudform-section-overrides-framework.md`, `.ai/specs/2026-10-22-attachment-section-policy-bridge.md`, `.ai/specs/2026-10-09-catalog-nested-offer-optimistic-locking.md`, `.ai/specs/2026-10-27-catalog-product-unit-conversion-version-refresh.md`, `.ai/specs/2026-10-27-catalog-option-schema-optimistic-locking.md`, `.ai/specs/2026-10-27-catalog-variant-optimistic-locking.md`, `.ai/specs/2026-10-27-catalog-variant-combination-claim.md`, `.ai/specs/2026-10-27-catalog-variant-generate-missing.md`
 **Related:** issue #6686, `.ai/specs/2026-09-04-crudform-group-visibility.md`
 
 ## TLDR
@@ -89,7 +89,7 @@ The contribution must name the matching server capability. An unknown id rejects
 
 ### 1. Catalog-owned descriptors
 
-Create a pure route-local module, `packages/core/src/modules/catalog/backend/catalog/products/components/productFormSections.ts`, that exports:
+Create the framework-discovered server-safe declaration at `packages/core/src/modules/catalog/form-sections.ts` and a paired lazy browser runtime at `packages/core/src/modules/catalog/form-sections.client.tsx`. The server-safe file exports serializable host, section, capability, dependency, mutation-surface, and loader facts through `defineCrudFormSections(...)` plus `lazyCrudFormSectionRuntime(() => import('./form-sections.client'))`; it imports no React, Zod runtime schema, or route-local component. The lazy client file may import the existing product editor's local descriptors and exports:
 
 - the ordered stable ids;
 - explicit runtime descriptors using the framework UI interfaces;
@@ -172,13 +172,13 @@ Every row asserts resolver-selected host `catalog.product/<productId>`, which ea
 | `catalog.product.edit.submit` | `catalog.product.edit.update/v1` | `PUT /api/catalog/products/:productId/section-policy` | `catalog.products.manage` | `catalog.product/<productId>` | `catalog.products.update` | parent product version |
 | `catalog.product.edit.details.attachment.create` | `attachments.section-policy.create/v1` | `POST /api/attachments/section-policy` | `attachments.manage` | `attachments.attachment`, id absent | shared attachment create operation | not applicable |
 | `catalog.product.edit.details.attachment.delete` | `attachments.section-policy.delete/v1` | `DELETE /api/attachments/section-policy?id=:id` | `attachments.manage` | `attachments.attachment/<attachmentId>` | shared attachment delete operation | not applicable |
-| `catalog.product.edit.options.schema.create` | `catalog.product.option-schema.create/v1` | `POST /api/catalog/products/:productId/section-actions/option-schemas` | `catalog.settings.manage` | `catalog.option_schema`, id absent | `catalog.optionSchemas.create` | no prior version |
-| `catalog.product.edit.options.schema.update` | `catalog.product.option-schema.update/v1` | `PUT /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.settings.manage` | `catalog.option_schema/<schemaId>` | `catalog.optionSchemas.update` | option-schema row version |
-| `catalog.product.edit.options.schema.delete` | `catalog.product.option-schema.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.settings.manage` | `catalog.option_schema/<schemaId>` | `catalog.optionSchemas.delete` | option-schema row version |
-| `catalog.product.edit.variants.create` | `catalog.product.variant.create/v1` | `POST /api/catalog/products/:productId/section-actions/variants` | `catalog.variants.manage` | `catalog.product_variant`, id absent | `catalog.variants.create` | no prior version |
+| `catalog.product.edit.options.schema.create` | `catalog.product.option-schema.create/v1` | `POST /api/catalog/products/:productId/section-actions/option-schemas` | `catalog.settings.manage` | `catalog.optionschema`, id absent | `catalog.optionSchemas.create` | no prior version |
+| `catalog.product.edit.options.schema.update` | `catalog.product.option-schema.update/v1` | `PUT /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.settings.manage` | `catalog.optionschema/<schemaId>` | `catalog.optionSchemas.update` | option-schema row version; atomic provider prerequisite |
+| `catalog.product.edit.options.schema.delete` | `catalog.product.option-schema.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/option-schemas/:schemaId` | `catalog.settings.manage` | `catalog.optionschema/<schemaId>` | `catalog.optionSchemas.delete` | option-schema row version; atomic provider prerequisite |
+| `catalog.product.edit.variants.create` | `catalog.product.variant.create/v1` | `POST /api/catalog/products/:productId/section-actions/variants` | `catalog.variants.manage` | `catalog.variant`, id absent | `catalog.variants.create` | no prior version |
 | `catalog.product.edit.variants.generate` | `catalog.product.variant.generate/v1` | `POST /api/catalog/products/:productId/section-actions/variants/generate` | `catalog.variants.manage` | `catalog.product/<productId>` | prerequisite operation `catalog.variants.generate_missing` | parent product version |
-| `catalog.product.edit.variants.update` | `catalog.product.variant.update/v1` | `PUT /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.variants.manage` | `catalog.product_variant/<variantId>` | `catalog.variants.update` | variant row version |
-| `catalog.product.edit.variants.delete` | `catalog.product.variant.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.variants.manage` | `catalog.product_variant/<variantId>` | `catalog.variants.delete` | variant row version |
+| `catalog.product.edit.variants.update` | `catalog.product.variant.update/v1` | `PUT /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.variants.manage` | `catalog.variant/<variantId>` | `catalog.variants.update` | variant row version; atomic provider prerequisite |
+| `catalog.product.edit.variants.delete` | `catalog.product.variant.delete/v1` | `DELETE /api/catalog/products/:productId/section-actions/variants/:variantId` | `catalog.variants.manage` | `catalog.variant/<variantId>` | `catalog.variants.delete` | variant row version; atomic provider prerequisite |
 
 The attachment prerequisite owns extraction and façade behavior. This adopter only declares the two matching surface ids and binds the details controls. “No entity-version lock” is not an auth exemption.
 
@@ -203,7 +203,8 @@ Product create receives no section-policy identity or runtime wiring and remains
 | Area | Change |
 |---|---|
 | catalog product edit page | Bounded explicit identity and descriptor import wiring |
-| `components/productFormSections.ts` | Pure descriptors, schemas, composition validation, payload/dependency/action facts |
+| module-root `form-sections.ts` | Server-safe discovered facts and lazy runtime loader; no React/Zod/runtime imports |
+| module-root `form-sections.client.tsx` | Lazy browser descriptors, schemas, composition validation, payload/dependency/action runtime |
 | catalog product policy façade | Accepted-policy validation and one delegation; the product command owns the transaction-held parent lock/guard and current-record merge |
 | catalog unit-conversion sync | Consume the landed version-refresh/partial-progress synchronizer and bind it only when `product-uom` is active |
 | catalog variant generation | Consume the landed `catalog.variants.generate_missing` service and bind it through one guarded façade delegation |
@@ -233,9 +234,11 @@ No new primitive or user-facing policy editor is added.
 
 ## Frontend Architecture Contract
 
+- Route/client map: the existing catalog edit route remains the server root and its current edit component remains the client island; `form-sections.ts` is server-safe discovery, while only `form-sections.client.tsx` is lazy browser code imported through the generated runtime registry.
+- Client-boundary ledger: no page root gains `"use client"`; the existing edit component retains its form-state/browser-event reason; the new `form-sections.client.tsx` boundary is required only for React renderers and Zod runtime descriptors, is imported solely by the lazy registry, and cleans up through the framework resolver lifecycle.
 - The existing edit root remains a client component; no new page-root client boundary and no create-root source change.
 - The edit route root receives at most 20 net lines of wiring.
-- Descriptors/schemas/facts live in the pure route-local module and do not enter global providers.
+- Serializable facts stay in module-root `form-sections.ts`; browser descriptors/schemas stay in the lazy `form-sections.client.tsx` leaf and neither enters global providers.
 - No new production dependency.
 - Catalog edit route gzip delta stays under 10 KiB without explicit waiver; create route source has a zero-line diff (shared chunks may legitimately change).
 - `yarn check:client-boundaries` passes. The Playwright hydration case fails on any React hydration/console error or any editable base-form frame before ready. Record one `yarn dev:profile` edit-route RSS sample and baseline/commit metadata as informational evidence; RSS has no pass/fail threshold in this adopter.
@@ -291,7 +294,7 @@ Each phase leaves the default no-policy edit flow working.
 
 ### Phase 1 — descriptors and validation
 
-1. Add `productFormSections.ts` with the ordered ten ids, explicit section schemas/validators, composition validator, field/custom-field ownership, payload leaves, dependencies, secondary writes, and action facts.
+1. Add module-root `form-sections.ts` with server-safe ordered facts and lazy loader plus `form-sections.client.tsx` with the ten runtime descriptors, explicit section schemas/validators, composition validator, field/custom-field ownership, payload leaves, dependencies, secondary writes, and action runtime. Run `yarn generate` and prove server-fact/runtime-loader parity.
 2. Wire only the edit page with `formVariant='edit'`, `formOperation='update'`, `hostResourceKind='catalog.product'`, `hostResourceId={product.id}`, and descriptors. Do not modify or declare policy identity on create.
 3. Replace whole-form client parsing on the policy path with section parsing plus composition validation. Add one active/hidden projection test for every section, including `minOrderQty=100000001` and hidden required custom fields, plus a ten-row replacement matrix proving the exact required field ownership, capabilities, dependencies, data contracts, and failure for each target.
 
@@ -305,7 +308,7 @@ Each phase leaves the default no-policy edit flow working.
 
 7. Bind the landed conversion synchronizer, category/tag/versioned-offer projection, and other submit-coupled branches behind owning descriptors without changing visible-section ordering or any prerequisite's behavior.
 8. Publish `catalog.product.edit.title/v1`, `catalog.product.edit.details-seo/v1`, `catalog.product.edit.option-schema/v1`, and `catalog.product.edit.offer-fallbacks/v1`. Test dependency mismatch, widget disablement, and compatible replacement.
-9. Add the exact catalog option-schema/variant façades from the action table and bind them plus the prerequisite attachment façades through `runSectionMutation`; delegate the generate façade once to the landed `catalog.variants.generate_missing` operation without reimplementing its orchestration; publish and fingerprint `catalog.product.attachments/v1` as the exact `catalog.product` → `catalog:catalog_product` owner mapping; test ACL, scope, policy, owner mapping, resource, parent/child lock, conflict, reload, hide, replacement, and prerequisite parity.
+9. After the option-schema and variant atomic-locking prerequisites land, add the exact catalog option-schema/variant façades from the action table and bind them plus the prerequisite attachment façades through `runSectionMutation`; delegate the generate façade once to the landed `catalog.variants.generate_missing` operation without reimplementing its orchestration; publish and fingerprint `catalog.product.attachments/v1` as the exact `catalog.product` → `catalog:catalog_product` owner mapping; test canonical resource kinds, ACL/guard allowlist parity, scope, policy, owner mapping, resource, parent/child lock, update/update and update/delete contenders, conflict, reload, hide, replacement, and prerequisite parity.
 
 ### Phase 4 — end-to-end proof
 
@@ -392,6 +395,7 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Aligned option-schema/variant resource kinds with canonical guard contracts, added atomic child-provider prerequisites, and moved catalog policy discovery to the required module-root server-fact/lazy-runtime pair.
 - **2026-10-27:** Split unit-conversion version refresh and generate-missing orchestration into independently deployable prerequisites; pinned the catalog product attachment-owner binding, corrected exact catalog command ids, closed the parent command check/write race, and required feature metadata, OpenAPI, and mutation guards on every policy façade.
 - **2026-10-22:** Split the generic framework into its own spec and refocused this document on catalog product edit. Defined explicit section validation/composition semantics, server-owned preservation, stable two-argument replacement handles through the framework scope helper, action façades, complete tests, and core-team-only implementation ownership.
 - **2026-10-09:** Generalized the original draft and audited catalog failure modes, actions, dependencies, bootstrap, and browser coverage.

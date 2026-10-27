@@ -82,6 +82,8 @@ The renderer's authored `edit` finite alternative points to this work unit; its 
 
 Update submits only active authorized leaves. Inside the prerequisite transaction, the domain adapter reloads the authoritative scoped row with `PESSIMISTIC_WRITE`, deep-merges submitted leaves into that locked snapshot, treats omission as preserve, treats explicit `null` as clear only for nullable `tenantId`, `organizationId`, and `label`, rejects unknown/duplicate leaves, and validates the complete merged state. Immediately before mutation it runs the prerequisite's single DI-aware guard against that same locked row, then mutates and flushes through the same transaction manager. A hidden leaf is never accepted from the browser.
 
+The adopter also consumes the prerequisite's locked-state audit/undo contract unchanged: `prepare()` captures no before snapshot; the transaction carrier supplies the exact locked predecessor and committed successor/delete facts to `buildLog`, undo metadata, and post-commit events. A policy façade cannot reintroduce a pre-lock browser or scope-read snapshot.
+
 For each submit/delete:
 
 1. validate active section projections and composition;
@@ -101,7 +103,8 @@ The ready façade requires a well-formed expected header for update/delete even 
 
 | Area | Change |
 |---|---|
-| `SudoConfigCrudPage.tsx` | Finite identity/descriptors, prerequisite version state, challenge then bound mutations |
+| `form-sections.ts` / `form-sections.client.tsx` | Server-safe discovered security facts plus lazy create/edit runtime descriptors |
+| `SudoConfigCrudPage.tsx` | Finite identity/descriptor consumption, prerequisite version state, challenge then bound mutations |
 | enterprise security facts | Exact edit surface, update/delete capabilities, data contracts, and operations |
 | section-policy façades | Auth/scope/policy/body/mutation-guard/sudo gates, strict metadata/OpenAPI, expected-token parsing, then existing commands |
 | update command adapter | Reuse the prerequisite's transaction-held row lock; merge/validate, guard, mutate, and flush against one locked snapshot |
@@ -135,6 +138,13 @@ Exact successes are `PUT 200 { ok: true, updatedAt }` and `DELETE 200 { ok: true
 No configured policy uses the complete base form and legacy routes from the locking prerequisite. Pending exposes no actions. Ready uses only the policy façades. Invalid configuration blocks. Removing policy returns to legacy behavior after the next resolver load; prior façade carriers no longer match current facts.
 
 ## Frontend Architecture Contract
+
+The server route root `packages/enterprise/src/modules/security/backend/security/sudo/[id]/edit/page.tsx` remains server-owned and passes only config/id props into the existing client island.
+
+| Client file | Boundary reason | Importer | Heavy dependencies / provider scope | Cleanup and hydration risk | Rejected alternative |
+|---|---|---|---|---|---|
+| `components/SudoConfigCrudPage.tsx` | existing form/router state, `CrudForm`, sudo challenge, update/delete handlers | edit server root above (and sibling create root outside this work unit) | existing `SudoProvider`, UI, router; no new provider/dependency | one resolver subscription and isolated operation bindings; pending blocks controls | converting the server root or splitting another page island adds boundaries without ownership benefit |
+| `form-sections.client.tsx` | lazy React/Zod security descriptors for the edit alternative | generated CrudForm-section runtime registry only | descriptor/render imports only; no provider | lazy loader cleanup, fingerprint/hydration blocking, no editable flash | eager/global provider import would load security policy on unrelated routes |
 
 - add no page-root client boundary, global-provider import, or route-specific code to shared bootstrap; enterprise descriptors stay lazy and host-local;
 - retain `CrudForm` as the form owner, use its framework-bound `updateCrud`/`deleteCrud` transports, and add no raw `fetch`, ambient headers, or duplicated conflict state;
@@ -194,6 +204,7 @@ All route/capability additions are optional. Existing legacy route behavior rema
 - auth/feature/tenant/org scope and non-leaking missing record;
 - strict schemas/body limits, metadata/OpenAPI parity, and mutation-guard block/modify/legacy/after-success/callback-failure behavior;
 - prerequisite lock contract through façades: stale update/delete, record gone, gate modes, exact 409, conflict UI, and barrier-controlled contenders proving the row remains locked through commit;
+- locked-state audit/undo parity, including headerless/gate-off contenders proving each predecessor snapshot is the state the command actually replaced;
 - exact transform/refinement table with update-hide, null-clear, and stale-hidden-leaf cases;
 - command audit plus `security.sudo.config.updated|deleted` exactly once;
 - browser edit/sibling-create identity isolation, two successive saves, delete, blocking failure.
@@ -255,5 +266,6 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Added the route/client-island ownership ledger and required policy update/delete to consume locked transaction audit/undo snapshots.
 - **2026-10-27:** Split create into its own framework-only runtime adopter with shared inventory governance; retained edit/delete on the transaction-held row-lock prerequisite with mandatory mutation guards, strict façade/OpenAPI contracts, measurable frontend gates, and barrier proof.
 - **2026-10-22:** Split sudo-config section adoption from MFA reset and its optimistic-locking prerequisite; initially pinned create/edit/delete identity before the alternative-level split.

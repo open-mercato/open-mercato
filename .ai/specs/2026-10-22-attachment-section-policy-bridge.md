@@ -44,7 +44,7 @@ Extract request-independent operations behind existing DI seams:
 - `createAttachment(input, context)` accepts the validated multipart payload plus authenticated tenant/organization/resource scope and returns the current legacy result.
 - `deleteAttachment(input, context)` accepts the validated attachment id plus authenticated tenant/organization/resource scope and returns the current legacy result.
 
-Both operations own quota bookkeeping, storage/cache cleanup, persistence, events, and audit. Route adapters own HTTP parsing and response serialization. No route imports or calls another route handler.
+Both operations own quota bookkeeping, storage/cache cleanup, persistence, events, and audit. Before every new `Attachment` persistence they call `assertAttachmentScopeInvariant({ tenantId, organizationId })` with the authenticated scope, rejecting partial-null or cross-scope ownership before storage/database mutation. Every attachment-row read, including delete lookup and post-create retrieval, goes through `checkAttachmentAccess` with tenant, organization, entity, record, and actor context; no extracted operation may replace it with a raw ORM lookup. Route adapters own HTTP parsing and response serialization. No route imports or calls another route handler.
 
 ### Stable policy surfaces
 
@@ -146,22 +146,22 @@ Each phase keeps the legacy routes operational. No adopter may declare the attac
 1. Capture golden create/delete responses, events, audit facts, quota calls, storage/cache calls, and error mappings for the legacy routes.
 2. Extract the two operations through the attachments module's existing DI boundaries; update legacy routes to delegate exactly once.
 3. Publish `attachments.section-policy.create/v1` and `attachments.section-policy.delete/v1` provider facts plus the versioned owner-binding schema/validator; prove host resource kinds are never treated as attachment entity ids.
-4. Add the two exact façade routes, metadata, strict Zod-derived schemas, raw limits, and OpenAPI; validate auth/feature/scope first, then policy, operation, mutation surface, accepted owner binding, reauthorized host resource, multipart/stored attachment ownership, mutation guards, and attachment target resource before delegation.
-5. Add failure-injection tests for multipart rejection, quota rejection/recovery, storage failure, cache cleanup failure, missing attachment, permission denial, wrong tenant/org/resource, mutation-guard block/modify/legacy/callback behavior, and provider call count.
+4. Add the two exact façade routes, metadata, strict Zod-derived schemas, raw limits, and OpenAPI; validate auth/feature/scope first, then policy, operation, mutation surface, accepted owner binding, reauthorized host resource, multipart/stored attachment ownership, mutation guards, and attachment target resource before delegation. Preserve `assertAttachmentScopeInvariant` before persistence and `checkAttachmentAccess` for every attachment-row read.
+5. Add failure-injection tests for multipart rejection, quota rejection/recovery, storage failure, cache cleanup failure, missing attachment, permission denial, partial-null scope, cross-tenant/organization/entity/record access, mutation-guard block/modify/legacy/callback behavior, and provider call count.
 6. Document adopter binding and run focused attachment tests/build, `yarn check:client-boundaries`, `git diff --check`, and the configured validation gate, recording every command and exit status.
 
 ## Integration Coverage
 
 - Legacy `POST`/`DELETE`: golden request/response, events/audit, quota, storage/cache, and errors before versus after extraction.
 - Policy façade `POST`/`DELETE`: valid owner binding, missing/duplicate/stale/wrong binding, host-kind/entity-id namespace mismatch, wrong surface/operation/resource token, exact schema/OpenAPI parity, mutation-guard block/modify/legacy/callback paths, exact mismatch body, delegated operation once.
-- Security: unauthenticated, missing `attachments.manage`, wrong tenant/organization/record, and non-leaking not-found.
+- Security: unauthenticated, missing `attachments.manage`, partial-null persistence scope, wrong tenant/organization/entity/record through `checkAttachmentAccess`, and non-leaking not-found.
 - Failure cleanup: quota/storage/cache injection proves the same recovery behavior on both adapters.
 
 ## Acceptance Criteria
 
 1. Legacy attachment create/delete behavior remains observably identical for pinned inputs and failures.
 2. Both façade routes reject every policy or attachment-owner-binding mismatch before I/O with the exact non-leaking 409 body; host resource kinds are never compared directly with attachment entity ids.
-3. Policy success still independently requires auth, `attachments.manage`, and correct tenant/organization/resource scope.
+3. Policy success still independently requires auth, `attachments.manage`, `assertAttachmentScopeInvariant` before persistence, and `checkAttachmentAccess` for every attachment-row read in the correct tenant/organization/resource scope.
 4. Legacy and façade routes call the same operation exactly once; no handler-to-handler call or duplicated domain logic exists.
 5. No catalog/domain adopter import enters the attachments module.
 6. Focused unit/integration/security/failure tests and the named validation gates pass.
@@ -173,6 +173,7 @@ Each phase keeps the legacy routes operational. No adopter may declare the attac
 - `AGENTS.md`
 - `.ai/specs/AGENTS.md`
 - `packages/core/AGENTS.md`
+- `packages/core/src/modules/attachments/AGENTS.md`
 - `packages/shared/AGENTS.md`
 - `packages/ui/AGENTS.md`
 - `BACKWARD_COMPATIBILITY.md`
@@ -182,6 +183,7 @@ Each phase keeps the legacy routes operational. No adopter may declare the attac
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
 | root architecture rules | Avoid direct cross-module imports and preserve tenant/organization/resource scoping | Compliant | Attachments owns generic binding validation; adopters publish mappings without an attachments→catalog import |
+| attachments module guide | Enforce scope invariants before persistence and centralized access checks for every row read | Compliant | Both extracted operations retain `assertAttachmentScopeInvariant` and `checkAttachmentAccess`, including partial-null and cross-scope tests |
 | root mutation rules | Custom write routes preserve mutation guards, legacy bridge, validation, and callbacks | Compliant | Both façades use the mandatory framework helper and revalidate modified payload/ownership before I/O |
 | core API rules | Export metadata/OpenAPI and strict validated contracts | Compliant | Exact auth/feature, Zod schemas, raw upload limit, and status map are required |
 | `.ai/specs/AGENTS.md` | Keep adopter-independent capability cohesive and list integration coverage | Compliant | Only shared attachment extraction/façades are in scope; catalog binding remains adopter-owned |
@@ -207,5 +209,6 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Preserved the attachment module's mandatory persistence-scope invariant and centralized row-access checks across both extracted operations and façades.
 - **2026-10-27:** Defined the versioned adopter-owned mapping between framework host resource kinds and attachment entity ids, plus exact façade metadata/OpenAPI and mandatory mutation-guard behavior.
 - **2026-10-22:** Split the shared attachment operation extraction and mandatory-policy façades from the catalog product adopter, with exact ids, routes, security invariants, legacy parity, and failure coverage.

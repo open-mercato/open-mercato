@@ -36,9 +36,9 @@ Two admins can load one rule and silently overwrite or delete each other's chang
 
 Add `updatedAt` to `SudoConfigFormValues`, load it from `GET /api/security/sudo/configs/:id`, and let `CrudForm` derive the update/delete expected-version header. Extend update/delete command inputs with an optional normalized `expectedUpdatedAt`, populated from the request header by each route adapter.
 
-After route authentication, feature, scope, sudo, and schema gates, the command performs a scope-only existence/authorization read to preserve the established non-enumerating 404, then enters `em.transactional`. Using the transaction entity manager, it reloads the same scoped row with `LockMode.PESSIMISTIC_WRITE` and `refresh: true`; that lock remains held until commit. A missing locked row after the authorized read uses `enforceRecordGoneIsConflict` when an expected token was supplied, while an initially missing/out-of-scope record remains 404. The command calls `enforceCommandOptimisticLockWithGuards` exactly once against the locked row, mutates and flushes through the same transaction manager, and returns the post-flush version. No reload, side transaction, or flush may occur between compare and commit. Gate-off/headerless calls still take the row lock but the version guard no-ops, preserving operator-selected last-write behavior without a check/write race. The guard uses `resourceKind: 'security.sudo_config'`, record id, locked current row, explicit expected value, and request context. A later section adopter performs active-leaf merge and complete-state validation against this same locked row before the guard. The route never performs a version pre-check.
+After route authentication, feature, scope, sudo, and schema gates, command `prepare()` performs only validation and scope authorization; it does not capture undo/audit state. The command then enters `em.transactional`. Using the transaction entity manager, it reloads the same scoped row with `LockMode.PESSIMISTIC_WRITE` and `refresh: true`; that lock remains held until commit. A missing locked row after the authorized read uses `enforceRecordGoneIsConflict` when an expected token was supplied, while an initially missing/out-of-scope record remains 404. Inside the transaction, the command captures the exact `before` snapshot from that locked row, calls `enforceCommandOptimisticLockWithGuards` exactly once, mutates and flushes through the same transaction manager, and captures the exact post-flush `after` snapshot/version. No reload, side transaction, or flush may occur between compare and commit. Gate-off/headerless calls still take the row lock and capture their predecessor snapshot there, while the version guard no-ops, preserving operator-selected last-write behavior without a stale undo snapshot. The guard uses `resourceKind: 'security.sudo_config'`, record id, locked current row, explicit expected value, and request context. A later section adopter performs active-leaf merge and complete-state validation against this same locked row before the guard. The route never performs a version pre-check.
 
-The transaction returns the event payload; `security.sudo.config.updated|deleted` is emitted only after `em.transactional` resolves, so a flush/commit failure produces no event. Event-publication failure does not roll back the committed database mutation and follows the existing command error path; this spec does not introduce an outbox.
+The transaction returns an internal carrier containing the locked `before`, committed `after`/delete facts, version, and event payload. Command execution emits the event after commit, then returns the unchanged public result shape with that carrier attached under a module-private `Symbol` using a non-enumerable property. The command bus passes the same result object to `buildLog`, which consumes the symbol carrier for audit/undo; `Object.keys`, object spread, `JSON.stringify`, `NextResponse.json`, workflow output schemas, and route/facade projections see only `{ ok: true, updatedAt }` for update or `{ ok: true }` for delete. The symbol/type is not exported. No route may expose, copy, or independently reconstruct the carrier. A flush/commit failure produces no event/audit/undo entry. Event-publication failure does not roll back the committed database mutation and follows the existing command error path; this spec does not introduce an outbox.
 
 Update returns the post-flush version so a second save can refresh form state. Delete has no surviving version. `surfaceRecordConflict` handles both update and delete before generic flash conversion.
 
@@ -49,7 +49,7 @@ Update returns the post-flush version so a second save can refresh form state. D
 | `components/SudoConfigForm.tsx` | Add optional `updatedAt` form value without including it in the domain payload |
 | `components/SudoConfigCrudPage.tsx` | Retain loaded/refreshed version and surface standard conflicts |
 | legacy sudo config routes | Parse optional expected header and pass it to commands; no route-side compare |
-| `commands/updateSudoConfig.ts` / `deleteSudoConfig.ts` and service seam | Scoped preauthorization, transaction-held row lock, single DI-aware check, same-manager flush, post-commit event |
+| `commands/updateSudoConfig.ts` / `deleteSudoConfig.ts` and service seam | Scoped preauthorization, transaction-held row lock, single DI-aware check, same-manager flush, post-commit event, module-private non-enumerable audit carrier |
 | tests | Route/command/UI default/off/allow-list, stale, gone, and successive-save matrix |
 
 ## Data Models
@@ -122,7 +122,7 @@ No database migration. Legacy request bodies, required headers, and delete/creat
 ## Phasing and Implementation Plan
 
 1. Carry `updatedAt` through form initial state and update response handling.
-2. Add optional expected input and a transactional service/command seam that performs scoped preauthorization, reloads with `PESSIMISTIC_WRITE`, runs one DI-aware guard, and flushes through the same entity manager; emit the event only after commit.
+2. Add optional expected input and a transactional service/command seam that performs scoped preauthorization, reloads with `PESSIMISTIC_WRITE`, captures `before`, runs one DI-aware guard, mutates/flushes, and captures `after` through the same entity manager; emit the event after commit, attach the carrier to the exact public command result through a module-private non-enumerable symbol, and let `buildLog` consume only that symbol.
 3. Wire legacy routes to parse/pass the standard header and preserve missing-header compatibility.
 4. Add command, route, and UI tests for the exact matrix and side-effect suppression.
 5. Run focused enterprise security tests, `yarn workspace @open-mercato/enterprise build`, `yarn typecheck`, `git diff --check`, and configured validation with recorded evidence.
@@ -133,6 +133,8 @@ No database migration. Legacy request bodies, required headers, and delete/creat
 - default/on/off/include/exclude guard modes;
 - initially missing/out-of-scope versus deleted-after-authorization responses;
 - barrier-controlled two-contender update/update and update/delete tests proving the second writer cannot pass the guard on a pre-lock snapshot;
+- gate-off/headerless barrier tests proving each successful audit/undo predecessor equals the row state observed after lock acquisition, and undo never restores a state that its command did not replace;
+- exact command/legacy-route/facade response tests covering `Object.keys`, spread, `JSON.stringify`, and `NextResponse.json`, proving the carrier/snapshots never appear and update/delete bodies remain exactly tabled above;
 - flush/commit failure rollback and post-commit event ordering;
 - no audit or `security.sudo.config.updated|deleted` event on conflict;
 - two successive UI saves and stale update/delete conflict bar.
@@ -140,9 +142,9 @@ No database migration. Legacy request bodies, required headers, and delete/creat
 ## Acceptance Criteria
 
 1. The loaded config's own `updatedAt` protects update and delete without entering the domain body.
-2. Exactly one command-bound guard checks the transaction-locked row, and the lock is held through same-manager flush/commit with no write preceding the guard.
+2. Exactly one command-bound guard checks the transaction-locked row, and the lock is held through same-manager flush/commit with no write preceding the guard; `before`/`after` audit and undo snapshots come only from that locked transaction.
 3. Legacy headerless callers retain established behavior; supplied stale tokens receive exact standard 409.
-4. Update success returns/refreshed `updatedAt`; delete success remains `{ ok: true }`.
+4. Update success returns/refreshed `updatedAt`; delete success remains `{ ok: true }`; the locked carrier is module-private, non-enumerable, and absent from every public serialization/projection.
 5. Focused unit/integration/UI and named validation gates pass.
 6. Implementation and review are performed by Open Mercato core team members.
 
@@ -191,5 +193,7 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Defined a module-private non-enumerable command carrier so transaction-locked snapshots reach `buildLog` without changing or leaking through legacy/facade JSON results.
+- **2026-10-27:** Moved sudo update/delete before/after audit and undo snapshots inside the transaction-held row lock, including headerless/gate-off contender proof.
 - **2026-10-27:** Replaced check-then-flush with a transaction-held pessimistic row lock through commit, pinned route docs and post-commit event semantics, added a measurable frontend contract and contender tests, and completed the compliance report.
 - **2026-10-22:** Extracted sudo-config optimistic locking from section adoption and pinned command authority, route compatibility, gate modes, responses, conflicts, and core-team-only ownership.

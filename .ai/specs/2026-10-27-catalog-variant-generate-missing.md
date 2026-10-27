@@ -83,7 +83,7 @@ Ids are returned only after the caller is authorized for the same tenant/organiz
 
 Add `POST /api/catalog/products/:productId/variants/generate-missing` with feature `catalog.variants.manage`. The request has an empty strict JSON object (maximum raw body 1 KiB); the expected product version comes from the standard optimistic-lock header. The route independently validates auth, feature, tenant/organization product scope, and the DI-aware parent guard. Because generation is a state-changing action on the existing `catalog.product/<productId>`, it runs `runRouteMutationGuards` with logical operation `custom`, which maps to registry operation `update` and includes the update/delete-only legacy bridge. It supplies resource kind `catalog.product`, resource id `productId`, and an internal strict payload containing only that authoritative id before delegating once; a modified input is strictly revalidated and reauthorized against the URL/scoped product, and every after-success callback receives the actual product id only after the service completes.
 
-Inside the service, each candidate traverses the same guard-complete provider used by direct `catalog.variants.create`: registered guards receive resource kind `catalog.product_variant`, operation `create`, absent pre-create id, and the scoped candidate payload; the update/delete-only legacy bridge is collected by the shared machinery but intentionally does not match `create`. Modified payloads are strictly revalidated and recanonicalized; denial stops generation; after-success callbacks receive the actual created variant id. The generated path cannot call the command bus directly around this provider.
+Inside the service, each candidate traverses the same guard-complete provider used by direct `catalog.variants.create`: registered guards receive canonical resource kind `catalog.variant`, operation `create`, absent pre-create id, and the scoped candidate payload; the update/delete-only legacy bridge is collected by the shared machinery but intentionally does not match `create`. Modified payloads are strictly revalidated and recanonicalized; denial stops generation; after-success callbacks receive the actual created variant id. The generated path cannot call the command bus directly around this provider. Focused parity tests assert the same canonical resource kind reaches direct-create and generate-missing guards/allowlists.
 
 Success is HTTP 200:
 
@@ -208,4 +208,5 @@ None.
 
 ## Changelog
 
+- **2026-10-27:** Corrected generated-variant mutation guards to the canonical `catalog.variant` resource kind and required direct/generator allowlist parity.
 - **2026-10-27:** Split authoritative generate-missing orchestration and its ordinary page/API adoption from the catalog section-policy adopter.
