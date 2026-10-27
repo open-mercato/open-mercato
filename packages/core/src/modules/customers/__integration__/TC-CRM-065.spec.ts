@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readJsonSafe as parseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
@@ -63,27 +64,36 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
         page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' }),
       ]);
 
+      const selectableRows = page.getByRole('row').filter({
+        has: page.getByRole('cell').getByRole('checkbox'),
+      });
+      await expect(selectableRows.first()).toBeVisible();
+
       const searchInput = page.getByPlaceholder(/Search by name/i);
-      const filteredResponse = page.waitForResponse((response) => {
+      const filteredResponsePromise = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return response.request().method() === 'GET'
           && url.pathname === '/api/customers/people'
-          && url.searchParams.get('search') === prefix
-          && response.ok();
+          && url.searchParams.get('search') === prefix;
       });
       await searchInput.fill(prefix);
-      await filteredResponse;
-      await expect(page.locator('tbody').getByRole('row')).toHaveCount(3);
-      for (const name of [`${prefix} Free0`, `${prefix} Free1`, `${prefix} Blocked`]) {
-        await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
-      }
+      const filteredResponse = await filteredResponsePromise;
+      expect(filteredResponse.status()).toBe(200);
+      const filteredPayload = (await parseJsonSafe<{ items?: Array<{ id?: unknown }> }>(await filteredResponse.text())) ?? {};
+      expect((filteredPayload.items ?? [])
+        .map((item) => (typeof item.id === 'string' ? item.id : null))
+        .filter((id): id is string => id !== null)
+        .sort()).toEqual([...deletableIds, blockedId].sort());
 
-      const blockedRow = page.getByRole('link', { name: `${prefix} Blocked`, exact: true });
-      await expect(blockedRow).toBeVisible();
+      await expect(selectableRows).toHaveCount(3);
+      for (const name of ['Free0', 'Free1', 'Blocked']) {
+        await expect(page.getByRole('link', { name: `${prefix} ${name}`, exact: true })).toBeVisible();
+      }
 
       const selectAllCheckbox = page.locator('thead').getByRole('checkbox');
       await expect(selectAllCheckbox).toBeVisible();
       await selectAllCheckbox.check();
+      await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
 
       const deleteButton = page.getByRole('button', { name: /Delete selected/i });
       await expect(deleteButton).toBeVisible();
