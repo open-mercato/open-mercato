@@ -41,6 +41,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { TimerBar } from '../../../../lib/timesheets-ui/TimerBar'
 import { CreateProjectDialog } from '../../../../lib/timesheets-ui/CreateProjectDialog'
 import { ListView } from '../../../../lib/timesheets-ui/ListView'
@@ -379,6 +380,7 @@ export default function TimesheetPage() {
           { allowNullResult: true },
         ).catch((error: unknown) => {
           logger.warn('staff.time_tracking.timesheet capacity load failed; using the flat target', { err: error })
+          getTelemetryRuntime()?.reportError(error, { module: 'staff', code: 'staff.timesheet_capacity_load_failed' })
           return null
         }),
       ])
