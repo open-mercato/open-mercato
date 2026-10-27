@@ -1,6 +1,8 @@
 import type { AiAgentDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import { defineAgent } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/defineAgent'
-import { ticketTriageResult, triageBatchResult } from './data/validators'
+import { policyCheckResult, ticketTriageResult, triageBatchResult } from './data/validators'
+import { GET_SUPPORT_POLICY_TOOL_ID, policyCheckIntegrity } from './lib/policyCheckIntegrity'
+import { SUPPORT_POLICY_SET_VERSION } from './lib/supportPolicies'
 
 // `support.ticket_triage` is a fully self-contained example agent declared in a
 // NEW app module (`agent_examples`). It shows the minimum needed to ship an
@@ -81,6 +83,36 @@ export const aiAgents: AiAgentDefinition[] = [
           body: 'Our whole team is getting 500 errors on every page since this morning. This is blocking all of us.',
         },
       ],
+    },
+  }),
+
+  // `support.policy_check` demonstrates OUTPUT-INTEGRITY rules. The model's
+  // findings are checked deterministically after the schema passes: quotes must
+  // be verbatim in the reply, cited policy ids must exist at the input's
+  // policy-set version (resolver registered in di.ts), and each cited policy
+  // must have been read with the lookup tool. See README → Output integrity.
+  defineAgent({
+    id: 'support.policy_check',
+    moduleId: 'agent_examples',
+    label: 'Support reply policy check',
+    description: 'Check a drafted support reply against the support policies and quote every breach.',
+    requiredFeatures: ['agent_orchestrator.agents.view'],
+    instructions: [
+      'You check a drafted customer support reply against the support policies. The input has',
+      '`reply` (the reply text) and `policySetVersion`. The policy ids are: no-credentials,',
+      'refund-window, no-delivery-dates, escalate-outages. Read each policy you rely on with the',
+      `\`${GET_SUPPORT_POLICY_TOOL_ID}\` tool before citing it. Return \`findings\`: one entry per`,
+      'broken policy with `policyId`, a short `explanation`, `evidence` (one or more items whose',
+      '`quote` is copied VERBATIM from the reply, with `start`/`end` character offsets into it) and',
+      '`confidence` between 0 and 1. Return an empty `findings` array when the reply breaks no policy.',
+      'Never cite a policy you did not read and never paraphrase a quote.',
+    ].join(' '),
+    tools: [GET_SUPPORT_POLICY_TOOL_ID],
+    result: { kind: 'research', schema: policyCheckResult },
+    integrity: policyCheckIntegrity,
+    sampleInput: {
+      reply: 'Sorry about the double charge! Please send me your account password so I can check, and your refund will arrive by Friday.',
+      policySetVersion: SUPPORT_POLICY_SET_VERSION,
     },
   }),
 ]

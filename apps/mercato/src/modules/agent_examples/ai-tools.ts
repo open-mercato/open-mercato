@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import { defineAgentTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-tool'
+import { defineAiTool } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-tool-definition'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 import { ticketTriageResult } from './data/validators'
+import { GET_SUPPORT_POLICY_TOOL_ID } from './lib/policyCheckIntegrity'
+import { findSupportPolicy } from './lib/supportPolicies'
 
 /**
  * Publishes the `support.ticket_triage` Agent Orchestrator agent as one tool.
@@ -35,6 +38,31 @@ export const triageTicketTool = defineAgentTool({
   requiredFeatures: ['agent_orchestrator.agents.view'],
 })
 
-export const aiTools: AiToolDefinition[] = [triageTicketTool as AiToolDefinition]
+const getSupportPolicyInput = z.object({
+  policyId: z.string().min(1).max(100).describe('Id of the support policy to read'),
+})
+
+/**
+ * Read-only lookup into the static example policy catalogue, used by the
+ * `support.policy_check` agent. Its `tool_consulted` integrity rule checks every
+ * cited policy id against the `policy.id` this tool returned; an unknown id
+ * returns `{ found: false }`, which never counts as consulted.
+ */
+export const getSupportPolicyTool = defineAiTool({
+  name: GET_SUPPORT_POLICY_TOOL_ID,
+  description: 'Read one support policy (id, version, title, rule) from the example policy catalogue.',
+  inputSchema: getSupportPolicyInput,
+  requiredFeatures: ['agent_orchestrator.agents.view'],
+  isMutation: false,
+  handler: async ({ policyId }) => {
+    const policy = findSupportPolicy(policyId)
+    return policy ? { found: true, policy } : { found: false }
+  },
+})
+
+export const aiTools: AiToolDefinition[] = [
+  triageTicketTool as AiToolDefinition,
+  getSupportPolicyTool as AiToolDefinition,
+]
 
 export default aiTools

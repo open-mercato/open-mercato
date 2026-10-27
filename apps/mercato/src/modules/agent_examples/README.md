@@ -138,6 +138,74 @@ agent's. Calls route through the orchestrator's run dispatcher and return
 disabled the tool is hidden from MCP `tools/list`, and a direct call fails with
 `AGENT_DISPATCHER_UNAVAILABLE`.
 
+## Output integrity (quotes, references, consulted tools)
+
+`support.policy_check` checks a drafted support reply against a small policy
+catalogue and shows the output-integrity rules of `defineAgent`. The schema only
+says a finding is well-formed; integrity rules check that it is TRUE, after the
+schema passes and before anything is persisted:
+
+```ts
+defineAgent({
+  id: 'support.policy_check',
+  // …
+  tools: ['agent_examples.get_support_policy'],
+  result: { kind: 'research', schema: policyCheckResult },
+  integrity: [
+    { id: 'quotes', kind: 'evidence_quote', items: 'data.findings[*].evidence[*]', quote: 'quote',
+      offsets: { start: 'start', end: 'end' }, source: { input: 'reply' }, onViolation: 'drop' },
+    { id: 'policy-ids', kind: 'reference_exists', ids: 'data.findings[*].policyId',
+      resolver: 'agent_examples.support_policy', version: { input: 'policySetVersion' }, onViolation: 'drop' },
+    { id: 'policies-read', kind: 'tool_consulted', cites: 'data.findings[*].policyId',
+      tools: ['agent_examples.get_support_policy'], returned: ['policy.id'], onViolation: 'flag' },
+  ],
+})
+```
+
+Paths are relative to the result envelope (`{ kind, data }`) and are validated
+against the result schema when the agent registers: a path that cannot exist is
+a startup error. The declaration lives in `lib/policyCheckIntegrity.ts`.
+
+- **`evidence_quote`** — each evidence `quote` must appear in the input `reply`
+  (whitespace and typography are normalised, case is not). A match gets its real
+  `start`/`end` written back and its text replaced by the exact reply text. A
+  quote that is not in the reply (a paraphrase, an invented sentence) is dropped
+  from `evidence`.
+- **`reference_exists`** — every `policyId` is resolved in one batch through the
+  resolver registered in DI under `agentReferenceResolver:agent_examples.support_policy`
+  (`di.ts`, implemented in `lib/supportPolicies.ts`). An unknown id, or an id that
+  does not exist at the input's `policySetVersion`, drops the whole finding. If
+  no resolver is registered the run is blocked (`onResolverMissing` defaults to
+  `block`): an unverifiable reference is not a verified one.
+- **`tool_consulted`** — every cited `policyId` must equal a `policy.id` returned
+  by a successful `agent_examples.get_support_policy` call in the same run. A
+  finding citing a policy the agent never read is kept but flagged, which holds
+  auto-approval.
+
+Every rule records an `AgentGuardrailCheck` (pass, or warn with the dropped and
+flagged counts) that shows in the run trace; item paths and reason codes are
+recorded, never the quoted text.
+
+A resolver implements `AgentReferenceResolver` from
+`@open-mercato/shared/lib/ai/referenceResolver`: read-only, one batched lookup,
+results keyed by id (`exists`, `not_found`, `version_mismatch`). This example
+reads a static in-code catalogue, so it ignores the scope argument; a resolver
+over tenant data MUST filter by `tenantId`/`organizationId` and read through
+`findWithDecryption`.
+
+Try it from the Playground with:
+
+```json
+{
+  "reply": "Sorry about the double charge! Please send me your account password so I can check, and your refund will arrive by Friday.",
+  "policySetVersion": "2026.1"
+}
+```
+
+Expect findings for `no-credentials` and `no-delivery-dates`, each quoting the
+reply verbatim with recomputed offsets. Change `policySetVersion` to `2025.1`
+and every finding is dropped as a version mismatch.
+
 ## Try it
 
 Open **Backend → Agents → Support ticket triage → Open in playground** and run:

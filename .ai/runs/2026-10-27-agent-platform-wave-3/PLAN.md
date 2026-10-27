@@ -45,7 +45,7 @@
 | 5 | 5.1 | Add the reference resolver contract and the reference_exists rule | dispatch | done | 42e73eb21 |
 | 5 | 5.2 | Add the tool_consulted rule with optional prepare-step enforcement | dispatch:capable | done | 578aada95 |
 | 5 | 5.3 | Add registerIntegrityChecker and the custom rule | dispatch | done | de5757eb6 |
-| 5 | 5.4 | Add an example integrity agent and resolver to agent_examples | dispatch | todo | — |
+| 5 | 5.4 | Add an example integrity agent and resolver to agent_examples | dispatch | done | pending |
 | 5 | 5.5 | Cover the integrity pipeline with integration tests | dispatch | todo | — |
 | 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | todo | — |
 | 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | todo | — |
