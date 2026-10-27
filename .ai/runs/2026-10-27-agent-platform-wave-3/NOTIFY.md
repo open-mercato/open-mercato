@@ -93,3 +93,7 @@
 - TC-ATT-STRUCT-001..005 + 007 passed against the rebuilt ephemeral app; screenshots captured for the structure panel (admin, viewer), the MCP exposure section and the Playground picker.
 - Decisions from executors: the tool returns `not_found` when the tool context has no organization (no superadmin org fallback); items carry `page` = start page; the Structure tab shows for every file type (images can be OCR'd; unsupported types show the API's skip reason); `AttachmentsSection` callers without `canManageStructure` fall back to `/api/auth/feature-check`; second-level outline nodes always offer expand (childCount unknown at maxDepth 2).
 - Evidence upload: the tracker descriptor's evidence-branch upload would create a branch on the public upstream repo via the API; agent writes to upstream go through the user, so screenshots are committed in the run folder and embedded with commit-pinned raw URLs after the user pushes.
+
+## 2026-10-27T13:45:42Z — final gate
+- validation.commands: pass except `yarn test` → one real failure (feature-policy coverage) fixed in Step 7.3; channel-fcm SIGSEGV and docs OOM are environmental (pass when re-run).
+- Full integration: 2911 passed, 48 failed — all outside this branch (11 known on main, 36 SSO/security not mounted without their module flags and passing when enabled, TC-SX-009 known flaky). DS lint clean.

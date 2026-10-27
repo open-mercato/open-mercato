@@ -53,7 +53,7 @@
 | 6 | 6.3 | Cover the structure panel with an integration test | dispatch | done | 818f0e12f |
 | 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | 1fe4d70ea |
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | done | fbccb7647 |
-| 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | pending |
+| 7 | 7.3 | Route invoke and grant checks through authorizeFeatures | inline | done | 3695a39e2 |
 
 ## Goal
 

@@ -1,0 +1,8 @@
+    > 527 |       expect(run).toMatchObject({ status: 'completed', createdCount: 1, updatedCount: 0, failedCount: 0 })
+  2 failed
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:245:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing a file after its person was deleted creates the person again, then updates it 
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+  1 flaky
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:479:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a stale mapping never adopts a person that lives in another organization 
+  3 skipped
+  44 passed (3.6m)
