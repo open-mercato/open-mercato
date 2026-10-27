@@ -101,6 +101,7 @@ function embeddedIpv4(hextets: readonly number[]): string | null {
   const nat64 =
     first === 0x0064 && second === 0xff9b && third === 0 && fourth === 0 && fifth === 0 && sixth === 0
   if (nat64) return hextetsToIpv4(seventh, eighth)
+  if (first === 0x2002) return hextetsToIpv4(second, third)
   return null
 }
 
@@ -109,6 +110,7 @@ function isPrivateIpv6(address: string): boolean {
   if (normalized === '::1' || normalized === '::') return true
   const hextets = expandIpv6(normalized)
   if (hextets === null) return true
+  if (hextets[0] === 0x0064 && hextets[1] === 0xff9b && hextets[2] === 1) return true
   const embedded = embeddedIpv4(hextets)
   if (embedded !== null) return isPrivateIpv4(embedded)
   const first = hextets[0]
