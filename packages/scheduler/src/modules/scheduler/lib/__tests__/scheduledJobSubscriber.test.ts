@@ -2,6 +2,51 @@ import { describe, it, expect, beforeEach, jest } from '@jest/globals'
 import { ScheduledJobSubscriber } from '../scheduledJobSubscriber'
 import { ScheduledJob } from '../../data/entities.js'
 
+const committedEm = { isInTransaction: () => false, getTransactionContext: () => undefined }
+
+type BullMQCall = { method: 'register' | 'unregister'; scheduleId: string }
+
+function createAsyncSubscriber(calls: BullMQCall[]): ScheduledJobSubscriber {
+  const originalStrategy = process.env.QUEUE_STRATEGY
+  process.env.QUEUE_STRATEGY = 'async'
+  const subscriber = new ScheduledJobSubscriber()
+  if (originalStrategy !== undefined) {
+    process.env.QUEUE_STRATEGY = originalStrategy
+  } else {
+    delete process.env.QUEUE_STRATEGY
+  }
+  const bullmqService = {
+    register: async (schedule: ScheduledJob) => {
+      calls.push({ method: 'register', scheduleId: schedule.id })
+    },
+    unregister: async (scheduleId: string) => {
+      calls.push({ method: 'unregister', scheduleId })
+    },
+  }
+  subscriber.setContainer({
+    hasRegistration: () => true,
+    resolve: () => bullmqService,
+  } as any)
+  return subscriber
+}
+
+function createSchedule(id: string, isEnabled = true): ScheduledJob {
+  const schedule = new ScheduledJob()
+  schedule.id = id
+  schedule.name = `Schedule ${id}`
+  schedule.isEnabled = isEnabled
+  schedule.deletedAt = null
+  return schedule
+}
+
+function transactionalEm(transaction: object) {
+  return { isInTransaction: () => true, getTransactionContext: () => transaction }
+}
+
+function flushArgs(em: object, type: string, schedule: ScheduledJob) {
+  return { em, uow: { getChangeSets: () => [{ type, entity: schedule }] } } as any
+}
+
 describe('ScheduledJobSubscriber', () => {
   describe('getSubscribedEntities', () => {
     it('should subscribe to ScheduledJob entity', () => {
@@ -66,6 +111,7 @@ describe('ScheduledJobSubscriber', () => {
 
       // Mock flush args
       mockFlushArgs = {
+        em: committedEm,
         uow: {
           getChangeSets: jest.fn().mockReturnValue([]),
         },
@@ -449,6 +495,7 @@ describe('ScheduledJobSubscriber', () => {
 
       // Create
       await subscriber.afterFlush({
+        em: committedEm,
         uow: {
           getChangeSets: () => [{ type: 'create', entity: schedule }],
         },
@@ -460,6 +507,7 @@ describe('ScheduledJobSubscriber', () => {
       // Update (still enabled)
       schedule.name = 'Updated Name'
       await subscriber.afterFlush({
+        em: committedEm,
         uow: {
           getChangeSets: () => [{ type: 'update', entity: schedule }],
         },
@@ -471,6 +519,7 @@ describe('ScheduledJobSubscriber', () => {
       // Disable
       schedule.isEnabled = false
       await subscriber.afterFlush({
+        em: committedEm,
         uow: {
           getChangeSets: () => [{ type: 'update', entity: schedule }],
         },
@@ -481,6 +530,7 @@ describe('ScheduledJobSubscriber', () => {
 
       // Delete
       await subscriber.afterFlush({
+        em: committedEm,
         uow: {
           getChangeSets: () => [{ type: 'delete', entity: schedule }],
         },
@@ -489,6 +539,129 @@ describe('ScheduledJobSubscriber', () => {
       expect(mockBullMQService.register).toHaveBeenCalledTimes(2)
       expect(mockBullMQService.unregister).toHaveBeenCalledTimes(2)
 
+      if (originalStrategy !== undefined) {
+        process.env.QUEUE_STRATEGY = originalStrategy
+      } else {
+        delete process.env.QUEUE_STRATEGY
+      }
+    })
+  })
+
+  describe('transaction boundary', () => {
+    it('defers the sync of a flush inside a transaction until that transaction commits', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      const transaction = {}
+      const em = transactionalEm(transaction)
+
+      await subscriber.afterFlush(flushArgs(em, 'create', createSchedule('job-1')))
+      expect(calls).toEqual([])
+
+      await subscriber.afterTransactionCommit({ em, transaction } as any)
+      expect(calls).toEqual([{ method: 'register', scheduleId: 'job-1' }])
+
+      await subscriber.afterTransactionCommit({ em, transaction } as any)
+      expect(calls).toHaveLength(1)
+    })
+
+    it('publishes nothing when the transaction rolls back', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      const transaction = {}
+      const em = transactionalEm(transaction)
+
+      await subscriber.afterFlush(flushArgs(em, 'update', createSchedule('job-1')))
+      await subscriber.afterTransactionRollback({ em, transaction } as any)
+      await subscriber.afterTransactionCommit({ em, transaction } as any)
+
+      expect(calls).toEqual([])
+    })
+
+    it('syncs the last state of a schedule flushed several times in one transaction once', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      const transaction = {}
+      const em = transactionalEm(transaction)
+      const schedule = createSchedule('job-1')
+
+      await subscriber.afterFlush(flushArgs(em, 'create', schedule))
+      schedule.isEnabled = false
+      await subscriber.afterFlush(flushArgs(em, 'update', schedule))
+      await subscriber.afterTransactionCommit({ em, transaction } as any)
+
+      expect(calls).toEqual([{ method: 'unregister', scheduleId: 'job-1' }])
+    })
+
+    it('keeps a committed savepoint queued until the outer transaction commits', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      const outer = {}
+      const savepoint = { savepointName: 'trx1' }
+      const outerEm = transactionalEm(outer)
+      const savepointEm = transactionalEm(savepoint)
+
+      await subscriber.afterFlush(flushArgs(outerEm, 'create', createSchedule('job-outer')))
+      subscriber.beforeTransactionStart({ em: savepointEm, transaction: outer } as any)
+      subscriber.afterTransactionStart({ em: savepointEm, transaction: savepoint } as any)
+      await subscriber.afterFlush(flushArgs(savepointEm, 'create', createSchedule('job-inner')))
+      await subscriber.afterTransactionCommit({ em: savepointEm, transaction: savepoint } as any)
+      expect(calls).toEqual([])
+
+      await subscriber.afterTransactionCommit({ em: outerEm, transaction: outer } as any)
+      expect(calls).toEqual([
+        { method: 'register', scheduleId: 'job-outer' },
+        { method: 'register', scheduleId: 'job-inner' },
+      ])
+    })
+
+    it('drops a rolled back savepoint and still syncs the outer transaction on commit', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      const outer = {}
+      const savepoint = { savepointName: 'trx1' }
+      const outerEm = transactionalEm(outer)
+      const savepointEm = transactionalEm(savepoint)
+
+      await subscriber.afterFlush(flushArgs(outerEm, 'create', createSchedule('job-outer')))
+      subscriber.beforeTransactionStart({ em: savepointEm, transaction: outer } as any)
+      subscriber.afterTransactionStart({ em: savepointEm, transaction: savepoint } as any)
+      await subscriber.afterFlush(flushArgs(savepointEm, 'create', createSchedule('job-inner')))
+      subscriber.afterTransactionRollback({ em: savepointEm, transaction: savepoint } as any)
+      await subscriber.afterTransactionCommit({ em: outerEm, transaction: outer } as any)
+
+      expect(calls).toEqual([{ method: 'register', scheduleId: 'job-outer' }])
+    })
+
+    it('drops savepoint changes when the outer transaction rolls back', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      const outer = {}
+      const savepoint = { savepointName: 'trx1' }
+      const outerEm = transactionalEm(outer)
+      const savepointEm = transactionalEm(savepoint)
+
+      subscriber.beforeTransactionStart({ em: savepointEm, transaction: outer } as any)
+      subscriber.afterTransactionStart({ em: savepointEm, transaction: savepoint } as any)
+      await subscriber.afterFlush(flushArgs(savepointEm, 'create', createSchedule('job-inner')))
+      await subscriber.afterTransactionCommit({ em: savepointEm, transaction: savepoint } as any)
+      subscriber.afterTransactionRollback({ em: outerEm, transaction: outer } as any)
+
+      expect(calls).toEqual([])
+    })
+
+    it('ignores transaction events under the local strategy', async () => {
+      const originalStrategy = process.env.QUEUE_STRATEGY
+      process.env.QUEUE_STRATEGY = 'local'
+      const subscriber = new ScheduledJobSubscriber()
+      const resolve = jest.fn()
+      subscriber.setContainer({ hasRegistration: () => true, resolve } as any)
+      const transaction = {}
+      const em = transactionalEm(transaction)
+
+      await subscriber.afterFlush(flushArgs(em, 'create', createSchedule('job-1')))
+      await subscriber.afterTransactionCommit({ em, transaction } as any)
+
+      expect(resolve).not.toHaveBeenCalled()
       if (originalStrategy !== undefined) {
         process.env.QUEUE_STRATEGY = originalStrategy
       } else {

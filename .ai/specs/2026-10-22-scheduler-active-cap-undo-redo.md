@@ -3,7 +3,7 @@
 **Status:** implemented in the PR that fixes #7760 and #4781
 **Module:** `packages/scheduler/src/modules/scheduler`
 **Related:**
-`UPGRADE_NOTES.md` → 0.9.0 → 0.9.1 → "Scheduler undo and redo respect the active-schedule cap and keep the run state",
+the PR description's "Upgrade notes" section (kept out of `UPGRADE_NOTES.md` at a maintainer's request),
 #4781 (make the active schedule cap atomic), #3991 / #4780 (cap introduced)
 
 ## TLDR
@@ -59,6 +59,14 @@ is now written by hand instead of with `makeCreateRedo`, because `makeCreateRedo
 `makeCreateRedo` did: id-preserving restore, `409` on a unique-key collision, BullMQ sync and the
 `created` CRUD side effects.
 
+Under `QUEUE_STRATEGY=async`, `ScheduledJobSubscriber` mirrors schedule changes to BullMQ. A flush
+inside an open transaction (the helper's own, or a caller's it joined) has not committed yet, so the
+subscriber queues those changes on the transaction and syncs them from `afterTransactionCommit`, after
+the commit has released the tenant lock. A rollback drops them; a savepoint that commits hands them
+to its parent, one that rolls back drops its own. A flush outside any transaction has already
+committed in MikroORM's implicit transaction and is synced right away, as before. Redis is therefore
+never called while the lock is held, and nothing is published for an activation that did not commit.
+
 Update undo keeps the live `lastRunAt`. It keeps the live `nextRunAt` unless the restored schedule
 type, value or timezone differs from the live row; then it recomputes `nextRunAt` from the restored
 definition.
@@ -109,14 +117,15 @@ same tenant run at the same moment.
 **Rollback:** reverting restores the old count-then-write checks and the unchecked restores. No data
 migration; refused restores wrote nothing.
 
-**Documentation:** `UPGRADE_NOTES.md` (0.9.0 → 0.9.1).
+**Documentation:** the PR description's "Upgrade notes" section, to be carried into the release notes.
 
 ## Risks & Impact Review
 
 | Risk | Severity | Mitigation | Residual |
 |---|---|---|---|
 | Activations for one tenant wait on each other | Low | Lock held only for count + one row write; only activating writes take it; per tenant | Short waits under bursts |
-| Lock waiters hold pool connections | Low | Critical section is database-only on the transaction's own connection (no RBAC or HTTP calls under the lock) | None known |
+| Lock waiters hold pool connections | Low | Critical section is database-only on the transaction's own connection (no RBAC, HTTP or Redis calls under the lock); BullMQ sync runs after commit | None known |
+| BullMQ published for a change that did not commit | Low | Subscriber queues in-transaction changes and syncs them only after commit; rollback drops them | A crash between commit and sync leaves BullMQ stale until the cold-start `syncAll` |
 | A caller already in a transaction holds the lock until its own commit | Low | The helper joins the outer transaction instead of nesting | Lock lifetime follows the caller |
 | Error precedence change for requests both over the cap and otherwise invalid | Low | Both are refusals; documented above | None |
 
@@ -132,6 +141,14 @@ migration; refused restores wrote nothing.
   count; rollback without writing at the cap; two concurrent activations for the last slot give
   exactly one winner (fails when the lock is removed); different tenants do not wait on each other;
   joins an outer transaction; no lock or count for non-activating or system-scoped writes.
+- Unit `lib/__tests__/scheduledJobSubscriber.test.ts`: an in-transaction flush syncs only on commit,
+  nothing on rollback, once with the last state; savepoint commit defers to the outer commit,
+  savepoint rollback drops only its own changes.
+- Real PostgreSQL `lib/__tests__/scheduledJobSubscriber.pg.test.ts` (opt-in, `OM_SCHEDULER_PG_URL`),
+  real subscriber and `withTenantActiveScheduleSlot`: each BullMQ call sees the row committed and the
+  tenant lock free; an enclosing rollback publishes nothing; a joined transaction and a committed
+  savepoint sync on the outer commit, a rolled-back savepoint does not; while one registration
+  stalls, another activation for the same tenant completes; plain flushes still sync right away.
 - Unit `commands/__tests__/jobs.undo-active-limit.test.ts`: update undo, delete undo (soft and hard)
   and create redo refused at the cap; update undo, soft delete undo and create redo allowed below it
   under the tenant lock; no count when the restored schedule is disabled.
@@ -146,3 +163,4 @@ migration; refused restores wrote nothing.
 ## Changelog
 
 - 2026-10-22: Recorded the atomic cap, the undo/redo refusal and the client migration.
+- 2026-10-28: BullMQ sync of in-transaction schedule changes moved to the commit boundary.
