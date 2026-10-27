@@ -159,6 +159,24 @@ describe('agent runtime call settings forwarding', () => {
     })
   })
 
+  it('chat: stray non-contract keys in modelSettings never override wrapper-owned SDK fields', async () => {
+    const strayPrepareStep = jest.fn(() => ({}))
+    const options = await runChat(
+      makeAgent({
+        modelSettings: {
+          temperature: 0.2,
+          system: 'INJECTED SYSTEM PROMPT',
+          prepareStep: strayPrepareStep,
+        } as unknown as AiAgentDefinition['modelSettings'],
+      }),
+    )
+    expect(pickSettings(options)).toEqual({ temperature: 0.2 })
+    const serializedPrompt = JSON.stringify(options.prompt)
+    expect(serializedPrompt).toContain('System prompt base.')
+    expect(serializedPrompt).not.toContain('INJECTED SYSTEM PROMPT')
+    expect(strayPrepareStep).not.toHaveBeenCalled()
+  })
+
   it('object: sends no call settings when none are declared', async () => {
     const options = await runObject(makeAgent({ executionMode: 'object' }))
     expect(pickSettings(options)).toEqual({})

@@ -51,6 +51,7 @@ import type { AgentRunRecordPayload } from '../agent-run-recorder'
 import { resetAgentRegistryForTests, seedAgentRegistryForTests } from '../agent-registry'
 import { toolRegistry, registerMcpTool } from '../tool-registry'
 import { runAiAgentObject, runAiAgentText } from '../agent-runtime'
+import { flushPendingAgentRunSettles } from '../agent-run-capture'
 
 const SANITIZED_READ_TOOL = 'customers__read_deal'
 
@@ -322,6 +323,42 @@ describe('agent runtime run recording', () => {
     expect(payload.steps).toHaveLength(1)
   })
 
+  it('records a client disconnect as aborted and cancels the upstream stream', async () => {
+    seedRegistry('chat')
+    const encoder = new TextEncoder()
+    const upstreamCancel = jest.fn()
+    const upstream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"text-delta","delta":"partial"}\n\n'))
+      },
+      cancel(reason) {
+        upstreamCancel(reason)
+      },
+    })
+    const response = await runAiAgentText({
+      agentId: 'customers.run_agent',
+      messages: baseMessages as never,
+      authContext: baseAuth,
+      container,
+      generateText: async (options) => {
+        if (options.onStepFinish) await options.onStepFinish(buildStepEvent() as never)
+        return {
+          toUIMessageStreamResponse: () =>
+            new Response(upstream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+        } as never
+      },
+    })
+    const reader = response.body!.getReader()
+    const first = await reader.read()
+    expect(first.done).toBe(false)
+    await reader.cancel(new Error('client went away'))
+    await waitForRecordCalls(1)
+    expect(upstreamCancel).toHaveBeenCalledTimes(1)
+    const payload = recordedPayload()
+    expect(payload.status).toBe('aborted')
+    expect(payload.error).toBeNull()
+  })
+
   it('records a failed stream when the stream carries an error part', async () => {
     seedRegistry('chat')
     const response = await runAiAgentText({
@@ -352,6 +389,7 @@ describe('agent runtime run recording', () => {
         },
       }),
     ).rejects.toBe(failure)
+    await flushPendingAgentRunSettles()
     expect(recordAgentRunMock).toHaveBeenCalledTimes(1)
     expect(recordedPayload().status).toBe('failed')
   })
@@ -373,6 +411,7 @@ describe('agent runtime run recording', () => {
     })
     expect(result.mode).toBe('generate')
     expect(result.runId).toBe('run-object-1')
+    await flushPendingAgentRunSettles()
     expect(recordAgentRunMock).toHaveBeenCalledTimes(1)
     const payload = recordedPayload()
     expect(payload.runId).toBe('run-object-1')
@@ -398,6 +437,7 @@ describe('agent runtime run recording', () => {
         container,
       }),
     ).rejects.toBe(failure)
+    await flushPendingAgentRunSettles()
     expect(recordAgentRunMock).toHaveBeenCalledTimes(1)
     const payload = recordedPayload()
     expect(payload.status).toBe('failed')
@@ -416,6 +456,7 @@ describe('agent runtime run recording', () => {
       trace: { persist: false },
     })
     expect(skipped.mode).toBe('generate')
+    await flushPendingAgentRunSettles()
     expect(recordAgentRunMock).not.toHaveBeenCalled()
 
     recordAgentRunMock.mockResolvedValue(false)
@@ -426,6 +467,7 @@ describe('agent runtime run recording', () => {
       container,
     })
     expect(recorded.mode === 'generate' ? recorded.object : null).toEqual({ verdict: 'ok' })
+    await flushPendingAgentRunSettles()
     expect(recordAgentRunMock).toHaveBeenCalledTimes(1)
   })
 })

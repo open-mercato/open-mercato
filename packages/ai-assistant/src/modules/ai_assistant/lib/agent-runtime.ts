@@ -41,12 +41,14 @@ import {
   createModelCallObserverHooks,
   createSynthesizedModelCall,
   describeLanguageModel,
+  isLightweightCallObserver,
   notifyPromptResolved,
   observeStreamedObjectEnd,
   readSynthesizedResultMetadata,
   type ModelCallObserverHooks,
 } from './agent-call-observer'
 import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
+import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
 import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
@@ -352,6 +354,14 @@ type StreamFinalizeOptions = {
  * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`; generalized by
  * spec `2026-10-21-chat-run-tracing-and-citations` §2.
  */
+async function cancelReaderQuietly(reader: ReadableStreamDefaultReader<Uint8Array>, reason: unknown): Promise<void> {
+  try {
+    await reader.cancel(reason)
+  } catch {
+    return
+  }
+}
+
 function appendLoopFinishToStream(baseResponse: Response, options: StreamFinalizeOptions): Response {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   const writer = writable.getWriter()
@@ -360,28 +370,44 @@ function appendLoopFinishToStream(baseResponse: Response, options: StreamFinaliz
   async function pump(): Promise<void> {
     let outcome: TextRunStreamOutcome = { status: 'completed', error: null }
     let trace: LoopTrace | null = null
+    let downstreamClosed = false
+    const writeDownstream = async (chunk: Uint8Array): Promise<void> => {
+      try {
+        await writer.write(chunk)
+      } catch (error) {
+        downstreamClosed = true
+        throw error
+      }
+    }
     if (!baseResponse.body) {
       await writer.close()
     } else {
       const reader = baseResponse.body.getReader()
+      writer.closed.catch((reason: unknown) => {
+        downstreamClosed = true
+        void cancelReaderQuietly(reader, reason)
+      })
       try {
         for (;;) {
           const { value, done } = await reader.read()
           if (done) break
           scanner?.push(value)
-          await writer.write(value)
+          await writeDownstream(value)
         }
+        if (downstreamClosed) throw new Error('[internal] downstream stream closed')
         trace = options.finalizeLoopTrace()
         if (options.emitLoopTrace) {
           const eventLine = `data: ${JSON.stringify({ type: 'loop-finish', trace })}\n\n`
-          await writer.write(SSE_ENCODER.encode(eventLine))
+          await writeDownstream(SSE_ENCODER.encode(eventLine))
         }
         if (scanner) outcome = scanner.outcome()
         if (outcome.status === 'completed' && options.abortSignal?.aborted === true) {
           outcome = { status: 'aborted', error: null }
         }
       } catch (error) {
+        await cancelReaderQuietly(reader, error)
         const aborted =
+          downstreamClosed ||
           options.abortSignal?.aborted === true ||
           (error instanceof Error && error.name === 'AbortError') ||
           (scanner !== null && scanner.outcome().status === 'aborted')
@@ -398,6 +424,7 @@ function appendLoopFinishToStream(baseResponse: Response, options: StreamFinaliz
         await options.onSettled(outcome, trace ?? options.finalizeLoopTrace())
       } catch (error) {
         logger.warn('Run finalize hook failed; stream already delivered', { err: error })
+        reportAiAssistantError(error, 'ai_assistant.agent_run_finalize_failed')
       }
     }
   }
@@ -2171,15 +2198,20 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     error?: unknown,
   ): Promise<void> => {
     if (!runCapture) return
-    await runCapture.settle({
-      status,
-      loopParams: buildRunLoopParams(effectiveLoop, toAgentRunModelSource(resolvedModel.source)),
-      inputText: extractLatestUserText(normalizedMessages) || null,
-      steps: trace.steps,
-      stopReason: status === 'aborted' && trace.stopReason === 'finish-reason' ? 'abort' : trace.stopReason,
-      outputText: joinStepText(trace.steps),
-      ...(error !== undefined && error !== null ? { error } : {}),
-    })
+    try {
+      await runCapture.settle({
+        status,
+        loopParams: buildRunLoopParams(effectiveLoop, toAgentRunModelSource(resolvedModel.source)),
+        inputText: extractLatestUserText(normalizedMessages) || null,
+        steps: trace.steps,
+        stopReason: status === 'aborted' && trace.stopReason === 'finish-reason' ? 'abort' : trace.stopReason,
+        outputText: joinStepText(trace.steps),
+        ...(error !== undefined && error !== null ? { error } : {}),
+      })
+    } catch (settleError) {
+      logger.warn('Run settle failed; ignoring', { err: settleError })
+      reportAiAssistantError(settleError, 'ai_assistant.agent_run_settle_failed')
+    }
   }
 
   const dispatchTextStream = async (): Promise<Response> => {
@@ -2262,7 +2294,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   try {
     streamResponse = await dispatchTextStream()
   } catch (error) {
-    await settleTextRun(
+    void settleTextRun(
       abortController.signal.aborted ? 'aborted' : 'failed',
       preparedOptions.finalizeLoopTrace(),
       error,
@@ -2630,7 +2662,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
-  const objectResponseFormat = objectObserve
+  const objectResponseFormat = objectObserve && !isLightweightCallObserver(objectObserve)
     ? buildObjectResponseFormat(resolvedOutput.schemaName, resolvedOutput.schema)
     : undefined
 
@@ -2651,17 +2683,22 @@ export async function runAiAgentObject<TSchema = unknown>(
     },
   ): Promise<void> => {
     if (!objectRunCapture) return
-    await objectRunCapture.settle({
-      status,
-      loopParams: buildRunLoopParams(objectRunLoop, objectModelSource),
-      inputText: objectInputText,
-      steps: details.steps,
-      stopReason: status === 'aborted' ? 'abort' : status === 'completed' ? 'finish-reason' : null,
-      finishReason: details.finishReason ?? null,
-      outputText: serializeObjectOutput(details.object),
-      usage: details.usage ?? null,
-      ...(details.error !== undefined ? { error: details.error } : {}),
-    })
+    try {
+      await objectRunCapture.settle({
+        status,
+        loopParams: buildRunLoopParams(objectRunLoop, objectModelSource),
+        inputText: objectInputText,
+        steps: details.steps,
+        stopReason: status === 'aborted' ? 'abort' : status === 'completed' ? 'finish-reason' : null,
+        finishReason: details.finishReason ?? null,
+        outputText: serializeObjectOutput(details.object),
+        usage: details.usage ?? null,
+        ...(details.error !== undefined ? { error: details.error } : {}),
+      })
+    } catch (settleError) {
+      logger.warn('Run settle failed; ignoring', { err: settleError })
+      reportAiAssistantError(settleError, 'ai_assistant.agent_run_settle_failed')
+    }
   }
 
   const synthesizeObjectStep = (
@@ -2880,7 +2917,7 @@ export async function runAiAgentObject<TSchema = unknown>(
   try {
     objectResult = await dispatchObjectRun()
   } catch (error) {
-    await settleObjectRun(abortController.signal.aborted ? 'aborted' : 'failed', {
+    void settleObjectRun(abortController.signal.aborted ? 'aborted' : 'failed', {
       steps: objectToolLoop.trace ? objectToolLoop.trace.finalize(null).steps : [],
       error,
     })
@@ -2888,7 +2925,7 @@ export async function runAiAgentObject<TSchema = unknown>(
   }
 
   if (objectResult.mode === 'generate') {
-    await settleObjectRun('completed', {
+    void settleObjectRun('completed', {
       steps: objectResult.steps ?? synthesizeObjectStep(objectResult.finishReason, objectResult.usage),
       object: objectResult.object,
       finishReason: objectResult.finishReason ?? null,

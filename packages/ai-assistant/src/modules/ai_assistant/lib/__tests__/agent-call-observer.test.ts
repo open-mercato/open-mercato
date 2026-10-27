@@ -3,16 +3,19 @@ import { z } from 'zod'
 import type { AiAgentModelCallEndEvent, AiAgentModelCallStartEvent } from '../agent-call-contract'
 import {
   buildObjectResponseFormat,
+  composeCallObservers,
   createModelCallObserverHooks,
   createSynthesizedModelCall,
   extractObservedCallSettings,
   instructionsToSystem,
+  isLightweightCallObserver,
   normalizeModelCallUsage,
   observeStreamedObjectEnd,
   readSynthesizedResultMetadata,
   toModelCallEndEvent,
   toModelCallStartEvent,
 } from '../agent-call-observer'
+import { createAgentRunRecorderObserver } from '../agent-run-recorder'
 
 function buildStartEvent(overrides: Partial<LanguageModelCallStartEvent> = {}): LanguageModelCallStartEvent {
   return {
@@ -249,5 +252,80 @@ describe('agent-call-observer adapter', () => {
     await new Promise((resolve) => setImmediate(resolve))
     expect(ends).toHaveLength(1)
     expect(ends[0]).toMatchObject({ finishReason: 'error', usage: { inputTokens: 1 }, content: [] })
+  })
+})
+
+describe('lightweight recorder observer path', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  function heavyCloneTargets(spy: jest.SpyInstance): unknown[] {
+    return spy.mock.calls
+      .map((call) => call[0])
+      .filter((value) => Array.isArray(value) || (typeof value === 'object' && value !== null && 'messages' in value))
+  }
+
+  it('skips heavy clones when only the recorder observes', async () => {
+    const recorder = createAgentRunRecorderObserver()
+    expect(isLightweightCallObserver(recorder.observer)).toBe(true)
+    const observe = composeCallObservers(undefined, recorder.observer)
+    expect(isLightweightCallObserver(observe)).toBe(true)
+    const cloneSpy = jest.spyOn(globalThis, 'structuredClone')
+    const hooks = createModelCallObserverHooks(observe, { agentId: 'demo.agent', now: () => 1000 })
+    await hooks?.onLanguageModelCallStart(buildStartEvent())
+    await hooks?.onLanguageModelCallEnd(buildEndEvent())
+    expect(heavyCloneTargets(cloneSpy)).toEqual([])
+    const snapshot = recorder.snapshot()
+    expect(snapshot.firstCallSettings).toEqual({ temperature: 0.4, maxOutputTokens: 64 })
+    expect(snapshot.modelCalls).toEqual([
+      expect.objectContaining({ callId: 'call-1', stepNumber: 0, finishReason: 'stop', endedAtMs: 1000 }),
+    ])
+    expect(snapshot.modelCalls[0].usage).toMatchObject({ inputTokens: 10, outputTokens: 5 })
+  })
+
+  it('still delivers the full event to a caller observer composed with the recorder', async () => {
+    const recorder = createAgentRunRecorderObserver()
+    const starts: AiAgentModelCallStartEvent[] = []
+    const ends: AiAgentModelCallEndEvent[] = []
+    const callerObserver = {
+      onModelCallStart: (event: AiAgentModelCallStartEvent) => {
+        starts.push(event)
+      },
+      onModelCallEnd: (event: AiAgentModelCallEndEvent) => {
+        ends.push(event)
+      },
+    }
+    const observe = composeCallObservers(callerObserver, recorder.observer)
+    expect(isLightweightCallObserver(observe)).toBe(false)
+    const hooks = createModelCallObserverHooks(observe, { agentId: 'demo.agent', now: () => 1000 })
+    await hooks?.onLanguageModelCallStart(buildStartEvent())
+    await hooks?.onLanguageModelCallEnd(buildEndEvent())
+    expect(starts[0].messages).toEqual([{ role: 'user', content: 'hi' }])
+    expect(starts[0].tools).toHaveLength(1)
+    expect(starts[0].system).toBe('Be helpful.')
+    expect(ends[0].content).toEqual([{ type: 'text', text: 'Hello' }])
+    expect(ends[0].providerMetadata).toEqual({ testProvider: { cached: true } })
+    expect(recorder.snapshot().modelCalls).toHaveLength(1)
+  })
+
+  it('synthesized calls skip message clones for a lightweight observer', async () => {
+    const recorder = createAgentRunRecorderObserver()
+    const messages = [{ role: 'user', content: 'hi' }]
+    const cloneSpy = jest.spyOn(globalThis, 'structuredClone')
+    const synthesized = createSynthesizedModelCall(recorder.observer, {
+      agentId: 'demo.agent',
+      provider: 'test-provider',
+      modelId: 'model-a',
+      system: 'System.',
+      messages,
+      responseFormat: { type: 'json' },
+      callSettings: { temperature: 0.1 },
+      now: () => 5,
+    })
+    await synthesized?.start()
+    await synthesized?.end({ finishReason: 'stop', object: { verdict: 'ok' } })
+    expect(cloneSpy.mock.calls.some((call) => call[0] === messages || Array.isArray(call[0]))).toBe(false)
+    expect(recorder.snapshot().modelCalls).toEqual([expect.objectContaining({ finishReason: 'stop' })])
   })
 })

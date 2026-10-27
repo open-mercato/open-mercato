@@ -13,7 +13,7 @@ import type {
   AiAgentPromptResolvedEvent,
   AiAgentRunChannel,
 } from './agent-call-contract'
-import { cloneForObserver } from './agent-call-observer'
+import { cloneForObserver, markLightweightCallObserver } from './agent-call-observer'
 import { capJsonPayload, measureUtf8Bytes, serializeForStorage, truncateTextToBytes } from './truncate'
 
 const logger = createLogger('ai_assistant').child({ component: 'agent-run-recorder' })
@@ -224,7 +224,7 @@ export function createAgentRunRecorderObserver(): AgentRunRecorderObserver {
     },
   }
   return {
-    observer,
+    observer: markLightweightCallObserver(observer),
     snapshot: () => ({
       firstCallSettings: firstCallSettings ? cloneForObserver(firstCallSettings) : null,
       promptResolved: promptResolved ? cloneForObserver(promptResolved) : null,

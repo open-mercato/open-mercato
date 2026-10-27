@@ -87,7 +87,10 @@ export function readBaseUrlHost(baseUrl: string | undefined): string | null {
   }
 }
 
-function readPendingActionId(result: unknown): string | null {
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function readPendingActionId(result: unknown, isMutation: boolean): string | null {
+  if (!isMutation) return null
   let candidate: unknown = result
   if (typeof result === 'string') {
     if (!result.includes('pendingActionId')) return null
@@ -99,9 +102,29 @@ function readPendingActionId(result: unknown): string | null {
   }
   if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
     const value = (candidate as Record<string, unknown>).pendingActionId
-    return typeof value === 'string' && value.length > 0 ? value : null
+    return typeof value === 'string' && UUID_PATTERN.test(value) ? value : null
   }
   return null
+}
+
+const pendingSettles = new Set<Promise<boolean>>()
+
+/**
+ * Resolves once every in-flight run settle (started fire-and-forget on the
+ * request path) has finished. Intended for tests and graceful shutdown.
+ */
+export async function flushPendingAgentRunSettles(): Promise<void> {
+  while (pendingSettles.size > 0) {
+    await Promise.allSettled([...pendingSettles])
+  }
+}
+
+function trackSettle(pending: Promise<boolean>): Promise<boolean> {
+  pendingSettles.add(pending)
+  void pending.then(() => {
+    pendingSettles.delete(pending)
+  })
+  return pending
 }
 
 function sumNullable(values: Array<number | null>): number | null {
@@ -149,9 +172,13 @@ export function createAgentRunCapture(input: AgentRunCaptureInput): AgentRunCapt
     lastStepEndMs = nowMs
   }
 
-  async function settle(settleInput: AgentRunSettleInput): Promise<boolean> {
-    if (settled) return false
+  function settle(settleInput: AgentRunSettleInput): Promise<boolean> {
+    if (settled) return Promise.resolve(false)
     settled = true
+    return trackSettle(persistSettledRun(settleInput).catch(() => false))
+  }
+
+  async function persistSettledRun(settleInput: AgentRunSettleInput): Promise<boolean> {
     const completedAt = new Date()
     const steps: AgentRunRecordStep[] = settleInput.steps.map((step, index) => {
       const timing = stepTimings[index]
@@ -173,7 +200,7 @@ export function createAgentRunCapture(input: AgentRunCaptureInput): AgentRunCapt
         toolCallId: toolCall.toolCallId ?? null,
         toolName: toolCall.toolName,
         isMutation: input.mutationToolNames.has(toolCall.toolName),
-        pendingActionId: readPendingActionId(toolCall.result),
+        pendingActionId: readPendingActionId(toolCall.result, input.mutationToolNames.has(toolCall.toolName)),
         args: toolCall.args,
         result: toolCall.result ?? null,
         error: toolCall.error ?? null,

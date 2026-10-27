@@ -3,6 +3,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { AiAgentRun, AiAgentRunStep, AiAgentRunToolCall } from '../data/entities'
+import { reportAiAssistantError } from '../lib/report-ai-assistant-error'
 
 const logger = createLogger('ai_assistant')
 
@@ -98,6 +99,7 @@ export async function runAgentRunPrune(
     }
   } catch (error) {
     logger.error('Failed to prune agent runs', { err: error })
+    reportAiAssistantError(error, 'ai_assistant.agent_run_prune_failed')
   }
 
   logger.info('Agent-run prune done', { ...summary, retentionDays })

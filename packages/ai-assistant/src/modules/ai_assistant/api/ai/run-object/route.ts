@@ -10,7 +10,7 @@ import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
-import { aiAgentCallSettingsSchema } from '../../../lib/agent-call-contract'
+import { aiAgentHttpCallSettingsSchema } from '../../../lib/agent-call-contract'
 import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 
 const logger = createLogger('ai_assistant')
@@ -45,7 +45,7 @@ const runObjectRequestSchema = z.object({
   attachmentIds: z.array(z.string()).optional(),
   pageContext: pageContextSchema.optional(),
   modelOverride: z.string().optional(),
-  callSettings: aiAgentCallSettingsSchema.optional(),
+  callSettings: aiAgentHttpCallSettingsSchema.optional(),
 })
 
 const runObjectResponseSchema = z.object({
@@ -78,7 +78,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: {
         contentType: 'application/json',
         description:
-          'Object-mode dispatch payload. `agent` and `messages` are required; `attachmentIds`, `pageContext`, `modelOverride`, and `callSettings` are optional. Unknown `callSettings` keys are rejected with 400.',
+          'Object-mode dispatch payload. `agent` and `messages` are required; `attachmentIds`, `pageContext`, `modelOverride`, and `callSettings` are optional. Unknown `callSettings` keys (including `providerOptions`) and values outside the documented caps (temperature 0–2, topP 0–1, topK 1–1000, maxOutputTokens 1–32768, at most 4 stopSequences of up to 64 characters, penalties -2–2) are rejected with 400.',
         schema: runObjectRequestSchema,
       },
       responses: [

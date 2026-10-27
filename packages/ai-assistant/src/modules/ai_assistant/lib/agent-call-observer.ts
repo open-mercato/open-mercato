@@ -16,6 +16,7 @@ import type {
   AiAgentModelCallUsage,
   AiAgentPromptResolvedEvent,
 } from './agent-call-contract'
+import { reportAiAssistantError } from './report-ai-assistant-error'
 
 const logger = createLogger('ai_assistant').child({ component: 'agent-call-observer' })
 
@@ -54,6 +55,17 @@ export type SynthesizedModelCallResult = {
 export type SynthesizedModelCall = {
   start(): Promise<void>
   end(result: SynthesizedModelCallResult): Promise<void>
+}
+
+const lightweightCallObservers = new WeakSet<AiAgentCallObserver>()
+
+export function markLightweightCallObserver<TObserver extends AiAgentCallObserver>(observer: TObserver): TObserver {
+  lightweightCallObservers.add(observer)
+  return observer
+}
+
+export function isLightweightCallObserver(observer: AiAgentCallObserver | null | undefined): boolean {
+  return Boolean(observer && lightweightCallObservers.has(observer))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -119,8 +131,29 @@ export function normalizeModelCallUsage(usage: unknown): AiAgentModelCallUsage {
 
 export function toModelCallStartEvent(
   event: LanguageModelCallStartEvent,
-  context: { stepNumber: number; startedAtMs: number; providerOptions?: Record<string, unknown>; responseFormat?: unknown },
+  context: {
+    stepNumber: number
+    startedAtMs: number
+    providerOptions?: Record<string, unknown>
+    responseFormat?: unknown
+    lightweight?: boolean
+  },
 ): AiAgentModelCallStartEvent {
+  const callSettings = extractObservedCallSettings(event as unknown as Record<string, unknown>, context.providerOptions)
+  if (context.lightweight) {
+    return {
+      callId: event.callId,
+      stepNumber: context.stepNumber,
+      provider: event.provider,
+      modelId: event.modelId,
+      system: undefined,
+      messages: [],
+      tools: undefined,
+      responseFormat: undefined,
+      callSettings,
+      startedAtMs: context.startedAtMs,
+    }
+  }
   return {
     callId: event.callId,
     stepNumber: context.stepNumber,
@@ -130,15 +163,28 @@ export function toModelCallStartEvent(
     messages: cloneForObserver([...event.messages]),
     tools: event.tools === undefined ? undefined : cloneForObserver(event.tools.map((definition) => ({ ...definition }))),
     responseFormat: context.responseFormat === undefined ? undefined : cloneForObserver(context.responseFormat),
-    callSettings: extractObservedCallSettings(event as unknown as Record<string, unknown>, context.providerOptions),
+    callSettings,
     startedAtMs: context.startedAtMs,
   }
 }
 
 export function toModelCallEndEvent<TOOLS extends ToolSet>(
   event: LanguageModelCallEndEvent<TOOLS>,
-  context: { endedAtMs: number },
+  context: { endedAtMs: number; lightweight?: boolean },
 ): AiAgentModelCallEndEvent {
+  const responseTimeMs = readNumber(event.performance, 'responseTimeMs') ?? 0
+  if (context.lightweight) {
+    return {
+      callId: event.callId,
+      finishReason: String(event.finishReason),
+      responseId: typeof event.responseId === 'string' ? event.responseId : null,
+      responseModelId: typeof event.modelId === 'string' ? event.modelId : null,
+      usage: normalizeModelCallUsage(event.usage),
+      content: [],
+      responseTimeMs,
+      endedAtMs: context.endedAtMs,
+    }
+  }
   return {
     callId: event.callId,
     finishReason: String(event.finishReason),
@@ -149,7 +195,7 @@ export function toModelCallEndEvent<TOOLS extends ToolSet>(
     ...(event.providerMetadata !== undefined
       ? { providerMetadata: cloneForObserver(event.providerMetadata) as Record<string, unknown> }
       : {}),
-    responseTimeMs: readNumber(event.performance, 'responseTimeMs') ?? 0,
+    responseTimeMs,
     endedAtMs: context.endedAtMs,
   }
 }
@@ -163,6 +209,7 @@ export async function notifyModelCallObserver(
     await invoke()
   } catch (err) {
     logger.error('Model-call observer threw; ignoring', { hook, ...logContext, err })
+    reportAiAssistantError(err, 'ai_assistant.model_call_observer_failed', { hook })
   }
 }
 
@@ -189,6 +236,7 @@ export function createModelCallObserverHooks(
 ): ModelCallObserverHooks | undefined {
   if (!hasModelCallHooks(observe)) return undefined
   const now = context.now ?? Date.now
+  const lightweight = isLightweightCallObserver(observe)
   let nextStepNumber = 0
   return {
     onLanguageModelCallStart: async (event) => {
@@ -206,6 +254,7 @@ export function createModelCallObserverHooks(
               startedAtMs: now(),
               providerOptions: context.providerOptions,
               responseFormat: context.responseFormat,
+              lightweight,
             }),
           ),
         { agentId: context.agentId, callId: event.callId },
@@ -216,7 +265,7 @@ export function createModelCallObserverHooks(
       if (!handler) return
       await notifyModelCallObserver(
         'onModelCallEnd',
-        () => handler.call(observe, toModelCallEndEvent(event, { endedAtMs: now() })),
+        () => handler.call(observe, toModelCallEndEvent(event, { endedAtMs: now(), lightweight })),
         { agentId: context.agentId, callId: event.callId },
       )
     },
@@ -262,6 +311,7 @@ export function createSynthesizedModelCall(
 ): SynthesizedModelCall | undefined {
   if (!hasModelCallHooks(observe)) return undefined
   const now = context.now ?? Date.now
+  const lightweight = isLightweightCallObserver(observe)
   const callId = randomUUID()
   let startedAtMs = now()
   return {
@@ -277,10 +327,10 @@ export function createSynthesizedModelCall(
             stepNumber: 0,
             provider: context.provider,
             modelId: context.modelId,
-            system: context.system,
-            messages: cloneForObserver([...context.messages]),
+            system: lightweight ? undefined : context.system,
+            messages: lightweight ? [] : cloneForObserver([...context.messages]),
             tools: undefined,
-            responseFormat: cloneForObserver(context.responseFormat),
+            responseFormat: lightweight ? undefined : cloneForObserver(context.responseFormat),
             callSettings: cloneForObserver(context.callSettings),
             startedAtMs,
           }),
@@ -301,8 +351,10 @@ export function createSynthesizedModelCall(
             responseModelId: result.responseModelId ?? null,
             usage: normalizeModelCallUsage(result.usage),
             content:
-              result.object === undefined ? [] : [{ type: 'text', text: JSON.stringify(result.object) ?? '' }],
-            ...(result.providerMetadata !== undefined
+              lightweight || result.object === undefined
+                ? []
+                : [{ type: 'text', text: JSON.stringify(result.object) ?? '' }],
+            ...(!lightweight && result.providerMetadata !== undefined
               ? { providerMetadata: cloneForObserver(result.providerMetadata) }
               : {}),
             responseTimeMs: Math.max(0, endedAtMs - startedAtMs),
@@ -349,23 +401,55 @@ export function observeStreamedObjectEnd(
 
 type ObserverHookName = 'onPromptResolved' | 'onModelCallStart' | 'onModelCallEnd'
 
+function toLightweightStartEvent(event: AiAgentModelCallStartEvent): AiAgentModelCallStartEvent {
+  return {
+    callId: event.callId,
+    stepNumber: event.stepNumber,
+    provider: event.provider,
+    modelId: event.modelId,
+    system: undefined,
+    messages: [],
+    tools: undefined,
+    responseFormat: undefined,
+    callSettings: cloneForObserver(event.callSettings),
+    startedAtMs: event.startedAtMs,
+  }
+}
+
+function toLightweightEndEvent(event: AiAgentModelCallEndEvent): AiAgentModelCallEndEvent {
+  return {
+    callId: event.callId,
+    finishReason: event.finishReason,
+    responseId: event.responseId,
+    responseModelId: event.responseModelId,
+    usage: { ...event.usage },
+    content: [],
+    responseTimeMs: event.responseTimeMs,
+    endedAtMs: event.endedAtMs,
+  }
+}
+
 async function invokeEachObserver<TEvent>(
   observers: AiAgentCallObserver[],
   hook: ObserverHookName,
   event: TEvent,
   logContext: { agentId?: string; callId?: string },
+  toLightweight?: (event: TEvent) => TEvent,
 ): Promise<void> {
   for (const observer of observers) {
     const handler = observer[hook] as ((payload: TEvent) => void | Promise<void>) | undefined
     if (!handler) continue
     try {
-      await handler.call(observer, cloneForObserver(event))
+      const payload =
+        toLightweight && isLightweightCallObserver(observer) ? toLightweight(event) : cloneForObserver(event)
+      await handler.call(observer, payload)
     } catch (err) {
       logger.error('Composed model-call observer threw; continuing with the next observer', {
         hook,
         ...logContext,
         err,
       })
+      reportAiAssistantError(err, 'ai_assistant.model_call_observer_failed', { hook })
     }
   }
 }
@@ -383,11 +467,14 @@ export function composeCallObservers(
   }
   if (observers.some((observer) => observer.onModelCallStart)) {
     composed.onModelCallStart = (event) =>
-      invokeEachObserver(observers, 'onModelCallStart', event, { callId: event.callId })
+      invokeEachObserver(observers, 'onModelCallStart', event, { callId: event.callId }, toLightweightStartEvent)
   }
   if (observers.some((observer) => observer.onModelCallEnd)) {
     composed.onModelCallEnd = (event) =>
-      invokeEachObserver(observers, 'onModelCallEnd', event, { callId: event.callId })
+      invokeEachObserver(observers, 'onModelCallEnd', event, { callId: event.callId }, toLightweightEndEvent)
+  }
+  if (observers.every((observer) => isLightweightCallObserver(observer))) {
+    markLightweightCallObserver(composed)
   }
   return composed
 }

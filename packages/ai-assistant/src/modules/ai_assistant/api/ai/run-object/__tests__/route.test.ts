@@ -312,6 +312,35 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(runAiAgentObjectMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    [{ providerOptions: { openai: { user: 'abc' } } }],
+    [{ maxOutputTokens: 1_000_000 }],
+    [{ temperature: 5 }],
+    [{ stopSequences: ['a', 'b', 'c', 'd', 'e'] }],
+  ])('returns 400 when callSettings is outside the HTTP contract: %j', async (callSettings) => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+
+    const response = await POST(
+      buildRequest({
+        agent: 'catalog.extract',
+        messages: [{ role: 'user', content: 'hi' }],
+        callSettings,
+      }) as never,
+    )
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json.code).toBe('validation_error')
+    expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+  })
+
   it('returns 422 when the helper resolves to stream mode', async () => {
     seedAgentRegistryForTests([
       makeAgent({

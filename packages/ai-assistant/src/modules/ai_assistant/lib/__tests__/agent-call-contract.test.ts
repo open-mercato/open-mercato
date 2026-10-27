@@ -1,5 +1,6 @@
 import {
   aiAgentCallSettingsSchema,
+  aiAgentHttpCallSettingsSchema,
   mergeCallSettings,
   mergeProviderOptions,
   toSdkCallSettings,
@@ -122,5 +123,58 @@ describe('toSdkCallSettings', () => {
         { openai: { safety_identifier: 'user-hash' } },
       ),
     ).toEqual({ temperature: 0.4, providerOptions: { openai: { safety_identifier: 'user-hash', store: true } } })
+  })
+})
+
+describe('call settings key whitelist', () => {
+  const strayDefinitionSettings = {
+    temperature: 0.3,
+    system: 'injected system prompt',
+    prepareStep: () => ({ tools: {} }),
+    tools: { injected: {} },
+  } as unknown as AiAgentCallSettings
+
+  it('mergeCallSettings keeps only contract keys', () => {
+    const merged = mergeCallSettings(strayDefinitionSettings, { seed: 3 })
+    expect(merged).toEqual({ temperature: 0.3, seed: 3 })
+    expect(Object.keys(merged)).not.toContain('system')
+    expect(Object.keys(merged)).not.toContain('prepareStep')
+    expect(Object.keys(merged)).not.toContain('tools')
+  })
+
+  it('toSdkCallSettings never forwards stray keys', () => {
+    const sdkSettings = toSdkCallSettings(strayDefinitionSettings) as Record<string, unknown>
+    expect(sdkSettings).toEqual({ temperature: 0.3 })
+  })
+})
+
+describe('aiAgentHttpCallSettingsSchema', () => {
+  it('accepts capped settings', () => {
+    const settings = {
+      temperature: 2,
+      topP: 1,
+      topK: 1000,
+      maxOutputTokens: 32768,
+      seed: 7,
+      stopSequences: ['A', 'B', 'C', 'D'],
+      presencePenalty: -2,
+      frequencyPenalty: 2,
+    }
+    expect(aiAgentHttpCallSettingsSchema.parse(settings)).toEqual(settings)
+  })
+
+  it.each([
+    [{ providerOptions: { openai: { user: 'abc' } } }],
+    [{ temperature: 2.5 }],
+    [{ topK: 1001 }],
+    [{ maxOutputTokens: 32769 }],
+    [{ maxOutputTokens: 0 }],
+    [{ stopSequences: ['A', 'B', 'C', 'D', 'E'] }],
+    [{ stopSequences: ['x'.repeat(65)] }],
+    [{ presencePenalty: 3 }],
+    [{ frequencyPenalty: -2.5 }],
+    [{ seed: 1.5 }],
+  ])('rejects %j', (value) => {
+    expect(aiAgentHttpCallSettingsSchema.safeParse(value).success).toBe(false)
   })
 })
