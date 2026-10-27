@@ -84,6 +84,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sales', from: '@open-mercato/core' },
   { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
+  { id: 'property_management', from: '@open-mercato/core' },
   // Availability contract, policy module, and provider registry (Phase 1+2).
   // Ships with the scaffold but stays commented out in the template until
   // standalone-harness coverage lands: no case in

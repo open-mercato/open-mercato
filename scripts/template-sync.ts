@@ -333,6 +333,16 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  property_management: {
+    source: `  { id: 'property_management', from: '@open-mercato/core' },`,
+    template: `  // Property management (.ai/specs/2026-10-15-property-management.md): buildings,
+  // floors, spaces and units, leased and booked through catalog and sales. It ships
+  // with the scaffold but stays disabled by default: a module enabled in the template
+  // ships a generated fact sheet that the standalone AI harness must cover with an
+  // evaluation case (src/lib/module-facts-build.test.ts), so enabling it is a
+  // maintainer call that follows .ai/skills/om-refresh-standalone-harness/SKILL.md.
+  // { id: 'property_management', from: '@open-mercato/core' },`,
+  },
   carrier_inpost: {
     source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
     template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays

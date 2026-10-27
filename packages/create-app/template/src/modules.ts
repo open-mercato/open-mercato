@@ -94,6 +94,13 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sales', from: '@open-mercato/core' },
   { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
+  // Property management (.ai/specs/2026-10-15-property-management.md): buildings,
+  // floors, spaces and units, leased and booked through catalog and sales. It ships
+  // with the scaffold but stays disabled by default: a module enabled in the template
+  // ships a generated fact sheet that the standalone AI harness must cover with an
+  // evaluation case (src/lib/module-facts-build.test.ts), so enabling it is a
+  // maintainer call that follows .ai/skills/om-refresh-standalone-harness/SKILL.md.
+  // { id: 'property_management', from: '@open-mercato/core' },
   // Availability contract, policy module, and provider registry (Phase 1+2).
   // Ships with the scaffold but stays commented out in the template until
   // standalone-harness coverage lands: no case in
