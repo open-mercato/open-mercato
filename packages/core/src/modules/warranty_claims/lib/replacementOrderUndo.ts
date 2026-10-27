@@ -3,6 +3,8 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { WarrantyClaimScope } from '../commands/shared'
 
+type OrderAuditEntry = NonNullable<Awaited<ReturnType<ActionLogService['findById']>>>
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -31,8 +33,9 @@ export async function isInitialReplacementOrderApproval(
     after: new Date(savedVersion),
     pageSize: 3,
   })
-  if (history.total > 3 || history.items.length !== history.total) return false
-  const edits = history.items.filter((entry) => !(entry.commandId === 'sales.orders.create'
+  const entries: OrderAuditEntry[] = history.items
+  if (history.total > 3 || entries.length !== history.total) return false
+  const edits = entries.filter((entry) => !(entry.commandId === 'sales.orders.create'
     && entry.resourceKind === 'sales.order' && entry.resourceId === orderId
     && entry.tenantId === scope.tenantId && entry.organizationId === scope.organizationId))
   if (edits.length !== 1) return false
