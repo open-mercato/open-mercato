@@ -51,7 +51,7 @@
 | 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | done | da81ad140 |
 | 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | done | e2b661492 |
 | 6 | 6.3 | Cover the structure panel with an integration test | dispatch | done | 818f0e12f |
-| 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |
+| 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | pending |
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | todo | — |
 
 ## Goal
