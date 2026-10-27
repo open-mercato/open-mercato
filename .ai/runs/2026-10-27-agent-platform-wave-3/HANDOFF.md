@@ -1,16 +1,16 @@
 # Handoff — 2026-10-27-agent-platform-wave-3
 
-**Last updated:** 2026-10-27T08:45:29Z
+**Last updated:** 2026-10-27T09:11:58Z
 **Branch:** feat/agent-platform-wave-3 (stacked on feat/agent-platform-wave-2 @ 2d3734ed6)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8018 (draft)
-**Current phase/step:** Phase 2 Step 2.5
-**Last commit:** checkpoint 2 — docs(runs): checkpoint 2 — steps 1.6..2.4 verified
+**Current phase/step:** Phase 3 Step 3.4
+**Last commit:** checkpoint 3 — docs(runs): checkpoint 3 — steps 2.5..3.3 verified
 
 ## What just happened
-- Phase 1 (MCP P4) complete incl. docs. Steps 2.1–2.4 landed: requiredFeatures declarations, runtime invoke check, denial mapping on all entry points, filtered agent list. Checkpoint 2 passed.
+- Phase 2 (Identity P1) complete. Steps 3.1–3.3 landed: AO dispatcher, run-object delegation (runId null + agentRunId), agent-token run route. Checkpoint 3 passed.
 
 ## Next concrete action
-- Step 2.5 — Warn on workflow definitions whose grant cannot invoke an agent.
+- Step 3.4 — Expose an example AO agent with defineAgentTool and test module decoupling.
 
 ## Blockers / open questions
 - none. Pushes to `upstream` are done by the user (`! git -C <worktree> push upstream feat/agent-platform-wave-3`).

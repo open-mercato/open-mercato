@@ -45,3 +45,13 @@
 - AO agents take a free-form input (no input schema; the native runner passes a string as-is and JSON-stringifies anything else into the prompt). `run-object` receives chat `messages`, so a dispatched run gets the content string when the body is a single `user` message, and the messages array otherwise. No typed-input mapping exists on this door; callers with a typed input use the AO run route.
 - `agent_invoke_denied` from the dispatcher maps to `403 agent_features_denied` with a generic message (no feature names); `agent_principal_missing` (or a caller with no tenant/org/principal) maps to `409 agent_principal_missing`. Natively registered AO agents still go through `checkAgentPolicy` first, whose existing 403 message lists the agent's features (unchanged route behavior).
 - Dispatcher runs use a 120 000 ms route timeout (same default as `defineAgentTool`).
+
+## 2026-10-27T09:11:58Z — checkpoint 3 (Steps 2.5..3.3)
+- AO jest 189 suites / 1751 tests, core workflows + module-decoupling, ai-assistant jest, i18n, typecheck, lint, build:app --force: pass. No UI in this window.
+- Decisions from executors:
+  - Workflow grant warnings check the definition's declared `grantedFeatures` (the principal role ACL is synced to exactly that grant) and are API-only (`warnings` on create/update/customize/publish responses); the editor has no warning surface.
+  - `om.invoker` for `agent_token` maps the on-behalf-of user to `ownerUserId`; the grant id is not in the manifest.
+  - The AO dispatcher runs API-key callers as the key (`api_key:<id>` subject, same as the AO run route), not as the key owner. "Disabled" is detected as "absent from the loaded ai-assistant registry" (no override helper exists); file agents are always available. The AO registry is not loaded at bootstrap, so ai-assistant callers use `resolveDispatchOwner` (owns() or, for ids unknown locally, awaited isAvailable()). Abort is raced, not propagated (runtime takes no signal).
+  - run-object passes a single user message as its content string, else the messages array, to AO agents. Agents present in the ai-assistant registry still hit `checkAgentPolicy` first, whose existing 403 message lists the required features; dispatcher denials are generic.
+  - Agent-token route uses `requireAuth: false` and the bucket `RATE_LIMIT_AGENT_ORCH_AGENT_API_RUN_*`; staff run-route helpers extracted to `lib/runtime/agentRunHttp.ts`.
+- Finding (pre-existing, out of scope, follow-up): `api/identity/token/route.ts` and `api/identity/agent/auth/route.ts` declare `POST: {}`; the app dispatcher (`checkAuthorization`) requires auth unless `requireAuth === false`, so these OAuth endpoints are unreachable without a staff session. Verified in `apps/mercato/src/app/api/[...slug]/route.ts`.

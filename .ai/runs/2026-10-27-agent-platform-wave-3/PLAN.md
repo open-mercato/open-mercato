@@ -27,11 +27,11 @@
 | 2 | 2.2 | Enforce the per-agent invoke check in AgentRuntimeService.run | dispatch:capable | done | 3f32eb6bc |
 | 2 | 2.3 | Map invoke denials on the run, rerun, delegate, workflow and eval paths | dispatch | done | 221d70670 |
 | 2 | 2.4 | Filter the agent list by invocability and expose invocable | dispatch | done | abd0e1f0e |
-| 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | done | 5bd01eec8 |
-| 2 | 2.6 | Record invoker, entry point, channel and correlation id in the run manifest | dispatch | done | 843c1cb6e |
-| 3 | 3.1 | Implement the AO agent run dispatcher and register it | dispatch:capable | done | 8da8e7ab7 |
-| 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | done | 91a89b8cd |
-| 3 | 3.3 | Add the agent-token run route behind OM_AGENT_API_ENABLED | dispatch:capable | done | 0c484f48c |
+| 2 | 2.5 | Warn on workflow definitions whose grant cannot invoke an agent | dispatch | done | 2279276b5 |
+| 2 | 2.6 | Record invoker, entry point, channel and correlation id in the run manifest | dispatch | done | 4d7760534 |
+| 3 | 3.1 | Implement the AO agent run dispatcher and register it | dispatch:capable | done | 67dff75d5 |
+| 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | done | 9b6053b5a |
+| 3 | 3.3 | Add the agent-token run route behind OM_AGENT_API_ENABLED | dispatch:capable | done | df8769dc3 |
 | 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | todo | — |
 | 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | todo | — |
 | 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | todo | — |
