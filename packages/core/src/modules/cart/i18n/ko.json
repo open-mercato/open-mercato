@@ -1,0 +1,14 @@
+{
+  "cart.audit.cart.create": "Create cart",
+  "cart.audit.lines.add": "Add cart line",
+  "cart.audit.lines.bulkAdd": "Add cart lines (bulk)",
+  "cart.audit.lines.remove": "Remove cart line",
+  "cart.audit.merge": "Merge cart",
+  "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
+  "cart.errors.unexpected": "Unexpected error",
+  "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",
+  "cart.warnings.line_unavailable": "This line is no longer available for the buyer’s assortment scope",
+  "cart.warnings.out_of_stock": "This line is out of stock",
+  "cart.warnings.product_unavailable": "This product is not available for the buyer’s assortment scope",
+  "cart.warnings.quantity_capped": "The requested quantity was capped at the maximum allowed"
+}

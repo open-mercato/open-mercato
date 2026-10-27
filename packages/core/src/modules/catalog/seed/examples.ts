@@ -829,6 +829,8 @@ export async function seedCatalogExamples(
   container: AwilixContainer,
   scope: SeedScope,
 ): Promise<boolean> {
+  if (!em.getMetadata().has(SalesChannel)) return false;
+
   await ensureFieldsetsAndDefinitions(em, scope);
   await ensureDefaultPartitions(em);
 
