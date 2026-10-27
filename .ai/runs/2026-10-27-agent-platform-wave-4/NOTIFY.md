@@ -13,3 +13,9 @@
 - Steps 1.1..1.4 (+1.3-review-fix) verified: typecheck, AO jest 2048/2048, ai-assistant jest 2182/2182.
 - Decision: additive `callerManaged?` on `AiAgentModelCallStartEvent` marks the caller-callback branch as `reconstructed`; SDK-synthesized object calls are `exact`.
 - Delegations so far: executors for 1.1, 1.2 (cheap tier), 1.3, 1.4.
+
+## 2026-10-27T17:36:39Z — checkpoint 2
+- Draft PR #8061 opened and claimed after the user pushed the branch.
+- Steps 2.1..2.5 verified: typecheck, AO jest 2111/2111, core guards, build:app --force.
+- UI browser check deferred to checkpoint 3 (Step 3.3 writes the spec that captures the screenshots).
+- Delegations: executors for 2.1, 2.2, 2.3 (cheap tier), 2.4, 2.5.

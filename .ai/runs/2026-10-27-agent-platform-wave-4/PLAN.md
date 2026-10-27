@@ -20,11 +20,11 @@
 | 1 | 1.3 | Collect model-call observer records in the native runner | dispatch:capable | done | 9848cf9ec |
 | 1 | 1.3-review-fix | Mark only caller-managed object calls as reconstructed | inline | done | 2e9fc9250 |
 | 1 | 1.4 | Write gen_ai and om attributes on native llm spans | dispatch:capable | done | 81f8e2e3d |
-| 2 | 2.1 | Add the trace capture policy schema and resolver | dispatch | done | pending |
-| 2 | 2.2 | Apply the capture policy to native and OpenCode runs and record om.capture | dispatch:capable | done | pending |
-| 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | done | pending |
-| 2 | 2.4 | Add the trace capture settings API and undoable command | dispatch | done | pending |
-| 2 | 2.5 | Add the trace capture settings page | dispatch | done | pending |
+| 2 | 2.1 | Add the trace capture policy schema and resolver | dispatch | done | 2ab104644 |
+| 2 | 2.2 | Apply the capture policy to native and OpenCode runs and record om.capture | dispatch:capable | done | a13c43620 |
+| 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | done | 8696df6eb |
+| 2 | 2.4 | Add the trace capture settings API and undoable command | dispatch | done | 1d6c76567 |
+| 2 | 2.5 | Add the trace capture settings page | dispatch | done | 763858447 |
 | 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | todo | — |
 | 3 | 3.2 | Normalize gen_ai attributes on ingested llm spans | dispatch | todo | — |
 | 3 | 3.3 | Cover step metadata and capture settings with integration tests | dispatch | todo | — |

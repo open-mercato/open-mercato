@@ -1,23 +1,23 @@
 # Handoff — 2026-10-27-agent-platform-wave-4
 
-**Last updated:** 2026-10-27T17:14:38Z
+**Last updated:** 2026-10-27T17:36:39Z
 **Branch:** feat/agent-platform-wave-4
-**PR:** not yet opened (waiting for the user to push the branch to `upstream`)
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** 81f8e2e3d — feat(agent_orchestrator): write gen_ai and om attributes on native llm spans
+**PR:** https://github.com/open-mercato/open-mercato/pull/8061 (draft, claimed)
+**Current phase/step:** Phase 3 Step 3.1
+**Last commit:** 763858447 — feat(agent_orchestrator): add the trace capture settings page
 
 ## What just happened
-- Phase 1 done: native llm spans carry gen_ai/om params, usage, cost micros, latency, hashes and fidelity behind a `captureLevel` input (default `metadata`). Checkpoint 1 green.
+- Phase 2 done: capture policy (schema, resolver, runner wiring, `om.capture`), `trace.view_content`, settings API + undoable command with optimistic locking, settings page. Checkpoint 2 green.
 
 ## Next concrete action
-- Step 2.1 — Add the trace capture policy schema and resolver.
+- Step 3.1 — Show per-step model calls with parameters and cost on the trace page.
 
 ## Blockers / open questions
-- Branch not yet on `upstream` (agent pushes are blocked); the draft PR opens after the user pushes.
+- none. The user pushes to `upstream` at checkpoints.
 
 ## Environment caveats
 - Dev runtime runnable: yes (ephemeral app with the enterprise agent flags)
-- Browser / UI checks: none needed yet (no UI in Phase 1)
+- Browser / UI checks: settings page + trace card screenshots due at checkpoint 3 (Step 3.3 spec)
 - Database/migration state: clean
 
 ## Worktree
