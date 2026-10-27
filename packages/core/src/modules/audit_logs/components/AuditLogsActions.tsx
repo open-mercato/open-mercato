@@ -164,7 +164,7 @@ export function AuditLogsActions({
     {
       accessorKey: 'actorUserId',
       header: t('audit_logs.actions.columns.user'),
-      cell: (info) => info.row.original.actorUserName || info.getValue() || noneLabel,
+      cell: (info) => info.row.original.actorUserName || noneLabel,
       meta: { priority: 3 },
     },
     {
@@ -201,7 +201,7 @@ export function AuditLogsActions({
         const canRedo = showRedo && isRedoCandidate(item)
         if (!canUndo && !showRedo) return null
         return (
-          <div className="flex justify-end gap-1">
+          <div className="flex justify-end gap-1" data-actions-cell>
             {canUndo ? (
               <Button
                 variant="ghost"

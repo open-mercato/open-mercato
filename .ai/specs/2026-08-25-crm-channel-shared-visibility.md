@@ -89,6 +89,8 @@ Indexes:
 - `customer_email_conversation_shares_lookup_idx` — `(tenant_id, organization_id, person_entity_id) WHERE deleted_at IS NULL` (Person-page read).
 - `customer_email_conversation_shares_owner_idx` — `(tenant_id, owner_user_id) WHERE deleted_at IS NULL` (the "conversations I have shared" read).
 
+Person deletion removes every conversation-share row for that Person within the deletion transaction, including revoked rows and shares owned by other users. Delete undo restores the original share IDs, owners, sharing actors, timestamps, and revocation status within the Person restoration transaction. Share snapshots are stored only in the private undo payload; public Person audit snapshots do not gain mailbox ownership or revocation history. Undoing Person creation also removes conversation-share rows before removing the Person. All share reads and writes retain tenant and organization scoping. This closes issue #7314 without changing the schema or email visibility policy; restoration composes with the interaction-state behavior from #7204 and label history from #7575.
+
 The channel flag adds two more pieces:
 
 - **`communication_channels.visibility`** — `text NOT NULL DEFAULT 'private'`. Made explicit rather than inferred from `user_id`, so a *personal* mailbox can be team-visible without surrendering owner-only management. The migration follows the column add with `UPDATE … SET visibility='shared' WHERE user_id IS NULL` **in the same file**, so existing tenant-wide push channels keep working.
@@ -156,6 +158,8 @@ Response-shape additions (all **optional** fields, fail-closed absent ⇒ today'
 
 Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 
+The interaction command boundary also enforces this privacy policy for updates, completion, cancellation, deletion, and undo/redo (#7850). Authorization uses the original row before optimistic-lock checks or mutation: a hidden private email returns 404, including for wildcard administrators and API keys. Explicit conversation and channel shares allow teammates to edit visible email content; changing an email's author, type, or visibility still requires its original author. During full restoration, historical snapshots lacking `visibility` are compared as a null visibility change rather than a partial-update omission, so a teammate cannot clear private visibility and defeat later share revocation. Legacy activity adapters inherit the same checks. Routes, payload schemas, response shapes, events, and historical undo-log decoding are unchanged. `TC-CRM-EMAIL-VISIBILITY-005` covers the generic and legacy mutation paths and conversation-share revocation.
+
 | Surface | Change | Classification |
 |---|---|---|
 | **2. Types / 3. Signatures** | `EmailVisibilityMikroFilter` narrows from `{ $or?: … }` to an opaque `FilterQuery<CustomerInteraction>`. All four callers are in-repo and converted in the same commit. `ApplyEmailVisibilityFilterOptions` and `BuildPersonEmailThreadsOptions` gain **optional** `sharedConversations` with a fail-closed default (absent ⇒ today's strict owner-only behaviour), matching the `userFeatures` precedent. | Breaking-shape but fully in-repo → **allowed with same-commit caller update**. `@deprecated` alias `EmailVisibilityMikroFilter` retained as a type alias for one minor per the deprecation protocol. |
@@ -199,6 +203,7 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 |---|---|
 | `PUT /api/customers/people/{id}/email-share` | Owner shares (201/200, idempotent on repeat); non-owner with no private conversation → 400; cross-tenant Person → 404; stale `updatedAt` → 409. |
 | `GET /api/customers/people/{id}/email-share` | `canShare` true for owner, false for teammate; `sharedBy` populated for teammate after a share. |
+| Person delete → undo → redo (`TC-CRM-EMAIL-SHARE-UNDO-001`) | Active and revoked shares do not block `DELETE /api/customers/people`; undo restores sharing state for multiple owners; redo deletes the Person again. Command unit coverage verifies that public audit snapshots omit share metadata. |
 | `GET /api/customers/people/{id}/email-threads` | Teammate sees owner's history only while the share is live; `sharedVia: 'conversation'` set. |
 | `GET /api/customers/people/{id}?include=interactions` | Same widening as the Emails tab (R1 agreement). |
 | `GET /api/customers/interactions` + `/interactions/counts` | Unscoped list and count honour the share. |
@@ -225,6 +230,9 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 
 | Date | Change |
 |---|---|
+| 2026-10-25 | Close #7850 at the canonical interaction mutation boundary: check original-row privacy before writes and replay, preserve team-shared content editing, and require the author for author/type/visibility changes. Add command regression coverage and `TC-CRM-EMAIL-VISIBILITY-005` API coverage. |
+| 2026-10-25 | Resolved the main merge while retaining private interaction state, label history and index events, and conversation shares together. Combined command regressions cover repeated undo and rollback without audit metadata exposure. |
+| 2026-10-13 | Fixed #7314: scoped Person deletion and create undo remove active and revoked conversation shares; delete undo restores their complete state from its private payload. Added command regressions and `TC-CRM-EMAIL-SHARE-UNDO-001` API coverage. No schema or visibility-policy change. |
 | 2026-08-25 | Skeleton drafted with the Q1–Q4 Open Questions gate (`om-spec-writing`). |
 | 2026-08-25 | Readiness audit completed — 2 Critical / 6 Warning BC findings, 5 High risks ([`analysis/ANALYSIS-…`](analysis/ANALYSIS-2026-08-25-crm-channel-shared-visibility.md)). |
 | 2026-08-25 | Gate closed (Q1–Q4 decided from the implementation brief + audit safety findings); all deferred sections filled; 16-step Implementation Plan added. Ready for implementation. |
