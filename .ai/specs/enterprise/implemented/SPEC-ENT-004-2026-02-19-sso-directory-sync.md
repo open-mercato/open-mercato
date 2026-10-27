@@ -302,7 +302,13 @@ Use `idp_subject` (not email) as the stable cross-system identifier — emails c
 - **User mapping:** `userName` → `email`, `displayName` → `name`, `active: false` → soft-deactivate + revoke sessions
 - **Group sync:** IdP group membership changes → update `user_roles` via `sso_group_role_mappings`, invalidate RBAC cache
 - **Filters:** Support `eq` operator and `and` combinator (minimum for Entra ID compatibility)
-- **Rate limiting:** 25 req/s per token
+- **Rate limiting:** All implemented public SCIM operations (`GET`/`POST /api/sso/scim/v2/Users`, `GET`/`PATCH`/`DELETE /api/sso/scim/v2/Users/:id`, and `GET /api/sso/scim/v2/ServiceProviderConfig`) share a pre-verification budget of 10 requests per second per trusted client IP. `resolveScimContext` checks it before bearer verification, retaining the cost-10 bcrypt work for admitted invalid tokens. No additional per-token limit is currently applied.
+  - Uses the shared process-wide limiter, including the configured memory/Redis strategy and `RATE_LIMIT_ENABLED` switch. Memory budgets apply per process; Redis shares budgets across replicas.
+  - `RATE_LIMIT_TRUST_PROXY_DEPTH` determines the trusted forwarding hop. The default depth of zero ignores forwarding headers; unavailable or insufficient trusted IP information uses one shared fallback bucket. Configure the actual proxy topology to isolate legitimate clients safely.
+  - `RATE_LIMIT_SCIM_POINTS` (default `10`), `RATE_LIMIT_SCIM_DURATION` (default `1` second), and `RATE_LIMIT_SCIM_BLOCK_DURATION` (default no extra block) tune the ceiling for identity-provider bursts.
+  - Exhaustion returns a SCIM `429` error with `Retry-After` and `X-RateLimit-*` headers, without token lookup or bcrypt work. An unavailable limiter returns a SCIM `503` before verification. Identity providers must retry after the advertised delay.
+  - Sizing evidence: ten local cost-10 `bcryptjs.hash` samples on Node 24.22.1 measured 54.3 ms median wall time and 562 ms aggregate CPU. Ten admitted invalid requests per second therefore cost approximately 0.56 CPU-seconds per second per client on this host. This is a microbenchmark, not a load test or a deployment capacity guarantee.
+  - Regression coverage: `packages/enterprise/src/modules/sso/api/scim/__tests__/rate-limit.test.ts` exercises all six public operations with the real memory limiter, cross-route budget sharing, forwarding-header spoof resistance, client isolation, quota reset/configuration, unavailable/degraded limiter behavior, invalid-token bcrypt calls, and valid organization-scoped user creation.
 - **Entra ID quirks:** Lenient SCIM parser for non-standard PATCH paths and mixed-case filter operators
 
 ### 7.4 Break-Glass
@@ -387,9 +393,14 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 
 ---
 
+## Migration & Backward Compatibility
+
+Issue [#7829](https://github.com/open-mercato/open-mercato/issues/7829) adds `429` and `503` error responses; existing SCIM URLs, request bodies, successful response bodies, token formats, and organization scoping stay stable. No database migration is required. Clients should honor `Retry-After` on `429`; operators should set trusted proxy depth to the real topology and tune `RATE_LIMIT_SCIM_*` if normal provisioning bursts exceed the default. The public discovery operation uses the same budget without requiring bearer authentication. The existing integration-test global rate-limit disable behavior remains in effect.
+
 ## Changelog
 
 | Date | Changes |
 |---|---|
+| 2026-10-27 | Bound public SCIM requests before bcrypt verification; documented trusted-IP budget, configurable defaults, additive errors, benchmark, and regression coverage (#7829). |
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
 | 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |

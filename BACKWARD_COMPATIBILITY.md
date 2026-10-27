@@ -602,3 +602,11 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+---
+
+## SCIM Pre-verification Rate Limit (2026-10-27)
+
+Public SCIM v2 operations share a trusted-client-IP budget before bearer verification ([#7829](https://github.com/open-mercato/open-mercato/issues/7829)). The default is 10 requests per second, configurable with `RATE_LIMIT_SCIM_POINTS`, `RATE_LIMIT_SCIM_DURATION`, and `RATE_LIMIT_SCIM_BLOCK_DURATION`. Exhaustion adds a SCIM `429` error with `Retry-After` and `X-RateLimit-*` headers; limiter unavailability adds a SCIM `503` error. This is an additive error-response change to API routes (§7); URLs, HTTP methods, request schemas and successful response bodies remain stable.
+
+Clients should honor `Retry-After`; operators should configure `RATE_LIMIT_TRUST_PROXY_DEPTH` for their proxy topology and tune the budget for provisioning bursts. Without a trusted client IP, requests share the safe global fallback bucket. No database or token migration is required. See the [SSO specification's migration guidance](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).

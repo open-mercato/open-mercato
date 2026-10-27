@@ -1,9 +1,13 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { scimJson } from '../../../../lib/scim-response'
+import { checkScimRateLimit } from '../../rate-limit'
 
 export const metadata = { requireAuth: false }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const rateLimitError = await checkScimRateLimit(req)
+  if (rateLimitError) return rateLimitError
+
   return scimJson({
     schemas: ['urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'],
     documentationUri: 'https://open-mercato.com/docs/scim',
@@ -34,7 +38,10 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Returns SCIM 2.0 ServiceProviderConfig. No authentication required — used by identity providers during connection testing.',
       tags: ['SSO', 'SCIM'],
       responses: [{ status: 200, description: 'SCIM ServiceProviderConfig' }],
-      errors: [],
+      errors: [
+        { status: 429, description: 'SCIM request limit exceeded; retry after Retry-After seconds' },
+        { status: 503, description: 'Rate limiter unavailable' },
+      ],
     },
   },
 }

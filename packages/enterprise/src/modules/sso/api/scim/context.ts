@@ -3,6 +3,7 @@ import { ScimTokenService } from '../../services/scimTokenService'
 import { SsoConfig } from '../../data/entities'
 import { buildScimError, scimJson } from '../../lib/scim-response'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { checkScimRateLimit } from './rate-limit'
 
 export interface ScimScope {
   ssoConfigId: string
@@ -15,6 +16,9 @@ export async function resolveScimContext(req: Request): Promise<
   | { ok: true; scope: ScimScope }
   | { ok: false; response: Response }
 > {
+  const rateLimitError = await checkScimRateLimit(req)
+  if (rateLimitError) return { ok: false, response: rateLimitError }
+
   const authHeader = req.headers.get('authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return {
