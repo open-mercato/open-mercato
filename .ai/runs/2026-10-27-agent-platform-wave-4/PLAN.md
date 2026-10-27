@@ -24,7 +24,7 @@
 | 2 | 2.2 | Apply the capture policy to native and OpenCode runs and record om.capture | dispatch:capable | done | pending |
 | 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | done | pending |
 | 2 | 2.4 | Add the trace capture settings API and undoable command | dispatch | done | pending |
-| 2 | 2.5 | Add the trace capture settings page | dispatch | todo | — |
+| 2 | 2.5 | Add the trace capture settings page | dispatch | done | pending |
 | 3 | 3.1 | Show per-step model calls with parameters and cost on the trace page | dispatch | todo | — |
 | 3 | 3.2 | Normalize gen_ai attributes on ingested llm spans | dispatch | todo | — |
 | 3 | 3.3 | Cover step metadata and capture settings with integration tests | dispatch | todo | — |
