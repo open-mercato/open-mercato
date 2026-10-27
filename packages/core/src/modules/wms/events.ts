@@ -9,6 +9,7 @@ const events = [
   { id: 'wms.location.updated', label: 'Warehouse Location Updated', entity: 'location', category: 'crud' },
   { id: 'wms.inventory_profile.created', label: 'Inventory Profile Created', entity: 'inventory_profile', category: 'crud' },
   { id: 'wms.inventory_profile.updated', label: 'Inventory Profile Updated', entity: 'inventory_profile', category: 'crud' },
+  { id: 'wms.inventory_profile.deleted', label: 'Inventory Profile Deleted', entity: 'inventory_profile', category: 'crud' },
   { id: 'wms.inventory_balance.created', label: 'Inventory Balance Created', entity: 'inventory_balance', category: 'crud' },
   { id: 'wms.inventory_balance.updated', label: 'Inventory Balance Updated', entity: 'inventory_balance', category: 'crud' },
   { id: 'wms.inventory_balance.deleted', label: 'Inventory Balance Deleted', entity: 'inventory_balance', category: 'crud' },

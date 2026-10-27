@@ -1,0 +1,4 @@
+interface:
+  display_name: "WCAG Guardian"
+  short_description: "Review accessibility contracts and PR evidence"
+  default_prompt: "Use $om-wcag-guardian to review this change against WCAG 2.2 AA and report verified findings and missing evidence."

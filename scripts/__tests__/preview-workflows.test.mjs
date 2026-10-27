@@ -4,6 +4,8 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
+import { parse } from 'yaml'
 
 const packagePreviewWorkflowPath = path.resolve('.github/workflows/package-previews.yml')
 const npmSnapshotPreviewWorkflowPath = path.resolve('.github/workflows/npm-snapshot-preview.yml')
@@ -81,6 +83,78 @@ test('npm snapshot previews preserve PR canary behavior behind manual dispatch',
   assert.equal(countOccurrences(workflow, 'ref: ${{ needs.resolve-pr.outputs.head_sha }}'), 2)
   assert.match(workflow, /const issueNumber = Number\(process\.env\.PR_NUMBER\);/)
   assert.doesNotMatch(workflow, /issue_number: context\.issue\.number/)
+})
+
+test('npm snapshot credentials are isolated behind the preview environment', () => {
+  const workflow = parse(readText(npmSnapshotPreviewWorkflowPath))
+  const snapshot = workflow.jobs.snapshot
+  const checkoutIndex = snapshot.steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'))
+  const approvalIndex = snapshot.steps.findIndex((step) => step.name === 'Verify independent preview approval')
+
+  assert.equal(snapshot.environment, 'npm-preview')
+  assert.equal(snapshot.permissions.actions, 'read')
+  assert.equal(snapshot.env.YARN_NPM_AUTH_TOKEN, '${{ secrets.NPM_PREVIEW_TOKEN }}')
+  assert.ok(approvalIndex >= 0 && approvalIndex < checkoutIndex)
+  assert.equal(snapshot.steps[approvalIndex].env.PR_AUTHOR_ID, '${{ needs.resolve-pr.outputs.author_id }}')
+  assert.equal(snapshot.steps[approvalIndex].env.TRIGGERING_ACTOR, '${{ github.triggering_actor }}')
+  assert.equal(snapshot.steps[approvalIndex].env.RUN_ATTEMPT, '${{ github.run_attempt }}')
+  assert.equal(snapshot.steps[checkoutIndex].with.ref, '${{ needs.resolve-pr.outputs.head_sha }}')
+  assert.equal(workflow.jobs['resolve-pr'].outputs.author_id, '${{ steps.pr.outputs.author_id }}')
+  assert.match(workflow.jobs['resolve-pr'].steps[0].with.script, /core\.setOutput\('author_id', String\(pr\.user\.id\)\)/)
+
+  const authentication = snapshot.steps.find((step) => step.name === 'Configure npm authentication')
+  assert.equal(authentication.env.NPM_TOKEN, '${{ secrets.NPM_PREVIEW_TOKEN }}')
+  assert.match(authentication.run, /test -n "\$NPM_TOKEN"/)
+  assert.deepEqual([...readText(npmSnapshotPreviewWorkflowPath).matchAll(/secrets\.(\w+)/g)].map((match) => match[1]), [
+    'NPM_PREVIEW_TOKEN',
+    'NPM_PREVIEW_TOKEN',
+  ])
+  assert.equal(workflow.jobs['resolve-pr'].env, undefined)
+  assert.equal(workflow.jobs['standalone-integration'].env, undefined)
+})
+
+test('npm snapshot approval rejects self approval and fails closed before PR checkout', async () => {
+  const workflow = parse(readText(npmSnapshotPreviewWorkflowPath))
+  const script = workflow.jobs.snapshot.steps.find((step) => step.name === 'Verify independent preview approval')?.with.script
+  assert.equal(typeof script, 'string')
+  const review = (login = 'reviewer', id = 4, environment = 'npm-preview', state = 'approved') => ({
+    user: { login, id },
+    environments: [{ name: environment }],
+    state,
+  })
+  const scenarios = [
+    { name: 'independent reviewer', reviews: [review()], approved: true },
+    { name: 'no approval or bypass', reviews: [] },
+    { name: 'PR author', reviews: [review('author', 1)] },
+    { name: 'dispatcher', reviews: [review('DISPATCHER', 2)] },
+    { name: 'rerun actor', reviews: [review('RERUNNER', 3)] },
+    { name: 'production approval', reviews: [review('reviewer', 4, 'production')] },
+    { name: 'rejected approval', reviews: [review('reviewer', 4, 'npm-preview', 'rejected')] },
+    { name: 'old run approval', reviews: [review()], attempt: '2' },
+  ]
+
+  for (const scenario of scenarios) {
+    const failures = []
+    const context = {
+      github: { rest: { actions: { getReviewsForRun: async (request) => {
+        assert.deepEqual(JSON.parse(JSON.stringify(request)), { owner: 'open-mercato', repo: 'open-mercato', run_id: 123 })
+        return { data: scenario.reviews }
+      } } } },
+      context: { repo: { owner: 'open-mercato', repo: 'open-mercato' }, runId: 123, actor: 'dispatcher' },
+      process: { env: { PR_AUTHOR_ID: '1', TRIGGERING_ACTOR: 'rerunner', RUN_ATTEMPT: scenario.attempt ?? '1' } },
+      core: { setFailed: (message) => failures.push(message) },
+    }
+
+    await vm.runInNewContext(`(async () => {${script}\n})()`, context, { timeout: 1000 })
+    assert.equal(failures.length, scenario.approved ? 0 : 1, scenario.name)
+  }
+
+  await assert.rejects(vm.runInNewContext(`(async () => {${script}\n})()`, {
+    github: { rest: { actions: { getReviewsForRun: async () => { throw new Error('API unavailable') } } } },
+    context: { repo: {}, runId: 123, actor: 'dispatcher' },
+    process: { env: { PR_AUTHOR_ID: '1', TRIGGERING_ACTOR: 'rerunner', RUN_ATTEMPT: '1' } },
+    core: { setFailed: () => assert.fail('API errors must abort the step') },
+  }, { timeout: 1000 }), /API unavailable/)
 })
 
 test('published standalone lanes verify the disabled baseline before activating TC-EXAMPLE-016', () => {

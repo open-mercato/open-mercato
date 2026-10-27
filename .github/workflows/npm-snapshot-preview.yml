@@ -30,6 +30,7 @@ jobs:
       head_sha: ${{ steps.pr.outputs.head_sha }}
       head_repo: ${{ steps.pr.outputs.head_repo }}
       same_repo: ${{ steps.pr.outputs.same_repo }}
+      author_id: ${{ steps.pr.outputs.author_id }}
     steps:
       - name: Resolve pull request
         id: pr
@@ -56,16 +57,25 @@ jobs:
             core.setOutput('head_sha', pr.head.sha);
             core.setOutput('head_repo', pr.head.repo.full_name);
             core.setOutput('same_repo', String(sameRepo));
+            core.setOutput('author_id', String(pr.user.id));
 
             if (!sameRepo) {
               core.setFailed('NPM snapshot previews are restricted to same-repository PR branches.');
+              return;
             }
+
+            await core.summary
+              .addHeading('NPM snapshot preview approval target')
+              .addLink(`PR #${prNumber}: ${pr.head.sha}`, `https://github.com/${expectedRepo}/commit/${pr.head.sha}`)
+              .write();
 
   snapshot:
     name: Publish NPM Snapshot Preview
     needs: resolve-pr
     if: needs.resolve-pr.outputs.same_repo == 'true'
+    environment: npm-preview
     permissions:
+      actions: read
       contents: read
       issues: write
       pull-requests: read
@@ -80,9 +90,41 @@ jobs:
     # scripts/__tests__/npm-provenance-runners.test.mjs.
     runs-on: ubuntu-latest
     env:
-      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_PREVIEW_TOKEN }}
 
     steps:
+      - name: Verify independent preview approval
+        uses: actions/github-script@v9
+        env:
+          PR_AUTHOR_ID: ${{ needs.resolve-pr.outputs.author_id }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        with:
+          script: |
+            if (process.env.RUN_ATTEMPT !== '1') {
+              core.setFailed('Start a new workflow dispatch so approval applies to this exact PR snapshot.');
+              return;
+            }
+
+            const { data: reviews } = await github.rest.actions.getReviewsForRun({
+              ...context.repo,
+              run_id: context.runId,
+            });
+            const excludedActors = new Set([
+              context.actor.toLowerCase(),
+              process.env.TRIGGERING_ACTOR.toLowerCase(),
+            ]);
+            const independentApproval = reviews.some(review =>
+              review.state === 'approved' &&
+              review.environments.some(environment => environment.name === 'npm-preview') &&
+              review.user.id !== Number(process.env.PR_AUTHOR_ID) &&
+              !excludedActors.has(review.user.login.toLowerCase())
+            );
+
+            if (!independentApproval) {
+              core.setFailed('The npm-preview environment requires approval from someone other than the PR author and workflow initiators.');
+            }
+
       - name: Checkout code
         uses: actions/checkout@v7
         with:
@@ -99,10 +141,11 @@ jobs:
 
       - name: Configure npm authentication
         run: |
+          test -n "$NPM_TOKEN" || { echo "NPM_PREVIEW_TOKEN must be configured in the npm-preview environment."; exit 1; }
           echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
           echo "access=public" >> .npmrc
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_PREVIEW_TOKEN }}
 
       - name: Install dependencies
         run: yarn install --immutable

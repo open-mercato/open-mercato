@@ -1,6 +1,6 @@
 ---
 name: om-auto-sec-report
-description: "Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `develop`. Writes markdown + HTML under `.ai/analysis/` with a top-level \"Next steps — go deeper\" list."
+description: "Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `main`. Writes markdown + HTML under `.ai/analysis/` with a top-level \"Next steps — go deeper\" list."
 ---
 
 # Auto Security Report — Driver
@@ -18,7 +18,7 @@ into specific areas with additional `om-auto-sec-report-pr` runs.
 `{windowSpec}` (optional) — one of:
 
 - A date in `YYYY-MM-DD` form — every PR merged on or after that date
-  into `--base` (default `develop`) up to today (UTC).
+  into `--base` (default `main`) up to today (UTC).
 - A PR number — every PR whose number is greater than or equal to
   this value and that is merged into `--base`.
 - A branch name (e.g. `feat/foo`) — treated as a single unit of work;
@@ -33,8 +33,9 @@ into specific areas with additional `om-auto-sec-report-pr` runs.
 Options:
 
 - `--base <branch>` (optional) — base ref for PR / branch diffs.
-  Defaults to `develop`. Merges into `main` are still reported and
-  flagged when a different base is specified.
+  Defaults to `main`. PRs merged into a `release/v*` branch are
+  backports: report them flagged as such, and do not double count them
+  with their `main` originals.
 - `--include-open` (optional) — also include open non-draft PRs in
   the queue, flagged as "not yet merged". Off by default.
 - `--deep-scan` (optional) — pass `--deep-scan` through to every
@@ -123,7 +124,7 @@ the driver will run. Append commit SHA on each flip so
 
 ### Phase 4: PR delivery
 
-- [ ] 4.1 Commit artifacts, push branch, open PR against `develop` (do not merge)
+- [ ] 4.1 Commit artifacts, push branch, open PR against `main` (do not merge)
 - [ ] 4.2 Apply `review`, `documentation`, `security`, `skip-qa` labels with comments
 ```
 
@@ -145,7 +146,7 @@ for UNIT in "${QUEUE[@]}"; do
   FRAGMENT_PATH="${FRAGMENT_DIR}/$(slug "$UNIT").md"
   invoke_skill "om-auto-sec-report-pr" \
     --target "$UNIT" \
-    --base "${BASE:-develop}" \
+    --base "${BASE:-main}" \
     ${DEEP_SCAN:+--deep-scan} \
     --out-fragment "$FRAGMENT_PATH"
 done
@@ -272,7 +273,7 @@ no PII, no internal hostnames, no secrets leaked through.
 Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 9 with:
 
 - Title: `docs(analysis): add auto-sec-report for {window caption}`.
-- Base: `develop`. Never merge directly.
+- Base: `main`. Never merge directly.
 - Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}.md` and
   the correct `Status:` line.
 - Body MUST link the aggregate markdown + HTML, state the queue size,
@@ -329,7 +330,7 @@ If the run cannot finish in a single invocation:
   Never re-implement the paranoid checks or the "Next steps"
   production here — always call the sub-unit skill.
 - Always run in an isolated worktree. Never nest worktrees.
-- Always open a docs-only PR against `develop`. Never merge from
+- Always open a docs-only PR against `main`. Never merge from
   within this skill.
 - Default window is the last 7 days of merged PRs (UTC) when
   `{windowSpec}` is omitted.

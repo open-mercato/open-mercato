@@ -2,10 +2,13 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import type { EvaluationContext } from './expression-evaluator'
 import { getNestedValue, resolveSpecialValue } from './value-resolver'
 import {
+  canActorUseOpenMercatoApiKeyProfile,
   findOpenMercatoEndpointOption,
   getCurrentOpenMercatoEndpointOptions,
   resolveOpenMercatoApiKeyProfile,
 } from './openmercato-call-options'
+import type { RbacService } from '../../auth/services/rbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenMercatoEndpointOption } from './openmercato-call-options-types'
 
 /**
@@ -31,6 +34,8 @@ export interface ActionContext extends EvaluationContext {
   executedBy?: string | null
   em?: PostgreSqlEntityManager
   openMercatoEndpointOptions?: OpenMercatoEndpointOption[]
+  ruleAuthorId?: string | null
+  rbacService?: RbacService
   [key: string]: any
 }
 
@@ -424,6 +429,46 @@ async function handleCallWebhook(
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const API_KEY_ACTOR_PREFIX = 'api_key:'
+
+async function resolveRbacService(): Promise<RbacService> {
+  const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  const container = await createRequestContainer()
+  return container.resolve('rbacService') as RbacService
+}
+
+async function translatedOpenMercatoCallError(key: string, fallback: string): Promise<Error> {
+  const { resolveTranslations } = await import('@open-mercato/shared/lib/i18n/server')
+  const { t } = await resolveTranslations()
+  return new Error(t(key, fallback))
+}
+
+async function resolveActiveRuleAuthorId(
+  em: PostgreSqlEntityManager,
+  authorId: string | null | undefined,
+  tenantId: string,
+): Promise<string | null> {
+  const candidate = typeof authorId === 'string' ? authorId.trim() : ''
+  if (!candidate) return null
+  if (candidate.startsWith(API_KEY_ACTOR_PREFIX)) {
+    const apiKeyId = candidate.slice(API_KEY_ACTOR_PREFIX.length)
+    if (!UUID_PATTERN.test(apiKeyId)) return null
+    const { ApiKey } = await import('../../api_keys/data/entities')
+    const key = await findOneWithDecryption(em, ApiKey, { id: apiKeyId, tenantId, deletedAt: null }, {}, { tenantId, organizationId: null })
+    if (!key) return null
+    if (key.expiresAt && key.expiresAt.getTime() <= Date.now()) return null
+    return candidate
+  }
+  if (!UUID_PATTERN.test(candidate)) return null
+  const { User } = await import('../../auth/data/entities')
+  const user = await findOneWithDecryption(em, User, { id: candidate, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+  if (!user) return null
+  if (user.tenantId && String(user.tenantId) === tenantId) return candidate
+  const { isUserEffectivelySuperAdmin } = await import('../../auth/lib/grantChecks')
+  return await isUserEffectivelySuperAdmin(em, candidate) ? candidate : null
+}
+
 /**
  * CALL_OPEN_MERCATO action handler
  */
@@ -479,6 +524,29 @@ async function handleCallOpenMercato(
     : []
   if (roleIds.length === 0) {
     throw new Error('CALL_OPEN_MERCATO action requires an API key profile with at least one role')
+  }
+
+  const ruleAuthorId = await resolveActiveRuleAuthorId(em, context.ruleAuthorId, tenantId)
+  if (!ruleAuthorId) {
+    throw await translatedOpenMercatoCallError(
+      'business_rules.errors.openMercatoCall.executionAuthorInactive',
+      'CALL_OPEN_MERCATO action refused: the rule has no active author',
+    )
+  }
+  const rbacService = context.rbacService ?? await resolveRbacService()
+  const authorCanUseProfile = await canActorUseOpenMercatoApiKeyProfile({
+    em,
+    rbacService,
+    actorId: ruleAuthorId,
+    tenantId,
+    organizationId,
+    apiKey: apiKeyProfile,
+  })
+  if (!authorCanUseProfile) {
+    throw await translatedOpenMercatoCallError(
+      'business_rules.errors.openMercatoCall.executionAuthorCannotGrant',
+      'CALL_OPEN_MERCATO action refused: the rule author cannot grant every role of the API key profile',
+    )
   }
 
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')

@@ -37,6 +37,7 @@ import {
   type TimesheetDay,
   type TimesheetEntry,
 } from '../time-tracking-ui/timesheetData'
+import { readErrorMessage } from '../time-tracking-ui/timeEntryListData'
 import { formatDayLabel, formatLongDayLabel } from '../time-tracking-ui/timesheetPeriod'
 import { targetLabel, type TimesheetLogTarget } from '../time-tracking-ui/timesheetTargets'
 
@@ -147,17 +148,22 @@ function InlineDescription({
       return
     }
     const payload = { id: entry.id, notes: trimmed || null }
+    const errorMessage = t('staff.timesheets.my.list.saveError', 'Failed to save description. Please try again.')
     savingRef.current = true
     setSaving(true)
     try {
       await runMutation({
         operation: () =>
           withScopedApiRequestHeaders(buildOptimisticLockHeader(entry.updatedAt), () =>
-            apiCallOrThrow(ENTRIES_ENDPOINT, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            }),
+            apiCallOrThrow(
+              ENTRIES_ENDPOINT,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage },
+            ),
           ),
         context: {
           formId: DESCRIPTION_CONTEXT_ID,
@@ -175,10 +181,7 @@ function InlineDescription({
       savingRef.current = false
       setSaving(false)
       if (!surfaceRecordConflict(error, t)) {
-        flash(
-          t('staff.timesheets.my.list.saveError', 'Failed to save description. Please try again.'),
-          'error',
-        )
+        flash(readErrorMessage(error, errorMessage), 'error')
       }
     }
   }, [entry.description, entry.id, entry.updatedAt, onSaved, retryLastMutation, runMutation, t, value])

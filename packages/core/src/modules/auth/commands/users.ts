@@ -151,6 +151,37 @@ function assertTargetTenantInScope(actorTenantScope: string | null, targetTenant
   }
 }
 
+async function assertCommandActorCanAssignUserDestination(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  destination: { destinationTenantId: string | null; destinationOrganizationId: string; roles: Role[] },
+): Promise<void> {
+  const rbacService = ctx.container.resolve('rbacService') as RbacService
+  const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
+  const organizationScope = ctx.organizationScope?.tenantId === destination.destinationTenantId
+    ? ctx.organizationScope
+    : !actorIsSuperAdmin && ctx.auth?.sub && destination.destinationTenantId
+      ? await resolveOrganizationScope({
+          em,
+          rbac: rbacService,
+          auth: ctx.auth,
+          tenantId: destination.destinationTenantId,
+        })
+      : null
+  await assertActorCanAssignUserDestination({
+    em,
+    rbacService,
+    actorUserId: ctx.auth?.sub,
+    actorIsSuperAdmin,
+    tenantId: ctx.auth?.tenantId ?? null,
+    organizationId: ctx.auth?.orgId ?? null,
+    allowedOrganizationIds: organizationScope?.allowedIds,
+    destinationTenantId: destination.destinationTenantId,
+    destinationOrganizationId: destination.destinationOrganizationId,
+    roles: destination.roles,
+  })
+}
+
 const passwordSchema = buildPasswordSchema()
 
 const displayNameSchema = z.preprocess(
@@ -283,6 +314,15 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     assertTargetTenantInScope(resolveActorTenantScope(ctx), tenantId, 'Organization not found')
+    await assertCommandActorCanAssignUserDestination(ctx, em, {
+      destinationTenantId: tenantId,
+      destinationOrganizationId: parsed.organizationId,
+      roles: await resolveUserDestinationRoles({
+        em,
+        destinationTenantId: tenantId,
+        roleTokens: parsed.roles ?? [],
+      }),
+    })
 
     const emailHash = computeEmailHash(parsed.email)
     // Email is unique per-tenant, not globally (see Migration20260610120000:
@@ -691,32 +731,13 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       const currentTenantId = currentUser.tenantId ? String(currentUser.tenantId) : null
       destinationChanged = currentOrganizationId !== parsed.organizationId || currentTenantId !== tenantId
       if (destinationChanged) {
-        const rbacService = ctx.container.resolve('rbacService') as RbacService
         const destinationRoles = await resolveUserDestinationRoles({
           em,
           targetUserId: parsed.id,
           destinationTenantId: tenantId,
           roleTokens: parsed.roles,
         })
-        const actorIsSuperAdmin = ctx.systemActor === true || ctx.auth?.isSuperAdmin === true
-        const organizationScope = ctx.organizationScope?.tenantId === tenantId
-          ? ctx.organizationScope
-          : !actorIsSuperAdmin && ctx.auth?.sub
-            ? await resolveOrganizationScope({
-                em,
-                rbac: rbacService,
-                auth: ctx.auth,
-                tenantId,
-              })
-            : null
-        await assertActorCanAssignUserDestination({
-          em,
-          rbacService,
-          actorUserId: ctx.auth?.sub,
-          actorIsSuperAdmin,
-          tenantId: ctx.auth?.tenantId ?? null,
-          organizationId: ctx.auth?.orgId ?? null,
-          allowedOrganizationIds: organizationScope?.allowedIds,
+        await assertCommandActorCanAssignUserDestination(ctx, em, {
           destinationTenantId: tenantId,
           destinationOrganizationId: parsed.organizationId,
           roles: destinationRoles,

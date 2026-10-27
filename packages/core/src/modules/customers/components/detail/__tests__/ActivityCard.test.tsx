@@ -3,6 +3,8 @@
  */
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { screen } from '@testing-library/react'
+import enDict from '../../../i18n/en.json'
+import plDict from '../../../i18n/pl.json'
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
@@ -88,5 +90,22 @@ describe('ActivityCard', () => {
   it.each(['done', 'canceled'])('hides the Mark done affordance for terminal status %s', (status) => {
     renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
     expect(screen.queryByRole('button', { name: /Mark done/i })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { locale: 'en', dict: enDict as Record<string, string>, label: 'Canceled' },
+    { locale: 'pl', dict: plDict as Record<string, string>, label: 'Anulowana' },
+  ])('labels a canceled activity and strikes its title through ($locale)', ({ locale, dict, label }) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status: 'canceled' })} />, { locale, dict })
+
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discovery call (32 min)' })).toHaveClass('line-through')
+  })
+
+  it.each(['planned', 'done', 'completed'])('does not show the canceled label for status %s', (status) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+
+    expect(screen.queryByText('Canceled')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discovery call (32 min)' })).not.toHaveClass('line-through')
   })
 })

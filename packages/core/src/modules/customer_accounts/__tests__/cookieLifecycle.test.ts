@@ -36,6 +36,7 @@ const customerUserService = {
   checkLockout: jest.fn(() => false),
   incrementFailedAttempts: jest.fn(async () => undefined),
   resetFailedAttempts: jest.fn(async () => undefined),
+  resetFailedAttemptsUnlessLocked: jest.fn(async () => true),
   updateLastLoginAt: jest.fn(async () => undefined),
 }
 

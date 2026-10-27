@@ -45,6 +45,22 @@ export function resolvePriceVariantId(row: PriceRow): string | null {
   return typeof row.variant === 'string' ? row.variant : row.variant.id
 }
 
+/**
+ * Narrows a batch of `CatalogProductPrice` rows down to the ones a single variant's line may
+ * actually use: product-level rows (`row.variant === null`) plus rows scoped to THIS variant.
+ * Required after any fetch built with a `product OR variant` clause (`{ $or: [{ product },
+ * { variant } ] }`) — every variant's price row also carries its parent `product_id`, so that
+ * clause's `{ product: productId }` arm returns every sibling variant's rows too, not just the
+ * target variant's. Callers that fetch by product id alone, without this follow-up filter, risk
+ * pricing a line off a sibling variant's row.
+ */
+export function filterRowsForVariant(rows: PriceRow[], variantId: string | null): PriceRow[] {
+  return rows.filter((row) => {
+    const rowVariantId = resolvePriceVariantId(row)
+    return rowVariantId === null || rowVariantId === variantId
+  })
+}
+
 export function resolvePriceOfferId(row: PriceRow): string | null {
   if (!row.offer) return null
   return typeof row.offer === 'string' ? row.offer : row.offer.id

@@ -193,6 +193,7 @@
   "forms.errors.snapshot_missing": "Snapshot record not found.",
   "forms.errors.snapshot_pending": "PDF snapshot is being generated.",
   "forms.errors.snapshot_storage_unconfigured": "Snapshot storage is not yet configured.",
+  "forms.errors.subject_forbidden": "이 양식은 본인에 대해서만 시작하거나 제출할 수 있습니다.",
   "forms.errors.submission_not_found": "Submission not found.",
   "forms.errors.tenant_required": "Tenant context is required.",
   "forms.errors.unauthorized": "Unauthorized.",

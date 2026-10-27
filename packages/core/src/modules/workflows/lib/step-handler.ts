@@ -1384,6 +1384,9 @@ async function handleWaitForSignalStep(
  *
  * Reads `duration` (relative, e.g. "PT5M") or `until` (ISO 8601 datetime) from
  * `stepDef.config` (preferred — matches StepsEditor) or `stepDef.timerConfig`.
+ * Either value may be a `{{...}}` template: the definition validator accepts
+ * templates there, so they are resolved here, once, against the run context
+ * with the definition's interpolation mode.
  * Enqueues a delayed timer job on the workflow-activities queue; when the job
  * is processed by the activity worker, it calls `timerHandler.fireTimer` to
  * resume the workflow.
@@ -1397,10 +1400,8 @@ async function handleWaitForTimerStep(
   branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   const timerConfig = stepDef.config || stepDef.timerConfig || {}
-  const duration: string | undefined = timerConfig.duration
-  const until: string | undefined = timerConfig.until
 
-  if (!duration && !until) {
+  if (!timerConfig.duration && !timerConfig.until) {
     throw new StepExecutionError(
       'WAIT_FOR_TIMER requires either "duration" (e.g., "PT5M") or "until" (ISO 8601 datetime)',
       'TIMER_CONFIG_MISSING',
@@ -1408,20 +1409,15 @@ async function handleWaitForTimerStep(
     )
   }
 
-  let fireAtMs: number
-  if (until) {
-    const targetDate = new Date(until)
-    if (isNaN(targetDate.getTime())) {
-      throw new StepExecutionError(
-        `WAIT_FOR_TIMER invalid "until" datetime: ${until}`,
-        'TIMER_CONFIG_INVALID',
-        { until }
-      )
-    }
-    fireAtMs = targetDate.getTime()
-  } else {
-    fireAtMs = Date.now() + parseDuration(duration as string)
-  }
+  const { interpolateVariables } = await import('./activity-executor')
+  const resolveTimerValue = (value: unknown): unknown =>
+    value ? interpolateVariables(value, context.workflowContext, instance, { mode: context.interpolationMode }) : undefined
+  const duration = resolveTimerValue(timerConfig.duration)
+  const until = resolveTimerValue(timerConfig.until)
+
+  const fireAtMs = timerConfig.until
+    ? resolveTimerUntilMs(until, stepDef.stepId)
+    : Date.now() + resolveTimerDurationMs(duration, stepDef.stepId)
 
   const delayMs = fireAtMs - Date.now()
   const fireAt = new Date(fireAtMs)
@@ -1491,6 +1487,34 @@ async function handleWaitForTimerStep(
       until,
       jobId,
     },
+  }
+}
+
+function resolveTimerUntilMs(until: unknown, stepId: string | undefined): number {
+  const targetDate =
+    until instanceof Date ? until : typeof until === 'string' || typeof until === 'number' ? new Date(until) : null
+  if (!targetDate || isNaN(targetDate.getTime())) {
+    throw new StepExecutionError(
+      `WAIT_FOR_TIMER invalid "until" datetime: ${String(until)}`,
+      'TIMER_CONFIG_INVALID',
+      { stepId, until }
+    )
+  }
+  return targetDate.getTime()
+}
+
+function resolveTimerDurationMs(duration: unknown, stepId: string | undefined): number {
+  const invalidDuration = (reason: string) =>
+    new StepExecutionError(
+      `WAIT_FOR_TIMER invalid "duration": ${String(duration)}`,
+      'TIMER_CONFIG_INVALID',
+      { stepId, duration, reason }
+    )
+  if (typeof duration !== 'string') throw invalidDuration('the duration is not a string')
+  try {
+    return parseDuration(duration)
+  } catch (error) {
+    throw invalidDuration(error instanceof Error ? error.message : String(error))
   }
 }
 

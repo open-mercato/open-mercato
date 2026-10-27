@@ -98,6 +98,7 @@ export async function ensureCustomerDictionary(
   queryClient: QueryClient,
   kind: CustomerDictionaryKind,
   scopeVersion = 0,
+  organizationId?: string | null,
 ): Promise<CustomerDictionaryQueryData> {
-  return queryClient.fetchQuery(customerDictionaryQueryOptions(kind, scopeVersion))
+  return queryClient.fetchQuery(customerDictionaryQueryOptions(kind, scopeVersion, organizationId))
 }

@@ -1603,10 +1603,22 @@ export class BasicQueryEngine implements QueryEngine {
         return builder.where(column as any, '<', value as any)
       case 'lte':
         return builder.where(column as any, '<=', value as any)
-      case 'in':
-        return builder.where(column as any, 'in', Array.isArray(value) ? value : [value])
-      case 'nin':
-        return builder.where(column as any, 'not in', Array.isArray(value) ? value : [value])
+      case 'in': {
+        // An empty list ("no id survived validation", #7502) compiles to invalid
+        // SQL (`in ()`) under Kysely/Postgres — short-circuit to a predicate that
+        // never matches instead of letting the driver reject the query.
+        const inValues = Array.isArray(value) ? value : [value]
+        return inValues.length === 0
+          ? builder.where(sql<boolean>`false`)
+          : builder.where(column as any, 'in', inValues)
+      }
+      case 'nin': {
+        // Mirrors 'in' above: empty means "exclude nothing".
+        const ninValues = Array.isArray(value) ? value : [value]
+        return ninValues.length === 0
+          ? builder.where(sql<boolean>`true`)
+          : builder.where(column as any, 'not in', ninValues)
+      }
       case 'like':
         return builder.where(column as any, 'like', value as any)
       case 'ilike':
@@ -1774,8 +1786,15 @@ export class BasicQueryEngine implements QueryEngine {
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
       case 'lte': return eb(column, '<=', value)
-      case 'in': return eb(column, 'in', Array.isArray(value) ? value : [value])
-      case 'nin': return eb(column, 'not in', Array.isArray(value) ? value : [value])
+      case 'in': {
+        // Mirrors the guard in applyColumnOp above (#7502).
+        const inValues = Array.isArray(value) ? value : [value]
+        return inValues.length === 0 ? eb.val(false) : eb(column, 'in', inValues)
+      }
+      case 'nin': {
+        const ninValues = Array.isArray(value) ? value : [value]
+        return ninValues.length === 0 ? eb.val(true) : eb(column, 'not in', ninValues)
+      }
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
       case 'exists': return value ? eb(column, 'is not', null) : eb(column, 'is', null)

@@ -985,6 +985,7 @@
   "wms.errors.forbidden.manageZones": "Sie sind nicht berechtigt, Lagerzonen zu verwalten.",
   "wms.errors.forbidden.receiveInventory": "Sie sind nicht berechtigt, Wareneingänge zu erfassen.",
   "wms.errors.internalServerError": "Interner Serverfehler",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Eine stornierte Bestellung kann keine Bestandsreservierung haben.",
   "wms.errors.unauthorized": "Nicht autorisiert",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Niedriger Lagerbestand — verfügbar: {availableQuantity}, Bestellpunkt: {reorderPoint}, Sicherheitsbestand: {safetyStock}",

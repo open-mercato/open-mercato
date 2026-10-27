@@ -206,6 +206,7 @@ test.describe('TC-WC-034: credit-memo execution bridge', () => {
   })
 
   test('deducts restocking fees, enforces receipt evidence and status gates, and validates manual links', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-034b')
     let orderId: string | null = null

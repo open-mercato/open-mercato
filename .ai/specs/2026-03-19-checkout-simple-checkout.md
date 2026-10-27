@@ -287,7 +287,7 @@ contact ──► addresses ──► delivery ──► payment ──► revie
 
 Steps are skippable by configuration: a digital-only cart skips `delivery`; a known logged-in buyer with one address skips `contact` and `addresses`; purchase on account skips gateway selection in `payment` but not the step (PO number is captured there).
 
-Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs.
+Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs. When a tax provider is configured, tax can depend on the shipping address as well (`2026-10-03-tax-providers-roadmap.md`, ADR-3); under the default state `product-rate` (its ADR-5) nothing changes. That the lock's re-price (§6) computes with that address the figure the buyer confirms, and whether the funnel shows a tax estimate at the address step before it, are proposed to the owners of this spec in that roadmap (amendment 6a, §14 Q16) and are not decided here; how the address reaches the lock is for a later pointer, after this spec's lock amendment (whose lock input carries no address) merges.
 
 ---
 
@@ -741,6 +741,10 @@ Named here so a later reader does not look for them: **R1** (payment captured wi
 ## 21) Changelog
 
 - **§20 user story map added.** The spec described a step machine, a submit sequence and a risk register but never stated who wanted what, so a prototype had to infer the flow from a numbered procedure. Five epics derived from §5.2, §6, §7, §8 and §15; no new scope. The four risks with no screen of their own are named as such rather than left to look missing. The changelog moves from §20 to §21.
+
+### 2026-10-12 — tax providers (pointer, no version change)
+
+Two sentences in §5.2: when a tax provider is configured, tax can depend on the shipping address as well; under the default state `product-rate` nothing changes. That the lock's re-price (§6) computes the confirmed figure with that address, and whether the funnel shows a tax estimate at the address step, are proposed to the owners of this spec in the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, in review as #6918; its amendment 6a and §14 Q16) and are not decided here; how the address reaches the lock is for a later pointer, after the lock amendment (#7212, whose lock input carries no address) merges.
 
 ### 2026-10-11 — availability entry points
 

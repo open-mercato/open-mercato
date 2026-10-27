@@ -337,5 +337,6 @@
   "ecommerce.validation.pathPrefixInvalid": "Prefiks ścieżki może zawierać tylko małe litery, cyfry, myślniki i ukośniki, np. /shop.",
   "ecommerce.validation.slugInvalid": "Slug może zawierać tylko małe litery, cyfry i pojedyncze myślniki między nimi.",
   "ecommerce.validation.urlInvalid": "Podaj prawidłowy adres URL http(s) lub ścieżkę zaczynającą się od /.",
-  "notifications.categories.ecommerce": "E-commerce"
+  "notifications.categories.ecommerce": "E-commerce",
+  "search.entityType.ecommerce.ecommerce_store": "Sklep"
 }

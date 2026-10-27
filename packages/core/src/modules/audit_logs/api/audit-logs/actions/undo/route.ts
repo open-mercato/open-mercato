@@ -13,6 +13,7 @@ import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 import {
   actionLogBelongsToAuth,
@@ -172,7 +173,8 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Undo failed', { err })
-    return NextResponse.json({ error: 'Undo failed' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('audit_logs.error.undo_failed', 'Undo failed') }, { status: 400 })
   }
 }
 

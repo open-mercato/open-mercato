@@ -57,7 +57,8 @@ export type RoleIdentifier = z.infer<typeof roleIdentifierSchema>
  * Submission subject identifier. Polymorphic: subject_type is a free-form
  * string tag (`patient`, `customer`, `case`, etc.); subject_id MUST be a
  * UUID. Validation of the (subject_type, subject_id) pair against actual
- * domain entities is the responsibility of the calling module.
+ * domain entities is the responsibility of the calling module; the portal
+ * runtime enforces `lib/portal-subject-policy.ts`.
  */
 export const submissionSubjectSchema = z.object({
   subject_type: z.string().min(1).max(64),

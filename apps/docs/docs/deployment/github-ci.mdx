@@ -1,0 +1,93 @@
+---
+title: Continuous Integration with GitHub Actions
+description: Generate a production-grade, security-hardened GitHub Actions pipeline for a standalone Open Mercato app with one command.
+---
+
+# Continuous Integration with GitHub Actions
+
+The `om-setup-ci` skill generates a GitHub Actions pipeline for an app created with `create-mercato-app`. It carries over the checks and conventions the Open Mercato framework uses in its own CI, trimmed to what applies to a standalone app, and adds layered security scanning: dependency audit, secret scanning, SAST, workflow security, container scanning, and optional CodeQL and DAST.
+
+It is one deterministic generator. It reads your `package.json`, Node pin, `Dockerfile`, integration-test harness and git branches, then writes the workflows, helper scripts and a documentation page into your repository. Checks whose scripts are missing are left out, and the reason is recorded.
+
+:::info Availability
+New apps get the skill in `.ai/skills/om-setup-ci/` (core skill tier). Existing apps get it after upgrading Open Mercato and running `yarn mercato agentic:init --update-harness`. GitHub is the only supported provider for now.
+:::
+
+## Quick start
+
+From the app root:
+
+```bash
+node .ai/skills/om-setup-ci/scripts/setup-ci.mjs --dry-run   # preview what will be generated
+node .ai/skills/om-setup-ci/scripts/setup-ci.mjs             # write the files
+```
+
+Or ask your coding agent to "set up CI". The skill runs the same generator and asks only about what it cannot detect: which branches to protect, whether the repository needs a larger runner, and whether to enable CodeQL and the nightly DAST scan.
+
+Then:
+
+1. Commit the generated files on a branch and open a pull request. The first run starts.
+2. In *Settings → Branches*, require the **`CI`** status check on your protected branches.
+3. In *Settings → Code security*, enable secret scanning push protection and Dependabot security updates.
+
+## What the pipeline checks
+
+| Job | What it runs | Why |
+| --- | --- | --- |
+| `changes` | `git diff` against the base | Skips jobs when nothing relevant changed, and fixes the baseline for "new findings only". |
+| `audit` | `scripts/ci/audit-ci.mjs` with the base `yarn.lock` as a baseline | Fails only on high-severity npm advisories the change *introduces*, and fails closed when advisory data is unavailable. |
+| `secrets` | Gitleaks over every commit in the change | Catches credentials even when a later commit deleted them. |
+| `sast` | Semgrep on `src/`: Open Mercato rules plus `p/default` (ERROR) | Blocks new code-execution, shell-injection, SQL-interpolation, XSS, open-redirect and cookie-flag patterns. |
+| `workflow-lint` | zizmor on `.github/` | Expression injection, token permissions, credential persistence and unpinned actions in the workflows themselves. |
+| `lint` | `yarn lint` | ESLint with the Next.js rules. Runs in parallel and fails fast. |
+| `validate` | `yarn generate` → clean-tree check → `yarn typecheck` → `yarn ds:check` → time-bomb scan → `yarn test` → `yarn build` | The same gate coding agents run before opening a pull request (`.ai/agentic.config.json`). |
+| `integration` | `yarn test:integration:ephemeral` | Boots the real app on a throwaway PostgreSQL container and runs the Playwright suites. Skipped when the app has no integration specs. |
+| `docker` | `docker build` without push, then Trivy on OS packages | Catches a broken `Dockerfile`, and fixable HIGH/CRITICAL CVEs in the base image. |
+| `CI` | Aggregates all jobs | The single required check. A skipped job counts as passed. |
+
+Pull requests are gated only on what they **introduce**, so a change is never red for a problem that was already on the base branch. Existing problems are owned by two nightly workflows, each keeping one tracking issue open until it is fixed:
+
+- **`audit.yml`:** a full dependency audit of every protected branch.
+- **`security.yml`:** a full-history secret scan, a full Semgrep scan of `src/`, a Trivy scan of OS and npm packages in the image, and, with `--with-dast`, an OWASP ZAP baseline scan of the running app.
+
+### Why custom Semgrep rules
+
+Semgrep's free registry rulesets barely cover Next.js route handlers and server actions. Against a deliberately vulnerable route, `p/javascript`, `p/typescript`, `p/react` and `p/nextjs` together reported nothing, missing `exec()` with user input and `dangerouslySetInnerHTML`. The Open Mercato rules (`scripts/ci/semgrep/open-mercato.yml`) target exactly those patterns. They allow the framework's safe idioms: constants, `?` placeholder lists, and `{ sql, params }` clause builders. On a fresh app they report nothing.
+
+## Supply-chain hardening
+
+The generated workflows follow the same rules zizmor enforces, and the generator's own output passes zizmor and actionlint:
+
+- **Pinned references:** every third-party action is pinned to a commit SHA with its version as a comment, container images to a digest, and the Gitleaks binary to a SHA-256 checksum. Every pinned release was at least two weeks old when it was chosen.
+- **Dependabot cooldown:** Dependabot keeps the pinned actions current, waiting 14 days after a release.
+- **No persisted credentials:** every checkout uses `persist-credentials: false`.
+- **No expressions in scripts:** event data reaches shell and JavaScript steps only through `env:`, never `${{ }}` interpolation.
+- **Least privilege:** the token is read-only by default. `issues: write` and `security-events: write` are granted per job, only where needed.
+
+## Options
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--branches a,b` | detected default branch, plus `develop` if it exists | Branches the pipeline protects. |
+| `--node <version>` | `.nvmrc` / `.node-version`, else the `engines.node` major | Node.js version. |
+| `--runner <label>` | `ubuntu-latest` | `runs-on` label. Use a larger runner if a private repository runs out of memory during the build. |
+| `--audit-severity <level>` | `high` | Lowest advisory severity that fails the audit. |
+| `--audit-cron "<expr>"` | `17 6 * * *` | Schedule of the nightly audit. |
+| `--no-<check>` | all on | Turn off `secrets`, `sast`, `workflow-lint`, `lint`, `typecheck`, `ds-check`, `time-bombs`, `test`, `build`, `integration`, `docker`, `image-scan`, `scheduled-audit`, `scheduled-security`, `dependabot`. |
+| `--with-code-scanning` | off | CodeQL workflow plus SARIF uploads to *Security → Code scanning*. Needs a public repository or GitHub Code Security. |
+| `--with-dast` | off | Nightly OWASP ZAP baseline scan. Which alerts fail is set in `scripts/ci/zap-rules.tsv`. |
+| `--force` | off | Overwrite generated files that differ from the templates. |
+| `--dry-run`, `--json` | off | Preview only, or print a machine-readable result. |
+
+Options are saved in `.github/om-ci.json`. After an Open Mercato upgrade, `--force` alone refreshes the pipeline to the latest templates and pinned versions and keeps your choices. It also resets any action pins Dependabot bumped since the last run to the generator's pins; Dependabot proposes the newer ones again on its next run.
+
+## What it does not cover
+
+Scanners don't understand business rules. They won't notice an API route that skips a permission check or tenant scoping, and the DAST scan is unauthenticated and passive. Code review against the Open Mercato rules (feature-based guards, `organization_id` scoping, `findWithDecryption` for encrypted entities) and periodic penetration testing remain necessary. The generated `docs/ci/README.md` spells this out for the team.
+
+## Safety
+
+- The generator writes nothing if any target file already exists with different content. It lists the conflicts and exits with code `3`, so you can review them before passing `--force`.
+- `scripts/ci/audit-ci-allowlist.json` and `scripts/ci/zap-rules.tsv` hold your own decisions and are never overwritten.
+- When you disable a feature, the generator removes the files it generated for it earlier. It never removes a file it did not create.
+- Branch names, runner labels and cron expressions are validated before they are written into YAML.

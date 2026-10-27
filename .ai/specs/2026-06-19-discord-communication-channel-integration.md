@@ -594,6 +594,13 @@ The handler:
      actions. Approving dispatches `channel_discord.ai_reply_proposal.approve`, which composes the
      public reply attributed to the approving operator. With no assignee to address, the proposal is
      stored as a draft so the text is not lost, and the subscriber logs that nobody was notified.
+     The trusted filing helper stamps a server-only `idempotencyKey` containing a random nonce
+     and SHA256 digest of the nonce, tenant, organization, sender, type, visibility, source
+     type/id, body format, and body. Public compose and draft-update schemas strip this field;
+     forwarding and replying do not copy it. Both proposal actions verify the stored marker
+     before proceeding and reject custom `actionData`. The digest binds the stored content;
+     the server-only write boundary supplies authenticity. The tenant bot's mutable email is
+     not an authorization credential. Separate filings receive separate nonces.
 
 The two proposal commands are dispatchable because `channel_discord/message-types.ts` declares them
 as `defaultActions` of its message type: the messages module builds its allowlist of dispatchable
@@ -708,6 +715,30 @@ and 007's guard cases need no fixture and run unconditionally.
 ---
 
 ## Backward compatibility
+
+### Migration & Backward Compatibility — proposal origin (2026-10-13)
+
+Issue #7312 removes approval/dismissal of unmarked `channel_discord.ai_reply_proposal` cards.
+The route, action IDs, command signatures, response shapes, ACL features, and database schema
+stay unchanged. Client-created cards can still be stored, but their actions fail without sending
+or leaving a terminal claim. Existing unmarked cards are indistinguishable from forgeries and
+cannot safely be grandfathered by sender email or sender ID. This is the narrow security
+exception recorded in `BACKWARD_COMPATIBILITY.md`; human maintainer sign-off is required.
+
+Module authors must file proposals through `fileDiscordReplyProposal` rather than public compose
+or an unstamped internal compose. Operators must remove old pending cards and generate fresh
+proposals after upgrading all app/worker processes. Do not backfill origin markers from existing
+card content or sender email. No migration or signing secret is required. A trusted internal
+module or database writer can stamp a marker and remains part of the server trust boundary.
+
+Coverage: provider command tests refuse unmarked/tampered proposals before target lookup or
+public compose; origin tests pin scope/content binding and public-schema stripping; subscriber
+tests prove both assigned and draft proposals are marked. TC-CHANNEL-DISCORD-012 exercises a
+system-marked positive approval through the action API. TC-CHANNEL-DISCORD-013 creates distinct
+forger/approver users, proves only the approver can read the source, attempts direct and
+draft-to-sent forgery with a client-supplied valid marker, and asserts refusal, no stored marker,
+no terminal claim, and no public reply. It also rejects a marked proposal whose source belongs
+to another organization in the same tenant. All fixtures are created and cleaned up by the tests.
 
 - **Additive only.** New package `@open-mercato/channel-discord`; new provider key `discord`; new
   ACL features `channel_discord.*`; new env vars `OM_CHANNEL_DISCORD_*`. No existing event ids,
@@ -1131,6 +1162,14 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-13 — Authenticate system-filed AI reply proposals (issue #7312)
+
+- Added provider-owned provenance in the existing server-only idempotency key and bound it to
+  the proposal's stored content and scope. Approval and dismissal reject unmarked or modified
+  cards before sending; proposal/source lookups explicitly include the acting organization.
+- Added origin, subscriber, command, and API regression coverage and documented regeneration
+  of pending unmarked cards. No bot-email identity check, shared registry policy, or new schema.
 
 ### 2026-09-16 — Reconnecting Discord heals the existing channel (#4977)
 

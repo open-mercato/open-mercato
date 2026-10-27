@@ -19,10 +19,10 @@ test('resolvePreset: classic returns isClassic=true and empty modules', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: empty returns 12-module list', () => {
+test('resolvePreset: empty returns 13-module list', () => {
   const result = resolvePreset('empty')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 12)
+  assert.equal(result.modules.length, 13)
   const ids = result.modules.map((m) => m.id)
   assert.deepEqual(ids, [
     'auth',
@@ -37,6 +37,7 @@ test('resolvePreset: empty returns 12-module list', () => {
     'events',
     'search',
     'attachments',
+    'api_keys',
   ])
   assert.equal(result.modules.find((m) => m.id === 'events')?.from, '@open-mercato/events')
   // search backs the Cmd+K palette the app shell renders unconditionally (issue #5164)
@@ -44,6 +45,9 @@ test('resolvePreset: empty returns 12-module list', () => {
   // attachments owns POST /api/attachments, which the baseline directory branding page
   // uploads the organization logo through (issue #5897)
   assert.equal(result.modules.find((m) => m.id === 'attachments')?.from, '@open-mercato/core')
+  // auth locks role-referencing ApiKey rows during RBAC setup, so `mercato init`
+  // fails with "Metadata for entity ApiKey not found" without api_keys
+  assert.equal(result.modules.find((m) => m.id === 'api_keys')?.from, '@open-mercato/core')
   assert.ok(
     result.modules
       .filter((m) => m.id !== 'events' && m.id !== 'search')
@@ -55,10 +59,10 @@ test('resolvePreset: empty returns 12-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 23-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 24-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 23)
+  assert.equal(result.modules.length, 24)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -109,7 +113,7 @@ test('resolvePreset: crm returns 23-module list extending empty (includes attach
 test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
   const result = resolvePreset('wms')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 20)
+  assert.equal(result.modules.length, 21)
   const ids = result.modules.map((m) => m.id)
   assert.deepEqual(ids, [
     'auth',
@@ -124,6 +128,7 @@ test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
     'events',
     'search',
     'attachments',
+    'api_keys',
     'customers',
     'progress',
     'dictionaries',

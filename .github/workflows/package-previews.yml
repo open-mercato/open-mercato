@@ -94,6 +94,7 @@ jobs:
           yarn pkg-pr-new publish --comment=update --no-template --yarn --packageManager=yarn
           './packages/ai-assistant'
           './packages/cache'
+          './packages/carrier-inpost'
           './packages/channel-gmail'
           './packages/channel-imap'
           './packages/channel-apns'

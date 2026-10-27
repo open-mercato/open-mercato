@@ -22,6 +22,11 @@ import {
   type WorkflowInstanceErrorHandlerMetadata,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
 import {
   WORKFLOW_ERROR_CONTEXT_KEY,
@@ -1635,33 +1640,31 @@ export async function resumeWorkflowAfterActivities(
       throw new Error('Workflow instance not waiting for activities')
     }
 
-    const pendingJobIds = (instance.context._pendingAsyncActivities as any[]) || []
+    const pendingJobIds = readPendingAsyncJobIds(instance.context._pendingAsyncActivities)
 
-    const completedActivities = await trx.count(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_COMPLETED',
-      eventData: { async: true },
-    })
+    const outcomeEvents = pendingJobIds.length === 0
+      ? []
+      : await trx.find(
+        WorkflowEvent,
+        {
+          workflowInstanceId: instanceId,
+          eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+          eventData: { async: true, jobId: { $in: pendingJobIds } },
+        },
+        { orderBy: { occurredAt: 'asc', id: 'asc' } },
+      )
+    const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-    const failedActivities = await trx.count(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_FAILED',
-      eventData: { async: true },
-    })
-
-    const totalProcessed = completedActivities + failedActivities
-
-    if (totalProcessed < pendingJobIds.length) {
+    if (!wait.settled) {
       throw new Error('Activities still pending')
     }
 
-    if (failedActivities > 0) {
-      const failedEvents = await trx.find(WorkflowEvent, {
-        workflowInstanceId: instanceId,
-        eventType: 'ACTIVITY_FAILED',
-        eventData: { async: true },
-      })
+    const completedEvents = wait.completed
+    const failedEvents = wait.failed
+    const completedActivities = completedEvents.length
+    const failedActivities = failedEvents.length
 
+    if (failedActivities > 0) {
       instance.status = 'FAILED'
       instance.errorMessage = `${failedActivities} async activities failed`
       instance.errorDetails = {
@@ -1687,12 +1690,6 @@ export async function resumeWorkflowAfterActivities(
 
       return { continueExecution: false }
     }
-
-    const completedEvents = await trx.find(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_COMPLETED',
-      eventData: { async: true },
-    })
 
     for (const event of completedEvents) {
       if (event.eventData.output) {

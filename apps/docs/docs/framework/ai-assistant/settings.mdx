@@ -30,6 +30,20 @@ A form with two dropdowns — **Provider** and **Model** — populated from the 
 
 The settings `PUT /api/ai_assistant/settings` endpoint rejects out-of-allowlist values up-front with typed 400 codes — `provider_not_allowlisted` when the selected provider is missing from the **effective** allowlist (env ∩ tenant), and `model_not_allowlisted` when the selected model is missing — so a stale or hand-crafted PUT can never persist a setting that the runtime would only ever swap out at request time.
 
+### Base URL overrides (`AI_RUNTIME_BASEURL_ALLOWLIST`)
+
+A base URL override sends the server's provider API key to another endpoint, so it is off by default. `PUT /api/ai_assistant/settings` (`baseURL`) and the chat dispatcher (`?baseUrl=`) reject every base URL with `400 baseurl_not_allowlisted` until the operator lists the permitted endpoints in `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated):
+
+```env
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,*.myproxy.io,http://localhost:11434,https://proxy.internal:8443
+```
+
+- A bare host (`openrouter.ai`) allows HTTPS on port 443 only. A leading `*.` matches any subdomain, never the apex.
+- Any other origin, such as a local model server over plain HTTP or a TLS proxy on a custom port, must be listed as a full origin `scheme://host[:port]`.
+- A base URL matches when its scheme, hostname and effective port all match one entry. The path and query are ignored, and only `http` and `https` URLs can match.
+
+Saved base URLs are re-checked against the current allowlist on every agent turn. A saved value that the allowlist no longer permits (for example after the allowlist is tightened or emptied) is ignored: the turn uses the provider's default endpoint (so prompts meant for a local server go to the provider instead; keep such origins listed) and the server logs `Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it`. `GET /api/ai_assistant/settings` still returns the saved value in `tenantOverride.baseURL` and `agents[].override.baseURL`, while the resolved `baseURL` fields (also shown in the playground) reflect what the runtime actually uses. Re-save or clear the override to stop the warning.
+
 ### Tenant allowlist editor (Phase 1780-6)
 
 The route `/backend/config/ai-assistant/allowlist` ships a dedicated editor for the per-tenant provider/model allowlist. Admins with `ai_assistant.settings.manage` see one provider section per env-allowed provider with a **provider checkbox** and a list of **model checkboxes** drawn from each provider's curated catalog (clipped to `OM_AI_AVAILABLE_MODELS_<PROVIDER>` when the env var is set). Models hidden by the tenant allowlist remain visible in this editor so they can be re-enabled later. Saving issues a `PUT /api/ai_assistant/settings/allowlist` which:

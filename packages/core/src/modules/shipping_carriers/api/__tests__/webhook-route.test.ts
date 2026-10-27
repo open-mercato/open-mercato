@@ -113,4 +113,75 @@ describe('shipping carrier webhook route security', () => {
     expect(mockQueue.enqueue).not.toHaveBeenCalled()
     warnSpy.mockRestore()
   })
+  test('enqueues the job payload the webhook worker reads, without an extra envelope', async () => {
+    const event = {
+      eventType: 'shipment.delivered',
+      eventId: 'evt_1',
+      idempotencyKey: 'evt_1',
+      data: { shipmentId: 'ship_1', status: 'delivered' },
+      timestamp: new Date('2026-01-01T00:00:00Z'),
+    }
+    ;(getShippingAdapter as jest.Mock).mockReturnValue({ verifyWebhook: jest.fn().mockResolvedValue(event) })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{
+      id: 'shipment_1',
+      organizationId: 'org_1',
+      tenantId: 'tenant_1',
+    }])
+
+    const response = await POST(createMockRequest('{"shipmentId":"ship_1"}'), { params: { provider: 'shippo' } })
+
+    expect(response.status).toBe(202)
+    expect(mockQueue.enqueue).toHaveBeenCalledTimes(1)
+    expect(mockQueue.enqueue).toHaveBeenCalledWith({
+      providerKey: 'shippo',
+      event,
+      shipmentId: 'shipment_1',
+      scope: { organizationId: 'org_1', tenantId: 'tenant_1' },
+    })
+  })
+
+  test('locates the shipment through the adapter extractor when the carrier nests its shipment id', async () => {
+    const event = { eventType: 'delivered', eventId: 'e1', idempotencyKey: 'e1', data: {}, timestamp: new Date() }
+    const verifyWebhook = jest.fn().mockResolvedValue(event)
+    const extractWebhookShipmentId = jest.fn().mockReturnValue('709709700')
+    ;(getShippingAdapter as jest.Mock).mockReturnValue({ verifyWebhook, extractWebhookShipmentId })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([{
+      id: 'shipment_1',
+      organizationId: 'org_1',
+      tenantId: 'tenant_1',
+    }])
+    const rawBody = JSON.stringify({ event: 'shipment_status_changed', payload: { shipment_id: 709709700, status: 'delivered' } })
+
+    const response = await POST(createMockRequest(rawBody), { params: { provider: 'inpost' } })
+
+    expect(response.status).toBe(202)
+    expect(extractWebhookShipmentId).toHaveBeenCalledWith(JSON.parse(rawBody))
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ providerKey: 'inpost', carrierShipmentId: '709709700' }),
+      expect.anything(),
+    )
+    expect(mockQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      providerKey: 'inpost',
+      shipmentId: 'shipment_1',
+      scope: { organizationId: 'org_1', tenantId: 'tenant_1' },
+    }))
+  })
+
+  test('falls back to the generic shipmentId lookup when the adapter extractor finds nothing', async () => {
+    const verifyWebhook = jest.fn().mockRejectedValue(new Error('bad signature'))
+    ;(getShippingAdapter as jest.Mock).mockReturnValue({ verifyWebhook, extractWebhookShipmentId: () => null })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+    const response = await POST(createMockRequest('{"shipmentId":"ship_1"}'), { params: { provider: 'shippo' } })
+
+    expect(response.status).toBe(401)
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ carrierShipmentId: 'ship_1' }),
+      expect.anything(),
+    )
+  })
 })

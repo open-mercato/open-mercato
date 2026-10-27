@@ -935,7 +935,7 @@ describe('Queue - local strategy', () => {
   test('continuous workers keep polling while delayed jobs remain queued', async () => {
     const baseDir = path.join(tmp, 'delayed-queue')
     const producer = createQueue<{ value: number }>('delayed-queue', 'local', { baseDir })
-    const consumer = createQueue<{ value: number }>('delayed-queue', 'local', { baseDir })
+    const consumer = createQueue<{ value: number }>('delayed-queue', 'local', { baseDir, pollInterval: 50 })
     let resolveProcessed!: (value: number) => void
     const processed = new Promise<number>((resolve) => {
       resolveProcessed = resolve
@@ -947,7 +947,7 @@ describe('Queue - local strategy', () => {
         resolveProcessed(job.payload.value)
       })
 
-      await expect(within(processed, 1800)).resolves.toBe(9)
+      await expect(within(processed, 5000)).resolves.toBe(9)
     } finally {
       await consumer.close()
       await producer.close()

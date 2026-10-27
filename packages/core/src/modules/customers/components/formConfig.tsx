@@ -137,9 +137,17 @@ type DictionarySelectFieldProps = {
   showManage?: boolean
   showLabelInput?: boolean
   showActiveAppearance?: boolean
+  organizationId?: string | null
 }
 
 export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
+
+// An edit form loads the dictionaries of the record's own organization, so they still
+// resolve while the scope picker is set to "All organizations" (issue #3593).
+function readRecordOrganizationId(values: Record<string, unknown> | undefined): string | null {
+  const organizationId = values?.organizationId
+  return typeof organizationId === 'string' && organizationId.length > 0 ? organizationId : null
+}
 
 const emailValidationSchema = z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
 const EMAIL_CHECK_DEBOUNCE_MS = 350
@@ -170,6 +178,7 @@ export function DictionarySelectField({
   showManage = false,
   showLabelInput = true,
   showActiveAppearance = true,
+  organizationId = null,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -210,7 +219,7 @@ export function DictionarySelectField({
 
   const fetchOptions = React.useCallback(async () => {
     try {
-      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
+      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion, organizationId)
       return data.entries.map((entry) => ({
         value: entry.value,
         label: entry.label,
@@ -232,7 +241,7 @@ export function DictionarySelectField({
       }
       throw err
     }
-  }, [kind, queryClient, scopeVersion, translate])
+  }, [kind, organizationId, queryClient, scopeVersion, translate])
 
   const createOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
@@ -910,9 +919,10 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, values, labelId }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
         ariaLabelledBy={labelId}
+        organizationId={readRecordOrganizationId(values)}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
@@ -933,9 +943,10 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
       label: t('customers.people.form.jobTitle', 'Job title'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
+      component: ({ value, setValue, values, labelId }: CrudCustomFieldRenderProps) => (
         <DictionarySelectField
           ariaLabelledBy={labelId}
+          organizationId={readRecordOrganizationId(values)}
           kind="job-titles"
           value={typeof value === 'string' ? value : undefined}
           onChange={(next) => setValue(next)}
@@ -1269,9 +1280,10 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, values, labelId }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
         ariaLabelledBy={labelId}
+        organizationId={readRecordOrganizationId(values)}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
@@ -1555,6 +1567,7 @@ export type CompanyEditFormValues = Omit<
   | 'description'
 > & {
   id: string
+  organizationId?: string | null
   primaryEmail?: string | null
   primaryPhone?: string | null
   websiteUrl?: string | null
@@ -1568,6 +1581,7 @@ export type CompanyEditFormValues = Omit<
 
 export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
   id: string
+  organizationId?: string | null
   department?: string
   primaryEmail?: string | null
   primaryPhone?: string | null
@@ -1705,9 +1719,10 @@ export const createCompanyEditFields = (t: Translator, options?: CustomerFormFie
         label: t('customers.companies.detail.fields.industry', 'Industry'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue, labelId }: CrudCustomFieldRenderProps) => (
+        component: ({ value, setValue, values, labelId }: CrudCustomFieldRenderProps) => (
           <DictionarySelectField
             ariaLabelledBy={labelId}
+            organizationId={readRecordOrganizationId(values)}
             kind={'industries' as CustomerDictionaryKind}
             value={typeof value === 'string' ? value : undefined}
             onChange={(next) => setValue(next)}
@@ -2187,6 +2202,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.company.id,
+    organizationId: overview.company.organizationId ?? null,
     displayName: coerceDisplayName(overview.company.displayName),
     primaryEmail: overview.company.primaryEmail ?? '',
     primaryPhone: phoneValue,
@@ -2210,6 +2226,7 @@ export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial
   const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.person.id,
+    organizationId: overview.person.organizationId ?? null,
     displayName: coerceDisplayName(overview.person.displayName),
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',

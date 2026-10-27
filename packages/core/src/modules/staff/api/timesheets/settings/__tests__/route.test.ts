@@ -199,6 +199,33 @@ describe('staff time tracking settings route', () => {
     expect(setValueSpy).not.toHaveBeenCalled()
   })
 
+  it('refuses a PUT pinned to a tenant other than the one the request resolves to', async () => {
+    const response = await PUT(
+      new Request(`http://localhost/api/staff/timesheets/settings?expectedTenantId=${tenantB}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(fullSettings),
+      }),
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({ code: 'tenant_scope_changed' })
+    expect(setValueSpy).not.toHaveBeenCalled()
+  })
+
+  it('accepts a PUT pinned to the tenant the request resolves to', async () => {
+    const response = await PUT(
+      new Request(`http://localhost/api/staff/timesheets/settings?expectedTenantId=${tenantA}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(fullSettings),
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(setValueSpy).toHaveBeenCalled()
+  })
+
   it('accepts PUT for a wildcard grant', async () => {
     grantedFeatures = ['staff.*']
 

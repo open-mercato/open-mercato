@@ -2,7 +2,9 @@
  * Runtime API — POST /api/form-submissions
  *
  * Starts a new submission for the active version of a form. Customer auth is
- * required. The starter is auto-assigned the form version's
+ * required, and the subject must be the caller's own `customer` subject
+ * (`lib/portal-subject-policy.ts`); any other pair is refused with 403 before
+ * anything is persisted. The starter is auto-assigned the form version's
  * `x-om-default-actor-role` (or first declared role) — admin assignment of
  * additional actors is the admin route.
  */
@@ -18,7 +20,15 @@ import {
   type PrefillResolver,
 } from '../../services/prefill-resolver'
 import { submissionStartInputSchema } from '../../data/validators'
-import { mapSubmissionError, readJsonBody, serializeActor, serializeRevision, serializeSubmission } from '../runtime-helpers'
+import { isPortalSubjectAllowed } from '../../lib/portal-subject-policy'
+import {
+  mapSubmissionError,
+  portalSubjectForbiddenResponse,
+  readJsonBody,
+  serializeActor,
+  serializeRevision,
+  serializeSubmission,
+} from '../runtime-helpers'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -42,6 +52,14 @@ export async function POST(req: NextRequest) {
       { error: 'VALIDATION_FAILED', details: parsed.error.flatten() },
       { status: 422 },
     )
+  }
+  if (
+    !isPortalSubjectAllowed(auth.sub, {
+      subjectType: parsed.data.subject_type,
+      subjectId: parsed.data.subject_id,
+    })
+  ) {
+    return portalSubjectForbiddenResponse()
   }
 
   const container = await createRequestContainer()
@@ -122,6 +140,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 201, description: 'Submission started', schema: submissionResponseSchema }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'SUBJECT_FORBIDDEN: subject is not the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Form not found', schema: errorSchema },
     { status: 422, description: 'Validation or form-state error', schema: errorSchema },
   ],

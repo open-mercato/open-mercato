@@ -190,7 +190,7 @@ an expired delivery.
 
 **Non-retryable responses**: HTTP 4xx (except 408 and 429) are not retried.
 
-**Auto-disable**: After a configurable number of consecutive failures (default: 100), the webhook is automatically disabled. HTTP 410 (Gone) responses immediately disable the webhook.
+**Auto-disable**: After a configurable number of consecutive failures (default: 100), the webhook is automatically disabled. HTTP 410 (Gone) responses immediately disable the webhook. Re-activating a disabled webhook resets its consecutive-failure counter, so it gets the full threshold again.
 
 ## Key Rotation
 

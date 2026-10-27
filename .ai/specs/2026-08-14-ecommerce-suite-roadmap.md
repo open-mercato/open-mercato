@@ -175,11 +175,11 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 
 ### ADR-2 — `cart` never computes tax or totals itself
 
-**Decision.** `cart` resolves unit prices via `catalogPricingService`, resolves discounts via `promotionsService`, and then delegates all totalling — tax, rounding, adjustments, currency — to `salesCalculationService`.
+**Decision.** `cart` resolves unit prices via `catalogBuyerPricingService.resolveLinePrice(...)` (rev — eComm Release 4, D-R4-3; additive `catalog` service replacing the originally-sketched `catalogPricingService`, which never existed on `develop`), resolves discounts via `promotionsService`, and then delegates all totalling — tax, rounding, adjustments, currency — to `salesCalculationService`.
 
 **Rationale.** A storefront total that disagrees with the order it produces is a correctness defect with financial and legal consequences (invoice mismatch, Omnibus disclosure, VAT). `sales` already owns `SalesTaxRate` and the calculation service used by every back-office document.
 
-**Consequence.** `cart` depends on `sales` for calculation. This is the one place where a read-side module depends on the transactional core; it is deliberate and must not be worked around by reimplementing arithmetic.
+**Consequence.** `cart` depends on `sales` for calculation. This is the one place where a read-side module depends on the transactional core; it is deliberate and must not be worked around by reimplementing arithmetic. A pluggable tax provider changes nothing here: the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`) applies the provider's result as a phase of the same totalling inside `salesCalculationService`, and gives callers outside `sales` a `sales`-owned resolution service that runs the provider call before `calculateDocumentTotals` (its Spec 1b), so `cart` and `checkout` keep one arithmetic path.
 
 ---
 
@@ -247,7 +247,7 @@ Field names are `catalogProductId` / `catalogVariantId`, matching the `catalog_p
 
 **Rationale.** `customer_group_id` is consumed today by `catalog/lib/pricing.ts` (specificity score +3), `catalog/api/prices`, `catalog/commands/prices.ts`, `catalog` AI price tooling and `SalesTaxRate` — with no table behind it. Every B2B feature in this suite (contract pricing, group tax treatment, credit terms, assortment scoping) resolves through this id. It is the first thing that must land.
 
-**Consequence.** This module ships before `cart`. Backward compatibility: the column stays a plain UUID with no FK constraint added in the first release, so existing rows carrying arbitrary ids keep working; a reconciliation report lists orphans. Adding the constraint is a later, separately-specified migration.
+**Consequence.** This module ships before `cart`. Backward compatibility: the column stays a plain UUID with no FK constraint added in the first release, so existing rows carrying arbitrary ids keep working; a reconciliation report lists orphans. Adding the constraint is a later, separately-specified migration. Group tax treatment resolves through the same id in `sales` once the organization selects the `sales-tax-rates` provider named next (the default state of that roadmap, `product-rate`, consults no group). Which `SalesTaxRate` row applies by address, date and the row's other columns (channel, priority, compound, validity) is matched by the `sales-tax-rates` provider of the tax-providers roadmap (`2026-10-03-tax-providers-roadmap.md`, its Spec 2, still to be written), which reads `sales_tax_rates.customer_group_id` as the plain UUID this decision keeps and takes the group set from `customerGroupsService.resolveGroups`. This suite's set-membership substitution (customer groups §7.2) and group precedence (customer groups §3.2) stay its rules; how they combine with the row's `priority` is that provider's specification to state.
 
 **Scope note.** Credit limit, credit exposure, payment terms and approval policy attach to the group and to `CustomerEntity`. `CustomerCompanyBilling` already carries `payment_terms` and is extended rather than replaced.
 
@@ -309,6 +309,8 @@ The load-bearing member is the third one's `null`. In B2B the large majority of 
 **How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS`-per-id query over `catalog_product_variant_prices` filtered by `customer_id IN customerIds`, served by the customer partial index in `pricing-engine.md` Phase 2b, and caches the result per customer id with invalidation on `catalog.price.created|updated|deleted` (amended 2026-10-05: the event IDs are singular, as declared in `catalog/events.ts`), bounded additionally by a TTL so a missed event cannot hold a stale value indefinitely. The overlay key is the subset of `customerIds` that has rows of its own, person first, `,`-joined; it is `null` when that subset is empty. It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for.
 
 **Rejected alternative.** Separate `/api/ecommerce/b2b/*` endpoints. Doubles the API surface and the test matrix for what is one resolver difference.
+
+**Consequence: `cart` applies the same rule to its own write path, not only to reads (added 2026-10-14, eComm Release 4, D-R4-1).** The pre-implementation analysis for Release 4 found `cart-module.md`'s first draft had the storefront route resolve `assortmentScope` for pricing and then pass it to `cart`'s commands as an ordinary, nullable request field — which a direct caller could simply supply as `null` to bypass the entire check, since `undefined` and `null` are different values of the same type. "Resolved once, at the edge" closes that by construction rather than by validation: `cart`'s own public routes resolve `storeContextService` themselves (soft DI, so no registration means no storefront carts rather than an unchecked write) and pass the result to the command as an internal, branded input that no request body can construct — every public request schema is `.strict()` and declares no `assortmentScope`/`channel`/`storeId` field at all. The edge that resolves `BuyerContext` is not only the storefront's read-side route; it is every route, in every module, that accepts a write gated by it. `cart-module.md` rev 9 §6a.1a is the write-side instance of this ADR.
 
 ---
 
@@ -564,6 +566,9 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-10-12 (tax-providers pointers)
+- **ADR-2 and ADR-6 point at the tax-providers roadmap** (`2026-10-03-tax-providers-roadmap.md`, in review as #6918). ADR-2: a pluggable tax provider's result is a phase of the same totalling inside `salesCalculationService`, with a `sales`-owned resolution service for callers outside `sales`. ADR-6: which tax rate applies by address, date and the row's other columns is matched in `sales` by the `sales-tax-rates` provider of that roadmap (its Spec 2, still to be written) once the organization selects it; this suite's set-membership substitution (customer groups §7.2) and group precedence (customer groups §3.2) stay its rules.
 
 ### 2026-10-11
 - **§3.1, §3.2, ADR-4 and Phase 0 name the shared availability entry point.** `availabilityService` does not exist: the read contract is `resolveAvailability()` in `packages/shared` (§4.1a of [Availability Contract](./2026-08-14-availability-contract.md)) and the writes are the `availability.reserve`/`.release`/`.commit` commands, owned by the `availability` module. The `availability` ownership row and the `wms` registration row now say so, and ADR-4 and the Phase 0 gate use the read call's real name. Recorded from the post-merge review of #5384.

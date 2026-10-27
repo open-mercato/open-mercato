@@ -29,6 +29,8 @@ const VIEW_FEATURE = 'staff.timesheets.view'
 const MANAGE_FEATURE = 'staff.timesheets.settings.manage'
 const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.settings
 const RESOURCE_ID = 'time_tracking'
+const EXPECTED_TENANT_PARAM = 'expectedTenantId'
+const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: [VIEW_FEATURE] },
@@ -103,9 +105,22 @@ async function GET(req: Request) {
   }
 }
 
+function assertExpectedTenant(req: Request, context: SettingsContext): void {
+  const expectedTenantId = new URL(req.url).searchParams.get(EXPECTED_TENANT_PARAM)
+  if (!expectedTenantId || expectedTenantId === context.tenantId) return
+  throw new CrudHttpError(409, {
+    error: context.translate(
+      'staff.errors.tenantScopeChanged',
+      'The selected tenant changed before the request was processed.',
+    ),
+    code: TENANT_SCOPE_CHANGED_CODE,
+  })
+}
+
 async function PUT(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
+    assertExpectedTenant(req, context)
     // One lookup through the module's single RBAC authority, answering both
     // questions this route asks: may the caller manage settings, and what grant
     // list do the interceptors and the mutation-guard registry gate on. The
@@ -215,6 +230,7 @@ const getDoc: OpenApiMethodDoc = {
 const putDoc: OpenApiMethodDoc = {
   summary: 'Update time tracking settings',
   tags: ['Staff'],
+  query: z.object({ [EXPECTED_TENANT_PARAM]: z.string().uuid().optional() }),
   get requestBody() {
     return { schema: buildTimeTrackingSettingsSchema() }
   },
@@ -227,6 +243,7 @@ const putDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Invalid request body' },
     { status: 401, description: 'Unauthorized' },
     { status: 403, description: 'Missing staff.timesheets.settings.manage' },
+    { status: 409, description: 'The resolved tenant differs from expectedTenantId' },
   ],
 }
 

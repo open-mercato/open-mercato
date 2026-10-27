@@ -87,6 +87,10 @@ Fires from `POST /api/ai/actions/:id/confirm`. Happy path:
 6. On failure → status `failed`.
 7. Emit `ai.action.confirmed` with the outcome.
 
+The handler only receives what the operator approved. For a bulk tool, `records[]` entries are matched to the previewed rows by exact `recordId` (or `id`). Entries whose row is stale or was never previewed are removed from the input and reported in `failed_records` (`stale_version`, `record_not_previewed`). Only the first entry for a repeated id runs; the id is reported as `record_duplicate_dropped` unless it already has a stale or handler error. If nothing approved is left to run, or the input cannot be narrowed this way (it does not use `records[]` entries with a `recordId` or `id`) and any row is stale, the confirm answers `412 stale_version` and nothing runs. The handler context also carries `expectedRecordVersions`, the versions captured at preview. Pass `expectedUpdatedAt: expectedRecordVersionFor(ctx, recordId)` to `createAiApiOperationRunner().run(...)` so a record whose `updated_at` moved after the preview fails with `optimistic_lock_conflict` instead of being overwritten.
+
+In the chat, a `412 stale_version` refusal is shown on the preview card with the stale rows, and nothing is written. The per-row `stale_version` messages in `failed_records` use the operator's locale. When the only reported rows are `record_duplicate_dropped`, the result card reads "Action applied" and lists the ignored entries, because no previewed row failed.
+
 ## `executePendingActionCancel`
 
 Fires from `POST /api/ai/actions/:id/cancel`. Atomic `pending → cancelled`, writes the optional `reason`, emits `ai.action.cancelled`. If the row already expired under the user, the cancel helper short-circuits and emits `ai.action.expired` instead (covers the race where the TTL worker and the user race each other).

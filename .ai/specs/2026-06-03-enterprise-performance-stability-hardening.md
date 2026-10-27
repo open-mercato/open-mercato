@@ -214,7 +214,7 @@ The 2026-06-10 audit filed fifteen issues from this research. Eleven map to item
 | Audit cohort, beyond the P-tables — query_index coverage-snapshot thundering herd, single-flight refresh | #2968 | open — the default path still refreshes the snapshot inline and dedups only per engine instance (`pendingCoverageRefreshKeys`); #5766 (2026-09-23, via #5604) made the coverage *counter adjustments* contention-safe but added no single-flight refresh |
 | P0.3 / P2.5 / Queue [MED] auto-spawn fleet — bound the worker fleet (idle reap, spawn ceiling, heap cap) | #2971 | open |
 | P2.6 — coalesce progress `job.updated` flush + broadcast (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) | #2972 | **closed / implemented** |
-| Events [MED] payload-cap inconsistency + portalBroadcast cross-process gap | #2973 | open, bug |
+| Events [MED] payload-cap inconsistency + portalBroadcast cross-process gap | #2973 | fix in #7420 (portal relay + truncation; Map-keyed registry deferred) |
 | P2.4 — negative "has active webhooks" cache before the decrypting `event:'*'` query | #2974 | implemented by #6276 (merged 2026-09-22: per-tenant active-subscription cache, `OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS`); issue still open |
 | P1.4 — memoize the request container per HTTP request via AsyncLocalStorage (`OM_REQUEST_CONTAINER_MEMO`) | #2977 | open, priority-high |
 | P1.2 + P1.5 — short-TTL canonical staff-auth cache (`OM_STAFF_AUTH_TTL_MS`) | #2978 | open |

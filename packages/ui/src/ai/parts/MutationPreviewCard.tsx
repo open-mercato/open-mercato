@@ -9,7 +9,7 @@ import type { AiUiPartProps } from '../ui-part-registry'
 import { confirmPendingAction, cancelPendingAction } from './pending-action-api'
 import { useAiPendingActionPolling } from './useAiPendingActionPolling'
 import { FieldDiffCard } from './FieldDiffCard'
-import { ConfirmationCard } from './ConfirmationCard'
+import { ConfirmationCard, ConfirmationErrorAlert } from './ConfirmationCard'
 import { MutationResultCard } from './MutationResultCard'
 import type { AiPendingActionCardAction } from './types'
 
@@ -78,9 +78,10 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
       endpoint: props.endpoint,
     })
     if (!result.ok) {
-      // Network / timeout / 4xx / 5xx — surface the envelope and rewind the
-      // card to the preview phase so the operator can read the error,
-      // edit the proposal upstream, or retry.
+      // Network / timeout / 4xx / 5xx — rewind the card to the preview
+      // phase, which renders the envelope inline (e.g. the 412
+      // `stale_version` refusal with the stale rows) so the operator can
+      // read the error, ask for a re-proposal, or retry.
       setConfirmError(result.error)
       setPhase('preview')
       await refresh()
@@ -250,6 +251,10 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
             records={action?.records ?? null}
           />
         </div>
+      ) : null}
+
+      {confirmError ? (
+        <ConfirmationErrorAlert error={confirmError} records={action?.records ?? null} />
       ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">

@@ -10,10 +10,15 @@ const containerResolve = jest.fn((name: string) => {
   return null
 })
 const createRequestContainer = jest.fn(async () => ({ resolve: containerResolve }))
+const mockReportError = jest.fn()
 const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
@@ -93,7 +98,7 @@ describe('POST /api/auth/logout — session revocation', () => {
     expect(deleteSessionByToken).toHaveBeenCalledWith('remember-me-token')
   })
 
-  it('clears cookies even when no session cookies are present (idempotent logout)', async () => {
+  it('only redirects a request that carries no session cookies, so a cross-site form cannot clear them', async () => {
     const req = new Request('http://localhost/api/auth/logout', {
       method: 'POST',
       headers: { cookie: '' },
@@ -102,6 +107,71 @@ describe('POST /api/auth/logout — session revocation', () => {
     const res = await POST(req)
 
     expect(deleteSessionById).not.toHaveBeenCalled()
+    expect(deleteSessionByToken).not.toHaveBeenCalled()
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(res.status).toBe(307)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('revokes the remember-me session_token when the access token cookie has already expired', async () => {
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ session_token: 'remember-me-token' }) },
+    })
+
+    const res = await POST(req)
+
+    expect(deleteSessionById).not.toHaveBeenCalled()
+    expect(deleteSessionByToken).toHaveBeenCalledWith('remember-me-token')
+    expect(res.status).toBe(307)
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=;')
+    expect(setCookie).toContain('session_token=;')
+  })
+
+  it('revokes the remember-me session_token when the access token no longer verifies', async () => {
+    const expiredToken = signJwt({ sub: userId, sid: sessionId, exp: Math.floor(Date.now() / 1000) - 60 })
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: expiredToken, session_token: 'remember-me-token' }) },
+    })
+
+    const res = await POST(req)
+
+    expect(deleteSessionById).not.toHaveBeenCalled()
+    expect(deleteSessionByToken).toHaveBeenCalledWith('remember-me-token')
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=;')
+    expect(setCookie).toContain('session_token=;')
+  })
+
+  it('reports a failed revocation and still clears both cookies', async () => {
+    const failure = new Error('database unavailable')
+    deleteSessionByToken.mockRejectedValueOnce(failure)
+
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ session_token: 'remember-me-token' }) },
+    }))
+
+    expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'auth', code: 'auth.logout_revoke_failed' })
+    expect(res.status).toBe(307)
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=;')
+    expect(setCookie).toContain('session_token=;')
+  })
+
+  it('treats a session_token with a malformed %-escape as absent instead of 500ing', async () => {
+    const authToken = buildAuthToken()
+    const req = new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: authToken, session_token: '%E0%A4%A' }) },
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(307)
+    expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
     expect(deleteSessionByToken).not.toHaveBeenCalled()
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=;')
@@ -119,6 +189,25 @@ describe('POST /api/auth/logout — session revocation', () => {
     expect(deleteSessionById).not.toHaveBeenCalled()
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=;')
+  })
+
+  it('ignores a customer token placed in auth_token and revokes nothing on its behalf', async () => {
+    const customerToken = signJwt({
+      sub: userId,
+      sid: sessionId,
+      type: 'customer',
+      tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+      orgId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+    })
+
+    const res = await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: customerToken }) },
+    }))
+
+    expect(deleteSessionById).not.toHaveBeenCalled()
+    expect(mockEmitAuthEvent).not.toHaveBeenCalled()
+    expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
   })
 
   it('ignores an auth_token JWT that is missing an sid claim (legacy token)', async () => {
@@ -238,6 +327,10 @@ describe('POST /api/auth/logout — auth.logout event', () => {
 describe('logout route — CSRF hardening (POST-only)', () => {
   it('does not expose a GET handler so a cross-origin embed cannot trigger logout', () => {
     expect((logoutRoute as Record<string, unknown>).GET).toBeUndefined()
+  })
+
+  it('does not require a valid access token, so an expired one cannot block revoking the refresh session', () => {
+    expect(logoutRoute.metadata.POST).toEqual({ requireAuth: false })
   })
 
   it('declares only POST in route metadata', () => {

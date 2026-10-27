@@ -13,6 +13,41 @@ yarn mercato <module> <command> [options]
 
 Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to drill in.
 
+## Asking for Help Never Runs the Command
+
+`--help` and `-h` are answered by the dispatcher before the command is invoked, at every level:
+
+```bash
+yarn mercato --help                  # list modules
+yarn mercato db --help               # list the db module's commands
+yarn mercato db generate --help      # print usage for one command — generates nothing
+```
+
+A help invocation is always a no-op: it never runs the command it is asking about, and it never creates `.env` from `.env.example`. This matters most for the destructive commands — `yarn mercato db migrate --help` describes the command instead of applying every pending migration.
+
+### Documenting Your Own Module Commands
+
+A `ModuleCli` descriptor in your module's `cli.ts` — the same shape [`mercato module add`](./module-add) registers for you — takes two optional fields that control this behavior:
+
+```typescript
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+
+const cli: ModuleCli[] = [
+  {
+    command: 'sync',
+    help: 'Usage: mercato inventory sync [--since <iso-date>]\nPulls stock levels from the configured provider.',
+    run: async (argv) => { /* … */ },
+  },
+]
+
+export default cli
+```
+
+- **`help?: string`** – usage text the dispatcher prints under the generic `Usage: mercato <module> <command> [args]` line. Omit it and the dispatcher still prints the usage line plus the module's command list, so help works with no work on your part.
+- **`handlesHelp?: boolean`** – set this when your `run()` parses `--help`/`-h` itself and prints richer usage than a single string can carry. The dispatcher then forwards the flag through instead of intercepting it. [`mercato configs cache`](./configs-cache) uses this. It is also the escape hatch if your command means something other than "help" by `-h`.
+
+  Opting out moves the guarantee above onto your command: the dispatcher no longer stands between a help flag and your `run()`, so **your** handler must answer it before doing any work — including when the flag follows a subcommand, as in `configs cache purge --help`. Check for it across the whole argument list rather than only in the first position, or a help request lands on the destructive path you were describing.
+
 ## Workflow Cheat Sheet
 
 - **Bootstrap & Database**

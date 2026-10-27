@@ -156,7 +156,12 @@ export function useMessageDetailsActions({
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
       onDeleted()
     } catch (err) {
-      if (surfaceRecordConflict(err, t)) return
+      if (surfaceRecordConflict(err, t)) {
+        // The detail refetch refreshes `updatedAt` behind an open dialog, so a second click
+        // would delete a version the user never saw (#3681); make them confirm again.
+        setDeleteConfirmationOpen(false)
+        return
+      }
       flash(
         err instanceof Error
           ? err.message
