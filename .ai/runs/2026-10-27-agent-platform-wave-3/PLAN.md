@@ -32,8 +32,9 @@
 | 3 | 3.1 | Implement the AO agent run dispatcher and register it | dispatch:capable | done | 67dff75d5 |
 | 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | done | 9b6053b5a |
 | 3 | 3.3 | Add the agent-token run route behind OM_AGENT_API_ENABLED | dispatch:capable | done | df8769dc3 |
-| 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | todo | — |
-| 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | done | pending |
+| 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | done | d14cf1e1a |
+| 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | done | 360793dca |
+| 3 | 3.6 | Fix the run-object integration spec for nullable runId and HTTP call settings | inline | done | pending |
 | 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | todo | — |
 | 4 | 4.2 | Add quote normalization with an index map and grapheme snapping | dispatch:capable | todo | — |
 | 4 | 4.3 | Add the evidence_quote rule | dispatch | todo | — |
@@ -182,6 +183,9 @@ Make "one agent core, three doors" real and trustworthy: any object-mode agent (
 
 #### 3.5 Cover invoke access and agent dispatch with integration tests
 - `TC-AGENT-ACC-*` (AO `__integration__`) and `TC-AI-MCP-AGENT-TOOL-012` / `TC-AO-MCP-DISPATCH-001` as far as the environment allows: AO is not registered in the ephemeral app and there is no scripted LLM provider, so put validation-only cases (403 `agent_invoke_denied`, `GET /agents` filtering, agent-api disabled 404 / bad token 401, `run-object` 403 for a feature-gated agent) in specs that do not need a model, and gate model-dependent cases behind the existing provider-availability skip. Self-contained fixtures, cleanup in `finally`.
+
+#### 3.6 Fix the run-object integration spec for nullable runId and HTTP call settings
+- Checkpoint-4 fix-forward. `TC-AI-RUN-TRACE-016`: the `$ref` resolver depth limit (8) is too shallow for the nullable `runId` `anyOf` added in 3.2 (raise to 32); the "accepts every documented callSettings key" case sent `providerOptions`, which the HTTP schema refuses since wave 2's `fd4b204eb` (drop it there and add a case asserting the 400).
 
 ### Phase 4 — Integrity P1: pipeline + evidence_quote (AO)
 

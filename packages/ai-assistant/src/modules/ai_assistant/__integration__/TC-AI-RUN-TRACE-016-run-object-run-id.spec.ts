@@ -25,7 +25,7 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 function resolveSchemaRefs(value: unknown, document: JsonRecord, depth = 0): unknown {
-  if (depth > 8) return value;
+  if (depth > 32) return value;
   if (Array.isArray(value)) return value.map((entry) => resolveSchemaRefs(entry, document, depth + 1));
   if (!isRecord(value)) return value;
   const ref = value.$ref;
@@ -84,13 +84,28 @@ test.describe('TC-AI-RUN-TRACE-016: run-object run id and call settings', () => 
           stopSequences: ['END'],
           presencePenalty: 0,
           frequencyPenalty: 0,
-          providerOptions: { openai: { user: 'qa' } },
         },
       },
     });
     expect(response.status()).toBe(404);
     const body = await readJson(response);
     expect(body.code).toBe('agent_unknown');
+  });
+
+  test('refuses providerOptions in callSettings over HTTP', async ({ request }) => {
+    const token = await getAuthToken(request, 'superadmin');
+    const response = await apiRequest(request, 'POST', RUN_OBJECT_PATH, {
+      token,
+      data: {
+        agent: 'qa_missing_module.qa_missing_agent',
+        messages: [{ role: 'user', content: 'Hello.' }],
+        callSettings: { temperature: 0, providerOptions: { openai: { user: 'qa' } } },
+      },
+    });
+    expect(response.status()).toBe(400);
+    const body = await readJson(response);
+    expect(body.code).toBe('validation_error');
+    expect(JSON.stringify(body.issues ?? [])).toContain('providerOptions');
   });
 
   test('OpenAPI declares a UUID runId on the run-object response', async ({ request }) => {
