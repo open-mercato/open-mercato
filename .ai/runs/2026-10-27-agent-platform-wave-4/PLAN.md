@@ -15,11 +15,11 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add the gen_ai attribute vocabulary and ingest normalizer | dispatch | done | pending |
-| 1 | 1.2 | Add computeCostMicros with a pricing source | dispatch:cheap | done | pending |
-| 1 | 1.3 | Collect model-call observer records in the native runner | dispatch:capable | done | pending |
-| 1 | 1.3-review-fix | Mark only caller-managed object calls as reconstructed | inline | done | pending |
-| 1 | 1.4 | Write gen_ai and om attributes on native llm spans | dispatch:capable | done | pending |
+| 1 | 1.1 | Add the gen_ai attribute vocabulary and ingest normalizer | dispatch | done | 99b7b97f4 |
+| 1 | 1.2 | Add computeCostMicros with a pricing source | dispatch:cheap | done | a5b3f071c |
+| 1 | 1.3 | Collect model-call observer records in the native runner | dispatch:capable | done | 9848cf9ec |
+| 1 | 1.3-review-fix | Mark only caller-managed object calls as reconstructed | inline | done | 2e9fc9250 |
+| 1 | 1.4 | Write gen_ai and om attributes on native llm spans | dispatch:capable | done | 81f8e2e3d |
 | 2 | 2.1 | Add the trace capture policy schema and resolver | dispatch | todo | — |
 | 2 | 2.2 | Apply the capture policy to native and OpenCode runs and record om.capture | dispatch:capable | todo | — |
 | 2 | 2.3 | Add the trace.view_content feature | dispatch:cheap | todo | — |

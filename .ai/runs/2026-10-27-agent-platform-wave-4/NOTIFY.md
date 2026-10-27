@@ -8,3 +8,8 @@
 - Stacked on feat/agent-platform-wave-3 (11031e1e6) because #7794, #8011 and #8018 are unmerged.
 - Decision: `full` capture is accepted by the policy but records metadata only until Observability P3 (`om.content.status = "disabled"`).
 - Decision: OTel export has no job-id dedupe (the queue supports only `delayMs`); at-least-once with deterministic ids.
+
+## 2026-10-27T17:14:38Z — checkpoint 1
+- Steps 1.1..1.4 (+1.3-review-fix) verified: typecheck, AO jest 2048/2048, ai-assistant jest 2182/2182.
+- Decision: additive `callerManaged?` on `AiAgentModelCallStartEvent` marks the caller-callback branch as `reconstructed`; SDK-synthesized object calls are `exact`.
+- Delegations so far: executors for 1.1, 1.2 (cheap tier), 1.3, 1.4.
