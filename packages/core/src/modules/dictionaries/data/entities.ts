@@ -5,7 +5,7 @@ import type { DictionaryEntrySortMode } from '../lib/entrySort'
 export type DictionaryManagerVisibility = 'default' | 'hidden'
 
 @Entity({ tableName: 'dictionaries' })
-@Unique({ name: 'dictionaries_scope_key_unique', properties: ['organizationId', 'tenantId', 'key', 'keyReserved'] })
+@Unique({ name: 'dictionaries_scope_key_unique', properties: ['organizationId', 'tenantId', 'key'] })
 export class Dictionary {
   [OptionalProps]?: 'entrySortMode'
 
@@ -47,15 +47,6 @@ export class Dictionary {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
-
-  @Property({
-    name: 'key_reserved',
-    type: 'boolean',
-    nullable: true,
-    generated: (cols) => `(case when ${cols.deletedAt} is null then true end) stored`,
-    hidden: true,
-  })
-  keyReserved?: boolean | null
 }
 
 @Entity({ tableName: 'dictionary_entries' })

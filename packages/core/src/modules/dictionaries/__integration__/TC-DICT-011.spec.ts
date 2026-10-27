@@ -6,15 +6,18 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures';
 
 /**
- * TC-DICT-011: A deleted or archived dictionary releases its key
+ * TC-DICT-011: A deleted or archived dictionary key answers 409, never 500
  *
- * DELETE and PATCH `isActive: false` soft-delete a dictionary (set deletedAt). The
- * key uniqueness rule only covers live dictionaries, so the key can be reused to
- * create a new dictionary or as the target of a key rename. Concurrent creates or
- * renames onto the same key resolve to one winner and clean 409s, never a 500.
+ * DELETE and PATCH `isActive: false` soft-delete a dictionary (set deletedAt) but the
+ * row keeps holding its key under `dictionaries_scope_key_unique`. Creating a dictionary
+ * with that key, or renaming one onto it, answers the duplicate-key 409 and leaves the
+ * deleted dictionary untouched. Concurrent creates or renames onto the same key resolve
+ * to one winner and clean 409s, never a 500.
  */
 
 type DictionaryListItem = { id?: string; key?: string };
+
+const DUPLICATE_KEY_ERROR = 'A dictionary with this key already exists';
 
 async function createDictionary(
   request: APIRequestContext,
@@ -40,8 +43,8 @@ async function liveDictionariesWithKey(
   return (body?.items ?? []).filter((item) => item.key === key);
 }
 
-test.describe('TC-DICT-011: deleted or archived dictionary releases its key', () => {
-  test('recreates a deleted dictionary key and renames onto an archived key', async ({ request }) => {
+test.describe('TC-DICT-011: deleted or archived dictionary key answers 409', () => {
+  test('rejects recreating a deleted key and renaming onto an archived key with 409', async ({ request }) => {
     const stamp = Date.now();
     const deletedKey = `qa_dict_011_deleted_${stamp}`;
     const archivedKey = `qa_dict_011_archived_${stamp}`;
@@ -54,11 +57,6 @@ test.describe('TC-DICT-011: deleted or archived dictionary releases its key', ()
 
       const deletedId = await createDictionary(request, token, deletedKey, 'QA TC-DICT-011 Deleted');
       createdIds.push(deletedId);
-      const entryResponse = await apiRequest(request, 'POST', `/api/dictionaries/${encodeURIComponent(deletedId)}/entries`, {
-        token,
-        data: { value: 'archived_value', label: 'Archived value' },
-      });
-      expect(entryResponse.status(), 'POST entry on the soon-deleted dictionary should return 201').toBe(201);
       const deleteResponse = await apiRequest(request, 'DELETE', `/api/dictionaries/${encodeURIComponent(deletedId)}`, { token });
       expect(deleteResponse.status(), 'DELETE should return 200').toBe(200);
 
@@ -66,27 +64,12 @@ test.describe('TC-DICT-011: deleted or archived dictionary releases its key', ()
         token,
         data: { key: deletedKey, name: 'QA TC-DICT-011 Recreated' },
       });
-      expect(recreateResponse.status(), 'POST with a deleted dictionary key should return 201').toBe(201);
-      const recreatedId = (await readJsonSafe<{ id?: string }>(recreateResponse))?.id ?? null;
-      expect(recreatedId, 'Recreated dictionary should have an id').toBeTruthy();
-      createdIds.push(recreatedId!);
-      expect(recreatedId, 'Recreated dictionary should be a new record').not.toBe(deletedId);
-
-      const recreatedEntries = await apiRequest(request, 'GET', `/api/dictionaries/${encodeURIComponent(recreatedId!)}/entries`, { token });
-      expect(recreatedEntries.status(), 'GET entries of the recreated dictionary should return 200').toBe(200);
+      expect(recreateResponse.status(), 'POST with a deleted dictionary key should return 409').toBe(409);
       expect(
-        (await readJsonSafe<{ items?: unknown[] }>(recreatedEntries))?.items ?? null,
-        'The recreated dictionary should start without the deleted dictionary entries',
-      ).toEqual([]);
-
-      const liveDeletedKey = await liveDictionariesWithKey(request, token, deletedKey);
-      expect(liveDeletedKey.map((item) => item.id), 'Exactly one live dictionary should hold the key').toEqual([recreatedId]);
-
-      const duplicateResponse = await apiRequest(request, 'POST', '/api/dictionaries', {
-        token,
-        data: { key: deletedKey, name: 'QA TC-DICT-011 Duplicate' },
-      });
-      expect(duplicateResponse.status(), 'A live duplicate should still be rejected with 409').toBe(409);
+        (await readJsonSafe<{ error?: string }>(recreateResponse))?.error,
+        'POST with a deleted dictionary key should return the duplicate-key error',
+      ).toBe(DUPLICATE_KEY_ERROR);
+      expect(await liveDictionariesWithKey(request, token, deletedKey), 'No live dictionary should hold the deleted key').toEqual([]);
 
       const archivedId = await createDictionary(request, token, archivedKey, 'QA TC-DICT-011 Archived');
       createdIds.push(archivedId);
@@ -102,11 +85,15 @@ test.describe('TC-DICT-011: deleted or archived dictionary releases its key', ()
         token,
         data: { key: archivedKey },
       });
-      expect(renameResponse.status(), 'PATCH key onto an archived dictionary key should return 200').toBe(200);
-      expect((await readJsonSafe<{ key?: string }>(renameResponse))?.key, 'Renamed dictionary should carry the new key').toBe(archivedKey);
+      expect(renameResponse.status(), 'PATCH key onto an archived dictionary key should return 409').toBe(409);
+      expect(
+        (await readJsonSafe<{ error?: string }>(renameResponse))?.error,
+        'PATCH key onto an archived dictionary key should return the duplicate-key error',
+      ).toBe(DUPLICATE_KEY_ERROR);
 
-      const liveArchivedKey = await liveDictionariesWithKey(request, token, archivedKey);
-      expect(liveArchivedKey.map((item) => item.id), 'Only the renamed dictionary should hold the archived key').toEqual([sourceId]);
+      const sourceResponse = await apiRequest(request, 'GET', `/api/dictionaries/${encodeURIComponent(sourceId)}`, { token });
+      expect(sourceResponse.status(), 'GET the rename source should return 200').toBe(200);
+      expect((await readJsonSafe<{ key?: string }>(sourceResponse))?.key, 'The rejected rename should keep the source key').toBe(renameSourceKey);
     } finally {
       for (const id of createdIds) {
         await deleteEntityByPathIfExists(request, token, `/api/dictionaries/${encodeURIComponent(id)}`);

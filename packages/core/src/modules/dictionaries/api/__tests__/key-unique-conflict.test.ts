@@ -94,7 +94,7 @@ describe('dictionary key unique-constraint conflicts', () => {
     em.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({ id: dictionaryId, ...data }))
   })
 
-  it('answers POST with the duplicate-key 409 when the insert loses a race on the key', async () => {
+  it('answers POST with the duplicate-key 409 when a deleted dictionary or a racing insert holds the key', async () => {
     em.findOne.mockResolvedValue(null)
     em.flush.mockRejectedValue(uniqueKeyViolation())
 
@@ -122,7 +122,7 @@ describe('dictionary key unique-constraint conflicts', () => {
     expect(response.status).toBe(500)
   })
 
-  it('answers a PATCH key rename with the duplicate-key 409 when the rename loses a race on the key', async () => {
+  it('answers a PATCH key rename with the duplicate-key 409 when a deleted dictionary or a racing rename holds the key', async () => {
     const record = {
       id: dictionaryId,
       key: 'colors',

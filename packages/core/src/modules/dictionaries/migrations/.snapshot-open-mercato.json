@@ -144,24 +144,6 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "key_reserved": {
-          "name": "key_reserved",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "collation": null,
-          "enumItems": [],
-          "mappedType": "boolean",
-          "generated": "(case when deleted_at is null then true end) stored"
-        },
         "manager_visibility": {
           "name": "manager_visibility",
           "type": "text",
@@ -263,8 +245,7 @@
           "columnNames": [
             "organization_id",
             "tenant_id",
-            "key",
-            "key_reserved"
+            "key"
           ],
           "composite": true,
           "constraint": true,
