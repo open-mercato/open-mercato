@@ -5,6 +5,8 @@ import {
   isExactSourceFilePath,
   renderModuleFactsDirectory,
   renderModuleFactsJson,
+  type ModuleFacts,
+  type ModuleFactsMarkdownDirectory,
 } from '../module-facts'
 import { discoverPackageModuleSources } from '../module-facts-discovery'
 import { createResolver } from '../../resolver'
@@ -20,6 +22,51 @@ function findRepoRoot(): string {
 
 function isUnique(values: string[]): boolean {
   return values.length === new Set(values).size
+}
+
+function measureContextBudgets(
+  factsByModule: Record<string, ModuleFacts>,
+  markdownByModule: Record<string, string>,
+  directoryByModule: Record<string, ModuleFactsMarkdownDirectory>,
+  frameworkMarkdown = '',
+) {
+  const completeJsonBytes = Buffer.byteLength(renderModuleFactsJson(factsByModule))
+  const legacyJsonBytes = Buffer.byteLength(renderModuleFactsJson(Object.fromEntries(
+    Object.entries(factsByModule).map(([moduleId, facts]) => [moduleId, { ...facts, extensionSurfaces: undefined }]),
+  )))
+  return {
+    completeJsonBytes,
+    extensionJsonBytes: completeJsonBytes - legacyJsonBytes,
+    markdownBytes: Object.values(markdownByModule)
+      .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown)),
+    directoryMarkdownBytes: Object.values(directoryByModule).reduce(
+      (total, directory) => total + Buffer.byteLength(directory.index)
+        + directory.sections.reduce((sectionTotal, section) => sectionTotal + Buffer.byteLength(section.markdown), 0),
+      Buffer.byteLength(frameworkMarkdown),
+    ),
+  }
+}
+
+function expectIncidentsFactCardinality(facts: ModuleFacts): void {
+  expect(facts.entities).toHaveLength(18)
+  expect(facts.events).toHaveLength(39)
+  expect(facts.factSources).toHaveLength(285)
+  expect(facts.overrideTargets).toHaveLength(69)
+  expect(facts.extensionSurfaces?.hosts).toHaveLength(59)
+  expect(facts.extensionSurfaces?.contributions).toHaveLength(50)
+  expect(facts.extensionSurfaces?.activations).toHaveLength(3)
+  const identities = [
+    facts.entities.map((entry) => entry.id),
+    facts.events.map((entry) => entry.id),
+    facts.factSources?.map((entry) => `${entry.kind}:${entry.id}`) ?? [],
+    facts.overrideTargets?.map((entry) => entry.id) ?? [],
+    facts.extensionSurfaces?.hosts.map((entry) => entry.key) ?? [],
+    facts.extensionSurfaces?.contributions.map((entry) => entry.id) ?? [],
+    facts.extensionSurfaces?.activations.map((entry) => entry.id) ?? [],
+  ]
+  for (const values of identities) expect(isUnique(values)).toBe(true)
+  expect(facts.extensionSurfaces?.contributionResolutions.map((entry) => entry.contributionId).sort())
+    .toEqual(facts.extensionSurfaces?.contributions.map((entry) => entry.id).sort())
 }
 
 const MARKDOWN_LINK_TARGET = /\]\(\.\.\/\.\.\/\.\.\/([^)#]+)(?:#L\d+)?\)/g
@@ -79,18 +126,12 @@ describe('module-facts BC resolve guard (T2)', () => {
       .toContain(recoveredContribution)
   })
 
-  it('keeps generated extension facts within bounded build-time and context budgets', () => {
-    const completeJson = renderModuleFactsJson(factsByModule)
-    const legacyJson = renderModuleFactsJson(Object.fromEntries(
-      Object.entries(factsByModule).map(([moduleId, facts]) => [moduleId, { ...facts, extensionSurfaces: undefined }]),
-    ))
-    const markdownBytes = Object.values(markdownByModule)
-      .reduce((total, markdown) => total + Buffer.byteLength(markdown), Buffer.byteLength(frameworkMarkdown))
-    const directoryMarkdownBytes = Object.values(directoryByModule).reduce(
-      (total, directory) => total
-        + Buffer.byteLength(directory.index)
-        + directory.sections.reduce((sectionTotal, section) => sectionTotal + Buffer.byteLength(section.markdown), 0),
-      Buffer.byteLength(frameworkMarkdown),
+  it('bounds whole-repo extraction CPU and existing-module context separately from incidents', () => {
+    const { completeJsonBytes, extensionJsonBytes, markdownBytes, directoryMarkdownBytes } = measureContextBudgets(
+      Object.fromEntries(Object.entries(factsByModule).filter(([moduleId]) => moduleId !== 'incidents')),
+      Object.fromEntries(Object.entries(markdownByModule).filter(([moduleId]) => moduleId !== 'incidents')),
+      Object.fromEntries(Object.entries(directoryByModule).filter(([moduleId]) => moduleId !== 'incidents')),
+      frameworkMarkdown,
     )
 
     // Budget raised by the bidirectional-topology spec
@@ -196,12 +237,12 @@ describe('module-facts BC resolve guard (T2)', () => {
     // so uniform growth across all four is the evidence that this is repo size,
     // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
     // previous raise used, so the guard keeps the same detection power it had.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(5_550_000)
+    expect(completeJsonBytes).toBeLessThan(5_550_000)
     // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
     //   completeJson 4,823,226 · legacy delta 2,111,784 · markdown 1,820,787 ·
     //   directory markdown 1,985,779.
     // (Previous, on develop's tree: 4,120,374 · 1,795,214 · 1,558,590 · 1,709,511.)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_430_000)
+    expect(extensionJsonBytes).toBeLessThan(2_430_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
@@ -213,6 +254,20 @@ describe('module-facts BC resolve guard (T2)', () => {
     // and started rejecting the next additive module — the failure mode the note
     // above warns about, one merge away.
     expect(directoryMarkdownBytes).toBeLessThan(2_290_000)
+  })
+
+  it('bounds the additive incidents cohort without increasing existing module budgets', () => {
+    const incidents = factsByModule.incidents
+    expectIncidentsFactCardinality(incidents)
+    const budget = measureContextBudgets(
+      { incidents },
+      { incidents: markdownByModule.incidents },
+      { incidents: directoryByModule.incidents },
+    )
+    expect(budget.completeJsonBytes).toBeLessThan(250_000)
+    expect(budget.extensionJsonBytes).toBeLessThan(110_000)
+    expect(budget.markdownBytes).toBeLessThan(100_000)
+    expect(budget.directoryMarkdownBytes).toBeLessThan(100_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {
