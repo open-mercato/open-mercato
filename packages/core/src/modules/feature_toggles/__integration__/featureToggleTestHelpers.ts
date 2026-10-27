@@ -131,3 +131,14 @@ export async function countOverridesForToggleInDb(toggleId: string): Promise<num
     return Number(result.rows[0]?.count ?? '0')
   })
 }
+
+export async function readToggleDeletionStateInDb(toggleId: string): Promise<{ deletedAt: Date | null } | null> {
+  return withDbClient(async (client) => {
+    const result = await client.query<{ deleted_at: Date | null }>(
+      'select deleted_at from feature_toggles where id = $1',
+      [toggleId],
+    )
+    const row = result.rows[0]
+    return row ? { deletedAt: row.deleted_at } : null
+  })
+}
