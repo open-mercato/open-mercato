@@ -54,3 +54,15 @@ export function getAgentOrchestratorQueue(queueName: string): Queue<Record<strin
   queues.set(queueName, created)
   return created
 }
+
+export const AGENT_ORCHESTRATOR_OTEL_EXPORT_QUEUE = 'agent-orchestrator-otel-export'
+
+/**
+ * The run id and the delivery attempt ONLY. The worker re-resolves tenant scope
+ * and the export settings from the AgentRun row, so a forged payload cannot
+ * export another tenant's run or bypass a tenant's opt-out.
+ */
+export type OtelExportJobPayload = {
+  runId: string
+  attempt: number
+}

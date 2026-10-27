@@ -1,4 +1,3 @@
-import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { otelExportSettingsSchema, type OtelExportSettings } from '../../../data/validators'
@@ -228,7 +227,9 @@ type ModuleConfigServiceLike = {
   ): Promise<{ value: unknown; source?: string; updatedAt?: string } | null>
 }
 
-function resolveModuleConfig(container: AwilixContainer): ModuleConfigServiceLike | null {
+export type OtelExportContainer = { resolve: (name: string) => unknown }
+
+function resolveModuleConfig(container: OtelExportContainer): ModuleConfigServiceLike | null {
   try {
     return container.resolve('moduleConfigService') as ModuleConfigServiceLike
   } catch {
@@ -250,7 +251,7 @@ export type StoredOtelExportSettings = {
  * Fails closed: every failure arm yields the disabled default.
  */
 export async function readOtelExportSettings(
-  container: AwilixContainer,
+  container: OtelExportContainer,
   tenantId: string | null,
 ): Promise<StoredOtelExportSettings> {
   const fallback = (updatedAt: string | null = null): StoredOtelExportSettings => ({
