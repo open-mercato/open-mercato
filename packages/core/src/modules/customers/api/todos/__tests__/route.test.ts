@@ -1,6 +1,6 @@
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { CustomerInteraction, CustomerTodoLink } from '../../../data/entities'
-import { DELETE, GET, POST } from '../route'
+import { DELETE, GET, POST, PUT } from '../route'
 
 const ORG_ID = '123e4567-e89b-41d3-a456-426614174000'
 const TENANT_ID = '123e4567-e89b-41d3-a456-426614174010'
@@ -192,6 +192,53 @@ describe('customers todos adapter route', () => {
         ],
       ]),
     )
+  })
+
+  describe.each([false, true])('partial updates with unified=%s', (unified) => {
+    beforeEach(() => {
+      const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+      resolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified, legacyAdapters: true, externalSync: false })
+      mockEm.findOne.mockResolvedValue({ id: TODO_ID })
+      mockCommandBus.execute.mockResolvedValue({ ok: true })
+    })
+
+    async function updateTodo(patch: Record<string, unknown>) {
+      const response = await PUT(new Request('http://localhost/api/customers/todos', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: TODO_ID, linkId: LINK_ID, ...patch }),
+      }))
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Deprecation')).toBe('true')
+    }
+
+    it.each([true, false])('changes only status when is_done=%s', async (isDone) => {
+      await updateTodo({ is_done: isDone })
+
+      expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.interactions.update', {
+        input: { id: TODO_ID, status: isDone ? 'done' : 'planned' },
+        ctx: mockContext.commandContext,
+      })
+    })
+
+    it.each([
+      { customValues: { severity: 'urgent' }, scalarUpdates: {} },
+      { customValues: { priority: 3 }, scalarUpdates: { priority: 3 } },
+      { customValues: { description: 'Call before arrival' }, scalarUpdates: { body: 'Call before arrival' } },
+      { customValues: { due_at: '2026-11-01T10:00:00.000Z' }, scalarUpdates: { scheduledAt: '2026-11-01T10:00:00.000Z' } },
+      { customValues: { dueAt: '2026-11-02T10:00:00.000Z' }, scalarUpdates: { scheduledAt: '2026-11-02T10:00:00.000Z' } },
+      { customValues: { priority: null }, scalarUpdates: { priority: null } },
+      { customValues: { description: null }, scalarUpdates: { body: null } },
+      { customValues: { due_at: null }, scalarUpdates: { scheduledAt: null } },
+      { customValues: { dueAt: null }, scalarUpdates: { scheduledAt: null } },
+    ])('maps only supplied metadata in $customValues', async ({ customValues, scalarUpdates }) => {
+      await updateTodo({ customFields: customValues })
+
+      expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.interactions.update', {
+        input: { id: TODO_ID, customValues, ...scalarUpdates },
+        ctx: mockContext.commandContext,
+      })
+    })
   })
 
   it('merges canonical adapter todos over legacy rows and returns deprecation headers', async () => {
