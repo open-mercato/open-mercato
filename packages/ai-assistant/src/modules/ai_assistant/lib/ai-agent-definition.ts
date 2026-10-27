@@ -313,6 +313,15 @@ export interface AiAgentTaskPlanConfig {
   enabled?: boolean
 }
 
+export interface AiAgentMcpToolConfig {
+  name?: string
+  description?: string
+  inputSchema?: ZodTypeAny
+  toPrompt?: (input: unknown) => string
+  requiredFeatures?: string[]
+  expose?: boolean
+}
+
 export interface AiAgentDefinition {
   id: string
   moduleId: string
@@ -457,6 +466,14 @@ export interface AiAgentDefinition {
    * Spec `2026-10-21-chat-run-tracing-and-citations` §6.
    */
   modelSettings?: AiAgentCallSettings
+  /**
+   * Publishes this object-mode agent as one tool (chat, MCP, `/tools/execute`).
+   * Valid only with `executionMode: 'object'` and `output`; the tool loader
+   * rejects other declarations with a logged error.
+   *
+   * Spec `2026-10-21-mcp-tool-exposure-parity-and-audit` §4 Form A.
+   */
+  mcpTool?: AiAgentMcpToolConfig
 }
 
 export interface AiAgentExtension {

@@ -43,6 +43,7 @@ export {
   type AiAgentPageContextInput,
   type AiAgentStructuredOutput,
   type AiAgentDataCapabilities,
+  type AiAgentMcpToolConfig,
 } from './modules/ai_assistant/lib/ai-agent-definition'
 
 export {

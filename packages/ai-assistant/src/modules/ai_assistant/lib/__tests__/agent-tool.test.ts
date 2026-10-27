@@ -98,11 +98,16 @@ describe('defineAgentTool', () => {
     expect(outputSchema?.safeParse({ result: { verdict: 1 }, agentId: AGENT_ID, runId: null, agentRunId: null }).success).toBe(false)
   })
 
-  it('defaults requiredFeatures to the agent features, resolved lazily', () => {
+  it('leaves requiredFeatures unset for the tool loader to materialize from the agent', () => {
+    seedAgent()
     const tool = buildTool()
     expect(tool.requiredFeatures).toBeUndefined()
-    seedAgent()
-    expect(tool.requiredFeatures).toEqual(['catalog.products.view'])
+    expect(Object.getOwnPropertyDescriptor(tool, 'requiredFeatures')).toBeUndefined()
+  })
+
+  it('keeps explicit requiredFeatures as a plain value', () => {
+    const tool = buildTool({ requiredFeatures: ['catalog.products.view', 'catalog.products.manage'] })
+    expect(tool.requiredFeatures).toEqual(['catalog.products.view', 'catalog.products.manage'])
   })
 
   it('runs the ai-assistant engine with the channel, mutation mode and correlation id', async () => {

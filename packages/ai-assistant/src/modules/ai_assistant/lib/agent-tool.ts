@@ -251,17 +251,6 @@ export function defineAgentTool<TInput, TOutput = unknown>(
     mcp: { outputSchema: buildAgentToolOutputSchema(spec.outputSchema) },
     handler,
   }
-  if (explicitFeatures) {
-    tool.requiredFeatures = explicitFeatures
-  } else {
-    Object.defineProperty(tool, 'requiredFeatures', {
-      enumerable: true,
-      configurable: true,
-      get: () => {
-        const agentFeatures = getAgent(spec.agentId)?.requiredFeatures
-        return agentFeatures ? [...agentFeatures] : undefined
-      },
-    })
-  }
+  if (explicitFeatures) tool.requiredFeatures = explicitFeatures
   return tool
 }
