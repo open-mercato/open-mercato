@@ -32,7 +32,7 @@ Authorization narrows intentionally for bound keys; a role grant cannot bypass a
 
 1. Bind MCP issuance and cap the three RBAC projections with owner-tagged, versioned caches.
 2. Regress broad roles with narrow `UserAcl` on cold/warm caches, owner invalidation, transaction parity, deleted/foreign owners, and unbound machine keys.
-3. Integration coverage: mint through `POST /api/ai_assistant/mcp-key` and `POST /api/ai_assistant/session-key`; verify granted and denied features and organization visibility against the user's ACL, then change the ACL and repeat while caches are warm. All fixtures are created and cleaned up by the test.
+3. Integration coverage: mint through `POST /api/ai_assistant/mcp-key` and `POST /api/ai_assistant/session-key`; verify granted and denied features and organization-scoped customer reads against the user's ACL, then change the ACL and repeat while caches are warm. Create people in allowed/excluded organizations and assert the owner and key both read only the allowed record. The directory options endpoint lists tenant metadata and is not the data-isolation boundary. All fixtures are created and cleaned up by the test.
 4. Run the configured gate and record any environmental limitations.
 
 ## Risks & Impact Review
@@ -47,3 +47,4 @@ Tenant-bound owner lookups, existing schema, no cross-module ORM relations, shar
 
 - 2026-10-27: Defined the delegated-key ceiling and explicit legacy-key rotation procedure for #7825.
 - 2026-10-27: Added a failing-then-passing regression for role-ACL invalidation when the key tenant is inferred.
+- 2026-10-28: Corrected integration organization checks to exercise customer-data scoping instead of tenant directory options.

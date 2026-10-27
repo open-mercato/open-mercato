@@ -268,11 +268,11 @@ describe('RbacService', () => {
         for (let attempt = 0; attempt < 2; attempt += 1) {
           await expect(service.userHasAllFeatures(baseUser.id!, ['customers.people.view'], scope))
             .resolves.toBe(organizationId === 'org-1')
-          await expect(service.userHasAllFeatures(baseUser.id!, ['customers.people.edit'], scope))
+          await expect(service.userHasAllFeatures(baseUser.id!, ['customers.people.manage'], scope))
             .resolves.toBe(false)
           await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.view'], scope))
             .resolves.toBe(organizationId === 'org-1')
-          await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.edit'], scope))
+          await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.manage'], scope))
             .resolves.toBe(false)
         }
       }
@@ -328,7 +328,7 @@ describe('RbacService', () => {
       await cache.set('rbac:api_key:delegated-key:tenant-1:org-1', {
         isSuperAdmin: true, features: ['*'], organizations: null,
       })
-      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.edit'], {
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.manage'], {
         tenantId: 'tenant-1', organizationId: 'org-1',
       })).resolves.toBe(false)
     })
@@ -351,7 +351,7 @@ describe('RbacService', () => {
       await service.invalidateUserCache(baseUser.id!)
       const access = await service.resolveFeatureOrganizationAccess('api_key:delegated-key', ownerFeatures, { tenantId: 'tenant-1' })
       expect(access.filterOrganizationIds(candidates)).toEqual(['org-2'])
-      const denied = await service.resolveFeatureOrganizationAccess('api_key:delegated-key', ['customers.people.edit'], { tenantId: 'tenant-1' })
+      const denied = await service.resolveFeatureOrganizationAccess('api_key:delegated-key', ['customers.people.manage'], { tenantId: 'tenant-1' })
       expect(denied.filterOrganizationIds(candidates)).toEqual([])
     })
 
@@ -367,7 +367,7 @@ describe('RbacService', () => {
     it('keeps unbound machine-key role grants independent of the creator ACL', async () => {
       key.sessionUserId = null
       key.createdBy = baseUser.id
-      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.edit'], {
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.manage'], {
         tenantId: 'tenant-1', organizationId: 'org-2',
       })).resolves.toBe(true)
     })
