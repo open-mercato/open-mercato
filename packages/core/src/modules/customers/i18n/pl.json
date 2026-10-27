@@ -2017,6 +2017,7 @@
   "customers.people.detail.addresses.fields.phone": "Telefon",
   "customers.people.detail.addresses.fields.postalCode": "Kod pocztowy",
   "customers.people.detail.addresses.fields.primary": "Ustaw jako główny",
+  "customers.people.detail.addresses.fields.recipientName": "Nazwa odbiorcy",
   "customers.people.detail.addresses.fields.region": "Region / województwo",
   "customers.people.detail.addresses.fields.street": "Ulica",
   "customers.people.detail.addresses.fields.streetExtra": "Dodatkowe informacje adresowe",

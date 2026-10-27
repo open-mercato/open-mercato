@@ -83,7 +83,10 @@ const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 type PersonAddressSnapshot = {
   id: string
   name: string | null
+  recipientName: string | null
+  phone: string | null
   purpose: string | null
+  companyName: string | null
   addressLine1: string
   addressLine2: string | null
   city: string | null
@@ -343,7 +346,10 @@ function serializePersonSnapshot(
     addresses: addresses.map((address) => ({
       id: address.id,
       name: address.name ?? null,
+      recipientName: address.recipientName ?? null,
+      phone: address.phone ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
       city: address.city ?? null,
@@ -1683,7 +1689,10 @@ const deletePersonCommand: CommandHandler<
           tenantId: entity.tenantId,
           entity,
           name: address.name,
+          recipientName: address.recipientName ?? null,
+          phone: address.phone ?? null,
           purpose: address.purpose,
+          companyName: address.companyName ?? null,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
           city: address.city,

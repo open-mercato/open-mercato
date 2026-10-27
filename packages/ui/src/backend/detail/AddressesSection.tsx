@@ -30,6 +30,8 @@ export type TabEmptyStateConfig = {
 export type AddressSummary = {
   id: string
   name?: string | null
+  recipientName?: string | null
+  phone?: string | null
   purpose?: string | null
   companyName?: string | null
   addressLine1: string
@@ -69,6 +71,8 @@ export type AddressesSectionProps<C = unknown> = {
   formatContext?: C
   labelPrefix?: string
   showCoordinateFields?: boolean
+  showRecipientNameField?: boolean
+  showPhoneField?: boolean
 }
 
 function generateTempId() {
@@ -92,6 +96,8 @@ function AddressesSectionImpl<C = unknown>({
   formatContext,
   labelPrefix = 'customers.people.detail.addresses',
   showCoordinateFields = false,
+  showRecipientNameField = false,
+  showPhoneField = false,
 }: AddressesSectionProps<C>) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
@@ -170,6 +176,8 @@ function AddressesSectionImpl<C = unknown>({
         const newAddress: AddressSummary = {
           id: typeof response === 'object' && response && typeof response.id === 'string' ? response.id : generateTempId(),
           name: payload.name ?? null,
+          recipientName: payload.recipientName ?? null,
+          phone: payload.phone ?? null,
           purpose: payload.purpose ?? null,
           companyName: payload.companyName ?? null,
           addressLine1: payload.addressLine1,
@@ -223,6 +231,8 @@ function AddressesSectionImpl<C = unknown>({
             return {
               ...address,
               name: payload.name ?? null,
+              recipientName: payload.recipientName ?? null,
+              phone: payload.phone ?? null,
               purpose: payload.purpose ?? null,
               companyName: payload.companyName ?? null,
               addressLine1: payload.addressLine1,
@@ -286,6 +296,8 @@ function AddressesSectionImpl<C = unknown>({
     return addresses.map((address) => ({
       id: address.id,
       name: address.name ?? undefined,
+      recipientName: address.recipientName ?? undefined,
+      phone: address.phone ?? undefined,
       purpose: address.purpose ?? undefined,
       companyName: address.companyName ?? undefined,
       addressLine1: address.addressLine1,
@@ -351,6 +363,8 @@ function AddressesSectionImpl<C = unknown>({
           emptyStateActionLabel={emptyState.actionLabel}
           labelPrefix={labelPrefix}
           showCoordinateFields={showCoordinateFields}
+          showRecipientNameField={showRecipientNameField}
+          showPhoneField={showPhoneField}
           addressTypesAdapter={addressTypesAdapter}
           addressTypesContext={addressTypesContext}
           loadFormat={loadFormat}
