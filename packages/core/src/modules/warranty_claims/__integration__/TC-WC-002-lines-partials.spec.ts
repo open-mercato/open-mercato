@@ -44,7 +44,7 @@ test.describe('TC-WC-002: warranty claim line partial approvals', () => {
         const row = page.getByRole('row').filter({ hasText: `Remove ${stamp}` })
         await row.getByRole('button', { name: 'Open actions' }).click()
         await page.getByRole('menuitem', { name: 'Remove line', exact: true }).click()
-        const confirmation = page.getByRole('dialog', { name: 'Remove line', exact: true })
+        const confirmation = page.getByRole('alertdialog', { name: 'Remove line', exact: true })
         await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
         await expect(row).toBeVisible()
         expect(await listClaimLines(request, token, claimId!)).toHaveLength(2)
