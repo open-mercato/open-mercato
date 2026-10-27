@@ -68,3 +68,4 @@ PR: #7001
 - [x] Post-review fix (haxiorz UX comment, 2026-10-12): project shown inside the picked task box instead of a duplicate line under it — a02f15695
 - [x] Post-review fix (haxiorz UX comment, 2026-10-12): footer shortcut hint wraps instead of overflowing the dialog — 2ad0c8fec
 - [x] Post-review fix (haxiorz UX comment, 2026-10-12): footer shortcuts wrap as whole groups, no dot separators — 5947dc458
+- [x] Post-review fix (merge of main, 2026-10-27): resolved the consulting-suite spec changelog conflict and moved the defaults.entryMode upgrade note out of the released 0.8.0 → 0.9.0 section into the unreleased window — 4b781a3ac
