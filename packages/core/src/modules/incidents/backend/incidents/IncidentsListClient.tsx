@@ -90,6 +90,7 @@ type CatalogItem = {
 type PagedResponse<T> = {
   items: T[]
   total: number
+  totalIsCapped?: boolean
   page: number
   pageSize: number
   totalPages: number
@@ -250,6 +251,7 @@ export default function IncidentsListClient() {
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(25)
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [totalPages, setTotalPages] = React.useState(0)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<IncidentFilterValues>({})
@@ -315,6 +317,7 @@ export default function IncidentsListClient() {
         const message = t('incidents.incident.list.error.load')
         setRows([])
         setTotal(0)
+        setTotalIsCapped(false)
         setTotalPages(0)
         setError(message)
         flash(message, 'error')
@@ -323,11 +326,13 @@ export default function IncidentsListClient() {
       const payload = result.result ?? fallback
       setRows(payload.items.map(mapIncident))
       setTotal(payload.total)
+      setTotalIsCapped(payload.totalIsCapped === true)
       setTotalPages(payload.totalPages)
     } catch {
       const message = t('incidents.incident.list.error.load')
       setRows([])
       setTotal(0)
+      setTotalIsCapped(false)
       setTotalPages(0)
       setError(message)
       flash(message, 'error')
@@ -699,6 +704,7 @@ export default function IncidentsListClient() {
             page,
             pageSize,
             total,
+            totalIsCapped,
             totalPages,
             cacheStatus,
             pageSizeOptions: [10, 25, 50, 100],

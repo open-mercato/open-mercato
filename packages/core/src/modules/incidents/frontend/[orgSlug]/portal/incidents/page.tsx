@@ -43,6 +43,7 @@ type PortalIncident = {
 type PortalIncidentsResponse = {
   items: PortalIncident[]
   total: number
+  totalIsCapped?: boolean
 }
 
 function isPortalIncident(value: unknown): value is PortalIncident {
@@ -64,7 +65,8 @@ function isPortalIncidentsResponse(value: unknown): value is PortalIncidentsResp
   return (
     Array.isArray(record.items) &&
     record.items.every(isPortalIncident) &&
-    typeof record.total === 'number'
+    typeof record.total === 'number' &&
+    (record.totalIsCapped === undefined || typeof record.totalIsCapped === 'boolean')
   )
 }
 
@@ -173,6 +175,7 @@ export default function PortalIncidentsPage({ params }: Props) {
   const { user, loading: authLoading } = auth
   const [items, setItems] = React.useState<PortalIncident[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(25)
   const [isLoading, setIsLoading] = React.useState(false)
@@ -203,16 +206,19 @@ export default function PortalIncidentsPage({ params }: Props) {
       if (!call.ok || !isPortalIncidentsResponse(call.result)) {
         setItems([])
         setTotal(0)
+        setTotalIsCapped(false)
         setError(t('incidents.portal.error.loadFailed', 'Unable to load incidents.'))
         return
       }
 
       setItems(call.result.items)
       setTotal(call.result.total)
+      setTotalIsCapped(call.result.totalIsCapped === true)
     } catch {
       if (requestIdRef.current !== requestId) return
       setItems([])
       setTotal(0)
+      setTotalIsCapped(false)
       setError(t('incidents.portal.error.loadFailed', 'Unable to load incidents.'))
     } finally {
       if (requestIdRef.current === requestId) {
@@ -338,6 +344,7 @@ export default function PortalIncidentsPage({ params }: Props) {
           page,
           pageSize,
           total,
+          totalIsCapped,
           totalPages,
           pageSizeOptions: [10, 25, 50],
           onPageChange: setPage,

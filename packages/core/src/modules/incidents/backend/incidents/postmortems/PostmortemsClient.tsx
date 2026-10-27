@@ -41,6 +41,7 @@ type PostmortemRow = {
 type PagedResponse<T> = {
   items: T[]
   total: number
+  totalIsCapped?: boolean
   page: number
   pageSize: number
 }
@@ -109,6 +110,7 @@ export default function PostmortemsClient() {
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(25)
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [filterValues, setFilterValues] = React.useState<PostmortemFilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -134,6 +136,7 @@ export default function PostmortemsClient() {
         const message = t('incidents.postmortem.list.error.load', 'Failed to load postmortems.')
         setRows([])
         setTotal(0)
+        setTotalIsCapped(false)
         setError(message)
         flash(message, 'error')
         return
@@ -141,10 +144,12 @@ export default function PostmortemsClient() {
       const payload = result.result ?? fallback
       setRows(payload.items.map(mapPostmortem))
       setTotal(payload.total)
+      setTotalIsCapped(payload.totalIsCapped === true)
     } catch {
       const message = t('incidents.postmortem.list.error.load', 'Failed to load postmortems.')
       setRows([])
       setTotal(0)
+      setTotalIsCapped(false)
       setError(message)
       flash(message, 'error')
     } finally {
@@ -255,6 +260,7 @@ export default function PostmortemsClient() {
             page,
             pageSize,
             total,
+            totalIsCapped,
             totalPages: Math.ceil(total / pageSize),
             cacheStatus,
             pageSizeOptions: [10, 25, 50, 100],
