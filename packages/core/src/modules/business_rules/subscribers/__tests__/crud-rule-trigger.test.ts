@@ -8,11 +8,13 @@ jest.mock('../../lib/rule-engine', () => ({
     errors: [],
   })),
   resolveBusinessRuleDiscoveryCache: jest.fn(() => null),
+  resolveBusinessRuleRbacService: jest.fn(() => undefined),
 }))
 
-import { executeRules, resolveBusinessRuleDiscoveryCache } from '../../lib/rule-engine'
+import { executeRules, resolveBusinessRuleDiscoveryCache, resolveBusinessRuleRbacService } from '../../lib/rule-engine'
 const executeRulesMock = executeRules as jest.MockedFunction<typeof executeRules>
 const resolveBusinessRuleDiscoveryCacheMock = resolveBusinessRuleDiscoveryCache as jest.MockedFunction<typeof resolveBusinessRuleDiscoveryCache>
+const resolveBusinessRuleRbacServiceMock = resolveBusinessRuleRbacService as jest.MockedFunction<typeof resolveBusinessRuleRbacService>
 
 describe('business_rules crud-rule-trigger subscriber', () => {
   const mockEm = {} as any
@@ -57,6 +59,15 @@ describe('business_rules crud-rule-trigger subscriber', () => {
       organizationId: 'o1',
     }, { cache: null })
     expect(resolveBusinessRuleDiscoveryCacheMock).toHaveBeenCalled()
+  })
+
+  it('passes the subscriber container rbacService to executeRules', async () => {
+    const rbacService = { loadAcl: jest.fn() } as any
+    resolveBusinessRuleRbacServiceMock.mockReturnValueOnce(rbacService)
+    const ctx = makeCtx('customers.person.created')
+    await handler({ id: 'person-1' }, ctx)
+    expect(resolveBusinessRuleRbacServiceMock).toHaveBeenCalledWith(ctx.resolve)
+    expect(executeRulesMock).toHaveBeenCalledWith(mockEm, expect.anything(), { cache: null, rbacService })
   })
 
   it('does not trust payload tenant scope over subscriber context scope', async () => {

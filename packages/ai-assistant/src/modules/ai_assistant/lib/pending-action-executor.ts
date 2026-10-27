@@ -29,6 +29,12 @@ import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
 } from './pending-action-types'
+import {
+  planPendingActionExecution,
+  resolvePendingActionBatchMessages,
+  toDuplicateDroppedFailedRecords,
+  toNotPreviewedFailedRecords,
+} from './pending-action-batch'
 
 const logger = createLogger('ai_assistant')
 
@@ -292,6 +298,7 @@ function toToolHandlerContext(
   ctx: PendingActionExecuteContext,
   tool: AiToolDefinition,
   approvedPendingActionId: string,
+  expectedRecordVersions: Record<string, string>,
 ): McpToolContext {
   return {
     tenantId: ctx.tenantId,
@@ -302,6 +309,7 @@ function toToolHandlerContext(
     isSuperAdmin: ctx.isSuperAdmin,
     tool,
     approvedPendingActionId,
+    expectedRecordVersions,
   }
 }
 
@@ -354,19 +362,52 @@ export async function executePendingActionConfirm(
   const partialFailedRecords =
     Array.isArray(failedRecords) && failedRecords.length > 0 ? failedRecords : null
 
+  const plan = planPendingActionExecution(action, tool, partialFailedRecords)
+  if (plan.kind === 'refuse') {
+    const messages = await resolvePendingActionBatchMessages()
+    return {
+      ok: false,
+      action,
+      executionResult: { error: { code: plan.code, message: messages.batchNotApplicable } },
+      cause: new Error(`Pending action "${action.id}" no longer matches its approved preview`),
+    }
+  }
+  if (plan.droppedDuplicateRecordIds.length > 0) {
+    logger.warn('Pending action input repeats previewed records; only the first entry per record runs', {
+      pendingActionId: action.id,
+      toolName: tool.name,
+      recordIds: plan.droppedDuplicateRecordIds,
+    })
+  }
+  const batchMessages =
+    plan.notPreviewedRecordIds.length > 0 || plan.droppedDuplicateRecordIds.length > 0
+      ? await resolvePendingActionBatchMessages()
+      : null
+  const notPreviewedFailedRecords = batchMessages
+    ? toNotPreviewedFailedRecords(plan.notPreviewedRecordIds, batchMessages)
+    : null
+  const droppedDuplicateFailedRecords = batchMessages
+    ? toDuplicateDroppedFailedRecords(plan.droppedDuplicateRecordIds, batchMessages)
+    : null
+  const blockedFailedRecords = mergeFailedRecords(partialFailedRecords, notPreviewedFailedRecords)
+  const preExecutionFailedRecords = mergeFailedRecords(blockedFailedRecords, droppedDuplicateFailedRecords)
+
   const confirmedRow = await repo.setStatus(action.id, 'confirmed', scope, {
     resolvedByUserId: ctx.userId,
     now: clock,
-    ...(partialFailedRecords ? { failedRecords: partialFailedRecords } : {}),
+    ...(preExecutionFailedRecords ? { failedRecords: preExecutionFailedRecords } : {}),
   })
   const executingRow = await repo.setStatus(confirmedRow.id, 'executing', scope, { now: clock })
 
   let handlerOutput: unknown
   try {
-    handlerOutput = await tool.handler(action.normalizedInput as never, toToolHandlerContext(ctx, tool, action.id))
+    handlerOutput = await tool.handler(
+      plan.input as never,
+      toToolHandlerContext(ctx, tool, action.id, plan.expectedRecordVersions),
+    )
   } catch (error) {
     const failureResult: AiPendingActionExecutionResult = {
-      error: buildHandlerErrorFromThrown(error, action.normalizedInput),
+      error: buildHandlerErrorFromThrown(error, plan.input),
     }
     const failedRow = await repo.setStatus(executingRow.id, 'failed', scope, {
       executionResult: failureResult,
@@ -394,7 +435,10 @@ export async function executePendingActionConfirm(
 
   const successResult = normalizeExecutionResult(handlerOutput)
   const handlerFailedRecords = extractHandlerFailedRecords(handlerOutput)
-  const mergedFailedRecords = mergeFailedRecords(partialFailedRecords, handlerFailedRecords)
+  const mergedFailedRecords = mergeFailedRecords(
+    mergeFailedRecords(blockedFailedRecords, handlerFailedRecords),
+    droppedDuplicateFailedRecords,
+  )
   const confirmedExtra: Record<string, unknown> = {
     executionResult: successResult,
     now: clock,
