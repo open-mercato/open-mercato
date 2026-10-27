@@ -41,7 +41,8 @@
 | 4 | 4.11 | Cover OTel export with integration tests | dispatch | done | 30684277a |
 | 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | done | 4c0445581 |
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | done | f4b704570, 8f5ff20aa |
-| 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | done | pending |
+| 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | done | bd6c75aa8 |
+| 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | pending |
 
 ## Goal
 
@@ -227,6 +228,8 @@ Shorthand: `AA` = `packages/ai-assistant/src/modules/ai_assistant`, `AO` = `pack
 - Observability spec: Phase 2 implemented + deviations; OTel spec: Phase 1 implemented + deviations (no job-id dedupe, health in module config, content select disabled); roadmap wave 4 row status; `UPGRADE_NOTES.md` entry (new feature `trace.view_content`, new env vars, new settings pages, new routes, trace span attribute additions, legacy keys kept).
 
 ## Execution notes
+
+- 5.2-review-fix (final gate): core guard tests required the two new settings commands on the `optimistic-lock-command-coverage` allowlist (exempt: single-admin config row guarded on `updated_at`) and the `trace.view_content` title in the auth ACL translation catalog (all five locales).
 
 - Step 5.1 landed as two commits (`f4b704570` docs, `8f5ff20aa` template `.env.example` mirror): `yarn template:sync:fix` does not mirror `.env.example`, and the run never rewrites history.
 

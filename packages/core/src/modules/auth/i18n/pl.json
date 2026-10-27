@@ -32,6 +32,7 @@
   "auth.acl.features.agent_orchestrator.proposals.view": "Wyświetl propozycje",
   "auth.acl.features.agent_orchestrator.trace.correct": "Zapisuj korekty agentów",
   "auth.acl.features.agent_orchestrator.trace.view": "Wyświetl ślady uruchomień agentów",
+  "auth.acl.features.agent_orchestrator.trace.view_content": "Wyświetlaj przechwyconą treść śladów agentów i zarządzaj przechwytywaniem śladów",
   "auth.acl.features.agent_orchestrator.web_fetch": "Korzystaj z pobierania stron przez agenta (dowolny adres URL)",
   "auth.acl.features.agent_orchestrator.web_search": "Korzystaj z wyszukiwania w sieci przez agenta",
   "auth.acl.features.ai_assistant.conversations.manage": "Zarządzaj rozmowami Asystenta AI",

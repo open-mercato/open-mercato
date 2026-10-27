@@ -32,6 +32,7 @@
   "auth.acl.features.agent_orchestrator.proposals.view": "View proposals",
   "auth.acl.features.agent_orchestrator.trace.correct": "Record agent corrections",
   "auth.acl.features.agent_orchestrator.trace.view": "View agent run traces",
+  "auth.acl.features.agent_orchestrator.trace.view_content": "Erfasste Inhalte von Agent-Traces anzeigen und die Trace-Erfassung verwalten",
   "auth.acl.features.agent_orchestrator.web_fetch": "Use agent web fetch (retrieve an arbitrary URL)",
   "auth.acl.features.agent_orchestrator.web_search": "Use agent web search",
   "auth.acl.features.ai_assistant.conversations.manage": "Manage AI Assistant Conversations",
