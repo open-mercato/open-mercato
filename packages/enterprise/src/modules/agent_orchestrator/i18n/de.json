@@ -332,6 +332,7 @@
   "agent_orchestrator.disposition.pending": "Ausstehend",
   "agent_orchestrator.disposition.rejected": "Abgelehnt",
   "agent_orchestrator.errors.agent_invalid_output": "Der Agent hat eine ungültige Ausgabe erzeugt",
+  "agent_orchestrator.errors.agent_invoke_denied": "Sie sind nicht berechtigt, diesen Agenten auszuführen",
   "agent_orchestrator.errors.agent_not_found": "Agent nicht gefunden",
   "agent_orchestrator.errors.agent_run_failed": "Die Agentenausführung ist unerwartet fehlgeschlagen",
   "agent_orchestrator.errors.already_disposed": "Dieser Vorschlag wurde bereits bearbeitet",

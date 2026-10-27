@@ -19,7 +19,9 @@ import {
   type AgentRunCtx,
   type AgentRuntimeService,
 } from '../../../../lib/runtime/agentRuntime'
+import { isAgentInvokeDeniedError } from '../../../../lib/runtime/errors'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from '../../../../lib/runtime/admission'
+import { invokerFromAuth, invokeDeniedBody, invokeDeniedErrorSchema } from '../../../../lib/access/invokeDenial'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.run'] },
@@ -158,6 +160,8 @@ export async function POST(req: Request, ctx: RouteContext) {
     tenantId: auth.tenantId,
     organizationId,
     userId: auth.sub,
+    invoker: invokerFromAuth(auth),
+    entryPoint: 'run_api',
     onRunPersisted: (persistedRunId) => {
       if (!observedRunId) observedRunId = persistedRunId
     },
@@ -170,6 +174,9 @@ export async function POST(req: Request, ctx: RouteContext) {
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
       return NextResponse.json({ error: 'Agent not found', code: 'agent_not_found' }, { status: 404 })
+    }
+    if (isAgentInvokeDeniedError(err)) {
+      return NextResponse.json(invokeDeniedBody(err, id), { status: 403 })
     }
     // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
     // the typed reason (kind/phase/set version) must reach the client instead
@@ -312,7 +319,12 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Tenant context missing, or no single organization is selected (run under "All organizations" is rejected)', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
-        { status: 403, description: 'Missing agent_orchestrator.agents.run', schema: errorSchema },
+        {
+          status: 403,
+          description:
+            'Missing agent_orchestrator.agents.run, or the caller may not invoke this agent (`code: "agent_invoke_denied"`; the agent\'s required features are never echoed)',
+          schema: z.union([errorSchema, invokeDeniedErrorSchema]),
+        },
         { status: 404, description: 'Unknown agent id', schema: errorSchema },
         {
           status: 422,

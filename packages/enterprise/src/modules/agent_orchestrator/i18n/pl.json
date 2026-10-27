@@ -332,6 +332,7 @@
   "agent_orchestrator.disposition.pending": "Oczekująca",
   "agent_orchestrator.disposition.rejected": "Odrzucona",
   "agent_orchestrator.errors.agent_invalid_output": "Agent wygenerował nieprawidłowe wyjście",
+  "agent_orchestrator.errors.agent_invoke_denied": "Nie masz uprawnień do uruchomienia tego agenta",
   "agent_orchestrator.errors.agent_not_found": "Nie znaleziono agenta",
   "agent_orchestrator.errors.agent_run_failed": "Uruchomienie agenta nieoczekiwanie się nie powiodło",
   "agent_orchestrator.errors.already_disposed": "Ta propozycja została już rozpatrzona",

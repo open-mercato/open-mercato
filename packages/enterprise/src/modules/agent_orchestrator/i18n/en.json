@@ -332,6 +332,7 @@
   "agent_orchestrator.disposition.pending": "Pending",
   "agent_orchestrator.disposition.rejected": "Rejected",
   "agent_orchestrator.errors.agent_invalid_output": "Agent produced invalid output",
+  "agent_orchestrator.errors.agent_invoke_denied": "You are not allowed to run this agent",
   "agent_orchestrator.errors.agent_not_found": "Agent not found",
   "agent_orchestrator.errors.agent_run_failed": "The agent run failed unexpectedly",
   "agent_orchestrator.errors.already_disposed": "This proposal has already been disposed",

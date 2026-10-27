@@ -31,6 +31,7 @@ import { createEvalSetManifestCache, evalSetManifestCacheKey } from './manifestC
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
+import { AGENT_INVOKE_DENIED_CODE, isAgentInvokeDeniedError } from '../runtime/errors'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -93,6 +94,8 @@ type AgentRuntimeLike = {
       onRunPersisted?: (runId: string) => void
       source?: 'runtime' | 'eval'
       runAs?: { agentUserId: string; onBehalfOfUserId?: string | null }
+      invoker?: { kind: 'user'; userId: string }
+      entryPoint?: 'eval'
     },
   ) => Promise<unknown>
 }
@@ -341,6 +344,8 @@ async function runCase(
       // disposable proposal (delegation targets are researcher-only), so the
       // propose-only guarantee still holds; the labelling does not.
       source: 'eval',
+      invoker: { kind: 'user', userId },
+      entryPoint: 'eval',
       onRunPersisted: (runId: string) => {
         if (!topLevelRunId) topLevelRunId = runId
       },
@@ -351,7 +356,11 @@ async function runCase(
     return finishCaseRun(em, caseRun, {
       status: 'error',
       agentRunId: topLevelRunId,
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: isAgentInvokeDeniedError(error)
+        ? `[internal] ${AGENT_INVOKE_DENIED_CODE}: the operator who started the suite run may not invoke this agent`
+        : error instanceof Error
+          ? error.message
+          : String(error),
     })
   }
 

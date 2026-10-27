@@ -332,6 +332,7 @@
   "agent_orchestrator.disposition.pending": "Pendiente",
   "agent_orchestrator.disposition.rejected": "Rechazada",
   "agent_orchestrator.errors.agent_invalid_output": "El agente produjo una salida no válida",
+  "agent_orchestrator.errors.agent_invoke_denied": "No tienes permiso para ejecutar este agente",
   "agent_orchestrator.errors.agent_not_found": "Agente no encontrado",
   "agent_orchestrator.errors.agent_run_failed": "La ejecución del agente falló de forma inesperada",
   "agent_orchestrator.errors.already_disposed": "Esta propuesta ya ha sido resuelta",

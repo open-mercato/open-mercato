@@ -30,6 +30,18 @@ export class AgentInvokeDeniedError extends Error {
   }
 }
 
+export const AGENT_INVOKE_DENIED_CODE = 'agent_invoke_denied' as const
+
+/**
+ * Structural match so a denial is recognised after crossing a boundary that
+ * drops the prototype (admission queue, workflow job, duplicated module copy).
+ */
+export function isAgentInvokeDeniedError(err: unknown): err is { code: typeof AGENT_INVOKE_DENIED_CODE; agentId?: string } {
+  if (err instanceof AgentInvokeDeniedError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_INVOKE_DENIED_CODE
+}
+
 /**
  * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
  * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired

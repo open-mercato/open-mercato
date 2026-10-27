@@ -7,6 +7,7 @@ import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId, getCurrentRunInvoker, getCurrentRunSource } from './lib/runtime/runContext'
+import { AGENT_INVOKE_DENIED_CODE, isAgentInvokeDeniedError } from './lib/runtime/errors'
 import { webSearchTool, webFetchTool } from './lib/webSearch/tools'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
@@ -140,6 +141,9 @@ const delegateAgentTool: AiToolDefinition = {
             : { artifacts: result.artifacts, summary: result.summary }
       return { ok: true as const, agentId, data }
     } catch (err) {
+      if (isAgentInvokeDeniedError(err)) {
+        return { ok: false as const, agentId, error: AGENT_INVOKE_DENIED_CODE }
+      }
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false as const, agentId, error: message }
     }

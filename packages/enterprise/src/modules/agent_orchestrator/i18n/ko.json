@@ -332,6 +332,7 @@
   "agent_orchestrator.disposition.pending": "대기 중",
   "agent_orchestrator.disposition.rejected": "거부됨",
   "agent_orchestrator.errors.agent_invalid_output": "에이전트가 유효하지 않은 출력을 생성했습니다",
+  "agent_orchestrator.errors.agent_invoke_denied": "이 에이전트를 실행할 권한이 없습니다",
   "agent_orchestrator.errors.agent_not_found": "에이전트를 찾을 수 없습니다",
   "agent_orchestrator.errors.agent_run_failed": "에이전트 실행이 예기치 않게 실패했습니다",
   "agent_orchestrator.errors.already_disposed": "이 제안은 이미 처리되었습니다",

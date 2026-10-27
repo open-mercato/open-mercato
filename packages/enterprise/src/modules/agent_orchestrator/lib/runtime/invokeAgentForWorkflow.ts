@@ -146,6 +146,8 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
         workflowInstanceId: ctx.workflowInstanceId,
         stepId: ctx.stepId,
         invocationId: ctx.invocationId,
+        ...(ctx.userId ? { invoker: { kind: 'workflow' as const, actingUserId: ctx.userId } } : {}),
+        entryPoint: 'workflow',
         onRunPersisted: (runId) => {
           if (!topLevelRunId) topLevelRunId = runId
         },
