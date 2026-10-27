@@ -184,7 +184,7 @@ Returns the user's dashboard layout with widgets filtered by their features.
 
 **GET/PUT** `/api/dashboards/users/widgets` (feature `dashboards.admin.assign-widgets`)
 
-A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.tenantId, target.organizationId)`, taken from the target `User` row loaded on the server. This is the scope `GET /api/dashboards/layout` reads for that user (`resolveAllowedWidgetIds` with the target's own `auth.tenantId`/`auth.orgId`). The caller's session scope and request parameters never choose the key. The GET `organizationId` query parameter is deprecated and ignored; On `GET`, `tenantId` only selects the tenant a superadmin looks the user up in.
+A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.tenantId, target.organizationId)`, taken from the target `User` row loaded on the server. This is the scope `GET /api/dashboards/layout` reads for that user (`resolveAllowedWidgetIds` with the target's own `auth.tenantId`/`auth.orgId`). The caller's session scope and request parameters never choose the key. The GET `organizationId` query parameter is deprecated and ignored. On `GET`, `tenantId` only selects the tenant a superadmin looks the user up in.
 
 | Caller | Target | Result |
 |---|---|---|
