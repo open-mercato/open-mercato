@@ -39,7 +39,7 @@
 | 4 | 4.9 | Add the otel:export backfill CLI | dispatch | done | pending |
 | 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | done | pending |
 | 4 | 4.11 | Cover OTel export with integration tests | dispatch | done | pending |
-| 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | todo | — |
+| 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | done | pending |
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | todo | — |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | todo | — |
 

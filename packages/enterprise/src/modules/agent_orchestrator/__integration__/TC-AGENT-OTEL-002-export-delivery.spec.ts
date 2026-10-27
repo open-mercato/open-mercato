@@ -44,12 +44,6 @@ import {
  * opted out, a second ingested run is not exported. The trace page shows the
  * "Open in tracing backend" link (screenshot attached).
  *
- * Each settings change is followed by a wait of the module-config cache TTL
- * (60 s) before the next ingest: the settings PUT refreshes the cache entry
- * under the request's tenant cache scope, while the export subscriber and
- * worker read it in the global cache scope, so they see the previous value
- * until that entry expires.
- *
  * The CLI backfill `--dry-run` is covered by the unit test
  * `__tests__/otel-export-cli.test.ts`: no integration spec shells out to the
  * `mercato` CLI, and the Playwright process has no module registry to run it in.
@@ -60,7 +54,6 @@ const BASE_URL = process.env.BASE_URL?.trim() || ''
 const AGENT_ID = 'it.otel_export'
 const DELIVERY_TIMEOUT_MS = 30_000
 const OPT_OUT_WAIT_MS = 5_000
-const MODULE_CONFIG_CACHE_TTL_MS = 60_000
 const CONTENT_KEYS = new Set(['input', 'output', 'payload', 'evidence'])
 const INGEST_SKIP_REASON =
   'trace ingest rejected the signature — the test process does not share JWT_SECRET with the app under test'
@@ -153,7 +146,7 @@ async function ingestRun(request: APIRequestContext, token: string, sentinel: st
 
 test.describe('TC-AGENT-OTEL-002: agent run export to an OTLP receiver', () => {
   test('an opted-in run is exported without content and an opted-out run is not', async ({ page, request }) => {
-    test.setTimeout(240_000)
+    test.setTimeout(120_000)
     const adminToken = await getAuthToken(request, 'admin')
     const initial = await readOtelSettings(request, adminToken)
     test.skip(!initial.deployment?.enabled, OTEL_DEPLOYMENT_DISABLED_REASON)
@@ -173,7 +166,6 @@ test.describe('TC-AGENT-OTEL-002: agent run export to an OTLP receiver', () => {
       )
       expect(enable.status(), await enable.text()).toBe(200)
 
-      await page.waitForTimeout(MODULE_CONFIG_CACHE_TTL_MS + 2_000)
       const runId = await ingestRun(request, adminToken, sentinel)
       test.skip(runId === null, INGEST_SKIP_REASON)
       runIds.push(runId!)
@@ -251,7 +243,6 @@ test.describe('TC-AGENT-OTEL-002: agent run export to an OTLP receiver', () => {
       )
       expect(disable.status(), await disable.text()).toBe(200)
 
-      await page.waitForTimeout(MODULE_CONFIG_CACHE_TTL_MS + 2_000)
       const optedOutRunId = await ingestRun(request, adminToken, sentinel)
       expect(optedOutRunId).not.toBeNull()
       runIds.push(optedOutRunId!)
