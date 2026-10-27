@@ -5,8 +5,9 @@ import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/c
 import { resolveRedoSnapshot, restoreCreatedRow, reviveSnapshotSeed } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, forbidden, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { Currency, ExchangeRate } from '../data/entities'
 import {
   currencyCreateSchema,
@@ -245,6 +246,18 @@ const createCurrencyCommand: CommandHandler<CurrencyCreateInput, CurrencyCommand
     ensureCurrencyCommandScope(ctx, parsed)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    if (ctx.auth && ctx.auth.isSuperAdmin !== true) {
+      const organization = await em.findOne(
+        Organization,
+        { id: parsed.organizationId, deletedAt: null },
+        { populate: ['tenant'] },
+      )
+      if (!organization || String(organization.tenant.id) !== parsed.tenantId) {
+        throw forbidden()
+      }
+    }
+
     const scope = scopeOf(parsed)
     let demotedBaseCurrencyIds: string[] = []
     let record!: Currency
