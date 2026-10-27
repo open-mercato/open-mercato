@@ -124,6 +124,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/mercato.test.ts',
+        scans: 'docker/scripts and packages/create-app/template/docker/scripts — actual initialization output preserves credential redaction, exit status and marker behavior through both first-run flows (#7822)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-subset.test.ts',
         scans: 'live Catalog and Entities dependency metadata across packages/core and all three module-generator variants — standalone dependency closure (#6517)',
       },
