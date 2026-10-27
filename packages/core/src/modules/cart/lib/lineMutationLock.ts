@@ -33,7 +33,7 @@ export async function withCartLineMutationLock(
       ], { transaction: true, label })
       return
     } catch (error) {
-      if (error !== busy) throw error
+      if (error !== busy || em.isInTransaction()) throw error
     }
 
     const remainingMs = deadline - Date.now()
