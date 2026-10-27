@@ -238,8 +238,11 @@ non-deleted definitions. Original `fields` and hashed-token inputs remain intact
 
 Filtering runs before any fulltext driver and before fallback embedding creation.
 It does not sanitize explicit `buildSource` text, presenters or links; those
-build-context protections are tracked separately in #7874. Direct `SearchService`
-clients must provide the optional metadata for their own custom-field records.
+build-context protections are tracked separately in #7874. Application DI wires
+the resolver automatically; manually constructed `SearchIndexer` instances must
+pass `encryptedCustomFieldKeysResolver`, otherwise their legacy behavior remains.
+Direct `SearchService` clients must provide the optional metadata for their own
+custom-field records.
 No route, database schema, queue payload, strategy ID or existing signature changes.
 
 Operators must reindex affected fulltext/vector data after upgrade to replace old

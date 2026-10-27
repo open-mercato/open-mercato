@@ -36,7 +36,10 @@ are a separate protection tracked in #7874.
 previously indexed plaintext is not removed until records are rewritten. Review
 any retention/export copies held by external search or embedding providers.
 
-**Module author action:** direct `SearchService.index`/`bulkIndex` clients can pass
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+to enable definition-based exclusions; omission preserves its legacy behavior.
+Direct `SearchService.index`/`bulkIndex` clients can pass
 `IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
 keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
 `cf_` aliases are excluded. Omission preserves existing behavior, and `fields`
