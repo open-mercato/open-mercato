@@ -120,6 +120,19 @@ function normalizeLocaleNumber(input: string | null | undefined, locale?: string
   return normalized
 }
 
+/**
+ * Renders a number as the text an input field should show under `locale` — `2,5` under
+ * `pl-PL`, `2.5` under `en-US`. Unlike `String()`, which always emits a dot, the result uses
+ * the locale's decimal separator, so a value redisplayed after blur or reload matches what the
+ * user typed and what the rest of the UI shows. No grouping is applied, and the output always
+ * round-trips through `parseLocaleNumber`.
+ */
+export function formatLocaleNumberInput(value: number, locale?: string): string {
+  const serialized = String(value)
+  const { decimal } = resolveLocaleNumberSeparators(locale)
+  return decimal === '.' ? serialized : serialized.replace('.', decimal)
+}
+
 export function parseNumberWithDefault(
   raw: string | null | undefined,
   fallback: number,

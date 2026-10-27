@@ -77,9 +77,21 @@ export interface PaymentGatewayPresentationRequest {
   rendererSettings?: Record<string, unknown>
 }
 
+/**
+ * Payer details a provider needs to create a payment session. Each value maps to
+ * canonical checkout customer fields: `email` → `email`, `name` → `firstName` + `lastName`.
+ */
+export type PaymentGatewayPayerField = 'email' | 'name'
+
 export interface PaymentGatewayDescriptor {
   providerKey: string
   label: string
+  /**
+   * Payer details the provider cannot create a session without. Hosts that collect
+   * payer data (for example checkout links) must collect each one as a required field.
+   * Omit when the provider needs no payer data.
+   */
+  requiresPayerFields?: PaymentGatewayPayerField[]
   sessionConfig?: {
     fields?: PaymentGatewayDescriptorField[]
     supportedCurrencies?: '*' | string[]

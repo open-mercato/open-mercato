@@ -21,6 +21,16 @@ function participantLabel(participant: CalendarParticipant): string {
   return participant.name?.trim() || participant.email?.trim() || ''
 }
 
+function actorLabels(item: CalendarItem): Map<string, string> {
+  const actors = new Map<string, string>()
+  if (item.ownerUserId) actors.set(`user:${item.ownerUserId}`, '')
+  for (const participant of item.participants) {
+    const key = participantActorKey(participant)
+    if (key !== null && !actors.get(key)) actors.set(key, participantLabel(participant))
+  }
+  return actors
+}
+
 function bookedResources(item: CalendarItem): Array<{ id: string; label: string }> {
   return parseLinkedEntities((item.raw as { linkedEntities?: unknown }).linkedEntities).resources
 }
@@ -33,25 +43,10 @@ function bookedResources(item: CalendarItem): Array<{ id: string; label: string 
  */
 export function sharedConflictSubjects(first: CalendarItem, second: CalendarItem): ConflictSubject[] {
   const shared = new Map<string, ConflictSubject>()
-  const labelOf = (item: CalendarItem, actorKey: string): string => {
-    const match = item.participants.find((participant) => participantActorKey(participant) === actorKey)
-    return match ? participantLabel(match) : ''
-  }
-  if (first.ownerUserId && second.ownerUserId && first.ownerUserId === second.ownerUserId) {
-    const key = `user:${first.ownerUserId}`
-    shared.set(key, { kind: 'person', key, label: labelOf(first, key) || labelOf(second, key) })
-  }
-  if (first.participants.length > 0 && second.participants.length > 0) {
-    const secondActorKeys = new Set(
-      second.participants
-        .map(participantActorKey)
-        .filter((actorKey): actorKey is string => actorKey !== null),
-    )
-    for (const participant of first.participants) {
-      const key = participantActorKey(participant)
-      if (key === null || !secondActorKeys.has(key) || shared.has(key)) continue
-      shared.set(key, { kind: 'person', key, label: participantLabel(participant) || labelOf(second, key) })
-    }
+  const secondActors = actorLabels(second)
+  for (const [key, label] of actorLabels(first)) {
+    if (!secondActors.has(key)) continue
+    shared.set(key, { kind: 'person', key, label: label || secondActors.get(key) || '' })
   }
   const firstResources = bookedResources(first)
   if (firstResources.length > 0) {

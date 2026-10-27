@@ -13,6 +13,7 @@ import {
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
@@ -500,6 +501,7 @@ export function LineItemDialog({
   onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   // These fields are hand-rolled text inputs, so the raw string a user typed reaches the
   // submit handler. It carries the separator the surrounding UI displays, which follows the
@@ -1749,7 +1751,7 @@ export function LineItemDialog({
           return;
         }
         const action = editingId ? updateCrud : createCrud;
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             action(
@@ -1764,7 +1766,7 @@ export function LineItemDialog({
                 ),
               },
             ),
-        );
+        ), editingId ? { id: editingId, ...submittedPayload } : submittedPayload);
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
@@ -1806,6 +1808,7 @@ export function LineItemDialog({
       parseUserNumber,
       resolvedOrganizationId,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
