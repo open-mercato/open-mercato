@@ -679,6 +679,7 @@ describe('module command exit signal propagation', () => {
 
 describe('init command failure output', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
+  const originalInitEnvironment = { ...process.env }
 
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -687,6 +688,7 @@ describe('init command failure output', () => {
   })
 
   afterEach(() => {
+    process.env = { ...originalInitEnvironment }
     jest.dontMock('child_process')
     jest.dontMock('pg')
     jest.dontMock('../lib/db')
@@ -967,6 +969,88 @@ describe('init command failure output', () => {
     )
   }
 
+  it.each([false, true])('keeps supplied passwords out of initialization output (failure: %s)', async (fails) => {
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'fixture-owner-password'
+    process.env.OM_INIT_ADMIN_PASSWORD = 'fixture-admin-password'
+    process.env.OM_INIT_EMPLOYEE_PASSWORD = 'fixture-employee-password'
+    const authSetup = fails
+      ? jest.fn().mockRejectedValue(new Error('Setup failed: fixture-cli-password fixture-admin-password fixture-employee-password'))
+      : jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init', '--password=fixture-cli-password'])
+    const output = [...consoleLogSpy.mock.calls, ...consoleErrorSpy.mock.calls].map((args) => args.join(' ')).join('\n')
+
+    expect(exitCode).toBe(fails ? 1 : 0)
+    expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'fixture-cli-password']))
+    for (const secret of ['fixture-cli-password', 'fixture-owner-password', 'fixture-admin-password', 'fixture-employee-password']) {
+      expect(output).not.toContain(secret)
+    }
+    if (fails) {
+      expect(output).toContain('Setup failed: **** **** ****')
+    } else {
+      expect(output).toContain('App initialization complete!')
+      expect(output).toContain('superadmin@acme.com')
+      expect(output).not.toContain('Password:')
+    }
+
+    const fileSystem = jest.requireActual<typeof import('node:fs')>('node:fs')
+    const os = jest.requireActual<typeof import('node:os')>('node:os')
+    const paths = jest.requireActual<typeof import('node:path')>('node:path')
+    const { spawnSync } = jest.requireActual<typeof import('node:child_process')>('node:child_process')
+    const temporaryDirectory = fileSystem.mkdtempSync(paths.join(os.tmpdir(), 'init-output-'))
+    const quotePath = (value: string) => `'${value.replace(/\\/g, '/').replace(/'/g, `'"'"'`)}'`
+    const payloadPath = paths.join(temporaryDirectory, 'output.txt')
+    fileSystem.writeFileSync(payloadPath, output)
+    try {
+      const root = paths.resolve(__dirname, '../../../..')
+      for (const script of ['docker/scripts/init-or-migrate.sh', 'packages/create-app/template/docker/scripts/init-or-migrate.sh']) {
+        const marker = paths.join(temporaryDirectory, script.startsWith('packages/') ? 'template.seeded' : 'starter.seeded')
+        const result = spawnSync('sh', [paths.join(root, script).replace(/\\/g, '/')], {
+          env: {
+            ...process.env,
+            INIT_MARKER_FILE: marker.replace(/\\/g, '/'),
+            INIT_COMMAND: `cat ${quotePath(payloadPath)}; exit ${exitCode}`,
+          },
+          encoding: 'utf8',
+          timeout: 30_000,
+        })
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(exitCode)
+        expect(fileSystem.existsSync(marker)).toBe(!fails)
+        const containerOutput = `${result.stdout}${result.stderr}`
+        for (const secret of ['fixture-cli-password', 'fixture-owner-password', 'fixture-admin-password', 'fixture-employee-password']) {
+          expect(containerOutput).not.toContain(secret)
+        }
+        expect(containerOutput).toContain(fails ? 'Setup failed: **** **** ****' : 'App initialization complete!')
+      }
+    } finally {
+      fileSystem.rmSync(temporaryDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps generated production passwords out of initialization output', async () => {
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    process.env.NODE_ENV = 'production'
+    delete process.env.OM_INIT_ADMIN_PASSWORD
+    delete process.env.OM_INIT_EMPLOYEE_PASSWORD
+    mockInitDependencies({ authSetup: jest.fn().mockResolvedValue(undefined) })
+
+    const mercato = await import('../mercato')
+    expect(await mercato.run(['node', 'mercato', 'init'])).toBe(0)
+    const output = [...consoleLogSpy.mock.calls, ...consoleErrorSpy.mock.calls].map((args) => args.join(' ')).join('\n')
+
+    expect(process.env.OM_INIT_ADMIN_PASSWORD).toBeTruthy()
+    expect(process.env.OM_INIT_EMPLOYEE_PASSWORD).toBeTruthy()
+    expect(output).not.toContain(process.env.OM_INIT_ADMIN_PASSWORD)
+    expect(output).not.toContain(process.env.OM_INIT_EMPLOYEE_PASSWORD)
+    expect(output).not.toContain('Password:')
+  })
+
   it('passes --include-demo-users to auth setup by default', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -1008,6 +1092,38 @@ describe('init command failure output', () => {
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
+  })
+})
+
+describe('module command secret output', () => {
+  beforeEach(() => {
+    jest.resetModules()
+    jest.spyOn(console, 'log').mockImplementation()
+    jest.spyOn(console, 'error').mockImplementation()
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it.each([false, true])('redacts secret options while passing original arguments to the handler (failure: %s)', async (fails) => {
+    const args = ['--password', 'fixture-password', '--client-secret=fixture-client-secret', '--apiKey', 'fixture-api-key', '--token=fixture-token', '--tenant', 'tenant-1']
+    const handler = fails
+      ? jest.fn().mockRejectedValue(new Error('Rejected fixture-password fixture-client-secret fixture-api-key fixture-token'))
+      : jest.fn().mockResolvedValue(undefined)
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'fixture', cli: [{ command: 'execute', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'fixture', 'execute', ...args])).toBe(fails ? 1 : 0)
+    expect(handler).toHaveBeenCalledWith(args)
+    const output = [...jest.mocked(console.log).mock.calls, ...jest.mocked(console.error).mock.calls]
+      .map((values) => values.join(' ')).join('\n')
+
+    expect(output).toContain('--password **** --client-secret=**** --apiKey **** --token=**** --tenant tenant-1')
+    for (const secret of ['fixture-password', 'fixture-client-secret', 'fixture-api-key', 'fixture-token']) {
+      expect(output).not.toContain(secret)
+    }
+    if (fails) expect(output).toContain('Rejected **** **** **** ****')
   })
 })
 

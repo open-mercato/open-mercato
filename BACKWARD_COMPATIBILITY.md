@@ -602,3 +602,25 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+## Bootstrap Credential Output Redaction (2026-10-27)
+
+Issue #7822 removes plaintext passwords from the `mercato init` account banner,
+masks secret-bearing module command options, and redacts known credentials from
+CLI-owned failure diagnostics. CLI commands and flags (§13, STABLE) keep their
+names, accepted inputs, execution behavior and exit codes. The human-readable
+output intentionally changes; password-scraping clients must migrate.
+
+**Security exception:** the removed output is itself the disclosure to durable
+terminal, CI and deployment logs. Keeping the old output in a bridge release or
+behind a toggle would retain the vulnerability. Only the vulnerable output is
+removed; no insecure fallback is retained. The exception remains **pending named
+human maintainer approval** on the security-labeled implementation PR, which an
+automated review cannot replace.
+
+**Migration:** clients stop parsing plaintext passwords. Operators supply the
+existing `OM_INIT_*_PASSWORD` overrides from their secret manager or use the
+configured password-reset flow, and rotate credentials that earlier logs may have
+exposed. Previously retained logs remain suspect. Full client/operator guidance is
+in `UPGRADE_NOTES.md`; the design and test contract are in
+[the spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md#migration--backward-compatibility).

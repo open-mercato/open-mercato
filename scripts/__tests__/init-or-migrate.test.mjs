@@ -17,6 +17,7 @@ function runScript({
   syncFails = false,
   migrateFails = false,
   migrateExitCode = 1,
+  script = scriptPath,
 } = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'init-or-migrate-'))
   const markerFile = path.join(tempDir, 'marker', '.seeded')
@@ -37,7 +38,7 @@ function runScript({
     ? `${record('migrate')}; exit ${migrateExitCode}`
     : record('migrate')
 
-  const result = spawnSync('sh', [scriptPath], {
+  const result = spawnSync('sh', [script], {
     env: {
       ...process.env,
       INIT_MARKER_FILE: markerFile,
@@ -46,6 +47,7 @@ function runScript({
       SYNC_ROLE_ACLS_COMMAND: syncFails ? `${record('sync')}; exit 1` : record('sync'),
     },
     encoding: 'utf8',
+    timeout: 30_000,
   })
 
   const steps = fs.existsSync(stepsFile)
@@ -105,4 +107,13 @@ test('a failing migration on an already-seeded run aborts startup with the migra
 
 test('the create-app template ships the same boot script', () => {
   assert.equal(fs.readFileSync(templateScriptPath, 'utf8'), fs.readFileSync(scriptPath, 'utf8'))
+})
+
+test('the create-app first-run flow preserves initialization success and failure', () => {
+  for (const initFails of [false, true]) {
+    const { markerExists, result, steps } = runScript({ script: templateScriptPath, initFails })
+    assert.equal(result.status, initFails ? 1 : 0, result.stderr)
+    assert.equal(markerExists, !initFails)
+    assert.deepEqual(steps, ['init'])
+  }
 })

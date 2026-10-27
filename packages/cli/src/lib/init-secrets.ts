@@ -60,7 +60,7 @@ export function resolveInitDerivedSecrets(options: {
     // Non-production (dev/test/staging defaults): seed the documented demo
     // password so `yarn dev` / `mercato init` workflows stay predictable.
     // Production: generate a fresh random secret so credentials are never
-    // hardcoded and the operator-facing CLI prints the value once.
+    // hardcoded. Operators can supply known credentials through environment overrides.
     return isProduction ? randomSecret() : DEMO_DERIVED_PASSWORD
   }
 
