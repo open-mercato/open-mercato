@@ -473,6 +473,27 @@ export const traceCapturePolicySchema = z.object({
 export type TraceCapturePolicy = z.infer<typeof traceCapturePolicySchema>
 export type TraceCapturePolicyInput = z.input<typeof traceCapturePolicySchema>
 
+export const OTEL_EXPORT_CONTENT_MODES = ['none', 'full'] as const
+export const OTEL_EXPORT_AGENT_ALLOWLIST_MAX = 200
+export const OTEL_EXPORT_AGENT_ID_MAX_LENGTH = 100
+
+/**
+ * Per-tenant OTel export settings (module config `agent_orchestrator/otel_export`).
+ * Deployment configuration and the effective export gate live in
+ * `lib/trace/otel/exportSettings.ts`. An absent `agentAllowlist` exports every agent.
+ */
+export const otelExportSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  content: z.enum(OTEL_EXPORT_CONTENT_MODES).default('none'),
+  exportUserIds: z.boolean().default(false),
+  agentAllowlist: z
+    .array(z.string().min(1).max(OTEL_EXPORT_AGENT_ID_MAX_LENGTH))
+    .max(OTEL_EXPORT_AGENT_ALLOWLIST_MAX)
+    .optional(),
+})
+export type OtelExportSettings = z.infer<typeof otelExportSettingsSchema>
+export type OtelExportSettingsInput = z.input<typeof otelExportSettingsSchema>
+
 /** Shape returned by GET /runs/:id — the full run with its trace tree. */
 export type RunDetailResponse = {
   run: Record<string, unknown>
