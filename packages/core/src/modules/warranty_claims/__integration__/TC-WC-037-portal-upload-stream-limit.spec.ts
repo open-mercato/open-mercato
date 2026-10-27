@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { expect, test } from '@playwright/test'
+import { resolveAttachmentMultipartMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
@@ -18,7 +19,7 @@ import { uniqueLabel } from './helpers'
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const UPLOAD_PATH = '/api/warranty_claims/portal/attachments'
 const BOUNDARY = '----om-tc-wc-037'
-const OVERSIZED_FILE_BYTES = 40 * 1024 * 1024
+const OVERSIZED_FILE_BYTES = resolveAttachmentMultipartMaxBytes()
 
 type UploadResult = { status: number; body: string }
 
