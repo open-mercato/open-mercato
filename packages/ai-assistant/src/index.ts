@@ -58,6 +58,20 @@ export {
   type AiAgentModelCallUsage,
 } from './modules/ai_assistant/lib/agent-call-contract'
 
+export {
+  AI_AGENT_RUN_DISPATCHER_DI_KEY,
+  AiAgentDispatchDeniedError,
+  isAiAgentDispatchDeniedError,
+  resolveAiAgentRunDispatcher,
+  type AiAgentRunDispatcher,
+  type AiAgentRunDispatchInput,
+  type AiAgentRunDispatchResult,
+  type AiAgentRunDispatchCaller,
+  type AiAgentRunDispatchUsage,
+  type AiAgentRunDispatchVia,
+  type AiAgentDispatchDeniedCode,
+} from './modules/ai_assistant/lib/agent-run-dispatcher'
+
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
 

@@ -17,7 +17,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add the agent run dispatcher port and soft resolver | dispatch | todo | — |
+| 1 | 1.1 | Add the agent run dispatcher port and soft resolver | dispatch | done | f3dfec032 |
 | 1 | 1.2 | Add defineAgentTool with the ai-assistant engine and dispatcher routing | dispatch:capable | todo | — |
 | 1 | 1.3 | Synthesize agent tools from defineAiAgent mcpTool declarations | dispatch | todo | — |
 | 1 | 1.4 | Return structured agent-tool results on every MCP server and tools/execute | dispatch:capable | todo | — |
