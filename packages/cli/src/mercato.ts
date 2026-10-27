@@ -267,7 +267,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 
     console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
     try {
-      await adminClient.query(`CREATE DATABASE "${dbName.replace(/"/g, '')}"`)
+      await adminClient.query(`CREATE DATABASE ${quotePostgresIdentifier(dbName)}`)
       console.log(`   Database "${dbName}" created successfully.`)
       return true
     } catch (createError: unknown) {
@@ -2790,12 +2790,14 @@ export async function run(argv = process.argv) {
     : rest
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
-    await cmd.run(rest)
+    const commandExitCode = await runWithCapturedExitCode(async () => {
+      await cmd.run(rest)
+    })
     if (modName !== 'deploy' || cmdName !== 'railway') {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }
-    return 0
+    return commandExitCode
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
     return 1

@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","communication_channels","workflows"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","communication_channels","workflows"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -14,6 +14,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 `TC-CHANNEL-REPLY-001` exhausted its 60-second budget by polling for an extra outbound delivery that the final assertion expected never to happen. After the reply command completes, draining the events queue and then the outbound queue provides the completion barrier: the event worker awaits enqueueing delivery, and the drain helper awaits handlers until no runnable jobs remain. Read the delivery total after that barrier and assert it stayed unchanged; retain positive-delivery polling to prove the real outbound path works.
 
 `TC-WF-006` found two Delete actions after scrolling and hovering opened multiple portaled row menus. A page-wide action locator does not identify the intended record. Scope the menu using the Edit link for the newly created definition's exact ID, then select Delete inside that menu; choosing the first matching Delete can remove another record.
+
+`TC-CRM-065` selected ten unfiltered people although its scenario created three fixtures. The matching search response arrived after deletion because rerenders restarted the debounce, and the blocked fixture was already visible in the initial list. An exact response/fixture-row guard prevented that mutation, but a cold local attempt still timed out with an empty search field; the passing retry's trace showed typing overlapping the initial client fetch. Wait for a row populated by the client effect before typing, then verify the filtered response IDs, rendered rows, selected count, and confirmation count before any bulk mutation. Fixture visibility alone does not prove the filter has finished. Evidence: CI run `40225746832`, its retry trace, and `customers/__integration__/TC-CRM-065.spec.ts`.
 
 **Problem**: The secondary "context closed" error is a symptom of the test-level timeout tearing the worker down mid-request — it is not the cause. Two real causes hid behind it: (1) the row-actions dropdown is opened with `actionsButton.press('Enter')` and then the menu item is clicked directly; if the Radix trigger swallows the keypress before hydration, the menu never opens and `.click()` auto-waits on a never-mounting element until the whole test times out; (2) login + navigation + three sequential ≤10s waits + fixture setup/teardown genuinely does not fit a 30s budget under 15-shard parallel load — every other login+nav spec already uses 60–120s, and this one was the lone 30s outlier.
 
