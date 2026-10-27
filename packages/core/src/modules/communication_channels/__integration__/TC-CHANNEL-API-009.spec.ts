@@ -129,15 +129,22 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
       const reactionButton = page.getByRole('button', { name: /👍/ })
       await expect(reactionButton).toBeVisible()
 
-      const removed = await apiRequest(
-        request,
-        'DELETE',
-        `/api/communication_channels/messages/${seeded.messageId}/reactions/${reactionId}`,
-        { token: ownerToken },
+      const reactionPath = `/api/communication_channels/messages/${seeded.messageId}/reactions/${reactionId}`
+      const reactionOwnerToken = ownerToken
+      await page.route(
+        (url) => url.pathname === reactionPath,
+        async (route) => {
+          const removed = await apiRequest(request, 'DELETE', reactionPath, { token: reactionOwnerToken })
+          expect(removed.status()).toBe(204)
+          await route.continue()
+        },
+        { times: 1 },
       )
-      expect(removed.status()).toBe(204)
-
+      const refusalResponse = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === reactionPath && response.request().method() === 'DELETE',
+      )
       await reactionButton.click()
+      expect((await refusalResponse).status()).toBe(404)
       await expect(page.getByText('Nie znaleziono reakcji')).toBeVisible()
     } finally {
       await deleteChannelIfExists(request, ownerToken, channelId)
