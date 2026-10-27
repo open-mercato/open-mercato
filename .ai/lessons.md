@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 156 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 157 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -179,6 +179,7 @@ This catalog indexes 156 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [Verify persisted state with fresh CRUD reads](lessons/verify-persisted-state-with-fresh-crud-reads.md) — area:testing,integration,module-data; module:customers,shared; topic:cache,data-integrity,testing
 - [Repository-source tests must register as cross-package guards](lessons/repository-source-tests-must-register-as-cross-package-guards.md) — area:testing; module:cli,catalog; topic:testing,module-boundaries,generated-files
 
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
