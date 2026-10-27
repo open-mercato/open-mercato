@@ -11,8 +11,8 @@ Make every money and FX column an unconstrained Postgres `numeric`. Move all mon
 Public TypeScript contracts and API payloads that expose amounts as `number` keep those fields as float copies of the exact value (not `@deprecated`). Each gets a sibling `<field>Exact: string` that carries the exact value.
 
 **Scope:**
-- **Columns:** exchange rates (`exchange_rates.rate`, `sales_orders.exchange_rate`) and about 100 money columns in sales, catalog, checkout, customers, customer_groups, payment_gateways, staff and warranty_claims.
-- **Math:** the sales calculation engine, tax service, shipping/payment providers, payment gateways, Stripe minor-unit conversion, and the sales UI dialogs.
+- **Columns:** exchange rates (`exchange_rates.rate`, `sales_orders.exchange_rate`) and about 100 money columns in sales, catalog, checkout, cart, promotions, customers, customer_groups, payment_gateways, staff and warranty_claims.
+- **Math:** the sales calculation engine, tax service, shipping/payment providers, payment gateways, Stripe minor-unit conversion, the sales UI dialogs, buyer line pricing (`catalogBuyerPricingService`), cart repricing and the promotions engine.
 
 **Out of scope:** quantities, tax-rate percentages (`numeric(7,4)`), weights, dimensions, unit conversion factors, coordinates and scores.
 
@@ -103,6 +103,8 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 - Payment gateway session, capture and refund routes, and the public checkout submit route before it reserves a transaction, reject amounts with more decimals than `min(tenant decimals, ISO minor-unit digits)` (400).
 - Sales settlement checks use a tolerance of one unit at the greater of the currency amount precision and the compared amounts' decimal places. Gateway order-amount reconciliation uses half a unit at the currency amount precision for exact resolvers; float-only resolvers keep the old `1e-4`.
 - Closed staff reports sum and export frozen amounts as stored; live amounts round per D10.
+- `catalogBuyerPricingService.resolveLinePrice` returns `amountNetExact` / `amountGrossExact` (and the same on every tier) next to the float copies; a derived side rounds at `max(4, currency decimals)`, from the optional `BuyerPricingContext.currencyDecimalPlaces` or the ISO 4217 minor units. Cart lines store these exact strings and pass `*Exact` siblings to the sales calculation, so cart totals are exact; order-scope promotion adjustments carry `amountNetExact` / `amountGrossExact`.
+- The promotions engine computes discount amounts, `max_discount` caps, tier thresholds and the `order_value` / `row_total` rules exactly, rounding once per effect at the currency's fraction digits (falling back to the ISO 4217 minor units, then 2). Budget sums are exact and keep at least two decimals. Quantities, weights and order counts stay numbers.
 - The sales dialogs read the configured currency decimals (`/api/currencies/currencies`) for auto-fill and shipped-line rescaling; `formatCurrency` rounds display to the currency precision when it is known.
 
 ## Data Models
@@ -129,6 +131,8 @@ The currencies module registers a `currencyPrecisionService` DI service with `ge
 | customers | companies (`annual_revenue`), deals (`value_amount`) | 16,2 / 14,2 |
 | customer_groups | group terms (`default_credit_limit`, `approval_required_above`, `min_order_value`) | 16,2 |
 | checkout | link templates and links (`fixed_price_amount`, `fixed_price_original_amount`, `custom_amount_min`, `custom_amount_max`), transactions (`amount`) | 12,2 |
+| cart | cart lines (`unit_price_net`, `unit_price_gross`, `discount_total_net`), promotion applications (`amount_net`, `amount_gross`) | 16,4 |
+| promotions | promotions (`max_budget`), promotion usages (`total_discount_amount`) | 16,2 |
 
 Existing rows keep their stored scale (`40.0000`). New rows store the value as written (`40`).
 
@@ -153,6 +157,7 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 | `payment_gateways/__integration__/TC-PGWY-PRECISION-001` | 18-dp order: session, status (`amountExact`, `amountReceivedExact`), partial capture, capture ceiling and refund keep exact amounts; positive session input whose number copy underflows is rejected with 422 |
 | `customers/__integration__/TC-CRM-PRECISION-001` | Deal `valueAmount` and company `annualRevenue` beyond 2 decimals; deal stats `dealValueExact`; summary exact fields |
 | `customer_groups/__integration__/TC-CGRP-PRECISION-001` | Group terms (`defaultCreditLimit`, `approvalRequiredAbove`, `minOrderValue`) beyond 2 decimals |
+| `cart/__integration__/TC-CART-PRECISION-001` | Catalog price beyond float precision: cart line snapshot and cart totals keep every digit |
 | `staff/__integration__/TC-STAFF-PRECISION-001` | Project hourly rate and time entry rate override beyond 4 decimals; preview and report totals `*Exact` |
 | `warranty_claims/__integration__/TC-WC-PRECISION-001` | Claim line amounts beyond 4 decimals; claim totals read back exactly |
 | `warranty_claims/__integration__/TC-WC-PRECISION-002` | Settings `autoApproveMaxAmount` beyond float precision |
@@ -214,3 +219,4 @@ Every module whose API gains `<field>Exact` fields or wider money columns gets a
 - 2026-10-14: Address haxiorz's review: restore deprecated bigint capture-ledger bridges, reject positive gateway amount underflow, move the pure currency precision check into shared, and regenerate money snapshots with unconstrained numeric metadata. The gateway precision integration test includes the underflow rejection; metadata/schema regression coverage verifies repeated migration generation is a no-op.
 - 2026-10-14: Align compatibility notes, currency precision sources, reconciliation tolerance, and input-limit documentation with the implemented helpers and routes.
 - 2026-10-16: Merge upstream develop. Decimal results stay within the input caps (rounded beyond 1000 significant digits or `1e-1000`, integer overflow throws); `Big` values are recognised by shape; decimal places, empty `minDecimal`/`maxDecimal` and inputs longer than 2048 characters are rejected with `[internal]` errors; caveats of `withExactAmounts` and `withDecimalCaps` documented.
+- 2026-10-27: Merge upstream main. The new `cart` and `promotions` modules join the inventory: their money columns are unconstrained `numeric` (`ExactDecimalType`), `catalogBuyerPricingService` returns exact price siblings, cart lines and totals are exact, and the promotions engine, rules and budget use the decimal toolkit. Their decimal string inputs get the shared size caps.

@@ -37,6 +37,9 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
   `@open-mercato/shared/lib/decimal` instead of JS numbers.
 - Payment gateway adapters should prefer `input.amountExact` and may return `capturedAmountExact` /
   `refundedAmountExact` / `amountExact`.
+- Callers of `catalogBuyerPricingService.resolveLinePrice` should read `amountNetExact` /
+  `amountGrossExact` and pass the tenant's currency decimals as `currencyDecimalPlaces`; the
+  `number` fields stay as float copies. Cart and promotion money columns are unconstrained `numeric`.
 - Code that compared stored amount strings literally (`'40.0000'`) must compare numerically: new rows
   are stored without scale padding. Catalog history responses retain at least four decimal places
   without truncating additional digits.
