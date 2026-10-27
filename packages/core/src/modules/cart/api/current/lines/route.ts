@@ -201,7 +201,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 409, description: 'Optimistic-lock conflict, or the cart is a `proposal` cart' },
         { status: 422, description: 'Quantity rule violation, idempotency key mismatch, or an unpriceable product' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+        { status: 503, description: 'No store context resolvable, or cart_busy after 15 seconds waiting for the line lock. cart_busy runs no line mutation; retry the same request after Retry-After: 1 second, preserving Idempotency-Key.' },
       ],
     },
   },
