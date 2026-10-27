@@ -19,3 +19,8 @@
 - Steps 2.1..2.5 verified: typecheck, AO jest 2111/2111, core guards, build:app --force.
 - UI browser check deferred to checkpoint 3 (Step 3.3 writes the spec that captures the screenshots).
 - Delegations: executors for 2.1, 2.2, 2.3 (cheap tier), 2.4, 2.5.
+
+## 2026-10-27T17:56:10Z — checkpoint 3
+- Steps 3.1..3.3 verified: typecheck, AO jest 2104 (+1 suite re-run alone after a worker SIGSEGV), TC-AGENT-TRACE-005 2 passed / 1 skipped (no LLM).
+- Screenshots in checkpoint-3-artifacts/. Observability P2 complete.
+- Delegations: executors for 3.1, 3.2, 3.3 (3.3 ran the spec against the ephemeral app started by the main session).
