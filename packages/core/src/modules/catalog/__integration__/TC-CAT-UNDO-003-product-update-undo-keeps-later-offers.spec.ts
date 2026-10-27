@@ -68,7 +68,7 @@ async function updateProduct(request: APIRequestContext, token: string, data: It
  * TC-CAT-UNDO-003 (#7679): undoing a product update reverts only what that update changed.
  * Offers created afterwards through the offers API must survive the undo, while an offer the
  * update itself created is still removed. An offer the update removed is not overwritten when an
- * offer undo has already restored it.
+ * offer undo has already restored it, on the same product or on another one.
  */
 test.describe('TC-CAT-UNDO-003 product update undo keeps offers created later', () => {
   test.beforeAll(() => {
@@ -189,6 +189,66 @@ test.describe('TC-CAT-UNDO-003 product update undo keeps offers created later', 
       ])
     } finally {
       await deleteCatalogProductIfExists(request, token, productId)
+      for (const channelId of channelIds) {
+        await deleteGeneralEntityIfExists(request, token, '/api/sales/channels', channelId)
+      }
+    }
+  })
+
+  test('undo keeps an offer the update removed when an offer undo restored it under another product', async ({ request }) => {
+    const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`
+    let token: string | null = null
+    const productIds: string[] = []
+    const channelIds: string[] = []
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      channelIds.push(await createChannel(request, token, `qa-undo-003-f-${stamp}`))
+      const sourceProductId = await createProductFixture(request, token, {
+        title: `QA Undo 003 source ${stamp}`,
+        sku: `QA-UNDO-003-SRC-${stamp}`,
+      })
+      productIds.push(sourceProductId)
+      const targetTitle = `QA Undo 003 target ${stamp}`
+      const targetProductId = await createProductFixture(request, token, {
+        title: targetTitle,
+        sku: `QA-UNDO-003-TGT-${stamp}`,
+      })
+      productIds.push(targetProductId)
+      const offerTitle = `Moved offer ${stamp}`
+      const offerId = await createOffer(request, token, {
+        productId: sourceProductId,
+        channelId: channelIds[0],
+        title: offerTitle,
+      })
+
+      const moveOperation = await updateOffer(request, token, { id: offerId, productId: targetProductId })
+      expect(await listOffers(targetProductId), 'the move attaches the offer to the target').toEqual([
+        { id: offerId, title: offerTitle },
+      ])
+      const productOperation = await updateProduct(request, token, {
+        id: targetProductId,
+        title: `${targetTitle} renamed`,
+        offers: [],
+      })
+      expect(await listOffers(targetProductId), 'the update removes the offer').toEqual([])
+
+      await undoOk(request, token, moveOperation.undoToken, 'catalog.offers.update undo')
+      expect(await listOffers(sourceProductId), 'offer undo restores the offer on the source').toEqual([
+        { id: offerId, title: offerTitle },
+      ])
+
+      await undoOk(request, token, productOperation.undoToken, 'catalog.products.update undo')
+
+      expect(await readProductTitle(request, token, targetProductId), 'undo reverts the target title').toBe(targetTitle)
+      expect(await listOffers(sourceProductId), 'the restored offer stays on the source').toEqual([
+        { id: offerId, title: offerTitle },
+      ])
+      expect(await listOffers(targetProductId), 'the target does not get a duplicate').toEqual([])
+    } finally {
+      for (const productId of productIds) {
+        await deleteCatalogProductIfExists(request, token, productId)
+      }
       for (const channelId of channelIds) {
         await deleteGeneralEntityIfExists(request, token, '/api/sales/channels', channelId)
       }

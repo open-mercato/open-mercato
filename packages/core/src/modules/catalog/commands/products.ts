@@ -826,7 +826,22 @@ async function restoreOffersFromSnapshot(
     target.metadata = snap.metadata ? cloneJson(snap.metadata) : null;
     target.isActive = snap.isActive;
   };
-  const toCreate = restorable.filter((snap) => !findRemaining(snap.id));
+  const missing = restorable.filter((snap) => !findRemaining(snap.id));
+  const scope = {
+    tenantId: product.tenantId,
+    organizationId: product.organizationId,
+  };
+  const presentElsewhere = missing.length
+    ? await findWithDecryption(
+        em,
+        CatalogOffer,
+        { ...scope, id: { $in: missing.map((snap) => snap.id) } },
+        {},
+        scope,
+      )
+    : [];
+  const presentIds = new Set(presentElsewhere.map((offer) => offer.id));
+  const toCreate = missing.filter((snap) => !presentIds.has(snap.id));
   let pending = restorable.filter((snap) => !!findRemaining(snap.id));
   let progressed = true;
   while (pending.length && progressed) {

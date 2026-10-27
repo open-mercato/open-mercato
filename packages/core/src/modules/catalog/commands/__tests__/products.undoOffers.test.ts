@@ -95,7 +95,7 @@ function loadUpdateCommand(): UndoHandler {
   return command
 }
 
-function createHarness(current: OfferRow[]) {
+function createHarness(current: OfferRow[], elsewhere: OfferRow[] = []) {
   const rows: OfferRow[] = current.map((entry) => ({ ...entry }))
   const removed: OfferRow[] = []
   const created: OfferRow[] = []
@@ -146,13 +146,23 @@ function createHarness(current: OfferRow[]) {
     organizationIds: null,
   }
   findOneWithDecryption.mockResolvedValue(record)
-  findWithDecryption.mockResolvedValue([])
+  findWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: { id?: { $in?: string[] } }) => {
+    const name = typeof entity === 'function' ? (entity as { name: string }).name : String(entity)
+    if (name !== 'CatalogOffer') return []
+    const ids = where?.id?.$in ?? []
+    return [...rows, ...elsewhere].filter((row) => ids.includes(row.id))
+  })
   const byId = (id: string) => rows.find((row) => row.id === id)
   return { ctx, removed, created, byId, events }
 }
 
-async function undoUpdate(beforeOffers: OfferRow[], afterOffers: OfferRow[], current: OfferRow[]) {
-  const harness = createHarness(current)
+async function undoUpdate(
+  beforeOffers: OfferRow[],
+  afterOffers: OfferRow[],
+  current: OfferRow[],
+  elsewhere: OfferRow[] = [],
+) {
+  const harness = createHarness(current, elsewhere)
   const logEntry = {
     payload: {
       undo: {
@@ -231,6 +241,17 @@ describe('catalog.products.update undo — offers', () => {
     expect(byId('offer-a')?.title).toBe('Original')
     expect(created).toHaveLength(0)
     expect(removed).toHaveLength(0)
+  })
+
+  it('keeps an offer the update removed when an offer undo restored it under another product', async () => {
+    const removedByUpdate = offer('offer-a', 'web')
+    const restoredElsewhere = { ...removedByUpdate, title: 'Back on the other product' }
+    const { created, removed } = await undoUpdate([removedByUpdate], [], [], [restoredElsewhere])
+    expect(created).toHaveLength(0)
+    expect(removed).toHaveLength(0)
+    const offerLookup = findWithDecryption.mock.calls.find(([, entity]) => (entity as { name: string }).name === 'CatalogOffer')
+    expect(offerLookup?.[2]).toEqual({ tenantId, organizationId, id: { $in: ['offer-a'] } })
+    expect(offerLookup?.[4]).toEqual({ tenantId, organizationId })
   })
 
   it('keeps a newer offer that took the channel of an offer the update removed', async () => {
