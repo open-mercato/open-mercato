@@ -193,6 +193,7 @@
   "forms.errors.snapshot_missing": "Snapshot-Eintrag nicht gefunden.",
   "forms.errors.snapshot_pending": "PDF-Snapshot wird erstellt.",
   "forms.errors.snapshot_storage_unconfigured": "Snapshot-Speicher ist noch nicht konfiguriert.",
+  "forms.errors.subject_forbidden": "Sie können dieses Formular nur für sich selbst starten oder absenden.",
   "forms.errors.submission_not_found": "Einreichung nicht gefunden.",
   "forms.errors.tenant_required": "Ein Mandantenkontext ist erforderlich.",
   "forms.errors.unauthorized": "Nicht autorisiert.",
