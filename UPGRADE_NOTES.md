@@ -510,28 +510,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### User dashboard widget overrides are stored under the target user's own organization (#ISSUE)
-
-`PUT /api/dashboards/users/widgets` used to store an override under the tenant and organization of
-the admin who saved it. When that admin was a tenant-less superadmin, or belonged to a different
-organization from the user being edited, the call answered `200`, but the user's own dashboard never
-saw the override. Overrides are now stored, cleared and read back under the target user's own
-`tenantId`/`organizationId`. `GET` uses the same key, and its `scope` field now reports the
-target's tenant and organization.
-
-Because an assignment now takes effect wherever the target user is, non-superadmin callers also need
-organization visibility for that user. If the caller's organization visibility does not include the
-target's organization, `GET` and `PUT` answer `403` where they used to answer `200`. This includes
-the caller's own organization when their visibility leaves it out, and a visibility list that is
-empty. Superadmins and callers whose organization visibility is unrestricted are not newly refused.
-A superadmin user's own dashboard reads the organization they have selected, so an override saved
-for a superadmin user applies while their home organization is selected.
-
-**Action for operators:** none is required. Rows saved under the wrong scope before this change are
-not migrated; they are ignored and can be deleted from `dashboard_user_widgets`. To apply such an
-override, save the user's widget visibility again. A user's override is keyed by their organization,
-so after moving a user to another organization, assign their widgets again.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
