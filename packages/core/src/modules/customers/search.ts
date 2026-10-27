@@ -10,6 +10,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { defaultEncryptionMaps } from './encryption'
 
 const logger = createLogger('customers')
 
@@ -414,6 +415,36 @@ function appendCustomFieldLines(lines: string[], customFields: Record<string, un
   }
 }
 
+function normalizeSearchFieldKey(key: string): string {
+  return key.replace(/^cf[:_]/, '').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+}
+
+function selectProfileSearchFields(
+  source: Record<string, unknown> | null,
+  kind: CustomerProfileKind,
+  options: { forEmbedding?: boolean; customerEntity?: boolean } = {},
+): Record<string, unknown> {
+  const entityId = `customers:customer_${kind}_profile`
+  const policy = searchConfig.entities.find((entry) => entry.entityId === entityId)?.fieldPolicy
+  const allowed = new Set((options.customerEntity
+    ? ['display_name', 'description', 'status', 'lifecycle_stage']
+    : policy?.searchable ?? []).map(normalizeSearchFieldKey))
+  const excluded = new Set([...(policy?.hashOnly ?? []), ...(policy?.excluded ?? [])].map(normalizeSearchFieldKey))
+  if (options.forEmbedding) {
+    for (const map of defaultEncryptionMaps) {
+      if (map.entityId !== entityId && map.entityId !== 'customers:customer_entity') continue
+      for (const entry of map.fields) excluded.add(normalizeSearchFieldKey(entry.field))
+    }
+  }
+  const fields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(source ?? {})) {
+    if (value !== null && typeof value === 'object') continue
+    const field = normalizeSearchFieldKey(key)
+    if (allowed.has(field) && !excluded.has(field)) fields[field] = value
+  }
+  return fields
+}
+
 function pickValue(source: Record<string, unknown> | null | undefined, ...keys: string[]): unknown {
   if (!source) return undefined
   for (const key of keys) {
@@ -444,12 +475,8 @@ function pickLabel(...candidates: Array<unknown>): string | null {
 function appendCustomerEntityLines(
   lines: string[],
   entity: Record<string, unknown> | null,
-  contactLabel: 'Customer' | 'Primary' = 'Customer',
 ) {
   if (!entity) return
-  appendLine(lines, 'Customer', pickValue(entity, 'display_name', 'displayName') ?? entity.id)
-  appendLine(lines, `${contactLabel} email`, pickValue(entity, 'primary_email', 'primaryEmail'))
-  appendLine(lines, `${contactLabel} phone`, pickValue(entity, 'primary_phone', 'primaryPhone'))
   appendLine(lines, 'Lifecycle stage', pickValue(entity, 'lifecycle_stage', 'lifecycleStage'))
   appendLine(lines, 'Status', pickValue(entity, 'status'))
 }
@@ -488,6 +515,9 @@ function resolvePersonPresenter(
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
   const fallbackEntityId = resolveCustomerEntityId(record)
+  record = { id: record.id, ...selectProfileSearchFields(record, 'person') }
+  entity = entity ? { id: entity.id, ...selectProfileSearchFields(entity, 'person', { customerEntity: true }) } : null
+  customFields = selectProfileSearchFields(customFields, 'person')
   const firstName = record.first_name ?? record.firstName ?? customFields.first_name ?? customFields.firstName ?? ''
   const lastName = record.last_name ?? record.lastName ?? customFields.last_name ?? customFields.lastName ?? ''
   const nameParts = [firstName, lastName].filter(Boolean).join(' ')
@@ -504,10 +534,6 @@ function resolvePersonPresenter(
   if (jobTitle) subtitlePieces.push(String(jobTitle))
   const department = record.department ?? customFields.department
   if (department) subtitlePieces.push(String(department))
-  const primaryEmail = pickValue(entity, 'primary_email', 'primaryEmail')
-  if (primaryEmail) subtitlePieces.push(String(primaryEmail))
-  const primaryPhone = pickValue(entity, 'primary_phone', 'primaryPhone')
-  if (primaryPhone) subtitlePieces.push(String(primaryPhone))
   const summary = snippet(
     (pickValue(entity, 'description') as string | undefined) ??
       (customFields.summary as string | undefined) ??
@@ -531,6 +557,9 @@ function resolveCompanyPresenter(
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
   const fallbackEntityId = resolveCustomerEntityId(record)
+  record = { id: record.id, ...selectProfileSearchFields(record, 'company') }
+  entity = entity ? { id: entity.id, ...selectProfileSearchFields(entity, 'company', { customerEntity: true }) } : null
+  customFields = selectProfileSearchFields(customFields, 'company')
   const title =
     (pickValue(entity, 'display_name', 'displayName') as string | undefined) ??
     (customFields.display_name as string | undefined) ??
@@ -549,10 +578,6 @@ function resolveCompanyPresenter(
   if (industry) subtitlePieces.push(String(industry))
   const sizeBucket = record.size_bucket ?? record.sizeBucket
   if (sizeBucket) subtitlePieces.push(String(sizeBucket))
-  if (entity) {
-    const primaryEmail = pickValue(entity, 'primary_email', 'primaryEmail')
-    if (primaryEmail) subtitlePieces.push(String(primaryEmail))
-  }
   const summary = snippet(
     (pickValue(entity, 'description') as string | undefined) ??
       (customFields.summary as string | undefined) ??
@@ -616,21 +641,13 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
-        appendLine(lines, 'Preferred name', record.preferred_name ?? record.preferredName ?? ctx.customFields.preferred_name)
-        appendLine(lines, 'First name', record.first_name ?? record.firstName ?? ctx.customFields.first_name)
-        appendLine(lines, 'Last name', record.last_name ?? record.lastName ?? ctx.customFields.last_name)
-        appendLine(lines, 'Job title', record.job_title ?? record.jobTitle ?? ctx.customFields.job_title)
-        appendLine(lines, 'Department', record.department ?? record.department_name ?? record.departmentName ?? ctx.customFields.department)
-        appendLine(lines, 'Seniority', record.seniority ?? record.seniority_level ?? record.seniorityLevel ?? ctx.customFields.seniority)
-        appendLine(lines, 'Timezone', record.timezone ?? record.time_zone ?? record.timeZone ?? ctx.customFields.timezone)
-        appendLine(lines, 'LinkedIn', record.linked_in_url ?? record.linkedInUrl ?? ctx.customFields.linked_in_url)
-        appendLine(lines, 'Twitter', record.twitter_url ?? record.twitterUrl ?? ctx.customFields.twitter_url)
+        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'person', { forEmbedding: true }), '')
 
-        const { entity, entityId, profileCustomFields, entityCustomFields, entityOnlyCustomFields } =
+        const { entity, entityId, profileCustomFields, entityOnlyCustomFields } =
           await hydrateProfileContext(ctx, 'person')
-        appendCustomFieldLines(lines, profileCustomFields, 'Person custom')
+        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'person', { forEmbedding: true }), 'Person custom')
         if (Object.keys(entityOnlyCustomFields).length) {
-          appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
+          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'person', { forEmbedding: true }), 'Customer custom')
         }
         if (!entity) {
           logger.warn('Failed to load customer entity for person profile', {
@@ -640,8 +657,8 @@ export const searchConfig: SearchModuleConfig = {
             recordKeys: Object.keys(record),
           })
         }
-        appendCustomerEntityLines(lines, entity, 'Customer')
-        ensureFallbackLines(lines, record)
+        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'person', { forEmbedding: true, customerEntity: true }))
+        ensureFallbackLines(lines, { id: record.id ?? entityId ?? 'customers:customer_person_profile' })
         if (!lines.length) return null
 
         if (!entityId) {
@@ -667,12 +684,7 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter,
           links,
-          checksumSource: {
-            record: ctx.record,
-            customFields: profileCustomFields,
-            entity,
-            entityCustomFields,
-          },
+          checksumSource: { text: lines, presenter, links },
         }
       },
 
@@ -728,22 +740,16 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
-        appendLine(lines, 'Legal name', record.legal_name ?? record.legalName ?? ctx.customFields.legal_name)
-        appendLine(lines, 'Brand name', record.brand_name ?? record.brandName ?? ctx.customFields.brand_name)
-        appendLine(lines, 'Domain', record.domain ?? record.website_domain ?? record.websiteDomain ?? ctx.customFields.domain)
-        appendLine(lines, 'Website', record.website_url ?? record.websiteUrl ?? ctx.customFields.website_url)
-        appendLine(lines, 'Industry', record.industry ?? ctx.customFields.industry)
-        appendLine(lines, 'Company size', record.size_bucket ?? record.sizeBucket ?? ctx.customFields.size_bucket)
-        appendLine(lines, 'Annual revenue', record.annual_revenue ?? record.annualRevenue ?? ctx.customFields.annual_revenue)
+        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'company', { forEmbedding: true }), '')
 
-        const { entity, entityId, profileCustomFields, entityCustomFields, entityOnlyCustomFields } =
+        const { entity, entityId, profileCustomFields, entityOnlyCustomFields } =
           await hydrateProfileContext(ctx, 'company')
-        appendCustomFieldLines(lines, profileCustomFields, 'Company custom')
+        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'company', { forEmbedding: true }), 'Company custom')
         if (Object.keys(entityOnlyCustomFields).length) {
-          appendCustomFieldLines(lines, entityOnlyCustomFields, 'Customer custom')
+          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'company', { forEmbedding: true }), 'Customer custom')
         }
-        appendCustomerEntityLines(lines, entity, 'Primary')
-        ensureFallbackLines(lines, record)
+        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'company', { forEmbedding: true, customerEntity: true }))
+        ensureFallbackLines(lines, { id: record.id ?? entityId ?? 'customers:customer_company_profile' })
         if (!lines.length) return null
 
         const presenter = resolveCompanyPresenter(t, record, entity, ctx.customFields)
@@ -761,12 +767,7 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter,
           links,
-          checksumSource: {
-            record: ctx.record,
-            customFields: profileCustomFields,
-            entity,
-            entityCustomFields,
-          },
+          checksumSource: { text: lines, presenter, links },
         }
       },
 

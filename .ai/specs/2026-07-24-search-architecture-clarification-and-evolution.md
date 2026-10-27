@@ -77,6 +77,32 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 
 ### A.4 Configuration surface
 
+#### Customer vector privacy invariant (#7826)
+
+Custom `buildSource` functions must enforce their own allowlists: the default
+vector source's `fieldPolicy` filtering does not sanitize custom text. Person and
+company sources now select approved scalar fields, with `hashOnly`/`excluded`
+taking precedence across snake/camel and custom-field prefixes. Fields declared
+encrypted by the module are excluded from embedding text, including encrypted
+names. Related customer contact details and arbitrary record/custom-field fallback
+serialization are excluded. Customer-account source text uses the account ID;
+email stays hash-only. Presenters retain permitted display names but no contact
+email or phone, and source checksums use only the resulting safe source/presenter.
+
+The legacy `VectorIndexService` also applies the existing field-policy filter to
+snapshot/subtitle fallback fields. Regression tests call the real customer source
+builders through `SearchIndexer` → `SearchService` → `VectorSearchStrategy`, with a
+fake embedding provider and captured vector driver writes. Direct builder tests
+cover aliases, sparse records, policy precedence, and nested values. Legacy service
+tests cover excluded, hash-only, and unlisted snapshot fields. No live customer
+data or external embedding call is required for these checks.
+
+Migration & Backward Compatibility: search registration, entity IDs, types, API
+routes, database schema, and tenant/organization scoping remain unchanged. Existing
+vectors and presenter metadata require operator purge and reindex after all
+workers are upgraded; see `UPGRADE_NOTES.md` (#7826). No destructive remediation
+runs automatically, and provider retention must be handled separately.
+
 Seven env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-only** — none affect fulltext or vector:
 
 | Env var | Default | Controls |
@@ -243,6 +269,8 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-10-27 — Added the customer vector privacy invariant and #7826 regression/remediation contract: allowlisted sources and presenters, encrypted-field exclusion from embedding text, policy-filtered snapshot fallback, and operator purge/reindex.
 
 - 2026-07-24 — Initial draft: current-architecture clarification (Part A) + evolution roadmap (Part B).
 - 2026-07-31 — Added Phase 4 (B.4): unified read-path token-availability resolver shared by both query engines — makes the #4723 probe gate structural, extends it to `BasicQueryEngine`, and gives the future durable probe fix a single landing site. Renumbered the decision matrix to B.5 and added its row.

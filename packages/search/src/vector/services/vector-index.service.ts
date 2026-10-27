@@ -20,6 +20,7 @@ import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
 import { searchDebug, searchDebugWarn } from '../../lib/debug'
+import { extractSearchableFields } from '../../lib/field-policy'
 
 type ContainerResolver = () => unknown
 const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
@@ -478,7 +479,10 @@ export class VectorIndexService {
 
     const normalizedPresenter = this.ensurePresenter(presenter, record, customFields, args.recordId, args.entityId)
     const normalizedLinks = Array.isArray(links) && links.length ? links : null
-    const snapshot = this.deriveSnapshot(record, customFields)
+    const snapshot = this.deriveSnapshot(
+      extractSearchableFields(record, { fieldPolicy: entry.config.fieldPolicy }),
+      extractSearchableFields(customFields, { fieldPolicy: entry.config.fieldPolicy }),
+    )
     const rawResultTitle = this.resolveResultTitle(normalizedPresenter, record, customFields, args.recordId)
     const rawResultSubtitle = normalizedPresenter.subtitle ?? snapshot ?? null
     const rawResultIcon = normalizedPresenter.icon ?? this.mapDefaultIcon(args.entityId)

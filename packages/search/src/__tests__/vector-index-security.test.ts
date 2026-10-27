@@ -4,6 +4,15 @@ import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { searchConfig as customersSearchConfig } from '@open-mercato/core/modules/customers/search'
+import { searchConfig as accountsSearchConfig } from '@open-mercato/core/modules/customer_accounts/search'
+import { SearchIndexer } from '../indexer/search-indexer'
+import { SearchService } from '../service'
+import { VectorSearchStrategy } from '../strategies/vector.strategy'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
+}))
 
 type CapturedEmbeddingInput = { value: string | string[] | null }
 
@@ -137,6 +146,88 @@ describe('VectorIndexService default source field protection (issue #2716)', () 
     expect(lines).not.toContain('123-45-6789')
     expect(lines).not.toContain('person@example.com')
     expect(lines).not.toContain('sk-should-not-leak')
+  })
+})
+
+describe('Customer vector privacy at provider and storage boundaries (issue #7826)', () => {
+  it.each([
+    'customers:customer_person_profile',
+    'customers:customer_company_profile',
+    'customer_accounts:customer_user',
+  ])('keeps contact and excluded custom values out of %s embeddings and stored metadata', async (entityId) => {
+    const driver = createDriver()
+    const captured: CapturedEmbeddingInput = { value: null }
+    const strategy = new VectorSearchStrategy(createEmbeddingService(captured), driver)
+    const record = {
+      id: `record-${entityId}`,
+      entity_id: `entity-${entityId}`,
+      display_name: 'Permitted Presenter Name',
+      email: 'private-account@example.com',
+      primary_email: 'private-profile@example.com',
+      primary_phone: '+48-555-030-7826',
+      'cf:personal_email': 'private-custom@example.com',
+      cf_government_id: 'private-government-id',
+      'cf:bank_account': 'private-bank-account',
+      'cf:summary': 'private-summary',
+      cf_unknown: 'private-unknown',
+    }
+    const related = {
+      id: `entity-${entityId}`,
+      display_name: 'Permitted Customer Name',
+      primary_email: 'private-related@example.com',
+      primary_phone: '+48-555-040-7826',
+      status: 'active',
+      'cf:government_id': 'private-related-government',
+      cf_personal_email: 'private-related-custom@example.com',
+    }
+    const query = jest.fn(async (queriedEntity: string, _options: unknown) => ({
+      items: [queriedEntity === 'customers:customer_entity' ? related : record],
+      total: 1,
+    }))
+    const indexer = new SearchIndexer(new SearchService({ strategies: [strategy] }), [customersSearchConfig, accountsSearchConfig], {
+      queryEngine: { query } as unknown as QueryEngine,
+    })
+
+    await indexer.indexRecordById({
+      entityId,
+      recordId: record.id,
+      tenantId: 'tenant-privacy',
+      organizationId: 'org-privacy',
+    })
+
+    expect(captured.value).not.toBeNull()
+    expect(driver.upsertCalls).toHaveLength(1)
+    const serialized = JSON.stringify({ input: captured.value, document: driver.upsertCalls[0] })
+    expect(serialized).not.toContain('private-')
+    expect(serialized).not.toContain('+48-555-')
+    expect(JSON.stringify(captured.value)).not.toContain('Permitted')
+    expect(driver.upsertCalls[0].tenantId).toBe('tenant-privacy')
+    expect(driver.upsertCalls[0].organizationId).toBe('org-privacy')
+    for (const [, options] of query.mock.calls) {
+      expect(options).toEqual(expect.objectContaining({ tenantId: 'tenant-privacy', organizationId: 'org-privacy' }))
+    }
+  })
+
+  it.each(['excluded', 'hashOnly', 'unlisted'] as const)('does not restore a %s custom summary through vector snapshot fallback', async (protection) => {
+    const driver = createDriver()
+    const service = createService({
+      driver,
+      embeddingService: createEmbeddingService({ value: null }),
+      queryEngine: createQueryEngine({ id: 'snapshot-record', name: 'Safe name', 'cf:summary': 'private-snapshot' }),
+      moduleConfigs: [{ entities: [{
+        entityId: 'demo:item',
+        fieldPolicy: {
+          searchable: protection === 'unlisted' ? ['name'] : ['name', 'summary'],
+          hashOnly: protection === 'hashOnly' ? ['summary'] : [],
+          excluded: protection === 'excluded' ? ['summary'] : [],
+        },
+        buildSource: () => ({ input: 'Safe source', presenter: { title: 'Safe name' }, checksumSource: 'safe-checksum' }),
+      }] }],
+    })
+
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'snapshot-record', tenantId: 'tenant-privacy' })
+    expect(driver.upsertCalls).toHaveLength(1)
+    expect(JSON.stringify(driver.upsertCalls[0])).not.toContain('private-snapshot')
   })
 })
 
