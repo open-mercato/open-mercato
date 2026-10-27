@@ -2,7 +2,7 @@
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index"]
 areas: ["integration","testing","backend-ui"]
-topics: ["events","testing","workers","hydration","component-overrides","timers","async-indexing","cache","polling","query-index"]
+topics: ["testing","workers","hydration","component-overrides","async-indexing","cache"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
