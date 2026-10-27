@@ -50,7 +50,7 @@
 | 5 | 5.6 | Fix the guardrail-checks and context-bundles list entity ids | inline | done | eb96121a3 |
 | 6 | 6.1 | Add the attachments.get_document_sections AI tool | dispatch | done | pending |
 | 6 | 6.2 | Add the document structure panel to the attachment dialog | dispatch:capable | done | pending |
-| 6 | 6.3 | Cover the structure panel with an integration test | dispatch | todo | — |
+| 6 | 6.3 | Cover the structure panel with an integration test | dispatch | done | pending |
 | 7 | 7.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | todo | — |
 | 7 | 7.2 | Update the specs, roadmap and upgrade notes for wave 3 | inline | todo | — |
 
