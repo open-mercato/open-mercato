@@ -23,6 +23,14 @@ import { buildEvalErrorReport, type BuildEvalErrorReportInput } from './lib/eval
 import { renderEvalReportJunit } from './lib/eval/report/renderJunit'
 import { renderEvalReportMarkdown } from './lib/eval/report/renderMarkdown'
 import type { EvalReport } from './lib/eval/report/reportSchema'
+import { AGENT_ORCHESTRATOR_OTEL_EXPORT_QUEUE, getAgentOrchestratorQueue } from './lib/queue'
+import {
+  OTEL_EXPORT_BACKFILL_USAGE,
+  formatOtelExportBackfillSkips,
+  parseOtelExportBackfillArgs,
+  runOtelExportBackfill,
+} from './lib/trace/otel/exportBackfill'
+import { loadRunExportBundle } from './lib/trace/otel/loadRunExportBundle'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -904,6 +912,62 @@ const tokenUsage: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, tokenUsage]
+/**
+ * Backfill terminal agent runs to the OTel exporter. `--dry-run` prints one
+ * OTLP/JSON request per line (NDJSON) to stdout with no network and no queue;
+ * otherwise the deployment switch must be on and each run passing the tenant
+ * export gate is enqueued for the export worker (which re-checks the gate).
+ *
+ *   yarn mercato agent_orchestrator otel:export --run <runId> [--dry-run]
+ *   yarn mercato agent_orchestrator otel:export --since <iso> [--until <iso>] [--tenant <tenantId>] [--limit <n>] [--dry-run]
+ */
+const otelExport: ModuleCli = {
+  command: 'otel:export',
+  async run(rest: string[]) {
+    const parsed = parseOtelExportBackfillArgs(rest ?? [])
+    if (!parsed.ok) {
+      console.error(parsed.error)
+      console.error(OTEL_EXPORT_BACKFILL_USAGE)
+      process.exitCode = 2
+      return
+    }
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager).fork()
+    const summary = await runOtelExportBackfill(parsed.args, {
+      container,
+      selectRuns: (filter, limit) =>
+        em.find(AgentRun, filter, {
+          fields: ['id', 'tenantId', 'organizationId', 'agentId', 'source'],
+          orderBy: { createdAt: 'asc' },
+          limit,
+        }),
+      loadBundle: (runId) => loadRunExportBundle(em.fork(), runId),
+      enqueue: (payload, options) =>
+        getAgentOrchestratorQueue(AGENT_ORCHESTRATOR_OTEL_EXPORT_QUEUE).enqueue(payload, options),
+      writeLine: (line) => {
+        process.stdout.write(`${line}\n`)
+      },
+    })
+
+    if (summary.mode === 'deployment_disabled') {
+      console.error(
+        'OTel export is disabled for this deployment (set OM_AGENT_OTEL_EXPORT=on with an OTLP endpoint), or pass --dry-run to inspect the payloads locally.',
+      )
+      process.exitCode = 1
+      return
+    }
+    if (summary.mode === 'dry_run') {
+      console.error(
+        `Dry run: ${summary.printed}/${summary.selected} run(s) printed; skipped: ${formatOtelExportBackfillSkips(summary.skipped)}.`,
+      )
+      return
+    }
+    console.log(
+      `Enqueued ${summary.enqueued}/${summary.selected} run(s) for OTel export; skipped: ${formatOtelExportBackfillSkips(summary.skipped)}.`,
+    )
+  },
+}
+
+const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, tokenUsage, otelExport]
 
 export default agentOrchestratorCliCommands
