@@ -305,6 +305,14 @@ Use `idp_subject` (not email) as the stable cross-system identifier — emails c
 - **Rate limiting:** 25 req/s per token
 - **Entra ID quirks:** Lenient SCIM parser for non-standard PATCH paths and mixed-case filter operators
 
+### 7.3.1 Deactivation and fresh sign-in (#7824)
+
+An outstanding `SsoUserDeactivation` has `reactivatedAt = null`. Existing-link and verified-email linking paths reject it for the exact user, tenant, organization, and SSO configuration before updating login timestamps or synchronizing roles. The OIDC callback therefore cannot issue a fresh session for that identity. Removing a link and trying email linking does not bypass the marker.
+
+The SSO module registers `SsoAuthService` under the existing `authService` DI key. It preserves core password comparison, including the unknown-user timing equalizer, then rejects an otherwise valid password when the user's own tenant and home organization contain an outstanding deactivation. Password sign-in retains the existing generic invalid-credentials response. Deactivation in another tenant or organization does not disable password access to the user's home scope; SSO in another configuration remains governed by that configuration's marker. No global `User.isConfirmed` mutation is needed, and there is no SCIM-specific super-admin bypass.
+
+SCIM `active:true` explicitly sets `reactivatedAt`, restoring both sign-in paths without reviving previously revoked sessions. Deleting sessions during deactivation remains unchanged. The guards reject deactivation-state lookup failures rather than issuing credentials.
+
 ### 7.4 Break-Glass
 
 Super-admin accounts (`isSuperAdmin` flag) bypass SSO enforcement. Break-glass logins emit `sso.enforcement.bypassed` event.
@@ -387,9 +395,20 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 
 ---
 
+## Migration & Backward Compatibility
+
+The fix for #7824 preserves SCIM and SSO endpoint URLs, methods, response shapes, JWT claims, database schema, and the `authService` method signatures. It enforces the existing deactivation policy on fresh sign-in. Clients continue handling the existing generic password error or `sso_failed` callback redirect. Operators must send SCIM `active:true` for an intentionally restored identity; changing a password or relinking its email does not reactivate it. The enterprise DI override applies only when the SSO module is enabled.
+
+## Integration Test Coverage for #7824
+
+- `TC-SSO-007-deactivation-login.spec.ts`: creates isolated organization/configuration/user/token fixtures, links through `POST /api/sso/scim/v2/Users`, signs in through `POST /api/auth/login`, deactivates through SCIM PATCH, rejects the old access and refresh tokens, denies fresh password sign-in without issuing cookies, reactivates through SCIM PATCH, and permits a fresh login. The test activates only its own fixture configuration directly in the test database so unrelated OIDC discovery requires no external service.
+- `accountLinkingService.deactivation.test.ts`: exercises the real callback and account-linking services with a controlled IdP adapter; denied identities never reach role reads, login updates, or session issuance, and reactivated identities can sign in. Existing-link and email-link paths, repeated deactivation, and user/tenant/organization/configuration isolation are covered.
+- `ssoAuthService.test.ts`: pins scoped password denial, unchanged bcrypt verification, generic unknown-user handling, and failure when deactivation state cannot be read.
+
 ## Changelog
 
 | Date | Changes |
 |---|---|
+| 2026-10-27 | #7824: enforce outstanding SCIM deactivation during SSO linking and scoped password verification; preserve explicit reactivation and add login/session regression coverage. |
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
 | 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |

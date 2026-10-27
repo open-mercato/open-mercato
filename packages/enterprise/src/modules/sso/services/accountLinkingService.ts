@@ -9,6 +9,7 @@ import type { SsoIdentityPayload } from '../lib/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { isSsoUserDeactivated } from '../lib/deactivation'
 
 const logger = createLogger('sso').child({ component: 'account-linking' })
 
@@ -82,6 +83,8 @@ export class AccountLinkingService {
       return null
     }
 
+    await this.requireActiveUser(user.id, ssoConfigId, tenantId, organizationId)
+
     identity.lastLoginAt = new Date()
     await this.em.flush()
 
@@ -110,6 +113,8 @@ export class AccountLinkingService {
     )
     if (!user) return null
 
+    await this.requireActiveUser(user.id, config.id, tenantId, config.organizationId)
+
     const now = new Date()
     const identity = this.em.create(SsoIdentity, {
       tenantId,
@@ -135,6 +140,17 @@ export class AccountLinkingService {
     }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return { user, identity }
+  }
+
+  private async requireActiveUser(
+    userId: string,
+    ssoConfigId: string,
+    tenantId: string,
+    organizationId: string,
+  ): Promise<void> {
+    if (await isSsoUserDeactivated(this.em, { userId, ssoConfigId, tenantId: tenantId || null, organizationId })) {
+      throw new Error('[internal] SSO identity is deactivated')
+    }
   }
 
   private async jitProvision(
