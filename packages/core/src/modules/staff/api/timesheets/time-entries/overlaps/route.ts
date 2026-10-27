@@ -4,6 +4,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -276,7 +277,7 @@ export async function GET(req: Request) {
 
     const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = orgScope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(orgScope, auth) ?? null
     if (!tenantId || !organizationId) {
       throw new CrudHttpError(400, {
         error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.'),

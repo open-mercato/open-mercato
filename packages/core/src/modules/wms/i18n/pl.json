@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Magazyn",
   "search.entityType.wms.inventory_lot": "Partia zapasu",
   "search.entityType.wms.product_inventory_profile": "Profil zapasu",
   "search.entityType.wms.warehouse": "Magazyn",
@@ -283,6 +284,7 @@
   "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Znaleziono wiele partii w tej lokalizacji — wybierz partię, aby kontynuować.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Włącz auto-korektę, aby zaksięgować rozbieżność.",
   "wms.backend.inventory.cycleCount.errors.balance": "Nie udało się odczytać stanu systemowego.",
+  "wms.backend.inventory.cycleCount.errors.belowCommitted": "Policzona ilość jest mniejsza niż {committed} szt. zarezerwowanych lub przydzielonych w tym miejscu. Zwolnij te rezerwacje przed zaksięgowaniem tego liczenia.",
   "wms.backend.inventory.cycleCount.errors.scope": "Uzupełnij konfigurację i wybierz lokalizację do liczenia.",
   "wms.backend.inventory.cycleCount.errors.scopeEstimate": "Nie udało się oszacować zakresu inwentaryzacji.",
   "wms.backend.inventory.cycleCount.errors.submit": "Nie udało się zaksięgować inwentaryzacji.",
@@ -983,6 +985,7 @@
   "wms.errors.forbidden.manageZones": "Nie masz uprawnień do zarządzania strefami magazynowymi.",
   "wms.errors.forbidden.receiveInventory": "Nie masz uprawnień do przyjmowania towaru przychodzącego.",
   "wms.errors.internalServerError": "Błąd wewnętrzny serwera",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Anulowane zamówienie nie może mieć rezerwacji zapasu.",
   "wms.errors.unauthorized": "Brak autoryzacji",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Alert niskiego zapasu — dostępne: {availableQuantity}, punkt zamówienia: {reorderPoint}, zapas bezpieczeństwa: {safetyStock}",

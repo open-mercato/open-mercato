@@ -3,7 +3,11 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { SyncSchedule } from '../data/entities'
+
+const logger = createLogger('data_sync').child({ component: 'sync-schedule-service' })
 
 type SyncScope = {
   organizationId: string
@@ -30,6 +34,15 @@ type SchedulerServiceLike = {
     isEnabled?: boolean
   }) => Promise<void>
   unregister: (scheduleId: string) => Promise<void>
+  exists?: (scheduleId: string) => Promise<boolean>
+}
+
+async function scheduledJobExists(scheduler: SchedulerServiceLike, scheduledJobId: string): Promise<boolean> {
+  // A scheduler substitute that cannot answer keeps the pre-existing behaviour:
+  // treat the registration as minted, which compensates rather than stranding an
+  // orphan on the create path where this is by far the likelier outcome.
+  if (!scheduler.exists) return false
+  return scheduler.exists(scheduledJobId)
 }
 
 export function createSyncScheduleService(em: EntityManager, schedulerService?: SchedulerServiceLike) {
@@ -158,11 +171,21 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
 
       const id = existing?.id ?? randomUUID()
       const scheduledJobId = existing?.scheduledJobId ?? id
+      const scheduler = requireScheduler()
+      // Only a registration this call mints may be compensated below. A create
+      // mints a fresh id, so no job can already live at it. An update of a row
+      // whose scheduledJobId is null is the ambiguous case — deleteSchedule reads
+      // that null as "the job lives at row.id", and register() upserts on id — so
+      // ask the scheduler instead of assuming, otherwise compensation would
+      // delete a job this call merely overwrote.
+      const mintsRegistration = existing
+        ? !existing.scheduledJobId && !(await scheduledJobExists(scheduler, scheduledJobId))
+        : true
 
       // Validate the schedule (and register it with the scheduler) before writing
       // the SyncSchedule row — an unparseable scheduleValue must not leave a
       // persisted row with no working schedule behind it.
-      await requireScheduler().register({
+      await scheduler.register({
         id: scheduledJobId,
         name: buildScheduleName(input),
         description: buildScheduleDescription(input),
@@ -184,37 +207,70 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
         isEnabled: input.isEnabled,
       })
 
-      const row = existing ?? em.create(SyncSchedule, {
-        id,
-        integrationId: input.integrationId,
-        entityType: input.entityType,
-        direction: input.direction,
-        scheduleType: input.scheduleType,
-        scheduleValue: input.scheduleValue,
-        timezone: input.timezone,
-        fullSync: input.fullSync,
-        isEnabled: input.isEnabled,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      })
+      try {
+        const row = existing ?? em.create(SyncSchedule, {
+          id,
+          integrationId: input.integrationId,
+          entityType: input.entityType,
+          direction: input.direction,
+          scheduleType: input.scheduleType,
+          scheduleValue: input.scheduleValue,
+          timezone: input.timezone,
+          fullSync: input.fullSync,
+          isEnabled: input.isEnabled,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        })
 
-      row.integrationId = input.integrationId
-      row.entityType = input.entityType
-      row.direction = input.direction
-      row.scheduleType = input.scheduleType
-      row.scheduleValue = input.scheduleValue
-      row.timezone = input.timezone
-      row.fullSync = input.fullSync
-      row.isEnabled = input.isEnabled
-      row.scheduledJobId = scheduledJobId
+        row.integrationId = input.integrationId
+        row.entityType = input.entityType
+        row.direction = input.direction
+        row.scheduleType = input.scheduleType
+        row.scheduleValue = input.scheduleValue
+        row.timezone = input.timezone
+        row.fullSync = input.fullSync
+        row.isEnabled = input.isEnabled
+        row.scheduledJobId = scheduledJobId
 
-      if (!existing) {
-        em.persist(row)
+        if (!existing) {
+          em.persist(row)
+        }
+
+        await em.flush()
+
+        return row
+      } catch (error: unknown) {
+        // The registration above is already durable, so a failed write would
+        // otherwise strand a live ScheduledJob the data-sync page cannot explain
+        // or delete. Only a registration this call minted is compensated: when a
+        // job was already there, register() overwrote one we inherited, and
+        // SchedulerServiceLike offers no way to restore the previous definition,
+        // so unregistering would destroy that job rather than roll anything back.
+        if (mintsRegistration) {
+          try {
+            await scheduler.unregister(scheduledJobId)
+          } catch (compensationError: unknown) {
+            logger.error('Failed to unregister the scheduled job after a schedule write failure', {
+              scheduledJobId,
+              scheduleId: id,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              err: compensationError,
+            })
+            getTelemetryRuntime()?.reportError(compensationError, {
+              module: 'data_sync',
+              code: 'data_sync.schedule_save_compensation_failed',
+              attributes: {
+                scheduledJobId,
+                scheduleId: id,
+                organizationId: scope.organizationId,
+                tenantId: scope.tenantId,
+              },
+            })
+          }
+        }
+        throw error
       }
-
-      await em.flush()
-
-      return row
     },
 
     async deleteSchedule(
@@ -236,11 +292,58 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       }
 
       const scheduledJobId = row.scheduledJobId ?? row.id
+      const wasEnabled = row.isEnabled
       await requireScheduler().unregister(scheduledJobId)
 
-      row.deletedAt = new Date()
-      row.isEnabled = false
-      await em.flush()
+      try {
+        row.deletedAt = new Date()
+        row.isEnabled = false
+        await em.flush()
+      } catch (error) {
+        try {
+          await requireScheduler().register({
+            id: scheduledJobId,
+            name: buildScheduleName(row),
+            description: buildScheduleDescription(row),
+            scopeType: 'organization',
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            scheduleType: row.scheduleType,
+            scheduleValue: row.scheduleValue,
+            timezone: row.timezone,
+            targetType: 'queue',
+            targetQueue: 'data-sync-scheduled',
+            targetPayload: {
+              scheduleId: row.id,
+              scope,
+            },
+            requireFeature: 'data_sync.run',
+            sourceType: 'module',
+            sourceModule: 'data_sync',
+            isEnabled: wasEnabled,
+          })
+        } catch (compensationError) {
+          logger.error('Failed to restore scheduled job after a failed schedule delete', {
+            scheduledJobId,
+            scheduleId: row.id,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            error: compensationError instanceof Error ? compensationError.message : String(compensationError),
+          })
+          getTelemetryRuntime()?.reportError(compensationError, {
+            module: 'data_sync',
+            code: 'data_sync.schedule_delete_compensation_failed',
+            attributes: {
+              scheduledJobId,
+              scheduleId: row.id,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+            },
+          })
+        }
+        throw error
+      }
+
       return true
     },
   }

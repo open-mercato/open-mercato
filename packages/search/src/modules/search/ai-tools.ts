@@ -10,6 +10,10 @@ import {
   resolveReadableEntityTypes,
   type SearchEntityConfigLookup,
 } from './lib/entity-access'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
 
 /**
  * AI Tools definitions for the Search module.
@@ -113,6 +117,43 @@ function authorizeEntityAccess(entityType: string, ctx: ToolContext): SearchEnti
 }
 
 /**
+ * Resolve the actor's allowed-organization scope the same way the HTTP search
+ * route does, so AI search tools can never return results outside a
+ * restricted user's organization allowlist — even when their current
+ * organization is null. Mirrors packages/search/.../api/search/route.ts.
+ *
+ * `organizationId` is the re-validated selection (`scope.selectedId`), not the
+ * raw `ctx.organizationId` — `SearchOptions.organizationId` takes precedence
+ * over `organizationIds` in `normalizeOrganizationFilter`, so passing the
+ * unvalidated context value through would let a stale/out-of-allowlist
+ * selection bypass the allowlist below.
+ */
+async function resolveActorOrganizationScope(ctx: ToolContext): Promise<{
+  organizationId: string | undefined
+  organizationIds: string[] | undefined
+  denyAll: boolean
+}> {
+  if (!ctx.userId) return { organizationId: undefined, organizationIds: undefined, denyAll: true }
+  const auth: AuthContext = {
+    sub: ctx.userId,
+    tenantId: ctx.tenantId,
+    orgId: ctx.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+  const scope = await resolveOrganizationScopeForRequest({
+    container: ctx.container as unknown as AwilixContainer,
+    auth,
+    selectedId: ctx.organizationId,
+  })
+  const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
+  const denyAll = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
+  const organizationId = typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0
+    ? scope.selectedId.trim()
+    : undefined
+  return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
+}
+
+/**
  * Strip fields that the entity's field policy marks as sensitive
  * (`hashOnly` exact-match PII or fully `excluded`) from a query-engine record.
  * Defense-in-depth so even an authorized caller never receives decrypted PII or
@@ -202,9 +243,15 @@ Searches customers, products, orders, deals, and more in one call.`,
       return { query: input.query, totalResults: 0, results: [] }
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return { query: input.query, totalResults: 0, results: [] }
+    }
+
     const rawResults = await searchService.search(input.query, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       entityTypes: readableEntityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
@@ -287,13 +334,24 @@ const searchGetTool: AiToolDefinition = {
 
     const entityConfig = authorizeEntityAccess(input.entityType, ctx)
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        found: false,
+        entityType: input.entityType,
+        recordId: input.recordId,
+        error: 'Record not found',
+      }
+    }
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
 
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       filters: { id: input.recordId },
       includeCustomFields: true,
       page: { page: 1, pageSize: 1 },
@@ -457,6 +515,16 @@ const searchAggregateTool: AiToolDefinition = {
       )
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        entityType: input.entityType,
+        groupBy: input.groupBy,
+        total: 0,
+        buckets: [],
+      }
+    }
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
@@ -465,7 +533,8 @@ const searchAggregateTool: AiToolDefinition = {
     // Note: For large datasets, this should use database GROUP BY
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       page: { page: 1, pageSize: 100 },
     })
 

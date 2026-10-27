@@ -74,6 +74,8 @@ import type { AgentDispositionReview } from './agent-disposition-task'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 
 const logger = createLogger('workflows')
 
@@ -858,17 +860,22 @@ async function executeActivityByType(
  * Sends via the DI-registered emailService when available; without one it
  * reports an honest stub result ({ sent: false, simulated: true, reason: 'no-email-service' }).
  * A real send() failure propagates so the activity retry loop handles it.
+ * When a timeout AbortSignal is provided it is forwarded on the send payload and
+ * the await is raced against abort (#5148).
  */
 export async function executeSendEmail(
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { to, subject, template, templateData, body } = config
 
   if (!to || !subject) {
     throw new Error('SEND_EMAIL requires "to" and "subject" fields')
   }
+
+  throwIfAborted(signal)
 
   logger.info('Send email activity invoked', { component: 'SEND_EMAIL', subject })
 
@@ -880,13 +887,20 @@ export async function executeSendEmail(
   }
 
   if (emailService && typeof emailService.send === 'function') {
-    await emailService.send({
-      to,
-      subject,
-      template,
-      templateData,
-      body,
-    })
+    await raceAbortable(
+      Promise.resolve(
+        emailService.send({
+          to,
+          subject,
+          template,
+          templateData,
+          body,
+          signal,
+        })
+      ),
+      signal
+    )
+    throwIfAborted(signal)
     return { sent: true, to, subject, via: 'emailService' }
   }
 
@@ -897,12 +911,17 @@ export async function executeSendEmail(
 /**
  * EMIT_EVENT activity handler
  *
- * Publishes a domain event to the event bus
+ * Publishes a domain event to the event bus.
+ * Honours an activity-timeout AbortSignal by refusing to dispatch after abort
+ * (throwIfAborted guard) and by racing the await against the signal via
+ * raceAbortable (#5148). The event bus does not declare a signal parameter, so
+ * an emit that has already begun cannot be cancelled — same contract as UPDATE_ENTITY.
  */
 export async function executeEmitEvent(
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { eventName, payload } = config
 
@@ -929,6 +948,8 @@ export async function executeEmitEvent(
     )
   }
 
+  throwIfAborted(signal)
+
   // Get event bus from container
   const eventBus = container.resolve<{ emitEvent: (event: string, payload: unknown, options?: unknown) => Promise<unknown> | unknown }>('eventBus')
 
@@ -947,10 +968,16 @@ export async function executeEmitEvent(
     },
   }
 
-  await eventBus.emitEvent(eventName, enrichedPayload, {
-    tenantId: context.workflowInstance.tenantId,
-    organizationId: context.workflowInstance.organizationId,
-  })
+  await raceAbortable(
+    Promise.resolve(
+      eventBus.emitEvent(eventName, enrichedPayload, {
+        tenantId: context.workflowInstance.tenantId,
+        organizationId: context.workflowInstance.organizationId,
+      })
+    ),
+    signal
+  )
+  throwIfAborted(signal)
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }
@@ -1007,7 +1034,8 @@ export async function executeUpdateEntity(
   em: EntityManager,
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { commandId, input, statusDictionary } = config
 
@@ -1028,6 +1056,7 @@ export async function executeUpdateEntity(
     container,
     context.workflowInstance.tenantId,
   )
+  throwIfAborted(signal)
   if (!isWorkflowCommandEnabled(workflowSafeCommand, commandPolicy)) {
     throw new Error('UPDATE_ENTITY command is not enabled for this tenant')
   }
@@ -1048,6 +1077,7 @@ export async function executeUpdateEntity(
     context.workflowInstance.tenantId,
     context.workflowInstance.organizationId
   )
+  throwIfAborted(signal)
   if (!authorized) {
     throw new Error('UPDATE_ENTITY command is not authorized')
   }
@@ -1079,6 +1109,7 @@ export async function executeUpdateEntity(
       context.workflowInstance.tenantId,
       context.workflowInstance.organizationId
     )
+    throwIfAborted(signal)
     if (statusEntryId) {
       finalInput.statusEntryId = statusEntryId
     }
@@ -1101,11 +1132,20 @@ export async function executeUpdateEntity(
       : null,
   }
 
-  // Execute the command
-  const { result, logEntry } = await commandBus.execute(commandId, {
-    input: finalInput,
-    ctx,
-  })
+  // Execute the command. A timeout AbortSignal refuses a start (throwIfAborted
+  // guard) and races the await via raceAbortable (#5148). CommandBus.execute
+  // does not accept a signal, so a write that has already begun cannot be rolled back.
+  throwIfAborted(signal)
+  const { result, logEntry } = await raceAbortable(
+    Promise.resolve(
+      commandBus.execute(commandId, {
+        input: finalInput,
+        ctx,
+      })
+    ),
+    signal
+  )
+  throwIfAborted(signal)
 
   return {
     executed: true,
@@ -1260,18 +1300,23 @@ export async function executeCallWebhook(
 /**
  * EXECUTE_FUNCTION activity handler
  *
- * Calls a registered function from DI container
+ * Calls a registered function from DI container.
+ * Forwards the activity-timeout AbortSignal as the third argument so registered
+ * functions can cancel cooperative work (#5148).
  */
 export async function executeFunction(
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   const { functionName, args = {} } = config
 
   if (!functionName) {
     throw new Error('EXECUTE_FUNCTION requires "functionName" field')
   }
+
+  throwIfAborted(signal)
 
   // Look up function in container
   const fnKey = `workflowFunction:${functionName}`
@@ -1283,8 +1328,13 @@ export async function executeFunction(
       throw new Error(`Registered workflow function "${functionName}" is not a function`)
     }
 
-    // Call function with args and context
-    const result = await fn(args, context)
+    // Call function with args, context, and optional abort signal (additive —
+    // existing two-arg functions ignore the third parameter).
+    const result = await raceAbortable(
+      Promise.resolve(fn(args, context, signal)),
+      signal
+    )
+    throwIfAborted(signal)
 
     return { executed: true, functionName, result }
   } catch (error) {
@@ -1582,7 +1632,7 @@ export async function executeCallApi(
   }
 
   // 2. Build full URL (prepend APP_URL for relative paths)
-  const fullUrl = buildApiUrl(endpoint)
+  const requestUrl = await resolveCallApiUrl(endpoint)
 
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
@@ -1663,7 +1713,7 @@ export async function executeCallApi(
       }
 
       // Make HTTP request
-      const response = await fetch(fullUrl, {
+      const { response, url: responseUrl } = await fetchCallApiWithGuardedRedirects(requestUrl, {
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
@@ -1686,7 +1736,7 @@ export async function executeCallApi(
 
       // Check for HTTP errors and classify
       if (!response.ok) {
-        classifyAndThrowError(response.status, responseBody, fullUrl)
+        classifyAndThrowError(response.status, responseBody, responseUrl.href)
       }
 
       // Validate tenant match (security check)
@@ -1850,40 +1900,141 @@ export async function resolveWorkflowPrincipalUserId(
   return definition?.createdBy ?? null
 }
 
+const CALL_API_MAX_REDIRECTS = 3
+const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
+async function createCallApiError(key: string, fallback: string, params?: TranslateParams): Promise<Error> {
+  const { translate } = await resolveTranslations()
+  return new Error(translate(key, fallback, params))
+}
+
+function createAppUrlNotHttpError(appUrl: string): Promise<Error> {
+  return createCallApiError(
+    'workflows.errors.callApi.appUrlNotHttp',
+    'CALL_API requires an http(s) APP_URL, got: {appUrl}',
+    { appUrl },
+  )
+}
+
 /**
- * Build full API URL from endpoint
- * - Relative paths (/api/...) → prepend APP_URL
- * - Absolute URLs → validate domain matches APP_URL (SSRF prevention)
+ * Resolve a CALL_API endpoint to the URL the one-time API key may be sent to
+ * (SSRF prevention). Relative paths are joined to APP_URL; relative and absolute
+ * endpoints must both resolve to APP_URL's exact origin (scheme, host and port)
+ * and to a path under APP_URL's `/api/`.
  */
-function buildApiUrl(endpoint: string): string {
+async function resolveCallApiUrl(endpoint: string): Promise<URL> {
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
 
-  // Relative path - prepend APP_URL
-  if (endpoint.startsWith('/')) {
-    // Security: Only allow /api/* paths
-    if (!endpoint.startsWith('/api/')) {
-      throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
-    }
-    return `${appUrl}${endpoint}`
+  let appUrlObj: URL
+  try {
+    appUrlObj = new URL(appUrl)
+  } catch {
+    throw await createAppUrlNotHttpError(appUrl)
   }
 
-  // Absolute URL - validate domain matches APP_URL (SSRF prevention)
+  let target: URL
   try {
-    const endpointUrl = new URL(endpoint)
-    const appUrlObj = new URL(appUrl)
-
-    if (endpointUrl.host !== appUrlObj.host) {
-      throw new Error(
-        `SSRF Prevention: CALL_API endpoint domain (${endpointUrl.host}) does not match APP_URL (${appUrlObj.host})`
-      )
-    }
-
-    return endpoint
+    target = endpoint.startsWith('/')
+      ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
+      : new URL(endpoint)
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(`Invalid endpoint URL: ${endpoint}`)
     }
     throw error
+  }
+
+  if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
+    throw await createAppUrlNotHttpError(appUrl)
+  }
+
+  target.pathname = target.pathname.replace(/\/{2,}/g, '/')
+
+  if (target.username || target.password) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.endpointCredentials',
+      'SSRF Prevention: CALL_API endpoint must not contain credentials',
+    )
+  }
+
+  if (target.origin !== appUrlObj.origin) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.originMismatch',
+      'SSRF Prevention: CALL_API endpoint origin ({endpointOrigin}) does not match APP_URL origin ({appUrlOrigin})',
+      { endpointOrigin: target.origin, appUrlOrigin: appUrlObj.origin },
+    )
+  }
+
+  const apiPathPrefix = `${appUrlObj.pathname.replace(/\/+$/, '')}/api/`
+  if (!target.pathname.startsWith(apiPathPrefix)) {
+    throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
+  }
+
+  return target
+}
+
+/**
+ * Send a CALL_API request without letting fetch follow redirects on its own.
+ * A redirect is followed only when its target passes `resolveCallApiUrl`, so the
+ * one-time API key never leaves APP_URL's `/api/` surface.
+ */
+async function fetchCallApiWithGuardedRedirects(
+  initialUrl: URL,
+  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+): Promise<{ response: Response; url: URL }> {
+  let url = initialUrl
+  let { method, headers, body } = init
+
+  for (let redirects = 0; ; redirects++) {
+    const response = await fetch(url.href, {
+      method,
+      headers,
+      body,
+      signal: init.signal,
+      redirect: 'manual',
+    })
+
+    if (!CALL_API_REDIRECT_STATUSES.has(response.status)) {
+      return { response, url }
+    }
+
+    const location = response.headers.get('location')
+    const refuse = async () => {
+      const { translate } = await resolveTranslations()
+      return new Error(
+        translate(
+          'workflows.errors.callApi.redirectRefused',
+          'CALL_API refused to follow redirect {status} to {location}',
+          {
+            status: response.status,
+            location: location ?? translate('workflows.errors.callApi.noLocationHeader', '(no Location header)'),
+          },
+        )
+      )
+    }
+    if (!location || redirects >= CALL_API_MAX_REDIRECTS) {
+      throw await refuse()
+    }
+
+    try {
+      url = await resolveCallApiUrl(new URL(location, url).href)
+    } catch {
+      throw await refuse()
+    }
+
+    await response.body?.cancel()
+
+    const upperMethod = method.toUpperCase()
+    if (
+      (response.status === 303 && upperMethod !== 'HEAD') ||
+      ((response.status === 301 || response.status === 302) && upperMethod === 'POST')
+    ) {
+      method = 'GET'
+      body = undefined
+      headers = Object.fromEntries(
+        Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-type')
+      )
+    }
   }
 }
 
@@ -2137,10 +2288,14 @@ function sleep(ms: number): Promise<void> {
 /**
  * Execute a promise with timeout
  *
- * Only CALL_API and CALL_WEBHOOK honour the abort signal today — they forward
- * it to `fetch`. SEND_EMAIL, EMIT_EVENT, UPDATE_ENTITY and EXECUTE_FUNCTION
- * still run to completion after the timeout has been recorded. Tracked in
- * #5148.
+ * AbortController.signal is threaded into every activity handler on both the
+ * synchronous (`executeActivity`) and asynchronous worker (`activity-worker-handler`)
+ * paths. CALL_API / CALL_WEBHOOK forward it to `fetch`. SEND_EMAIL forwards it to
+ * `emailService.send` (honouring is optional per implementation). EMIT_EVENT and
+ * UPDATE_ENTITY check it before dispatch and race their awaits against it via
+ * `raceAbortable` — neither the event bus nor the command bus declare a `signal`
+ * parameter, so a write/emit that has already begun cannot be rolled back.
+ * EXECUTE_FUNCTION forwards it as its third argument (#5148 / #4918).
  */
 async function executeWithTimeout<T>(
   executor: (signal: AbortSignal) => Promise<T>,
@@ -2161,6 +2316,51 @@ async function executeWithTimeout<T>(
   } finally {
     clearTimeout(timeoutId!)
   }
+}
+
+function createActivityAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason
+  try {
+    return new DOMException('The operation was aborted', 'AbortError')
+  } catch {
+    const error = new Error('The operation was aborted')
+    error.name = 'AbortError'
+    return error
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createActivityAbortError(signal)
+  }
+}
+
+/**
+ * Reject when `signal` aborts while `promise` is still pending. Does not cancel
+ * an underlying effect that cannot honour AbortSignal — callers must pass the
+ * signal into that effect when it can.
+ */
+function raceAbortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) {
+    return Promise.reject(createActivityAbortError(signal))
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(createActivityAbortError(signal))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      }
+    )
+  })
 }
 
 bindActivityExecutor({
