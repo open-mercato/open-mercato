@@ -33,7 +33,7 @@
 | 3 | 3.2 | Delegate AO agents from run-object through the dispatcher | dispatch | done | 9b6053b5a |
 | 3 | 3.3 | Add the agent-token run route behind OM_AGENT_API_ENABLED | dispatch:capable | done | df8769dc3 |
 | 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | todo | — |
-| 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | todo | — |
+| 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | done | pending |
 | 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | todo | — |
 | 4 | 4.2 | Add quote normalization with an index map and grapheme snapping | dispatch:capable | todo | — |
 | 4 | 4.3 | Add the evidence_quote rule | dispatch | todo | — |
