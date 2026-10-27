@@ -18,6 +18,8 @@ Intersect each bound key's role-derived features and organization visibility wit
 
 Replay authorization locks include the bound owner's user, membership, ACL, and role rows. A binding changed during lock acquisition returns the existing authorization-state drift conflict.
 
+Key-cache invalidation tags use the resolved tenant and organization, including when a caller leaves the tenant unset and RBAC infers it from the key.
+
 ## Data Models and API Contracts
 
 No schema migration is required. `CreateApiKeyInput` gains optional `sessionUserId`; `mcp-key` supplies the authenticated user ID. Session issuance already stores that binding. Ordinary machine-key issuance does not set it. Existing routes, response fields, token formats, feature IDs, and DI names remain stable.
@@ -44,3 +46,4 @@ Tenant-bound owner lookups, existing schema, no cross-module ORM relations, shar
 ## Changelog
 
 - 2026-10-27: Defined the delegated-key ceiling and explicit legacy-key rotation procedure for #7825.
+- 2026-10-27: Added a failing-then-passing regression for role-ACL invalidation when the key tenant is inferred.

@@ -559,7 +559,7 @@ export class RbacService {
       if (isSuper && organizations !== null && !features.includes('*')) features.push('*')
       const keyAcl = { isSuperAdmin: isSuper && organizations === null, features, organizations }
       const result = await this.limitDelegatedKeyAcl(em, key, { tenantId, organizationId: evaluatedOrganizationId }, keyAcl)
-      await this.setCache(cacheKey, result, userId, scope, key.sessionUserId)
+      await this.setCache(cacheKey, result, userId, { tenantId, organizationId: evaluatedOrganizationId }, key.sessionUserId)
       return result
     }
 

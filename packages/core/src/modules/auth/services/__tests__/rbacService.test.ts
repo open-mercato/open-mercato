@@ -287,6 +287,16 @@ describe('RbacService', () => {
       await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.view'], scope)).resolves.toBe(false)
     })
 
+    it('tags inferred tenant scopes for resolved-tenant ACL invalidation', async () => {
+      const scope = { tenantId: null, organizationId: 'org-1' }
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ownerFeatures, scope)).resolves.toBe(true)
+      em.find.mockImplementation(async (entity: unknown) => entity === RoleAcl ? [{
+        featuresJson: [], organizationsJson: null, isSuperAdmin: false,
+      }] : [])
+      await service.invalidateTenantCache('tenant-1')
+      await expect(service.userHasAllFeatures('api_key:delegated-key', ['customers.people.view'], scope)).resolves.toBe(false)
+    })
+
     it('does not expose MCP features outside the owner organization allowlist', async () => {
       await expect(service.loadAcl('api_key:delegated-key', {
         tenantId: 'tenant-1', organizationId: 'org-2',
