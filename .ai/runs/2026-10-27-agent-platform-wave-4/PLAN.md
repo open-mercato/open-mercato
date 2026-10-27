@@ -40,7 +40,7 @@
 | 4 | 4.10 | Add the local collector and Jaeger compose profile | dispatch:cheap | done | 4538d2f96 |
 | 4 | 4.11 | Cover OTel export with integration tests | dispatch | done | 30684277a |
 | 4 | 4.11-review-fix | Share module-config cache entries between routes and background workers | dispatch:capable | done | 4c0445581 |
-| 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | todo | — |
+| 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | done | pending |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | todo | — |
 
 ## Goal
