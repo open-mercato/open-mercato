@@ -25,21 +25,38 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => {
   }
 })
 
-const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
+const lockContender: { waiting: (() => void) | null } = { waiting: null }
+
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/db/advisoryLock')
+  return {
+    ...actual,
+    withAdvisoryXactLock: (...args: Parameters<typeof actual.withAdvisoryXactLock>) => {
+      const waiting = lockContender.waiting
+      if (!waiting) return actual.withAdvisoryXactLock(...args)
+      lockContender.waiting = null
+      const [em, key, fn, options] = args
+      return actual.withAdvisoryXactLock(em, key, fn, {
+        ...options,
+        onWait: async () => {
+          waiting()
+          return { done: false }
+        },
+      })
+    },
+  }
+})
+
+const describeWithPostgres =process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
 
 const DATABASE_NAME = 'channel_restore_test'
 const DATABASE_USER = 'channel_restore'
 const DATABASE_PASSWORD = 'channel_restore'
 const CHAT_ADAPTER = { channelType: 'chat', capabilities: { realtimePush: true } } as never
-const CONNECT_WAIT_MS = 400
 
 type TestOrm = MikroORM<PostgreSqlDriver, EntityManager<PostgreSqlDriver>>
 
 type LiveRow = { id: string; external_identifier: string | null }
-
-function sleep(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs))
-}
 
 function createDeferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve: () => void = () => undefined
@@ -89,18 +106,45 @@ describeWithPostgres('channel delete undo against a concurrent reconnect on real
     return record
   }
 
-  function reconnect(scope: { tenantId: string; userId: string }) {
+  function reconnect(scope: { tenantId: string; userId: string }, identifier: string | null = 'bot-1234') {
     return createConnectedChannelRow({
       em: requestEm(),
       adapter: CHAT_ADAPTER,
       providerKey: 'discord',
       displayName: 'Discord',
-      externalIdentifier: 'bot-1234',
+      externalIdentifier: identifier,
       credentialsRefId: randomUUID(),
       userId: scope.userId,
       scope: { tenantId: scope.tenantId, organizationId: null },
-      adoptUnidentifiedChannel: true,
+      adoptUnidentifiedChannel: identifier !== null,
     })
+  }
+
+  async function reconnectBehindPausedRestore(scope: { tenantId: string; userId: string }, identifier: string | null) {
+    const deleted = await seedChannel(scope, { createdAt: new Date(Date.now() - 60_000) })
+    const record = await deleteChannel(deleted.id)
+    const checked = createDeferred()
+    const release = createDeferred()
+    duplicateCheck.pause = async () => {
+      checked.resolve()
+      await release.promise
+    }
+
+    const restore = restoreDeletedChannel(requestEm(), { channelId: deleted.id, tenantId: scope.tenantId, ...record })
+    await checked.promise
+    const contended = createDeferred()
+    lockContender.waiting = contended.resolve
+    let connectSettled = false
+    const connect = reconnect(scope, identifier).finally(() => {
+      connectSettled = true
+    })
+    await contended.promise
+    expect(connectSettled).toBe(false)
+    expect(await liveRows(scope)).toEqual([])
+
+    release.resolve()
+    const [, connected] = await Promise.all([restore, connect])
+    return { deleted, connected }
   }
 
   async function liveRows(scope: { tenantId: string; userId: string }): Promise<LiveRow[]> {
@@ -141,6 +185,7 @@ describeWithPostgres('channel delete undo against a concurrent reconnect on real
 
   afterEach(() => {
     duplicateCheck.pause = null
+    lockContender.waiting = null
   })
 
   afterAll(async () => {
@@ -150,31 +195,18 @@ describeWithPostgres('channel delete undo against a concurrent reconnect on real
 
   it('makes a reconnect that starts between the duplicate check and the restore wait, then adopts the restored row', async () => {
     const scope = newScope()
-    const deleted = await seedChannel(scope, { createdAt: new Date(Date.now() - 60_000) })
-    const record = await deleteChannel(deleted.id)
-    const checked = createDeferred()
-    const release = createDeferred()
-    duplicateCheck.pause = async () => {
-      checked.resolve()
-      await release.promise
-    }
-
-    const restore = restoreDeletedChannel(requestEm(), { channelId: deleted.id, tenantId: scope.tenantId, ...record })
-    await checked.promise
-    let connectSettled = false
-    const connect = reconnect(scope).finally(() => {
-      connectSettled = true
-    })
-    await sleep(CONNECT_WAIT_MS)
-    expect(connectSettled).toBe(false)
-    expect(await liveRows(scope)).toEqual([])
-
-    release.resolve()
-    await restore
-    const connected = await connect
+    const { deleted, connected } = await reconnectBehindPausedRestore(scope, 'bot-1234')
 
     expect(connected.id).toBe(deleted.id)
     expect(await liveRows(scope)).toEqual([{ id: deleted.id, external_identifier: 'bot-1234' }])
+  }, 30_000)
+
+  it('makes an identifier-less reconnect without adoption wait for the restore, then heal the restored row', async () => {
+    const scope = newScope()
+    const { deleted, connected } = await reconnectBehindPausedRestore(scope, null)
+
+    expect(connected.id).toBe(deleted.id)
+    expect(await liveRows(scope)).toEqual([{ id: deleted.id, external_identifier: null }])
   }, 30_000)
 
   it('refuses an undo that runs after a reconnect committed', async () => {

@@ -146,7 +146,8 @@ async function connectChannelRow(args: CreateConnectedChannelRowArgs): Promise<C
   //    keyed on (tenant, provider, channel_type='push', user_id NULL). Without this
   //    every admin reconnect would insert a duplicate (fan-out takes the oldest per
   //    provider, so duplicates are silent noise + a concurrent-connect race).
-  // `null` ⇒ no dedup key (identifier-less non-push channel): always insert.
+  // `null` ⇒ no dedup key (identifier-less non-push channel): healed below by
+  // (owner, provider, organization) instead.
   const dedupeFilter = isTenantWidePush
     ? {
         tenantId: scope.tenantId,
@@ -231,6 +232,33 @@ async function connectChannelRow(args: CreateConnectedChannelRowArgs): Promise<C
         { transaction: true },
       )
       return adopted
+    }
+  }
+
+  // Identifier-less reconnect: credentials are stored once per (provider, owner,
+  // organization), so a live identifier-less row of this provider in this
+  // organization already holds this connection. Heal the newest one instead of
+  // inserting a second live row next to it — this is also what makes a reconnect
+  // that waited behind a delete undo heal the restored row.
+  if (!effectiveExternalIdentifier && !isTenantWidePush) {
+    const [current] = (await findWithDecryption(
+      em,
+      CommunicationChannel,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        userId,
+        providerKey,
+        externalIdentifier: null,
+        deletedAt: null,
+      },
+      { orderBy: { createdAt: 'desc' }, limit: 1 },
+      dscope,
+    )) as CommunicationChannel[]
+    if (current) {
+      applyConnectionState(current)
+      await em.flush()
+      return current
     }
   }
 

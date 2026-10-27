@@ -121,6 +121,52 @@ describe('createConnectedChannelRow', () => {
     expect(withAdvisoryXactLock).toHaveBeenCalledTimes(1)
   })
 
+  it('heals the live identifier-less row of the provider instead of inserting a second one', async () => {
+    const current: any = {
+      id: 'ch-1',
+      status: 'requires_reauth',
+      isActive: false,
+      lastError: 'credentials_persist_failed',
+      externalIdentifier: null,
+    }
+    ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([current])
+    const em: any = {
+      create: jest.fn(),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const channel = await createConnectedChannelRow({ em, ...BASE, externalIdentifier: null })
+
+    expect(channel).toBe(current)
+    expect(em.create).not.toHaveBeenCalled()
+    expect(current).toMatchObject({ status: 'connected', isActive: true, lastError: null, credentialsRef: 'cred-1' })
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    const [, , filter, options] = (findWithDecryption as jest.Mock).mock.calls[0]
+    expect(filter).toEqual({
+      tenantId: 't',
+      organizationId: 'o',
+      userId: 'user-1',
+      providerKey: 'imap',
+      externalIdentifier: null,
+      deletedAt: null,
+    })
+    expect(options).toEqual({ orderBy: { createdAt: 'desc' }, limit: 1 })
+  })
+
+  it('does not heal an identifier-less row for an identified connect without adoption', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    await createConnectedChannelRow({ em, ...BASE })
+
+    expect(em.create).toHaveBeenCalledTimes(1)
+    const filters = (findWithDecryption as jest.Mock).mock.calls.map(([, , filter]) => filter)
+    expect(filters.some((filter) => 'externalIdentifier' in filter)).toBe(false)
+  })
+
   describe('adapter-reported identity (#4977)', () => {
     const DISCORD_BASE = {
       ...BASE,
