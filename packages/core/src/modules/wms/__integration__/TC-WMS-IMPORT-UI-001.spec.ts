@@ -94,7 +94,7 @@ test.describe('TC-WMS-IMPORT-UI-001: Inventory CSV import UI', () => {
       await page.goto('/backend/wms/inventory')
       await waitForInventoryMutationScope(page)
 
-      await page.getByRole('button', { name: 'Import CSV' }).click()
+      await page.getByRole('button', { name: 'Import CSV', exact: true }).first().click()
       const importDialog = page.getByRole('dialog').filter({ hasText: /Import CSV/i }).first()
       await expect(importDialog).toBeVisible()
 
