@@ -35,7 +35,7 @@
 | 3 | 3.4 | Expose an example AO agent with defineAgentTool and test module decoupling | dispatch | done | d14cf1e1a |
 | 3 | 3.5 | Cover invoke access and agent dispatch with integration tests | dispatch | done | 360793dca |
 | 3 | 3.6 | Fix the run-object integration spec for nullable runId and HTTP call settings | inline | done | c3be2cb24 |
-| 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | todo | — |
+| 4 | 4.1 | Add the integrity path dialect, declaration schemas and defineAgent keys | dispatch:capable | done | pending |
 | 4 | 4.2 | Add quote normalization with an index map and grapheme snapping | dispatch:capable | todo | — |
 | 4 | 4.3 | Add the evidence_quote rule | dispatch | todo | — |
 | 4 | 4.4 | Run the output pipeline in the native runner and return the final output | dispatch:capable | todo | — |

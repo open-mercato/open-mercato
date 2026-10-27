@@ -2,6 +2,7 @@ import { z, type ZodTypeAny } from 'zod'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
+import { isValidIntegrityPath } from '../lib/guardrails/integrity/paths'
 
 /**
  * A single proposed action emitted by a proposal agent. `payload` is shaped
@@ -601,6 +602,10 @@ export const guardrailKind = z.enum([
   'schema',
   'moderation',
   'tool_scope',
+  'evidence_quote',
+  'reference_exists',
+  'tool_consulted',
+  'custom_integrity',
 ])
 export type GuardrailKindInput = z.infer<typeof guardrailKind>
 
@@ -932,6 +937,185 @@ export const guardrailSetBodySchema = z.object({
   minScore: z.number().default(0),
 })
 export type GuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
+
+// ── Output integrity (spec 2026-10-21-output-integrity-guardrails) ───────────
+/**
+ * A path in the integrity dot-path dialect (`a.b[*].c`, see
+ * `lib/guardrails/integrity/paths.ts`). Syntax only — whether the path can exist
+ * in the agent's result schema is checked at `defineAgent` registration.
+ */
+export const integrityPathSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .refine(isValidIntegrityPath, { message: 'Invalid integrity path' })
+
+export const integrityRuleIdSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)
+
+/**
+ * What happens to an item that fails a rule. `repair` is only offered where the
+ * platform can compute the right value itself (an `evidence_quote` quote/offsets),
+ * so every other kind rejects it.
+ */
+export const integrityOnViolation = z.enum(['drop', 'repair', 'flag', 'block'])
+export type IntegrityOnViolation = z.infer<typeof integrityOnViolation>
+const integrityOnViolationWithoutRepair = z.enum(['drop', 'flag', 'block'])
+
+export const integrityNormalizeMode = z.enum(['exact', 'ws', 'nfkc_ws'])
+export type IntegrityNormalizeMode = z.infer<typeof integrityNormalizeMode>
+
+export const evidenceQuoteRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('evidence_quote'),
+  /** Items to check, relative to the result. */
+  items: integrityPathSchema,
+  /** The quote, relative to each item. */
+  quote: integrityPathSchema,
+  /** Where recomputed offsets are written back, relative to each item. */
+  offsets: z.object({ start: integrityPathSchema, end: integrityPathSchema }).strict().optional(),
+  /** The quoted source: a run-input path, or an item path naming the input field. */
+  source: z.union([
+    z.object({ input: integrityPathSchema }).strict(),
+    z.object({ fromItem: integrityPathSchema }).strict(),
+  ]),
+  normalize: integrityNormalizeMode.default('nfkc_ws'),
+  caseInsensitive: z.boolean().default(false),
+  locale: z.string().min(1).max(35).optional(),
+  offsetUnit: z.enum(['utf16', 'codepoint']).default('utf16'),
+  repairQuote: z.boolean().default(true),
+  minChars: z.number().int().nonnegative().default(3),
+  onViolation: integrityOnViolation.default('drop'),
+})
+
+export const referenceExistsRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('reference_exists'),
+  /** The cited references (strings or `{ id, version }` objects), relative to the result. */
+  ids: integrityPathSchema,
+  idPath: integrityPathSchema.optional(),
+  versionPath: integrityPathSchema.optional(),
+  versionSeparator: z.string().min(1).max(5).default('@'),
+  /** DI key suffix: the resolver is `agentReferenceResolver:<resolver>`. */
+  resolver: z.string().min(1).max(200),
+  version: z
+    .union([
+      z.object({ input: integrityPathSchema }).strict(),
+      z.object({ const: z.string().min(1).max(200) }).strict(),
+      z.object({ path: integrityPathSchema }).strict(),
+    ])
+    .optional(),
+  onResolverMissing: z.enum(['block', 'flag']).default('block'),
+  onViolation: integrityOnViolationWithoutRepair.default('drop'),
+})
+
+export const toolConsultedRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('tool_consulted'),
+  /** The cited values, relative to the result. */
+  cites: integrityPathSchema,
+  tools: z.array(z.string().min(1).max(200)).min(1),
+  /** Paths into a tool RESULT at which a cited value must appear. */
+  returned: z.array(integrityPathSchema).default([]),
+  matchArgs: z.boolean().default(false),
+  includeSubRuns: z.boolean().default(false),
+  enforce: z.literal('prepare_step').optional(),
+  onViolation: integrityOnViolationWithoutRepair.default('flag'),
+})
+
+export const customIntegrityRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('custom'),
+  /** Id passed to `registerIntegrityChecker`. */
+  checker: z.string().min(1).max(200),
+  config: z.record(z.string(), z.unknown()).optional(),
+  onViolation: integrityOnViolationWithoutRepair,
+})
+
+export const integrityRuleSchema = z
+  .discriminatedUnion('kind', [
+    evidenceQuoteRuleSchema,
+    referenceExistsRuleSchema,
+    toolConsultedRuleSchema,
+    customIntegrityRuleSchema,
+  ])
+  .superRefine((rule, ctx) => {
+    if (rule.kind === 'tool_consulted' && rule.returned.length === 0 && !rule.matchArgs) {
+      ctx.addIssue({ code: 'custom', path: ['returned'], message: 'Declare returned paths or enable matchArgs' })
+    }
+  })
+export type IntegrityRuleInput = z.input<typeof integrityRuleSchema>
+export type IntegrityRule = z.infer<typeof integrityRuleSchema>
+export type EvidenceQuoteRule = z.infer<typeof evidenceQuoteRuleSchema>
+export type ReferenceExistsRule = z.infer<typeof referenceExistsRuleSchema>
+export type ToolConsultedRule = z.infer<typeof toolConsultedRuleSchema>
+export type CustomIntegrityRule = z.infer<typeof customIntegrityRuleSchema>
+
+export const integrityRulesSchema = z
+  .array(integrityRuleSchema)
+  .max(50)
+  .superRefine((rules, ctx) => {
+    const seen = new Set<string>()
+    rules.forEach((rule, index) => {
+      if (seen.has(rule.id)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `Duplicate integrity rule id "${rule.id}"` })
+      }
+      seen.add(rule.id)
+    })
+  })
+
+/** Guardrail check kind each rule kind records (`custom` → `custom_integrity`). */
+export const INTEGRITY_RULE_CHECK_KIND = {
+  evidence_quote: 'evidence_quote',
+  reference_exists: 'reference_exists',
+  tool_consulted: 'tool_consulted',
+  custom: 'custom_integrity',
+} as const satisfies Record<IntegrityRule['kind'], GuardrailKindInput>
+
+export const INTEGRITY_EVIDENCE_MAX_VIOLATIONS = 20
+
+/**
+ * Redacted evidence an integrity check row carries (documents the optional keys
+ * riding the `.passthrough()` guardrail evidence). Counts, item PATHS and stable
+ * reason codes only — never the quoted text or any other output/input content.
+ */
+export const integrityEvidenceSchema = guardrailEvidenceSchema.extend({
+  ruleId: integrityRuleIdSchema,
+  /** Items the rule examined. */
+  items: z.number().int().nonnegative(),
+  violations: z
+    .array(z.object({ itemPath: z.string().min(1).max(500), reason: z.string().min(1).max(100) }))
+    .max(INTEGRITY_EVIDENCE_MAX_VIOLATIONS),
+  dropped: z.number().int().nonnegative().default(0),
+  repaired: z.number().int().nonnegative().default(0),
+  ambiguous: z.number().int().nonnegative().default(0),
+  /** Pointer to the pre-repair model output in the encrypted artifact store. */
+  rawOutput: z
+    .object({ key: z.string().min(1), status: z.enum(['stored', 'storage_unavailable']) })
+    .optional(),
+  holdsAutoApproval: z.boolean().optional(),
+})
+export type IntegrityEvidence = z.infer<typeof integrityEvidenceSchema>
+
+/** Run-level roll-up of every integrity rule's verdict. */
+export const integritySummarySchema = z.object({
+  outcome: z.enum(['clean', 'repaired', 'flagged']),
+  checks: z.array(
+    z.object({
+      ruleId: integrityRuleIdSchema,
+      kind: guardrailKind,
+      result: guardrailResult,
+      items: z.number().int().nonnegative(),
+      violations: z.number().int().nonnegative(),
+      dropped: z.number().int().nonnegative(),
+      repaired: z.number().int().nonnegative(),
+    }),
+  ),
+})
+export type IntegritySummary = z.infer<typeof integritySummarySchema>
 
 // ── Agent identity & on-behalf-of (Wave 4, Phase 1) ──────────────────────────
 /**

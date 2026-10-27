@@ -778,6 +778,10 @@ export type GuardrailKind =
   | 'schema'
   | 'moderation'
   | 'tool_scope'
+  | 'evidence_quote'
+  | 'reference_exists'
+  | 'tool_consulted'
+  | 'custom_integrity'
 
 export type GuardrailResult = 'pass' | 'warn' | 'block'
 
