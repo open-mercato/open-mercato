@@ -602,3 +602,40 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+---
+
+## Public Pay-Link Administrative Disclosure (2026-10-27, #7823)
+
+**Surface and classification:** `GET /api/checkout/pay/:slug` response fields,
+including verified-password and authenticated link-preview responses — **STABLE
+API contract (§7), security removal under the Emergency Security Exception**.
+
+**Qualifying argument:** the route returned administrative email subjects/bodies
+and send flags together with management metadata to public payers by spreading
+the administrative serializer. Continued delivery of those fields is the
+disclosure itself. A bridge, legacy response option, or flag retaining them would
+leave the vulnerability reachable throughout the deprecation window. The fix
+removes only administrative members and leaves the payer-facing flow intact.
+
+**Removed fields:** `successEmailSubject`, `successEmailBody`, `sendSuccessEmail`,
+`errorEmailSubject`, `errorEmailBody`, `sendErrorEmail`, `startEmailSubject`,
+`startEmailBody`, `sendStartEmail`, `logoAttachmentId`, `customFieldsetCode`,
+`templateId`, `maxCompletions`, `completionCount`, `activeReservationCount`,
+`isLocked`, `createdAt`, `updatedAt`. Gateway settings, password hashes and scope
+identifiers remain excluded. Authenticated administrative responses are unchanged.
+
+**Migration:** public consumers use the documented public allowlist, including
+`logoPreviewUrl`/`logoUrl` and derived `remainingUses`. Management clients read
+`GET /api/checkout/links/:id` with `checkout.view` and must not forward that payload
+to a public page. Operators deploy the patched app/package, purge cached public
+responses and assess confidential template content already exposed; downloaded
+copies cannot be recalled. No database migration, stored-data conversion or
+password-session reset is required. See
+[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) and the
+[spec's Migration & Backward Compatibility section](.ai/specs/implemented/2026-03-19-checkout-pay-links.md#migration--backward-compatibility).
+
+**Maintainer sign-off: pending.** The PR must carry `security` and a named human
+maintainer approval explicitly acknowledging the waiver of deprecation steps
+1–3 before merge. Automated review cannot grant this exception. Steps 4–5
+(upgrade guidance and specification) remain mandatory and are supplied here.

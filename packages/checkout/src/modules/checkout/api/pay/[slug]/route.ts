@@ -10,7 +10,7 @@ import { handleCheckoutRouteError, readCheckoutAccessCookie, requirePreviewConte
 import {
   isCheckoutLinkPublic,
   resolveLoadedCheckoutCustomFields,
-  serializeTemplateOrLink,
+  serializePublicPayLink,
   verifyCheckoutAccessToken,
 } from '../../../lib/utils'
 import { checkoutTag } from '../../openapi'
@@ -79,7 +79,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       displayCustomFieldsOnPage: link.displayCustomFieldsOnPage,
     })
     return NextResponse.json({
-      ...serializeTemplateOrLink(link),
+      ...serializePublicPayLink(link),
       publicCustomFields,
       available: previewRequested ? false : available,
       remainingUses: link.maxCompletions == null
@@ -87,7 +87,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         : Math.max(0, link.maxCompletions - link.completionCount - link.activeReservationCount),
       requiresPassword: false,
       preview: previewRequested,
-      gatewaySettings: undefined,
     })
   } catch (error) {
     return handleCheckoutRouteError(error)

@@ -653,7 +653,7 @@ const events = [
 
 `GET /api/checkout/pay/:slug` — Get public link data
 
-- Query param: `?preview=true` — requires valid admin session with `checkout.view` feature; returns full link data with `"preview": true` flag regardless of link status
+- Query param: `?preview=true` — requires valid admin session with `checkout.view` feature; returns the same public DTO with `"preview": true` and `"available": false` regardless of link status
 - Response (no password / password verified):
   ```json
   {
@@ -680,7 +680,7 @@ const events = [
       "privacyPolicy": { "title": "Privacy Policy", "markdown": "...", "required": true }
     },
     "displayCustomFieldsOnPage": false,
-    "customFields": {},
+    "publicCustomFields": [],
     "gatewayProviderKey": "stripe",
     "available": true,
     "remainingUses": null
@@ -690,6 +690,20 @@ const events = [
 - If limit reached: `{ available: false, message: "..." }`
 - If `draft`, `inactive`, or deleted (without `preview=true`): `404`
 - **MUST NOT** expose: `passwordHash`, `gatewaySettings`, admin-only fields, PII from other transactions
+
+The response uses the explicit `serializePublicPayLink` allowlist, independently of administrative serialization. The permitted fields are:
+
+| Purpose | Fields |
+|---------|--------|
+| Identity and public presentation | `id`, `slug`, `name` (title fallback), `title`, `subtitle`, `description`, `logoUrl`, `logoPreviewUrl`, `primaryColor`, `secondaryColor`, `backgroundColor`, `themeMode`, `status`, `checkoutType` |
+| Pricing | `pricingMode`, `fixedPriceAmount`, `fixedPriceCurrencyCode`, `fixedPriceIncludesTax`, `fixedPriceOriginalAmount`, `customAmountMin`, `customAmountMax`, `customAmountCurrencyCode`, `priceListItems` |
+| Customer inputs and public custom fields | `collectCustomerDetails`, `customerFieldsSchema`, `legalDocuments`, `displayCustomFieldsOnPage`, `publicCustomFields` (resolved through existing public fieldset filtering) |
+| Payer-facing result copy | `successTitle`, `successMessage`, `cancelTitle`, `cancelMessage`, `errorTitle`, `errorMessage` |
+| Derived access and availability | `available`, `remainingUses`, `requiresPassword`, `preview` |
+
+Email subjects/bodies and send flags, `logoAttachmentId`, `customFieldsetCode`, `templateId`, `maxCompletions`, `completionCount`, `activeReservationCount`, `isLocked`, `createdAt`, and `updatedAt` are administrative fields and are absent even after password verification or in authenticated link preview. Public logo URLs and derived `remainingUses` remain available. Authenticated administrative link/template routes keep their full serializer. The password challenge remains exactly `{ requiresPassword: true, title }`.
+
+Regression coverage: `api/pay/[slug]/__tests__/route.test.ts` asserts exact response shapes for anonymous payers, verified password sessions, minimal challenges, unlimited usage and authorized draft preview, and confirms administrative serialization retains its fields. Self-contained API tests in `__integration__/TC-CHKT-045-public-payload.spec.ts` create links with all email settings, exercise the real verification cookie, compare the public/preview responses, and verify the authenticated admin detail response still includes its configuration.
 
 `POST /api/checkout/pay/:slug/verify-password` — Verify password
 - Body: `{ password: string }`
@@ -1953,6 +1967,16 @@ Phase A keeps core changes minimal, but it does introduce one **additive** contr
 
 Optional future enhancements to generic payment-source correlation in `payment_gateways` must be specified separately and follow the full deprecation / BC process if they alter existing contracts.
 
+### Public pay-link disclosure fix (#7823, 2026-10-27)
+
+Removing the administrative fields from `GET /api/checkout/pay/:slug` narrows a **STABLE API response**. This uses the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: returning the administrative configuration on the public route is the disclosure itself, so a legacy response, opt-in flag, or bridge release would leave the flaw reachable. Removal is limited to administrative members; payer-facing values, password verification, status gating, public custom-field filtering, and derived availability retain their existing behavior.
+
+**Client migration:** extensions reading email configuration or management metadata from the public response must fetch it only in an authenticated administration flow through `GET /api/checkout/links/:id` with `checkout.view`; never forward that response to a pay page. Use `logoPreviewUrl`/`logoUrl` and `remainingUses` for payer-facing branding and availability.
+
+**Operator migration:** deploy the patched checkout package/app and purge any cached public pay-link responses. Review configured email templates for confidential content and assess any prior public exposure; previously returned copies cannot be recalled. No database migration, password-session invalidation, credential rotation, or stored-data rewrite is required by this change itself.
+
+The PR must carry `security` and receive a named human maintainer approval explicitly acknowledging the waiver of deprecation steps 1–3. Approval is pending; an automated review cannot satisfy this merge requirement. See the dated compatibility entry and `UPGRADE_NOTES.md` for migration disclosure.
+
 ---
 
 ## Final Compliance Report — 2026-03-19
@@ -2053,3 +2077,7 @@ None identified.
 
 ### 2026-08-02
 - Defined the 24-hour payment-session replay window and added tenant-scoped cleanup for expired completed initialization claims (#4861)
+
+### 2026-10-27
+- Replaced the public pay-link route's administrative response spread with an explicit payer-facing allowlist, including verified-password and preview responses; documented the security exception and client/operator migration for #7823.
+- Added exact-shape route regressions and self-contained API integration coverage for public omission and retained administrative configuration.
