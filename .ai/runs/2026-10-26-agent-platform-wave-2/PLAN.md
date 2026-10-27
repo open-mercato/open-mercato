@@ -51,6 +51,8 @@
 | 4 | 4.6-review-fix | Show frozen case input and expected values in pinned eval reports | dispatch | done | 4783af5e2 |
 | 5 | 5.1 | Mirror the new env vars into the app and create-app template | dispatch:cheap | done | b7c6c05ce |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 2 | inline | done | 86fd2743a |
+| 5 | 5.2-review-fix | Harden call settings, stream cancel and run recording on the request path | dispatch:capable | todo | — |
+| 5 | 5.2-review-fix-2 | Harden eval manifest resolution, cache bounds and decryption reads | dispatch:capable | todo | — |
 
 ## Goal
 
@@ -231,3 +233,10 @@ None (`--skill-url` not passed).
 
 #### 5.2 Update the specs, roadmap and upgrade notes for wave 2
 - Changelog entries in the chat, observability and eval specs (what landed, deviations); roadmap wave-2 status; `UPGRADE_NOTES.md` (new tables + migration, env vars, `trace.persist` for custom runners calling `runAiAgentObject`). Generic content only.
+
+#### 5.2-review-fix Harden call settings, stream cancel and run recording on the request path
+- Review findings 1–7 on #8011 (ai-assistant): drop `providerOptions` from the HTTP `callSettings` schema and cap numeric settings; whitelist the nine contract keys in merge/SDK conversion; record client disconnects as `aborted` and cancel the upstream reader; fire-and-forget run settling; lightweight recorder observer path (no deep clones unless a caller observer exists); `reportError` in the new catches; validate `pending_action_id` (mutation tools, UUID).
+
+#### 5.2-review-fix-2 Harden eval manifest resolution, cache bounds and decryption reads
+- Review findings 8–13 + nits on #8011 (agent_orchestrator): resolve carriers beyond the 200-run window (keyset-paged scan); bound the manifest cache by bytes; `findOneWithDecryption` for suite-run summaries in the replay service; `reportError` in manifest-build catches; omit `om.capture` until a capture policy exists; snapshot-picker edge cases; document the TC-AGENT-TRACE-004 cleanup and the `evalSet.caseCount` semantics.
+
