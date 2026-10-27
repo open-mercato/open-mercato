@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { drainQueueFromAppRoot } from './queue-runner'
+import { expect } from '@playwright/test'
+import { createQueue } from '@open-mercato/queue'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type DrainQueueOptions = {
   appRoot?: string
@@ -15,6 +17,7 @@ function resolveAppRoot(input?: string): string {
 }
 
 async function drainQueueInCurrentProcess(queueName: string, options: Required<DrainQueueOptions>): Promise<number> {
+  const { drainQueueFromAppRoot } = await import('./queue-runner')
   return drainQueueFromAppRoot(queueName, options)
 }
 
@@ -69,6 +72,27 @@ function drainQueueInAppProcess(queueName: string, options: Required<DrainQueueO
   })
 }
 
+async function waitForManagedQueue(queueName: string, options: Required<DrainQueueOptions>): Promise<number> {
+  const queue = createQueue(queueName, 'local', {
+    baseDir: process.env.QUEUE_BASE_DIR?.trim() || path.resolve(options.appRoot, '.mercato/queue'),
+  })
+  try {
+    const initial = await queue.getJobCounts()
+    let completed = initial.completed
+    await expect.poll(async () => {
+      const counts = await queue.getJobCounts()
+      completed = counts.completed
+      if (counts.failed > initial.failed) {
+        throw new Error(`[internal] Managed integration queue ${queueName} failed ${counts.failed - initial.failed} job(s)`)
+      }
+      return counts.waiting + counts.active
+    }, { message: `Integration queue ${queueName} should finish processing` }).toBe(0)
+    return completed - initial.completed
+  } finally {
+    await queue.close()
+  }
+}
+
 export async function drainIntegrationQueue(queueName: string, options: DrainQueueOptions = {}): Promise<number> {
   const resolved = {
     appRoot: resolveAppRoot(options.appRoot),
@@ -77,5 +101,9 @@ export async function drainIntegrationQueue(queueName: string, options: DrainQue
   if (process.env.OM_TEST_APP_ROOT?.trim()) {
     return drainQueueInAppProcess(queueName, resolved)
   }
+  const managed = parseBooleanToken(process.env.AUTO_SPAWN_WORKERS)
+    ?? parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS)
+    ?? true
+  if (managed) return waitForManagedQueue(queueName, resolved)
   return drainQueueInCurrentProcess(queueName, resolved)
 }
