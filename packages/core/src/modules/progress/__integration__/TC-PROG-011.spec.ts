@@ -22,14 +22,15 @@ async function readJob(request: APIRequestContext, token: string, id: string): P
 /**
  * TC-PROG-011: `progress.update` / `progress.cancel` only reach jobs the caller started.
  * Another same-organization user holding both features but not `progress.manage` gets
- * PUT -> 404 and DELETE -> 400 and leaves the job untouched; the owner and a
- * `progress.manage` holder (admin, progress.*) keep update and cancel access.
+ * PUT -> 404 and DELETE -> 400 and leaves the job untouched; the owner, a user granted
+ * `progress.manage` explicitly and the admin (`progress.*`) keep update and cancel access.
  */
 test.describe('TC-PROG-011: progress update/cancel are scoped to the job owner', () => {
   test('rejects a non-owner without progress.manage and keeps owner and manager access', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     let owner: RestrictedProgressUser | null = null
     let intruder: RestrictedProgressUser | null = null
+    let manager: RestrictedProgressUser | null = null
     let ownerJobId: string | null = null
     let managedJobId: string | null = null
     try {
@@ -44,6 +45,12 @@ test.describe('TC-PROG-011: progress update/cancel are scoped to the job owner',
         PROGRESS_FEATURES.update,
         PROGRESS_FEATURES.cancel,
       ], 'intruder')
+      manager = await createProgressUserWithFeatures(request, adminToken, [
+        PROGRESS_FEATURES.view,
+        PROGRESS_FEATURES.update,
+        PROGRESS_FEATURES.cancel,
+        PROGRESS_FEATURES.manage,
+      ], 'manager')
 
       ownerJobId = await createProgressJob(request, owner.token, { cancellable: true, totalCount: 10 })
       managedJobId = await createProgressJob(request, owner.token, { cancellable: true, totalCount: 10 })
@@ -71,22 +78,30 @@ test.describe('TC-PROG-011: progress update/cancel are scoped to the job owner',
       expect(ownerPut.status(), 'owner keeps update access').toBe(200)
 
       const managerPut = await apiRequest(request, 'PUT', progressJobPath(ownerJobId), {
-        token: adminToken,
+        token: manager.token,
         data: { processedCount: 4 },
       })
       expect(managerPut.status(), 'progress.manage reaches another user\'s job').toBe(200)
       expect((await readJob(request, owner.token, ownerJobId))?.processedCount).toBe(4)
 
+      const adminPut = await apiRequest(request, 'PUT', progressJobPath(ownerJobId), {
+        token: adminToken,
+        data: { processedCount: 5 },
+      })
+      expect(adminPut.status(), 'admin progress.* reaches another user\'s job').toBe(200)
+      expect((await readJob(request, owner.token, ownerJobId))?.processedCount).toBe(5)
+
       const ownerDelete = await apiRequest(request, 'DELETE', progressJobPath(ownerJobId), { token: owner.token })
       expect(ownerDelete.status(), 'owner keeps cancel access').toBe(200)
       expect((await readJob(request, owner.token, ownerJobId))?.status).toBe('cancelled')
 
-      const managerDelete = await apiRequest(request, 'DELETE', progressJobPath(managedJobId), { token: adminToken })
+      const managerDelete = await apiRequest(request, 'DELETE', progressJobPath(managedJobId), { token: manager.token })
       expect(managerDelete.status(), 'progress.manage can cancel another user\'s job').toBe(200)
       expect((await readJob(request, owner.token, managedJobId))?.status).toBe('cancelled')
     } finally {
       await cancelProgressJob(request, adminToken, ownerJobId)
       await cancelProgressJob(request, adminToken, managedJobId)
+      await deleteProgressUser(request, adminToken, manager)
       await deleteProgressUser(request, adminToken, intruder)
       await deleteProgressUser(request, adminToken, owner)
     }

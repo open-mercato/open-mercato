@@ -25,12 +25,16 @@ async function canMutateProgressJob(
   auth: NonNullable<AuthContext>,
   job: Pick<ProgressJob, 'startedByUserId' | 'organizationId'>,
 ): Promise<boolean> {
-  if (job.startedByUserId && job.startedByUserId === auth.sub) return true
+  if (job.startedByUserId === auth.sub) return true
   const rbacService = container.resolve('rbacService') as RbacService
   return rbacService.userHasAllFeatures(auth.sub, ['progress.manage'], {
     tenantId: auth.tenantId ?? null,
     organizationId: job.organizationId ?? null,
   })
+}
+
+function cannotCancelJobResponse() {
+  return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -137,11 +141,15 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     userId: auth.sub,
   }
   const existing = await progressService.getJob(params.id, progressContext)
-  const cancelled = existing && (await canMutateProgressJob(container, auth, existing))
-    ? await progressService.cancelJob(params.id, progressContext).then(() => true, () => false)
-    : false
-  if (cancelled) return NextResponse.json({ ok: true })
-  return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
+  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
+    return cannotCancelJobResponse()
+  }
+  try {
+    await progressService.cancelJob(params.id, progressContext)
+    return NextResponse.json({ ok: true })
+  } catch {
+    return cannotCancelJobResponse()
+  }
 }
 
 export const openApi = {
