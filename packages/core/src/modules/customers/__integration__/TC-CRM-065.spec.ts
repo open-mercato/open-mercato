@@ -54,7 +54,15 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       });
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' });
+      await Promise.all([
+        page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return response.request().method() === 'GET'
+            && url.pathname === '/api/customers/people'
+            && response.ok();
+        }),
+        page.goto('/backend/customers/people', { waitUntil: 'domcontentloaded' }),
+      ]);
 
       const selectableRows = page.getByRole('row').filter({
         has: page.getByRole('cell').getByRole('checkbox'),
@@ -137,7 +145,7 @@ test.describe('TC-CRM-065: People bulk delete partial failure', () => {
       // Blocked row is still in the rendered table after a refetch.
       await page.reload({ waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('link', { name: `${prefix} Blocked`, exact: true })).toBeVisible();
-      await expect(page.getByRole('checkbox', { name: 'Select row', exact: true })).toHaveCount(1);
+      await expect(page.locator('tbody').getByRole('row')).toHaveCount(1);
     } finally {
       if (dealId) {
         await deleteEntityByBody(request, token, '/api/customers/deals', dealId);
