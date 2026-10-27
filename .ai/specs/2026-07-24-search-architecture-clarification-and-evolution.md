@@ -226,6 +226,28 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 2/3**: new drivers/packages are additive and env-gated; a Postgres-only profile is opt-in. `SearchStrategyId`, `SearchStrategy`, event IDs (`search.index_record`, `search.delete_record`, `query_index.*`), queue names (`fulltext-indexing`, `vector-indexing`), and DI keys (`searchService`, `searchIndexer`, `searchStrategies`) are FROZEN/STABLE surfaces — extend, never rename.
 - **Phase 4**: no contract surfaces touched — every deleted/moved member is `private` (`hasSearchTokens`, `searchSourcesHaveTokens`, `tableExists`, `applySearchTokens`) or a module-private type (`SearchRuntime`, `SearchTokenSource`); the new shared module is an additive export; no DB schema, API route, event ID, or DI key changes. The only behavior change (gating `BasicQueryEngine`'s probe) is observable solely as absent SQL statements on queries that carry no search filter.
 
+## Migration & Backward Compatibility — Plaintext Custom Fields (#7894)
+
+`IndexableRecord.plaintextExcludedCustomFields?: readonly string[] | 'all'` is
+additive metadata for fulltext fields and generic vector fallback text. Omission
+preserves direct-client behavior. `SearchIndexer` resolves encrypted custom-field
+keys once per entity within a call; the application DI registration always wires
+the resolver and lookup failures exclude every custom field from plaintext fields.
+Definitions are conservatively unioned across scopes, including inactive but
+non-deleted definitions. Original `fields` and hashed-token inputs remain intact.
+
+Filtering runs before any fulltext driver and before fallback embedding creation.
+It does not sanitize explicit `buildSource` text, presenters or links; those
+build-context protections are tracked separately in #7874. Direct `SearchService`
+clients must provide the optional metadata for their own custom-field records.
+No route, database schema, queue payload, strategy ID or existing signature changes.
+
+Operators must reindex affected fulltext/vector data after upgrade to replace old
+plaintext values; the fix cannot recall copies retained by an external provider.
+Regression coverage exercises real indexer/service/strategy boundaries, DI failure,
+JSON-safe metadata, single/bulk/ID/reindex paths, provider/driver outputs and token
+writer inputs without external services.
+
 ## Non-goals
 
 - No change to how `SearchService.search()` merges/ranks (RRF) in this spec.
@@ -243,6 +265,8 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-10-27 — Added #7894 plaintext custom-field exclusion metadata and driver/provider boundary protection; preserved token values and documented reindex requirements.
 
 - 2026-07-24 — Initial draft: current-architecture clarification (Part A) + evolution roadmap (Part B).
 - 2026-07-31 — Added Phase 4 (B.4): unified read-path token-availability resolver shared by both query engines — makes the #4723 probe gate structural, extends it to `BasicQueryEngine`, and gives the future durable probe fix a single landing site. Renumbered the decision matrix to B.5 and added its row.
