@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import dynamic from 'next/dynamic'
 import { z } from 'zod'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
@@ -19,6 +20,20 @@ import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { AttachmentContentPreview } from '@open-mercato/core/modules/attachments/components/AttachmentContentPreview'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
+import { LoadingMessage } from './LoadingMessage'
+import type { DocumentStructurePanelProps } from './DocumentStructurePanel'
+
+function DocumentStructurePanelLoading() {
+  const t = useT()
+  return <LoadingMessage label={t('attachments.structure.loading', 'Loading document structure\u2026')} />
+}
+
+const DocumentStructurePanel = dynamic<DocumentStructurePanelProps>(
+  () => import('./DocumentStructurePanel').then((mod) => mod.DocumentStructurePanel),
+  { ssr: false, loading: () => <DocumentStructurePanelLoading /> },
+)
+
+type AttachmentDialogTab = 'details' | 'structure'
 
 export type AttachmentAssignment = {
   type: string
@@ -94,6 +109,7 @@ type AttachmentMetadataDialogProps = {
   item: AttachmentItem | null
   availableTags: string[]
   onSave: (id: string, payload: AttachmentMetadataSavePayload) => Promise<void>
+  canManageStructure?: boolean
 }
 
 function formatFileSize(value: number): string {
@@ -310,8 +326,16 @@ export function AttachmentAssignmentsEditor({
   )
 }
 
-export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onSave }: AttachmentMetadataDialogProps) {
+export function AttachmentMetadataDialog({
+  open,
+  onOpenChange,
+  item,
+  availableTags,
+  onSave,
+  canManageStructure,
+}: AttachmentMetadataDialogProps) {
   const t = useT()
+  const [dialogTab, setDialogTab] = React.useState<AttachmentDialogTab>('details')
   const [sizeWidth, setSizeWidth] = React.useState<string>('')
   const [sizeHeight, setSizeHeight] = React.useState<string>('')
   const [imageTab, setImageTab] = React.useState<'preview' | 'resize'>('preview')
@@ -326,6 +350,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
       setLoadError(null)
       setLoading(false)
       setImageTab('preview')
+      setDialogTab('details')
       setExtractedContent(null)
       return
     }
@@ -335,6 +360,7 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
     setSizeWidth('')
     setSizeHeight('')
     setImageTab('preview')
+    setDialogTab('details')
     setInitialValues({
       id: item.id,
       tags: item.tags ?? [],
@@ -557,133 +583,148 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
         </DialogHeader>
         {item ? (
           <div className="space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1 min-w-0">
-                <div className="truncate text-sm font-medium" title={item.fileName}>
-                  {item.fileName}
+            <Tabs
+              value={dialogTab}
+              onValueChange={(value) => setDialogTab(value as AttachmentDialogTab)}
+              variant="underline"
+            >
+              <TabsList className="w-full">
+                <TabsTrigger value="details">{t('attachments.library.metadata.tabs.details', 'Details')}</TabsTrigger>
+                <TabsTrigger value="structure">{t('attachments.library.metadata.tabs.structure', 'Structure')}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {dialogTab === 'structure' ? (
+              <DocumentStructurePanel attachmentId={item.id} canManage={canManageStructure} />
+            ) : null}
+            <div className="space-y-4" hidden={dialogTab !== 'details'}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1 min-w-0">
+                  <div className="truncate text-sm font-medium" title={item.fileName}>
+                    {item.fileName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatFileSize(item.fileSize)} {'\u2022'} {item.partitionTitle ?? item.partitionCode}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} {'\u2022'} {item.partitionTitle ?? item.partitionCode}
-                </div>
+                {downloadUrl ? (
+                  <Button variant="outline" size="sm" asChild className="shrink-0">
+                    <a href={downloadUrl} download>
+                      <Download className="mr-2 h-4 w-4" />
+                      {t('attachments.library.metadata.download', 'Download')}
+                    </a>
+                  </Button>
+                ) : null}
               </div>
-              {downloadUrl ? (
-                <Button variant="outline" size="sm" asChild className="shrink-0">
-                  <a href={downloadUrl} download>
-                    <Download className="mr-2 h-4 w-4" />
-                    {t('attachments.library.metadata.download', 'Download')}
-                  </a>
-                </Button>
-              ) : null}
-            </div>
-            {isImage ? (
-              <div className="rounded border">
-                <Tabs
-                  value={imageTab}
-                  onValueChange={(value) => setImageTab(value as 'preview' | 'resize')}
-                  variant="underline"
-                >
-                  <TabsList className="w-full flex-wrap px-3">
-                    {(['preview', 'resize'] as const).map((tab) => (
-                      <TabsTrigger key={tab} value={tab}>
-                        {tab === 'preview'
-                          ? t('attachments.library.metadata.preview', 'Preview')
-                          : t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-                <div className="space-y-3 p-3">
-                  {imageTab === 'preview' ? (
-                    previewUrl ? (
-                      <img
-                        src={previewUrl}
-                        alt={item.fileName}
-                        className="h-48 w-full rounded-md bg-muted object-contain"
-                      />
+              {isImage ? (
+                <div className="rounded border">
+                  <Tabs
+                    value={imageTab}
+                    onValueChange={(value) => setImageTab(value as 'preview' | 'resize')}
+                    variant="underline"
+                  >
+                    <TabsList className="w-full flex-wrap px-3">
+                      {(['preview', 'resize'] as const).map((tab) => (
+                        <TabsTrigger key={tab} value={tab}>
+                          {tab === 'preview'
+                            ? t('attachments.library.metadata.preview', 'Preview')
+                            : t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                  <div className="space-y-3 p-3">
+                    {imageTab === 'preview' ? (
+                      previewUrl ? (
+                        <img
+                          src={previewUrl}
+                          alt={item.fileName}
+                          className="h-48 w-full rounded-md bg-muted object-contain"
+                        />
+                      ) : (
+                        <div className="text-sm text-muted-foreground">
+                          {t('attachments.library.metadata.previewUnavailable', 'Preview unavailable.')}
+                        </div>
+                      )
                     ) : (
-                      <div className="text-sm text-muted-foreground">
-                        {t('attachments.library.metadata.previewUnavailable', 'Preview unavailable.')}
-                      </div>
-                    )
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium" htmlFor="resize-width">
-                            {t('attachments.library.metadata.resizeTool.width', 'Width (px)')}
-                          </label>
-                          <Input
-                            id="resize-width"
-                            type="number"
-                            min={0}
-                            value={sizeWidth}
-                            onChange={(event) => setSizeWidth(event.target.value)}
-                            disabled={loading}
-                          />
+                      <div className="space-y-2">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium" htmlFor="resize-width">
+                              {t('attachments.library.metadata.resizeTool.width', 'Width (px)')}
+                            </label>
+                            <Input
+                              id="resize-width"
+                              type="number"
+                              min={0}
+                              value={sizeWidth}
+                              onChange={(event) => setSizeWidth(event.target.value)}
+                              disabled={loading}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium" htmlFor="resize-height">
+                              {t('attachments.library.metadata.resizeTool.height', 'Height (px)')}
+                            </label>
+                            <Input
+                              id="resize-height"
+                              type="number"
+                              min={0}
+                              value={sizeHeight}
+                              onChange={(event) => setSizeHeight(event.target.value)}
+                              disabled={loading}
+                            />
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium" htmlFor="resize-height">
-                            {t('attachments.library.metadata.resizeTool.height', 'Height (px)')}
-                          </label>
-                          <Input
-                            id="resize-height"
-                            type="number"
-                            min={0}
-                            value={sizeHeight}
-                            onChange={(event) => setSizeHeight(event.target.value)}
-                            disabled={loading}
-                          />
-                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => void handleCopyResizedUrl()}
+                          disabled={loading}
+                        >
+                          <Copy className="h-4 w-4" />
+                          {t('attachments.library.metadata.resizeTool.copy', 'Copy URL')}
+                        </Button>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="inline-flex items-center gap-2"
-                        onClick={() => void handleCopyResizedUrl()}
-                        disabled={loading}
-                      >
-                        <Copy className="h-4 w-4" />
-                        {t('attachments.library.metadata.resizeTool.copy', 'Copy URL')}
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
+              ) : null}
+              {loadError ? (
+                <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {loadError}
+                </div>
+              ) : null}
+              <div className="rounded border border-border/70 bg-muted/30 px-3 py-2">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  {t('attachments.library.metadata.extractedTitle', 'Extracted text')}
+                </div>
+                <AttachmentContentPreview
+                  content={extractedContent}
+                  emptyLabel={t('attachments.library.metadata.noContent', 'No text extracted')}
+                  showMoreLabel={t('attachments.library.metadata.showMore', 'Show more')}
+                  showLessLabel={t('attachments.library.metadata.showLess', 'Show less')}
+                />
               </div>
-            ) : null}
-            {loadError ? (
-              <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {loadError}
-              </div>
-            ) : null}
-            <div className="rounded border border-border/70 bg-muted/30 px-3 py-2">
-              <div className="text-xs font-semibold text-muted-foreground">
-                {t('attachments.library.metadata.extractedTitle', 'Extracted text')}
-              </div>
-              <AttachmentContentPreview
-                content={extractedContent}
-                emptyLabel={t('attachments.library.metadata.noContent', 'No text extracted')}
-                showMoreLabel={t('attachments.library.metadata.showMore', 'Show more')}
-                showLessLabel={t('attachments.library.metadata.showLess', 'Show less')}
+              <CrudForm<AttachmentMetadataFormValues>
+                embedded
+                schema={metadataSchema}
+                entityId={E.attachments.attachment}
+                fields={metadataFields}
+                groups={metadataGroups}
+                initialValues={initialValues ?? undefined}
+                isLoading={!initialValues || loading}
+                loadingMessage={loadMessage}
+                submitLabel={t('attachments.library.metadata.save', 'Save')}
+                extraActions={
+                  <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                    {t('attachments.library.metadata.cancel', 'Cancel')}
+                  </Button>
+                }
+                onSubmit={handleSubmit}
               />
             </div>
-            <CrudForm<AttachmentMetadataFormValues>
-              embedded
-              schema={metadataSchema}
-              entityId={E.attachments.attachment}
-              fields={metadataFields}
-              groups={metadataGroups}
-              initialValues={initialValues ?? undefined}
-              isLoading={!initialValues || loading}
-              loadingMessage={loadMessage}
-              submitLabel={t('attachments.library.metadata.save', 'Save')}
-              extraActions={
-                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                  {t('attachments.library.metadata.cancel', 'Cancel')}
-                </Button>
-              }
-              onSubmit={handleSubmit}
-            />
           </div>
         ) : (
           <div className="py-8 text-center text-sm text-muted-foreground">

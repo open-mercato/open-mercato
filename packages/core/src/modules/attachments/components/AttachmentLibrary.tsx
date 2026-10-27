@@ -1178,6 +1178,7 @@ export function AttachmentLibrary() {
         item={selectedRow}
         availableTags={availableTags}
         onSave={handleMetadataSave}
+        canManageStructure={canManage}
       />
       <AttachmentDeleteDialog
         open={deleteDialogOpen}
