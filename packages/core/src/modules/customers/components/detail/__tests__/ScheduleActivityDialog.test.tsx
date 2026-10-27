@@ -322,13 +322,23 @@ describe('ScheduleActivityDialog', () => {
       expect(payload).not.toHaveProperty('durationMinutes')
     })
 
-    it('does not treat catalog resolution as an unsaved edit', async () => {
+    it.each(['note', 'meeting'] as const)('does not treat custom %s catalog resolution as an unsaved edit', async (baseKind) => {
       mockCatalogStatus = 'loading'
-      const view = renderCustomActivity('note')
+      const view = renderCustomActivity(baseKind)
       mockCatalogStatus = 'ready'
       view.renderAgain()
       await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^Cancel$/ }).at(-1)!) })
       expect(mockConfirmDialog).not.toHaveBeenCalled()
+    })
+
+    it.each(['note', 'meeting'] as const)('confirms closing after the first custom %s title edit following catalog loading', async (baseKind) => {
+      mockCatalogStatus = 'loading'
+      const view = renderCustomActivity(baseKind)
+      mockCatalogStatus = 'ready'
+      view.renderAgain()
+      fireEvent.change(screen.getByDisplayValue('Note test'), { target: { value: 'Unsaved title' } })
+      await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^Cancel$/ }).at(-1)!) })
+      expect(mockConfirmDialog).toHaveBeenCalledTimes(1)
     })
   })
 

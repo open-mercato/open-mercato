@@ -263,7 +263,7 @@ export function ScheduleActivityDialog({
   const snapshotOpenKeyRef = React.useRef<string | null>(null)
   const snapshotSettleCountRef = React.useRef(0)
   const closeConfirmPendingRef = React.useRef(false)
-  const openKey = open ? `${editData?.id ?? 'new'}` : null
+  const openKey = open ? `${editData?.id ?? 'new'}:${initialActivityType ?? ''}` : null
   React.useEffect(() => {
     if (!open) {
       initialSnapshotRef.current = null
@@ -271,7 +271,6 @@ export function ScheduleActivityDialog({
       snapshotSettleCountRef.current = 0
       return
     }
-    if (catalogPending) return
     if (snapshotOpenKeyRef.current !== openKey) {
       snapshotOpenKeyRef.current = openKey
       snapshotSettleCountRef.current = 0
@@ -281,7 +280,7 @@ export function ScheduleActivityDialog({
       initialSnapshotRef.current = formSnapshot
       snapshotSettleCountRef.current += 1
     }
-  }, [open, openKey, formSnapshot, catalogPending])
+  }, [open, openKey, formSnapshot])
 
   const isDirty = React.useCallback(() => {
     if (initialSnapshotRef.current == null) return false
