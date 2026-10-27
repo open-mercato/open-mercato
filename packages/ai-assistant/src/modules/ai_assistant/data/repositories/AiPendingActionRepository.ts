@@ -43,6 +43,16 @@ export interface AiPendingActionCreateInput {
   now?: Date
 }
 
+export interface AiPendingActionCreateResult {
+  row: AiPendingAction
+  /**
+   * True when `row` is an existing row returned as-is (a still-`pending`
+   * row, or a `confirmed`/`executing` row whose mutation already ran) —
+   * i.e. no new row was inserted.
+   */
+  reused: boolean
+}
+
 export interface AiPendingActionSetStatusExtra {
   resolvedByUserId?: string | null
   executionResult?: AiPendingActionExecutionResult | null
@@ -76,7 +86,7 @@ export class AiPendingActionRepository {
   async create(
     input: AiPendingActionCreateInput,
     ctx: AiPendingActionContext,
-  ): Promise<AiPendingAction> {
+  ): Promise<AiPendingActionCreateResult> {
     if (!ctx?.tenantId) {
       throw new Error('AiPendingActionRepository.create requires tenantId')
     }
@@ -124,24 +134,49 @@ export class AiPendingActionRepository {
         },
       )
       if (existing && existing.status === 'pending') {
-        return existing
+        return { row: existing, reused: true }
       }
-      // Terminal stale row would collide on the unique
-      // `(tenantId, organizationId, idempotencyKey)` constraint when we
-      // try to insert a fresh one with the same hash — and that exact
-      // collision happens whenever the operator clicks "Fix with AI"
-      // and the model retries the SAME tool with the SAME args. Remove
-      // the stale row first so a retry can always proceed; success rows
-      // stay (they represent a real, applied change), and failed /
-      // cancelled / expired rows are cleared because they're blocking
-      // exactly the recovery flow they were created to enable.
+      // A `confirmed`/`executing` row represents a mutation that already
+      // ran (or is running). Inserting a fresh row with the same key would
+      // collide with the unique `(tenantId, organizationId,
+      // idempotencyKey)` index — this happens whenever the model repeats
+      // the same tool call with the same arguments after it already
+      // succeeded. Return the existing row instead of inserting; the
+      // caller (`prepareMutation`) uses `reused` to tell the model the
+      // operation already ran rather than re-queuing it.
+      //
+      // This only holds within the row's own dedupe/TTL window
+      // (`now < expiresAt`, per the spec's "within the TTL" dedupe
+      // promise). Outside it, treat the row as stale: a legitimate repeat
+      // of the same arguments later on would otherwise be refused forever,
+      // and a process that died mid-execution would leave every retry
+      // stuck reading a dead `executing` row.
+      if (
+        existing &&
+        (existing.status === 'confirmed' || existing.status === 'executing') &&
+        now.getTime() < existing.expiresAt.getTime()
+      ) {
+        return { row: existing, reused: true }
+      }
+      // A terminal (`failed`/`cancelled`/`expired`) row, or a stale
+      // `confirmed`/`executing` row past its dedupe window, would also
+      // collide on the same unique index when we insert a fresh one with
+      // the same key — which happens whenever the operator clicks "Fix
+      // with AI" and the model retries the SAME tool with the SAME args,
+      // or simply repeats the same arguments later. Re-key the stale row
+      // (instead of deleting it) so a retry can always proceed: the stale
+      // row's own card keeps resolving to its terminal/prior state via a
+      // GET by id, rather than 404ing.
       if (
         existing &&
         (existing.status === 'failed' ||
           existing.status === 'cancelled' ||
-          existing.status === 'expired')
+          existing.status === 'expired' ||
+          existing.status === 'confirmed' ||
+          existing.status === 'executing')
       ) {
-        await tx.remove(existing).flush()
+        existing.idempotencyKey = `${existing.idempotencyKey}:superseded:${existing.id}`
+        await tx.persist(existing).flush()
       }
       const row = tx.create(AiPendingAction, {
         tenantId: ctx.tenantId,
@@ -171,7 +206,7 @@ export class AiPendingActionRepository {
         resolvedByUserId: null,
       } as unknown as AiPendingAction)
       await tx.persist(row).flush()
-      return row
+      return { row, reused: false }
     })
   }
 

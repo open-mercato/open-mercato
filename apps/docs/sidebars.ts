@@ -67,7 +67,13 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway", "deployment/agent-orchestration-scaling"],
+      items: [
+        "deployment/production-readiness",
+        "deployment/readiness-scanner",
+        "deployment/railway",
+        "deployment/github-ci",
+        "deployment/agent-orchestration-scaling",
+      ],
     },
     {
       type: "category",
@@ -248,6 +254,8 @@ const sidebars: SidebarsConfig = {
             "api/directory",
             "api/dashboards",
             "api/customers",
+            "api/cart",
+            "api/promotions",
             "api/integrations-data-sync",
             "api/payment-gateways",
             "api/entities",
