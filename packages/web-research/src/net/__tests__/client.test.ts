@@ -125,6 +125,38 @@ describe('http client against a real server', () => {
     await expect(client().request(`${origin}/start`)).rejects.toMatchObject({ code: 'ssrf_blocked' })
   })
 
+  it.each(['64:ff9b:1::a00:1', '2002:a00:1::1'])(
+    'rejects a redirect to the non-public IPv6 literal %s',
+    async (address) => {
+      const { origin } = track(
+        await listen((_req, res) => {
+          res.writeHead(302, { location: `http://[${address}]/secret` })
+          res.end()
+        }),
+      )
+
+      await expect(client().request(`${origin}/start`)).rejects.toMatchObject({ code: 'ssrf_blocked' })
+    },
+  )
+
+  it.each(['64:ff9b:1::a00:1', '2002:a00:1::1'])(
+    'rejects a redirect whose DNS answer contains %s',
+    async (address) => {
+      const { origin } = track(
+        await listen((_req, res) => {
+          res.writeHead(302, { location: 'http://translated.example.com/secret' })
+          res.end()
+        }),
+      )
+      const lookup = jest.fn(async () => [{ address, family: 6 }])
+
+      await expect(client({ lookup }).request(`${origin}/start`)).rejects.toMatchObject({
+        code: 'ssrf_blocked',
+      })
+      expect(lookup).toHaveBeenCalledWith('translated.example.com')
+    },
+  )
+
   it('stops after the redirect limit instead of looping', async () => {
     const { origin } = track(
       await listen((_req, res) => {
