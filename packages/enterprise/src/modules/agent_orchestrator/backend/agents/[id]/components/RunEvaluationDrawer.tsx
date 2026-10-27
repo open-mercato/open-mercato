@@ -240,7 +240,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
                 }
               }}
             >
-              {noApproved ? (
+              {noApproved && !hashPinned ? (
                 <p className="text-sm text-muted-foreground">
                   {t('agent_orchestrator.agentDetail.evaluation.run.noApproved', 'This agent has no approved cases to evaluate.')}
                 </p>

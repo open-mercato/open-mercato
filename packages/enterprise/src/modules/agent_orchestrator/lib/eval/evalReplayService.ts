@@ -109,20 +109,25 @@ type SuiteManifest = { pinned: false } | { pinned: true; manifest: EvalSetManife
  * Resolves the frozen eval-set manifest a suite run was started with. Keyed by
  * tenant, organization and version: the version is a content hash, so every
  * suite run pinned to it shares one entry. Only successful resolutions are
- * cached: a miss may be a transient read the next case retries.
+ * cached process-wide: a miss may be a transient read a later suite run retries.
+ * Within one suite run a miss is remembered in `unresolvedVersions`, so the
+ * unbounded resolution scan runs at most once per suite run.
  */
 async function loadSuiteManifest(
   em: EntityManager,
   suiteRun: AgentEvalSuiteRun | null,
   scope: EvalScope,
+  unresolvedVersions?: Set<string>,
 ): Promise<SuiteManifest> {
   const pointer = suiteRun ? readEvalSetPointer(suiteRun.summary) : null
   if (!suiteRun || !pointer) return { pinned: false }
   const cacheKey = evalSetManifestCacheKey(scope, pointer.version)
   const cached = manifestCache.get(cacheKey)
   if (cached) return { pinned: true, manifest: cached }
+  if (unresolvedVersions?.has(cacheKey)) return { pinned: true, manifest: null }
   const manifest = await resolveManifest(em, scope, suiteRun.agentDefinitionId, pointer.version)
   if (manifest) manifestCache.set(cacheKey, manifest)
+  else unresolvedVersions?.add(cacheKey)
   return { pinned: true, manifest }
 }
 
@@ -228,8 +233,9 @@ export async function executeCaseRun(
   caseRunId: string,
   scope: EvalScope,
   userId: string,
+  unresolvedVersions?: Set<string>,
 ): Promise<ReplayCaseOutcome> {
-  const result = await runCase(container, caseRunId, scope, userId)
+  const result = await runCase(container, caseRunId, scope, userId, unresolvedVersions)
 
   // Emitted on EVERY terminal path — including the error ones — so a failing case
   // still advances the live progress UI instead of leaving it hanging. Re-read
@@ -249,6 +255,7 @@ async function runCase(
   caseRunId: string,
   scope: EvalScope,
   userId: string,
+  unresolvedVersions?: Set<string>,
 ): Promise<ReplayCaseOutcome> {
   const em = (container.resolve('em') as EntityManager).fork()
 
@@ -262,7 +269,7 @@ async function runCase(
     undefined,
     scope,
   )
-  const suiteManifest = await loadSuiteManifest(em, suiteRun, scope)
+  const suiteManifest = await loadSuiteManifest(em, suiteRun, scope, unresolvedVersions)
 
   let source: ReplaySource
   if (suiteManifest.pinned) {
@@ -613,9 +620,10 @@ export async function replaySuiteRun(
 
   const pending = await em.find(AgentEvalCaseRun, { suiteRunId, ...scope, status: 'pending' }, { orderBy: { createdAt: 'ASC' } })
 
+  const unresolvedVersions = new Set<string>()
   for (const caseRun of pending) {
     if (suiteRun.status === 'cancelled') break
-    await executeCaseRun(container, caseRun.id, scope, userId)
+    await executeCaseRun(container, caseRun.id, scope, userId, unresolvedVersions)
     await em.refresh(suiteRun)
   }
 }

@@ -3,6 +3,7 @@ import type { AiAgentCallObserver, AiAgentRunTraceOptions } from './agent-call-c
 import type { AiAgentDefinition, AiAgentLoopStopCondition, LoopStepRecord } from './ai-agent-definition'
 import type { AiChatRequestContext } from './attachment-bridge-types'
 import { getAgentDefinitionHash } from './agent-registry'
+import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeAgentDefinitionHash } from './agent-definition-hash'
 import { extractStepMeta, normalizeToolError } from './loop-step-extraction'
 import type { RawStepEvent } from './loop-step-extraction'
@@ -175,7 +176,12 @@ export function createAgentRunCapture(input: AgentRunCaptureInput): AgentRunCapt
   function settle(settleInput: AgentRunSettleInput): Promise<boolean> {
     if (settled) return Promise.resolve(false)
     settled = true
-    return trackSettle(persistSettledRun(settleInput).catch(() => false))
+    return trackSettle(
+      persistSettledRun(settleInput).catch((error: unknown) => {
+        reportAiAssistantError(error, 'ai_assistant.agent_run_capture_failed')
+        return false
+      }),
+    )
   }
 
   async function persistSettledRun(settleInput: AgentRunSettleInput): Promise<boolean> {

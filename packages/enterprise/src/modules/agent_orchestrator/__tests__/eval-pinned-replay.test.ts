@@ -9,7 +9,13 @@ import {
   AgentRun,
 } from '../data/entities'
 import type { JudgeFn } from '../lib/eval/llmJudge'
-import { aggregateSuiteRun, executeCaseRun, resetEvalSetManifestCache } from '../lib/eval/evalReplayService'
+import {
+  aggregateSuiteRun,
+  executeCaseRun,
+  replaySuiteRun,
+  resetEvalSetManifestCache,
+} from '../lib/eval/evalReplayService'
+import * as manifestModule from '../lib/eval/manifest'
 import {
   EVAL_SET_SUMMARY_KEY,
   buildEvalSetPointer,
@@ -249,6 +255,41 @@ describe('replay from the frozen eval-set manifest', () => {
     expect(runtime.run).not.toHaveBeenCalled()
     expect(storeFor(AgentEvalCaseRun)[0].errorMessage).toContain('eval_set_unresolved')
     expect(storeFor(AgentEvalResult)).toHaveLength(0)
+  })
+
+  it('runs the resolution scan once per suite run when the pointer cannot be resolved', async () => {
+    const { em, storeFor } = createFakeEm(liveSeed())
+    const dangling = {
+      version: 'sha256:missing',
+      label: null,
+      source: 'db',
+      caseCount: 3,
+      assertionCount: 2,
+      carrierSuiteRunId: CARRIER_ID,
+    }
+    storeFor(AgentEvalSuiteRun).push(suiteRun(FOLLOWER_ID, { [EVAL_SET_SUMMARY_KEY]: dangling }))
+    storeFor(AgentEvalCaseRun).push(
+      pendingCaseRun('cr-1', FOLLOWER_ID),
+      pendingCaseRun('cr-2', FOLLOWER_ID),
+      pendingCaseRun('cr-3', FOLLOWER_ID),
+    )
+    const { runtime, container } = harness(em)
+    const resolveSpy = jest.spyOn(manifestModule, 'resolveManifest')
+
+    try {
+      await replaySuiteRun(container, FOLLOWER_ID, SCOPE, 'user-1')
+
+      expect(resolveSpy).toHaveBeenCalledTimes(1)
+      expect(runtime.run).not.toHaveBeenCalled()
+      const caseRuns = storeFor(AgentEvalCaseRun)
+      expect(caseRuns).toHaveLength(3)
+      for (const caseRun of caseRuns) {
+        expect(caseRun.status).toBe('error')
+        expect(caseRun.errorMessage).toContain('eval_set_unresolved')
+      }
+    } finally {
+      resolveSpy.mockRestore()
+    }
   })
 
   it('resolves the body from a carrier that ended failed', async () => {

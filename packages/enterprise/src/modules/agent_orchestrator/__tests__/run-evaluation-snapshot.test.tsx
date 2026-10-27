@@ -193,12 +193,15 @@ describe('RunEvaluationDrawer snapshot picker', () => {
     const trigger = await screen.findByRole('combobox', { name: dict['agent_orchestrator.agentDetail.evaluation.run.snapshot'] })
     const submitButton = screen.getByRole('button', { name: dict['agent_orchestrator.agentDetail.evaluation.run.submit'] })
     expect(submitButton.hasAttribute('disabled')).toBe(true)
+    const noApprovedMessage = dict['agent_orchestrator.agentDetail.evaluation.run.noApproved']
+    expect(screen.queryByText(noApprovedMessage)).not.toBeNull()
 
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
     fireEvent.click(trigger)
     fireEvent.click(await screen.findByRole('option', { name: shortSnapshotHash(KNOWN_HASH) }))
 
     await waitFor(() => expect(submitButton.hasAttribute('disabled')).toBe(false))
+    expect(screen.queryByText(noApprovedMessage)).toBeNull()
     fireEvent.keyDown(trigger.closest('form') as HTMLFormElement, { key: 'Enter', ctrlKey: true })
 
     await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1))

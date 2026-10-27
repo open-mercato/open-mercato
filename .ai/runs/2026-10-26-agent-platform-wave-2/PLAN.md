@@ -53,6 +53,7 @@
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 2 | inline | done | 86fd2743a |
 | 5 | 5.2-review-fix | Harden call settings, stream cancel and run recording on the request path | dispatch:capable | done | 8d5580727 |
 | 5 | 5.2-review-fix-2 | Harden eval manifest resolution, cache bounds and decryption reads | dispatch:capable | done | 5a1246052 |
+| 5 | 5.2-review-fix-3 | Cache unresolved eval-set pins per suite run and close two re-review nits | inline | done | 374b4e89f |
 
 ## Goal
 
@@ -240,3 +241,5 @@ None (`--skill-url` not passed).
 #### 5.2-review-fix-2 Harden eval manifest resolution, cache bounds and decryption reads
 - Review findings 8–13 + nits on #8011 (agent_orchestrator): resolve carriers beyond the 200-run window (keyset-paged scan); bound the manifest cache by bytes; `findOneWithDecryption` for suite-run summaries in the replay service; `reportError` in manifest-build catches; omit `om.capture` until a capture policy exists; snapshot-picker edge cases; document the TC-AGENT-TRACE-004 cleanup and the `evalSet.caseCount` semantics.
 
+#### 5.2-review-fix-3 Cache unresolved eval-set pins per suite run and close two re-review nits
+- Re-review nits on #8011: an unresolvable pinned eval-set version is remembered per suite run (`replaySuiteRun` threads an `unresolvedVersions` set to case resolution) so the unbounded scan runs at most once per suite run; the run-evaluation drawer hides the "no approved cases" message while a hash snapshot is pinned; `createAgentRunCapture` reports payload-build errors via `reportAiAssistantError` before resolving `false`.
