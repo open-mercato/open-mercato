@@ -302,8 +302,9 @@ describe('detachOperator', () => {
 
     await expect(forced).resolves.toEqual({ ok: true, detached: true, revoked: false })
     expect(service.save).not.toHaveBeenCalled()
-    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: Array<{ token: string }> }
+    const saved = store[TILLIO_OPERATORS_INTEGRATION_ID] as { operators: Array<{ token: string }>; defaultOperatorId: string | null }
     expect(saved.operators.map((entry) => entry.token)).toEqual(['tok-B'])
+    expect(saved.defaultOperatorId).toBe('ringostat-1')
   })
 
   it('writes from the blob as it stands after the revocation, not from the first read', async () => {
