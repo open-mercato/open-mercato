@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Proposed |
-| **Created** | 2026-08-10 (version 1), 2026-10-07 (version 4), 2026-10-21 (version 4.2) |
+| **Created** | 2026-08-10 (version 1), 2026-10-07 (version 4), 2026-10-27 (version 4.3) |
 | **Related** | `packages/core/src/modules/planner`, `resources`, `staff`, `customers`, `catalog`, `checkout`; `.ai/specs/2026-07-15-staff-member-directory.md`; `.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md` |
 
 Where the required spec sections are: Overview and Problem Statement — sections 1–3; User Stories —
@@ -162,8 +162,9 @@ and the API is fixed in phase 1, so a later phase adds tables, nullable columns,
 and new values of existing lists — a third duration unit, a third conflict mode, a new field on
 the conflict object. Nothing released changes meaning.
 
-Phase 1 is delivered first. Phases 2–4 are specified to the same level, so each can be picked up
-as its own piece of work.
+Phase 1 is delivered first. Phases 2–4 are a roadmap with proposed contracts and acceptance
+criteria, not implementation-ready specifications. Each needs its own schema-level API contracts,
+accepted mockups and resolution of the applicable questions in section 21 before implementation.
 
 ### Phase 1 — occupancy core
 
@@ -740,7 +741,8 @@ that service has no production callers today, so the addition changes nothing th
 
 From phase 2 the same method returns a second list: the **working windows** of the same subjects in
 the same range, computed from their availability rules by the availability function planner
-already has (section 18). One question, one read of the rules, two answers.
+already has, explicitly selecting its existing timezone-aware recurrence option for declared-zone
+rules (section 18). One question, one read of the rules, two answers.
 
 **The module and the method live in the same repository.** The method is part of this
 specification and ships with phase 1, in the same change as the module — there is no version of
@@ -762,9 +764,10 @@ matter where they come from.
 The module keeps its own list. A row holds only what is needed to reserve: where the subject
 comes from, its identifier in that registry, a name to display, a category to group timeline
 rows, and whether it is still in use. No contact data and no equipment details are here — the
-truth stays with the provider. The name copy follows its source on encryption: `staff` does not
-encrypt team member names, so our copy of a person's name is not encrypted either; a provider
-whose registry encrypts names marks the copy for encryption when it registers.
+truth stays with the provider. Every copied subject name is declared in this module's encryption
+map, including resource and team names. A person's name is personal data even when its source
+registry does not encrypt it; the source's storage policy is not an exemption for this new copy.
+Provider reads and scoped booking reads use the platform's decrypting helpers (section 7.1).
 
 Thanks to this, a reservation always points at one kind of row, and the engine, the timeline and
 conflict detection do not branch on the subject type.
@@ -963,7 +966,7 @@ Table names start with the module name and are plural, as everywhere in Open Mer
 Columns that a later phase brings are marked with that phase below. Each one is nullable or has a
 default, so its migration adds and never rewrites.
 
-Every list in the module is a table or a set of typed columns, and `jsonb` is used only for the two
+Every list in the module is a table or a set of typed columns, and `jsonb` is used only for the three
 write-once proof snapshots named below: nothing else has a variable shape, and `jsonb` would only
 cost the types and the constraints. So the later-phase lists are tables too: the allowed subjects of
 a service requirement (phase 3) and the services of a booking page (phase 4) are join tables,
@@ -982,14 +985,27 @@ migration of meaning, adding a table is not.
 | duration | a value and a unit: working days in steps of half a day, or minutes; days with their own hours from phase 3 (section 18) |
 | expected start | the date by which the reservation must be on the timeline; always required |
 | last reported warning | the state at the last signal: the number of working days left, 0 on the expected start day itself, or "overdue"; empty when nothing was reported |
-| note | free text; a preferred date range, when there is one, is written here — a field of its own may come later |
-| override reason | phase 2: why a user wrote it despite the warnings, and which warnings they confirmed |
+| note | encrypted free text; a preferred date range, when there is one, is written here — a field of its own may come later |
+| override reason | phase 2: encrypted reason why a user wrote despite warnings; confirmed warnings store only identifiers and comparison fields, never names or free-text reasons |
 | services | phase 3: zero or more lines in `bookings_booking_services`, each with its service, a copy of its name, its duration and its price (section 16) |
 | price | phase 3: the total of its lines, net and gross, their currency, and whether a line had no price; empty with no line (section 16) |
 | duration adjustment | phase 3: the manual change of the duration over the sum of its lines; zero by default (section 16) |
 | page, confirmation | phase 4: the public page it came from, and awaiting, confirmed, declined or expired; empty for reservations made by staff (section 19) |
 | payment link | phase 4: the id of its current `checkout` payment link; cleared by a change after confirmation, so a transaction on an older link does not mark it paid (section 19) |
 | paid | phase 4: when the payment link was paid (section 19) |
+
+**Sensitive-field inventory.** The module's `encryption.ts` exports
+`defaultEncryptionMaps: ModuleEncryptionMap[]` using the type from
+`@open-mercato/shared/modules/encryption`. It covers the target name, every subject's copied name,
+the booking note, the override reason from phase 2, and the request contact fields from phase 4.
+Names and free text can identify patients, guests or staff; there is no provider-dependent opt-out.
+Reads use `findWithDecryption` / `findOneWithDecryption` from
+`@open-mercato/shared/lib/encryption/find` with explicit tenant and organization filters and scope.
+The confirmed-warning snapshot stores kind, source, subject/other record identifiers and the
+window/comparison fields required by section 9, without display names, labels or personal reasons;
+the UI resolves display text through authorized reads. New fields that can hold personal data
+must extend this inventory before their phase ships. Encryption uses the platform mechanism and
+its configured mode, without custom cryptography.
 
 **A reservation without dates is a normal state.** A commitment that has no window yet — in the
 interface "unplaced". It is not broken and not wrong.
@@ -1181,8 +1197,8 @@ link stays stored and is not shown.
 The tab goes into the spot `detail:customers.person:tabs`. The person page already renders that
 spot and other modules already inject into it, but `customers` does not declare it in its
 `extension-points.ts`. This change declares it there — a one-line addition to `customers` — so the
-spot appears in the generated catalog; from the release on its id is frozen like any spot id
-(section 23).
+spot appears in the generated catalog. Its already-rendered id and meaning are protected today;
+the declaration records that existing contract rather than creating a new one (section 23).
 
 **The target name is personal data** when the target is a person — a patient, a guest. `customers`
 encrypts the display name of its people, so the module declares the target name in its encryption
@@ -1296,7 +1312,7 @@ Every read named in section 12 and every scan step has its index:
 | `bookings_participants` | (subject, reservation) unique over non-deleted rows | conflicts per subject; one subject once per reservation |
 | `bookings_participants` | (reservation) | loading a reservation's participants |
 | `bookings_subjects` | (provider, provider id) unique over non-deleted rows | add and re-add |
-| `bookings_subjects` | (tenant, organization, category, name) over non-deleted rows | timeline rows in their sort order |
+| `bookings_subjects` | (tenant, organization, category, id) over non-deleted rows | scoped timeline candidates; encrypted names are ordered after decryption, not by this index |
 | `bookings_targets` | (tenant, organization) over non-deleted rows; from phase 4 also non-provisional | the target list and picker |
 | `bookings_targets` | (tenant, organization, customer kind, customer id) over non-deleted rows | the reservations tab on a customer's card |
 | `bookings_reported_conflicts` | (participant, other side) unique | the novelty check of writes and the scan |
@@ -1310,21 +1326,32 @@ Every read named in section 12 and every scan step has its index:
 | `bookings_services` | (tenant, organization, product) unique over non-deleted rows; (tenant, organization, definition key) unique where the key is set, deleted rows included | phase 3: one definition per product; the seed's lookup by key (section 16) |
 | `bookings_idempotency_keys` | (scope, key) unique; (tenant, organization, created at) | the duplicate check; the clean-up on insert and on the hourly tick |
 
-The timeline read costs a fixed number of queries per view: one page of rows, one query for their
+Alphabetical row order uses the platform's existing encrypted-field sort path in
+`packages/shared/src/lib/query/engine.ts` and `encrypted-sort.ts`: project scoped candidate ids and
+sort fields, decrypt with bounded concurrency, sort before slicing the page's ids, then fetch full
+rows for those ids. Category name and subject name form the order, with id as the stable tie-break;
+SQL ordering of ciphertext and plaintext shadow sort columns are not acceptable substitutes.
+Forward `meta.encryptedSortRowCapWarning` and surface it on the timeline when the operator's
+`OM_ENCRYPTED_SORT_MAX_ROWS` cap limits the candidate set; do not claim complete alphabetical
+paging in that case. The expected scale remains hundreds of subjects per organization; measure
+the existing decrypt/sort path against the timeline budget rather than inventing a new sort engine.
+
+The timeline read costs a fixed number of bulk queries per view: the slim sort-candidate projection
+and full page fetch described above, one query for their
 bars by window over the first index, one bulk question per provider for unavailability, one read of
 the settings and holidays. "Hide unavailable" filters the page after the providers answer, so a page
 can hold fewer rows than asked; the answer says so and the screen fetches the next page.
 
 ### 7.7 Search
 
-Targets and subjects are searched by name in pickers and lists. The target name is encrypted
-(7.4), so a plain `LIKE` cannot find it; the module declares a search configuration in `search.ts`
-for targets and subjects, the way `customers` does for its people: the target name is indexed
-through the platform's hashed search tokens — which match from the start of a word, three
-characters and up, not inside a word; that is the picker's stated behaviour — the subject name as
-plain text, each result formatted
-with its kind and its category. Provisional targets (section 19) are not indexed until they become
-normal targets.
+Targets and subjects are searched by name in pickers and lists. Both names are encrypted, so a
+plain `LIKE` cannot find them. The module declares `search.ts` configurations using the platform's
+hashed search tokens for both, the way `customers` does for its people. These match from the start
+of a word, three characters and up, not inside a word; that is the picker's stated behaviour.
+Authorized result formatting decrypts the name and adds its kind and category. Encrypted names,
+notes and override reasons must not enter plaintext fulltext fields or embedding input through
+generic fields, explicit `buildSource` text, presenters or links. Provisional targets (section 19)
+are not indexed until they become normal targets.
 
 ## 8. Working calendar and time zones
 
@@ -1433,23 +1460,26 @@ Earth, UTC+14 and UTC−12 — and lets the engine decide.
 
 ### We read unavailability windows the same way planner does
 
-An unavailability rule has a time zone field in the database. On the platform's development branch
-today it is stored, validated and editable in planner's editor, but no computation reads it: the
-code that turns a rule into concrete days counts in UTC, and repetition steps by exact 24 hours and
-7 days. So at a clock change such a rule shifts by one hour against local time.
+An unavailability rule has a time zone field in the database. On `main` as reviewed on 27 October,
+`plannerAvailabilityService.getMergedAvailabilityWindows` and `lib/availabilityMerge.ts` already
+expose `respectTimezone` and `weeklyScheduleTemplate`. With `respectTimezone: true`, recurrence
+expansion uses the rule's declared zone and calendar-day arithmetic across DST; omission preserves
+the existing UTC behavior. The new read method must deliberately reuse that zone-aware recurrence
+path for declared-zone rules, including the weekly-template option where applicable, without
+changing defaults for existing callers. One-off raw-hour windows retain the separate behavior in
+section 5, because merged availability treats a one-off available day as a whole day.
 
-**This is changing.** An open platform issue (#5862) names the defect, and an open pull request
-(#5868) fixes its write side: planner's date-specific and weekly commands will anchor a rule's start
-to the rule's declared zone. Making the expansion itself zone-aware is the issue's second step, not
-yet started. The module depends on this work, in two ways:
+Issue #5862 and open PR #5868 also concern the write-side anchor of a rule's start. They remain
+open at this review; the existing opt-in recurrence support does not establish that every writer
+uses the declared zone. The module handles both current and older rows:
 
 - the day-of-window rule below takes the rule's declared zone as its **first** anchor whenever that
   zone resolves, so it is right for rules written after #5868 without guessing;
-- the read method this specification adds to planner (section 5) is itself an expander of rules.
-  Planner should not carry two expansion semantics for the same rows, so whether the read method
-  becomes the zone-aware expander the issue asks for is a question for the planner maintainers
-  (section 21). Until they answer, the read method expands one-off rules as stored, start plus
-  duration, which is right under both semantics, and leaves repetition to planner's existing code.
+- the read method this specification adds to planner (section 5) reuses planner's existing zoned
+  recurrence machinery rather than creating another timezone engine. Its additive unavailability
+  projection and one-off window contract still need planner-maintainer agreement (section 21).
+  Tests cover declared-zone recurrences across both DST transitions, weekly templates, one-off
+  stored hours and the unchanged behavior of callers that omit `respectTimezone`.
 
 There is one side effect we must handle on our side: we cannot always read the day of an all-day
 window from its edge. Planner stores an all-day window as two instants, and the write paths anchor
@@ -1660,7 +1690,8 @@ Under `confirm` a write that produces warnings fails with their list. The user, 
 `bookings.override_conflict`, confirms that exact list and gives a reason; the write carries the
 list back, and the server compares it with what it computes in the transaction. When the lists
 differ — someone booked the slot a second earlier — the write fails again with the new list. The
-reason and the confirmed list are stored on the reservation (7.1). Because the comparison must see
+encrypted reason and identifier/comparison-only confirmed list are stored on the reservation
+(7.1); display names and personal reasons are not copied into that snapshot. Because the comparison must see
 the committed state, `confirm` computes all warnings before the commit, in the transaction and
 under the same locks as `reject` (below). A clinic sets `confirm`, so a
 visit outside the doctor's hours needs a deliberate decision; a dispatcher keeps `advisory`.
@@ -1702,9 +1733,13 @@ Where this code lives matters. Command handlers on the platform do not run insid
 by themselves; a transaction exists only where the handler opens one. So the lock, the overlap
 check and the write are phases of that shared write path, inside each command's own atomic block — the
 platform's atomic flush with the transaction option on — not a command interceptor, which runs
-before the handler and outside any transaction. The platform has no shared advisory-lock helper;
-the modules that take such locks call them inline, and one of them — the folder hierarchy of
-`documents` — checks the transaction first. Our lock code follows that one: it asserts that it runs
+before the handler and outside any transaction. The platform has `withAdvisoryXactLock` in
+`@open-mercato/shared/lib/db/advisoryLock`, but it forks an independent entity manager and commits
+its own transaction. Calling it separately for each target or subject would release those locks
+outside the booking transaction. The ordered multi-key lock set therefore stays on the command's
+existing transaction and entity manager, using parameterized transaction-scoped advisory-lock
+calls. The folder hierarchy of `documents` checks the transaction first. Our lock code follows
+that assertion: it verifies that it runs
 inside a transaction and fails otherwise, because a transaction-scoped lock taken outside a
 transaction is released at once and guards nothing, so that assertion is what catches a lock taken
 in the wrong place.
@@ -2202,7 +2237,7 @@ range, today, wallClock, timeZone     the requested days, today and now in the o
 calendar                              free weekdays and holidays, to grey out free days
 rows[]                                subjectId, name, category (id, name, icon, colour), in use,
                                       provider key, card link, whether unavailability is known
-bars[]                                reservationId, subjectId, from and to days, target id, name and
+bars[]                                reservationId, updatedAt, subjectId, from and to days, target id, name and
                                       colour, status, duration, expected start, note, conflicts[]
 unavailability[]                      windowId, subjectId, from and to days, reason
 canCreate, canWriteUnavailability     what the current user may do on this screen
@@ -2236,7 +2271,8 @@ Errors carry a stable `code` next to the translated message:
 409 confirmation_required    phase 2, confirm mode; details.conflicts is the list to confirm
 409 settings_required        a write or the timeline read needs saved settings that do not exist yet (7.5)
 409 idempotency_key_reused   the key was used with another payload (section 4)
-409 record_conflict          the record changed since `updatedAt` — the platform's optimistic lock
+409 optimistic_lock_conflict the record changed since the expected version; error `record_modified`,
+                             currentUpdatedAt and expectedUpdatedAt — the platform's wire contract
 422 invalid_transition       the status change is not in the matrix of 7.1
 422 booking_closed           a write other than a status change on a closed reservation (7.1)
 422 booking_placed           place on a reservation that already has dates (7.1)
@@ -2364,9 +2400,25 @@ written by hand. Without it, the route is not in the documentation.
 The last change date does not appear in list responses by itself — it has to be listed explicitly
 among the returned fields.
 
-For locking under concurrent edits we use the variant with guards, which the platform points to
-for new call sites. The coverage test in core rejects new direct uses of the older variant unless
-they are on the allow-list — we do not want to end up there.
+Every editable entity's list, detail and mutation response exposes `updatedAt`; timeline bars
+carry the booking's version too. `CrudForm` derives the expected-version header from
+`initialValues.updatedAt`, including deletes. Other UI mutations use `useGuardedMutation` and
+`withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), ...)`, with
+`surfaceRecordConflict(err, t)` for the canonical conflict bar.
+
+The header is `x-om-ext-optimistic-lock-expected-updated-at`. Custom command/action handlers use
+`enforceCommandOptimisticLockWithGuards(container, input)` from
+`@open-mercato/shared/lib/crud/optimistic-lock-command`, checking the current scoped record under
+the write transaction before applying changes. A typed action `updatedAt` is explicitly mapped
+to the helper's `expected`; it is not a second concurrency mechanism. Single-record routes
+forward the header through `ctx.request`. Compound Save maps each change's own `updatedAt` to
+its expected token, so a parent or ambient header cannot overwrite a child's version. A settings
+save protects the settings row's version while replacing its lists in the same transaction.
+The platform's `OM_OPTIMISTIC_LOCK` mode and legacy missing-token behavior remain unchanged;
+the new UI always sends a token for edits and deletes. The canonical 409 body is
+`{ error: 'record_modified', code: 'optimistic_lock_conflict', currentUpdatedAt, expectedUpdatedAt }`.
+The coverage test in core rejects new direct uses of the older synchronous helper unless they
+are on the allow-list; every new command uses the guarded variant.
 
 ### Events
 
@@ -2507,11 +2559,13 @@ This table is also the definition of done: until a row has coverage, the module 
 
 | Area | What must be covered |
 |---|---|
+| sensitive storage and search | with platform encryption enabled, raw stored target and subject names and booking notes are encrypted; authorized scoped reads return clear values, wrong-scope reads return none; both name pickers use hashed-token prefix matching; scrambled encrypted subject inserts still sort by category/name with stable multi-page order before paging, and an encrypted-sort row cap surfaces its warning; capturing plaintext fulltext and embedding boundaries finds no names, notes or override reasons from generic fields or explicit source/presenter/link text; phase 2 also verifies the encrypted override reason and identifier-only confirmed-warning snapshot, with display text resolved through authorized reads |
+| optimistic-lock contract | list/detail/action results and timeline bars return `updatedAt`; a fresh edit followed by stale update, delete or timeline action returns the canonical 409 `optimistic_lock_conflict` body and shared conflict bar; a compound Save uses each booking's expected token, so a stale child is refused without substituting a parent token; settings-list replacement checks the settings row's version; guarded command enforcement runs inside the write transaction and respects the platform mode |
 | targets and subjects | write and read within organization bounds; rejection on a stale record version; removing a subject by undo and re-adding it returns to the same row, back in use with a fresh name; there is no route to delete a subject; a subject taken out of use keeps its bars and is refused in any new write with `subject_inactive`; a target with open reservations cannot be deleted and the refusal gives their count |
 | reservations | there is no delete route; cancel is the way out; place on a placed one gives `booking_placed`, move on an unplaced one `booking_not_placed`; resize of an unplaced one changes only its duration; unplace clears the dates, keeps duration and expected start, frees the slot and emits `unplaced`; unplace of a closed one gives `booking_closed`; changing the target of a placed one keeps its local start date and recomputes the window in the new target's zone; a duration above 365 working days, a note above 2000 characters and a name above 200 are rejected; a new target with an existing name is accepted with a warning |
 | subject categories | name unique per organization regardless of case; a category used by a subject cannot be deleted and the refusal gives the count; a policy exception points at a category |
 | providers | creating a subject through each of the three plugins; without the registry's own create permission the plugin is refused before its command runs; attaching a record that already exists in the registry; undoing an add removes only our row and keeps the registry record; a team subject reports unavailability as unknown; a subject from a disabled provider module does not disappear from history and takes no new reservations |
-| read method in planner | windows from the subject's own rules; windows from the schedule's rules when the subject has none of its own; own rules switch the schedule off; one-off rules (leave) give windows that keep their stored start and duration, not snapped to the UTC day; every window carries its rule's zone as stored; empty result for a subject with no rules |
+| read method in planner | windows from the subject's own rules; windows from the schedule's rules when the subject has none of its own; own rules switch the schedule off; one-off rules (leave) give windows that keep their stored start and duration, not snapped to the UTC day; every window carries its rule's zone as stored; declared-zone recurrences reuse `respectTimezone: true` across both DST transitions and weekly templates; callers omitting that option retain legacy UTC behavior; empty result for a subject with no rules |
 | place / move / resize | end computed from duration and the working calendar, including 2.5 days = three days; three days from a Saturday cover Saturday, Monday and Tuesday and the answer flags the free start; every write but a status change on a closed reservation gives 422 `booking_closed`; rejection on a stale version; placing clears the warning counter |
 | status change | every pair from the transition matrix: allowed ones pass, disallowed ones are rejected; closed ones free the slot; bringing a completed reservation back to open recomputes conflicts and can fail in reject mode |
 | participants | a reservation created through the API with two participants; conflict counted separately for each; the same subject twice in one reservation is rejected; no participant at all is rejected; cancelling frees both; removing one participant leaves the other busy |
@@ -2817,7 +2871,7 @@ across teams. So a requirement finds its role or type by name, ignoring case, am
 organization's non-deleted ones, through the provider plugin of its source (section 6): the
 `resources` plugin through the query engine, the `staff` plugin through the `staff` directory
 service this module relies on (proposed in `.ai/specs/2026-07-15-staff-member-directory.md`, not
-on `develop` yet), which gets one more read-only method for it — the organization's team roles with
+on `main` yet), which gets one more read-only method for it — the organization's team roles with
 their names — because the module never reads `staff` through the query engine (section 5). A module that created the role or type
 itself passes its id instead: a definition can be a function of the seed's context, returning the
 definition with `reference: { id }`. A reference that finds nothing or more than one — two teams
@@ -3149,8 +3203,9 @@ screens. The module does not keep its own hours.
 
 The read method added to `planner` (section 5) gets a second part of the answer: **the working
 windows** of the same subjects in the same range. Recurring availability rules are expanded by the
-availability function `planner` already has. One-off availability rules are not: that function
-turns a one-off availability day into a full UTC day and drops its hours, so a doctor working
+availability function `planner` already has, using `respectTimezone: true` for declared-zone
+rules and the existing weekly-template option where applicable. Existing callers keep their defaults. One-off availability rules are not: that function
+turns a one-off availability day into a full calendar-day window and drops its hours, so a doctor working
 10:00–14:00 on one Saturday would look available all day. The read method expands one-off
 availability rules on its own path, as stored, start plus duration — the same way it expands
 one-off unavailability (section 5). A subject with no availability rules has no working
@@ -3966,10 +4021,10 @@ cover five languages.
 - Whether a dedicated override domain for the module's occupancy sources is wanted in `modules.ts`,
   so an application could switch one source off by id. Today it builds the set without it through
   `overrides.di` (section 20); a new domain is a change to `shared`, so it is the maintainers' call.
-- Planner's zone semantics are in flight (issue #5862, pull request #5868). Whether #5868 merges
-  before phase 1, which semantics planner settles on — rules read in UTC, or in their declared
-  zone — and whether the read method of section 5 should become the zone-aware expander the issue's
-  second step asks for, so planner keeps one expander, not two (section 8).
+- Planner's write-side timezone anchors remain in flight (issue #5862, open PR #5868). Before
+  phase 1, agree how the additive reader of section 5 reuses the existing opt-in zone-aware
+  recurrence path and handles rows from legacy writers; do not change the default semantics of
+  existing callers or introduce a second timezone engine (section 8).
 - Whether the planner maintainers accept the read method in the shape of section 5, now with the
   working windows of section 18.
 - Whether the eleven-hour limit of the day-of-window rule (section 8) ever matters. No known
@@ -4118,11 +4173,13 @@ Five changes touch modules that already exist. Each is additive:
   their names and, when set, their teams, for services defined in code (section 16). No entity, route or permission of
   `staff` changes, and nothing in `staff` learns about reservations.
 
-- **`planner`**: a new optional method on the availability service it already registers. No
-  existing method changes; the service has no production callers today.
+- **`planner`**: a new optional read method on the availability service it already registers,
+  reusing its existing opt-in timezone-aware recurrence machinery. Existing signatures, default
+  UTC behavior and callers are preserved; one-off raw-hour projection is additive. The service
+  has no production callers in the current-main code searched for this review.
 - **`customers`**: the declaration of the spot `detail:customers.person:tabs`, which the person page
   already renders and other modules already use. Declaring it changes nothing at run time; it only
-  puts the spot into the catalog and freezes its id.
+  puts the already-protected spot into the catalog; its existing id and meaning remain unchanged.
 - **`ui`** (phase 2): the calendar view puts entries into days by the zone it is given, and can let the
   caller drag an existing entry. Without a zone, and without a drag handler, it keeps today's
   behaviour, so no existing caller changes.
@@ -4419,18 +4476,20 @@ Risks of phase 1 come first; later phases are marked.
   (section 13).
 - **Residual risk**: none accepted.
 
-## 26. Final compliance report — 2026-10-21
+## 26. Final compliance report — 2026-10-27
 
 This is a proposal, not an implementation. The report checks the design against the rules of the
 core repository; each row is verified again against the code of each phase.
 
-Re-checked for version 4.2 against `develop`: the availability override uses the platform's own
+Re-checked for version 4.3 against `main` (`9117e4b0b`): the availability override uses the platform's own
 `overrides.di` in `modules.ts` and its precedence (`packages/shared/src/lib/di/container.ts`,
 `packages/shared/src/modules/overrides.ts`); the source and strategy registries follow
 `registerCatalogPricingResolver`; the external calendar relies on the existing per-user integration
 credentials, external id mappings and persistent event subscribers; seeding services uses the
 standard `seedDefaults` hook, its `modules.ts` override and `mercato seed:defaults`. The new public
-surface is listed in section 23.
+surface is listed in section 23. The review also checked the existing planner timezone options,
+shared advisory-lock transaction isolation, canonical optimistic-lock wire contract and sensitive
+field inventory. The changes below are design corrections, not implementation or dependency approval.
 
 ### Files reviewed
 - `AGENTS.md` (root)
@@ -4455,8 +4514,8 @@ surface is listed in section 23.
 | packages/core/AGENTS.md | API routes export `openApi` | Compliant | factory and hand-written routes (section 12) |
 | packages/core/AGENTS.md | CRUD routes use `makeCrudRoute` with an indexer | Compliant | targets and categories, the subject list, services and pages; adding a subject and the reservation actions are hand-written routes over commands (section 12) |
 | packages/core/AGENTS.md | Schema snapshot in the same change as the migration | Compliant | constraints declared on entities so they reach the snapshot (section 7.1) |
-| packages/core/AGENTS.md | Sensitive fields declared in encryption maps | Compliant | the target name (7.4) and the contact fields of a page request (19); the subject name follows its source, which `staff` does not encrypt (6) |
-| root AGENTS.md | Optimistic locking on every new user-editable entity | Compliant | `updated_at` on every user-editable table — not on the bookkeeping tables (idempotency keys, reported conflicts, scan state, pool cursors) or the replaced-whole holidays and policy exceptions, which nobody edits row by row (7) — `updatedAt` in list and detail answers and in every write input (section 12) |
+| packages/core/AGENTS.md | Sensitive fields declared in encryption maps | Compliant in design | `defaultEncryptionMaps` covers target and all subject names, booking note, phase-2 override reason, phase-4 contact fields; scoped decrypting reads, hashed-token name search and no plaintext external projections (6, 7.1, 7.7, 13); confirmed-warning snapshots omit personal display fields |
+| root AGENTS.md | Optimistic locking on every new user-editable entity | Compliant | `updated_at` on every user-editable table — not on the bookkeeping tables (idempotency keys, reported conflicts, scan state, pool cursors) or the replaced-whole holidays and policy exceptions, which nobody edits row by row (7) — `updatedAt` in list/detail/mutation responses and timeline bars; standard header and canonical 409, guarded command enforcement and per-record compound tokens (12, 13) |
 | staff AGENTS.md | Core modules must not depend directly on `staff` | Compliant | soft dependency through a `staff` read service, no `requires`, no entity access (sections 5, 6) |
 | events AGENTS.md / browser stream | Browser events reach every user of the organization | Compliant | only `bookings.booking.changed` is marked for the browser, and it carries no names; screens refetch through checked routes (section 12) |
 | notifications | Recipients scoped to the organization, not the tenant | Compliant | organization restriction always on; the 200-candidate cap lifted by an additive change to `notifications` (sections 12, 23) |
@@ -4501,6 +4560,30 @@ Ready for review as a design of phase 1 and a plan of phases 2–4. Each phase r
 against its code.
 
 ## Changelog
+
+### 2026-10-27
+- Version 4.3: carry forward against `main` with the original proposal's authorship preserved.
+  Resolve review findings on copied-name and free-text encryption, identifier-only confirmed
+  warnings, hashed-token name search, existing encrypted-field sort/paging and plaintext-index
+  boundaries (6, 7, 9, 13).
+- Specify the existing optimistic-lock header, canonical 409 body, guarded command path,
+  timeline versions, per-record compound tokens and settings-list concurrency tests (12, 13).
+- Ground planner recurrence in its existing `respectTimezone` / weekly-template options while
+  preserving legacy defaults; acknowledge the independent transaction of the shared advisory-lock
+  helper and retain same-transaction ordered booking locks (5, 8, 9, 18, 21, 23).
+- Clarify later phases as a roadmap with implementation gates, and record that the customer tab
+  is an existing protected contract (4, 7, 23). No runtime implementation or new dependency.
+
+### Review — 2026-10-27
+- **Reviewer**: Agent, with independent full-document, current-contract and fresh-context scope reviews.
+- **Security**: Encryption inventory and plaintext search boundaries corrected; runtime verification
+  is required by section 13 when implementation ships.
+- **Performance**: Existing bounded-query, bulk-read and frontend-budget requirements retained.
+- **Cache**: Committed-state reads retained; no new cache.
+- **Commands**: Same-transaction locks and guarded optimistic-lock contracts specified.
+- **Risks**: Existing retention, external-calendar outage/race and undo requirements retained.
+- **Verdict**: Proposed design for review; applicable maintainer decisions and phase-specific
+  contracts/mockups remain required before implementation.
 
 ### 2026-10-21
 - Version 4.2, answering the review of 21 October. Availability as one answer built from the
