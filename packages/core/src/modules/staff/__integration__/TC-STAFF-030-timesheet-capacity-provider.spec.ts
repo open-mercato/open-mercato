@@ -4,7 +4,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
- * TC-STAFF-028 — Timesheet and My Work targets resolve through the EP-40 capacity
+ * TC-STAFF-030 — Timesheet and My Work targets resolve through the EP-40 capacity
  * registry (#6934).
  *
  * With no capacity provider registered, `GET /api/staff/timesheets/capacity` must
@@ -92,7 +92,7 @@ function capacityUrl(range: { from: string; to: string }, staffMemberId?: string
   return `${CAPACITY_PATH}?${params.toString()}`
 }
 
-test.describe('TC-STAFF-028: Timesheet target follows the EP-40 capacity registry', () => {
+test.describe('TC-STAFF-030: Timesheet target follows the EP-40 capacity registry', () => {
   test('resolves the built-in target for the API, the timesheet footer and My Work', async ({ page, request }) => {
     test.setTimeout(120_000)
     const stamp = Date.now()
