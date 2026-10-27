@@ -185,6 +185,7 @@
   "agent_orchestrator.agents.list.entityPlural": "agentów",
   "agent_orchestrator.agents.list.error": "Nie udało się załadować agentów.",
   "agent_orchestrator.agents.list.marker": "agent",
+  "agent_orchestrator.agents.list.notInvocable": "Nie możesz uruchomić tego agenta",
   "agent_orchestrator.agents.list.openPlayground": "Otwórz w piaskownicy",
   "agent_orchestrator.agents.list.pending.backend": "Wymaga backendu",
   "agent_orchestrator.agents.list.pending.noData": "Brak danych",

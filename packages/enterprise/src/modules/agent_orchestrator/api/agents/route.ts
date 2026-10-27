@@ -9,6 +9,14 @@ import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContrac
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 import { agentTypeSchema } from '../../data/validators'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import {
+  isAgentInvocable,
+  isAgentInvokeEnforcementEnabled,
+  loadInvokerAcl,
+  type InvokerAcl,
+} from '../../lib/access/agentInvokeAccess'
+import { invokerFromAuth } from '../../lib/access/invokeDenial'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -27,6 +35,8 @@ const agentItemSchema = z.object({
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
+  requiredFeatures: z.array(z.string()),
+  invocable: z.boolean(),
   label: z.string(),
   description: z.string(),
   // Per-tenant presentation icon (lucide name) overriding the initials avatar
@@ -62,6 +72,8 @@ const agentListResponseSchema = z.object({
 
 const errorSchema = z.object({ error: z.string() })
 
+const AGENTS_MANAGE_FEATURE = 'agent_orchestrator.agents.manage'
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -85,22 +97,40 @@ export async function GET(req: Request) {
     }
   }
 
-  const items = listAgentEntries().map((entry) => ({
-    id: entry.id,
-    resultKind: entry.resultKind,
-    agentType: entry.agentType ?? null,
-    allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
-    runtime: entry.runtime,
-    tools: entry.tools,
-    skills: entry.skills,
-    label: entry.label,
-    description: entry.description,
-    icon: iconByAgent.get(entry.id) ?? null,
-    tags: tagsByAgent.get(entry.id) ?? [],
-    sampleInput: entry.sampleInput,
-    outcomeSchema: resolveAgentOutcomeJsonSchema(entry),
-    facts: entry.facts,
-  }))
+  const entries = listAgentEntries()
+  const needsAcl = entries.some((entry) => (entry.requiredFeatures ?? []).length > 0)
+  let acl: InvokerAcl | null = null
+  if (needsAcl) {
+    const container = await createRequestContainer()
+    acl = await loadInvokerAcl(container, invokerFromAuth(auth), {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    })
+  }
+  const enforcementEnabled = isAgentInvokeEnforcementEnabled()
+  const isManager = acl !== null && (acl.isSuperAdmin || hasAllFeatures(acl.features, [AGENTS_MANAGE_FEATURE]))
+
+  const items = entries
+    .map((entry) => ({ entry, invocable: !enforcementEnabled || isAgentInvocable(entry, acl) }))
+    .filter(({ invocable }) => invocable || isManager)
+    .map(({ entry, invocable }) => ({
+      id: entry.id,
+      resultKind: entry.resultKind,
+      agentType: entry.agentType ?? null,
+      allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
+      runtime: entry.runtime,
+      tools: entry.tools,
+      skills: entry.skills,
+      requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : [],
+      invocable,
+      label: entry.label,
+      description: entry.description,
+      icon: iconByAgent.get(entry.id) ?? null,
+      tags: tagsByAgent.get(entry.id) ?? [],
+      sampleInput: entry.sampleInput,
+      outcomeSchema: resolveAgentOutcomeJsonSchema(entry),
+      facts: entry.facts,
+    }))
   return NextResponse.json({ items })
 }
 
@@ -111,7 +141,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags).',
+        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags). Each item carries its declared requiredFeatures and whether the caller may invoke it; callers without agent_orchestrator.agents.manage only receive the agents they may invoke.',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],

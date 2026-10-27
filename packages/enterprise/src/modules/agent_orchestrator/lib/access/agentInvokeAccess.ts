@@ -16,8 +16,8 @@ export type InvokerAcl = {
 }
 
 export type InvokerScope = {
-  tenantId: string
-  organizationId: string
+  tenantId: string | null
+  organizationId: string | null
 }
 
 type RbacServiceLike = {
@@ -84,7 +84,12 @@ export async function loadInvokerAcl(
     })
     const isSuperAdmin = loaded.isSuperAdmin === true
     const organizations = loaded.organizations ?? null
-    if (!isSuperAdmin && Array.isArray(organizations) && !organizations.includes(scope.organizationId)) {
+    if (
+      !isSuperAdmin &&
+      scope.organizationId !== null &&
+      Array.isArray(organizations) &&
+      !organizations.includes(scope.organizationId)
+    ) {
       return EMPTY_ACL
     }
     return { features: Array.isArray(loaded.features) ? loaded.features : [], isSuperAdmin }
@@ -102,14 +107,21 @@ export async function loadInvokerAcl(
   }
 }
 
+export function isAgentInvocable(
+  entry: Pick<AgentRegistryEntry, 'requiredFeatures'>,
+  acl: InvokerAcl | null,
+): boolean {
+  const required = entry.requiredFeatures ?? []
+  if (required.length === 0) return true
+  if (acl?.isSuperAdmin) return true
+  return acl !== null && hasAllFeatures(acl.features, required)
+}
+
 export function assertAgentInvocable(
   entry: Pick<AgentRegistryEntry, 'id' | 'requiredFeatures'>,
   acl: InvokerAcl | null,
 ): void {
-  const required = entry.requiredFeatures ?? []
-  if (required.length === 0) return
-  if (acl?.isSuperAdmin) return
-  if (acl && hasAllFeatures(acl.features, required)) return
+  if (isAgentInvocable(entry, acl)) return
   throw new AgentInvokeDeniedError(entry.id)
 }
 

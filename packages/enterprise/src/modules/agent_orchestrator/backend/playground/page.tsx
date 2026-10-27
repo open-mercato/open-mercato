@@ -242,10 +242,11 @@ export default function AgentPlaygroundPage() {
         .filter((agent): agent is AgentView => !!agent)
       setAgents(mapped)
       const requested = searchParams?.get('agent')
-      if (requested && mapped.some((agent) => agent.id === requested)) {
+      const firstInvocable = mapped.find((agent) => agent.invocable)
+      if (requested && mapped.some((agent) => agent.id === requested && agent.invocable)) {
         setAgentId(requested)
-      } else if (mapped[0]) {
-        setAgentId(mapped[0].id)
+      } else if (firstInvocable) {
+        setAgentId(firstInvocable.id)
       }
     }
     load()
@@ -414,9 +415,14 @@ export default function AgentPlaygroundPage() {
                     {agents.map((agent) => {
                       const Glyph = resolveAgentIcon(agent.icon, agent.resultKind)
                       return (
-                        <SelectItem key={agent.id} value={agent.id}>
+                        <SelectItem key={agent.id} value={agent.id} disabled={!agent.invocable}>
                           {Glyph ? <Glyph className="size-4 text-muted-foreground" /> : null}
                           {agent.label}
+                          {agent.invocable ? null : (
+                            <span className="text-xs text-muted-foreground">
+                              {t('agent_orchestrator.agents.list.notInvocable')}
+                            </span>
+                          )}
                         </SelectItem>
                       )
                     })}

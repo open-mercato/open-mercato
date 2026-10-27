@@ -185,6 +185,7 @@
   "agent_orchestrator.agents.list.entityPlural": "agentes",
   "agent_orchestrator.agents.list.error": "No se pudieron cargar los agentes.",
   "agent_orchestrator.agents.list.marker": "agente",
+  "agent_orchestrator.agents.list.notInvocable": "No puedes ejecutar este agente",
   "agent_orchestrator.agents.list.openPlayground": "Abrir en el entorno de pruebas",
   "agent_orchestrator.agents.list.pending.backend": "Requiere backend",
   "agent_orchestrator.agents.list.pending.noData": "Sin datos",
