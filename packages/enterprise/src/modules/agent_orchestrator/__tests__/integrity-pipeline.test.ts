@@ -212,7 +212,7 @@ describe('runOutputPipeline', () => {
 
   it('fails closed on a rule kind without an evaluator', async () => {
     const rule = integrityRuleSchema.parse({ id: 'custom-1', kind: 'custom', checker: 'missing', onViolation: 'flag' })
-    const result = await runOutputPipeline(buildArgs({ entry: { schema, integrity: [rule] } }))
+    const result = await runOutputPipeline(buildArgs({ entry: { schema, integrity: [rule] }, evaluators: {} }))
     expect(result.verdict.blockedReason).toEqual({ phase: 'output', kind: 'custom_integrity' })
     expect(result.verdict.checks[1].evidence).toEqual({ ruleId: 'custom-1', detail: INTEGRITY_RULE_UNSUPPORTED })
   })

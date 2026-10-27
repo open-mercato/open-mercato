@@ -3,12 +3,14 @@ import type { ZodTypeAny } from 'zod'
 import {
   guardrailVerdictSchema,
   type AttemptedTool,
+  type CitableSource,
   type GuardrailCheck,
   type GuardrailKindInput,
   type GuardrailVerdict,
   type IntegrityRule,
 } from '../../../data/validators'
 import type { CheckOutputArgs, GuardrailService } from '../guardrailService'
+import { evaluateCustomIntegrity } from './rules/custom'
 import { evaluateEvidenceQuote } from './rules/evidenceQuote'
 import { evaluateReferenceExists } from './rules/referenceExists'
 import { evaluateToolConsulted } from './rules/toolConsulted'
@@ -31,6 +33,7 @@ export const INTEGRITY_RULE_EVALUATORS: IntegrityRuleEvaluators = {
   evidence_quote: evaluateEvidenceQuote,
   reference_exists: evaluateReferenceExists,
   tool_consulted: evaluateToolConsulted,
+  custom: evaluateCustomIntegrity,
 }
 
 export type OutputPipelineArgs = {
@@ -39,6 +42,7 @@ export type OutputPipelineArgs = {
   input: unknown
   toolCalls: readonly IntegrityToolCall[]
   subRunToolCalls?: readonly IntegrityToolCall[]
+  citableSources?: readonly CitableSource[]
   grounding?: CheckOutputArgs['grounding']
   guardrailService: Pick<GuardrailService, 'checkOutput'>
   capability: string
@@ -182,6 +186,7 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
         input: args.input,
         toolCalls: args.toolCalls,
         ...(args.subRunToolCalls ? { subRunToolCalls: args.subRunToolCalls } : {}),
+        ...(args.citableSources ? { citableSources: args.citableSources } : {}),
         guardrailSetVersion: args.guardrailSetVersion,
         ...(args.scope ? { scope: args.scope } : {}),
         ...(args.container ? { container: args.container } : {}),

@@ -9,6 +9,12 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { normalizeAgentRequiredFeatures, type AgentType, type IntegrityRuleInput, type IntegrityRule } from '../../data/validators'
 import { parseAgentIntegrityRules } from '../guardrails/integrity/declaration'
 import { getSkillEntry } from './defineSkill'
+export {
+  registerIntegrityChecker,
+  type IntegrityCheckerFn,
+  type IntegrityCheckerInput,
+  type IntegrityCheckerResult,
+} from './integrityCheckers'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
 

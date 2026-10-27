@@ -1,5 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import type { GuardrailCheck, IntegrityRule } from '../../../data/validators'
+import type { CitableSource, GuardrailCheck, IntegrityRule } from '../../../data/validators'
 
 /**
  * The shared contract every output-integrity rule implements (spec
@@ -31,6 +31,8 @@ export type IntegrityRuleContext = {
    * call order; collected only when a rule opts in with `includeSubRuns`.
    */
   subRunToolCalls?: readonly IntegrityToolCall[]
+  /** Citable sources assembled for the run's context bundle (handed to custom checkers). */
+  citableSources?: readonly CitableSource[]
   /** Version of the integrity rule set the check rows pin. */
   guardrailSetVersion: string
   scope?: IntegrityRuleScope

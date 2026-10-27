@@ -571,6 +571,7 @@ export class NativeAgentRunner {
           input,
           toolCalls: integrityToolCalls,
           ...(collectSubRunToolCalls ? { subRunToolCalls } : {}),
+          citableSources,
           grounding,
           guardrailService,
           capability: agentId,
