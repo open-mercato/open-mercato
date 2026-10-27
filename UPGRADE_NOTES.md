@@ -24,6 +24,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Cart line contention returns retryable 503 (#8072)
+
+`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+
+**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
+
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
 Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
