@@ -2,6 +2,9 @@
   "payment_gateways.captureMethod.automatic": "Automatyczny",
   "payment_gateways.captureMethod.manual": "Manualny",
   "payment_gateways.column.gatewayStatus": "Status bramki",
+  "payment_gateways.errors.sessionAmountMismatch": "Kwota sesji płatności {amount} nie zgadza się z kwotą do zapłaty dla zamówienia {orderId}",
+  "payment_gateways.errors.sessionCurrencyMismatch": "Waluta sesji płatności {currencyCode} nie zgadza się z walutą zamówienia {orderId}",
+  "payment_gateways.errors.sessionOrderNotFound": "Nie znaleziono zamówienia {orderId} w bieżącym zakresie",
   "payment_gateways.feature.capture": "Przechwytywanie autoryzowanych płatności",
   "payment_gateways.feature.manage": "Zarządzanie sesjami płatności",
   "payment_gateways.feature.refund": "Zwroty przechwyconych płatności",
@@ -76,5 +79,9 @@
   "payment_gateways.transactions.success.capture": "Płatność została przechwycona",
   "payment_gateways.transactions.success.refreshStatus": "Status transakcji odświeżony",
   "payment_gateways.transactions.tableTitle": "Transakcje",
-  "payment_gateways.transactions.title": "Transakcje płatności"
+  "payment_gateways.transactions.title": "Transakcje płatności",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.cta": "Zaplanuj czyszczenie roszczeń",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.loading": "Planowanie czyszczenia roszczeń…",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.message": "Zarejestruj codzienny harmonogram usuwający zakończone roszczenia inicjalizacji sesji płatności po 24-godzinnym oknie ponowienia.",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.success": "Czyszczenie roszczeń inicjalizacji sesji płatności zostało zaplanowane."
 }

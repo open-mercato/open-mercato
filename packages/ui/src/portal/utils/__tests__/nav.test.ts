@@ -97,7 +97,7 @@ describe('buildPortalNav', () => {
     expect(groups).toEqual([{ id: 'main', items: [expect.objectContaining({ label: 'Orders' })] }])
   })
 
-  it('bypasses feature checks when isPortalAdmin is true', () => {
+  it('does not let the deprecated portal-admin flag bypass effective features', () => {
     const routes: FrontendRouteManifestEntry[] = [
       makeRoute({
         pattern: '/[orgSlug]/portal/orders',
@@ -107,7 +107,7 @@ describe('buildPortalNav', () => {
     ]
 
     const groups = buildPortalNav({ routes, orgSlug: 'my-org', grantedFeatures: [], isPortalAdmin: true })
-    expect(groups[0].items[0].label).toBe('Orders')
+    expect(groups).toEqual([])
   })
 
   it('ignores navHidden pages even when nav is declared', () => {

@@ -34,6 +34,9 @@ const aclState: { isSuperAdmin: boolean; features: string[] } = { isSuperAdmin: 
 
 const mockRbac = {
   loadAcl: jest.fn(async () => ({ isSuperAdmin: aclState.isSuperAdmin, features: aclState.features })),
+  userHasAllFeatures: jest.fn(async (_userId: string, required: readonly string[]) => (
+    aclState.isSuperAdmin || required.every((feature) => aclState.features.includes(feature))
+  )),
   resolveVisibleOrganizations: jest.fn(async () => ['org']),
 }
 

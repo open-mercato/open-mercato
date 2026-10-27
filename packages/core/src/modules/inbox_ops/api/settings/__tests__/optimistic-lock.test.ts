@@ -14,7 +14,17 @@ const mockSettings = {
   updatedAt: new Date(CURRENT_VERSION),
 }
 
-const mockEm = { flush: jest.fn(async () => undefined) }
+const mockEm = {
+  flush: jest.fn(async () => undefined),
+  create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({
+    id: 'settings-new',
+    workingLanguage: 'en',
+    webhookSecret: null,
+    updatedAt: null,
+    ...data,
+  })),
+  persist: jest.fn(),
+}
 const mockFindOneWithDecryption = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -119,5 +129,23 @@ describe('inbox_ops settings optimistic locking', () => {
 
     expect((mockSettings as { webhookSecret?: string | null }).webhookSecret).toBeNull()
     expect(body.settings.webhookSecretSet).toBe(false)
+  })
+
+  it('bootstraps a missing settings row instead of 404ing (issue #6232)', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const req = new Request('http://localhost/api/inbox_ops/settings', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ workingLanguage: 'de' }),
+    })
+
+    const res = await PATCH(req)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(mockEm.create).toHaveBeenCalledTimes(1)
+    expect(mockEm.persist).toHaveBeenCalledTimes(1)
+    expect(body.ok).toBe(true)
+    expect(body.settings.workingLanguage).toBe('de')
   })
 })

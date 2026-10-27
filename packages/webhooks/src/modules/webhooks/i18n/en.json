@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooks",
   "webhooks.deliveries.actions.retry": "Retry",
   "webhooks.deliveries.actions.viewDetails": "View details",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",
@@ -44,9 +45,11 @@
   "webhooks.detail.testResult": "Latest Test Result",
   "webhooks.detail.testSuccess": "Test delivery succeeded.",
   "webhooks.detail.title": "Webhook Detail",
+  "webhooks.errors.credentialHeadersRequireReentry": "Header \"{header}\" has a hidden value. Enter it again or remove it when you change the webhook URL.",
   "webhooks.errors.forbidden": "You do not have permission to perform this action.",
   "webhooks.errors.notFound": "Webhook not found.",
   "webhooks.errors.orgRequired": "Organization context required.",
+  "webhooks.errors.redactedHeaderWithoutValue": "Header \"{header}\" has a hidden value but no saved value to keep. Enter the header value.",
   "webhooks.errors.tenantRequired": "Tenant context required.",
   "webhooks.form.advancedStrategyTip": "HTTP delivery is active today. Use custom headers for routing hints, and keep secrets out of request headers.",
   "webhooks.form.autoDisableThreshold": "Auto-Disable Threshold",
@@ -54,7 +57,7 @@
   "webhooks.form.createError": "Failed to create webhook.",
   "webhooks.form.createSuccess": "Webhook created successfully.",
   "webhooks.form.customHeaders": "Custom Headers",
-  "webhooks.form.customHeadersHint": "Optional JSON object of additional headers to send with each webhook request.",
+  "webhooks.form.customHeadersHint": "Optional JSON object of additional headers to send with each webhook request. Hidden values (••••••••) are kept when you save; replace one to change it.",
   "webhooks.form.customHeadersInvalid": "Custom headers must be a valid JSON object with string values.",
   "webhooks.form.customHeadersTip": "Use headers for static metadata such as environment or source identifiers. Do not put access tokens or secrets here.",
   "webhooks.form.deliveryDefaultsTip": "The defaults are a safe starting point for most consumers. Increase retries or timeout only if the receiver is known to be slow.",
@@ -80,7 +83,7 @@
   "webhooks.form.name": "Name",
   "webhooks.form.namePlaceholder": "My Webhook",
   "webhooks.form.rateLimitPerMinute": "Rate Limit Per Minute",
-  "webhooks.form.rateLimitPerMinuteHint": "Maximum deliveries per minute for this endpoint (0 means unlimited).",
+  "webhooks.form.rateLimitPerMinuteHint": "Maximum deliveries per minute for this endpoint (0 means unlimited). Stored for future use — the delivery worker does not enforce it yet.",
   "webhooks.form.secret": "Signing Secret",
   "webhooks.form.secretCopied": "Secret copied to clipboard.",
   "webhooks.form.secretCopy": "Copy Secret",
@@ -157,5 +160,6 @@
   "webhooks.nav.group": "Integrations",
   "webhooks.nav.title": "Webhooks",
   "webhooks.notifications.delivery.failed.body": "Webhook {webhookName} could not deliver event {eventType}. {errorMessage}",
+  "webhooks.notifications.delivery.failed.label": "Webhook delivery failed",
   "webhooks.notifications.delivery.failed.title": "Webhook delivery failed for {webhookName}"
 }

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { TopNTable, type TopNTableColumn } from '@open-mercato/ui/backend/charts'
 import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -16,7 +16,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type TopCustomersSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencySafe } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'top-customers' })
@@ -65,10 +66,13 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<CustomerRow[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
 
   const unknownLabel = t('dashboards.analytics.labels.unknown', 'Unknown')
   const columns: TopNTableColumn<CustomerRow>[] = React.useMemo(
@@ -87,10 +91,10 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         key: 'revenue',
         header: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue'),
         align: 'right',
-        formatter: (value: unknown) => formatCurrencySafe(value),
+        formatter: (value: unknown) => money.formatSafe(value),
       },
     ],
-    [t, unknownLabel],
+    [t, unknownLabel, money],
   )
 
   const fetchWidgetData = useWidgetData()
@@ -107,6 +111,7 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
         revenue: item.value ?? 0,
       }))
       setData(tableData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load top customers data', { err })
       setError(t('dashboards.analytics.widgets.topCustomers.error', 'Failed to load data'))
@@ -173,13 +178,18 @@ const TopCustomersWidget: React.FC<DashboardWidgetComponentProps<TopCustomersSet
   }
 
   return (
-    <TopNTable
-      data={data}
-      columns={columns}
-      loading={loading}
-      error={error}
-      emptyMessage={t('dashboards.analytics.widgets.topCustomers.empty', 'No customer data for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
+        <TopNTable
+          data={data}
+          columns={columns}
+          loading={loading}
+          error={error}
+          emptyMessage={t('dashboards.analytics.widgets.topCustomers.empty', 'No customer data for this period')}
+        />
+      </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
+    </div>
   )
 }
 

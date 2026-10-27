@@ -6,10 +6,13 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
+import { requireResolvedTenantScope } from '../readScope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -150,6 +153,11 @@ function parseNumber(param: string | null, { min, max, fallback }: { min: number
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const canonicalAuthSubject = resolveCanonicalAuthSubject(auth)
+  if (!canonicalAuthSubject) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const tenantScopeGuard = requireResolvedTenantScope(auth)
+  if (tenantScopeGuard) return tenantScopeGuard
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
@@ -190,7 +198,8 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
+  const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
+  let actorUserId: string | undefined
   let actorUserIds: string[] | undefined
   if (canViewTenant && actorQuery) {
     const parsedActorUserIds = splitCsv(actorQuery)
@@ -205,6 +214,7 @@ export async function GET(req: Request) {
   const listQuery = {
     tenantId: auth.tenantId ?? undefined,
     organizationId: organizationId ?? undefined,
+    actorSubject,
     actorUserId,
     actorUserIds,
     resourceKind,
@@ -226,13 +236,22 @@ export async function GET(req: Request) {
   // includeTotal flag is retained for backward compatibility but page-based pagination
   // always returns total/totalPages from the list query's findAndCount.
   void includeTotal
-  const list = await actionLogs.list(listQuery)
+  let list: Awaited<ReturnType<ActionLogService['list']>>
+  try {
+    list = await actionLogs.list(listQuery)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
+    }
+    throw err
+  }
 
+  const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
     tenantIds: list.items.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
     organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
-  })
+  }, { translate })
 
   const items = list.items.map((entry: any) => ({
     id: entry.id,
@@ -283,6 +302,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
       ],
     },
   },

@@ -1,6 +1,5 @@
 "use client"
 
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   createDictionaryMap,
@@ -8,6 +7,7 @@ import {
   type DictionaryDisplayEntry,
   type DictionaryMap,
 } from '../dictionaryAppearance'
+import { fetchAllDictionaryEntries } from '../../lib/fetchAllEntries'
 
 export type DictionaryEntryRecord = DictionaryDisplayEntry & {
   id: string
@@ -28,47 +28,46 @@ const BASE_DICTIONARY_ENTRIES_KEY = ['dictionaries', 'entries'] as const
 export const dictionaryEntriesQueryKey = (dictionaryId: string, scopeVersion = 0) =>
   [...BASE_DICTIONARY_ENTRIES_KEY, dictionaryId, `scope:${scopeVersion}`] as const
 
+function parseDictionaryEntryItems(items: unknown[]): DictionaryEntryRecord[] {
+  const parsed: DictionaryEntryRecord[] = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const data = item as Record<string, unknown>
+    const id = typeof data.id === 'string' ? data.id : ''
+    const value = typeof data.value === 'string' ? data.value.trim() : ''
+    if (!id || !value) continue
+    const label =
+      typeof data.label === 'string' && data.label.trim().length ? data.label.trim() : value
+    const color =
+      typeof data.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(data.color)
+        ? `#${data.color.slice(1).toLowerCase()}`
+        : null
+    const icon = typeof data.icon === 'string' && data.icon.trim().length ? data.icon.trim() : null
+    const createdAt = typeof data.createdAt === 'string' ? data.createdAt : null
+    const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : null
+    parsed.push({
+      id,
+      value,
+      label,
+      color,
+      icon,
+      createdAt,
+      updatedAt,
+    })
+  }
+  return parsed
+}
+
 export const dictionaryEntriesQueryOptions = (dictionaryId: string, scopeVersion = 0) => ({
   queryKey: dictionaryEntriesQueryKey(dictionaryId, scopeVersion),
   staleTime: DICTIONARY_ENTRIES_STALE_TIME,
   gcTime: DICTIONARY_ENTRIES_STALE_TIME,
   queryFn: async (): Promise<DictionaryEntriesQueryData> => {
-    const call = await apiCall<Record<string, unknown>>(`/api/dictionaries/${dictionaryId}/entries`)
-    const payload = call.result ?? {}
-    if (!call.ok) {
-      const message =
-        typeof payload.error === 'string'
-          ? payload.error
-          : 'Failed to load dictionary entries.'
-      throw new Error(message)
+    const pages = await fetchAllDictionaryEntries(dictionaryId)
+    if (!pages.ok) {
+      throw new Error(pages.errorMessage ?? 'Failed to load dictionary entries.')
     }
-    const items = Array.isArray(payload.items) ? payload.items : []
-    const parsed: DictionaryEntryRecord[] = []
-    for (const item of items) {
-      if (!item || typeof item !== 'object') continue
-      const data = item as Record<string, unknown>
-      const id = typeof data.id === 'string' ? data.id : ''
-      const value = typeof data.value === 'string' ? data.value.trim() : ''
-      if (!id || !value) continue
-      const label =
-        typeof data.label === 'string' && data.label.trim().length ? data.label.trim() : value
-      const color =
-        typeof data.color === 'string' && /^#([0-9a-fA-F]{6})$/.test(data.color)
-          ? `#${data.color.slice(1).toLowerCase()}`
-          : null
-      const icon = typeof data.icon === 'string' && data.icon.trim().length ? data.icon.trim() : null
-      const createdAt = typeof data.createdAt === 'string' ? data.createdAt : null
-      const updatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : null
-      parsed.push({
-        id,
-        value,
-        label,
-        color,
-        icon,
-        createdAt,
-        updatedAt,
-      })
-    }
+    const parsed = parseDictionaryEntryItems(pages.items)
     const normalized = normalizeDictionaryEntries(
       parsed.map(({ value, label, color, icon }) => ({ value, label, color, icon })),
       { sort: false },

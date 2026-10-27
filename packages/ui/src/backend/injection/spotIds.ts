@@ -1,4 +1,8 @@
 import type { InjectionSpotId } from '@open-mercato/shared/modules/widgets/injection'
+import {
+  crudFormExtensionSpotId,
+  dataTableExtensionSpotId,
+} from '@open-mercato/shared/modules/widgets/extension-points'
 
 export const BACKEND_RECORD_CURRENT_INJECTION_SPOT_ID: InjectionSpotId = 'backend:record:current'
 export const BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID: InjectionSpotId = 'backend:layout:top'
@@ -12,38 +16,47 @@ export const BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID: InjectionSpotId = 'backen
 export const BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID: InjectionSpotId = 'backend:sidebar:nav'
 export const BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID: InjectionSpotId = 'backend:sidebar:nav:footer'
 
+/**
+ * Headless mount point for modules that publish live counts onto sidebar nav
+ * items through `setNavBadge`. Rendered once per shell and always — a feeder
+ * must keep counting while the sidebar is collapsed or off-screen on mobile —
+ * and its widgets are expected to render nothing.
+ */
+export const BACKEND_NAV_BADGES_INJECTION_SPOT_ID: InjectionSpotId = 'backend:nav:badges'
+
 // Standardized global status spot ids
 export const GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID: InjectionSpotId = 'global:sidebar:status-badges'
 export const GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID: InjectionSpotId = 'global:header:status-indicators'
 
 // Standardized pattern helpers
 export const CrudFormInjectionSpots = {
-  base: (entityId: string): InjectionSpotId => `crud-form:${entityId}`,
-  beforeFields: (entityId: string): InjectionSpotId => `crud-form:${entityId}:before-fields`,
-  afterFields: (entityId: string): InjectionSpotId => `crud-form:${entityId}:after-fields`,
-  header: (entityId: string): InjectionSpotId => `crud-form:${entityId}:header`,
-  footer: (entityId: string): InjectionSpotId => `crud-form:${entityId}:footer`,
-  sidebar: (entityId: string): InjectionSpotId => `crud-form:${entityId}:sidebar`,
-  group: (entityId: string, groupId: string): InjectionSpotId => `crud-form:${entityId}:group:${groupId}`,
-  fieldBefore: (entityId: string, fieldId: string): InjectionSpotId => `crud-form:${entityId}:field:${fieldId}:before`,
-  fieldAfter: (entityId: string, fieldId: string): InjectionSpotId => `crud-form:${entityId}:field:${fieldId}:after`,
+  base: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId),
+  beforeFields: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'before-fields'),
+  afterFields: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'after-fields'),
+  header: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'header'),
+  fields: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'fields'),
+  footer: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'footer'),
+  sidebar: (entityId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, 'sidebar'),
+  group: (entityId: string, groupId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, `group:${groupId}`),
+  fieldBefore: (entityId: string, fieldId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, `field:${fieldId}:before`),
+  fieldAfter: (entityId: string, fieldId: string): InjectionSpotId => crudFormExtensionSpotId(entityId, `field:${fieldId}:after`),
 } as const
 
 export const DataTableInjectionSpots = {
-  header: (tableId: string): InjectionSpotId => `data-table:${tableId}:header`,
-  footer: (tableId: string): InjectionSpotId => `data-table:${tableId}:footer`,
-  toolbar: (tableId: string): InjectionSpotId => `data-table:${tableId}:toolbar`,
+  header: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'header'),
+  footer: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'footer'),
+  toolbar: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'toolbar'),
   // Slot rendered immediately after the search input on the same row as the
   // FilterBar — intended for compact, icon-sized triggers (AI assistants,
   // saved view shortcuts, etc.). Hosts pass the resolved spot ID through to
   // FilterBar's `searchTrailing` prop. Stays empty when the table has no
   // search input.
-  searchTrailing: (tableId: string): InjectionSpotId => `data-table:${tableId}:search-trailing`,
-  emptyState: (tableId: string): InjectionSpotId => `data-table:${tableId}:empty-state`,
-  columns: (tableId: string): InjectionSpotId => `data-table:${tableId}:columns`,
-  rowActions: (tableId: string): InjectionSpotId => `data-table:${tableId}:row-actions`,
-  bulkActions: (tableId: string): InjectionSpotId => `data-table:${tableId}:bulk-actions`,
-  filters: (tableId: string): InjectionSpotId => `data-table:${tableId}:filters`,
+  searchTrailing: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'search-trailing'),
+  emptyState: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'empty-state'),
+  columns: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'columns'),
+  rowActions: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'row-actions'),
+  bulkActions: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'bulk-actions'),
+  filters: (tableId: string): InjectionSpotId => dataTableExtensionSpotId(tableId, 'filters'),
 } as const
 
 // Portal chrome spot IDs (FROZEN once shipped)

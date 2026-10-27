@@ -32,6 +32,11 @@ import {
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
 import type { LazyWorkerSpawnMode } from './auto-spawn-workers'
 
+export type SupervisorWorkerDescriptor = Pick<
+  ModuleWorker,
+  'id' | 'moduleId' | 'queue' | 'concurrency'
+>
+
 export type LazySupervisorSpawnFn = (
   command: string,
   args: readonly string[],
@@ -47,7 +52,7 @@ export type LazyWorkerSupervisorOptions = {
   mercatoBin: string
   appDir: string
   runtimeEnv: NodeJS.ProcessEnv
-  workers: ModuleWorker[]
+  workers: readonly SupervisorWorkerDescriptor[]
   pollMs: number
   restartOnUnexpectedExit: boolean
   spawnMode?: LazyWorkerSpawnMode
@@ -89,7 +94,7 @@ type QueueGroup = {
   workerCount: number
 }
 
-function groupWorkersByQueue(workers: ModuleWorker[]): QueueGroup[] {
+function groupWorkersByQueue(workers: readonly SupervisorWorkerDescriptor[]): QueueGroup[] {
   const groups = new Map<string, QueueGroup>()
   for (const worker of workers) {
     const existing = groups.get(worker.queue)

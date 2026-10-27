@@ -8,6 +8,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -20,6 +21,8 @@ import {
   resolveTenantContext,
   TenantResolutionError,
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -28,7 +31,15 @@ export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth:
 // so account existence cannot be inferred from a timing side channel. Mirrors signup.ts.
 const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 
+function reportLoginEventError(error: unknown): void {
+  getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.login_event_failed' })
+}
+
 export async function POST(req: Request) {
+  if (isCrossSiteBrowserRequest(req)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   let body: unknown
   try {
     body = await req.json()
@@ -77,26 +88,26 @@ export async function POST(req: Request) {
   // conveyed out-of-band (e.g. email), never in the synchronous response.
   if (!user || !user.passwordHash) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (!user.isActive) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'inactive', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   if (customerUserService.checkLockout(user)) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   const passwordValid = await customerUserService.verifyPassword(user, password)
   if (!passwordValid) {
     await customerUserService.incrementFailedAttempts(user)
-    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }).catch(() => undefined)
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_password', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
@@ -105,19 +116,24 @@ export async function POST(req: Request) {
       email,
       reason: 'email_not_verified',
       tenantId,
-    }).catch(() => undefined)
+    }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
-  await customerUserService.resetFailedAttempts(user)
+  if (!(await customerUserService.resetFailedAttemptsUnlessLocked(user))) {
+    void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'locked', tenantId }).catch(reportLoginEventError)
+    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
+  }
   await customerUserService.updateLastLoginAt(user)
 
   if (compoundKey) {
     await resetAuthRateLimit(compoundKey, customerLoginRateLimitConfig)
   }
 
-  const acl = await customerRbacService.loadAcl(user.id, { tenantId, organizationId: user.organizationId })
-  const resolvedFeatures = acl.features
+  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+    tenantId,
+    organizationId: user.organizationId,
+  })
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null
@@ -128,7 +144,7 @@ export async function POST(req: Request) {
     email: user.email,
     tenantId,
     organizationId: user.organizationId,
-  }).catch(() => undefined)
+  }).catch(reportLoginEventError)
 
   const res = NextResponse.json({
     ok: true,
@@ -189,6 +205,7 @@ const methodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: errorSchema },
     { status: 401, description: 'Invalid credentials', schema: errorSchema },
+    { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }

@@ -241,4 +241,89 @@ describe('reaction-processor worker dispatch', () => {
     await handler(job, ctx)
     expect(enqueueMock).not.toHaveBeenCalled()
   })
+
+  describe('adapter scope (#6634)', () => {
+    const tenantId = '44444444-4444-4444-4444-444444444444'
+    const organizationId = '55555555-5555-5555-5555-555555555555'
+
+    function makeScopedCtx(channelOrganizationId: string | null) {
+      const sendReaction = jest.fn(async () => undefined)
+      const removeReaction = jest.fn(async () => undefined)
+      const credentialsResolve = jest.fn(async () => ({}))
+      const adapter = { providerKey: 'slack', sendReaction, removeReaction }
+      const findOne = jest.fn().mockResolvedValueOnce({
+        id: '11111111-1111-1111-1111-111111111111',
+        isActive: true,
+        providerKey: 'slack',
+        credentialsRef: 'cred-ref',
+        organizationId: channelOrganizationId,
+        userId: null,
+      })
+      const ctx = makeCtx((name) => {
+        if (name === 'channelAdapterRegistry') return { get: () => adapter }
+        if (name === 'em') return { fork: () => ({ findOne }) }
+        if (name === 'integrationCredentialsService') return { resolve: credentialsResolve }
+        return null
+      })
+      return { ctx, findOne, sendReaction, removeReaction, credentialsResolve }
+    }
+
+    function sendJob(scopeOrganizationId: string | null) {
+      return makeJob({
+        kind: 'outbound_send',
+        providerKey: 'slack',
+        channelId: '11111111-1111-1111-1111-111111111111',
+        messageId: '22222222-2222-2222-2222-222222222222',
+        reactionId: '33333333-3333-3333-3333-333333333333',
+        emoji: '👍',
+        scope: { tenantId, organizationId: scopeOrganizationId },
+      })
+    }
+
+    function removeJob(scopeOrganizationId: string | null) {
+      return makeJob({
+        kind: 'outbound_remove',
+        providerKey: 'slack',
+        channelId: '11111111-1111-1111-1111-111111111111',
+        messageId: '22222222-2222-2222-2222-222222222222',
+        emoji: '👍',
+        externalReactionId: 'ext-r-1',
+        scope: { tenantId, organizationId: scopeOrganizationId },
+      })
+    }
+
+    it('passes organizationId: null to sendReaction for a channel with no organization', async () => {
+      const { ctx, findOne, sendReaction } = makeScopedCtx(null)
+      await handler(sendJob(null), ctx)
+      expect(findOne.mock.calls[0][1]).toMatchObject({ tenantId, organizationId: null })
+      expect(sendReaction).toHaveBeenCalledTimes(1)
+      expect(sendReaction.mock.calls[0][0]).toMatchObject({ scope: { tenantId, organizationId: null } })
+    })
+
+    it('passes organizationId: null to removeReaction for a channel with no organization', async () => {
+      const { ctx, removeReaction } = makeScopedCtx(null)
+      await handler(removeJob(null), ctx)
+      expect(removeReaction).toHaveBeenCalledTimes(1)
+      expect(removeReaction.mock.calls[0][0]).toMatchObject({ scope: { tenantId, organizationId: null } })
+    })
+
+    it("passes the channel's organization to sendReaction and removeReaction for an organization-scoped channel", async () => {
+      const send = makeScopedCtx(organizationId)
+      await handler(sendJob(organizationId), send.ctx)
+      expect(send.sendReaction.mock.calls[0][0]).toMatchObject({ scope: { tenantId, organizationId } })
+      const remove = makeScopedCtx(organizationId)
+      await handler(removeJob(organizationId), remove.ctx)
+      expect(remove.removeReaction.mock.calls[0][0]).toMatchObject({ scope: { tenantId, organizationId } })
+    })
+
+    it('keeps resolving credentials of an organization-less channel under the tenant key they are written with', async () => {
+      const { ctx, credentialsResolve } = makeScopedCtx(null)
+      await handler(sendJob(null), ctx)
+      expect(credentialsResolve).toHaveBeenCalledWith('channel_slack', {
+        tenantId,
+        organizationId: tenantId,
+        userId: null,
+      })
+    })
+  })
 })

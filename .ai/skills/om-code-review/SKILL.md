@@ -9,7 +9,7 @@ This file extends the shared `om-code-review` skill from [open-mercato/skills](h
 
 ## Step 0 — Decide where to run the gate (execute ONCE before any gate command)
 
-Before running any `validation.commands` gate, pick the runner (Docker vs local) using the probe order documented in root `AGENTS.md` § Validation Commands — probe candidates with `docker compose -f <file> ps --status running -q app`, honor `DOCKER_COMPOSE_FILE` first, and in Docker mode map each `yarn X` to `node scripts/docker-exec.mjs X`. Record the chosen runner in the review output (e.g. `Runner: docker (docker-compose.fullapp.dev.yml)` or `Runner: local`). Never silently fall through to the production compose profile on a parse error — log and try the next candidate.
+Before running any `validation.commands` gate, pick the runner (Docker vs local) using the probe order documented in root `AGENTS.md` § Validation Commands — honor `DOCKER_COMPOSE_FILE` first, then probe `starters/docker/compose.*dev*.local.yml` (sorted), legacy root `docker-compose.*dev*.local.yml` (sorted), `starters/docker/compose.fullapp.dev.yml`, `starters/docker/compose.fullapp.yml` with `docker compose --project-directory . -f <file> ps --status running -q app`, and in Docker mode map each `yarn X` to `node scripts/docker-exec.mjs X`. Record the chosen runner in the review output (e.g. `Runner: docker (starters/docker/compose.fullapp.dev.yml)` or `Runner: local`). Never silently fall through to the production compose profile on a parse error — log and try the next candidate.
 
 The same Step 0 applies wherever the validation gate runs (`om-check-and-commit`, `om-auto-create-pr`, `om-implement-spec`, `om-smart-test`).
 
@@ -26,12 +26,20 @@ Classify each changed file by Open Mercato layer: API route, entity, validator, 
 ## Context sources
 
 - `.ai/specs/` — check for active specs on the touched modules; flag divergence from an active spec.
-- `.ai/lessons.md` — known pitfalls; treat documented lessons as review rules.
+- `.ai/lessons.md` — scan the tagged index by affected module/area/topic, open only matching lesson records, and treat those documented lessons as review rules.
 - `BACKWARD_COMPATIBILITY.md` — protected contract surfaces (the shared skill already enforces this; violations are Critical).
 
 ## Frontend performance gate
 
 The shared skill's UI Performance Gate applies with these Open Mercato specifics: run `yarn check:client-boundaries` when the diff touches web routes, providers, or the app shell (the "use client" boundary ledger — see the Frontend Architecture Contract at `.ai/skills/om-spec-writing/references/frontend-architecture-contract.md`); watch for backend pages that turn server components into client components, route entry points that import heavy editors/calendars/graphs eagerly instead of dynamic islands, and global providers importing route-specific SDKs. `om-ds-guardian` and `om-backend-ui-design` (local skills) define the DS/UI conventions the diff must follow.
+
+## Release lines and backports
+
+Policy: `.ai/docs/pr-workflow.md` § Release lines and backports. Report as **blocker**: a hand-edited `version` in any workspace manifest, a hand-edited released `# X.Y.Z` `CHANGELOG.md` entry, a feature or refactor labelled `backport release/v*`, or a hand-written PR that targets `release/v*` directly — except PRs opened by the Backport workflow (labelled `backport`) and a can't-wait hotfix carrying `backport main`. For a PR whose base is `release/vX.Y.x`, review the diff against that line's code rather than `main`'s — a clean cherry-pick into a different context is the dangerous case. Flag (as **minor**) a `priority-high`/`priority-extreme` bug fix or security fix that touches code which already exists on the newest line without a `backport release/vX.Y.x` label.
+
+## Release-note labels
+
+Policy and the change → label table: `.ai/docs/pr-workflow.md` § Release-note labels. Every review checks that the PR carries exactly the category label(s) its change calls for — or `skip-changelog` for release and branch bookkeeping — and that the title reads as a release-note line. When the review runs with label permission (`om-auto-review-pr`), it **fixes** a missing or wrong category itself and records it in the review report; it never requests changes for labels alone. When it cannot write labels, it reports the expected label as a **minor** finding so a maintainer applies it before merge.
 
 ## Severity taxonomy
 

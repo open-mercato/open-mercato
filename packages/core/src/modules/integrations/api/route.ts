@@ -14,6 +14,7 @@ import {
   integrationApiRoutePaths,
   runIntegrationsReadBeforeInterceptors,
 } from './umes-read'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations.view'] },
@@ -46,8 +47,12 @@ function matchesSearchQuery(
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const url = new URL(req.url)
@@ -71,7 +76,7 @@ export async function GET(req: Request) {
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
   const logService = container.resolve('integrationLogService') as IntegrationLogService
 
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId as string }
+  const scope = { organizationId: organizationId, tenantId: auth.tenantId as string }
   const searchNeedle = query.q?.trim().toLowerCase() ?? ''
 
   type ListRow = {

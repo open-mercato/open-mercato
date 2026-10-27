@@ -64,6 +64,9 @@ describe('example todo prepare snapshot scoping (#3863)', () => {
 
     await getCommand(commandId).prepare?.(input, ctx)
 
+    // The pre-image read goes through `findOneWithDecryption`, which forwards
+    // `(entityName, where, options)` to `em.findOne` and applies the decryption
+    // scope itself — hence the trailing `undefined` options argument.
     expect(findOne).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -72,6 +75,7 @@ describe('example todo prepare snapshot scoping (#3863)', () => {
         organizationId: ORG_ID,
         deletedAt: null,
       }),
+      undefined,
     )
   })
 })

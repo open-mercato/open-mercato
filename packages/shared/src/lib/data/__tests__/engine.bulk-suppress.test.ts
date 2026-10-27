@@ -1,7 +1,11 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DefaultDataEngine } from '../engine'
-import type { CrudEventsConfig, CrudIndexerConfig } from '../../crud/types'
+import {
+  CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+  type CrudEventsConfig,
+  type CrudIndexerConfig,
+} from '../../crud/types'
 
 // The bulk-import deferral (`suppress`) must gate the two per-record side effects `emitOrmEntityEvent`
 // fans out — the `<module>.<entity>.<action>` domain event and the inline `query_index.upsert_one`
@@ -25,6 +29,15 @@ function buildEngine() {
   return { engine, emitEvent, emittedNames }
 }
 
+function expectManagedDomainPayload(emitEvent: jest.Mock, eventName: string): void {
+  const call = emitEvent.mock.calls.find(([name]) => name === eventName)
+  expect(call).toBeDefined()
+  const payload = call?.[1] as Record<string, unknown>
+  expect(payload[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY]).toBe(true)
+  expect(Object.keys(payload)).not.toContain(CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY)
+  expect(JSON.stringify(payload)).not.toContain(CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY)
+}
+
 describe('DefaultDataEngine bulk-import suppression', () => {
   // The test events are intentionally not registered in the event registry; silence the
   // one-time "undeclared event" warning so it doesn't clutter the suite output.
@@ -33,9 +46,10 @@ describe('DefaultDataEngine bulk-import suppression', () => {
   afterAll(() => { warnSpy.mockRestore() })
 
   it('emits both the domain event and the reindex when unsuppressed', async () => {
-    const { engine, emittedNames } = buildEngine()
+    const { engine, emitEvent, emittedNames } = buildEngine()
     await engine.emitOrmEntityEvent({ action: 'created', entity: {}, events: EVENTS, indexer: INDEXER, identifiers: IDENTIFIERS })
     expect(emittedNames()).toEqual(expect.arrayContaining(['sales.order.created', 'query_index.upsert_one']))
+    expectManagedDomainPayload(emitEvent, 'sales.order.created')
   })
 
   it('skips the domain event but keeps the reindex with skipEvents', async () => {
@@ -47,11 +61,12 @@ describe('DefaultDataEngine bulk-import suppression', () => {
   })
 
   it('skips the reindex but keeps the domain event with skipReindex', async () => {
-    const { engine, emittedNames } = buildEngine()
+    const { engine, emitEvent, emittedNames } = buildEngine()
     await engine.emitOrmEntityEvent({ action: 'created', entity: {}, events: EVENTS, indexer: INDEXER, identifiers: IDENTIFIERS, suppress: { skipReindex: true } })
     const names = emittedNames()
     expect(names).toContain('sales.order.created')
     expect(names).not.toContain('query_index.upsert_one')
+    expectManagedDomainPayload(emitEvent, 'sales.order.created')
   })
 
   it('emits nothing when both are suppressed', async () => {

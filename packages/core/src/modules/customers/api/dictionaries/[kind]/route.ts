@@ -22,6 +22,10 @@ import {
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../../lib/dictionaries'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { calendarEventTypeBehaviorSchema } from '../../../calendar-event-types'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 
 const logger = createLogger('customers')
 
@@ -33,6 +37,7 @@ const postSchema = z.object({
   label: z.string().trim().max(150).optional(),
   color: colorSchema.or(z.null()).optional(),
   icon: iconSchema.or(z.null()).optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
 })
 
 const querySchema = z.object({
@@ -50,16 +55,27 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
     const query = querySchema.parse({
       organizationId: url.searchParams.get('organizationId') ?? undefined,
     })
-    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache } = await resolveDictionaryRouteContext(req, {
+    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
     })
     const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
     if (!organizationId) {
-      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+      throw new CrudHttpError(400, {
+        error: translate('customers.errors.organization_required', 'Organization context is required'),
+        code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+      })
     }
     const settings = await loadCustomerSettings(em, { tenantId, organizationId })
     const sortMode = resolveDictionaryEntrySortMode(settings?.dictionarySortModes?.[kind])
-    const scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    let scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    if (mappedKind === 'activity_type') {
+      const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
+      const ancestors = await hierarchy.resolveAncestorIds({ tenantId, organizationId })
+      if (ancestors === null) {
+        throw new CrudHttpError(403, { error: translate('customers.errors.organization_forbidden', 'Organization not accessible') })
+      }
+      scopedOrganizationIds = Array.from(new Set([organizationId, ...ancestors.slice().reverse()]))
+    }
     const canUseCache = Boolean(cache) && mappedKind !== 'person_company_role'
 
     let cacheKey: string | null = null
@@ -128,6 +144,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           label: entry.label,
           color: entry.color,
           icon: entry.icon,
+          ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
           organizationId: entry.organizationId,
           isInherited: entry.organizationId !== organizationId,
           createdAt: entry.createdAt,
@@ -208,6 +225,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
           label: body.label,
           color: body.color,
           icon: body.icon,
+          behavior: body.behavior,
         },
         ctx: context.ctx,
       })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
@@ -243,8 +261,10 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
         label: entry.label,
         color: entry.color,
         icon: entry.icon,
+        ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
         organizationId: entry.organizationId,
         isInherited: false,
+        updatedAt: entry.updatedAt,
       },
       { status: result.mode === 'created' ? 201 : 200 }
     )
@@ -267,6 +287,10 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     const { translate } = await resolveTranslations()
     logger.error('customers.dictionaries.create failed', { err })
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') }, { status: 400 })
@@ -279,6 +303,7 @@ const dictionaryEntrySchema = z.object({
   label: z.string().nullable().optional(),
   color: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   organizationId: z.string().uuid().nullable().optional(),
   isInherited: z.boolean().optional(),
   createdAt: z.date().or(z.string()).optional(),
@@ -292,6 +317,7 @@ const dictionaryListResponseSchema = z.object({
 
 const dictionaryErrorSchema = z.object({
   error: z.string(),
+  code: z.string().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {

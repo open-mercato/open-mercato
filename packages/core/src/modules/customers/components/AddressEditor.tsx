@@ -24,7 +24,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
 import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
-import type { AddressFormatStrategy } from '../utils/addressFormat'
+import { resolveTaxIdLabel, type AddressFormatStrategy } from '../utils/addressFormat'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -41,6 +41,20 @@ export type AddressEditorDraft = {
   region: string
   postalCode: string
   country: string
+  /**
+   * Contact details that belong to the ADDRESS rather than to the customer: the tax identifier it was
+   * invoiced under, and the phone a carrier calls about a delivery. Optional so every existing caller
+   * keeps compiling; callers must opt in with the matching `show*Field` props before they render.
+   */
+  taxId?: string
+  /**
+   * Which scheme the identifier belongs to, in Stripe's `{country}_{kind}` vocabulary. Chosen, not
+   * inferred: `PL1234567890` and `1234567890` are the same business written two ways, and a rule
+   * that reads the form of the value is guessing — the more schemes the vocabulary carries, the more
+   * often it guesses wrong, and a wrong type is worse than none because it names the number.
+   */
+  taxIdType?: string
+  phone?: string
   latitude?: string
   longitude?: string
   isPrimary: boolean
@@ -58,6 +72,9 @@ export type AddressEditorField =
   | 'region'
   | 'postalCode'
   | 'country'
+  | 'taxId'
+  | 'taxIdType'
+  | 'phone'
   | 'latitude'
   | 'longitude'
   | 'isPrimary'
@@ -72,7 +89,32 @@ type AddressEditorProps = {
   hidePrimaryToggle?: boolean
   showFormatHint?: boolean
   showCoordinateFields?: boolean
+  /**
+   * Render the phone. Off by default, opt-in for the same reason `showCoordinateFields` is: only a
+   * caller whose storage can hold a field should offer it.
+   */
+  showPhoneField?: boolean
+  /**
+   * Render the tax identifier and its scheme. Separate from the phone, and not for symmetry — a
+   * phone is a contact detail and a tax identifier is not, and the two stop travelling together at
+   * the next phase: `CustomerAddress` gains a `phone` column and no tax id, so the address book will
+   * offer one and not the other.
+   *
+   * Both gate the CALLER, not the field. Inside a tile that opts in, the input renders whether or not
+   * it carries a value and takes the same `disabled` as every neighbour.
+   */
+  showTaxIdField?: boolean
 }
+
+/**
+ * The schemes offered in the picker, in the order a Polish deployment meets them. The vocabulary is
+ * additive under the backward-compatibility contract, so a new scheme is a new entry here rather
+ * than a new branch in a rule that has to guess.
+ *
+ * The labels are the ones `resolveTaxIdLabel` resolves, so the picker and the marker beside the
+ * filled field always read the same.
+ */
+const TAX_ID_TYPES = ['pl_nip', 'eu_vat', 'other'] as const
 
 export function AddressEditor({
   value,
@@ -84,6 +126,8 @@ export function AddressEditor({
   hidePrimaryToggle = false,
   showFormatHint = true,
   showCoordinateFields = false,
+  showPhoneField = false,
+  showTaxIdField = false,
 }: AddressEditorProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -102,6 +146,11 @@ export function AddressEditor({
     [t],
   )
 
+  const taxIdLabels = {
+    plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
+    euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
+    other: t('customers.people.detail.addresses.fields.taxId.other', 'Tax number'),
+  }
   const current: AddressEditorDraft = {
     name: value.name ?? '',
     purpose: value.purpose ?? '',
@@ -114,6 +163,9 @@ export function AddressEditor({
     region: value.region ?? '',
     postalCode: value.postalCode ?? '',
     country: value.country ?? '',
+    taxId: value.taxId ?? '',
+    taxIdType: value.taxIdType ?? '',
+    phone: value.phone ?? '',
     ...(showCoordinateFields
       ? { latitude: value.latitude ?? '', longitude: value.longitude ?? '' }
       : {}),
@@ -470,6 +522,69 @@ export function AddressEditor({
               aria-invalid={errors.longitude ? 'true' : undefined}
             />
             {errors.longitude ? <p className="text-xs text-destructive">{errors.longitude}</p> : null}
+          </>
+        ) : null}
+        {showTaxIdField ? (
+          <>
+            <Select
+              value={current.taxIdType || undefined}
+              onValueChange={(next) => update('taxIdType', next ?? '')}
+              disabled={disabled}
+            >
+              <SelectTrigger
+                className={errors.taxIdType ? 'border-destructive' : undefined}
+                aria-label={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+                aria-invalid={errors.taxIdType ? 'true' : undefined}
+              >
+                <SelectValue
+                  placeholder={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {TAX_ID_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {resolveTaxIdLabel(taxIdLabels, type)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              className={inputClass('taxId')}
+              placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+              aria-label={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+              rightIcon={
+                current.taxId ? (
+                  <span className="text-xs">{resolveTaxIdLabel(taxIdLabels, current.taxIdType)}</span>
+                ) : null
+              }
+              value={current.taxId ?? ''}
+              onChange={(evt) => update('taxId', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.taxId ? 'true' : undefined}
+            />
+            {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
+          </>
+        ) : null}
+        {showPhoneField ? (
+          <>
+            <Input
+              className={inputClass('phone')}
+              placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+              aria-label={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+              rightIcon={
+                current.phone ? (
+                  <span className="text-xs">
+                    {t('customers.people.detail.addresses.fields.phone', 'Phone')}
+                  </span>
+                ) : null
+              }
+              inputMode="tel"
+              value={current.phone ?? ''}
+              onChange={(evt) => update('phone', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.phone ? 'true' : undefined}
+            />
+            {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
           </>
         ) : null}
       </div>

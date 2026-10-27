@@ -15,6 +15,12 @@ jest.mock('@open-mercato/shared/lib/db/escapeLikePattern', () => ({
   escapeLikePattern: (value: string) => value.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&'),
 }))
 
+const mockFindEntityIdsBySearchTokens = jest.fn(async () => ({ matched: false, reason: 'no-tokens' as const }))
+
+jest.mock('@open-mercato/shared/lib/search/tokenLookup', () => ({
+  findEntityIdsBySearchTokens: (...args: unknown[]) => mockFindEntityIdsBySearchTokens(...(args as [])),
+}))
+
 const authResult = {
   sub: 'user-1',
   tenantId: 'tenant-1',
@@ -25,7 +31,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authResult),
 }))
 
-const mockEm = { fork: jest.fn() }
+const mockEm = { fork: jest.fn(), getKysely: jest.fn(() => ({})) }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -126,8 +132,52 @@ describe('GET /api/inbox_ops/proposals', () => {
       mockEm,
       InboxProposal,
       expect.objectContaining({
-        summary: { $ilike: '%100\\%\\_off%' },
+        $or: [{ summary: { $ilike: '%100\\%\\_off%' } }],
       }),
+      expect.any(Object),
+      expect.any(Object),
+    )
+  })
+
+  it('unions the encrypted-summary token matches into the search predicate', async () => {
+    mockFindAndCountWithDecryption.mockResolvedValueOnce([[], 0])
+    mockFindEntityIdsBySearchTokens.mockResolvedValueOnce({
+      matched: true,
+      ids: ['proposal-7', 'proposal-9'],
+    } as never)
+
+    await GET(makeRequest({ search: 'widgets' }))
+
+    expect(mockFindEntityIdsBySearchTokens).toHaveBeenCalledWith(expect.objectContaining({
+      entityType: 'inbox_ops:inbox_proposal',
+      query: 'widgets',
+      fields: ['summary'],
+      scope: { tenantId: 'tenant-1', organizationId: 'org-1' },
+    }))
+    expect(mockFindAndCountWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      InboxProposal,
+      expect.objectContaining({
+        $or: [
+          { summary: { $ilike: '%widgets%' } },
+          { id: { $in: ['proposal-7', 'proposal-9'] } },
+        ],
+      }),
+      expect.any(Object),
+      expect.any(Object),
+    )
+  })
+
+  it('keeps the plain ILIKE predicate when the token index has nothing to say', async () => {
+    mockFindAndCountWithDecryption.mockResolvedValueOnce([[], 0])
+    mockFindEntityIdsBySearchTokens.mockResolvedValueOnce({ matched: true, ids: [] } as never)
+
+    await GET(makeRequest({ search: 'widgets' }))
+
+    expect(mockFindAndCountWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      InboxProposal,
+      expect.objectContaining({ $or: [{ summary: { $ilike: '%widgets%' } }] }),
       expect.any(Object),
       expect.any(Object),
     )

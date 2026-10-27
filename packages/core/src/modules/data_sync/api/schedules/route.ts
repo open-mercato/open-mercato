@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createSyncScheduleSchema, listSyncSchedulesQuerySchema } from '../../data/validators'
@@ -7,6 +8,8 @@ import type { SyncScheduleService } from '../../lib/sync-schedule-service'
 import { serializeSchedule } from './serialize'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
+import { buildScheduleValueErrorBody } from '../../lib/schedule-value'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -24,8 +27,12 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const url = new URL(req.url)
@@ -43,7 +50,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
   const { items, total } = await scheduleService.listSchedules(parsed.data, scope)
 
   return NextResponse.json({
@@ -57,8 +64,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const payload = await readJsonSafe(req)
@@ -69,7 +80,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const scheduleService = container.resolve('dataSyncScheduleService') as SyncScheduleService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -110,6 +121,9 @@ export async function POST(req: Request) {
   } catch (error) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
+    }
+    if (isInvalidScheduleValueError(error)) {
+      return NextResponse.json(buildScheduleValueErrorBody(error.scheduleType), { status: 422 })
     }
     const message = error instanceof Error ? error.message : 'Failed to save sync schedule'
     return NextResponse.json({ error: message }, { status: 422 })

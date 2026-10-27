@@ -4,11 +4,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductTag } from '../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPagedListResponseSchema } from '../openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { isIdsParamProvided, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -19,6 +21,7 @@ export const metadata = routeMetadata
 const querySchema = z
   .object({
     search: z.string().optional(),
+    ids: z.string().optional().describe('Comma-separated tag ids to return; malformed ids match nothing.'),
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(200).default(50),
   })
@@ -33,6 +36,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const parsed = querySchema.safeParse({
     search: url.searchParams.get('search') ?? undefined,
+    ids: url.searchParams.get('ids') ?? undefined,
     page: url.searchParams.get('page') ?? undefined,
     pageSize: url.searchParams.get('pageSize') ?? undefined,
   })
@@ -54,23 +58,21 @@ export async function GET(req: Request) {
     )
   }
 
-  const allowed = scope?.filterIds ?? scope?.allowedIds ?? (auth.orgId ? [auth.orgId] : null)
-  const preferredOrg = scope?.selectedId ?? auth.orgId ?? null
-  const organizationId = preferredOrg ?? (Array.isArray(allowed) && allowed.length ? allowed[0]! : null)
-  if (!organizationId || (Array.isArray(allowed) && allowed.length && !allowed.includes(organizationId))) {
-    return NextResponse.json(
-      { items: [], error: translate('catalog.errors.organization_required', 'Organization context is required.') },
-      { status: 400 }
-    )
-  }
+  // Scope by the caller's visible organizations. Under "All organizations"
+  // (super-admin) `where` is empty, so the list scopes by tenant only instead
+  // of 400-ing; restricted callers get their `filterIds` `$in` guard.
+  const orgFilter = resolveOrganizationScopeFilter(scope, auth)
 
   const where: Record<string, unknown> = {
-    organizationId,
+    ...orgFilter.where,
     tenantId,
   }
   const search = query.search?.trim()
   if (search) {
     where.label = { $ilike: `%${escapeLikePattern(search)}%` }
+  }
+  if (isIdsParamProvided(query.ids)) {
+    where.id = { $in: parseIdsParam(query.ids) }
   }
 
   const limit = query.pageSize

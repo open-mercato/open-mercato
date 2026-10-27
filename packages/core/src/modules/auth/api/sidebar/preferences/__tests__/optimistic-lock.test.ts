@@ -57,7 +57,7 @@ jest.mock('../../../../services/sidebarPreferencesService', () => ({
   loadRoleSidebarPreferences: (...args: unknown[]) => mockLoadRoleSidebarPreferences(...args),
   loadRoleSidebarPreferenceUpdatedAt: (...args: unknown[]) => mockLoadRoleSidebarPreferenceUpdatedAt(...args),
   saveRoleSidebarPreference: (...args: unknown[]) => mockSaveRoleSidebarPreference(...args),
-  loadSidebarPreference: jest.fn(),
+  findSidebarPreference: jest.fn(),
 }))
 
 function putRequest(headerVersion: string | null) {

@@ -10,6 +10,8 @@ import type {
   CalendarPlatform,
 } from '../../components/calendar/types'
 import { categoryOf } from './categories'
+import { participantActorKey } from './participantIdentity'
+import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, isCalendarTimezone } from './timezone'
 
 const DEFAULT_DURATION_MINUTES = 30
 
@@ -43,11 +45,16 @@ function mapParticipants(payload: CalendarInteractionPayload): CalendarParticipa
   const seen = new Set<string>()
   const mapped: CalendarParticipant[] = []
   for (const participant of participants) {
-    if (seen.has(participant.userId)) continue
-    seen.add(participant.userId)
-    const entry: CalendarParticipant = { userId: participant.userId }
+    const dedupeKey = participantActorKey(participant)
+    if (dedupeKey) {
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+    }
+    const entry: CalendarParticipant = {}
+    if (typeof participant.userId === 'string') entry.userId = participant.userId
     if (typeof participant.name === 'string') entry.name = participant.name
     if (typeof participant.email === 'string') entry.email = participant.email
+    if (typeof participant.status === 'string') entry.status = participant.status
     mapped.push(entry)
   }
   return mapped
@@ -64,8 +71,11 @@ export function mapInteractionToCalendarItem(
 
   const allDay = payload.allDay === true
   const durationMinutes = payload.durationMinutes ?? DEFAULT_DURATION_MINUTES
-  const start = allDay ? startOfDay(parsedStart) : parsedStart
-  const end = allDay ? endOfDay(parsedStart) : addMinutes(parsedStart, durationMinutes)
+  const eventDate = allDay && isCalendarTimezone(payload.timezone) ? calendarInstantToWallTime(parsedStart, payload.timezone).date : null
+  const start = eventDate ? calendarDayStartInstant(eventDate, payload.timezone as string) : allDay ? startOfDay(parsedStart) : parsedStart
+  const end = eventDate ? calendarDayEndInstant(eventDate, payload.timezone as string) : allDay ? endOfDay(parsedStart) : addMinutes(parsedStart, durationMinutes)
+
+  if (!start || !end) return null
 
   const location = payload.location ?? null
   const platform = detectPlatform(location)

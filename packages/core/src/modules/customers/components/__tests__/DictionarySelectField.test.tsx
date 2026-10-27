@@ -2,11 +2,21 @@
 
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
+import { DictionaryOptionsUnavailableError } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import {
   CUSTOMER_DICTIONARIES_MANAGE_HREF,
   DictionarySelectField,
+  createCompanyEditFields,
+  createPersonEditFields,
   getCustomerDictionaryManageHref,
+  mapCompanyOverviewToFormValues,
+  mapPersonOverviewToFormValues,
 } from '../formConfig'
+import { DealFormField } from '../detail/create/DealFormField'
+import { CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE } from '../../lib/dictionaries'
+
+const mockEnsureCustomerDictionary = jest.fn()
+let capturedFetchOptions: (() => Promise<unknown>) | undefined
 
 jest.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({}),
@@ -21,11 +31,31 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect', () => ({
-  DictionaryEntrySelect: ({ manageHref }: { manageHref?: string }) => (
-    <a data-testid="manage-link" href={manageHref}>
-      Manage
-    </a>
-  ),
+  DictionaryOptionsUnavailableError: class DictionaryOptionsUnavailableError extends Error {},
+  DictionaryEntrySelect: ({
+    id,
+    manageHref,
+    fetchOptions,
+  }: {
+    id?: string
+    manageHref?: string
+    fetchOptions: () => Promise<unknown>
+  }) => {
+    capturedFetchOptions = fetchOptions
+    return (
+      <>
+        <button type="button" role="combobox" aria-expanded={false} id={id} />
+        <a data-testid="manage-link" href={manageHref}>
+          Manage
+        </a>
+      </>
+    )
+  },
+}))
+
+jest.mock('../detail/hooks/useCustomerDictionary', () => ({
+  ensureCustomerDictionary: (...args: unknown[]) => mockEnsureCustomerDictionary(...args),
+  invalidateCustomerDictionary: jest.fn(),
 }))
 
 jest.mock('../AddressTiles', () => ({
@@ -54,6 +84,11 @@ const labels = {
 }
 
 describe('DictionarySelectField', () => {
+  beforeEach(() => {
+    capturedFetchOptions = undefined
+    mockEnsureCustomerDictionary.mockReset()
+  })
+
   it('links customer dictionaries to their configuration section by default', () => {
     render(
       <DictionarySelectField
@@ -105,4 +140,142 @@ describe('DictionarySelectField', () => {
 
     expect(screen.getByTestId('manage-link')).toHaveAttribute('href', '/custom/manage')
   })
+
+  it('maps the coded organization-required response to an unavailable-options error', async () => {
+    const responseError = Object.assign(new Error('Organization context is required'), {
+      status: 400,
+      code: CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE,
+    })
+    mockEnsureCustomerDictionary.mockRejectedValue(responseError)
+
+    render(
+      <DictionarySelectField
+        kind="job-titles"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+      />,
+    )
+
+    await expect(capturedFetchOptions?.()).rejects.toBeInstanceOf(DictionaryOptionsUnavailableError)
+  })
+
+  it('preserves unclassified 400 failures for the normal error path', async () => {
+    const responseError = Object.assign(new Error('Failed to load dictionary entries'), {
+      status: 400,
+    })
+    mockEnsureCustomerDictionary.mockRejectedValue(responseError)
+
+    render(
+      <DictionarySelectField
+        kind="job-titles"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+      />,
+    )
+
+    await expect(capturedFetchOptions?.()).rejects.toBe(responseError)
+  })
+
+  it('forwards the id to the select trigger', () => {
+    render(
+      <DictionarySelectField
+        id="status"
+        kind="deal-statuses"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+      />,
+    )
+
+    expect(screen.getByRole('combobox')).toHaveAttribute('id', 'status')
+  })
+
+  it('names the select from the surrounding DealFormField label', () => {
+    render(
+      <DealFormField fieldId="status" label="Status">
+        <DictionarySelectField
+          kind="deal-statuses"
+          value={undefined}
+          onChange={() => {}}
+          labels={labels}
+        />
+      </DealFormField>,
+    )
+
+    expect(screen.getByLabelText('Status')).toBe(screen.getByRole('combobox'))
+  })
+
+  it('loads the dictionary of the record organization when one is given (issue #3593)', async () => {
+    mockEnsureCustomerDictionary.mockResolvedValue({ entries: [] })
+    render(
+      <DictionarySelectField
+        kind="statuses"
+        value={undefined}
+        onChange={() => {}}
+        labels={labels}
+        organizationId="org-of-record"
+      />,
+    )
+
+    await capturedFetchOptions?.()
+    expect(mockEnsureCustomerDictionary).toHaveBeenCalledWith(expect.anything(), 'statuses', 'test-scope', 'org-of-record')
+  })
+
+  it('keeps the scope default when no record organization is given', async () => {
+    mockEnsureCustomerDictionary.mockResolvedValue({ entries: [] })
+    render(
+      <DictionarySelectField kind="statuses" value={undefined} onChange={() => {}} labels={labels} />,
+    )
+
+    await capturedFetchOptions?.()
+    expect(mockEnsureCustomerDictionary).toHaveBeenCalledWith(expect.anything(), 'statuses', 'test-scope', null)
+  })
 })
+
+describe('edit forms pass the record organization to dictionary selects (issue #3593)', () => {
+  const t = ((key: string, fallback?: string) => fallback ?? key) as never
+
+  beforeEach(() => {
+    capturedFetchOptions = undefined
+    mockEnsureCustomerDictionary.mockReset()
+    mockEnsureCustomerDictionary.mockResolvedValue({ entries: [] })
+  })
+
+  it.each([
+    ['company', () => createCompanyEditFields(t)],
+    ['person', () => createPersonEditFields(t)],
+  ])('the %s status field loads the dictionary of the record organization', async (_label, buildFields) => {
+    const statusField = buildFields().find((field) => field.id === 'status')
+    expect(statusField?.type).toBe('custom')
+    const component = (statusField as { component: (props: Record<string, unknown>) => React.ReactNode }).component
+    render(
+      <>
+        {component({
+          id: 'status',
+          value: '',
+          setValue: () => {},
+          values: { organizationId: 'org-of-record' },
+        })}
+      </>,
+    )
+
+    await capturedFetchOptions?.()
+    expect(mockEnsureCustomerDictionary).toHaveBeenCalledWith(expect.anything(), 'statuses', 'test-scope', 'org-of-record')
+  })
+
+  it('maps the record organization into the edit form values', () => {
+    const company = mapCompanyOverviewToFormValues({
+      company: { id: 'company-1', displayName: 'Acme', organizationId: 'org-of-record' },
+      profile: null,
+    } as never)
+    const person = mapPersonOverviewToFormValues({
+      person: { id: 'person-1', displayName: 'Ada', organizationId: 'org-of-record' },
+      profile: null,
+    } as never)
+    expect(company.organizationId).toBe('org-of-record')
+    expect(person.organizationId).toBe('org-of-record')
+  })
+})
+

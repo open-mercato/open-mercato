@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { extractPhoneDigits, validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
@@ -23,42 +23,430 @@ export type PhoneCountry = {
   iso2: string
   /** International dial code (with `+`). */
   dialCode: string
-  /** Human-readable country name (English). Override per surface for i18n. */
+  /**
+   * Human-readable country name (English). Used as the last-resort fallback
+   * when neither a locale file nor the platform's region data can name the
+   * country in the active locale.
+   */
   label: string
   /** Emoji flag (no asset dependency). */
   flag: string
 }
 
 /**
- * Static country list — focused on EU + Americas markets where Open Mercato
- * currently operates. Extend as needed; longest dial codes MUST appear before
- * their shorter ancestors (e.g. `+380` before `+38`) to keep prefix matching
- * deterministic. The default fallback is the first entry.
+ * Emoji flag for an ISO 3166-1 alpha-2 code, assembled from the two regional
+ * indicator symbols. Deriving it keeps the (large) dictionary free of hand-typed
+ * emoji and guarantees the flag always matches the code.
  */
-export const PHONE_COUNTRIES: PhoneCountry[] = [
-  { iso2: 'US', dialCode: '+1', label: 'United States', flag: '🇺🇸' },
-  { iso2: 'CA', dialCode: '+1', label: 'Canada', flag: '🇨🇦' },
-  { iso2: 'GB', dialCode: '+44', label: 'United Kingdom', flag: '🇬🇧' },
-  { iso2: 'PL', dialCode: '+48', label: 'Poland', flag: '🇵🇱' },
-  { iso2: 'DE', dialCode: '+49', label: 'Germany', flag: '🇩🇪' },
-  { iso2: 'FR', dialCode: '+33', label: 'France', flag: '🇫🇷' },
-  { iso2: 'ES', dialCode: '+34', label: 'Spain', flag: '🇪🇸' },
-  { iso2: 'IT', dialCode: '+39', label: 'Italy', flag: '🇮🇹' },
-  { iso2: 'NL', dialCode: '+31', label: 'Netherlands', flag: '🇳🇱' },
-  { iso2: 'SE', dialCode: '+46', label: 'Sweden', flag: '🇸🇪' },
-  { iso2: 'AT', dialCode: '+43', label: 'Austria', flag: '🇦🇹' },
-  { iso2: 'CH', dialCode: '+41', label: 'Switzerland', flag: '🇨🇭' },
-  { iso2: 'PT', dialCode: '+351', label: 'Portugal', flag: '🇵🇹' },
-  { iso2: 'CZ', dialCode: '+420', label: 'Czechia', flag: '🇨🇿' },
-  { iso2: 'RO', dialCode: '+40', label: 'Romania', flag: '🇷🇴' },
-  { iso2: 'UA', dialCode: '+380', label: 'Ukraine', flag: '🇺🇦' },
+function iso2ToFlagEmoji(iso2: string): string {
+  const letters = iso2.toUpperCase().replace(/[^A-Z]/g, '')
+  if (letters.length !== 2) return ''
+  const base = 0x1f1e6
+  return String.fromCodePoint(
+    base + letters.charCodeAt(0) - 65,
+    base + letters.charCodeAt(1) - 65,
+  )
+}
+
+/**
+ * Complete static dictionary of geographic countries and territories that have
+ * an ISO 3166-1 alpha-2 code and an international calling code, based on the
+ * ITU / Wikipedia list of telephone country codes.
+ *
+ * Rules baked into this data:
+ * - Labels are English; flags are derived from the ISO code (`iso2ToFlagEmoji`).
+ * - Non-geographic / international service codes (`+800`, `+808`, `+870`,
+ *   `+881`, `+882`, …) are intentionally excluded.
+ * - North American Numbering Plan territories carry their full `+1<NPA>` dial
+ *   code (e.g. Bahamas `+1242`) so longest-prefix matching resolves them before
+ *   the generic `+1`. The US and Canada BOTH use a bare `+1` and cannot be told
+ *   apart from the prefix alone — auto-detection favours the US.
+ * - Several sovereign countries share a calling code with dependent territories
+ *   (e.g. `+44` UK/Guernsey/Jersey/Isle of Man); `PRIMARY_DIAL_OWNERS` records
+ *   the country that wins auto-detection for those shared codes.
+ */
+const RAW_PHONE_COUNTRIES: Array<Omit<PhoneCountry, 'flag'>> = [
+  { iso2: 'US', dialCode: '+1', label: 'United States' },
+  { iso2: 'CA', dialCode: '+1', label: 'Canada' },
+  { iso2: 'AG', dialCode: '+1268', label: 'Antigua and Barbuda' },
+  { iso2: 'AI', dialCode: '+1264', label: 'Anguilla' },
+  { iso2: 'AS', dialCode: '+1684', label: 'American Samoa' },
+  { iso2: 'BB', dialCode: '+1246', label: 'Barbados' },
+  { iso2: 'BM', dialCode: '+1441', label: 'Bermuda' },
+  { iso2: 'BS', dialCode: '+1242', label: 'Bahamas' },
+  { iso2: 'DM', dialCode: '+1767', label: 'Dominica' },
+  { iso2: 'DO', dialCode: '+1809', label: 'Dominican Republic' },
+  { iso2: 'GD', dialCode: '+1473', label: 'Grenada' },
+  { iso2: 'GU', dialCode: '+1671', label: 'Guam' },
+  { iso2: 'JM', dialCode: '+1876', label: 'Jamaica' },
+  { iso2: 'KN', dialCode: '+1869', label: 'Saint Kitts and Nevis' },
+  { iso2: 'KY', dialCode: '+1345', label: 'Cayman Islands' },
+  { iso2: 'LC', dialCode: '+1758', label: 'Saint Lucia' },
+  { iso2: 'MP', dialCode: '+1670', label: 'Northern Mariana Islands' },
+  { iso2: 'MS', dialCode: '+1664', label: 'Montserrat' },
+  { iso2: 'PR', dialCode: '+1787', label: 'Puerto Rico' },
+  { iso2: 'SX', dialCode: '+1721', label: 'Sint Maarten' },
+  { iso2: 'TC', dialCode: '+1649', label: 'Turks and Caicos Islands' },
+  { iso2: 'TT', dialCode: '+1868', label: 'Trinidad and Tobago' },
+  { iso2: 'VC', dialCode: '+1784', label: 'Saint Vincent and the Grenadines' },
+  { iso2: 'VG', dialCode: '+1284', label: 'British Virgin Islands' },
+  { iso2: 'VI', dialCode: '+1340', label: 'U.S. Virgin Islands' },
+  { iso2: 'EG', dialCode: '+20', label: 'Egypt' },
+  { iso2: 'SS', dialCode: '+211', label: 'South Sudan' },
+  { iso2: 'MA', dialCode: '+212', label: 'Morocco' },
+  { iso2: 'EH', dialCode: '+212', label: 'Western Sahara' },
+  { iso2: 'DZ', dialCode: '+213', label: 'Algeria' },
+  { iso2: 'TN', dialCode: '+216', label: 'Tunisia' },
+  { iso2: 'LY', dialCode: '+218', label: 'Libya' },
+  { iso2: 'GM', dialCode: '+220', label: 'Gambia' },
+  { iso2: 'SN', dialCode: '+221', label: 'Senegal' },
+  { iso2: 'MR', dialCode: '+222', label: 'Mauritania' },
+  { iso2: 'ML', dialCode: '+223', label: 'Mali' },
+  { iso2: 'GN', dialCode: '+224', label: 'Guinea' },
+  { iso2: 'CI', dialCode: '+225', label: "Côte d'Ivoire" },
+  { iso2: 'BF', dialCode: '+226', label: 'Burkina Faso' },
+  { iso2: 'NE', dialCode: '+227', label: 'Niger' },
+  { iso2: 'TG', dialCode: '+228', label: 'Togo' },
+  { iso2: 'BJ', dialCode: '+229', label: 'Benin' },
+  { iso2: 'MU', dialCode: '+230', label: 'Mauritius' },
+  { iso2: 'LR', dialCode: '+231', label: 'Liberia' },
+  { iso2: 'SL', dialCode: '+232', label: 'Sierra Leone' },
+  { iso2: 'GH', dialCode: '+233', label: 'Ghana' },
+  { iso2: 'NG', dialCode: '+234', label: 'Nigeria' },
+  { iso2: 'TD', dialCode: '+235', label: 'Chad' },
+  { iso2: 'CF', dialCode: '+236', label: 'Central African Republic' },
+  { iso2: 'CM', dialCode: '+237', label: 'Cameroon' },
+  { iso2: 'CV', dialCode: '+238', label: 'Cape Verde' },
+  { iso2: 'ST', dialCode: '+239', label: 'São Tomé and Príncipe' },
+  { iso2: 'GQ', dialCode: '+240', label: 'Equatorial Guinea' },
+  { iso2: 'GA', dialCode: '+241', label: 'Gabon' },
+  { iso2: 'CG', dialCode: '+242', label: 'Republic of the Congo' },
+  { iso2: 'CD', dialCode: '+243', label: 'DR Congo' },
+  { iso2: 'AO', dialCode: '+244', label: 'Angola' },
+  { iso2: 'GW', dialCode: '+245', label: 'Guinea-Bissau' },
+  { iso2: 'IO', dialCode: '+246', label: 'British Indian Ocean Territory' },
+  { iso2: 'SC', dialCode: '+248', label: 'Seychelles' },
+  { iso2: 'SD', dialCode: '+249', label: 'Sudan' },
+  { iso2: 'RW', dialCode: '+250', label: 'Rwanda' },
+  { iso2: 'ET', dialCode: '+251', label: 'Ethiopia' },
+  { iso2: 'SO', dialCode: '+252', label: 'Somalia' },
+  { iso2: 'DJ', dialCode: '+253', label: 'Djibouti' },
+  { iso2: 'KE', dialCode: '+254', label: 'Kenya' },
+  { iso2: 'TZ', dialCode: '+255', label: 'Tanzania' },
+  { iso2: 'UG', dialCode: '+256', label: 'Uganda' },
+  { iso2: 'BI', dialCode: '+257', label: 'Burundi' },
+  { iso2: 'MZ', dialCode: '+258', label: 'Mozambique' },
+  { iso2: 'ZM', dialCode: '+260', label: 'Zambia' },
+  { iso2: 'MG', dialCode: '+261', label: 'Madagascar' },
+  { iso2: 'RE', dialCode: '+262', label: 'Réunion' },
+  { iso2: 'YT', dialCode: '+262', label: 'Mayotte' },
+  { iso2: 'ZW', dialCode: '+263', label: 'Zimbabwe' },
+  { iso2: 'NA', dialCode: '+264', label: 'Namibia' },
+  { iso2: 'MW', dialCode: '+265', label: 'Malawi' },
+  { iso2: 'LS', dialCode: '+266', label: 'Lesotho' },
+  { iso2: 'BW', dialCode: '+267', label: 'Botswana' },
+  { iso2: 'SZ', dialCode: '+268', label: 'Eswatini' },
+  { iso2: 'KM', dialCode: '+269', label: 'Comoros' },
+  { iso2: 'ZA', dialCode: '+27', label: 'South Africa' },
+  { iso2: 'SH', dialCode: '+290', label: 'Saint Helena' },
+  { iso2: 'ER', dialCode: '+291', label: 'Eritrea' },
+  { iso2: 'AW', dialCode: '+297', label: 'Aruba' },
+  { iso2: 'FO', dialCode: '+298', label: 'Faroe Islands' },
+  { iso2: 'GL', dialCode: '+299', label: 'Greenland' },
+  { iso2: 'GR', dialCode: '+30', label: 'Greece' },
+  { iso2: 'NL', dialCode: '+31', label: 'Netherlands' },
+  { iso2: 'BE', dialCode: '+32', label: 'Belgium' },
+  { iso2: 'FR', dialCode: '+33', label: 'France' },
+  { iso2: 'ES', dialCode: '+34', label: 'Spain' },
+  { iso2: 'GI', dialCode: '+350', label: 'Gibraltar' },
+  { iso2: 'PT', dialCode: '+351', label: 'Portugal' },
+  { iso2: 'LU', dialCode: '+352', label: 'Luxembourg' },
+  { iso2: 'IE', dialCode: '+353', label: 'Ireland' },
+  { iso2: 'IS', dialCode: '+354', label: 'Iceland' },
+  { iso2: 'AL', dialCode: '+355', label: 'Albania' },
+  { iso2: 'MT', dialCode: '+356', label: 'Malta' },
+  { iso2: 'CY', dialCode: '+357', label: 'Cyprus' },
+  { iso2: 'FI', dialCode: '+358', label: 'Finland' },
+  { iso2: 'AX', dialCode: '+358', label: 'Åland Islands' },
+  { iso2: 'BG', dialCode: '+359', label: 'Bulgaria' },
+  { iso2: 'HU', dialCode: '+36', label: 'Hungary' },
+  { iso2: 'LT', dialCode: '+370', label: 'Lithuania' },
+  { iso2: 'LV', dialCode: '+371', label: 'Latvia' },
+  { iso2: 'EE', dialCode: '+372', label: 'Estonia' },
+  { iso2: 'MD', dialCode: '+373', label: 'Moldova' },
+  { iso2: 'AM', dialCode: '+374', label: 'Armenia' },
+  { iso2: 'BY', dialCode: '+375', label: 'Belarus' },
+  { iso2: 'AD', dialCode: '+376', label: 'Andorra' },
+  { iso2: 'MC', dialCode: '+377', label: 'Monaco' },
+  { iso2: 'SM', dialCode: '+378', label: 'San Marino' },
+  { iso2: 'VA', dialCode: '+379', label: 'Vatican City' },
+  { iso2: 'UA', dialCode: '+380', label: 'Ukraine' },
+  { iso2: 'RS', dialCode: '+381', label: 'Serbia' },
+  { iso2: 'ME', dialCode: '+382', label: 'Montenegro' },
+  { iso2: 'XK', dialCode: '+383', label: 'Kosovo' },
+  { iso2: 'HR', dialCode: '+385', label: 'Croatia' },
+  { iso2: 'SI', dialCode: '+386', label: 'Slovenia' },
+  { iso2: 'BA', dialCode: '+387', label: 'Bosnia and Herzegovina' },
+  { iso2: 'MK', dialCode: '+389', label: 'North Macedonia' },
+  { iso2: 'IT', dialCode: '+39', label: 'Italy' },
+  { iso2: 'RO', dialCode: '+40', label: 'Romania' },
+  { iso2: 'CH', dialCode: '+41', label: 'Switzerland' },
+  { iso2: 'CZ', dialCode: '+420', label: 'Czechia' },
+  { iso2: 'SK', dialCode: '+421', label: 'Slovakia' },
+  { iso2: 'LI', dialCode: '+423', label: 'Liechtenstein' },
+  { iso2: 'AT', dialCode: '+43', label: 'Austria' },
+  { iso2: 'GB', dialCode: '+44', label: 'United Kingdom' },
+  { iso2: 'GG', dialCode: '+44', label: 'Guernsey' },
+  { iso2: 'JE', dialCode: '+44', label: 'Jersey' },
+  { iso2: 'IM', dialCode: '+44', label: 'Isle of Man' },
+  { iso2: 'DK', dialCode: '+45', label: 'Denmark' },
+  { iso2: 'SE', dialCode: '+46', label: 'Sweden' },
+  { iso2: 'NO', dialCode: '+47', label: 'Norway' },
+  { iso2: 'SJ', dialCode: '+47', label: 'Svalbard and Jan Mayen' },
+  { iso2: 'PL', dialCode: '+48', label: 'Poland' },
+  { iso2: 'DE', dialCode: '+49', label: 'Germany' },
+  { iso2: 'FK', dialCode: '+500', label: 'Falkland Islands' },
+  { iso2: 'BZ', dialCode: '+501', label: 'Belize' },
+  { iso2: 'GT', dialCode: '+502', label: 'Guatemala' },
+  { iso2: 'SV', dialCode: '+503', label: 'El Salvador' },
+  { iso2: 'HN', dialCode: '+504', label: 'Honduras' },
+  { iso2: 'NI', dialCode: '+505', label: 'Nicaragua' },
+  { iso2: 'CR', dialCode: '+506', label: 'Costa Rica' },
+  { iso2: 'PA', dialCode: '+507', label: 'Panama' },
+  { iso2: 'PM', dialCode: '+508', label: 'Saint Pierre and Miquelon' },
+  { iso2: 'HT', dialCode: '+509', label: 'Haiti' },
+  { iso2: 'PE', dialCode: '+51', label: 'Peru' },
+  { iso2: 'MX', dialCode: '+52', label: 'Mexico' },
+  { iso2: 'CU', dialCode: '+53', label: 'Cuba' },
+  { iso2: 'AR', dialCode: '+54', label: 'Argentina' },
+  { iso2: 'BR', dialCode: '+55', label: 'Brazil' },
+  { iso2: 'CL', dialCode: '+56', label: 'Chile' },
+  { iso2: 'CO', dialCode: '+57', label: 'Colombia' },
+  { iso2: 'VE', dialCode: '+58', label: 'Venezuela' },
+  { iso2: 'GP', dialCode: '+590', label: 'Guadeloupe' },
+  { iso2: 'BL', dialCode: '+590', label: 'Saint Barthélemy' },
+  { iso2: 'MF', dialCode: '+590', label: 'Saint Martin' },
+  { iso2: 'BO', dialCode: '+591', label: 'Bolivia' },
+  { iso2: 'GY', dialCode: '+592', label: 'Guyana' },
+  { iso2: 'EC', dialCode: '+593', label: 'Ecuador' },
+  { iso2: 'GF', dialCode: '+594', label: 'French Guiana' },
+  { iso2: 'PY', dialCode: '+595', label: 'Paraguay' },
+  { iso2: 'MQ', dialCode: '+596', label: 'Martinique' },
+  { iso2: 'SR', dialCode: '+597', label: 'Suriname' },
+  { iso2: 'UY', dialCode: '+598', label: 'Uruguay' },
+  { iso2: 'CW', dialCode: '+599', label: 'Curaçao' },
+  { iso2: 'BQ', dialCode: '+599', label: 'Caribbean Netherlands' },
+  { iso2: 'MY', dialCode: '+60', label: 'Malaysia' },
+  { iso2: 'AU', dialCode: '+61', label: 'Australia' },
+  { iso2: 'CX', dialCode: '+61', label: 'Christmas Island' },
+  { iso2: 'CC', dialCode: '+61', label: 'Cocos (Keeling) Islands' },
+  { iso2: 'ID', dialCode: '+62', label: 'Indonesia' },
+  { iso2: 'PH', dialCode: '+63', label: 'Philippines' },
+  { iso2: 'NZ', dialCode: '+64', label: 'New Zealand' },
+  { iso2: 'SG', dialCode: '+65', label: 'Singapore' },
+  { iso2: 'TH', dialCode: '+66', label: 'Thailand' },
+  { iso2: 'TL', dialCode: '+670', label: 'Timor-Leste' },
+  { iso2: 'NF', dialCode: '+672', label: 'Norfolk Island' },
+  { iso2: 'BN', dialCode: '+673', label: 'Brunei' },
+  { iso2: 'NR', dialCode: '+674', label: 'Nauru' },
+  { iso2: 'PG', dialCode: '+675', label: 'Papua New Guinea' },
+  { iso2: 'TO', dialCode: '+676', label: 'Tonga' },
+  { iso2: 'SB', dialCode: '+677', label: 'Solomon Islands' },
+  { iso2: 'VU', dialCode: '+678', label: 'Vanuatu' },
+  { iso2: 'FJ', dialCode: '+679', label: 'Fiji' },
+  { iso2: 'PW', dialCode: '+680', label: 'Palau' },
+  { iso2: 'WF', dialCode: '+681', label: 'Wallis and Futuna' },
+  { iso2: 'CK', dialCode: '+682', label: 'Cook Islands' },
+  { iso2: 'NU', dialCode: '+683', label: 'Niue' },
+  { iso2: 'WS', dialCode: '+685', label: 'Samoa' },
+  { iso2: 'KI', dialCode: '+686', label: 'Kiribati' },
+  { iso2: 'NC', dialCode: '+687', label: 'New Caledonia' },
+  { iso2: 'TV', dialCode: '+688', label: 'Tuvalu' },
+  { iso2: 'PF', dialCode: '+689', label: 'French Polynesia' },
+  { iso2: 'TK', dialCode: '+690', label: 'Tokelau' },
+  { iso2: 'FM', dialCode: '+691', label: 'Micronesia' },
+  { iso2: 'MH', dialCode: '+692', label: 'Marshall Islands' },
+  { iso2: 'RU', dialCode: '+7', label: 'Russia' },
+  { iso2: 'KZ', dialCode: '+7', label: 'Kazakhstan' },
+  { iso2: 'JP', dialCode: '+81', label: 'Japan' },
+  { iso2: 'KR', dialCode: '+82', label: 'South Korea' },
+  { iso2: 'VN', dialCode: '+84', label: 'Vietnam' },
+  { iso2: 'KP', dialCode: '+850', label: 'North Korea' },
+  { iso2: 'HK', dialCode: '+852', label: 'Hong Kong' },
+  { iso2: 'MO', dialCode: '+853', label: 'Macau' },
+  { iso2: 'KH', dialCode: '+855', label: 'Cambodia' },
+  { iso2: 'LA', dialCode: '+856', label: 'Laos' },
+  { iso2: 'CN', dialCode: '+86', label: 'China' },
+  { iso2: 'BD', dialCode: '+880', label: 'Bangladesh' },
+  { iso2: 'TW', dialCode: '+886', label: 'Taiwan' },
+  { iso2: 'TR', dialCode: '+90', label: 'Turkey' },
+  { iso2: 'IN', dialCode: '+91', label: 'India' },
+  { iso2: 'PK', dialCode: '+92', label: 'Pakistan' },
+  { iso2: 'AF', dialCode: '+93', label: 'Afghanistan' },
+  { iso2: 'LK', dialCode: '+94', label: 'Sri Lanka' },
+  { iso2: 'MM', dialCode: '+95', label: 'Myanmar' },
+  { iso2: 'MV', dialCode: '+960', label: 'Maldives' },
+  { iso2: 'LB', dialCode: '+961', label: 'Lebanon' },
+  { iso2: 'JO', dialCode: '+962', label: 'Jordan' },
+  { iso2: 'SY', dialCode: '+963', label: 'Syria' },
+  { iso2: 'IQ', dialCode: '+964', label: 'Iraq' },
+  { iso2: 'KW', dialCode: '+965', label: 'Kuwait' },
+  { iso2: 'SA', dialCode: '+966', label: 'Saudi Arabia' },
+  { iso2: 'YE', dialCode: '+967', label: 'Yemen' },
+  { iso2: 'OM', dialCode: '+968', label: 'Oman' },
+  { iso2: 'PS', dialCode: '+970', label: 'Palestine' },
+  { iso2: 'AE', dialCode: '+971', label: 'United Arab Emirates' },
+  { iso2: 'IL', dialCode: '+972', label: 'Israel' },
+  { iso2: 'BH', dialCode: '+973', label: 'Bahrain' },
+  { iso2: 'QA', dialCode: '+974', label: 'Qatar' },
+  { iso2: 'BT', dialCode: '+975', label: 'Bhutan' },
+  { iso2: 'MN', dialCode: '+976', label: 'Mongolia' },
+  { iso2: 'NP', dialCode: '+977', label: 'Nepal' },
+  { iso2: 'TJ', dialCode: '+992', label: 'Tajikistan' },
+  { iso2: 'TM', dialCode: '+993', label: 'Turkmenistan' },
+  { iso2: 'AZ', dialCode: '+994', label: 'Azerbaijan' },
+  { iso2: 'GE', dialCode: '+995', label: 'Georgia' },
+  { iso2: 'KG', dialCode: '+996', label: 'Kyrgyzstan' },
+  { iso2: 'UZ', dialCode: '+998', label: 'Uzbekistan' },
+  { iso2: 'IR', dialCode: '+98', label: 'Iran' },
 ]
 
-const DEFAULT_COUNTRY = PHONE_COUNTRIES[0]
-// Match longer prefixes first to avoid e.g. `+1` shadowing `+1234` if any.
-const COUNTRIES_BY_DIAL_LENGTH = [...PHONE_COUNTRIES].sort(
-  (a, b) => b.dialCode.length - a.dialCode.length,
-)
+export const PHONE_COUNTRIES: PhoneCountry[] = RAW_PHONE_COUNTRIES
+  .map((country) => ({ ...country, flag: iso2ToFlagEmoji(country.iso2) }))
+  .sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }))
+
+/**
+ * Translation key holding a country's display name, e.g.
+ * `ui.inputs.phoneNumberField.countryName.PL`. Locale files only need entries
+ * for the countries whose platform-provided name a deployment wants to
+ * change. This is a distinct namespace from
+ * `ui.inputs.phoneNumberField.country` (the picker's trigger label) so a
+ * nested locale file can hold both.
+ */
+export function phoneCountryLabelKey(iso2: string): string {
+  return `ui.inputs.phoneNumberField.countryName.${iso2.toUpperCase()}`
+}
+
+const regionDisplayNamesByLocale = new Map<string, Intl.DisplayNames | null>()
+
+function getRegionDisplayNames(locale: string): Intl.DisplayNames | null {
+  const cached = regionDisplayNamesByLocale.get(locale)
+  if (cached !== undefined) return cached
+  let displayNames: Intl.DisplayNames | null = null
+  try {
+    displayNames = new Intl.DisplayNames([locale], { type: 'region' })
+  } catch {
+    displayNames = null
+  }
+  regionDisplayNamesByLocale.set(locale, displayNames)
+  return displayNames
+}
+
+/**
+ * Country name in `locale` from the platform's own region data, or `null` when
+ * the runtime cannot name that region (unknown code, trimmed ICU data).
+ */
+function regionDisplayName(iso2: string, locale: string | undefined): string | null {
+  if (!locale) return null
+  const code = iso2.toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) return null
+  const displayNames = getRegionDisplayNames(locale)
+  if (!displayNames) return null
+  try {
+    const name = displayNames.of(code)
+    return name && name !== code ? name : null
+  } catch {
+    return null
+  }
+}
+
+function isEnglishLocale(locale: string | undefined): boolean {
+  return !locale || locale.toLowerCase().split(/[-_]/)[0] === 'en'
+}
+
+/**
+ * Display name for a built-in country in the active locale. A locale-file entry
+ * wins so a deployment can correct or override any name; otherwise the
+ * platform's region data localizes it; the English label is the last resort.
+ *
+ * English deliberately skips the region data: the dictionary already holds
+ * curated English names, and CLDR spells several of them differently
+ * ("Antigua & Barbuda" for "Antigua and Barbuda"), so consulting it would
+ * silently rewrite existing English copy for no gain.
+ */
+export function resolvePhoneCountryLabel(
+  country: PhoneCountry,
+  t: TranslateFn,
+  locale: string | undefined,
+): string {
+  const translated = t(phoneCountryLabelKey(country.iso2), '')
+  if (translated) return translated
+  if (isEnglishLocale(locale)) return country.label
+  return regionDisplayName(country.iso2, locale) ?? country.label
+}
+
+export type PhoneCountryOption = {
+  country: PhoneCountry
+  label: string
+}
+
+/**
+ * Locale safe to hand to `localeCompare`. A tag `Intl` cannot construct would
+ * throw there just as it does in `getRegionDisplayNames`, so both fall back to
+ * English together.
+ */
+function resolveCollationLocale(locale: string | undefined): string {
+  if (!locale) return 'en'
+  return getRegionDisplayNames(locale) ? locale : 'en'
+}
+
+/**
+ * Options rendered in the country dropdown. A caller-supplied list is
+ * authoritative — its labels and its order are preserved verbatim — while the
+ * built-in dictionary is localized and re-sorted for the active locale, since
+ * its module-level ordering is alphabetical by the English name.
+ */
+export function buildPhoneCountryOptions(
+  countries: PhoneCountry[] | undefined,
+  t: TranslateFn,
+  locale: string | undefined,
+): PhoneCountryOption[] {
+  if (countries) return countries.map((country) => ({ country, label: country.label }))
+  const collationLocale = resolveCollationLocale(locale)
+  return PHONE_COUNTRIES
+    .map((country) => ({ country, label: resolvePhoneCountryLabel(country, t, locale) }))
+    .sort((a, b) => a.label.localeCompare(b.label, collationLocale, { sensitivity: 'base' }))
+}
+
+/**
+ * Sovereign/primary country that wins auto-detection for a calling code shared
+ * by several territories. US vs. Canada is the one irreducible ambiguity — both
+ * are `+1` — and it resolves to the US.
+ */
+const PRIMARY_DIAL_OWNERS: Record<string, string> = {
+  '+1': 'US',
+  '+7': 'RU',
+  '+44': 'GB',
+  '+47': 'NO',
+  '+61': 'AU',
+  '+212': 'MA',
+  '+262': 'RE',
+  '+358': 'FI',
+  '+590': 'GP',
+  '+599': 'CW',
+}
+
+const DEFAULT_COUNTRY =
+  PHONE_COUNTRIES.find((country) => country.iso2 === 'US') ?? PHONE_COUNTRIES[0]
+
+// Match longer prefixes first (e.g. `+1242` before `+1`); for equal-length codes
+// shared by several territories, prefer the sovereign in `PRIMARY_DIAL_OWNERS`.
+const COUNTRIES_BY_DIAL_LENGTH = [...PHONE_COUNTRIES].sort((a, b) => {
+  if (b.dialCode.length !== a.dialCode.length) return b.dialCode.length - a.dialCode.length
+  const aPrimary = PRIMARY_DIAL_OWNERS[a.dialCode] === a.iso2 ? 0 : 1
+  const bPrimary = PRIMARY_DIAL_OWNERS[b.dialCode] === b.iso2 ? 0 : 1
+  return aPrimary - bPrimary
+})
 
 function findCountryByIso(iso2: string): PhoneCountry | undefined {
   return PHONE_COUNTRIES.find((c) => c.iso2 === iso2)
@@ -105,10 +493,17 @@ export type PhoneNumberFieldProps = {
   duplicateLinkLabel?: string
   invalidLabel?: string
   onDuplicateLookup?: (normalizedValue: string) => Promise<PhoneDuplicateMatch | null>
-  /** Override the static country list (e.g. limit to specific markets). */
+  /**
+   * Override the static country list (e.g. limit to specific markets, or supply
+   * names already translated by the host). Both the labels and the order of the
+   * supplied list are rendered verbatim.
+   */
   countries?: PhoneCountry[]
   /** Initial country shown when `value` is empty / unparseable. Defaults to US. */
   defaultCountryIso2?: string
+  size?: 32 | 36 | 40
+  countryLabel?: string
+  renderCountryIcon?: (country: PhoneCountry) => React.ReactNode
 }
 
 const DEFAULT_MIN_DIGITS = 6
@@ -133,8 +528,12 @@ export function PhoneNumberField({
   onDuplicateLookup,
   countries: countriesProp,
   defaultCountryIso2,
+  size,
+  countryLabel,
+  renderCountryIcon,
 }: PhoneNumberFieldProps) {
   const t = useT()
+  const locale = useOptionalLocale()
   const resolvedInvalidLabel = invalidLabel ?? t(
     'ui.inputs.phoneNumberField.invalid',
     'Enter a valid phone number with country code (e.g. +1 212 555 1234)'
@@ -148,7 +547,26 @@ export function PhoneNumberField({
     'Open record'
   )
   const resolvedPlaceholder = placeholder ?? DEFAULT_PLACEHOLDER
-  const countries = countriesProp ?? PHONE_COUNTRIES
+  const countryOptions = React.useMemo(
+    () => buildPhoneCountryOptions(countriesProp, t, locale),
+    [countriesProp, t, locale],
+  )
+  const countryItems = React.useMemo(
+    () => countryOptions.map(({ country: optionCountry, label }) => (
+      <SelectItem
+        key={`${optionCountry.iso2}-${optionCountry.dialCode}`}
+        value={optionCountry.iso2}
+        textValue={label}
+      >
+        <SelectItemLeading>
+          <span className="text-base leading-none">{optionCountry.flag}</span>
+        </SelectItemLeading>
+        <span className="flex-1 truncate">{label}</span>
+        <span className="ml-2 text-xs text-muted-foreground tabular-nums">{optionCountry.dialCode}</span>
+      </SelectItem>
+    )),
+    [countryOptions],
+  )
   const fallbackCountry = React.useMemo(
     () => (defaultCountryIso2 && findCountryByIso(defaultCountryIso2)) || DEFAULT_COUNTRY,
     [defaultCountryIso2],
@@ -292,6 +710,9 @@ export function PhoneNumberField({
       <div
         className={cn(
           'flex items-stretch w-full rounded-md border bg-background shadow-xs transition-colors',
+          size === 32 && 'h-8',
+          size === 36 && 'h-9',
+          size === 40 && 'h-10 rounded-lg',
           disabled
             ? 'bg-bg-disabled border-border-disabled cursor-not-allowed'
             : focused
@@ -299,32 +720,26 @@ export function PhoneNumberField({
               : `${containerErrorBorder} hover:border-foreground/30`,
         )}
         aria-invalid={errorMessage ? 'true' : undefined}
+        data-slot="phone-input-wrapper"
       >
         <Select value={country.iso2} onValueChange={handleCountryChange} disabled={disabled}>
           <SelectTrigger
-            aria-label={ariaLabel ? `${ariaLabel} country` : 'Country code'}
+            aria-label={countryLabel ?? (ariaLabel ? `${ariaLabel} country` : t('ui.inputs.phoneNumberField.country', 'Country code'))}
+            size={size}
             className={cn(
               'h-auto w-auto shrink-0 gap-1.5 rounded-none rounded-l-md border-0 bg-transparent px-2.5 py-2 shadow-none',
               'hover:bg-muted/40 focus:bg-muted/40 focus-visible:shadow-none focus-visible:border-0',
               'disabled:bg-transparent disabled:hover:bg-transparent',
+              size && 'h-full gap-2 rounded-l-none py-0 pl-2.5 pr-2 [&>svg]:size-5',
+              size === 32 && 'pl-1.5 pr-1',
             )}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
           >
-            <span className="text-base leading-none" aria-hidden="true">{country.flag}</span>
-            <span className="text-sm text-foreground tabular-nums">{country.dialCode}</span>
+            <span className={cn('text-base leading-none', size && 'inline-flex size-5 shrink-0 items-center justify-center text-xl [&_img]:size-full')} aria-hidden="true">{renderCountryIcon ? renderCountryIcon(country) : country.flag}</span>
+            <span className={cn("text-sm text-foreground tabular-nums", disabled && "text-text-disabled")}>{country.dialCode}</span>
           </SelectTrigger>
-          <SelectContent align="start">
-            {countries.map((c) => (
-              <SelectItem key={`${c.iso2}-${c.dialCode}`} value={c.iso2}>
-                <SelectItemLeading>
-                  <span className="text-base leading-none">{c.flag}</span>
-                </SelectItemLeading>
-                <span className="flex-1 truncate">{c.label}</span>
-                <span className="ml-2 text-xs text-muted-foreground tabular-nums">{c.dialCode}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
+          <SelectContent align="start">{countryItems}</SelectContent>
         </Select>
         <div aria-hidden="true" className="w-px self-stretch bg-input" />
         <input
@@ -346,7 +761,9 @@ export function PhoneNumberField({
           className={cn(
             'flex-1 min-w-0 bg-transparent px-3 py-2 text-sm leading-5 outline-none',
             'placeholder:text-muted-foreground',
-            'disabled:cursor-not-allowed disabled:text-muted-foreground',
+            'disabled:cursor-not-allowed disabled:text-text-disabled disabled:placeholder:text-text-disabled',
+            size && 'h-full py-0 pr-2.5',
+            size === 32 && 'pl-2 pr-1.5',
           )}
         />
       </div>

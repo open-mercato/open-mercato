@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import FeedbackEmail from '@open-mercato/onboarding/modules/onboarding/emails/FeedbackEmail'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
@@ -25,7 +26,6 @@ const feedbackSchema = z.object({
   message: z.string().max(5000).optional().default(''),
   termsAccepted: z.literal(true),
   marketingConsent: z.boolean().optional().default(false),
-  sendCopy: z.boolean().optional().default(true),
 })
 
 export async function POST(req: Request) {
@@ -47,8 +47,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Please check the form and try again.' }, { status: 400 })
   }
 
-  const { email, message, marketingConsent, sendCopy } = parsed.data
+  const { email, message, marketingConsent } = parsed.data
   const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
+  // Load-bearing despite the discarded result: building the request container is what runs
+  // `communication_channels`' DI registration, and that is the only caller of
+  // `registerEmailTransport`. Without it `sendEmail` below finds no registered transport and
+  // throws `EMAIL_TRANSPORT_NOT_CONFIGURED`. This route is the one `sendEmail` call site with no
+  // container of its own, so the dependency has to be satisfied explicitly here.
+  await createRequestContainer()
 
   const marketingText = marketingConsent ? 'Marketing consent: Yes' : 'Marketing consent: No'
 
@@ -75,27 +81,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Failed to send feedback. Please try again.' }, { status: 502 })
   }
 
-  if (sendCopy) {
-    const userCopy = {
-      preview: 'Your feedback to Open Mercato',
-      heading: 'Thank you for reaching out!',
-      body: 'We received your message and will get back to you shortly. Below is a copy of what you submitted.',
-      messageLabel: 'Your message:',
-      message: message || '(no message provided)',
-      marketingConsent: marketingText,
-      footer: 'Open Mercato \u00b7 demo.openmercato.com',
-    }
-    try {
-      await sendEmail({
-        to: email,
-        subject: 'Your feedback to Open Mercato',
-        react: FeedbackEmail({ copy: userCopy }),
-      })
-    } catch (err) {
-      logger.error('User copy email failed', { err })
-    }
-  }
-
   return NextResponse.json({ ok: true })
 }
 
@@ -105,7 +90,7 @@ const feedbackTag = 'Demo'
 
 const feedbackPostDoc: OpenApiMethodDoc = {
   summary: 'Submit demo feedback',
-  description: 'Sends a feedback/contact request from the demo environment to the admin and optionally to the user.',
+  description: 'Sends a feedback/contact request from the demo environment to the configured admin.',
   tags: [feedbackTag],
   requestBody: {
     contentType: 'application/json',

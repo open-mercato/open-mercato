@@ -143,3 +143,66 @@ describe('interaction-statuses seed upgrade action', () => {
     expect(typeof action?.run).toBe('function')
   })
 })
+
+describe('payment-session initialization prune upgrade action', () => {
+  it('registers the retention schedule for an existing tenant organization', async () => {
+    const action = upgradeActions.find(
+      (candidate) => candidate.id === 'payment_gateways.register-session-initialization-prune',
+    )
+    const register = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: (name: string) => name === 'schedulerService',
+      resolve: jest.fn(() => ({ register })),
+    }
+
+    expect(action?.version).toBe('0.6.6')
+    await action?.run({
+      container: container as never,
+      em: {} as never,
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+    })
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+      targetQueue: 'payment-gateway-session-initialization-prune',
+    }))
+  })
+})
+
+describe('encryption-map upgrade action cache order', () => {
+  it.each([
+    ['devices.seed-push-token-encryption-map', ['devices:user_device']],
+    [
+      'phone_calls.seed-call-encryption-maps',
+      ['phone_calls:phone_call', 'phone_calls:phone_call_participant'],
+    ],
+  ] as Array<[string, string[]]>)('defers %s cache invalidation until the caller confirms commit', async (actionId, entityIds) => {
+    const action = upgradeActions.find((candidate) => candidate.id === actionId)
+    const execute = jest.fn(async () => [{ id: 'map-id', updated_at: new Date() }])
+    const invalidateMap = jest.fn(async () => undefined)
+    const callbacks: Array<() => void | Promise<void>> = []
+    const container = {
+      resolve: jest.fn(() => ({ invalidateMap })),
+    }
+
+    await action?.run({
+      container: container as never,
+      em: { execute } as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      deferAfterCommit: (callback) => callbacks.push(callback),
+    })
+
+    expect(execute).toHaveBeenCalledTimes(entityIds.length)
+    expect(invalidateMap).not.toHaveBeenCalled()
+    expect(callbacks).toHaveLength(1)
+
+    await callbacks[0]?.()
+
+    expect(invalidateMap.mock.calls).toEqual(
+      entityIds.map((entityId) => [entityId, 'tenant-1', 'org-1']),
+    )
+  })
+})

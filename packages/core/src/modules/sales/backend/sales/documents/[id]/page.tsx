@@ -3,6 +3,8 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
+import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
@@ -22,11 +24,14 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { formatDisplayDate, formatDisplayDateTime, toDateInputValue, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -34,7 +39,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
@@ -75,13 +80,17 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
 
-function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+function formatMessageAmount(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  locale?: string
+): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
-  if (!currency) return amount.toLocaleString()
+  if (!currency) return amount.toLocaleString(locale)
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount)
   } catch {
-    return `${amount.toLocaleString()} ${currency}`
+    return `${amount.toLocaleString(locale)} ${currency}`
   }
 }
 
@@ -1896,6 +1905,7 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1944,16 +1954,20 @@ export default function SalesDocumentDetailPage({
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
   const mutationContextId = React.useMemo(
-    () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
+    () => `record-lock:sales.${kind}:${record?.id ?? 'pending'}`,
     [kind, record?.id],
   )
-  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const detailsInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'details' }),
+    [kind],
+  )
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     kind: SalesDocumentKind
     record: DocumentRecord | null
     formId: string
     resourceKind: string
     resourceId?: string
+    operation?: 'delete'
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: mutationContextId,
@@ -2800,7 +2814,7 @@ export default function SalesDocumentDetailPage({
       : null
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
-  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null)
+  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
   if (includeAmountInMessageMetadata && previewAmount) {
     messagePreviewMetadata[t('sales.documents.detail.totals.grandTotalGross')] = previewAmount
@@ -3707,23 +3721,27 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      await runMutationWithContext(async () => {
-        const call = await apiCallOrThrow<{ orderId?: string }>(
-          '/api/sales/quotes/convert',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...buildOptimisticLockHeader(record.updatedAt),
+      const orderId = await runMutation({
+        operation: async () => {
+          const call = await apiCallOrThrow<{ orderId?: string }>(
+            '/api/sales/quotes/convert',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...buildOptimisticLockHeader(record.updatedAt),
+              },
+              body: JSON.stringify({ quoteId: record.id }),
             },
-            body: JSON.stringify({ quoteId: record.id }),
-          },
-          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-        )
-        const orderId = call.result?.orderId ?? record.id
-        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-        router.replace(`/backend/sales/orders/${orderId}`)
-      }, { quoteId: record.id })
+            { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+          )
+          return call.result?.orderId ?? record.id
+        },
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { quoteId: record.id },
+      })
+      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+      router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       logger.error('sales.documents.convert', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
@@ -3732,7 +3750,7 @@ export default function SalesDocumentDetailPage({
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
@@ -3741,7 +3759,10 @@ export default function SalesDocumentDetailPage({
       await runMutationWithContext(async () => {
         await apiCallOrThrow('/api/sales/quotes/send', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildOptimisticLockHeader(record.updatedAt),
+          },
           body: JSON.stringify({ quoteId: record.id, validForDays }),
         })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
@@ -3767,8 +3788,8 @@ export default function SalesDocumentDetailPage({
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     try {
-      await runMutationWithContext(async () => {
-        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
           apiCallOrThrow(endpoint, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
@@ -3776,8 +3797,10 @@ export default function SalesDocumentDetailPage({
           }, {
             errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
           }),
-        )
-      }, { id: record.id })
+        ),
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { id: record.id },
+      })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
@@ -3788,7 +3811,7 @@ export default function SalesDocumentDetailPage({
       }
     }
     setDeleting(false)
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -3852,17 +3875,16 @@ export default function SalesDocumentDetailPage({
         label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
-        value: record?.expectedDeliveryAt
-          ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
-          : null,
+        // UTC, not local: this editor submits a bare `yyyy-MM-dd`, which `z.coerce.date()`
+        // stores as UTC midnight. Reading it back locally names the previous day west of UTC.
+        value: toUtcDateInputValue(record?.expectedDeliveryAt),
         onSave: handleUpdateExpectedDeliveryAt,
         inputType: 'date',
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
-          if (value && value.length) {
-            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
-          }
-          return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+          return (
+            <span className="text-sm text-muted-foreground">{formatDisplayDate(value, locale) ?? emptyLabel}</span>
+          )
         },
       })
     }
@@ -3903,10 +3925,10 @@ export default function SalesDocumentDetailPage({
         render: () => (
           <SectionCard title={t('sales.documents.detail.timestamps', 'Timestamps')} muted>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.created', 'Created')}: {record?.createdAt ?? '—'}
+              {t('sales.documents.detail.created', 'Created')}: {formatDisplayDateTime(record?.createdAt, locale) ?? '—'}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.updated', 'Updated')}: {record?.updatedAt ?? '—'}
+              {t('sales.documents.detail.updated', 'Updated')}: {formatDisplayDateTime(record?.updatedAt, locale) ?? '—'}
             </p>
           </SectionCard>
         ),
@@ -3937,6 +3959,7 @@ export default function SalesDocumentDetailPage({
     shippingMethodLoading,
     shippingMethodOptions,
     t,
+    locale,
     kind,
     saveShortcutLabel,
   ])
@@ -3983,7 +4006,13 @@ export default function SalesDocumentDetailPage({
     []
   )
 
-  const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canComposeMessages = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'messages.compose')
+
+  const tabInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'tabs' }),
+    [kind],
+  )
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
     context: detailInjectionContext,
     triggerOnLoad: true,
@@ -4258,7 +4287,7 @@ export default function SalesDocumentDetailPage({
             onAddComment={appendShipmentComment}
           />
           <InjectionSpot
-            spotId="detail:sales.order:shipping"
+            spotId={extensionPoints.hosts.orderShipping.spotId}
             context={detailInjectionContext}
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
@@ -4564,25 +4593,27 @@ export default function SalesDocumentDetailPage({
           backLabel={t('sales.documents.detail.back', 'Back to documents')}
           utilityActions={record ? (
             <>
-              <SendObjectMessageDialog
-                object={{
-                  entityModule: 'sales',
-                  entityType: kind,
-                  entityId: record.id,
-                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
-                  sourceEntityId: record.id,
-                  previewData: {
-                    title: number,
-                    status: statusDisplay?.label ?? record?.status ?? undefined,
-                    metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
-                  },
-                }}
-                viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
-                defaultValues={{
-                  sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
-                  sourceEntityId: record.id,
-                }}
-              />
+              {canComposeMessages ? (
+                <SendObjectMessageDialog
+                  object={{
+                    entityModule: 'sales',
+                    entityType: kind,
+                    entityId: record.id,
+                    sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                    sourceEntityId: record.id,
+                    previewData: {
+                      title: number,
+                      status: statusDisplay?.label ?? record?.status ?? undefined,
+                      metadata: Object.keys(messagePreviewMetadata).length > 0 ? messagePreviewMetadata : undefined,
+                    },
+                  }}
+                  viewHref={`/backend/sales/${kind === 'order' ? 'orders' : 'quotes'}/${record.id}`}
+                  defaultValues={{
+                    sourceEntityType: kind === 'order' ? 'sales.order' : 'sales.quote',
+                    sourceEntityId: record.id,
+                  }}
+                />
+              ) : null}
               <VersionHistoryAction
                 config={{
                   resourceKind: kind === 'order' ? 'sales.order' : 'sales.quote',
@@ -4686,28 +4717,22 @@ export default function SalesDocumentDetailPage({
           <InlineTextEditor
             key="date"
             label={t('sales.documents.detail.date', 'Date')}
-            value={
-              record?.placedAt
-                ? new Date(record.placedAt).toISOString().slice(0, 10)
-                : record?.createdAt
-                  ? new Date(record.createdAt).toISOString().slice(0, 10)
-                  : null
-            }
+            // Two readings on purpose. `placedAt` is settable from this date input, so it is
+            // stored as UTC midnight and must be read back in UTC or the field flips a day west
+            // of UTC. `createdAt` is only ever stamped from a clock — a real instant, whose local
+            // day is the one to show.
+            value={toUtcDateInputValue(record?.placedAt) ?? toDateInputValue(record?.createdAt)}
             emptyLabel={t('sales.documents.detail.empty', 'Not set')}
             onSave={handleUpdatePlacedAt}
             inputType="date"
             activateOnClick
             containerClassName="h-full"
             saveLabel={t('customers.people.detail.inline.saveShortcut')}
-            renderDisplay={({ value, emptyLabel }) =>
-              value && value.length ? (
-                <span className="text-sm text-muted-foreground">
-                  {new Date(value).toLocaleDateString()}
-                </span>
-              ) : (
-                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-              )
-            }
+            renderDisplay={({ value, emptyLabel }) => (
+              <span className="text-sm text-muted-foreground">
+                {formatDisplayDate(value, locale) ?? emptyLabel}
+              </span>
+            )}
           />
         </div>
 

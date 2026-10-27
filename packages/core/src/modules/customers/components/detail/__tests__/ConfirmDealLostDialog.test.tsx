@@ -161,6 +161,20 @@ describe('ConfirmDealLostDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
+  it('scrolls its body internally instead of clipping content that overflows the viewport', async () => {
+    render(<ConfirmDealLostDialog {...defaultProps} onConfirm={jest.fn()} />)
+
+    await act(async () => {})
+
+    const warningTitle = screen.getByText('This action closes the deal')
+    const scrollRegion = warningTitle.closest('.overflow-y-auto')
+    expect(scrollRegion).not.toBeNull()
+    expect(scrollRegion).toHaveClass('min-h-0', 'flex-1')
+
+    const confirmButton = screen.getByText('Mark as Lost')
+    expect(scrollRegion?.contains(confirmButton)).toBe(false)
+  })
+
   it('accepts another Cmd+Enter after the previous confirmation resolves', async () => {
     let resolveFirst!: () => void
     const onConfirm = jest.fn(

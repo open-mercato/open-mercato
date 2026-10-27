@@ -13,6 +13,13 @@ export type AnalyticsEntityTypeConfig = {
   schema?: string
   dateField: string
   defaultScopeFields: string[]
+  /**
+   * Field name (a key of `fieldMappings`) holding the per-row currency of monetary
+   * columns. Declaring it lets analytics consumers verify that the rows they aggregate
+   * all carry one currency before labelling the result with it (#4676). Omit it for
+   * entities whose amounts are not per-row denominated.
+   */
+  currencyField?: string
 }
 
 export type AnalyticsFieldMapping = {

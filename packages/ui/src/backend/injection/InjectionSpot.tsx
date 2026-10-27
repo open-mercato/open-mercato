@@ -139,7 +139,6 @@ export function useInjectionWidgets<TContext = unknown>(
     [payload?.grantedFeatures],
   )
   const hasBackendChromePayload = payload !== null
-
   React.useEffect(() => {
     contextRef.current = options?.context
     triggerOnLoadRef.current = options?.triggerOnLoad
@@ -304,6 +303,15 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
     [payload?.grantedFeatures],
   )
   const hasBackendChromePayload = payload !== null
+  const prefetchedEventWidgets = React.useMemo(() => {
+    if (prefetchedWidgets === undefined || !backendChromeReady) return []
+    return filterWidgetsByGrantedFeatures(
+      prefetchedWidgets,
+      grantedFeatureList,
+      hasBackendChromePayload,
+    )
+  }, [backendChromeReady, grantedFeatureList, hasBackendChromePayload, prefetchedWidgets])
+  const eventWidgets = prefetchedWidgets === undefined ? widgets : prefetchedEventWidgets
 
   React.useEffect(() => {
     return subscribeToInjectionRegistryChanges(() => {
@@ -429,7 +437,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       if (TRANSFORMER_EVENTS.has(event)) {
         let pipelineData = data
         let applyToForm = false
-        for (const widget of widgets) {
+        for (const widget of eventWidgets) {
           const handler = widget.module.eventHandlers?.[event]
           if (!handler) continue
           try {
@@ -467,7 +475,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       let fieldSideEffects: Record<string, unknown> | undefined
       let fieldMessages: Array<{ text: string; severity: 'info' | 'warning' | 'error' }> | undefined
 
-      for (const widget of widgets) {
+      for (const widget of eventWidgets) {
         const eventHandlers = widget.module.eventHandlers
         // Check operation filter — skip widget if current operation is filtered out
         const operationFilter = eventHandlers?.filter?.operations
@@ -566,8 +574,8 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       }
       return { ok: true }
     },
-    [widgets]
+    [eventWidgets]
   )
 
-  return { triggerEvent, widgets }
+  return { triggerEvent, widgets: eventWidgets }
 }

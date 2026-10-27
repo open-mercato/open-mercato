@@ -14,7 +14,8 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
-import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -84,8 +85,33 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
   }
 }
 
+// Resolving translations can itself be what failed, so the generic message is
+// recovered defensively — the error path must never throw a second time.
+async function resolveGenericLoginError(): Promise<string> {
+  try {
+    const { translate } = await resolveTranslations()
+    return translate('auth.login.errors.generic', 'An error occurred. Please try again.')
+  } catch {
+    return 'An error occurred. Please try again.'
+  }
+}
+
 export async function POST(req: Request) {
+  try {
+    return await handleLoginRequest(req)
+  } catch (error) {
+    return handleAuthRouteError(error, {
+      scope: 'auth.login',
+      message: await resolveGenericLoginError(),
+    })
+  }
+}
+
+async function handleLoginRequest(req: Request) {
   const { translate } = await resolveTranslations()
+  if (isCrossSiteBrowserRequest(req)) {
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   const { email, password, remember, tenantIdRaw, requiredRoles, redirectTo } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
@@ -120,8 +146,15 @@ export async function POST(req: Request) {
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
   const ok = await auth.verifyPassword(user, parsed.data.password)
-  if (!user || !ok) {
-    const reason = user?.passwordHash ? 'invalid_password' : 'invalid_credentials'
+  if (!user || !ok || user.isConfirmed === false) {
+    // The 401 body stays identical for every branch so the response never reveals
+    // which one fired. `reason` goes to the audit stream instead, where separating a
+    // deactivated account from a mistyped password is the whole point — otherwise
+    // repeated attempts against a disabled account look like ordinary fat-fingering.
+    let reason: string
+    if (user && user.isConfirmed === false) reason = 'account_deactivated'
+    else if (user?.passwordHash) reason = 'invalid_password'
+    else reason = 'invalid_credentials'
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
@@ -208,13 +241,21 @@ export async function POST(req: Request) {
     ? interceptedBody.refreshToken
     : undefined
 
+  // An interceptor that swaps the issued token (the MFA challenge hands back a provisional
+  // `mfa_pending` token) has not completed authentication. Any `session_token` still in the
+  // browser from an earlier login would let `GET /api/auth/session/refresh` mint a full staff
+  // token and skip the outstanding second factor, so it is cleared alongside the swap.
+  const authTokenReplacedByInterceptor = authTokenForCookie !== token
+
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
-  } else if (!remember && authTokenForCookie === token) {
+  } else if (!remember && !authTokenReplacedByInterceptor) {
     res.cookies.set('session_token', sessionRefreshToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
+  } else if (authTokenReplacedByInterceptor) {
+    res.cookies.set('session_token', '', { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 0 })
   }
   return res
 }
@@ -255,7 +296,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: loginErrorSchema },
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
-    { status: 403, description: 'User lacks required role', schema: loginErrorSchema },
+    { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }

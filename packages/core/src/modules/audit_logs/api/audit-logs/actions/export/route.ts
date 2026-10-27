@@ -15,7 +15,10 @@ import {
   deriveActionLogSource,
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 import { loadAuditLogDisplayMaps } from '../../display'
+import { requireResolvedTenantScope } from '../../readScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -111,6 +114,11 @@ function formatValue(value: unknown): string {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const canonicalAuthSubject = resolveCanonicalAuthSubject(auth)
+  if (!canonicalAuthSubject) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const tenantScopeGuard = requireResolvedTenantScope(auth)
+  if (tenantScopeGuard) return tenantScopeGuard
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
@@ -146,7 +154,8 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
+  const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
+  let actorUserId: string | undefined
   let actorUserIds: string[] | undefined
   if (canViewTenant && actorQuery) {
     const parsedActorUserIds = splitCsv(actorQuery)
@@ -158,30 +167,40 @@ export async function GET(req: Request) {
     }
   }
 
-  const entriesResult = await actionLogs.list({
-    tenantId: auth.tenantId ?? undefined,
-    organizationId: organizationId ?? undefined,
-    actorUserId,
-    actorUserIds,
-    resourceKind,
-    resourceId,
-    actionTypes,
-    fieldNames,
-    includeRelated,
-    undoableOnly,
-    sortField,
-    sortDir,
-    limit,
-    before,
-    after,
-  })
+  let entriesResult: Awaited<ReturnType<ActionLogService['list']>>
+  try {
+    entriesResult = await actionLogs.list({
+      tenantId: auth.tenantId ?? undefined,
+      organizationId: organizationId ?? undefined,
+      actorSubject,
+      actorUserId,
+      actorUserIds,
+      resourceKind,
+      resourceId,
+      actionTypes,
+      fieldNames,
+      includeRelated,
+      undoableOnly,
+      sortField,
+      sortDir,
+      limit,
+      before,
+      after,
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
+    }
+    throw err
+  }
   const entries = entriesResult.items
 
+  const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: entries.map((entry: any) => entry.actorUserId).filter((value: any): value is string => Boolean(value)),
     tenantIds: entries.map((entry: any) => entry.tenantId).filter((value: any): value is string => Boolean(value)),
     organizationIds: entries.map((entry: any) => entry.organizationId).filter((value: any): value is string => Boolean(value)),
-  })
+  }, { translate })
 
   const rows = entries.flatMap((entry: any) => {
     const actionType = deriveActionLogActionType(entry)
@@ -190,7 +209,9 @@ export async function GET(req: Request) {
       : actionType.charAt(0).toUpperCase() + actionType.slice(1)
     const baseRow = {
       when: entry.createdAt?.toISOString?.() ?? '',
-      user: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? entry.actorUserId : 'System',
+      user: entry.actorUserId
+        ? displayMaps.users[entry.actorUserId] ?? translate('audit_logs.actor.unknown_user', 'Unknown user')
+        : 'System',
       action: actionLabel,
       source: deriveActionLogSource(entry.contextJson, entry.actorUserId).toUpperCase(),
     }
@@ -254,6 +275,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
       ],
     },
   },

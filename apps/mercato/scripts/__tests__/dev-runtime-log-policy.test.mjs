@@ -2,14 +2,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildUnexpectedChildExitReport,
+  createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
+  isRuntimeRestartMarker,
   createSplashPassthroughIgnoreMatcher,
+  formatChildExitStatus,
+  resolveChildExitCode,
+  resolveUnexpectedExitCode,
   isIgnorableDerivedKeyWarningLine,
   isIgnorableExtraCertsWarningLine,
   isIgnorableQueueLogLine,
   isIgnorableSchedulerLogLine,
   isIgnorableSearchWarningLine,
   isInteractivePromptHintLine,
+  isBrowserForwardedLogLine,
+  isNonRuntimeFailureLine,
+  isStackFrameLine,
+  isStructuredNonErrorLogLine,
   isStatelessRuntimeNoiseLine,
   shouldIgnoreSplashPassthroughLine,
   stripStructuredLogPrefix,
@@ -193,6 +203,29 @@ test('isStatelessRuntimeNoiseLine combines all single-line ignore predicates', (
   assert.equal(isStatelessRuntimeNoiseLine(null), false)
 })
 
+test('browser-forwarded client logs are not runtime failures', () => {
+  const browserWarning = '[browser] [customers] failed to load interactions component=ActivitiesDayStrip Error: Missing response payload (200)'
+
+  assert.equal(isBrowserForwardedLogLine(browserWarning), true)
+  assert.equal(isBrowserForwardedLogLine('09:47:25.952 WARN  [browser] [customers] failed to load interactions'), true)
+  assert.equal(isBrowserForwardedLogLine('[server] Next.js dev server failed to boot'), false)
+
+  assert.equal(isNonRuntimeFailureLine(browserWarning), true)
+})
+
+test('stack frames and non-error structured log lines are not runtime failures', () => {
+  assert.equal(isStackFrameLine('    at readApiResultOrThrow (http://localhost:3000/_next/static/chunks/app.js:1678:15)'), true)
+  assert.equal(isStackFrameLine('at async ActivitiesDayStrip.useEffect (http://localhost:3000/_next/static/chunks/detail.js:6460:41)'), true)
+  assert.equal(isStackFrameLine('attach failed'), false)
+
+  assert.equal(isStructuredNonErrorLogLine('09:47:25.952 WARN  [ai_assistant] Tool registration failed toolName=search_query'), true)
+  assert.equal(isStructuredNonErrorLogLine('09:47:25.952 INFO  [ai_assistant:tools] Registered module-contributed AI tools toolCount=67'), true)
+  assert.equal(isStructuredNonErrorLogLine('09:47:25.952 ERROR [sales] Order sync failed orderId=42'), false)
+
+  assert.equal(isNonRuntimeFailureLine('09:47:25.952 ERROR [sales] Order sync failed orderId=42'), false)
+  assert.equal(isNonRuntimeFailureLine('⨯ Error: Cannot find module "next/dist/server"'), false)
+})
+
 test('createRuntimeNoiseFilter ignores empty, stateless noise, and multi-line search warning blocks', () => {
   const ignoreLine = createRuntimeNoiseFilter()
 
@@ -255,4 +288,159 @@ test('createRuntimeNoiseFilter instances do not share state', () => {
 
   // filterB should not see filterA's open block
   assert.equal(filterB('error: details'), false)
+})
+
+test('buildUnexpectedChildExitReport replays the buffered tail exactly once in compact mode', () => {
+  const report = buildUnexpectedChildExitReport({
+    label: 'App runtime',
+    exitStatus: 'exit code 1',
+    bufferedFailureLines: [
+      'Another next dev server is already running.',
+      '- PID:          4242',
+    ],
+    logsVisible: false,
+  })
+
+  const banner = '❌ App runtime exited unexpectedly with exit code 1'
+  assert.equal(report.banner, banner)
+  assert.deepEqual(report.terminalLines, [
+    banner,
+    '📄 Last 2 runtime log line(s) before the exit:',
+    'Another next dev server is already running.',
+    '- PID:          4242',
+    'ℹ️ Rerun with MERCATO_DEV_OUTPUT=verbose for the full runtime output.',
+  ])
+  // The banner is printed from terminalLines, so it must appear only once there.
+  assert.equal(report.terminalLines.filter((line) => line === banner).length, 1)
+  // Splash state keeps the buffered context plus the banner.
+  assert.deepEqual(report.failureLines, [
+    'Another next dev server is already running.',
+    '- PID:          4242',
+    banner,
+  ])
+})
+
+test('buildUnexpectedChildExitReport does not replay lines the user is already streaming', () => {
+  const report = buildUnexpectedChildExitReport({
+    label: 'App runtime',
+    exitStatus: 'exit code 1',
+    bufferedFailureLines: ['⨯ TurbopackInternalError'],
+    logsVisible: true,
+  })
+
+  assert.deepEqual(report.terminalLines, ['❌ App runtime exited unexpectedly with exit code 1'])
+  // Raw logs are on screen, but the splash still needs the context.
+  assert.deepEqual(report.failureLines, [
+    '⨯ TurbopackInternalError',
+    '❌ App runtime exited unexpectedly with exit code 1',
+  ])
+})
+
+test('buildUnexpectedChildExitReport prints only the banner when nothing was buffered', () => {
+  const report = buildUnexpectedChildExitReport({
+    label: 'Generator watch (legacy sidecar)',
+    exitStatus: 'signal SIGKILL',
+    bufferedFailureLines: [],
+  })
+
+  assert.deepEqual(report.terminalLines, [
+    '❌ Generator watch (legacy sidecar) exited unexpectedly with signal SIGKILL',
+  ])
+  assert.deepEqual(report.failureLines, [
+    '❌ Generator watch (legacy sidecar) exited unexpectedly with signal SIGKILL',
+  ])
+})
+
+test('buildUnexpectedChildExitReport caps splash failure lines at the newest entries', () => {
+  const buffered = Array.from({ length: 20 }, (_, index) => `line ${index}`)
+  const report = buildUnexpectedChildExitReport({
+    label: 'App runtime',
+    exitStatus: 'exit code 1',
+    bufferedFailureLines: buffered,
+  })
+
+  assert.equal(report.failureLines.length, 10)
+  assert.equal(report.failureLines[0], 'line 11')
+  assert.equal(report.failureLines.at(-1), '❌ App runtime exited unexpectedly with exit code 1')
+  // The terminal replay is not capped by maxFailureLines.
+  assert.equal(report.terminalLines.length, buffered.length + 3)
+})
+
+test('isRuntimeRestartMarker recognises the restart announcements the CLI prints', () => {
+  assert.equal(
+    isRuntimeRestartMarker('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...'),
+    true,
+  )
+  assert.equal(
+    isRuntimeRestartMarker('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...'),
+    true,
+  )
+  assert.equal(isRuntimeRestartMarker('Another next dev server is already running.'), false)
+  assert.equal(isRuntimeRestartMarker('[server] Ready in 1ms'), false)
+  assert.equal(isRuntimeRestartMarker(undefined), false)
+})
+
+test('createRuntimeFailureLatch swallows output until the runtime announces a restart', () => {
+  const latch = createRuntimeFailureLatch()
+
+  assert.equal(latch.isLatched(), false)
+  // A line that arrives before any failure is classified normally.
+  assert.equal(latch.releaseOn('✓ Ready in 1ms'), false)
+
+  latch.latch()
+  assert.equal(latch.isLatched(), true)
+  // Ordinary output stays swallowed while the reporter is in raw passthrough.
+  assert.equal(latch.releaseOn('- PID:          4242'), false)
+  assert.equal(latch.isLatched(), true)
+
+  // The cold-start retry marker hands classification back, so the restart and
+  // ready lines that follow can reset the splash and start route warmup.
+  assert.equal(
+    latch.releaseOn('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...'),
+    true,
+  )
+  assert.equal(latch.isLatched(), false)
+})
+
+test('createRuntimeFailureLatch releases on the Turbopack cache recovery marker', () => {
+  const latch = createRuntimeFailureLatch()
+  latch.latch()
+
+  assert.equal(
+    latch.releaseOn('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...'),
+    true,
+  )
+  assert.equal(latch.isLatched(), false)
+})
+
+test('createRuntimeFailureLatch re-arms after a release and keeps instances independent', () => {
+  const latch = createRuntimeFailureLatch()
+  latch.latch()
+  latch.releaseOn('[server] Next.js dev server exited before becoming ready (exit code 1). Retrying once...')
+
+  // A second failure after the restart must latch again.
+  latch.latch()
+  assert.equal(latch.isLatched(), true)
+  assert.equal(latch.releaseOn('⨯ TurbopackInternalError'), false)
+
+  const other = createRuntimeFailureLatch()
+  assert.equal(other.isLatched(), false)
+  // A released latch reports no release for a marker it never latched on.
+  assert.equal(other.releaseOn('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...'), false)
+})
+
+test('unexpected child exits resolve a non-zero exit code', () => {
+  assert.equal(formatChildExitStatus({ code: 1 }), 'exit code 1')
+  assert.equal(formatChildExitStatus({ code: null, signal: 'SIGTERM' }), 'signal SIGTERM')
+  assert.equal(formatChildExitStatus({ code: null, signal: null }), 'an unknown status')
+
+  assert.equal(resolveChildExitCode({ code: 3 }), 3)
+  assert.equal(resolveChildExitCode({ code: null, signal: 'SIGINT' }), 130)
+  assert.equal(resolveChildExitCode({ code: null, signal: 'SIGTERM' }), 143)
+  assert.equal(resolveChildExitCode({ code: null, signal: null }, 7), 7)
+
+  // A runtime that exits cleanly but unexpectedly must still fail the wrapper.
+  assert.equal(resolveUnexpectedExitCode({ code: 0 }), 1)
+  assert.equal(resolveUnexpectedExitCode({ code: 1 }), 1)
+  assert.equal(resolveUnexpectedExitCode({ code: null, signal: 'SIGTERM' }), 143)
 })

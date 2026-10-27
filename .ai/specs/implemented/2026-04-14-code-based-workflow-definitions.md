@@ -559,8 +559,8 @@ Deferred to a separate spec. Covers:
 - **Registry population failure:** If `workflows.generated.ts` has an import error (e.g., module removed but generated file stale), bootstrap fails.
   - Mitigation: Same risk as `events.generated.ts`. Fixed by running `yarn generate`. No new risk introduced.
 
-- **Event triggers on code definitions:** Code definitions can declare `triggers`. The event trigger service currently reads triggers from DB definitions only.
-  - Mitigation: Phase 2 must extend the trigger service to also read from code registry. Until then, triggers on code-based definitions are not active (documented limitation).
+- **Event triggers on code definitions:** Code definitions can declare `triggers`. ~~The event trigger service currently reads triggers from DB definitions only.~~ **Closed 2026-07-24 (#4425 / PR #4463):** `loadTriggersForTenant()` now merges a third `source: 'code'` projection from the registry, so code-declared triggers are live without materializing the definition.
+  - Mitigation: Any non-deleted `workflow_definitions` row for the same `workflowId` suppresses the code projection, preserving `customize` override semantics.
 
 ### Tenant & Data Isolation Risks
 
@@ -614,12 +614,19 @@ Deferred to a separate spec. Covers:
 - **Mitigation**: Both write paths look up any existing override (including soft-deleted) before insert; if found, they revive the row by clearing `deletedAt` and applying updates. `reset-to-code` itself uses hard-delete so the common path inserts cleanly, but the revival branch protects against any historical soft-deleted rows still in the database.
 - **Residual risk**: None. Cross-organization conflicts within the same tenant are not blocked — any organization in the tenant can revive the soft-deleted row, matching the tenant-scoped unique constraint semantics.
 
-#### Event triggers not active for code definitions (Phase 2 gap)
+#### Event triggers not active for code definitions (closed 2026-07-24)
 - **Scenario**: Code definition declares triggers, but trigger service only reads from DB.
 - **Severity**: Medium
 - **Affected area**: Workflow event triggering
-- **Mitigation**: Phase 2 extends trigger service to read from code registry. Documented as known limitation until Phase 2 is complete.
-- **Residual risk**: None after Phase 2.
+- **Mitigation**: Closed by #4425 / PR #4463 — `loadTriggersForTenant()` merges `loadCodeTriggers()` as a third `source: 'code'` projection, with any non-deleted `workflow_definitions` row for the same `workflowId` (including a disabled one, or a customization that dropped its triggers) suppressing the code projection so `customize` override semantics hold.
+- **Residual risk**: None. Trigger ownership now moves between sources, so `customize` and `reset-to-code` must invalidate the trigger cache — see the risk below.
+
+#### Stale trigger cache after customize / reset-to-code
+- **Scenario**: `customize` materializes a code workflow into a DB row (code projection → embedded), or `reset-to-code` deletes it (embedded → code projection). `loadTriggersForTenant()` caches per tenant/organization for `TRIGGER_CACHE_TTL` (5 min), so the wildcard subscriber keeps evaluating the pre-write snapshot: after `customize` it still matches the code trigger, and after `reset-to-code` it still matches the embedded trigger of a row that no longer exists.
+- **Severity**: Low — the window is bounded by the TTL, and `findWorkflowDefinition()` resolves the current definition when a stale trigger fires, so the wrong *definition* is never executed; only the set of matching triggers can lag.
+- **Affected area**: `POST .../[id]/customize`, `POST .../[id]/reset-to-code`, wildcard event-trigger subscriber
+- **Mitigation**: Both routes call `invalidateTriggerCache(...)` after their flush, matching what the definition create/update/delete routes already do, scoped to the written row's own tenant/organization rather than the caller's — `customize` resolves an existing override by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization whose cache is the one that actually went stale. Covered by `api/definitions/[id]/__tests__/trigger-cache-invalidation.test.ts`.
+- **Residual risk**: None for these routes. Any future write path that changes trigger ownership must invalidate as well — documented in `packages/core/src/modules/workflows/AGENTS.md` § Event Triggers → Trigger Sources And Precedence.
 
 ## Final Compliance Report — 2026-04-28
 
@@ -715,3 +722,12 @@ None.
 ### 2026-07-16
 
 - Fixed issue #4202: once the #4179 repairs let the checkout demo reach `confirmation_to_end`, its `create_order` `CALL_API` activity failed with `401 Unauthorized`. `executeCallApi` minted the one-time API key on the container EM, but the activity runs inside `workflowExecutor.executeWorkflow()`'s `em.transactional(...)`; with `useContext: true` the request EM's writes are redirected into the still-open transaction, so the outbound self-authenticated `fetch` (a separate pooled connection) could not see the uncommitted key. The key is now created on a context-detached fork (`em.fork({ clear: true, freshEventManager: true, useContext: false })`, matching the `query_index`/`webhooks` isolated-EM convention) so it auto-commits on its own connection and is visible to the internal request. Distinct from #4179 (a legacy `CALL_WEBHOOK`); this is the internal `CALL_API` auth path. Covered by a `call-api.test.ts` regression asserting the key EM is forked with `useContext: false`.
+
+### 2026-07-24
+
+- Fixed issue #4425 (PR #4463): triggers declared on code-defined workflows never reached the trigger engine. `loadTriggersForTenant()` merged only the two DB-backed sources (`workflow_event_triggers` rows and `triggers[]` embedded in `workflow_definitions`), so a code workflow's `triggers` array was inert until an operator ran `POST .../code:<id>/customize` to materialize the definition into a DB row. `loadCodeTriggers()` now projects the in-memory registry's triggers as `source: 'code'` `UnifiedTrigger`s, keyed on the deterministic `codeWorkflowUuid` so `maxConcurrentInstances` counts against the same `definitionId` `startWorkflow()` persists. Any non-deleted `workflow_definitions` row for the same `workflowId` — including a disabled one, or a customization that dropped its triggers — suppresses the code projection, preserving `customize` override semantics.
+
+### 2026-07-25
+
+- Follow-up to #4425: `POST .../[id]/customize` and `POST .../[id]/reset-to-code` now call `invalidateTriggerCache(...)` after their flush, scoped to the written row's own tenant/organization. Both endpoints move trigger ownership between sources (code projection ↔ embedded DB row), but neither invalidated the per-tenant/organization cache, so the wildcard subscriber kept the pre-write snapshot for up to `TRIGGER_CACHE_TTL` (5 min) — after `reset-to-code` it kept matching the embedded triggers of a row that no longer exists. Covered by `api/definitions/[id]/__tests__/trigger-cache-invalidation.test.ts` (invalidates on override create, override refresh, sibling-organization revive, and reset; leaves the cache alone on the 409 active-instances rejection).
+- Documented the three-source trigger model in `packages/core/src/modules/workflows/AGENTS.md` § Event Triggers: the `legacy` / `embedded` / `code` sources, the "DB row wins" precedence, and the invalidation requirement for any write that changes trigger ownership.

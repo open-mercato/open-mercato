@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
+import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -36,6 +37,8 @@ export type ActivitiesSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
+  excludeInteractionType?: string | null
 }
 
 function toDateOnly(value: string | null | undefined): string {
@@ -106,9 +109,11 @@ export function ActivitiesSection({
   useCanonicalInteractions = false,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   refreshKey = 0,
   onEditActivity,
   runGuardedMutation,
+  excludeInteractionType = 'task',
 }: ActivitiesSectionProps) {
   const t = useT()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
@@ -169,17 +174,18 @@ export function ActivitiesSection({
     setLoading(true)
     try {
       // Always fetch canonical interactions (new activities are always created here)
-      const taskFilterActive = filterTypes.includes('task')
+      const excludedFilterActive = excludeInteractionType ? filterTypes.includes(excludeInteractionType) : true
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
         sortField: 'occurredAt',
         sortDir: 'desc',
       })
-      // Hide tasks from the activity timeline by default — they have their own tab —
-      // but lift the exclusion when the user explicitly toggled the Task chip on
-      // (mirrors `ActivityHistorySection.tsx` after the #1805 fix).
-      if (!taskFilterActive) canonicalParams.set('excludeInteractionType', 'task')
+      // Hide the configured type (tasks by default — they have their own tab)
+      // from the activity timeline, but lift the exclusion when the user
+      // explicitly toggled that type's chip on (mirrors
+      // `ActivityHistorySection.tsx` after the #1805 fix).
+      if (excludeInteractionType && !excludedFilterActive) canonicalParams.set('excludeInteractionType', excludeInteractionType)
       if (dealId) canonicalParams.set('dealId', dealId)
       if (filterTypes.length > 0) canonicalParams.set('type', filterTypes.join(','))
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
@@ -261,7 +267,7 @@ export function ActivitiesSection({
     } finally {
       setLoading(false)
     }
-  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
+  }, [dealId, entityId, excludeInteractionType, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
 
   React.useEffect(() => {
     setLoadedPages(1)
@@ -289,8 +295,14 @@ export function ActivitiesSection({
     } catch (err) {
       logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+      return
     }
-  }, [loadActivities, runGuardedMutation, t])
+    try {
+      await Promise.resolve(onDataRefresh?.())
+    } catch (err) {
+      logger.warn('Parent refresh after mark done failed', { component: 'ActivitiesSection', activityId, err })
+    }
+  }, [loadActivities, onDataRefresh, runGuardedMutation, t])
 
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
@@ -310,25 +322,14 @@ export function ActivitiesSection({
     }
     if (unresolvedIds.size === 0) return
 
-    for (const uid of unresolvedIds) resolvedUserIdsRef.current.add(uid)
-
     const controller = new AbortController()
-    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-      `/api/auth/users?ids=${[...unresolvedIds].join(',')}`,
-      { signal: controller.signal },
-    )
-      .then((data) => {
-        const users = Array.isArray(data?.items) ? data.items : []
-        const nameMap = new Map<string, string>()
-        for (const user of users) {
-          const userId = typeof user.id === 'string' ? user.id : null
-          const name = typeof user.display_name === 'string' && user.display_name.trim()
-            ? user.display_name.trim()
-            : typeof user.email === 'string'
-              ? user.email
-              : null
-          if (userId && name) nameMap.set(userId, name)
-        }
+    resolveAuthorUserNames([...unresolvedIds], controller.signal)
+      .then(({ names: nameMap, resolvedIds }) => {
+        if (controller.signal.aborted) return
+        // Only ids the server actually answered for are remembered. Marking an id whose request
+        // failed — or one the server silently dropped past its `?ids=` cap — would leave that
+        // author blank for the life of the component, even though the next attempt would work.
+        for (const uid of resolvedIds) resolvedUserIdsRef.current.add(uid)
         if (nameMap.size > 0) {
           setActivities((prev) =>
             prev.map((a) => {

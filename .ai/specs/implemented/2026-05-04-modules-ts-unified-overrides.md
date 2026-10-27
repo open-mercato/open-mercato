@@ -156,6 +156,7 @@ Each phase is a focused PR that:
 | 16 | ACL features | `acl.features` | feature id | **YES** |
 | 17 | DI bindings | `di` | container key | **YES** |
 | 18 | Encryption maps | `encryption.maps` | entity id | **YES** |
+| 19 | Sidebar nav ordering | `nav.groupOrder` | nav group id | **YES** |
 
 Phase 1 is the AI domain (already shipped via spec [`2026-04-30-ai-overrides-and-module-disable.md`](2026-04-30-ai-overrides-and-module-disable.md), now folded under the unified umbrella through one rename — see "Migration & BC" below).
 
@@ -181,6 +182,7 @@ Phases 2-18 now ship through PR #1960. The dispatcher still supports the "not ye
 - [x] Phase 16 — ACL feature overrides.
 - [x] Phase 17 — DI binding overrides.
 - [x] Phase 18 — encryption map overrides.
+- [x] Phase 19 — sidebar nav ordering overrides.
 - [x] Documentation follow-up — bb2030e1b.
 
 ## Migration & backward compatibility
@@ -289,9 +291,11 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 | Risk | Mitigation |
 |------|-----------|
 | Future/custom override domain silently does nothing | Dispatcher still emits a one-shot structured warning when a domain has no registered applier. Built-in phases 1-18 all register appliers. |
-| App boot order matters (overrides must apply before the registry first load) | The dispatcher is called from `bootstrap.ts` BEFORE any registry loads. Tests cover the ordering. |
+| App boot order matters (overrides must apply before the registry first load) | The dispatcher has two entrypoints, each ordered ahead of its own registry load: `bootstrap.ts` for the Next.js runtime, and `bootstrapFromAppRoot()` for CLI/worker/scheduler processes (before `registerModules` and before the `registerCliModules` the `mercato` bin runs on return). Tests cover both orderings. |
+| A process bootstraps through a path the dispatcher was never wired into | Adding a bootstrap entrypoint means adding a dispatch site. `bootstrapFromAppRoot()` went four releases without one, so every `entry.overrides` was inert in CLI, worker and scheduler processes (#5582). |
+| A domain whose applier is registered by importing a package, not by `registerBuiltInModuleOverrideAppliers()` | `ai` is the only such domain today. `bootstrap-common.ts` covers it with a static side-effect import; `bootstrapFromAppRoot()` resolves it lazily through `OPTIONAL_OVERRIDE_APPLIER_MODULES`, and only when an app actually declares the domain, so `@open-mercato/shared` keeps zero runtime dependencies on domain packages. A new domain of this kind MUST be added to that map. |
 | Different domains have different "id" semantics (route key vs subscriber id vs DI key) | The umbrella type names each sub-shape clearly; per-domain spec phases lock the id syntax. |
-| Removing an ACL feature via override doesn't migrate existing role grants | Documented in Phase 16 — `acl.features` override hides the feature from the ACL registry; operators run `yarn mercato auth sync-role-acls --all-tenants` to drop the orphan grants. |
+| Removing an ACL feature via override leaves existing role grants stored | The shared feature policy makes those grants runtime-inert while the null override exists. No migration is required; removing the override restores the preserved grants. |
 | Disabling a route or widget leaves stale references elsewhere | Stale override keys log a warning. Operators must remove links, grants, or injection-table references that intentionally target disabled contracts. |
 | DI override pulls the rug from a dependent service | `di` overrides are intentionally last-chance container mutations. Use them for app policy only, and keep dependent service overrides in the same `modules.ts` entry or app-level DI file. |
 
@@ -301,3 +305,35 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 - **2026-05-18 — Phase 2 wired (`overrides.routes.api`).** The shared package's umbrella dispatcher now routes `entry.overrides.routes.api` to a per-domain applier that composes a `'METHOD /api/path'` → override map. `registerApiRouteManifests` consults the composed map at registration time and rewrites the stored manifest: a `null` override drops the matching method (or the whole entry when every method is disabled), and a `{ handler, metadata? }` override wraps the manifest's `load()` so the override handler ships at `module[METHOD]` and override metadata replaces the matching per-method metadata. Resolution order today is **programmatic (`applyApiRouteOverrides`) → `modules.ts` inline → base**. The file-based tier is intentionally out of scope for Phase 2 — modules that want to override another module's API route do so through `modules.ts` or programmatically. Tests live at `packages/shared/src/modules/__tests__/route-overrides.test.ts`.
 - **2026-05-18 — Phases 3-18 wired.** Page routes, subscribers, workers, widgets, notifications, API interceptors, command interceptors, response enrichers, page guards, CLI commands, setup hooks, ACL features, DI bindings, and encryption maps now have typed override maps, programmatic helpers, dispatcher appliers, registry hooks, and unit coverage. The example app and create-app template include `GET /api/example/override-probe`, override it through `modules.ts`, and add Playwright integration coverage (`TC-UMES-022`) proving the downstream API route override wins. Docs now include `framework/modules/overrides` with examples for every phase.
 - **2026-05-18 — Documentation/examples follow-up.** The example app and create-app template now export a non-applied `moduleOverrideExamples` catalog for every wired domain, the standalone template AGENTS guidance points developers at it, and the AI override docs no longer describe the non-AI domains as pending.
+- **2026-07-23 — ACL runtime semantics consolidated.** A final `acl.features[id] = null` now denies that exact feature at runtime before wildcard or admin bypasses. Existing stored grants are preserved and browser capability payloads project concrete effective IDs.
+
+- **2026-07-31 — Phase 19 wired (`nav.groupOrder`).** Sidebar nav group ordering became an override
+  domain: `overrides.nav.groupOrder` prepends group ids ahead of the built-in `defaultGroupOrder`, with
+  unnamed groups keeping their current position. It is a default, applied beneath role and per-user
+  sidebar preferences, and with nothing configured group ordering is byte-identical to before.
+  Programmatic tier: `applyNavGroupOrderOverrides(groupOrder | null)`, taking precedence over the
+  `modules.ts` declaration like every other domain. State persists on `globalThis` because this domain's
+  reader lives in `@open-mercato/core` while its writer is the app bootstrap — see `.ai/lessons.md`,
+  "Global registries in publishable packages must use `globalThis`" — with isolated-module regression
+  coverage. Spec: `.ai/specs/2026-07-30-nav-group-order-override-domain.md`.
+
+- **2026-09-02 — Second dispatch entrypoint for CLI/worker/scheduler processes (#5582).** The
+  dispatcher is no longer called only from the Next.js runtime's `bootstrap.ts`.
+  `bootstrapFromAppRoot()` in `packages/shared/src/lib/bootstrap/dynamicLoader.ts` — the entrypoint
+  every `mercato` command, queue/event worker and scheduler process boots through — now compiles and
+  imports the app's own `src/modules.ts` and dispatches its `entry.overrides` too. Until then that
+  path only ever loaded the generated `modules.cli.generated.ts`, which does not carry `overrides`,
+  so every declaration was silently inert there; `mercato entities seed-encryption` reading
+  `getDefaultEncryptionMaps(getCliModules())` seeded the base maps and still printed success, leaving
+  override-added fields as plaintext at rest. The ordering constraint the new site satisfies is that
+  it runs inside the existing `withEsbuildLifecycle` scope **before** `loadBootstrapData`,
+  `createBootstrap` and `bootstrap()` — therefore before `registerModules(data.modules)` and before
+  the `registerCliModules(data.modules)` that `packages/cli/src/bin.ts` runs immediately after the
+  function returns. Two consequences worth carrying forward: (1) the `ai` domain's applier is
+  registered by importing `@open-mercato/ai-assistant/.../ai-overrides` for its side effect rather
+  than by `registerBuiltInModuleOverrideAppliers()`, so this path resolves it on demand through
+  `OPTIONAL_OVERRIDE_APPLIER_MODULES` — declared-only and fail-soft, keeping shared free of a runtime
+  dependency on a domain package; (2) a `src/modules.ts` that is present but unloadable now throws
+  instead of degrading, because continuing with an empty override set reproduces #5582's outcome
+  behind a success banner. An absent `src/modules.ts` is still skipped. Coverage:
+  `packages/shared/src/lib/bootstrap/__tests__/dynamicLoader.appModuleOverrides.test.ts`.

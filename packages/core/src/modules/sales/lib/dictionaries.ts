@@ -5,6 +5,9 @@ import {
   sanitizeDictionaryColor,
   sanitizeDictionaryIcon,
 } from '@open-mercato/core/modules/dictionaries/lib/utils'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
 
 export type SalesDictionaryKind =
   | 'order-status'
@@ -118,8 +121,44 @@ export async function resolveDictionaryEntryValue(
 ): Promise<string | null> {
   if (!entryId) return null
   const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
-  if (!entry) return null
-  return entry.value?.trim() || null
+  return entry?.value?.trim() || null
+}
+
+// Read-through cache in front of `resolveDictionaryEntryValue`, for the hot order-write path: the same
+// few status / fulfillment / payment entry ids are re-resolved for EVERY order, so a bulk import
+// re-reads them per order — a measured N+1 that dominates once the aggregate write itself is cheap.
+// The value is non-PII config, tenant-scoped via `runWithCacheTenant` and short-TTL'd. It is tagged with
+// the platform CRUD record tag for `dictionaries.entry`, so the command bus's own `invalidateCrudCache`
+// (fired on every entry create/update/delete) drops this entry on edit — the 60s TTL is only a backstop.
+// Callers pass the (soft-resolved) cache; `undefined` reads straight through.
+const DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS = 60_000
+const DICTIONARY_ENTRY_RESOURCE_KIND = 'dictionaries.entry'
+const dictionaryEntryValueCacheKey = (entryId: string): string => `sales:dictionary-entry-value:${entryId}`
+const dictionaryEntryValueCacheTags = (entryId: string, tenantId: string): string[] => [
+  buildRecordTag(DICTIONARY_ENTRY_RESOURCE_KIND, tenantId, entryId),
+]
+
+export async function resolveCachedDictionaryEntryValue(
+  em: EntityManager,
+  entryId: string | null | undefined,
+  scope: { tenantId: string },
+  cache: CacheStrategy | undefined
+): Promise<string | null> {
+  if (!entryId) return null
+  if (!cache) return resolveDictionaryEntryValue(em, entryId, scope)
+  return runWithCacheTenant(scope.tenantId, async () => {
+    const cacheKey = dictionaryEntryValueCacheKey(entryId)
+    const cached = await cache.get(cacheKey)
+    if (typeof cached === 'string') return cached
+    const value = await resolveDictionaryEntryValue(em, entryId, scope)
+    if (value != null) {
+      await cache.set(cacheKey, value, {
+        ttl: DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS,
+        tags: dictionaryEntryValueCacheTags(entryId, scope.tenantId),
+      })
+    }
+    return value
+  })
 }
 
 export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }

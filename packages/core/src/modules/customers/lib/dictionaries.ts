@@ -32,6 +32,7 @@ export type CustomerDictionaryDisplayEntry = DictionaryDisplayEntry
 export type CustomerDictionaryMap = DictionaryMap
 
 export const CUSTOMER_DICTIONARIES_MANAGE_HREF = '/backend/config/customers'
+export const CUSTOMER_DICTIONARY_ORGANIZATION_REQUIRED_CODE = 'customer_dictionary_organization_required'
 
 export function getCustomerDictionarySettingsSectionId(kind: CustomerDictionaryKind) {
   return `customer-dictionary-${kind}`

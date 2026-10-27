@@ -30,6 +30,8 @@ type DisplayEntry = {
   value: unknown
   dictionaryMap: DictionaryMap | null
   multi: boolean
+  kind?: string
+  options?: CustomFieldDefDto['options']
 }
 
 type CustomFieldValuesListProps = {
@@ -97,10 +99,23 @@ function renderDictionaryValues(
   )
 }
 
-function renderPrimitiveValues(value: unknown): React.ReactNode {
+function resolveOptionLabel(value: unknown, options: CustomFieldDefDto['options']): unknown {
+  if (!options?.length || typeof value !== 'string') return value
+  const trimmed = value.trim()
+  const match = options.find((option) => option.value === trimmed)
+  return match ? match.label : value
+}
+
+function applyOptionLabels(value: unknown, options: CustomFieldDefDto['options']): unknown {
+  if (!options?.length) return value
+  if (Array.isArray(value)) return value.map((entry) => resolveOptionLabel(entry, options))
+  return resolveOptionLabel(value, options)
+}
+
+function renderPrimitiveValues(value: unknown, kind?: string): React.ReactNode {
   if (Array.isArray(value)) {
     const parts = value
-      .map((entry) => stringifyCustomValue(entry))
+      .map((entry) => stringifyCustomValue(entry, { kind }))
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0)
     if (!parts.length) return null
@@ -117,7 +132,7 @@ function renderPrimitiveValues(value: unknown): React.ReactNode {
       </div>
     )
   }
-  const label = stringifyCustomValue(value).trim()
+  const label = stringifyCustomValue(value, { kind }).trim()
   if (!label.length) return null
   return <span className="text-sm text-foreground">{label}</span>
 }
@@ -179,6 +194,12 @@ function buildDisplayEntries(
   definitions.forEach((def, index) => {
     const normalizedKey = normalizeCustomFieldKey(def.key)
     if (!normalizedKey) return
+    // Operational fields marked listVisible:false must not render — neither
+    // here nor as a definition-less "extra" below, so consume the key anyway.
+    if (def.listVisible === false) {
+      consumedKeys.add(normalizedKey)
+      return
+    }
     const entry = combined.get(normalizedKey)
     if (!entry || isEmptyCustomValue(entry.value)) return
     const label = resolveCustomFieldLabel(entry.label ?? def.label, entry.key)
@@ -191,6 +212,8 @@ function buildDisplayEntries(
       value: entry.value,
       dictionaryMap,
       multi: def.multi ?? Array.isArray(entry.value),
+      kind: def.kind,
+      options: def.options,
     })
     consumedKeys.add(normalizedKey)
   })
@@ -242,7 +265,8 @@ export function CustomFieldValuesList({
     <div className={cn('grid gap-3 sm:grid-cols-2', className)}>
       {displayEntries.map((entry, index) => {
         const dictionaryContent = renderDictionaryValues(entry.value, entry.dictionaryMap, entry.multi)
-        const primitiveContent = dictionaryContent ?? renderPrimitiveValues(entry.value)
+        const primitiveContent =
+          dictionaryContent ?? renderPrimitiveValues(applyOptionLabels(entry.value, entry.options), entry.kind)
         const content =
           dictionaryContent ??
           primitiveContent ??

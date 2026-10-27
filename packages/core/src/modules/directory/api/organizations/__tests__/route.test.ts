@@ -215,3 +215,56 @@ describe('directory organizations GET — manage view exposes updatedAt for opti
     expect(body.items[0].updatedAt).toBe(orgUpdatedAt.toISOString())
   })
 })
+
+describe('directory organizations GET — pageSize honors the ≤100 platform cap (#3851)', () => {
+  const tenantOrgId = '77777777-7777-4777-8777-777777777777'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    emFind.mockResolvedValue([])
+    emFindOne.mockResolvedValue(null)
+    findWithDecryptionMock.mockResolvedValue([])
+  })
+
+  it('rejects a pageSize above the 100-row platform cap', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/directory/organizations?view=manage&tenantId=${foreignTenantId}&page=1&pageSize=101`,
+      ),
+    )
+
+    // Schema rejection short-circuits before any org query runs, so no oversized
+    // page is ever assembled (#3851).
+    expect(response.status).toBe(400)
+    expect(emFind).not.toHaveBeenCalled()
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('still accepts a pageSize at the 100-row cap', async () => {
+    authMock.mockResolvedValue({ sub: superAdminUserId, tenantId: foreignTenantId, orgId: tenantOrgId })
+    resolveIsSuperAdminMock.mockResolvedValue(false)
+    emFind.mockResolvedValue([
+      {
+        id: tenantOrgId,
+        name: 'Tenant Org',
+        slug: 'tenant-org',
+        parentId: null,
+        isActive: true,
+        updatedAt: new Date('2026-06-01T10:20:30.000Z'),
+        tenantId: foreignTenantId,
+      },
+    ])
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/directory/organizations?view=manage&tenantId=${foreignTenantId}&page=1&pageSize=100`,
+      ),
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.pageSize).toBe(100)
+  })
+})

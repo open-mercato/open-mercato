@@ -5,6 +5,7 @@ import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { requireSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { E } from '#generated/entities.ids.generated'
 import {
   parseWithCustomFields,
@@ -48,6 +49,7 @@ type SerializedTenant = ReturnType<typeof serializeTenant>
 const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.create',
   async execute(rawInput, ctx) {
+    await requireSuperAdmin(ctx)
     const { parsed, custom } = parseWithCustomFields(tenantCreateSchema, rawInput)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
@@ -85,7 +87,7 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     const identifiers = {
       id: String(tenant.id),
       organizationId: null,
-      tenantId: String(tenant.id),
+      tenantId: null,
     }
 
     await emitCrudSideEffects({
@@ -117,15 +119,13 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     buildResult: (entity) => entity,
     events: tenantCrudEvents,
     indexer: tenantCrudIndexer,
-    afterRestore: ({ entity }) => {
-      Reflect.set(entity, 'tenantId', String(entity.id))
-    },
   }),
 }
 
 const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
   id: 'directory.tenants.update',
   async prepare(rawInput, ctx) {
+    await requireSuperAdmin(ctx)
     const { parsed } = parseWithCustomFields(tenantUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
     const current = await em.findOne(Tenant, { id: parsed.id, deletedAt: null })
@@ -133,6 +133,7 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     return { before: serializeTenant(current) }
   },
   async execute(rawInput, ctx) {
+    await requireSuperAdmin(ctx)
     const { parsed, custom } = parseWithCustomFields(tenantUpdateSchema, rawInput)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const tenant = await de.updateOrmEntity({
@@ -158,7 +159,7 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
     const identifiers = {
       id: String(tenant.id),
       organizationId: null,
-      tenantId: String(tenant.id),
+      tenantId: null,
     }
 
     await emitCrudSideEffects({
@@ -191,12 +192,14 @@ const updateTenantCommand: CommandHandler<TenantPayload, Tenant> = {
 const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, string> }, Tenant> = {
   id: 'directory.tenants.delete',
   async prepare(input, ctx) {
+    await requireSuperAdmin(ctx)
     const id = requireId(input, 'Tenant id required')
     const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await em.findOne(Tenant, { id, deletedAt: null })
     return existing ? { before: serializeTenant(existing) } : {}
   },
   async execute(rawInput, ctx) {
+    await requireSuperAdmin(ctx)
     const id = requireId(rawInput, 'Tenant id required')
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const tenant = await de.deleteOrmEntity({
@@ -210,7 +213,7 @@ const deleteTenantCommand: CommandHandler<{ body: any; query: Record<string, str
     const identifiers = {
       id: String(id),
       organizationId: null,
-      tenantId: String(id),
+      tenantId: null,
     }
 
     await emitCrudSideEffects({

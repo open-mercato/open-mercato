@@ -14,15 +14,26 @@ async function flushAsync(times = 5): Promise<void> {
 function createFakeChangeSignal() {
   let version = 0
   let fallback = false
+  let skippedTargets = false
+  let discoverSkippedTargets = false
+  const refresh = jest.fn(async () => {
+    if (discoverSkippedTargets) {
+      skippedTargets = false
+      discoverSkippedTargets = false
+    }
+  })
   const signal: GenerateWatcherChangeSignal = {
     currentVersion: () => version,
-    refresh: jest.fn(async () => undefined),
+    refresh,
     usesPollingFallback: () => fallback,
+    hasSkippedTargets: () => skippedTargets,
     close: jest.fn(async () => undefined),
   }
   return {
     signal,
     markChanged: () => { version += 1 },
+    markSkippedTarget: () => { skippedTargets = true },
+    discoverSkippedTargetOnNextRefresh: () => { discoverSkippedTargets = true },
     usePollingFallback: () => { fallback = true },
   }
 }
@@ -139,6 +150,46 @@ describe('startInProcessGenerateWatcher', () => {
 
     expect(computeStructureChecksum).toHaveBeenCalledTimes(1)
     expect(runGenerators).not.toHaveBeenCalled()
+    await handle.close()
+  })
+
+  it('discovers skipped roots during event-gated idle polling', async () => {
+    const runGenerators = jest.fn(async () => undefined)
+    const computeStructureChecksum = jest.fn()
+      .mockResolvedValueOnce('before')
+      .mockResolvedValue('after')
+    const {
+      signal,
+      markSkippedTarget,
+      discoverSkippedTargetOnNextRefresh,
+    } = createFakeChangeSignal()
+    markSkippedTarget()
+    const handle = startInProcessGenerateWatcher({
+      pollMs: 1000,
+      skipInitial: true,
+      quiet: true,
+      logger: silentLogger,
+      changeSignal: signal,
+      computeStructureChecksum,
+      runGenerators,
+    })
+
+    await flushAsync(8)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(1)
+
+    jest.advanceTimersByTime(1000)
+    await flushAsync(12)
+
+    expect(signal.refresh).toHaveBeenCalledTimes(2)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(1)
+    discoverSkippedTargetOnNextRefresh()
+
+    jest.advanceTimersByTime(1000)
+    await flushAsync(12)
+
+    expect(signal.refresh).toHaveBeenCalledTimes(3)
+    expect(computeStructureChecksum).toHaveBeenCalledTimes(2)
+    expect(runGenerators).toHaveBeenCalledWith('structure change')
     await handle.close()
   })
 

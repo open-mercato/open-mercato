@@ -1,6 +1,8 @@
 "use client"
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { RowData } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterFieldDef as AdvancedFilterFieldDef, FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { ColumnChooserField } from '../columns/ColumnChooserPanel'
 import type { CustomFieldDefDto } from './customFieldDefs'
@@ -27,7 +29,7 @@ type ColumnMeta = {
   tooltipContent?: (row: unknown) => string | undefined
 }
 
-function resolveHeaderLabel(column: ColumnDef<any, any>): string {
+function resolveHeaderLabel<T extends RowData>(column: ColumnDef<T, unknown>): string {
   const header = (column as any).header
   if (typeof header === 'string') return header
   const accessorKey = (column as any).accessorKey as string | undefined
@@ -46,8 +48,8 @@ function inferFilterType(accessorKey: string, meta?: ColumnMeta): FilterFieldTyp
   return 'text'
 }
 
-export type UseAutoDiscoveredFieldsInput = {
-  columns: ColumnDef<any, any>[]
+export type UseAutoDiscoveredFieldsInput<T extends RowData = RowData> = {
+  columns: ColumnDef<T, unknown>[]
   customFieldDefs: CustomFieldDefDto[]
 }
 
@@ -56,10 +58,15 @@ export type UseAutoDiscoveredFieldsResult = {
   columnChooserFields: ColumnChooserField[]
 }
 
-export function useAutoDiscoveredFields({
+export function useAutoDiscoveredFields<T extends RowData = RowData>({
   columns,
   customFieldDefs,
-}: UseAutoDiscoveredFieldsInput): UseAutoDiscoveredFieldsResult {
+}: UseAutoDiscoveredFieldsInput<T>): UseAutoDiscoveredFieldsResult {
+  // Optional translator: this hook is a public entry point third-party modules
+  // render, and it worked without an I18nProvider before it needed labels.
+  const t = useOptionalT()
+  const defaultGroupLabel = t?.('ui.columnChooser.defaultGroup', 'Columns') ?? 'Columns'
+  const customFieldsGroupLabel = t?.('ui.columnChooser.customFieldsGroup', 'Custom Fields') ?? 'Custom Fields'
   return React.useMemo(() => {
     const filterFields: AdvancedFilterFieldDef[] = []
     const chooserFields: ColumnChooserField[] = []
@@ -69,7 +76,11 @@ export function useAutoDiscoveredFields({
     for (let i = 0; i < columns.length; i++) {
       const col = columns[i]
       const accessorKey = (col as any).accessorKey as string | undefined
-      if (!accessorKey) continue
+      // Widget-injected columns carry `accessorFn` + `id` instead of `accessorKey`
+      // (dotted access paths cannot be an object key), and the column id is what
+      // the chooser toggle and visibility state already round-trip on.
+      const chooserKey = accessorKey ?? ((col as any).id as string | undefined)
+      if (!chooserKey) continue
 
       const meta = (col as any).meta as ColumnMeta | undefined
       const label = resolveHeaderLabel(col)
@@ -93,12 +104,12 @@ export function useAutoDiscoveredFields({
       }
 
       // Column chooser field
-      if (!seenChooserKeys.has(accessorKey)) {
-        seenChooserKeys.add(accessorKey)
+      if (!seenChooserKeys.has(chooserKey)) {
+        seenChooserKeys.add(chooserKey)
         chooserFields.push({
-          key: accessorKey,
+          key: chooserKey,
           label,
-          group: meta?.columnChooserGroup ?? 'Columns',
+          group: meta?.columnChooserGroup ?? defaultGroupLabel,
           alwaysVisible: meta?.alwaysVisible ?? i === 0,
           defaultVisible: true,
         })
@@ -117,7 +128,7 @@ export function useAutoDiscoveredFields({
           key: filterKey,
           label: def.label || def.key,
           type,
-          group: 'Custom Fields',
+          group: customFieldsGroupLabel,
         }
         if (type === 'select' && Array.isArray(def.options) && def.options.length) {
           field.options = normalizeCustomFieldFilterOptions(def.options)
@@ -129,12 +140,12 @@ export function useAutoDiscoveredFields({
         chooserFields.push({
           key: filterKey,
           label: def.label || def.key,
-          group: def.group?.title ?? 'Custom Fields',
+          group: def.group?.title ?? customFieldsGroupLabel,
           defaultVisible: false,
         })
       }
     }
 
     return { advancedFilterFields: filterFields, columnChooserFields: chooserFields }
-  }, [columns, customFieldDefs])
+  }, [columns, customFieldDefs, defaultGroupLabel, customFieldsGroupLabel])
 }

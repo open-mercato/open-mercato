@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
 import { findRouteManifestMatch, getBackendRouteManifests, registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
+import { backendRouteFacades } from '@/.mercato/generated/backend-route-shards.generated'
 import { bootstrap } from '@/bootstrap'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -19,7 +19,7 @@ import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middlewa
 import { backendMiddlewareEntries } from '@/.mercato/generated/backend-middleware.generated'
 
 bootstrap()
-registerBackendRouteManifests(backendRoutes)
+registerBackendRouteManifests(backendRouteFacades)
 
 type Awaitable<T> = T | Promise<T>
 

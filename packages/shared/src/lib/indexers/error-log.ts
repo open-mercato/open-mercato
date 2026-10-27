@@ -87,6 +87,20 @@ export async function recordIndexerError(deps: RecordIndexerErrorDeps, input: Re
   const payload = safeJson(input.payload)
   const now = new Date()
 
+  // Persisting to indexer_error_logs is not enough on its own: nobody watches that
+  // table, and a failing database is exactly when the insert below is least likely
+  // to land. Emit through the log facade too so the failure survives the process.
+  // `input.payload` is deliberately omitted — it can carry record documents.
+  logger.error('Indexer error recorded', {
+    source: input.source,
+    handler: input.handler,
+    entityType: input.entityType ?? null,
+    recordId: input.recordId ?? null,
+    tenantId: input.tenantId ?? null,
+    organizationId: input.organizationId ?? null,
+    err: input.error,
+  })
+
   try {
     await db
       .insertInto('indexer_error_logs' as any)

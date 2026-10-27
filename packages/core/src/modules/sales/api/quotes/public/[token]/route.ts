@@ -14,6 +14,7 @@ import {
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
+import { isForeignTenantActor } from "../../../../lib/publicQuoteTenantScope";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -42,7 +43,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     }
 
     const auth = await getAuthFromRequest(req);
-    if (auth?.tenantId && quote.tenantId !== auth.tenantId) {
+    if (isForeignTenantActor(auth, quote.tenantId)) {
       throw notFound(translate("sales.quotes.public.notFound", "Quote not found."));
     }
 

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
 import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -16,7 +16,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'sales-by-region' })
@@ -53,10 +54,13 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<BarChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
 
   const fetchWidgetData = useWidgetData()
   const showDateRangeControls = hydrated.dateRangeMode === 'custom' || !context.dateRange
@@ -71,6 +75,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load sales by region data', { err })
       setError(t('dashboards.analytics.widgets.salesByRegion.error', 'Failed to load data'))
@@ -137,19 +142,24 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
   }
 
   return (
-    <BarChart
-      data={data}
-      index="region"
-      categories={['Revenue']}
-      categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
-      loading={loading}
-      error={error}
-      layout="horizontal"
-      valueFormatter={formatCurrencyCompact}
-      colors={['cyan']}
-      showLegend={false}
-      emptyMessage={t('dashboards.analytics.widgets.salesByRegion.empty', 'No regional sales data for this period')}
-    />
+    <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0">
+        <BarChart
+          data={data}
+          index="region"
+          categories={['Revenue']}
+          categoryLabels={{ Revenue: t('dashboards.analytics.widgets.topCustomers.column.revenue', 'Revenue') }}
+          loading={loading}
+          error={error}
+          layout="horizontal"
+          valueFormatter={money.formatCompact}
+          colors={['cyan']}
+          showLegend={false}
+          emptyMessage={t('dashboards.analytics.widgets.salesByRegion.empty', 'No regional sales data for this period')}
+        />
+      </div>
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
+    </div>
   )
 }
 

@@ -175,10 +175,21 @@ curl -X POST "$BASE_URL/payment_gateways/sessions" \
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `providerKey` | string | yes | Provider identifier (e.g., `stripe`, `mock`) |
-| `amount` | number | yes | Payment amount |
+| `amount` | number | yes | Payment amount — reconciled against the order when `orderId` is supplied |
 | `currencyCode` | string | yes | ISO 4217 currency code |
+| `orderId` | string (uuid) | no | Sales order this payment settles |
 | `captureMethod` | string | no | `automatic` (default) or `manual` |
 | `description` | string | no | Human-readable description |
+
+**Order amount reconciliation:** when `orderId` is supplied, the hub resolves that
+order's authoritative amount due inside your tenant and organization and requires
+`amount` and `currencyCode` to match it before any provider is called. A different
+amount, a different currency, an unknown order, or an order belonging to another
+tenant or organization are all rejected with the same `409` conflict, so the
+response never reveals whether an out-of-scope order exists. Omit `orderId` when
+the payment does not settle a sales order; a session without one is not
+reconciled. Installations without the `sales` module have no authoritative total
+to compare against and skip reconciliation entirely.
 
 **Response (201):**
 
@@ -193,7 +204,7 @@ curl -X POST "$BASE_URL/payment_gateways/sessions" \
 }
 ```
 
-**Errors:** `422` invalid payload or unknown provider, `403` insufficient permissions.
+**Errors:** `409` amount or currency does not match the referenced order, `422` invalid payload or unknown provider, `403` insufficient permissions.
 
 ### Stripe-specific notes
 
@@ -206,7 +217,8 @@ curl -X POST "$BASE_URL/payment_gateways/sessions" \
 
 **Feature:** `payment_gateways.capture`
 
-Captures an authorized payment. Omit `amount` for full capture.
+Captures an authorized payment. Omit `amount` to capture everything that is still capturable
+on the authorization — after a partial capture that is the remainder, not the original amount.
 
 ```bash
 curl -X POST "$BASE_URL/payment_gateways/capture" \
@@ -225,6 +237,28 @@ curl -X POST "$BASE_URL/payment_gateways/capture" \
 ```
 
 For Stripe manual capture flows, call this when the transaction status becomes `authorized`.
+
+### Cumulative capture ceiling
+
+Every capture is counted against the authorized amount, so repeated partial captures can never
+add up past it. The transaction keeps a captured-to-date total, and a capture reserves its slice
+of the authorization before the provider is called — two concurrent captures cannot both charge.
+
+| Status | `code` | Meaning |
+|--------|--------|---------|
+| 409 | `payment_capture_ceiling_exceeded` | The requested amount is larger than what is still capturable (or the transaction is already fully captured). Retry with the remaining amount. |
+| 409 | `payment_capture_reservation_conflict` | Another capture on the same transaction moved the captured total first. Re-read the transaction and retry with the remaining amount. |
+| 409 | `payment_operation_in_progress` | The same `operationId` is still running. |
+
+Pass an `operationId` to make a capture retry-safe: repeating it replays the stored result instead
+of capturing a second time. Two genuinely separate partial captures need two distinct
+`operationId` values.
+
+When a capture fails *after* the provider call returned — the money may already have moved and only
+the bookkeeping failed — the reserved slice stays held rather than being handed back, so a fresh
+`operationId` cannot spend it twice. Retry that capture with the **same** `operationId`: it reuses
+the reservation and the provider idempotency key, so the provider collapses the duplicate and the
+captured-to-date total settles on what was really captured.
 
 ## Refund payment — `POST /payment_gateways/refund`
 

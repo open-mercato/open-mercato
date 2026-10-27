@@ -181,6 +181,33 @@ describe('Cache Service', () => {
       }
     })
 
+    it('uses SHA-256 identifiers for scoped storage keys and tags', async () => {
+      const root = fs.mkdtempSync(path.join(process.cwd(), '.cache-hash-'))
+      const jsonFilePath = path.join(root, 'cache.json')
+      try {
+        const cache = createCacheService({ strategy: 'jsonfile', jsonFilePath })
+        await runWithCacheTenant('tenant-a', async () => {
+          await cache.set('customer:user-123', 'value', { tags: ['customer:user-123'] })
+        })
+        await cache.close?.()
+
+        const storage = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8')) as {
+          entries: Record<string, unknown>
+          tagIndex: Record<string, string[]>
+        }
+        expect(Object.keys(storage.entries)).toHaveLength(2)
+        expect(Object.keys(storage.entries)).toEqual(expect.arrayContaining([
+          expect.stringMatching(/^tenant:tenant-a:key:k:[0-9a-f]{64}$/),
+          expect.stringMatching(/^tenant:tenant-a:key:meta:[0-9a-f]{64}$/),
+        ]))
+        expect(Object.keys(storage.tagIndex)).toEqual(expect.arrayContaining([
+          expect.stringMatching(/^tenant:tenant-a:tag:t:[0-9a-f]{64}$/),
+        ]))
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+
     it('should handle concurrent operations', async () => {
       const cache = createCacheService()
       
@@ -363,5 +390,59 @@ describe('Cache Service stats() counter gating', () => {
     expect(stats.evictions).toBe(7)
     expect(stats.sweeps).toBe(2)
     expect(stats.lastSweepReclaimed).toBe(3)
+  })
+})
+
+describe('Cache Service compression resolution (CACHE_COMPRESSION)', () => {
+  afterEach(() => {
+    delete process.env.CACHE_COMPRESSION
+    delete process.env.CACHE_COMPRESSION_MIN_BYTES
+    jest.restoreAllMocks()
+  })
+
+  const captureSqliteOptions = () => {
+    const spy = jest.spyOn(sqliteStrategyModule, 'createSqliteStrategy')
+    spy.mockImplementation((_path, options) => {
+      return memoryStrategyModule.createMemoryStrategy({ defaultTtl: options?.defaultTtl })
+    })
+    return spy
+  }
+
+  it('passes the env compression settings to persistent strategies', () => {
+    process.env.CACHE_COMPRESSION = 'zstd'
+    process.env.CACHE_COMPRESSION_MIN_BYTES = '2048'
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite' })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'zstd', compressionMinBytes: 2048 })
+  })
+
+  it('lets explicit options override the env', () => {
+    process.env.CACHE_COMPRESSION = 'zstd'
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite', compression: 'gzip', compressionMinBytes: 512 })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'gzip', compressionMinBytes: 512 })
+  })
+
+  it('keeps compression off for an unknown env value and warns', () => {
+    process.env.CACHE_COMPRESSION = 'lz4-service-test'
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite' })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'off' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('lz4-service-test'))
+  })
+
+  it('defaults to off with no env and no options', () => {
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite' })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'off', compressionMinBytes: undefined })
   })
 })

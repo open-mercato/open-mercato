@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
 import { DataTable } from '../DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { render } from '@testing-library/react'
@@ -69,6 +69,25 @@ describe('DataTable sticky columns are viewport-gated', () => {
         expect(tokens).not.toContain('bg-background')
         expect(tokens).not.toContain('after:absolute')
       }
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  // Pinned cells carry z-10/z-20 while the app top bar sits at `z-sticky`
+  // (10). Without an isolated stacking context around the table, the pinned
+  // actions column painted over the top bar while the page scrolled (#7063).
+  it('confines pinned cell z-index to the table stacking context', () => {
+    const { container, queryClient } = renderStickyTable()
+    try {
+      const table = container.querySelector('table')
+      const scrollWrapper = table?.parentElement ?? null
+      expect(tokensOf(scrollWrapper)).toContain('isolate')
+      const pinned = container.querySelectorAll('[class*="md:sticky"]')
+      expect(pinned.length).toBeGreaterThan(0)
+      pinned.forEach((cell) => {
+        expect(scrollWrapper?.contains(cell)).toBe(true)
+      })
     } finally {
       queryClient.clear()
     }

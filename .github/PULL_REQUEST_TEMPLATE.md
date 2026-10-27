@@ -1,5 +1,5 @@
 <!--
-Please ensure this pull request targets the `develop` branch.
+Please ensure this pull request targets the `main` branch. Fixes that users of a released line need also get the `backport release/vX.Y.x` label (see CONTRIBUTING.md § Releasing).
 Checking the CLA box below confirms you accept the terms in docs/cla.md.
 -->
 
@@ -30,7 +30,8 @@ List the tests or commands you ran to validate the change.
 
 ## Checklist
 
-- [ ] This pull request targets `develop`.
+- [ ] This pull request targets `main` (only a can't-wait hotfix targets a `release/vX.Y.x` line, labelled `backport main`).
+- [ ] Category set: this PR carries a category label (`bug`, `feature`, …), and `backport release/vX.Y.x` if a released line needs the fix.
 - [ ] I have read and accept the Open Mercato Contributor License Agreement (see `docs/cla.md`).
 - [ ] I updated documentation, locales, or generators if the change requires it.
 - [ ] I added or adjusted tests that cover the change.
@@ -38,7 +39,7 @@ List the tests or commands you ran to validate the change.
 - [ ] I created or updated the spec in `.ai/specs/` with a changelog entry (if applicable).
 - [ ] Priority set: this PR carries exactly one `priority-*` label.
 - [ ] Risk set: this PR carries exactly one `risk-*` label describing its blast radius (`risk-low`/`risk-medium`/`risk-high`).
-- [ ] QA routing set: `skip-qa` for low-risk non-customer-facing changes, otherwise `needs-qa`. A `needs-qa` PR cannot merge until QA adds `qa-approved` (or an engineer self-QAs: run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified`). See `.github/QA-DEPLOYMENT.md`.
+- [ ] QA routing set: `skip-qa` for low-risk non-customer-facing changes — and for changes with no manually exercisable UI surface that leave the database structure and API surface unchanged, preserve `BACKWARD_COMPATIBILITY.md` contracts, and ship automated tests for the behavior they change — otherwise `needs-qa`. A `needs-qa` PR cannot merge until QA adds `qa-approved` (or an engineer self-QAs: run locally, click through, attach a screenshot/written confirmation, then add `qa-approved` + `qa-self-verified` — without `triage` permission, post the evidence and ask a maintainer to apply those two labels). See `.github/QA-DEPLOYMENT.md` and `AGENTS.md` → PR Workflow for the authoritative rules.
 
 ### Design System Compliance
 - [ ] No hardcoded status colors (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-amber-*`, `bg-blue-*`) — use semantic tokens

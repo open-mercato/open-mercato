@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -41,6 +42,7 @@ type AttachmentLibraryResponse = {
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped?: boolean
   availableTags: string[]
   partitions: Array<{ code: string; title: string; description?: string | null; isPublic?: boolean }>
   error?: string
@@ -199,7 +201,7 @@ type AssignmentsEditorProps = {
   disabled?: boolean
 }
 
-function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: AssignmentsEditorProps) {
+export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: AssignmentsEditorProps) {
   const handleChange = React.useCallback(
     (index: number, patch: Partial<AssignmentDraft>) => {
       onChange(value.map((entry, idx) => (idx === index ? { ...entry, ...patch } : entry)))
@@ -229,7 +231,7 @@ function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: Assi
           <div className="text-xs text-muted-foreground">No assignments yet.</div>
         ) : (
           value.map((entry, index) => (
-            <div key={`${index}-${entry.type}-${entry.id}`} className="rounded border p-3 space-y-2">
+            <div key={index} className="rounded border p-3 space-y-2">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-medium">{labels.type}</label>
@@ -305,6 +307,7 @@ type AttachmentFilesFieldProps = CrudCustomFieldRenderProps & {
     empty: string
   }
   uploading: boolean
+  uploadedFiles: ReadonlySet<File>
 }
 
 function AttachmentFilesField({
@@ -313,8 +316,10 @@ function AttachmentFilesField({
   disabled,
   labels,
   uploading,
+  uploadedFiles,
 }: AttachmentFilesFieldProps) {
   const files = React.useMemo(() => (Array.isArray(value) ? (value as File[]) : []), [value])
+  const pendingFiles = React.useMemo(() => files.filter((file) => !uploadedFiles.has(file)), [files, uploadedFiles])
   const [isDragOver, setDragOver] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -371,12 +376,12 @@ function AttachmentFilesField({
   }, [disabled, uploading])
 
   const renderFileList = () => {
-    if (!files.length) {
+    if (!pendingFiles.length) {
       return <p className="text-xs text-muted-foreground">{labels.empty}</p>
     }
     return (
       <div className="space-y-2">
-        {files.map((candidate) => (
+        {pendingFiles.map((candidate) => (
           <div key={`${candidate.name}-${candidate.size}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
             <div>
               <div className="font-medium">{candidate.name}</div>
@@ -443,6 +448,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
   const t = useT()
   const [isUploading, setIsUploading] = React.useState(false)
   const [uploadProgress, setUploadProgress] = React.useState<{ completed: number; total: number }>({ completed: 0, total: 0 })
+  const [uploadedFiles, setUploadedFiles] = React.useState<ReadonlySet<File>>(() => new Set())
 
   const partitionOptions = React.useMemo(
     () =>
@@ -502,6 +508,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
           <AttachmentFilesField
             {...props}
             uploading={isUploading}
+            uploadedFiles={uploadedFiles}
             labels={{
               dropHint: t('attachments.library.upload.dropHint', 'Drag and drop files here or click to upload.'),
               choose: t('attachments.library.upload.choose', 'Choose files'),
@@ -548,7 +555,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
         ),
       },
     ]
-  }, [assignmentLabels, availableTags, isUploading, partitionOptions, t])
+  }, [assignmentLabels, availableTags, isUploading, partitionOptions, t, uploadedFiles])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     return [
@@ -573,12 +580,13 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
 
   const handleSubmit = React.useCallback(
     async (values: AttachmentUploadFormValues) => {
-      const files = Array.isArray(values.files) ? values.files : []
+      const files = (Array.isArray(values.files) ? values.files : []).filter((file) => !uploadedFiles.has(file))
       if (!files.length) {
         throw new Error(t('attachments.library.upload.fileRequired', 'Select at least one file to upload.'))
       }
       setUploadProgress({ completed: 0, total: files.length })
       setIsUploading(true)
+      const acknowledged: File[] = []
       try {
         const tags = Array.isArray(values.tags)
           ? values.tags
@@ -622,6 +630,7 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
             const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
             throw new Error(message)
           }
+          acknowledged.push(file)
           completed += 1
           setUploadProgress({ completed, total: files.length })
         }
@@ -631,12 +640,16 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
       } catch (err: any) {
         const message = err?.message || t('attachments.library.upload.failed', 'Upload failed.')
         flash(message, 'error')
+        if (acknowledged.length) {
+          setUploadedFiles((current) => new Set([...current, ...acknowledged]))
+          onUploaded()
+        }
         throw new Error(message)
       } finally {
         setIsUploading(false)
       }
     },
-    [onCancel, onUploaded, t],
+    [onCancel, onUploaded, t, uploadedFiles],
   )
 
   return (
@@ -916,6 +929,7 @@ export function AttachmentLibrary() {
                     className="text-sm text-blue-600 underline"
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
                   >
                     {content}
                   </a>
@@ -961,7 +975,12 @@ export function AttachmentLibrary() {
           const absolute = resolveAbsoluteUrl(downloadPath)
           return (
             <Button variant="ghost" size="icon" asChild>
-              <a href={absolute} download aria-label={t('attachments.library.table.download', 'Download')}>
+              <a
+                href={absolute}
+                download
+                aria-label={t('attachments.library.table.download', 'Download')}
+                onClick={(event) => event.stopPropagation()}
+              >
                 <Download className="h-4 w-4" />
               </a>
             </Button>
@@ -1047,11 +1066,13 @@ export function AttachmentLibrary() {
 
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
+  const totalIsCapped = data?.totalIsCapped === true
   return (
     <>
       <DataTable<AttachmentRow>
         stickyActionsColumn
         title={t('attachments.library.title', 'Attachments')}
+        titleHeadingLevel={1}
         refreshButton={{
           label: t('attachments.library.actions.refresh', 'Refresh'),
           onRefresh: () => { void refetch() },
@@ -1147,6 +1168,7 @@ export function AttachmentLibrary() {
           pageSize: PAGE_SIZE,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: (next) => setPage(next),
         }}
       />

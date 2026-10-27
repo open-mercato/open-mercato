@@ -77,3 +77,11 @@ export async function enforceTenantSelection(ctx: TenantGuardCtx, requested: unk
   if (normalized === actorTenant) return actorTenant
   throw forbidden('Not authorized to target this tenant.')
 }
+
+export async function requireSuperAdmin(ctx: TenantGuardCtx): Promise<void> {
+  const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+  if (!isSuperAdmin) {
+    throw forbidden('Forbidden')
+  }
+}
+

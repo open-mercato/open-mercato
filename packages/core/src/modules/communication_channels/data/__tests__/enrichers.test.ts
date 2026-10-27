@@ -1,11 +1,36 @@
 import { enrichers } from '../enrichers'
 import { CommunicationChannel, ExternalConversation, MessageChannelLink } from '../entities'
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import { applyMessageParticipantScope } from '../../../messages/lib/participantScope'
 
 const findEnricher = (id: string): ResponseEnricher => {
   const e = enrichers.find((x) => x.id === id)
   if (!e) throw new Error(`Enricher ${id} not found in exported array`)
   return e
+}
+
+function makeParticipantQuery(rows: Array<{ id: string }>) {
+  const joinBuilder: any = {
+    onRef: jest.fn(() => joinBuilder),
+    on: jest.fn(() => joinBuilder),
+  }
+  const expressionBuilder: any = jest.fn((...args: unknown[]) => args)
+  expressionBuilder.or = jest.fn((expressions: unknown[]) => expressions)
+  const query: any = {
+    selectFrom: jest.fn(() => query),
+    leftJoin: jest.fn((_table: string, join: (builder: any) => unknown) => {
+      join(joinBuilder)
+      return query
+    }),
+    select: jest.fn(() => query),
+    distinct: jest.fn(() => query),
+    where: jest.fn((...args: unknown[]) => {
+      if (typeof args[0] === 'function') args[0](expressionBuilder)
+      return query
+    }),
+    execute: jest.fn(async () => rows),
+  }
+  return { expressionBuilder, joinBuilder, query }
 }
 
 describe('communication_channels enrichers — registration', () => {
@@ -76,6 +101,7 @@ describe('messageReactionsEnricher — grouping + reactedByMe', () => {
       tenantId: 'tenant',
       userId: currentUserId,
       em: {
+        getKysely: () => makeParticipantQuery([{ id: 'm1' }]).query,
         find: jest.fn(async (_entity: unknown) => [
           // 3× thumbsup, one of which is from current user
           { messageId: 'm1', emoji: '👍', reactedByUserId: 'user-1', reactedByExternalId: null, providerKey: 'slack', reactedByDisplayName: null },
@@ -116,6 +142,7 @@ describe('messageReactionsEnricher — batched lookup (no N+1)', () => {
       container: { resolve: () => null },
     } as any
     const records = Array.from({ length: 25 }, (_, i) => ({ id: `m-${i}` }))
+    ctx.em.getKysely = () => makeParticipantQuery(records).query
 
     const out = await enricher.enrichMany!(records as any, ctx)
 
@@ -130,30 +157,6 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
   // em.find branches on the entity argument so we can count per-entity queries.
   // findWithDecryption is a thin wrapper over em.find(entity, where, options),
   // so each entity passed to findWithDecryption surfaces here as call[0].
-  function makeParticipantQuery(rows: Array<{ id: string }>) {
-    const joinBuilder: any = {
-      onRef: jest.fn(() => joinBuilder),
-      on: jest.fn(() => joinBuilder),
-    }
-    const expressionBuilder: any = jest.fn((...args: unknown[]) => args)
-    expressionBuilder.or = jest.fn((expressions: unknown[]) => expressions)
-    const query: any = {
-      selectFrom: jest.fn(() => query),
-      leftJoin: jest.fn((_table: string, join: (builder: any) => unknown) => {
-        join(joinBuilder)
-        return query
-      }),
-      select: jest.fn(() => query),
-      distinct: jest.fn(() => query),
-      where: jest.fn((...args: unknown[]) => {
-        if (typeof args[0] === 'function') args[0](expressionBuilder)
-        return query
-      }),
-      execute: jest.fn(async () => rows),
-    }
-    return { expressionBuilder, joinBuilder, query }
-  }
-
   function makeFind() {
     return jest.fn(async (entity: unknown) => {
       if (entity === MessageChannelLink) {
@@ -299,5 +302,134 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
     expect(participantQuery.where).toHaveBeenCalledWith('m.deleted_at', 'is', null)
     expect(expressionBuilder).toHaveBeenCalledWith('m.sender_user_id', '=', 'user-1')
     expect(expressionBuilder).toHaveBeenCalledWith('r.message_id', 'is not', null)
+  })
+})
+
+describe('message-channel enricher — participant scope agrees with the list route (#4133)', () => {
+  // Records the join conditions and OR-expression terms a Kysely builder emits,
+  // so the participant predicate can be compared regardless of call site.
+  function makeScopeRecorder() {
+    const onRef: unknown[][] = []
+    const on: unknown[][] = []
+    const or: unknown[][] = []
+    const joinBuilder: any = {
+      onRef: (...args: unknown[]) => { onRef.push(args); return joinBuilder },
+      on: (...args: unknown[]) => { on.push(args); return joinBuilder },
+    }
+    const expressionBuilder: any = (...args: unknown[]) => { or.push(args); return args }
+    expressionBuilder.or = (expressions: unknown[]) => expressions
+    const query: any = {
+      selectFrom: () => query,
+      leftJoin: (_table: string, join: (builder: any) => unknown) => { join(joinBuilder); return query },
+      select: () => query,
+      distinct: () => query,
+      where: (...args: unknown[]) => {
+        if (typeof args[0] === 'function') (args[0] as (eb: unknown) => unknown)(expressionBuilder)
+        return query
+      },
+      execute: async () => [{ id: 'm1' }],
+    }
+    return { query, signature: () => ({ onRef, on, or }) }
+  }
+
+  it('the enricher guard and the list route all-folder derive one participant set', async () => {
+    const enricher = findEnricher('communication_channels.message-channel')
+
+    // List route `all` folder: it calls the shared helper directly on its query.
+    const routeRecorder = makeScopeRecorder()
+    applyMessageParticipantScope(routeRecorder.query.selectFrom('messages as m'), 'user-1')
+
+    // Enricher: run its participant guard through a recording Kysely builder.
+    const enricherRecorder = makeScopeRecorder()
+    await enricher.enrichMany!([{ id: 'm1' }] as any, {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find: jest.fn(async () => []), getKysely: () => enricherRecorder.query },
+      container: { resolve: () => null },
+    } as any)
+
+    // Both must emit the exact same sender-OR-recipient predicate — a drift in
+    // either call site would break this equality.
+    expect(enricherRecorder.signature()).toEqual(routeRecorder.signature())
+    expect(routeRecorder.signature()).toEqual({
+      onRef: [['m.id', '=', 'r.message_id']],
+      on: [
+        ['r.recipient_user_id', '=', 'user-1'],
+        ['r.deleted_at', 'is', null],
+      ],
+      or: [
+        ['m.sender_user_id', '=', 'user-1'],
+        ['r.message_id', 'is not', null],
+      ],
+    })
+  })
+})
+
+describe('messageReactionsEnricher — participant scope (#3834)', () => {
+  const enricher = findEnricher('communication_channels.message-reactions')
+  const reactionRows = [
+    { id: 'r1', messageId: 'm1', emoji: '👍', reactedByUserId: 'user-1', reactedByExternalId: null, providerKey: 'gmail', reactedByDisplayName: null },
+    { id: 'r2', messageId: 'm2', emoji: '❤️', reactedByUserId: null, reactedByExternalId: 'ext-2', providerKey: 'gmail', reactedByDisplayName: 'Private Contact' },
+  ]
+
+  it('returns no reactions for a same-organization non-participant and never loads them', async () => {
+    const find = jest.fn(async (_entity: unknown, where: { messageId: { $in: string[] } }) =>
+      reactionRows.filter((row) => where.messageId.$in.includes(row.messageId)),
+    )
+    const { expressionBuilder, joinBuilder, query } = makeParticipantQuery([{ id: 'm1' }])
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find, getKysely: () => query },
+      container: { resolve: () => null },
+    } as any
+
+    const out = (await enricher.enrichMany!([{ id: 'm1' }, { id: 'm2' }] as any, ctx)) as any[]
+
+    expect(out[0]._reactions).toEqual([
+      expect.objectContaining({ emoji: '👍', count: 1, reactedByMe: true, myReactionId: 'r1' }),
+    ])
+    expect(out[1]._reactions).toEqual([])
+    expect(find.mock.calls[0]?.[1]).toMatchObject({ messageId: { $in: ['m1'] } })
+    expect(joinBuilder.on).toHaveBeenCalledWith('r.recipient_user_id', '=', 'user-1')
+    expect(query.where).toHaveBeenCalledWith('m.tenant_id', '=', 'tenant')
+    expect(query.where).toHaveBeenCalledWith('m.organization_id', '=', 'org')
+    expect(expressionBuilder).toHaveBeenCalledWith('m.sender_user_id', '=', 'user-1')
+  })
+
+  it('skips the reaction query entirely when the caller participates in none of the messages', async () => {
+    const find = jest.fn(async () => reactionRows)
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-9',
+      em: { find, getKysely: () => makeParticipantQuery([]).query },
+      container: { resolve: () => null },
+    } as any
+
+    const out = (await enricher.enrichMany!([{ id: 'm1' }, { id: 'm2' }] as any, ctx)) as any[]
+
+    expect(out.map((record) => record._reactions)).toEqual([[], []])
+    expect(find).not.toHaveBeenCalled()
+  })
+
+  it('fails closed without an authenticated user', async () => {
+    const find = jest.fn(async () => reactionRows)
+    const getKysely = jest.fn(() => makeParticipantQuery([{ id: 'm1' }]).query)
+    const ctx = {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: undefined,
+      em: { find, getKysely },
+      container: { resolve: () => null },
+    } as any
+
+    const out = (await enricher.enrichMany!([{ id: 'm1' }] as any, ctx)) as any[]
+
+    expect(out[0]._reactions).toEqual([])
+    expect(getKysely).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
   })
 })

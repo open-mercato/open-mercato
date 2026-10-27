@@ -97,6 +97,8 @@ function generateId(): string {
 
 export function DashboardScreenLegacy() {
   const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
   const organizationScopeVersion = useOrganizationScopeVersion()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -172,11 +174,11 @@ export function DashboardScreenLegacy() {
         setSettingsId(null)
         return
       }
-      setError(t('dashboard.loadError'))
+      setError(tRef.current('dashboard.loadError'))
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [])
 
   React.useEffect(() => {
     load()
@@ -377,7 +379,7 @@ export function DashboardScreenLegacy() {
 
   if (error && layout.length === 0) {
     return (
-      <Alert variant="destructive">
+      <Alert status="error">
         <AlertTitle>{t('dashboard.unavailable')}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
         <div className="mt-2"><Button variant="outline" onClick={handleRefresh}>{t('dashboard.retry')}</Button></div>
@@ -387,7 +389,7 @@ export function DashboardScreenLegacy() {
 
   if (!hasRegisteredWidgets && layout.length === 0) {
     return (
-      <Alert variant="info">
+      <Alert status="information">
         <AlertTitle>{t('dashboard.empty.noWidgets.title', 'No dashboard widgets yet')}</AlertTitle>
         <AlertDescription>
           {t(
@@ -423,7 +425,7 @@ export function DashboardScreenLegacy() {
       </div>
 
       {error && layout.length > 0 && (
-        <Alert variant="destructive">
+        <Alert status="error">
           <AlertTitle>{t('dashboard.error.partial')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
           <div className="mt-2"><Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button></div>

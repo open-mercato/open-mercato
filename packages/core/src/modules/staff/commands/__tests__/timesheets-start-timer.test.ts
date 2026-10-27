@@ -44,11 +44,15 @@ const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const STAFF_MEMBER_ID = '33333333-3333-4333-8333-333333333333'
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444'
+const OTHER_PROJECT_ID = '44444444-4444-4444-8444-4444444444ff'
+const TASK_ID = '55555555-5555-4555-8555-555555555555'
 
 type LoadedCommand = {
   command: RegisteredCommand
   StaffTimeEntry: unknown
   StaffTimeEntrySegment: unknown
+  StaffTimeTask: unknown
+  StaffTimeProject: unknown
 }
 
 // Re-import the entity classes from the *same* freshly-reset module registry the
@@ -64,17 +68,33 @@ async function loadStartTimerCommand(): Promise<LoadedCommand> {
     command: commandRegistry.get('staff.timesheets.time_entries.start_timer') as RegisteredCommand,
     StaffTimeEntry: entities.StaffTimeEntry,
     StaffTimeEntrySegment: entities.StaffTimeEntrySegment,
+    StaffTimeTask: entities.StaffTimeTask,
+    StaffTimeProject: entities.StaffTimeProject,
   }
 }
 
 type CreateCall = { cls: unknown; data: Record<string, unknown> }
 
-function makeEm(createCalls: CreateCall[], StaffTimeEntry: unknown, StaffTimeEntrySegment: unknown) {
+type Scope = {
+  StaffTimeTask?: unknown
+  task?: Record<string, unknown> | null
+}
+
+function makeEm(
+  createCalls: CreateCall[],
+  StaffTimeEntry: unknown,
+  StaffTimeEntrySegment: unknown,
+  scope: Scope = {},
+) {
   let entrySeq = 0
   const em: Record<string, jest.Mock> = {
     fork: jest.fn(),
-    // assertTimeProjectInScope() resolves the referenced project as in-scope.
-    findOne: jest.fn(async () => ({ id: PROJECT_ID })),
+    // requireTaskInScope() resolves the referenced task; assertTimeProjectInScope()
+    // resolves the referenced project as in-scope.
+    findOne: jest.fn(async (cls: unknown) => {
+      if (scope.StaffTimeTask && cls === scope.StaffTimeTask) return scope.task ?? null
+      return { id: PROJECT_ID }
+    }),
     create: jest.fn((cls: unknown, data: Record<string, unknown>) => {
       createCalls.push({ cls, data })
       const created: Record<string, unknown> = { ...data }
@@ -153,6 +173,110 @@ describe('staff timesheets atomic start-timer (#3311)', () => {
       expect.objectContaining({ id: result.timeEntryId, staffMemberId: STAFF_MEMBER_ID }),
       expect.objectContaining({ persistent: true }),
     )
+  })
+
+  // T3.10 (d) — starting a timer from a board card or the task drawer must be ONE
+  // write. The previous flow started a project-level timer and then PATCHed the
+  // task onto it; a failure between the two left the timer running against the
+  // project, so the person was recording time under the wrong thing.
+  it('stores the task in the same write, so no second request can strand a running timer', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment, StaffTimeTask } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment, {
+      StaffTimeTask,
+      task: { id: TASK_ID, timeProjectId: PROJECT_ID },
+    })
+
+    const result = (await command.execute({ ...startInput(), taskId: TASK_ID }, createCtx(em))) as {
+      timeEntryId: string
+    }
+
+    const entryCreate = createCalls.find((call) => call.cls === StaffTimeEntry)
+    expect(entryCreate?.data).toMatchObject({
+      taskId: TASK_ID,
+      timeProjectId: PROJECT_ID,
+      source: 'timer',
+      durationMinutes: 0,
+    })
+    expect(result.timeEntryId).toBeTruthy()
+    // One transaction, one entry, one segment — and nothing after it that could
+    // fail with the timer already running.
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(createCalls).toHaveLength(2)
+  })
+
+  it('lets the project follow from the task when the card knows only the task', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment, StaffTimeTask } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment, {
+      StaffTimeTask,
+      task: { id: TASK_ID, timeProjectId: PROJECT_ID },
+    })
+
+    const { timeProjectId: _omitted, ...withoutProject } = startInput()
+    await command.execute({ ...withoutProject, taskId: TASK_ID }, createCtx(em))
+
+    const entryCreate = createCalls.find((call) => call.cls === StaffTimeEntry)
+    expect(entryCreate?.data).toMatchObject({ taskId: TASK_ID, timeProjectId: PROJECT_ID })
+  })
+
+  it('resolves the task inside the caller tenant and organization only', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment, StaffTimeTask } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment, {
+      StaffTimeTask,
+      task: { id: TASK_ID, timeProjectId: PROJECT_ID },
+    })
+
+    await command.execute({ ...startInput(), taskId: TASK_ID }, createCtx(em))
+
+    expect(em.findOne).toHaveBeenCalledWith(StaffTimeTask, {
+      id: TASK_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+    })
+  })
+
+  it('refuses a task another tenant owns and starts no timer at all', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment, StaffTimeTask } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    // The scoped lookup finds nothing, which is what a foreign or stale task id
+    // looks like from inside the caller's scope.
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment, { StaffTimeTask, task: null })
+
+    await expect(command.execute({ ...startInput(), taskId: TASK_ID }, createCtx(em))).rejects.toMatchObject({
+      status: 422,
+    })
+    expect(createCalls).toHaveLength(0)
+    expect(em.transactional).not.toHaveBeenCalled()
+  })
+
+  it('refuses a task that belongs to a different project than the timer names', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment, StaffTimeTask } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment, {
+      StaffTimeTask,
+      task: { id: TASK_ID, timeProjectId: OTHER_PROJECT_ID },
+    })
+
+    await expect(command.execute({ ...startInput(), taskId: TASK_ID }, createCtx(em))).rejects.toMatchObject({
+      status: 422,
+    })
+    expect(createCalls).toHaveLength(0)
+  })
+
+  it('starts a project-level timer exactly as before when no task is named', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment, StaffTimeTask } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment, { StaffTimeTask, task: null })
+
+    await command.execute(startInput(), createCtx(em))
+
+    const entryCreate = createCalls.find((call) => call.cls === StaffTimeEntry)
+    expect(entryCreate?.data).toMatchObject({ taskId: null, timeProjectId: PROJECT_ID })
+    // No task was named, so no task lookup was paid for.
+    expect(em.findOne).not.toHaveBeenCalledWith(StaffTimeTask, expect.anything())
   })
 
   it('rejects with 409 and persists no orphan entry when another timer is already running (#2855)', async () => {

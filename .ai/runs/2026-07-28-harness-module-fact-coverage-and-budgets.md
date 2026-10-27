@@ -1,0 +1,114 @@
+# Harness module-fact coverage and case-budget audit (#4565)
+
+Source issue: [#4565](https://github.com/open-mercato/open-mercato/issues/4565) — follow-up from #4529.
+Related: #4529 (parent, unmerged), #4556 (OMH-188/189, stacked parent of this branch).
+Audit report: `.ai/analysis/2026-07-28-harness-module-fact-coverage-and-budget-audit.md`.
+
+## Why
+
+PR #4529 uses catalog budgets and module-fact coverage as release evidence. The reviewer asked for two
+things this branch delivers: an inventory of every shipped module-fact file against the catalog, and an
+audit of whether case-local budgets are tighter than their tasks genuinely need.
+
+Both were measured against a real scaffolded controller (`mercato agentic:init` into an empty app root),
+not estimated: the controller ships exactly 47 module fact-sheets, and every case budget was compared
+against the on-disk byte size of the context that case declares.
+
+## Scope
+
+- Inventory all 47 shipped fact-sheets against `context.required`, `context.allowedExtra`, `owner.path`,
+  and prompt/title/tag text.
+- Add routing cases for the capabilities with no catalog trace at all.
+- Audit case-local file, byte, refused-read, and duration budgets from measured footprints and clean
+  live traces.
+- Keep global safety, write, oracle, and review limits unchanged.
+
+## Progress
+
+PR: #4602
+Follow-up: #4603
+
+- [x] 1.1 Materialise a faithful controller and establish the pre-change baseline — deterministic
+      189/189 on the stacked parent's exact bytes
+- [x] 1.2 Inventory every shipped fact-sheet against catalog context, owner, and prompt coverage —
+      47 shipped, 6 with no trace at all (`configs`, `gateway_stripe`, `perspectives`, `resources`,
+      `sync_akeneo`, `sync_excel`)
+- [x] 1.3 Measure every case's declared-context footprint against its own budgets — three
+      contradictions found (OMH-111, OMH-146, OMH-169)
+- [x] 2.1 Add OMH-190…OMH-195 for the six uncovered capabilities, following the OMH-188/189 shape
+      (facts owner, observed architecture guide, observed fact-sheet, and the governing skill —
+      `om-help` on the discovery-framed three, `om-integration-builder` on the provider-framed three)
+- [x] 2.2 Align the catalog size everywhere: `validators.json`, `cases.schema.json` (`minItems`,
+      `maxItems`, `id`/`relatedCases` patterns), harness README/RELEASE, package README, spec
+- [x] 3.1 Widen the three contradictory budgets from measured footprints; global caps untouched
+- [x] 3.2 Make the deterministic gate measure declared context on disk and reject budgets a case
+      cannot satisfy, so this class cannot return silently
+- [x] 3.3 Regression test proving the new rule fails on the pre-fix state and passes after
+- [x] 4.1 Build guard: every module fact-sheet a scaffold ships must be routed by at least one case
+- [x] 4.2 Semantic assertions for OMH-190…195 in `agent-surface-coverage.test.ts`
+- [x] 4.3 Live before/after evidence for the budget fixes and live runs for the six new cases —
+      OMH-169's `initial context byte budget exceeded: 57372/57344` reproduced before and gone after;
+      OMH-190/191/192 pass first try; OMH-193/194/195 retargeted to the skill live routing selects — f8af90d77
+- [x] 5.1 Full configured validation gate — 8/8 commands green. `yarn test` needed two runs: each
+      lost one random jest worker to `SIGSEGV` (`ui/primitives/tag`, then `cli/testing/integration`)
+      with zero assertion failures, and every affected suite passes in isolation. Across the two runs
+      `core` 1033/1033, `ui` 206/206, `enterprise` 57/57, `create-app` 335 pass / 5 skipped.
+- [x] 5.2 Audit report committed under `.ai/analysis/` — c6e4f8afb
+- [x] 5.3 Follow-up issue for the `allowedExtra`-only coverage tier — #4603
+- [x] 5.4 Review pass (`om-auto-review-pr`): one Minor finding fixed — the new rule's
+      `maxTotalContextBytes` arm had no assertion and measures fact-sheets as zero in a staged
+      fixture; the regression test now isolates that arm and mirrors the evaluator's initial-path
+      rule. Three nits fixed: the fact-sheet guard comment no longer implies it asserts the
+      `allowedExtra` tier, and the audit report names #4603 and records the measurement
+      boundary — 625bc0c73
+- [x] 5.6 CI stabilization (`om-auto-fix-pr --ci-only`): merged `develop`, which enables the new
+      `wms` module in the create-app template. Both of this branch's own guards then fired on the
+      merge result, exactly as designed — the classic fact-index canary (47 → 48 sheets) and
+      "every shipped fact-sheet is routed by at least one case" (`wms` uncovered). Closed the gap
+      the same way OMH-188…195 closed theirs: OMH-196 routes `.ai/guides/modules/wms.md` through
+      `om-help` as a reuse-installed architecture decision, with the catalog counters, the id
+      pattern, and the harness docs repinned to 196. `ephemeral-integration (2/15)` failed on a
+      Docker Hub 500 pulling `testcontainers/ryuk` — runner infrastructure, not this branch.
+
+### Phase 6: consolidate the stack onto a single reviewable child of #4529
+
+- [x] 6.1 Close the stale package README count `449a29e73` left behind (195 while the catalog,
+      schema, validators and harness docs said 196) and bind every published count to the catalog so
+      the class cannot return — the new guard reproduces the drift as a failure before the fix and
+      passes after — 2e1a1e896
+- [x] 6.2 Port the content unique to #4556: its execution plan (adapted to this branch's merge head and
+      to the fact that the seven later cases have their own plan), the portability-sample correction its
+      `f9d584589` made, and its schema-enforcement canary fix — the canary now pins `OMH-201`
+      — 3af9024e7, bbdeae39c
+- [x] 6.3 Merge #4529 head `abed8e02a` and renumber this branch's nine cases to OMH-193…201,
+      including the `relatedCases` that would otherwise point at #4529's different OMH-188/189. The
+      byte-identical parent catalog reverted three measured budget widenings; the deterministic gate
+      caught it and they are restored — 3af9024e7, 98988a512
+- [x] 6.4 Full configured validation gate on the merge result, local runner: 7 of 8 green
+      (`build:packages` ×2, `generate` with no versioned drift, `i18n:check-sync`, `i18n:check-usage`,
+      `typecheck`, `build:app`). `yarn test` exits non-zero on a jest-worker `SIGSEGV` that killed
+      `core/src/modules/wms/components/backend/__tests__/CycleCountWizardDialog.lotRuntime.test.tsx`
+      before it could run — a WMS UI suite this delta does not touch — with zero assertion failures
+      (`core` 8280/8280 tests, 1085/1086 suites) and 3/3 for that suite in isolation. The `create-app`
+      package suite run serially is 389 tests / 384 pass / 0 fail / 5 skipped, and the deterministic
+      catalog gate is 201/201
+- [x] 6.5 Republish the reviewable delta in the PR body (18 files / +1 264 / −37 against
+      `merge-tree(#4529 head, develop)`, itemised), request the missing labels — this account has `read`
+      permission, so `refactor`, `skip-qa`, `priority-medium`, `risk-high` and `blocked` need a
+      maintainer — and close #4556 as superseded with the measured rationale
+- [x] 6.6 Report to #4529 the stale portability count its own head publishes: `39-case` in
+      `run-agent-harness-release.mjs`, `case-template.md` and `case-workflow.md` against a 45-entry
+      `release-matrix.json`. Found by the new count guard, corrected on this branch
+- [x] 6.7 Merge current `develop`, preserve #4759's independently added `OMH-193`, shift this branch's
+      nine cases and their relations to `OMH-194`…`OMH-202`, resolve the semantic conflicts, and
+      validate the resulting 202-case / 46-writable catalog; current-base measurement also widened
+      OMH-120's required initial-context budget to the next 4 KiB boundary
+
+## Deliberately out of scope
+
+- The 11 fact-sheets that appear only in `context.allowedExtra`: no case fails when an agent ignores
+  them, but they are not "uncovered" in the sense the issue names. Recorded in the audit report and
+  handed to a follow-up rather than grown into this branch.
+- Global limits: `catalog.maxContextFiles` (16), `catalog.maxInitialContextBytes` (90112),
+  `catalog.maxTotalContextBytes` (262144), `MAX_REFUSED_CONTEXT_READS` (6), and every write, oracle,
+  and review limit are unchanged.

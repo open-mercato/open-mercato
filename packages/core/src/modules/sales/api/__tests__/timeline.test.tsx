@@ -13,7 +13,19 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
-  const t = (key: string, fallback?: string) => fallback ?? key
+  const translations: Record<string, string> = {
+    'sales.audit.orders.lines.upsert': 'Update order line',
+    'sales.documents.history.actor.system': 'System',
+    'sales.documents.history.changedFields': 'Changed fields: {fields}',
+    'sales.documents.history.fields.quantity': 'Quantity',
+    'sales.documents.history.fields.unitPriceNet': 'Net unit price',
+  }
+  const t = (key: string, fallbackOrParams?: string | Record<string, string>, params?: Record<string, string>) => {
+    const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined
+    const values = typeof fallbackOrParams === 'object' ? fallbackOrParams : params
+    const template = translations[key] ?? fallback ?? key
+    return template.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match)
+  }
   return { useT: () => t }
 })
 
@@ -161,5 +173,35 @@ describe('TimelineWidget', () => {
     render(<TimelineWidget context={baseContext} />)
     expect(await screen.findByText('draft')).toBeInTheDocument()
     expect(screen.getByText('confirmed')).toBeInTheDocument()
+  })
+
+  it('localizes the action and renders a translated changed-fields summary', async () => {
+    const entriesWithChanges: TimelineEntry[] = [
+      {
+        id: 'line-update',
+        occurredAt: new Date().toISOString(),
+        kind: 'action',
+        action: 'Bestellposition aktualisieren',
+        actor: { id: null, label: 'system' },
+        source: 'action_log',
+        metadata: {
+          commandId: 'sales.orders.lines.upsert',
+          changedFields: ['quantity', 'unitPriceNet'],
+        },
+      },
+    ]
+    mockApiCall.mockImplementation((url: string) => {
+      if (url.includes('/api/sales/document-history')) {
+        return Promise.resolve({ ok: true, result: { items: entriesWithChanges } })
+      }
+      return Promise.resolve({ ok: true, result: { items: [] } })
+    })
+
+    render(<TimelineWidget context={baseContext} />)
+
+    expect(await screen.findByText('Update order line')).toBeInTheDocument()
+    expect(screen.getByText('Changed fields: Quantity, Net unit price')).toBeInTheDocument()
+    expect(screen.getByText('System')).toBeInTheDocument()
+    expect(screen.queryByText('Bestellposition aktualisieren')).not.toBeInTheDocument()
   })
 })

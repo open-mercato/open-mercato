@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-harness-release-result.schema.json",
+  "$defs": {
+    "caseIds": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "type": "string", "maxLength": 100 }
+    },
+    "commands": {
+      "type": "array",
+      "maxItems": 16,
+      "items": { "type": "string", "maxLength": 100 }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "startedAt", "finishedAt", "durationMs", "runnerPolicy", "catalog", "coverage", "steps", "metrics", "violations"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["pass", "fail"] },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "runnerPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primaryRunner", "portabilityRunner"],
+      "properties": {
+        "primaryRunner": { "enum": ["codex", "claude"] },
+        "portabilityRunner": { "type": ["string", "null"], "enum": ["codex", "claude", null] }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseCount", "writableCaseCount", "reviewEligibleCaseCount"],
+      "properties": {
+        "caseCount": { "type": "integer", "minimum": 1 },
+        "writableCaseCount": { "type": "integer", "minimum": 0 },
+        "reviewEligibleCaseCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deterministic", "routing", "writable", "review", "registry", "validation", "targetValidation", "generatedTests"],
+      "properties": {
+        "deterministic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "configuredCaseIds", "missingMatrixCaseIds", "unexpectedMatrixCaseIds", "executedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "configuredCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
+        },
+        "routing": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["runner", "expectedCaseIds", "executedCaseIds", "missingCaseIds"],
+            "properties": {
+              "runner": { "enum": ["codex", "claude"] },
+              "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+              "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+              "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+            }
+          }
+        },
+        "writable": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "configuredCaseIds", "missingMatrixCaseIds", "unexpectedMatrixCaseIds", "duplicateMatrixCaseIds", "missingTargetCaseIds", "unexpectedTargetCaseIds", "duplicateTargetCaseIds", "invalidTargetCaseIds", "missingFixtureCaseIds", "missingOracleCaseIds", "executedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "configuredCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "duplicateMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingTargetCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedTargetCaseIds": { "$ref": "#/$defs/caseIds" },
+            "duplicateTargetCaseIds": { "$ref": "#/$defs/caseIds" },
+            "invalidTargetCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingFixtureCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingOracleCaseIds": { "$ref": "#/$defs/caseIds" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "configuredCaseIds", "missingMatrixCaseIds", "unexpectedMatrixCaseIds", "skillReady", "executedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "configuredCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "skillReady": { "type": "boolean" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["caseCountMatches", "missingWritableCaseIds", "unexpectedWritableCaseIds"],
+          "properties": {
+            "caseCountMatches": { "type": "boolean" },
+            "missingWritableCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedWritableCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
+        },
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCommands", "configuredCommands", "missingCommands", "executedCommands", "missingExecutedCommands"],
+          "properties": {
+            "expectedCommands": { "$ref": "#/$defs/commands" },
+            "configuredCommands": { "$ref": "#/$defs/commands" },
+            "missingCommands": { "$ref": "#/$defs/commands" },
+            "executedCommands": { "$ref": "#/$defs/commands" },
+            "missingExecutedCommands": { "$ref": "#/$defs/commands" }
+          }
+        },
+        "targetValidation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "commands", "executedCaseIds", "passedCaseIds", "failedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "commands": { "$ref": "#/$defs/commands" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "passedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "failedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
+        },
+        "generatedTests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expectedCaseIds", "configuredCaseIds", "missingMatrixCaseIds", "unexpectedMatrixCaseIds", "duplicateMatrixCaseIds", "executedCaseIds", "passedCaseIds", "failedCaseIds", "missingCaseIds"],
+          "properties": {
+            "expectedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "configuredCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "unexpectedMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "duplicateMatrixCaseIds": { "$ref": "#/$defs/caseIds" },
+            "executedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "passedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "failedCaseIds": { "$ref": "#/$defs/caseIds" },
+            "missingCaseIds": { "$ref": "#/$defs/caseIds" }
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "status", "exitStatus", "durationMs", "resultPaths"],
+        "properties": {
+          "id": { "type": "string", "maxLength": 160 },
+          "kind": { "enum": ["deterministic", "validation", "routing", "fixture", "writable", "target-validation", "generated-test", "review", "dependency-guard"] },
+          "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
+          "runner": { "enum": ["codex", "claude"] },
+          "testRunner": { "enum": ["jest", "playwright-api", "playwright-browser"] },
+          "artifact": { "type": "string", "maxLength": 300 },
+          "network": { "enum": ["none", "loopback"] },
+          "executor": { "const": "node" },
+          "cliPackage": { "enum": ["jest", "@playwright/test"] },
+          "cliSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "argv": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+          "command": { "type": "string", "maxLength": 1000 },
+          "testCounts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["passedTests", "skippedTests", "todoTests", "expectedFailureTests"],
+            "properties": {
+              "passedTests": { "type": "integer", "minimum": 1 },
+              "skippedTests": { "const": 0 },
+              "todoTests": { "const": 0 },
+              "expectedFailureTests": { "const": 0 }
+            }
+          },
+          "status": { "enum": ["pass", "fail", "skipped"] },
+          "exitStatus": { "type": ["integer", "null"] },
+          "durationMs": { "type": "integer", "minimum": 0 },
+          "resultPaths": { "type": "array", "maxItems": 1000, "uniqueItems": true, "items": { "type": "string", "maxLength": 300 } },
+          "observedCaseIds": { "$ref": "#/$defs/caseIds" },
+          "sanitizedError": { "type": "string", "maxLength": 2000 }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcomes", "firstPass", "corrections", "context", "misuse", "reviewVerdicts"],
+      "properties": {
+        "outcomes": { "type": "object", "additionalProperties": false, "required": ["results", "passed", "failed"], "properties": { "results": { "type": "integer", "minimum": 0 }, "passed": { "type": "integer", "minimum": 0 }, "failed": { "type": "integer", "minimum": 0 } } },
+        "firstPass": { "type": "object", "additionalProperties": false, "required": ["eligibleResults", "passedFirstPass", "ratePct"], "properties": { "eligibleResults": { "type": "integer", "minimum": 0 }, "passedFirstPass": { "type": "integer", "minimum": 0 }, "ratePct": { "type": "number", "minimum": 0, "maximum": 100 } } },
+        "corrections": { "type": "object", "additionalProperties": false, "required": ["total", "resultsWithCorrections", "ratePct"], "properties": { "total": { "type": "integer", "minimum": 0 }, "resultsWithCorrections": { "type": "integer", "minimum": 0 }, "ratePct": { "type": "number", "minimum": 0, "maximum": 100 } } },
+        "context": { "type": "object", "additionalProperties": false, "required": ["measuredResults", "totalEstimatedTokens", "averageEstimatedTokens", "p95EstimatedTokens", "maxEstimatedTokens", "totalEstimatedInitialTokens", "averageEstimatedInitialTokens"], "properties": { "measuredResults": { "type": "integer", "minimum": 0 }, "totalEstimatedTokens": { "type": "integer", "minimum": 0 }, "averageEstimatedTokens": { "type": "integer", "minimum": 0 }, "p95EstimatedTokens": { "type": "integer", "minimum": 0 }, "maxEstimatedTokens": { "type": "integer", "minimum": 0 }, "totalEstimatedInitialTokens": { "type": "integer", "minimum": 0 }, "averageEstimatedInitialTokens": { "type": "integer", "minimum": 0 } } },
+        "misuse": { "type": "object", "additionalProperties": false, "required": ["totalViolations", "resultsWithViolations", "ratePct", "byCategory"], "properties": { "totalViolations": { "type": "integer", "minimum": 0 }, "resultsWithViolations": { "type": "integer", "minimum": 0 }, "ratePct": { "type": "number", "minimum": 0, "maximum": 100 }, "byCategory": { "type": "object", "additionalProperties": false, "required": ["safety", "contract", "execution", "quality"], "properties": { "safety": { "type": "integer", "minimum": 0 }, "contract": { "type": "integer", "minimum": 0 }, "execution": { "type": "integer", "minimum": 0 }, "quality": { "type": "integer", "minimum": 0 } } } } },
+        "reviewVerdicts": { "type": "object", "additionalProperties": false, "required": ["approve", "requestChanges", "error"], "properties": { "approve": { "type": "integer", "minimum": 0 }, "requestChanges": { "type": "integer", "minimum": 0 }, "error": { "type": "integer", "minimum": 0 } } }
+      }
+    },
+    "violations": { "type": "array", "maxItems": 256, "items": { "type": "string", "maxLength": 300 } }
+  }
+}

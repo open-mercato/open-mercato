@@ -1,5 +1,15 @@
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { EvaluationContext } from './expression-evaluator'
 import { getNestedValue, resolveSpecialValue } from './value-resolver'
+import {
+  canActorUseOpenMercatoApiKeyProfile,
+  findOpenMercatoEndpointOption,
+  getCurrentOpenMercatoEndpointOptions,
+  resolveOpenMercatoApiKeyProfile,
+} from './openmercato-call-options'
+import type { RbacService } from '../../auth/services/rbacService'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { OpenMercatoEndpointOption } from './openmercato-call-options-types'
 
 /**
  * Action definition
@@ -19,6 +29,13 @@ export interface ActionContext extends EvaluationContext {
   data?: any
   ruleId?: string
   ruleName?: string
+  tenantId?: string
+  organizationId?: string
+  executedBy?: string | null
+  em?: PostgreSqlEntityManager
+  openMercatoEndpointOptions?: OpenMercatoEndpointOption[]
+  ruleAuthorId?: string | null
+  rbacService?: RbacService
   [key: string]: any
 }
 
@@ -85,6 +102,19 @@ export interface CallWebhookResult {
   status: 'pending'
 }
 
+export interface CallOpenMercatoResult {
+  type: 'CALL_OPEN_MERCATO'
+  endpoint: string
+  method: string
+  apiKeyId: string
+  status: number
+  statusText: string
+  body: any
+  authenticated: true
+  tenantId: string
+  organizationId: string
+}
+
 export interface EmitEventResult {
   type: 'EMIT_EVENT'
   event: string
@@ -104,6 +134,7 @@ export type ActionHandlerResult =
   | NotifyResult
   | SetFieldResult
   | CallWebhookResult
+  | CallOpenMercatoResult
   | EmitEventResult
 
 /**
@@ -219,6 +250,7 @@ function getActionHandler(actionType: string): ActionHandler {
     NOTIFY: handleNotify,
     SET_FIELD: handleSetField,
     CALL_WEBHOOK: handleCallWebhook,
+    CALL_OPEN_MERCATO: handleCallOpenMercato,
     EMIT_EVENT: handleEmitEvent,
   }
 
@@ -397,6 +429,182 @@ async function handleCallWebhook(
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const API_KEY_ACTOR_PREFIX = 'api_key:'
+
+async function resolveRbacService(): Promise<RbacService> {
+  const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  const container = await createRequestContainer()
+  return container.resolve('rbacService') as RbacService
+}
+
+async function translatedOpenMercatoCallError(key: string, fallback: string): Promise<Error> {
+  const { resolveTranslations } = await import('@open-mercato/shared/lib/i18n/server')
+  const { t } = await resolveTranslations()
+  return new Error(t(key, fallback))
+}
+
+async function resolveActiveRuleAuthorId(
+  em: PostgreSqlEntityManager,
+  authorId: string | null | undefined,
+  tenantId: string,
+): Promise<string | null> {
+  const candidate = typeof authorId === 'string' ? authorId.trim() : ''
+  if (!candidate) return null
+  if (candidate.startsWith(API_KEY_ACTOR_PREFIX)) {
+    const apiKeyId = candidate.slice(API_KEY_ACTOR_PREFIX.length)
+    if (!UUID_PATTERN.test(apiKeyId)) return null
+    const { ApiKey } = await import('../../api_keys/data/entities')
+    const key = await findOneWithDecryption(em, ApiKey, { id: apiKeyId, tenantId, deletedAt: null }, {}, { tenantId, organizationId: null })
+    if (!key) return null
+    if (key.expiresAt && key.expiresAt.getTime() <= Date.now()) return null
+    return candidate
+  }
+  if (!UUID_PATTERN.test(candidate)) return null
+  const { User } = await import('../../auth/data/entities')
+  const user = await findOneWithDecryption(em, User, { id: candidate, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+  if (!user) return null
+  if (user.tenantId && String(user.tenantId) === tenantId) return candidate
+  const { isUserEffectivelySuperAdmin } = await import('../../auth/lib/grantChecks')
+  return await isUserEffectivelySuperAdmin(em, candidate) ? candidate : null
+}
+
+/**
+ * CALL_OPEN_MERCATO action handler
+ */
+async function handleCallOpenMercato(
+  action: Action,
+  context: ActionContext
+): Promise<CallOpenMercatoResult> {
+  const endpoint = String(action.config?.endpoint ?? '').trim()
+  const method = String(action.config?.method ?? '').trim().toUpperCase()
+  const apiKeyId = String(action.config?.apiKeyId ?? '').trim()
+
+  if (!endpoint) {
+    throw new Error('CALL_OPEN_MERCATO action requires an endpoint')
+  }
+  if (!method) {
+    throw new Error('CALL_OPEN_MERCATO action requires an HTTP method')
+  }
+  if (!apiKeyId) {
+    throw new Error('CALL_OPEN_MERCATO action requires an API key profile')
+  }
+
+  const endpointOptions = context.openMercatoEndpointOptions ?? await getCurrentOpenMercatoEndpointOptions()
+  const endpointOption = findOpenMercatoEndpointOption(
+    endpoint,
+    method,
+    endpointOptions,
+  )
+  if (!endpointOption) {
+    throw new Error('CALL_OPEN_MERCATO action requires a currently available /api/* endpoint')
+  }
+
+  const em = context.em
+  if (!em) {
+    throw new Error('CALL_OPEN_MERCATO action requires an EntityManager in action context')
+  }
+
+  const tenantId = context.tenantId ?? context.tenant?.id
+  const organizationId = context.organizationId ?? context.organization?.id
+  if (!tenantId || !organizationId) {
+    throw new Error('CALL_OPEN_MERCATO action requires tenant and organization context')
+  }
+
+  const apiKeyProfile = await resolveOpenMercatoApiKeyProfile(em, apiKeyId, {
+    tenantId,
+    organizationId,
+  })
+  if (!apiKeyProfile) {
+    throw new Error('CALL_OPEN_MERCATO action requires an active API key profile in scope')
+  }
+
+  const roleIds = Array.isArray(apiKeyProfile.rolesJson)
+    ? apiKeyProfile.rolesJson.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    : []
+  if (roleIds.length === 0) {
+    throw new Error('CALL_OPEN_MERCATO action requires an API key profile with at least one role')
+  }
+
+  const ruleAuthorId = await resolveActiveRuleAuthorId(em, context.ruleAuthorId, tenantId)
+  if (!ruleAuthorId) {
+    throw await translatedOpenMercatoCallError(
+      'business_rules.errors.openMercatoCall.executionAuthorInactive',
+      'CALL_OPEN_MERCATO action refused: the rule has no active author',
+    )
+  }
+  const rbacService = context.rbacService ?? await resolveRbacService()
+  const authorCanUseProfile = await canActorUseOpenMercatoApiKeyProfile({
+    em,
+    rbacService,
+    actorId: ruleAuthorId,
+    tenantId,
+    organizationId,
+    apiKey: apiKeyProfile,
+  })
+  if (!authorCanUseProfile) {
+    throw await translatedOpenMercatoCallError(
+      'business_rules.errors.openMercatoCall.executionAuthorCannotGrant',
+      'CALL_OPEN_MERCATO action refused: the rule author cannot grant every role of the API key profile',
+    )
+  }
+
+  const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
+  const fullUrl = buildOpenMercatoApiUrl(endpointOption.path)
+  const requestBody = method === 'GET'
+    ? undefined
+    : normalizeOpenMercatoRequestBody(action.config?.body, context)
+
+  return await withOnetimeApiKey(
+    em,
+    {
+      name: `__business_rule_${context.ruleId || 'unknown'}__`,
+      description: `One-time key for business rule ${context.ruleId || 'unknown'}`,
+      tenantId,
+      organizationId,
+      roles: roleIds,
+      createdBy: null,
+      expiresAt: null,
+    },
+    async (apiKeySecret) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `apikey ${apiKeySecret}`,
+        'X-Tenant-Id': tenantId,
+        'X-Organization-Id': organizationId,
+      }
+      if (context.ruleId) headers['X-Business-Rule-Id'] = context.ruleId
+      if (context.ruleName) headers['X-Business-Rule-Name'] = context.ruleName
+      if (context.entityType) headers['X-Business-Rule-Entity-Type'] = context.entityType
+      if (context.entityId) headers['X-Business-Rule-Entity-Id'] = context.entityId
+
+      const response = await fetch(fullUrl, {
+        method,
+        headers,
+        body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+      })
+
+      const responseBody = await parseOpenMercatoResponseBody(response)
+      if (!response.ok) {
+        throwOpenMercatoResponseError(response.status)
+      }
+
+      return {
+        type: 'CALL_OPEN_MERCATO',
+        endpoint: endpointOption.path,
+        method,
+        apiKeyId,
+        status: response.status,
+        statusText: response.statusText,
+        body: responseBody,
+        authenticated: true,
+        tenantId,
+        organizationId,
+      }
+    },
+  )
+}
+
 /**
  * EMIT_EVENT action handler
  */
@@ -453,4 +661,62 @@ function resolveValue(value: any, context: ActionContext): any {
   }
 
   return value
+}
+
+function buildOpenMercatoApiUrl(endpoint: string): string {
+  if (!endpoint.startsWith('/api/')) {
+    throw new Error(`CALL_OPEN_MERCATO only supports /api/* paths, got: ${endpoint}`)
+  }
+  const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '')
+  return `${appUrl}${endpoint}`
+}
+
+function normalizeOpenMercatoRequestBody(value: any, context: ActionContext): any {
+  if (value === undefined || value === null || value === '') return undefined
+  const interpolated = interpolateActionValue(value, context)
+  if (typeof interpolated !== 'string') return interpolated
+
+  const trimmed = interpolated.trim()
+  if (!trimmed) return undefined
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return interpolated
+  }
+}
+
+function interpolateActionValue(value: any, context: ActionContext): any {
+  if (typeof value === 'string') {
+    return interpolateMessage(value, context)
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => interpolateActionValue(item, context))
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, interpolateActionValue(entry, context)]),
+    )
+  }
+  return value
+}
+
+async function parseOpenMercatoResponseBody(response: Response): Promise<any> {
+  const contentType = response.headers.get('content-type')
+  try {
+    if (contentType && contentType.includes('application/json')) {
+      return await response.json()
+    }
+    return await response.text()
+  } catch {
+    return null
+  }
+}
+
+function throwOpenMercatoResponseError(status: number): never {
+  const error: Error & { retriable?: boolean } = new Error(`CALL_OPEN_MERCATO request failed with status ${status}`)
+  if (status >= 500) {
+    error.retriable = true
+  }
+  throw error
 }

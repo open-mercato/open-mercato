@@ -1,4 +1,8 @@
-import { withScopedPayload, findMatchingEntityIdsBySearchTokensAcrossSources } from '../utils'
+import {
+  withScopedPayload,
+  findMatchingEntityIdsBySearchTokensAcrossSources,
+  findMatchingEntityIdsWithQueryEngine,
+} from '../utils'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const translate = (key: string, fallback?: string) => fallback ?? key
@@ -204,5 +208,89 @@ describe('customers api utils - findMatchingEntityIdsBySearchTokensAcrossSources
     })
 
     expect(maxInFlight).toBe(2)
+  })
+})
+
+describe('customers api utils - findMatchingEntityIdsWithQueryEngine', () => {
+  const PAGE_SIZE = 100
+
+  function makeRows(count: number, offset = 0): Array<{ id: string }> {
+    return Array.from({ length: count }, (_, index) => ({ id: `id-${offset + index}` }))
+  }
+
+  function createCtxWithQueryEngine(pages: Array<Array<{ id: string }>>, total: number) {
+    const calls: number[] = []
+    const qe = {
+      async query(_entity: string, opts: { page?: { page?: number } }) {
+        const page = opts.page?.page ?? 1
+        calls.push(page)
+        return { items: pages[page - 1] ?? [], total }
+      },
+    }
+    const ctx = {
+      auth: { tenantId: 'tenant-1' },
+      selectedOrganizationId: 'org-1',
+      container: { resolve: (key: string) => (key === 'queryEngine' ? qe : undefined) },
+    } as any
+    return { ctx, calls }
+  }
+
+  it('enumerates every page even when total under-reports the result set', async () => {
+    const pages = [makeRows(PAGE_SIZE), makeRows(PAGE_SIZE, PAGE_SIZE), makeRows(10, PAGE_SIZE * 2)]
+    const { ctx, calls } = createCtxWithQueryEngine(pages, 5)
+
+    const ids = await findMatchingEntityIdsWithQueryEngine({
+      ctx,
+      entityId: 'customers:customer_entity' as any,
+      filters: {},
+    })
+
+    expect(ids).toHaveLength(PAGE_SIZE * 2 + 10)
+    expect(calls).toEqual([1, 2, 3])
+  })
+
+  it('terminates on a short final page instead of trusting an inflated total', async () => {
+    const pages = [makeRows(PAGE_SIZE), makeRows(3, PAGE_SIZE)]
+    const { ctx, calls } = createCtxWithQueryEngine(pages, 10_000)
+
+    const ids = await findMatchingEntityIdsWithQueryEngine({
+      ctx,
+      entityId: 'customers:customer_entity' as any,
+      filters: {},
+    })
+
+    expect(ids).toHaveLength(PAGE_SIZE + 3)
+    expect(calls).toEqual([1, 2])
+  })
+
+  it('terminates when pages repeat duplicate ids (previously an infinite loop)', async () => {
+    // Old shape looped `while (ids.size < total)`: duplicates keep the Set's size below
+    // an inflated total forever, so only an empty page could stop it. Full pages of the
+    // same 100 ids now stop at the page ceiling by throwing instead of spinning.
+    const repeated = makeRows(PAGE_SIZE)
+    const pages = Array.from({ length: 2000 }, () => repeated)
+    const { ctx, calls } = createCtxWithQueryEngine(pages, PAGE_SIZE * 2000)
+
+    await expect(
+      findMatchingEntityIdsWithQueryEngine({
+        ctx,
+        entityId: 'customers:customer_entity' as any,
+        filters: {},
+      }),
+    ).rejects.toThrow(/exceeded 1000 pages/)
+    expect(calls).toHaveLength(1000)
+  })
+
+  it('throws at the page ceiling rather than returning a partial id set', async () => {
+    const pages = Array.from({ length: 2000 }, (_, index) => makeRows(PAGE_SIZE, index * PAGE_SIZE))
+    const { ctx } = createCtxWithQueryEngine(pages, PAGE_SIZE * 2000)
+
+    await expect(
+      findMatchingEntityIdsWithQueryEngine({
+        ctx,
+        entityId: 'customers:customer_entity' as any,
+        filters: {},
+      }),
+    ).rejects.toThrow(/refusing to return a partial id set/)
   })
 })

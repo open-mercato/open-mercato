@@ -8,6 +8,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -27,9 +28,11 @@ const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent
 
 export type CreateDealFormProps = {
   returnTo: string
+  /** Seed values merged over EMPTY_VALUES for the initial form state. Entries set to `undefined` are ignored (the EMPTY_VALUES default wins), so a sparse `Partial<BaseValues>` can never unset a required field. Additive: omitting it preserves current behavior. */
+  initialValues?: Partial<BaseValues>
 }
 
-export function CreateDealForm({ returnTo }: CreateDealFormProps) {
+export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps) {
   const t = useT()
   const router = useRouter()
   const tr = React.useCallback(
@@ -38,9 +41,33 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
     [t],
   )
 
-  const [values, setValues] = React.useState<BaseValues>(EMPTY_VALUES)
+  const [values, setValues] = React.useState<BaseValues>(() => {
+    const definedSeedEntries = Object.entries(initialValues ?? {}).filter(([, seedValue]) => seedValue !== undefined)
+    return { ...EMPTY_VALUES, ...Object.fromEntries(definedSeedEntries) }
+  })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  // Default the owner to the current user, matching the pipeline quick-create dialog so a
+  // deal created here does not start unowned (an unowned deal notifies nobody when it closes).
+  // useCurrentUserId resolves asynchronously, so this seeds once the id arrives and never
+  // overrides an explicit seed or a choice the user has already made.
+  const currentUserId = useCurrentUserId()
+  // Seeds the picker for the self-assigned id, which may not be on the assignable roster
+  // (an admin who is not a staff team member, or any user when the `staff` module is off).
+  const ownerInitialOption = React.useMemo(
+    () => (currentUserId
+      ? { id: currentUserId, name: tr('customers.filters.currentUser', 'Current user') }
+      : null),
+    [currentUserId, tr],
+  )
+  const ownerSeeded = React.useRef(false)
+  React.useEffect(() => {
+    if (ownerSeeded.current || !currentUserId) return
+    ownerSeeded.current = true
+    if (initialValues?.ownerUserId) return
+    setValues((current) => (current.ownerUserId ? current : { ...current, ownerUserId: currentUserId }))
+  }, [currentUserId, initialValues?.ownerUserId])
 
   const { pipelines, stages, loadStages } = useDealPipelines()
   const {
@@ -68,6 +95,9 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
   )
 
   const patch = React.useCallback((partial: Partial<BaseValues>) => {
+    // A user touching the owner before useCurrentUserId resolves must not be overridden by
+    // the seeding effect below.
+    if ('ownerUserId' in partial) ownerSeeded.current = true
     setValues((current) => ({ ...current, ...partial }))
   }, [])
 
@@ -130,6 +160,10 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
         probability: typeof data.probability === 'number' ? data.probability : undefined,
         expectedCloseAt,
         description: data.description && data.description.length ? data.description : undefined,
+        // `null`, not omitted — matching DealForm, so both create surfaces send the same
+        // shape. `dealCreateSchema.ownerUserId` is `.optional().nullable()` (validators.ts:183)
+        // and createDealCommand maps null to null (commands/deals.ts:591).
+        ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : null,
         personIds: values.personIds.length ? values.personIds : undefined,
         companyIds: values.companyIds.length ? values.companyIds : undefined,
       }
@@ -222,6 +256,7 @@ export function CreateDealForm({ returnTo }: CreateDealFormProps) {
               pipelines={pipelines}
               stages={stages}
               statusLabels={statusLabels}
+              ownerInitialOption={ownerInitialOption}
               tr={tr}
             />
           </DealSectionCard>

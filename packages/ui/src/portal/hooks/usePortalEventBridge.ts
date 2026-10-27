@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { publishPortalBridgeHealth } from './portalBridgeStatus'
 
 const logger = createLogger('ui').child({ component: 'PortalEventBridge' })
 
@@ -62,6 +63,7 @@ export function usePortalEventBridge(): void {
       if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current)
       heartbeatTimer.current = setTimeout(() => {
         logger.warn('Heartbeat timeout — reconnecting')
+        publishPortalBridgeHealth(false)
         disconnect()
         scheduleReconnect()
       }, HEARTBEAT_TIMEOUT)
@@ -80,6 +82,7 @@ export function usePortalEventBridge(): void {
           hasEverConnected.current = true
           reconnectPending.current = false
           reconnectAttempts.current = 0
+          publishPortalBridgeHealth(true)
           resetHeartbeatTimer()
           if (shouldEmitReconnect) {
             window.dispatchEvent(
@@ -116,6 +119,7 @@ export function usePortalEventBridge(): void {
           if (hasEverConnected.current) {
             reconnectPending.current = true
           }
+          publishPortalBridgeHealth(false)
           disconnect()
           if (mounted) scheduleReconnect()
         }
@@ -123,6 +127,7 @@ export function usePortalEventBridge(): void {
         if (hasEverConnected.current) {
           reconnectPending.current = true
         }
+        publishPortalBridgeHealth(false)
         if (mounted) scheduleReconnect()
       }
     }
@@ -155,6 +160,7 @@ export function usePortalEventBridge(): void {
 
     return () => {
       mounted = false
+      publishPortalBridgeHealth(false)
       disconnect()
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current)

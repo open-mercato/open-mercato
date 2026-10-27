@@ -252,7 +252,7 @@ const ActivityFeedComment = React.forwardRef<HTMLDivElement, ActivityFeedComment
 ActivityFeedComment.displayName = 'ActivityFeedComment'
 
 const STATUS_ICON_MAP: Record<
-  'success' | 'warning' | 'info' | 'error' | 'neutral',
+  'success' | 'warning' | 'info' | 'error' | 'neutral' | 'pending',
   React.ComponentType<{ className?: string; 'aria-hidden'?: 'true' | 'false' }>
 > = {
   success: CheckCircle2,
@@ -260,10 +260,11 @@ const STATUS_ICON_MAP: Record<
   info: Clock,
   error: XCircle,
   neutral: Clock,
+  pending: Clock,
 }
 
 const STATUS_TONE_MAP: Record<
-  'success' | 'warning' | 'info' | 'error' | 'neutral',
+  'success' | 'warning' | 'info' | 'error' | 'neutral' | 'pending',
   string
 > = {
   // Icons keep the semantic color; chip surface stays neutral so the
@@ -275,13 +276,14 @@ const STATUS_TONE_MAP: Record<
   info: 'text-status-info-icon',
   error: 'text-status-error-icon',
   neutral: 'text-muted-foreground',
+  pending: 'text-badge-yellow-solid',
 }
 
 export type ActivityFeedStatusChipProps = Omit<
   React.HTMLAttributes<HTMLSpanElement>,
   'children'
 > & {
-  status?: 'success' | 'warning' | 'info' | 'error' | 'neutral'
+  status?: 'success' | 'warning' | 'info' | 'error' | 'neutral' | 'pending'
   /** Override the auto status icon. */
   icon?: React.ReactNode
   /** Chip label. */

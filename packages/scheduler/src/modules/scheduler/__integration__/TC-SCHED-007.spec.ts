@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { SCHEDULER_EXECUTION_QUEUE, SCHEDULER_JOBS_PATH, uniqueScheduleName } from './helpers/scheduler'
+import { SCHEDULER_JOBS_PATH, SCHEDULER_TEST_COMMAND, uniqueScheduleName } from './helpers/scheduler'
 
 type ValidationError = { error?: string; details?: Array<{ path?: Array<string | number> }> }
 
@@ -9,16 +9,18 @@ type ValidationError = { error?: string; details?: Array<{ path?: Array<string |
  * TC-SCHED-007: POST /api/scheduler/jobs rejects invalid cron and interval
  * `scheduleValue`s with 400 and an error scoped to the `scheduleValue` path.
  *
- * Interval format is `<number><unit>` with unit in s|m|h|d, so the inputs below
- * are genuinely malformed (the issue's "99h"/"0m" drafts are actually valid).
- * All cases are rejected at validation, so no records are created and no
- * teardown is required.
+ * Interval format is `<number><unit>` with unit in s|m|h|d and a minimum floor
+ * of one minute. All cases are rejected at validation, so no records are
+ * created and no teardown is required.
  */
 const invalidCases = [
   { label: 'cron: not a cron expression', scheduleType: 'cron' as const, scheduleValue: 'not-a-cron' },
   { label: 'cron: too few fields', scheduleType: 'cron' as const, scheduleValue: '* * *' },
   { label: 'interval: unsupported unit', scheduleType: 'interval' as const, scheduleValue: '15x' },
   { label: 'interval: missing unit', scheduleType: 'interval' as const, scheduleValue: '99' },
+  { label: 'interval: zero seconds', scheduleType: 'interval' as const, scheduleValue: '0s' },
+  { label: 'interval: one second', scheduleType: 'interval' as const, scheduleValue: '1s' },
+  { label: 'interval: below one minute', scheduleType: 'interval' as const, scheduleValue: '59s' },
 ]
 
 test.describe('TC-SCHED-007: POST /api/scheduler/jobs validates schedule value format', () => {
@@ -34,8 +36,8 @@ test.describe('TC-SCHED-007: POST /api/scheduler/jobs validates schedule value f
           scheduleType: testCase.scheduleType,
           scheduleValue: testCase.scheduleValue,
           timezone: 'UTC',
-          targetType: 'queue',
-          targetQueue: SCHEDULER_EXECUTION_QUEUE,
+          targetType: 'command',
+          targetCommand: SCHEDULER_TEST_COMMAND,
           isEnabled: true,
           sourceType: 'user',
         },

@@ -1,7 +1,10 @@
 {
   "version": 1,
-  "baseBranch": "develop",
+  "baseBranch": "main",
   "tracker": "github",
+  "browser": {
+    "provider": "playwright"
+  },
   "validation": {
     "commands": [
       "yarn build:packages",
@@ -18,7 +21,7 @@
     "enabled": true,
     "pipeline": ["review", "changes-requested", "qa", "qa-failed", "merge-queue", "blocked", "do-not-merge"],
     "category": ["bug", "feature", "refactor", "security", "dependencies", "enterprise", "documentation"],
-    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "screenshots"],
+    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "ci-monitoring", "screenshots"],
     "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
@@ -30,5 +33,13 @@
     "scripts": ".ai/scripts",
     "qa": ".ai/qa"
   },
-  "reviewChecklist": ".ai/review-checklist.md"
+  "reviewChecklist": ".ai/review-checklist.md",
+  "help": {
+    "data": [".ai/skills/om-help/references/workflow-sequences.md"]
+  },
+  "sessionShare": {
+    "enabled": true,
+    "issueRepo": "open-mercato/open-mercato",
+    "storageRepo": "open-mercato/open-mercato"
+  }
 }

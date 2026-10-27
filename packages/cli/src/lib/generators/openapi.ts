@@ -709,7 +709,11 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   // Fallback to static regex approach (extracts operationId/summary/tags but no schemas)
   if (!doc) {
     if (!quiet) {
-      console.log('[OpenAPI] Falling back to static regex approach')
+      console.warn(
+        '[OpenAPI] ⚠ Bundling failed; falling back to static regex extraction — '
+        + 'request/response schemas are OMITTED from the generated document. '
+        + 'The usual cause is a route file importing a module specifier that does not resolve.',
+      )
     }
     const paths = buildOpenApiPaths(routes)
     doc = {

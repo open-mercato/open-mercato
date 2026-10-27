@@ -10,8 +10,13 @@ import {
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { CustomerEntity } from '../../../../data/entities'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../../../lib/conversationShares'
+import { isMessageOnPersonEmailHistory } from '../../../../lib/personEmailThreads'
 import type { SendAsUserService } from '@open-mercato/core/modules/communication_channels/lib/send-as-user'
 
 export const metadata = {
@@ -37,6 +42,29 @@ const composeSchema = z
     parentMessageId: z.string().uuid().optional(),
   })
   .strict()
+
+type RbacService = {
+  userHasAllFeatures: (
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
+}
+
+async function callerHasFeature(
+  container: { resolve: (name: string) => unknown },
+  userId: string,
+  feature: string,
+  scope: { tenantId: string; organizationId: string | null },
+): Promise<boolean> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacService | undefined
+    if (typeof rbac?.userHasAllFeatures !== 'function') return false
+    return await rbac.userHasAllFeatures(userId, [feature], scope)
+  } catch {
+    return false
+  }
+}
 
 type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
@@ -66,7 +94,73 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   const container = await createRequestContainer()
   const userId = resolveAuthActorId(auth)
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null
+
+  const em = (container.resolve('em') as EntityManager).fork()
+
+  // 1. Verify the Person exists in the caller's tenant, then fail-closed on the
+  //    record's own organization — same pattern as the [id]/route.ts GET handler.
+  //    Loading by tenant + id (not a hand-rolled selected org) keeps this working
+  //    under the "All organizations" scope; the record's own org then becomes the
+  //    concrete org the guard and the outbound message are attributed to.
+  const person = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      id: personId,
+      kind: 'person',
+      tenantId: auth.tenantId,
+      deletedAt: null,
+    } as never,
+    undefined,
+    { tenantId: auth.tenantId as string, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null },
+  )
+  if (!person) {
+    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+  }
+  const organizationId = (person as { organizationId?: string | null }).organizationId ?? null
+  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
+    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+  }
+
+  // A reply parent decides which thread the sent email joins, so it must be an
+  // email this caller could see on this Person's Emails tab — the same feature,
+  // anchor and visibility rule as `GET .../email-threads`, including conversation
+  // shares and shared team mailboxes. Anything else answers like an unknown id.
+  if (body.parentMessageId) {
+    const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+    const shareScope = { tenantId: auth.tenantId as string, organizationId }
+    const canViewPeople = await callerHasFeature(container, userId, 'customers.people.view', shareScope)
+    const [sharedConversations, sharedChannelIds] = canViewPeople
+      ? await Promise.all([
+          listGrantsForViewerOnPerson(em, shareScope, viewerUserId, personId),
+          listSharedChannelIds(em, shareScope, viewerUserId),
+        ])
+      : [[], []]
+    const parentVisible =
+      canViewPeople &&
+      (await isMessageOnPersonEmailHistory(em, {
+        personId,
+        tenantId: auth.tenantId as string,
+        organizationId,
+        viewerUserId,
+        userFeatures: undefined,
+        sharedConversations,
+        sharedChannelIds,
+        messageId: body.parentMessageId,
+      }))
+    if (!parentVisible) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'customers.email.errors.parentMessageNotFound',
+            'The email you are replying to was not found',
+          ),
+        },
+        { status: 404 },
+      )
+    }
+  }
 
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: auth.tenantId,
@@ -80,29 +174,6 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   })
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
-  }
-
-  const em = (container.resolve('em') as EntityManager).fork()
-  const dscope = { tenantId: auth.tenantId as string, organizationId }
-
-  // 1. Verify the Person exists in the caller's tenant.
-  //    Uses CustomerEntity (kind='person') as the canonical ownership check —
-  //    the same pattern as the existing [id]/route.ts GET handler.
-  const person = await findOneWithDecryption(
-    em,
-    CustomerEntity,
-    {
-      id: personId,
-      kind: 'person',
-      tenantId: auth.tenantId,
-      organizationId,
-      deletedAt: null,
-    } as never,
-    undefined,
-    dscope,
-  )
-  if (!person) {
-    return NextResponse.json({ error: 'Person not found' }, { status: 404 })
   }
 
   // 2. Call the hub's send-as-user facade in-process (resolved via DI) so the
@@ -173,7 +244,7 @@ export const openApi = {
         { status: 400, description: 'Invalid person id' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Missing customers.email.compose feature or mutation guard rejection' },
-        { status: 404, description: 'Person or channel not found' },
+        { status: 404, description: 'Person or channel not found, or the reply parent is not an email the caller can see on this Person' },
         { status: 409, description: 'Channel not connected' },
         { status: 422, description: 'Invalid request body' },
         { status: 500, description: 'Send failed' },

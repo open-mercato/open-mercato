@@ -2,6 +2,9 @@
   "payment_gateways.captureMethod.automatic": "Automatic",
   "payment_gateways.captureMethod.manual": "Manual",
   "payment_gateways.column.gatewayStatus": "Gateway status",
+  "payment_gateways.errors.sessionAmountMismatch": "Payment session amount {amount} does not match the amount due for order {orderId}",
+  "payment_gateways.errors.sessionCurrencyMismatch": "Payment session currency {currencyCode} does not match the currency of order {orderId}",
+  "payment_gateways.errors.sessionOrderNotFound": "Order {orderId} was not found in the current scope",
   "payment_gateways.feature.capture": "Capture authorized payments",
   "payment_gateways.feature.manage": "Manage payment sessions",
   "payment_gateways.feature.refund": "Refund captured payments",
@@ -76,5 +79,9 @@
   "payment_gateways.transactions.success.capture": "Payment captured",
   "payment_gateways.transactions.success.refreshStatus": "Transaction status refreshed",
   "payment_gateways.transactions.tableTitle": "Transactions",
-  "payment_gateways.transactions.title": "Payment Transactions"
+  "payment_gateways.transactions.title": "Payment Transactions",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.cta": "Schedule claim cleanup",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.loading": "Scheduling claim cleanup…",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.message": "Register the daily cleanup schedule that removes completed payment-session claims after their 24-hour replay window.",
+  "payment_gateways.upgradeActions.sessionInitializationPrune.success": "Payment-session claim cleanup is scheduled."
 }

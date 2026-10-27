@@ -26,9 +26,17 @@ export function resolveSpecialValue(template: string, context: EvaluationContext
   return getNestedValue(context, path)
 }
 
+// Field paths come from rule authors, so a segment could name a prototype key.
+// Rejecting these — and requiring own-property access — keeps traversal on the
+// caller's own data instead of the prototype chain.
+const DANGEROUS_KEYS = new Set<string>(['__proto__', 'constructor', 'prototype'])
+
 /**
  * Get nested value from object using dot notation
  * Supports: 'user.name', 'items[0].quantity', 'data.values[2]'
+ *
+ * Segments naming a prototype key, or resolving to an inherited rather than an
+ * own property, yield `undefined`.
  */
 export function getNestedValue(obj: any, path: string): any {
   if (!obj || !path) {
@@ -43,6 +51,14 @@ export function getNestedValue(obj: any, path: string): any {
 
   for (const key of keys) {
     if (result === null || result === undefined) {
+      return undefined
+    }
+
+    if (DANGEROUS_KEYS.has(key)) {
+      return undefined
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(result, key)) {
       return undefined
     }
 

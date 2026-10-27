@@ -125,7 +125,7 @@ Self-contained integration tests (API fixtures, teardown), per `.ai/qa/AGENTS.md
 | Compliance prefers caller `tenantId` | Cross-tenant roster enumeration | High | `users/mfa/compliance` | `enforceTenantSelection(ctx, query.tenantId)`; foreign → 403 | Low |
 | `TC-SEC-007` positive path breaks | CI red after fix if actor/target tenants differ | Medium | enterprise integration tests | Make fixtures same-tenant; add negative case in this spec | Low |
 | Service signature change ripples to mocked unit tests | Compile/call-site failures | Low | `*Service.test.ts`, `mfa-reset.route.test.ts` | Update mock call sites when adding actor-context arg | Low |
-| `findUserById` raw `em.findOne` | Latent bug if User fields become encrypted | Low | `MfaAdminService` | Switch to `findOneWithDecryption` with non-superadmin actor-tenant criteria (`.ai/lessons.md:551`) | Low |
+| `findUserById` raw `em.findOne` | Latent bug if User fields become encrypted | Low | `MfaAdminService` | Switch to `findOneWithDecryption` with non-superadmin actor-tenant criteria ([lesson](../../../lessons/integration-packages-must-use-decryption-aware-find.md)) | Low |
 | Release-order skew with parent OSS spec | Enterprise build can't resolve reused `tenantAccess` helpers | Medium | build/release | Land/publish core changes first; enterprise bumps after (note in RELEASE_NOTES) | Low |
 
 ## Open Questions

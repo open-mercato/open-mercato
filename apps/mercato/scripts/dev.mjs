@@ -3,8 +3,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import spawn from 'cross-spawn'
 import {
+  buildUnexpectedChildExitReport,
+  createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
+  formatChildExitStatus,
+  isNonRuntimeFailureLine,
   isStatelessRuntimeNoiseLine,
+  resolveChildExitCode,
+  resolveUnexpectedExitCode,
 } from './dev-runtime-log-policy.mjs'
 import { getProcessTreeMemorySample } from './dev-memory-monitor.mjs'
 
@@ -105,7 +111,7 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
-const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
+const { resolveMercatoInvocation, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 const {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
   createMemoryTraceSession,
@@ -113,7 +119,7 @@ const {
   resolveMemoryTraceIntervalMs,
 } = await import(resolveMemorySamplerImport())
 
-const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
+const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = !classic && (process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose')
 const rawPassthrough = classic || verbose
@@ -141,6 +147,7 @@ let rawModeEnabled = false
 let lastRenderedStatus = null
 const rawLogBuffer = []
 const maxBufferedLogLines = 2000
+const failureLogTailLines = 20
 const RESET = '\u001B[0m'
 const BRIGHT_CYAN = '\u001B[96m'
 const CYAN_BORDER = '\u001B[46m\u001B[30m'
@@ -180,7 +187,10 @@ const splashState = {
   progressPercent: 0,
   progressLabel: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
   activities: [],
+  runtimeSignals: [],
 }
+const maxBufferedRuntimeSignals = 20
+let runtimeSignalSequence = 0
 const startupProgress = {
   current: runtimeProgressCurrent,
   total: runtimeProgressTotal,
@@ -552,6 +562,19 @@ function collectRuntimeFailureLines(maxLines = 10) {
   return lines.slice(-maxLines)
 }
 
+// Typed hand-off to the root supervisor's incident collector. The wrapper only
+// reports what it observed; classification, redaction, and state transitions
+// stay in the supervisor so one generation owns them.
+function emitRuntimeSignal(signal) {
+  if (!splashChildStateFile) return
+  runtimeSignalSequence += 1
+  splashState.runtimeSignals.push({ seq: runtimeSignalSequence, ...signal })
+  while (splashState.runtimeSignals.length > maxBufferedRuntimeSignals) {
+    splashState.runtimeSignals.shift()
+  }
+  persistSplashState()
+}
+
 function publishRuntimeFailure(detail, options = {}) {
   const failureLines = Array.isArray(options.failureLines) && options.failureLines.length > 0
     ? options.failureLines
@@ -565,6 +588,15 @@ function publishRuntimeFailure(detail, options = {}) {
   const progressLabel = typeof options.progressLabel === 'string' && options.progressLabel.trim().length > 0
     ? options.progressLabel
     : (startupProgress.current >= runtimeProgressCurrent ? startupProgress.label : 'Starting app server')
+
+  emitRuntimeSignal({
+    source: options.source ?? 'log',
+    message: failureLines.join('\n') || failureDetail,
+    detail: failureDetail,
+    failureLines,
+    failureCommand: 'yarn dev',
+    failureStage: options.failureStage,
+  })
 
   updateSplashState({
     phase: 'Runtime error detected',
@@ -591,7 +623,7 @@ function looksLikeWarningLine(line) {
 }
 
 function looksLikeFailure(line) {
-  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line)) return false
+  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line) || isNonRuntimeFailureLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)
@@ -599,10 +631,14 @@ function looksLikeFailure(line) {
     || /\bfailed\b/i.test(line)
     || /\bexception\b/i.test(line)
     || /Unable to acquire lock/i.test(line)
+    || /Another next dev server is already running/i.test(line)
+    || /TurbopackInternalError/i.test(line)
+    || /\bpanicked\b/i.test(line)
+    || /EADDRINUSE/i.test(line)
 }
 
 function spawnMercato(args) {
-  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const resolvedSpawn = resolveSpawnCommand(mercatoInvocation.command, [...mercatoInvocation.args, ...args])
   const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
@@ -644,42 +680,24 @@ function isGracefulShutdownResult(result) {
   return shuttingDown && (isExpectedShutdownSignal(result?.signal) || result?.code === 0)
 }
 
-function resolveChildExitCode(result, fallback = 1) {
-  if (typeof result?.code === 'number') {
-    return result.code
-  }
-  if (result?.signal === 'SIGINT') {
-    return 130
-  }
-  if (result?.signal === 'SIGTERM') {
-    return 143
-  }
-  return fallback
-}
-
-function formatChildExitStatus(result) {
-  if (typeof result?.code === 'number') {
-    return `exit code ${result.code}`
-  }
-  if (result?.signal) {
-    return `signal ${result.signal}`
-  }
-  return 'an unknown status'
-}
-
-function resolveUnexpectedExitCode(result) {
-  const exitCode = resolveChildExitCode(result, 1)
-  return exitCode === 0 ? 1 : exitCode
-}
-
 function reportUnexpectedChildExit(result) {
-  const message = `❌ ${result?.label ?? 'Child process'} exited unexpectedly with ${formatChildExitStatus(result)}`
-  console.error(message)
-  rememberRawLog(message)
-  publishRuntimeFailure(message, {
+  const report = buildUnexpectedChildExitReport({
+    label: result?.label,
+    exitStatus: formatChildExitStatus(result),
+    bufferedFailureLines: collectRuntimeFailureLines(failureLogTailLines),
+    logsVisible,
+  })
+  for (const line of report.terminalLines) {
+    console.error(line)
+  }
+  // The banner was just printed, so buffer it without echoing it a second time.
+  bufferRawLog(report.banner)
+  publishRuntimeFailure(report.banner, {
+    source: 'process',
+    failureStage: result?.label,
     progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
     progressLabel: splashState.progressLabel || startupProgress.label,
-    failureLines: [...collectRuntimeFailureLines(), message].slice(-10),
+    failureLines: report.failureLines,
   })
 }
 
@@ -1093,6 +1111,8 @@ async function runTargetedRouteWarmup() {
         runtimeWarmupState.failed = true
         const detail = `Warmup failed after ${attempt} retries: ${reason}`
         publishRuntimeFailure(detail, {
+          source: 'warmup',
+          failureStage: 'Startup warmup',
           progressCurrent: runtimeProgressCurrent,
           progressLabel: progressLabel,
           failureLines: [
@@ -1346,7 +1366,7 @@ function resolveRawLogFileStream() {
   return rawLogFileStream
 }
 
-function rememberRawLog(line) {
+function bufferRawLog(line) {
   rawLogBuffer.push(line)
   if (rawLogBuffer.length > maxBufferedLogLines) {
     rawLogBuffer.shift()
@@ -1356,6 +1376,10 @@ function rememberRawLog(line) {
   if (fileStream && !rawLogFileFailed) {
     fileStream.write(`${line}\n`)
   }
+}
+
+function rememberRawLog(line) {
+  bufferRawLog(line)
 
   if (logsVisible) {
     process.stdout.write(`${line}\n`)
@@ -1478,6 +1502,7 @@ async function runInitialGenerate() {
     if (exitCode !== 0) {
       markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
       shutdown(exitCode)
+      return
     }
     markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
     return
@@ -1509,6 +1534,7 @@ async function runInitialGenerate() {
       console.error(line)
     }
     shutdown(exitCode)
+    return
   }
 
   updateSplashState({
@@ -1525,7 +1551,8 @@ async function runInitialGenerate() {
 }
 
 function createFilteredReporter(label, classifyLine) {
-  let passthrough = false
+  const failureLatch = createRuntimeFailureLatch()
+  let autoRevealedLogs = false
   const ignoreLine = createRuntimeNoiseFilter()
 
   return (line) => {
@@ -1539,8 +1566,13 @@ function createFilteredReporter(label, classifyLine) {
     }
     captureBackgroundServiceLine(plain)
 
-    if (passthrough) {
-      return
+    if (failureLatch.isLatched()) {
+      if (!failureLatch.releaseOn(plain)) return
+      if (autoRevealedLogs) {
+        autoRevealedLogs = false
+        hideBufferedLogs()
+      }
+      lastRenderedStatus = null
     }
 
     if (ignoreLine(plain, { startupReady: splashState.ready })) {
@@ -1605,8 +1637,9 @@ function createFilteredReporter(label, classifyLine) {
       progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
       progressLabel: splashState.progressLabel || startupProgress.label,
     })
-    passthrough = true
+    failureLatch.latch()
     if (interactiveLogToggle) {
+      autoRevealedLogs = !logsVisible
       showBufferedLogs(`❌ ${label} emitted raw output`)
       return
     }
@@ -1811,6 +1844,21 @@ function classifyServerLine(line) {
       splashDetail: `Reason: ${reason}`,
       ready: false,
       activity: `App runtime restart: ${reason}`,
+      progressCurrent: runtimeProgressCurrent,
+      progressLabel: 'Restarting app runtime',
+    }
+  }
+
+  if (line.startsWith('[server] Next.js dev server exited before becoming ready')) {
+    const reason = 'a failed cold start'
+    resetWarmupForRuntimeRestart(reason)
+    return {
+      type: 'status',
+      message: `🔄 Restarting Next.js dev server: ${reason}`,
+      splashPhase: 'App runtime is restarting',
+      splashDetail: `Reason: ${reason}`,
+      ready: false,
+      activity: `Next.js restart: ${reason}`,
       progressCurrent: runtimeProgressCurrent,
       progressLabel: 'Restarting app runtime',
     }

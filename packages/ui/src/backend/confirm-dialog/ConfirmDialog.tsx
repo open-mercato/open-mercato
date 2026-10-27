@@ -54,6 +54,7 @@ export function ConfirmDialog({
   const [internalOpen, setInternalOpen] = React.useState(false);
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
   const confirmButtonRef = React.useRef<HTMLButtonElement>(null);
+  const restoreAriaHiddenRef = React.useRef(false);
   const [portalTarget, setPortalTarget] = React.useState<HTMLElement | null>(null);
   // Unique IDs so multiple ConfirmDialog instances on the same page don't
   // collide and make `aria-labelledby` resolve to the wrong dialog's title.
@@ -111,9 +112,24 @@ export function ConfirmDialog({
           }
         }, 0);
       }
+      // A modal opened underneath (e.g. a Radix Dialog) marks every sibling in
+      // <body> `aria-hidden`, including this portalled element. Shown on top
+      // of that modal it must stay reachable for assistive technology.
+      if (dialog.getAttribute("aria-hidden") === "true") {
+        dialog.removeAttribute("aria-hidden");
+        restoreAriaHiddenRef.current = true;
+      }
     } else {
       if (dialog.open) {
         dialog.close();
+      }
+      if (restoreAriaHiddenRef.current) {
+        restoreAriaHiddenRef.current = false;
+        // Hand the attribute back only while the modal that hid us is still
+        // open; its own cleanup has otherwise already removed the marker.
+        if (dialog.hasAttribute("data-aria-hidden")) {
+          dialog.setAttribute("aria-hidden", "true");
+        }
       }
     }
   }, [open, resolvedCancelText, portalTarget]);
@@ -135,6 +151,21 @@ export function ConfirmDialog({
     dialog.addEventListener("cancel", handleCancel);
     return () => dialog.removeEventListener("cancel", handleCancel);
   }, [loading, requestClose]);
+
+  React.useEffect(() => {
+    if (!open) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!(event.target instanceof Node) || !dialogRef.current?.contains(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!loading) requestClose();
+    };
+
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [loading, open, requestClose]);
 
   // Handle backdrop click
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
@@ -262,7 +293,7 @@ export function ConfirmDialog({
           {resolvedConfirmText !== false && (
             <Button
               ref={confirmButtonRef}
-              variant={variant === "destructive" ? "destructive" : "default"}
+              variant={variant === "destructive" ? "destructive-solid" : "default"}
               onClick={handleConfirm}
               disabled={loading}
               className="w-full sm:w-auto"

@@ -26,10 +26,13 @@ async function createEntity(
   data: Record<string, unknown>,
   idKeys: string[],
 ): Promise<string> {
-  const response = await apiRequest(request, 'POST', path, { token, data });
-  const body = (await response.json()) as unknown;
-  expect(response.ok(), `Failed POST ${path}: ${response.status()}`).toBeTruthy();
-  const id = readId(body, idKeys);
+  const response = await apiRequest(request, 'POST', path, { token, data, retryTransport: false });
+  const bodyText = await response.text();
+  expect(
+    response.ok(),
+    `Failed POST ${path}: ${response.status()} ${bodyText.slice(0, 500)}`,
+  ).toBeTruthy();
+  const id = readId(JSON.parse(bodyText) as unknown, idKeys);
   expect(id, `No id in POST ${path} response`).toBeTruthy();
   return id as string;
 }
@@ -47,7 +50,27 @@ export async function createSalesOrderFixture(
   token: string,
   currencyCode = 'USD',
 ): Promise<string> {
-  return createEntity(request, token, '/api/sales/orders', { currencyCode }, ['id', 'orderId']);
+  // A sales order must contain at least one line (see issue #4021). Seed a
+  // zero-priced placeholder line so the order is valid on creation without
+  // perturbing totals in specs that add their own priced lines afterwards.
+  return createEntity(
+    request,
+    token,
+    '/api/sales/orders',
+    {
+      currencyCode,
+      lines: [
+        {
+          currencyCode,
+          quantity: 1,
+          name: `QA seed line ${Date.now()}`,
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        },
+      ],
+    },
+    ['id', 'orderId'],
+  );
 }
 
 export async function createOrderLineFixture(
@@ -101,6 +124,10 @@ export async function createShipmentFixture(
  * synced (`yarn mercato auth sync-role-acls`) rather than fail spuriously —
  * CI bootstraps a fully-synced tenant so the probe passes there. The probed
  * order is deleted immediately so the check leaves no residue.
+ *
+ * Only `403` counts as "unsynced ACLs". Any other failure fails the spec: a probe
+ * that returned false for every non-OK response would convert a real sales-route
+ * regression into a suite full of green skips, which reads as coverage that ran.
  */
 export async function canManageSalesOrders(
   request: APIRequestContext,
@@ -108,11 +135,27 @@ export async function canManageSalesOrders(
 ): Promise<boolean> {
   const response = await apiRequest(request, 'POST', '/api/sales/orders', {
     token,
-    data: { currencyCode: 'USD' },
+    // A sales order must contain at least one line (issue #4021).
+    data: {
+      currencyCode: 'USD',
+      lines: [
+        {
+          currencyCode: 'USD',
+          quantity: 1,
+          name: 'QA probe line',
+          unitPriceNet: 0,
+          unitPriceGross: 0,
+        },
+      ],
+    },
   });
   if (response.status() === 403) return false;
-  if (!response.ok()) return false;
-  const id = readId((await response.json()) as unknown, ['id', 'orderId']);
+  const bodyText = await response.text();
+  expect(
+    response.ok(),
+    `canManageSalesOrders probe failed with ${response.status()}: ${bodyText.slice(0, 500)}`,
+  ).toBeTruthy();
+  const id = readId(JSON.parse(bodyText) as unknown, ['id', 'orderId']);
   if (id) {
     try {
       await apiRequest(request, 'DELETE', '/api/sales/orders', { token, data: { id } });
@@ -136,4 +179,3 @@ export async function deleteSalesEntityIfExists(
     return;
   }
 }
-

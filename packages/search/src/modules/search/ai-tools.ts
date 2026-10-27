@@ -4,7 +4,16 @@ import type {
   SearchResult,
   SearchStrategyId,
 } from '@open-mercato/shared/modules/search'
-import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import {
+  filterSearchResultsByEntityAccess,
+  resolveReadableEntityTypes,
+  type SearchEntityConfigLookup,
+} from './lib/entity-access'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
 
 /**
  * AI Tools definitions for the Search module.
@@ -54,12 +63,11 @@ type AiToolDefinition = {
 
 /**
  * Minimal shape of the `searchIndexer` DI service consumed by the per-entity
- * ACL / field-policy resolution below. Kept local to avoid importing the full
- * `SearchIndexer` class into the tool module.
+ * ACL / field-policy resolution below. Aliased rather than redeclared so the
+ * tools and the global-search route cannot drift apart, and still narrow enough
+ * to avoid importing the full `SearchIndexer` class into the tool module.
  */
-type SearchIndexerLike = {
-  getEntityConfig: (entityId: string) => SearchEntityConfig | undefined
-}
+type SearchIndexerLike = SearchEntityConfigLookup
 
 class SearchToolAuthorizationError extends Error {
   constructor(message: string) {
@@ -96,13 +104,53 @@ function authorizeEntityAccess(entityType: string, ctx: ToolContext): SearchEnti
     )
   }
 
-  if (!hasAllFeatures(ctx.userFeatures, required)) {
+  if (!authorizeFeatures(required, {
+    grantedFeatures: ctx.userFeatures,
+    unrestricted: ctx.isSuperAdmin,
+  })) {
     throw new SearchToolAuthorizationError(
       `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`
     )
   }
 
   return config
+}
+
+/**
+ * Resolve the actor's allowed-organization scope the same way the HTTP search
+ * route does, so AI search tools can never return results outside a
+ * restricted user's organization allowlist — even when their current
+ * organization is null. Mirrors packages/search/.../api/search/route.ts.
+ *
+ * `organizationId` is the re-validated selection (`scope.selectedId`), not the
+ * raw `ctx.organizationId` — `SearchOptions.organizationId` takes precedence
+ * over `organizationIds` in `normalizeOrganizationFilter`, so passing the
+ * unvalidated context value through would let a stale/out-of-allowlist
+ * selection bypass the allowlist below.
+ */
+async function resolveActorOrganizationScope(ctx: ToolContext): Promise<{
+  organizationId: string | undefined
+  organizationIds: string[] | undefined
+  denyAll: boolean
+}> {
+  if (!ctx.userId) return { organizationId: undefined, organizationIds: undefined, denyAll: true }
+  const auth: AuthContext = {
+    sub: ctx.userId,
+    tenantId: ctx.tenantId,
+    orgId: ctx.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+  const scope = await resolveOrganizationScopeForRequest({
+    container: ctx.container as unknown as AwilixContainer,
+    auth,
+    selectedId: ctx.organizationId,
+  })
+  const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
+  const denyAll = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
+  const organizationId = typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0
+    ? scope.selectedId.trim()
+    : undefined
+  return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
 }
 
 /**
@@ -184,13 +232,32 @@ Searches customers, products, orders, deals, and more in one call.`,
       search: (query: string, options: any) => Promise<SearchResult[]>
     }>('searchService')
 
-    const results = await searchService.search(input.query, {
+    // Same rule the HTTP palette applies: `search.global` authorizes using search,
+    // not reading every indexed entity type. The query is narrowed to the readable
+    // types so `limit` is not spent on records that would be filtered out, and the
+    // results are filtered afterwards as defense in depth.
+    const searchIndexer = ctx.container.resolve<SearchIndexerLike>('searchIndexer')
+    const subject = { grantedFeatures: ctx.userFeatures, isSuperAdmin: ctx.isSuperAdmin }
+    const readableEntityTypes = resolveReadableEntityTypes(searchIndexer, subject, input.entityTypes)
+    if (readableEntityTypes && readableEntityTypes.length === 0) {
+      return { query: input.query, totalResults: 0, results: [] }
+    }
+
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return { query: input.query, totalResults: 0, results: [] }
+    }
+
+    const rawResults = await searchService.search(input.query, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      entityTypes: input.entityTypes,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
+      entityTypes: readableEntityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
     })
+
+    const results = filterSearchResultsByEntityAccess(rawResults, searchIndexer, subject)
 
     return {
       query: input.query,
@@ -267,13 +334,24 @@ const searchGetTool: AiToolDefinition = {
 
     const entityConfig = authorizeEntityAccess(input.entityType, ctx)
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        found: false,
+        entityType: input.entityType,
+        recordId: input.recordId,
+        error: 'Record not found',
+      }
+    }
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
 
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       filters: { id: input.recordId },
       includeCustomFields: true,
       page: { page: 1, pageSize: 1 },
@@ -437,6 +515,16 @@ const searchAggregateTool: AiToolDefinition = {
       )
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        entityType: input.entityType,
+        groupBy: input.groupBy,
+        total: 0,
+        buckets: [],
+      }
+    }
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
@@ -445,7 +533,8 @@ const searchAggregateTool: AiToolDefinition = {
     // Note: For large datasets, this should use database GROUP BY
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       page: { page: 1, pageSize: 100 },
     })
 

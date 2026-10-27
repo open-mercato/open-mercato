@@ -1,8 +1,9 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,components,lib,modules}` and selected
- * root src files aligned with app source for shared layout/routes/module scaffolding.
+ * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules}` and selected
+ * root src files aligned with app source for shared layout/routes/module scaffolding
+ * and locale dictionaries.
  *
  * Usage:
  *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
@@ -28,13 +29,32 @@ const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
-const SYNC_FOLDERS = ['app', 'components', 'lib', 'modules'] as const
+export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules'] as const
 const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
     rel: 'scripts/dev.mjs',
+  },
+  {
+    // `scripts/dev.mjs` imports this for its MCP lifecycle, so a scaffolded app
+    // fails to boot `yarn dev` without it (template-script-targets.test.ts).
+    sourceFile: path.join(ROOT, 'scripts', 'dev-mcp.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-mcp.mjs'),
+    rel: 'scripts/dev-mcp.mjs',
+  },
+  {
+    // `scripts/dev.mjs` imports this to keep its optional Docker probe bounded,
+    // so a scaffolded app fails to boot `yarn dev` without it.
+    sourceFile: path.join(ROOT, 'scripts', 'dev-docker-availability.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-docker-availability.mjs'),
+    rel: 'scripts/dev-docker-availability.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
+    rel: 'scripts/dev-memory-sampler.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
@@ -65,6 +85,41 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-state.mjs'),
+    rel: 'scripts/dev-runtime-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-config.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-config.mjs'),
+    rel: 'scripts/dev-runtime-config.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-probe.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-probe.mjs'),
+    rel: 'scripts/dev-runtime-probe.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-diagnostics.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-diagnostics.mjs'),
+    rel: 'scripts/dev-runtime-diagnostics.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-supervisor.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-supervisor.mjs'),
+    rel: 'scripts/dev-runtime-supervisor.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-gateway.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-gateway.mjs'),
+    rel: 'scripts/dev-runtime-gateway.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-actions.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-actions.mjs'),
+    rel: 'scripts/dev-runtime-actions.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
@@ -117,9 +172,7 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'docker/redis/redis.conf',
   },
 ] as const
-const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
-  'app/api/healthz/__tests__/route.test.ts',
-  'app/api/healthz/route.ts',
+export const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])
@@ -132,12 +185,273 @@ const SYNC_DEPENDENCY_KEYS = [
 ] as const
 const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/checkout',
+  // The template enables `agent_orchestrator` behind OM_ENABLE_ENTERPRISE_MODULES_AGENTS,
+  // so the dependency must track the monorepo version or a scaffolded app fails
+  // module resolution the moment the flag is flipped.
+  '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
+  '@open-mercato/gateway-tpay',
   '@open-mercato/sync-akeneo',
 ] as const
-const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
+// Modules whose source ships in every scaffold but must stay runtime-disabled there.
+// The monorepo dev app keeps them enabled for QA; the template copy strips their
+// `enabledModules` registrations (see the disabled-by-default delivery contract).
+// `seeds` loads an AES-256-GCM blob whose key arrives out of band; a fresh scaffold ships
+// neither the ciphertext nor OM_SEED_KEY, so its CLI would be inert. It stays enabled in
+// apps/mercato for the maintainers' own seeding flow and out of the template until shipping
+// it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
+// case before module-facts-build.test.ts will accept it).
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
+const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
+const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
+
+function failTemplateTransform(rel: string, reason: string): never {
+  throw new Error(
+    `[template-sync] ${rel}: ${reason}. Update TEMPLATE_CONTENT_TRANSFORMS in scripts/template-sync.ts.`,
+  )
+}
+
+function stripEnabledModuleEntry(content: string, moduleId: string, rel: string): string {
+  const declarationIndex = content.indexOf(ENABLED_MODULES_DECLARATION)
+  if (declarationIndex === -1) failTemplateTransform(rel, 'could not locate the enabledModules declaration')
+
+  const needle = `id: '${moduleId}',`
+  const occurrences: number[] = []
+  for (
+    let index = content.indexOf(needle, declarationIndex);
+    index !== -1;
+    index = content.indexOf(needle, index + needle.length)
+  ) {
+    occurrences.push(index)
+  }
+  if (occurrences.length !== 1) {
+    failTemplateTransform(
+      rel,
+      `expected exactly one enabled '${moduleId}' registration to strip, found ${occurrences.length}`,
+    )
+  }
+
+  let openIndex = occurrences[0] - 1
+  while (openIndex >= 0 && /\s/.test(content[openIndex])) openIndex--
+  if (content[openIndex] !== '{') {
+    failTemplateTransform(rel, `the '${moduleId}' registration is not an object literal entry`)
+  }
+
+  let depth = 0
+  let closeIndex = -1
+  for (let index = openIndex; index < content.length; index++) {
+    const char = content[index]
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) {
+        closeIndex = index
+        break
+      }
+    }
+  }
+  if (closeIndex === -1) failTemplateTransform(rel, `the '${moduleId}' registration has no closing brace`)
+
+  let end = closeIndex + 1
+  if (content[end] === ',') end++
+  while (content[end] === ' ' || content[end] === '\t') end++
+  if (content[end] === '\n') end++
+
+  let start = content.lastIndexOf('\n', openIndex) + 1
+  while (start >= 2) {
+    const previousLineStart = content.lastIndexOf('\n', start - 2) + 1
+    const previousLine = content.slice(previousLineStart, start - 1)
+    if (!/^\s*\/\//.test(previousLine)) break
+    start = previousLineStart
+  }
+
+  const stripped = `${content.slice(0, start)}${content.slice(end)}`
+  if (stripped.indexOf(needle, stripped.indexOf(ENABLED_MODULES_DECLARATION)) !== -1) {
+    failTemplateTransform(rel, `the '${moduleId}' registration survived stripping`)
+  }
+  return stripped
+}
+
+function stripTemplateDisabledModules(content: string, rel: string): string {
+  const stripped = TEMPLATE_DISABLED_MODULE_IDS.reduce(
+    (current, moduleId) => stripEnabledModuleEntry(current, moduleId, rel),
+    content,
+  )
+  // `example_customers_sync` is only ever pushed behind the example guard, so stripping
+  // the example registration must leave it inert rather than unconditionally enabled.
+  if (!stripped.includes(EXAMPLE_CUSTOMERS_SYNC_GUARD)) {
+    failTemplateTransform(rel, 'the example_customers_sync activation guard is missing')
+  }
+  return stripped
+}
+
+// Modules that stay commented out (not stripped) in the template: enabling them pushes the
+// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
+// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+// Each entry replaces the app's registration and its leading comment verbatim, so a reworded
+// source comment fails the transform loudly rather than drifting back into the template. The
+// replacement goes in as a function so a `$` in a template body stays literal instead of being
+// read as a String.replace substitution pattern.
+export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+  customer_groups: {
+    source: `  { id: 'customer_groups', from: '@open-mercato/core' },`,
+    template: `  // customer_groups (Release 2 part 1 — .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md
+  // §14 Phase 1-2). The package ships with the scaffold but stays disabled by default:
+  // enabling it here makes the scaffold ship the module's fact-sheet, which the
+  // \`every module fact-sheet a scaffold ships is required by at least one catalog case\`
+  // guard (packages/create-app/src/lib/module-facts-build.test.ts) then requires a
+  // dedicated AI-harness case for — authoring one means running the full
+  // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
+  // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
+  // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
+  // work, same as channel_discord's byte-budget call below.
+  // { id: 'customer_groups', from: '@open-mercato/core' },`,
+  },
+  gateway_tpay: {
+    source: `  { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+    template: `  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+  },
+  channel_discord: {
+    source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
+  // but stays disabled by default. #4989 removed the hard overflow this used to
+  // cause (the generated root now sheds its module-fact index instead), but the
+  // headroom is still gone: enabling it puts the generated root at 12,275 of the
+  // 12,288-byte target, so the next module enabled after it drops the inline
+  // index to pointer form. Enabling is therefore a maintainer call about that
+  // budget, not a one-line edit — see
+  // packages/create-app/src/lib/agent-instruction-budget.test.ts
+  // ('one more template module still fits the root budget with its inline index
+  // intact'), and #4983 for the discussion.
+  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  carrier_inpost: {
+    source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+    template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays
+  // disabled in the scaffold for the same reason as forms below: a module enabled
+  // in the template ships a generated fact sheet that the standalone AI harness
+  // must cover with an evaluation case (src/lib/module-facts-build.test.ts), so
+  // enabling it is a maintainer call that follows
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md. Install
+  // @open-mercato/carrier-inpost and uncomment the line to use it.
+  // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
+  },
+  forms: {
+    source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },`,
+    template: `  // Audit-grade questionnaire/form primitive. The module ships with the scaffold
+  // but stays disabled by default, because enabling it here is a governed change
+  // rather than a one-line edit: a module enabled in the template gets a
+  // generated fact sheet, which \`selectModuleFactSheets\` then requires an
+  // evaluation case for in the standalone AI harness
+  // (src/lib/module-facts-build.test.ts, 'every default-controller module fact is
+  // exercised by the evaluation catalog'). Adding that case means re-pinning the
+  // catalog count in cases.schema.json, validators.json, two test literals and
+  // three docs, and re-running the live \`harness:release\` certification whose
+  // results those docs record — see
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
+  // therefore a maintainer call that follows that skill.
+  // { id: 'forms', from: '@open-mercato/core' },`,
+  },
+  availability: {
+    source: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  { id: 'availability', from: '@open-mercato/core' },`,
+    template: `  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },`,
+  },
+  ecommerce: {
+    source: `  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },`,
+    template: `  // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
+  // Stays commented out with customer_groups, which it requires, and availability, which it
+  // integrates with when enabled, until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage.
+  // { id: 'ecommerce', from: '@open-mercato/core' },`,
+  },
+  promotions: {
+    source: `  // Promotions engine (SPEC-055): rule-condition trees, codes, cart effect resolution.
+  { id: 'promotions', from: '@open-mercato/core' },`,
+    template: `  // Promotions engine (.ai/specs/SPEC-055-2026-02-23-promotions-module.md Phases 1-3):
+  // rule-condition trees, promotional codes, and cart effect resolution. Stays commented out
+  // with customer_groups and ecommerce above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/promotions/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'promotions', from: '@open-mercato/core' },`,
+  },
+  cart: {
+    source: `  // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
+  // totals, token-bound public access. Requires catalog, sales and customer_groups.
+  { id: 'cart', from: '@open-mercato/core' },`,
+    template: `  // Channel-agnostic basket module (.ai/specs/2026-08-14-cart-module.md Phases 1-3): priced
+  // lines, promotions, totals, and token-bound public access. Requires catalog, sales,
+  // customer_groups and promotions (packages/core/src/modules/cart/index.ts's own
+  // \`requires\`). Stays commented out with customer_groups and promotions above until
+  // the module-sets \`commerce\` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/cart/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'cart', from: '@open-mercato/core' },`,
+  },
+}
+
+function commentOutTemplateModules(content: string, rel: string): string {
+  return Object.entries(TEMPLATE_COMMENTED_MODULES).reduce((current, [moduleId, replacement]) => {
+    if (!current.includes(replacement.source)) {
+      failTemplateTransform(rel, `expected the ${moduleId} enabledModules entry with its source comment`)
+    }
+    return current.replace(replacement.source, () => replacement.template)
+  }, content)
+}
+
+export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+  // The template's pinned core version does not expose the autologin helper subpath yet.
+  'app/page.tsx': (content) =>
+    content.replace(
+      "import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'\n",
+      "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
+    ),
+  // Scaffolds ship the example and design-system source but keep both runtime-disabled;
+  // channel_discord stays commented out with a byte-budget explanation instead.
+  'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
       .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
@@ -508,4 +822,11 @@ async function main() {
   process.exit(0)
 }
 
-void main()
+// Guarded so parity tests can import the exception constants without running the CLI.
+function isDirectInvocation(): boolean {
+  const entry = process.argv[1]
+  if (!entry) return false
+  return path.resolve(entry) === path.resolve(__filename_)
+}
+
+if (isDirectInvocation()) void main()

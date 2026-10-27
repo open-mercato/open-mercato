@@ -24,13 +24,34 @@ jest.mock('../conversation-store', () => {
   }
 })
 
+jest.mock('../useAiAssistantAvailable', () => ({
+  useAiAssistantAvailable: jest.fn(() => true),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   listAiServerConversations,
   createAiServerConversation,
 } from '../conversation-store'
+import { useAiAssistantAvailable } from '../useAiAssistantAvailable'
 
 const listMock = listAiServerConversations as jest.MockedFunction<typeof listAiServerConversations>
 const createMock = createAiServerConversation as jest.MockedFunction<typeof createAiServerConversation>
+const aiAvailableMock = useAiAssistantAvailable as jest.MockedFunction<typeof useAiAssistantAvailable>
+const loggerError = createLogger('ui').error as jest.Mock
+const loggerWarn = createLogger('ui').warn as jest.Mock
 
 const KEY_PREFIX = 'om-ai-chat-sessions-v1'
 
@@ -69,6 +90,10 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     listMock.mockResolvedValue(null)
     createMock.mockReset()
     createMock.mockResolvedValue(null)
+    aiAvailableMock.mockReset()
+    aiAvailableMock.mockReturnValue(true)
+    loggerError.mockClear()
+    loggerWarn.mockClear()
     // Reset scope to a known starting point. The module-level state in
     // organizationEvents persists across tests in the same file.
     act(() => {
@@ -212,6 +237,51 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     })
   })
 
+  it('warns when the server conversation list is unavailable', async () => {
+    listMock.mockReset()
+    listMock.mockResolvedValue(null)
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(loggerWarn).toHaveBeenCalledWith(
+        'Could not load server conversations; keeping the locally persisted sessions',
+      )
+    })
+  })
+
+  it('logs and keeps the locally persisted sessions when the server list rejects', async () => {
+    const failure = new Error('[internal] conversations endpoint unreachable')
+    listMock.mockReset()
+    listMock.mockRejectedValue(failure)
+    window.localStorage.setItem(
+      scopedKey('T1', 'O1'),
+      JSON.stringify({
+        sessions: [
+          {
+            id: 'local-session',
+            agentId: 'assistant',
+            conversationId: 'local-conv',
+            createdAt: 1,
+            lastUsedAt: 1,
+            status: 'open',
+          },
+        ],
+        activeByAgent: { assistant: 'local-session' },
+      }),
+    )
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(loggerError).toHaveBeenCalledWith('Failed to load server conversations', {
+        err: failure,
+      })
+    })
+
+    expect(screen.getByTestId('session-count').textContent).toBe('1')
+  })
+
   it('falls back to the no-tenant/no-org bucket when scope is unresolved', async () => {
     act(() => {
       emitOrganizationScopeChanged({ tenantId: null, organizationId: null })
@@ -228,5 +298,74 @@ describe('<AiChatSessionsProvider> — tenant/org scope isolation', () => {
     })
 
     expect(window.localStorage.getItem(scopedKey(null, null))).not.toBeNull()
+  })
+})
+
+describe('<AiChatSessionsProvider> — ai_assistant availability gate', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    listMock.mockReset()
+    listMock.mockResolvedValue([])
+    createMock.mockReset()
+    createMock.mockResolvedValue(null)
+    aiAvailableMock.mockReset()
+    loggerError.mockClear()
+    loggerWarn.mockClear()
+    act(() => {
+      emitOrganizationScopeChanged({ tenantId: 'T1', organizationId: 'O1' })
+    })
+  })
+
+  afterEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('skips the server conversation sync when the AI assistant is unavailable', async () => {
+    aiAvailableMock.mockReturnValue(false)
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    // Children still render — the provider owns context every backend page needs.
+    await waitFor(() => {
+      expect(screen.getByTestId('session-count').textContent).toBe('0')
+    })
+
+    expect(listMock).not.toHaveBeenCalled()
+    expect(loggerWarn).not.toHaveBeenCalled()
+    expect(loggerError).not.toHaveBeenCalled()
+  })
+
+  it('syncs once when the AI assistant is available', async () => {
+    aiAvailableMock.mockReturnValue(true)
+
+    renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(listMock).toHaveBeenCalledTimes(1)
+    })
+    expect(listMock).toHaveBeenCalledWith({ limit: 100 })
+  })
+
+  // The gate is fail-closed while the backend chrome payload is still null,
+  // which is the state at mount on every install. So on an enabled install the
+  // sync only ever happens on the re-run triggered by `aiAvailable` flipping
+  // true — this pins that dependency.
+  it('syncs once the availability gate opens after mount', async () => {
+    aiAvailableMock.mockReturnValue(false)
+
+    const { rerender } = renderWithProviders(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-count').textContent).toBe('0')
+    })
+    expect(listMock).not.toHaveBeenCalled()
+
+    aiAvailableMock.mockReturnValue(true)
+    rerender(<Harness agentId="assistant" />)
+
+    await waitFor(() => {
+      expect(listMock).toHaveBeenCalledTimes(1)
+    })
+    expect(listMock).toHaveBeenCalledWith({ limit: 100 })
   })
 })

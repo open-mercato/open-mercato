@@ -2,6 +2,7 @@
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback,
+  useOptionalLocale: () => undefined,
 }))
 
 jest.mock('@open-mercato/shared/lib/phone', () => ({
@@ -22,7 +23,15 @@ jest.mock('@open-mercato/shared/lib/phone', () => ({
 
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { PhoneNumberField } from '../PhoneNumberField'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import {
+  PHONE_COUNTRIES,
+  PhoneNumberField,
+  buildPhoneCountryOptions,
+  phoneCountryLabelKey,
+  resolvePhoneCountryLabel,
+  type PhoneCountry,
+} from '../PhoneNumberField'
 
 function PhoneFieldHarness(props: Partial<React.ComponentProps<typeof PhoneNumberField>>) {
   const [value, setValue] = React.useState<string | undefined>(undefined)
@@ -75,5 +84,168 @@ describe('PhoneNumberField', () => {
     expect(screen.getByText('Server says the phone is invalid.')).toBeInTheDocument()
     expect(screen.queryByText('Use an international phone number.')).not.toBeInTheDocument()
     expect(input).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('honours a restricted country list via the countries prop', () => {
+    render(
+      <PhoneFieldHarness
+        value="+383 44 123 456"
+        countries={[{ iso2: 'PL', dialCode: '+48', label: 'Poland', flag: '🇵🇱' }]}
+      />,
+    )
+
+    // The value still parses against the full dictionary (Kosovo), but the
+    // picker only offers the restricted list.
+    expect(screen.getByText('+383')).toBeInTheDocument()
+  })
+})
+
+describe('PhoneNumberField country dictionary', () => {
+  it('exposes a complete, well-formed geographic dictionary', () => {
+    expect(PHONE_COUNTRIES.length).toBeGreaterThan(200)
+
+    for (const country of PHONE_COUNTRIES) {
+      expect(country.iso2).toMatch(/^[A-Z]{2}$/)
+      expect(country.dialCode).toMatch(/^\+\d+$/)
+      expect(country.label.length).toBeGreaterThan(0)
+      expect(country.flag.length).toBeGreaterThan(0)
+    }
+
+    const isoCodes = PHONE_COUNTRIES.map((country) => country.iso2)
+    expect(new Set(isoCodes).size).toBe(isoCodes.length)
+  })
+
+  it('includes representative codes from every numbering zone', () => {
+    const dialByIso = new Map(PHONE_COUNTRIES.map((country) => [country.iso2, country.dialCode]))
+    expect(dialByIso.get('XK')).toBe('+383')
+    expect(dialByIso.get('BS')).toBe('+1242')
+    expect(dialByIso.get('BR')).toBe('+55')
+    expect(dialByIso.get('AU')).toBe('+61')
+    expect(dialByIso.get('JP')).toBe('+81')
+    expect(dialByIso.get('TR')).toBe('+90')
+    expect(dialByIso.get('PS')).toBe('+970')
+  })
+
+  it('excludes non-geographic international service codes', () => {
+    for (const code of ['+800', '+808', '+870', '+881', '+882']) {
+      expect(PHONE_COUNTRIES.some((country) => country.dialCode === code)).toBe(false)
+    }
+  })
+
+  it('derives each flag emoji from the ISO code', () => {
+    expect(PHONE_COUNTRIES.find((country) => country.iso2 === 'US')?.flag).toBe('🇺🇸')
+    expect(PHONE_COUNTRIES.find((country) => country.iso2 === 'XK')?.flag).toBe('🇽🇰')
+  })
+})
+
+describe('PhoneNumberField initial country detection', () => {
+  const cases: Array<[string, string]> = [
+    ['+1242 555 0100', '+1242'],
+    ['+1 212 555 1234', '+1'],
+    ['+383 44 123 456', '+383'],
+    ['+55 11 91234 5678', '+55'],
+    ['+61 2 1234 5678', '+61'],
+    ['+81 3 1234 5678', '+81'],
+    ['+90 212 123 4567', '+90'],
+    ['+970 59 123 4567', '+970'],
+    ['+44 20 7946 0000', '+44'],
+  ]
+
+  it.each(cases)('resolves %s to dial code %s (longest prefix, sovereign first)', (value, expected) => {
+    render(<PhoneFieldHarness value={value} />)
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+})
+
+const englishOnly: TranslateFn = (key, fallback) => (typeof fallback === 'string' ? fallback : key)
+
+describe('PhoneNumberField country name localization', () => {
+  const poland = PHONE_COUNTRIES.find((country) => country.iso2 === 'PL') as PhoneCountry
+
+  it('builds the translation key from the ISO 3166-1 alpha-2 code', () => {
+    expect(phoneCountryLabelKey('pl')).toBe('ui.inputs.phoneNumberField.countryName.PL')
+  })
+
+  it('prefers a locale-file entry over every other source', () => {
+    const withOverride: TranslateFn = (key, fallback) =>
+      key === 'ui.inputs.phoneNumberField.countryName.PL' ? 'Rzeczpospolita Polska' : englishOnly(key, fallback)
+
+    expect(resolvePhoneCountryLabel(poland, withOverride, 'pl')).toBe('Rzeczpospolita Polska')
+  })
+
+  it('localizes an untranslated country through the active locale region data', () => {
+    expect(resolvePhoneCountryLabel(poland, englishOnly, 'pl')).toBe('Polska')
+    expect(resolvePhoneCountryLabel(poland, englishOnly, 'de')).toBe('Polen')
+  })
+
+  it('falls back to the English label when no locale is in scope', () => {
+    expect(resolvePhoneCountryLabel(poland, englishOnly, undefined)).toBe('Poland')
+  })
+
+  it('keeps the curated English dictionary names under an English locale', () => {
+    const antigua = PHONE_COUNTRIES.find((country) => country.iso2 === 'AG') as PhoneCountry
+
+    expect(resolvePhoneCountryLabel(poland, englishOnly, 'en')).toBe('Poland')
+    // CLDR spells this "Antigua & Barbuda"; the dictionary wins so existing
+    // English copy is never silently rewritten.
+    expect(antigua.label).toBe('Antigua and Barbuda')
+    expect(resolvePhoneCountryLabel(antigua, englishOnly, 'en')).toBe('Antigua and Barbuda')
+    expect(resolvePhoneCountryLabel(antigua, englishOnly, 'en-GB')).toBe('Antigua and Barbuda')
+  })
+
+  it('falls back to the English label for a code the runtime cannot name', () => {
+    const unassigned: PhoneCountry = { iso2: 'QQ', dialCode: '+999', label: 'Nowhere', flag: '' }
+    const malformed: PhoneCountry = { iso2: 'QQQ', dialCode: '+999', label: 'Nowhere', flag: '' }
+
+    expect(resolvePhoneCountryLabel(unassigned, englishOnly, 'pl')).toBe('Nowhere')
+    expect(resolvePhoneCountryLabel(malformed, englishOnly, 'pl')).toBe('Nowhere')
+  })
+})
+
+describe('PhoneNumberField country option list', () => {
+  it('localizes the built-in list and re-sorts it for the active locale', () => {
+    const options = buildPhoneCountryOptions(undefined, englishOnly, 'pl')
+
+    expect(options).toHaveLength(PHONE_COUNTRIES.length)
+    expect(options.find((option) => option.country.iso2 === 'DE')?.label).toBe('Niemcy')
+
+    const labels = options.map((option) => option.label)
+    const sorted = [...labels].sort((a, b) => a.localeCompare(b, 'pl', { sensitivity: 'base' }))
+    expect(labels).toEqual(sorted)
+  })
+
+  it('keeps a caller-supplied list authoritative in both label and order', () => {
+    const supplied: PhoneCountry[] = [
+      { iso2: 'DE', dialCode: '+49', label: 'Deutschland', flag: '🇩🇪' },
+      { iso2: 'PL', dialCode: '+48', label: 'Rzeczpospolita', flag: '🇵🇱' },
+    ]
+
+    expect(buildPhoneCountryOptions(supplied, englishOnly, 'pl')).toEqual([
+      { country: supplied[0], label: 'Deutschland' },
+      { country: supplied[1], label: 'Rzeczpospolita' },
+    ])
+  })
+})
+
+describe('PhoneNumberField option list under an unusable locale', () => {
+  it('falls back to English names and English collation instead of throwing', () => {
+    const options = buildPhoneCountryOptions(undefined, englishOnly, 'not a locale tag')
+
+    expect(options.find((option) => option.country.iso2 === 'DE')?.label).toBe('Germany')
+
+    const labels = options.map((option) => option.label)
+    const sorted = [...labels].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    expect(labels).toEqual(sorted)
+  })
+})
+
+describe('PhoneNumberField source options', () => {
+  it('uses the translated country picker name and optional country asset', () => {
+    render(<PhoneFieldHarness size={40} countryLabel="Numer kierunkowy kraju" renderCountryIcon={country => <img src={`${country.iso2}.svg`} alt="" />} />)
+    const picker = screen.getByRole('combobox', { name: 'Numer kierunkowy kraju' })
+    expect(picker.querySelector('img')).toHaveAttribute('src', 'US.svg')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '212 555 1234' } })
+    fireEvent.blur(screen.getByRole('textbox'))
+    expect(screen.getByTestId('value')).toHaveTextContent('+1 212 555 1234')
   })
 })

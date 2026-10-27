@@ -135,9 +135,23 @@ type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    currency?: string | null
   }
 }
 ```
+
+Money-rendering widgets receive an ISO 4217 code only when the currencies-owned resolver
+proves that every organization in scope has the same base currency and every aggregated row
+uses that code. Missing, ambiguous, unavailable, or mixed-currency results use `null`; the
+built-in widgets render a localized plain number with an explicit unlabelled notice.
+
+### Migration & Backward Compatibility
+
+`metadata.currency` is an additive optional response field. Existing clients may ignore it.
+New clients should treat absent and `null` values as deliberately unlabelled rather than
+guessing a fallback currency. `AnalyticsEntityTypeConfig.currencyField` is likewise additive
+and optional; analytics integrations without a per-row currency field keep their prior query
+behavior.
 
 ## Caching
 
@@ -146,6 +160,11 @@ Widget data responses are cached with 2-minute TTL. The cache system automatical
 Cache tags for invalidation:
 - `widget-data` - All widget data
 - `widget-data:${entityType}` - Specific entity type (e.g., `widget-data:sales:orders`)
+
+The dashboards module subscribes ephemerally to `currencies.currency.*` and invalidates the
+tenant-scoped `widget-data` tag. A base-currency change therefore cannot leave the prior
+currency label cached for the full TTL. If either the currencies service or cache is absent,
+the optional integration degrades without preventing dashboard reads.
 
 ## Available Widgets
 
@@ -287,6 +306,12 @@ const direction = determineChangeDirection(current, previous)
 ```
 
 ## Changelog
+
+### 2026-08-01
+- Added optional `metadata.currency` propagation for money widgets.
+- Moved base-currency lookup ownership into the currencies module and made dashboard/customer consumers soft-optional.
+- Added organization- and row-level mixed-currency guards, currency-change cache invalidation, and locale-aware `Intl` formatting.
+- Preserved the legacy literal-symbol compact formatter call while leaving unresolved amounts explicitly unlabelled.
 
 ### 2026-01-26
 - Refactored entity configuration to extensible registry pattern (analytics.ts)

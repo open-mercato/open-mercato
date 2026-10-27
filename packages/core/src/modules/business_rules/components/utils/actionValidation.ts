@@ -23,6 +23,7 @@ export const ACTION_TYPES = [
   'NOTIFY',
   'SET_FIELD',
   'CALL_WEBHOOK',
+  'CALL_OPEN_MERCATO',
   'EMIT_EVENT',
 ] as const
 
@@ -42,6 +43,7 @@ export function getActionTypeOptions(t: TranslatorFn): { value: string; label: s
     { value: 'NOTIFY', label: t('business_rules.validation.actionTypes.NOTIFY') },
     { value: 'SET_FIELD', label: t('business_rules.validation.actionTypes.SET_FIELD') },
     { value: 'CALL_WEBHOOK', label: t('business_rules.validation.actionTypes.CALL_WEBHOOK') },
+    { value: 'CALL_OPEN_MERCATO', label: t('business_rules.validation.actionTypes.CALL_OPEN_MERCATO') },
     { value: 'EMIT_EVENT', label: t('business_rules.validation.actionTypes.EMIT_EVENT') },
   ]
 }
@@ -62,6 +64,8 @@ export function getRequiredConfigFields(actionType: string): string[] {
       return ['field', 'value']
     case 'CALL_WEBHOOK':
       return ['url']
+    case 'CALL_OPEN_MERCATO':
+      return ['endpoint', 'method', 'apiKeyId']
     case 'EMIT_EVENT':
       return ['eventName']
     case 'ALLOW_TRANSITION':
@@ -82,6 +86,8 @@ export function getOptionalConfigFields(actionType: string): string[] {
       return ['template']
     case 'CALL_WEBHOOK':
       return ['method', 'headers', 'body']
+    case 'CALL_OPEN_MERCATO':
+      return ['body']
     case 'EMIT_EVENT':
       return ['payload']
     default:

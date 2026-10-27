@@ -1,121 +1,65 @@
-/**
- * Claude Code PostToolUse hook: entity-migration-check
- *
- * Fires after Write/Edit/MultiEdit. Detects entity file modifications
- * without an accompanying migration and blocks the agent with a reminder.
- *
- * Three-state logic:
- * 1. Migration file was written → exit 0 (agent is already on it)
- * 2. Not an entity file → exit 0 (not relevant)
- * 3. Entity written, no fresh migration → block with migration instructions
- */
-
+/** Remind Claude Code to generate and review a schema diff after entity edits. */
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
-const ENTITY_PATTERN = /^src\/modules\/([^/]+)\/entities\/.*\.ts$/
-const MIGRATION_PATTERN = /^src\/modules\/([^/]+)\/migrations\/.*\.ts$/
+const ENTITY_PATTERN = /^src\/modules\/([^/]+)\/data\/entities\.ts$/
+const MIGRATION_PATTERN = /^src\/modules\/([^/]+)\/migrations\/[^/]+\.ts$/
 
 interface PostToolUseInput {
-  tool_input?: {
-    file_path?: string
-    content?: string
-  }
-  tool_name?: string
+  tool_input?: { file_path?: string }
 }
 
-function getRelativePath(filePath: string): string {
-  const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd()
-  if (filePath.startsWith('/')) {
-    return relative(projectDir, filePath)
-  }
-  return filePath
+function projectDir(): string {
+  return process.env.CLAUDE_PROJECT_DIR || process.cwd()
+}
+
+function normalizedRelative(filePath: string): string {
+  const value = filePath.startsWith('/') ? relative(projectDir(), filePath) : filePath
+  return value.replaceAll('\\', '/')
 }
 
 function hasFreshMigration(moduleId: string): boolean {
-  const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd()
-  const migrationsDir = join(projectDir, 'src', 'modules', moduleId, 'migrations')
-
+  const migrationsDir = join(projectDir(), 'src', 'modules', moduleId, 'migrations')
   try {
-    const files = readdirSync(migrationsDir)
-    const now = Date.now()
-    const thirtySecondsAgo = now - 30_000
-
-    for (const file of files) {
-      if (!file.endsWith('.ts')) continue
-      const stat = statSync(join(migrationsDir, file))
-      if (stat.mtimeMs > thirtySecondsAgo) {
-        return true
-      }
-    }
+    const cutoff = Date.now() - 30_000
+    return readdirSync(migrationsDir).some((file) =>
+      file.endsWith('.ts') && statSync(join(migrationsDir, file)).mtimeMs > cutoff,
+    )
   } catch {
-    // migrations directory doesn't exist yet — that's fine
+    return false
   }
-
-  return false
 }
 
 async function main(): Promise<void> {
   let input = ''
-  for await (const chunk of process.stdin) {
-    input += chunk
-  }
-
-  if (!input.trim()) {
-    process.exit(0)
-  }
+  for await (const chunk of process.stdin) input += chunk
+  if (!input.trim()) return
 
   let data: PostToolUseInput
   try {
     data = JSON.parse(input)
   } catch {
-    process.exit(0)
+    return
   }
 
   const filePath = data.tool_input?.file_path
-  if (!filePath) {
-    process.exit(0)
-  }
+  if (!filePath) return
+  const rel = normalizedRelative(filePath)
+  if (MIGRATION_PATTERN.test(rel)) return
 
-  const rel = getRelativePath(filePath)
+  const match = rel.match(ENTITY_PATTERN)
+  if (!match || hasFreshMigration(match[1])) return
 
-  // State 1: Migration file was written → agent is already handling it
-  if (MIGRATION_PATTERN.test(rel)) {
-    process.exit(0)
-  }
-
-  // State 2: Not an entity file → not relevant
-  const entityMatch = rel.match(ENTITY_PATTERN)
-  if (!entityMatch) {
-    process.exit(0)
-  }
-
-  const moduleId = entityMatch[1]
-
-  // State 3: Entity written — check for fresh migration
-  if (hasFreshMigration(moduleId)) {
-    process.exit(0)
-  }
-
-  // Block: entity modified without migration
-  const result = {
+  process.stdout.write(JSON.stringify({
     decision: 'block',
     reason: [
-      `Entity file modified: ${rel}`,
+      `Entity contract changed: ${rel}`,
       '',
-      `Affected module: ${moduleId}`,
-      '',
-      'A database migration is likely needed. Ask the user whether to run:',
-      '  yarn db:generate',
-      '',
-      'Then regenerate registries:',
-      '  yarn generate',
-      '',
-      'Do NOT run migrations automatically — always confirm with the user first.',
+      'Run `yarn db:generate` as a schema-diff probe and review only the scoped migration plus module snapshot.',
+      'Run `yarn generate` when discovery changed.',
+      'Do not apply the migration with `yarn db:migrate` without explicit user approval.',
     ].join('\n'),
-  }
-
-  process.stdout.write(JSON.stringify(result))
+  }))
 }
 
-main()
+void main()

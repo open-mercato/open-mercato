@@ -12,6 +12,7 @@ import {
   composeApiRouteOverrides,
   composePageRouteOverrides,
 } from './overrides'
+import { bindMatchedApiRoutePath } from '../lib/modules/api-route-identity'
 
 const logger = createLogger('shared').child({ component: 'cli-registry' })
 
@@ -177,6 +178,11 @@ export type ApiRouteManifestEntry = {
 export type ModuleCli = {
   command: string
   run: (argv: string[]) => Promise<void> | void
+  // Usage text printed by the `mercato` dispatcher when the command is invoked with --help/-h.
+  help?: string
+  // Set when the command parses --help/-h itself; the dispatcher then forwards the flag
+  // instead of intercepting it, so the command can print its own richer usage text.
+  handlesHelp?: boolean
 }
 
 export type ModuleSubscriber = {
@@ -194,7 +200,21 @@ export type ModuleWorker = {
   moduleId?: string
   queue: string
   concurrency: number
+  lockDuration?: number
+  maxStalledCount?: number
+  /**
+   * Reports a job the queue abandoned without running the handler.
+   *
+   * Present only for workers whose metadata declares it; the generator emits it as a lazy import
+   * beside the handler, because the registry serializes metadata as literals and a function cannot
+   * survive that.
+   */
+  onJobAbandoned?: (payload: unknown, info: { jobId: string | null; reason: string }) => void | Promise<void>
   handler: ModuleWorkerHandler
+  /** Opt-in flag exposing this queue as a user-facing scheduler target (issue #5213). */
+  schedulerSafe?: boolean
+  /** Creator features required beyond scheduler.jobs.manage when schedulerSafe is set. */
+  schedulerRequiredFeatures?: string[]
 }
 
 export type ModuleInfo = {
@@ -255,6 +275,9 @@ export type Module = {
   vector?: import('./vector').VectorModuleConfig
   // Optional: module-specific tenant setup configuration (from setup.ts)
   setup?: import('./setup').ModuleSetupConfig
+  // Optional: a long-lived process-wide runtime the module starts itself (from runtime.ts).
+  // Invoked once per process by `mercato server start` and `mercato queue worker`.
+  runtime?: import('./runtime').ModuleRuntime
   // Optional: default encryption maps owned by the module (from encryption.ts)
   defaultEncryptionMaps?: import('./encryption').ModuleEncryptionMap[]
   // Optional: integration marketplace declarations discovered from integration.ts
@@ -397,41 +420,20 @@ export function findRouteManifestMatch<T extends { pattern?: string; path?: stri
 export function findApiRouteManifestMatch<T extends { path: string; methods: HttpMethod[] }>(
   routes: T[],
   method: HttpMethod,
-  pathname: string
+  pathname: string,
+  request?: Request,
 ): { route: T; params: RouteMatchParams } | undefined {
   for (const route of ensureSortedRoutes(routes)) {
     if (!route.methods.includes(method)) continue
     const params = matchRoutePattern(route.path, pathname)
     if (params) {
+      if (request && !bindMatchedApiRoutePath(request, route.path, params)) return undefined
       return { route, params }
     }
   }
 }
 
-export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata | null | undefined): ModuleRouteMetadata {
-  return {
-    pattern: pattern || '/',
-    requireAuth: metadata?.requireAuth,
-    requireRoles: metadata?.requireRoles ? [...metadata.requireRoles] : undefined,
-    requireFeatures: metadata?.requireFeatures ? [...metadata.requireFeatures] : undefined,
-    requireCustomerAuth: metadata?.requireCustomerAuth,
-    requireCustomerFeatures: metadata?.requireCustomerFeatures ? [...metadata.requireCustomerFeatures] : undefined,
-    nav: metadata?.nav,
-    title: metadata?.pageTitle ?? metadata?.title,
-    titleKey: metadata?.pageTitleKey ?? metadata?.titleKey,
-    group: metadata?.pageGroup ?? metadata?.group,
-    groupKey: metadata?.pageGroupKey ?? metadata?.groupKey,
-    icon: metadata?.icon,
-    order: metadata?.pageOrder ?? metadata?.order,
-    priority: metadata?.pagePriority ?? metadata?.priority,
-    navHidden: metadata?.navHidden,
-    visible: metadata?.visible,
-    enabled: metadata?.enabled,
-    breadcrumb: metadata?.breadcrumb,
-    pageContext: metadata?.pageContext,
-    placement: metadata?.placement,
-  }
-}
+export { resolvePageRouteMetadata } from './pageRouteMetadata'
 
 let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
 
@@ -479,7 +481,13 @@ export function getApiRouteManifests(): ApiRouteManifestEntry[] {
   return _apiRouteManifests ?? []
 }
 
-// CLI modules registry - shared between CLI and module workers
+// CLI modules registry - populated ONLY by the `mercato` bin (packages/cli/src/bin.ts
+// plus the `init` and `seed:defaults` commands). Runtime code MUST NOT read it: it
+// fails open (see getCliModules below), so outside a CLI process a reader gets an
+// empty list and silently does nothing. The events worker made exactly that mistake
+// and dropped every persistent subscriber. Runtime code uses the app registry
+// (`getModules` from ../lib/modules/registry) or a DI-resolved service.
+// Enforced by src/modules/__tests__/cli-registry-boundary.test.ts.
 let _cliModules: Module[] | null = null
 
 export function registerCliModules(modules: Module[]) {
@@ -513,6 +521,7 @@ export function getDefaultEncryptionMaps(modules: Module[]): import('./encryptio
         moduleId: mod.id,
         map: {
           entityId: entry.entityId,
+          ...(entry.keyScope ? { keyScope: entry.keyScope } : {}),
           fields: entry.fields.map((field) => ({
             field: field.field,
             hashField: field.hashField ?? null,
@@ -566,5 +575,33 @@ export function createLazyModuleWorker(
     )
     const handler = await handlerPromise
     return handler(job, ctx)
+  }
+}
+
+/**
+ * Resolves a worker's `metadata.onJobAbandoned` on first use.
+ *
+ * The generator serializes worker metadata as literals, so a function declared there cannot be
+ * emitted inline the way `concurrency` or `lockDuration` are. It is emitted as this thunk instead —
+ * the same lazy-import treatment the handler already gets — and only for workers whose metadata
+ * declares the callback, so no other queue acquires one (and with it, a sweep) by accident.
+ */
+export function createLazyModuleWorkerAbandonHook(
+  loadModule: () => Promise<unknown>,
+  id: string
+): (payload: unknown, info: { jobId: string | null; reason: string }) => Promise<void> {
+  let hookPromise: Promise<((payload: unknown, info: { jobId: string | null; reason: string }) => unknown) | null> | null = null
+  return async (payload, info) => {
+    hookPromise ??= loadModule().then((loaded) => {
+      const metadata = (loaded as { metadata?: { onJobAbandoned?: unknown } } | null)?.metadata
+      return typeof metadata?.onJobAbandoned === 'function'
+        ? (metadata.onJobAbandoned as (payload: unknown, info: { jobId: string | null; reason: string }) => unknown)
+        : null
+    })
+    const hook = await hookPromise
+    if (!hook) {
+      throw new Error(`[registry] Worker "${id}" was registered with an abandoned-job hook but its metadata no longer declares one`)
+    }
+    await hook(payload, info)
   }
 }

@@ -1,0 +1,37 @@
+• turbo 2.9.16
+
+   • Packages in scope: @open-mercato/ai-assistant, @open-mercato/app, @open-mercato/cache, @open-mercato/channel-gmail, @open-mercato/channel-imap, @open-mercato/checkout, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/enterprise, @open-mercato/events, @open-mercato/gateway-stripe, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/storage-s3, @open-mercato/sync-akeneo, @open-mercato/ui, @open-mercato/webhooks, create-mercato-app, open-mercato-docs
+   • Running typecheck in 23 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/sync-akeneo:typecheck: cache miss, executing 1e02b50d6370851d
+@open-mercato/cache:typecheck: cache miss, executing 3285b4abcc0485e9
+@open-mercato/cli:typecheck: cache miss, executing 0e7e4e72c1462b53
+@open-mercato/channel-gmail:typecheck: cache miss, executing 5b9c489186960acd
+@open-mercato/queue:typecheck: cache miss, executing 8b9f1ca9e77655e4
+@open-mercato/gateway-stripe:typecheck: cache miss, executing e09fd39d65a2f514
+@open-mercato/ui:typecheck: cache miss, executing a582bd1fee673313
+@open-mercato/webhooks:typecheck: cache miss, executing b675bdcab3f209c0
+@open-mercato/search:typecheck: cache miss, executing bbe5fe947b0d47f6
+@open-mercato/app:typecheck: cache miss, executing 81e586966e6acb05
+@open-mercato/channel-imap:typecheck: cache miss, executing cc10409aac6d5f79
+@open-mercato/core:typecheck: cache miss, executing 18a47cb76d29afe4
+@open-mercato/checkout:typecheck: cache miss, executing 2adb4aae638f7c3a
+@open-mercato/enterprise:typecheck: cache miss, executing 23aba143662abef3
+@open-mercato/events:typecheck: cache miss, executing 4e24275230110fa3
+@open-mercato/scheduler:typecheck: cache miss, executing e1a479af7f0735a3
+@open-mercato/onboarding:typecheck: cache miss, executing 95de148840a60849
+@open-mercato/shared:typecheck: cache miss, executing d0b8d4f902f30460
+@open-mercato/storage-s3:typecheck: cache miss, executing 5dfe110c74fd107b
+create-mercato-app:typecheck: cache miss, executing 4c9f8722eb1543bf
+@open-mercato/content:typecheck: cache miss, executing 34583ab1f09de151
+ WARNING  IO error: Permission denied (os error 13)
+ WARNING  IO error: Permission denied (os error 13)
+ WARNING  IO error: Permission denied (os error 13)
+ WARNING  IO error: Permission denied (os error 13)
+ WARNING  IO error: Permission denied (os error 13)
+
+ Tasks:    21 successful, 21 total
+Cached:    0 cached, 21 total
+  Time:    39.043s 
+

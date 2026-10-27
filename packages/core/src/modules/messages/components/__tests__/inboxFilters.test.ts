@@ -1,6 +1,7 @@
 import {
   buildMessagesInboxFilters,
   buildMessagesListParams,
+  buildSenderOptionsFromMessages,
   normalizeMessagesSinceValue,
 } from '../inboxFilters'
 
@@ -162,5 +163,53 @@ describe('buildMessagesListParams', () => {
     expect(params.has('senderId')).toBe(false)
     expect(params.has('since')).toBe(false)
     expect(params.has('search')).toBe(false)
+  })
+})
+
+describe('buildSenderOptionsFromMessages', () => {
+  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
+
+  it('derives an option from a row that carries a platform identity', () => {
+    expect(buildSenderOptionsFromMessages([
+      { senderUserId: 'user-1', senderName: 'Anna Nowak', senderEmail: 'anna@example.com' },
+    ])).toEqual([
+      { value: 'user-1', label: 'Anna Nowak', description: 'anna@example.com' },
+    ])
+  })
+
+  it('skips ingested rows that share one system-user id across every external sender', () => {
+    // The filter sends `senderUserId`, so an option built from these rows would
+    // claim to be one named person and return every external sender's mail.
+    expect(buildSenderOptionsFromMessages([
+      {
+        senderUserId: SYSTEM_USER_ID,
+        senderName: null,
+        senderEmail: null,
+        externalName: 'Jan Kowalski',
+        externalEmail: 'jan@example.com',
+      },
+      {
+        senderUserId: SYSTEM_USER_ID,
+        senderName: '   ',
+        senderEmail: null,
+        externalName: 'Anna Nowak',
+        externalEmail: 'anna@example.com',
+      },
+    ] as never)).toEqual([])
+  })
+
+  it('ignores rows without a usable sender id', () => {
+    expect(buildSenderOptionsFromMessages([
+      { senderUserId: '  ', senderName: 'Anna Nowak' },
+      { senderUserId: null, senderName: 'Anna Nowak' },
+    ])).toEqual([])
+  })
+
+  it('omits the description when it would only repeat the label', () => {
+    expect(buildSenderOptionsFromMessages([
+      { senderUserId: 'user-2', senderName: null, senderEmail: 'anna@example.com' },
+    ])).toEqual([
+      { value: 'user-2', label: 'anna@example.com', description: null },
+    ])
   })
 })

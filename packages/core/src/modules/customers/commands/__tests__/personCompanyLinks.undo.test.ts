@@ -28,13 +28,15 @@ import {
   CustomerPersonProfile,
 } from '../../data/entities'
 
-const ORG_ID = 'org-pcl-1'
-const TENANT_ID = 'tenant-pcl-1'
-const PERSON_ID = 'person-pcl-1'
-const COMPANY_A_ID = 'company-pcl-a'
-const COMPANY_B_ID = 'company-pcl-b'
-const LINK_A_ID = 'link-pcl-a'
-const LINK_B_ID = 'link-pcl-b'
+// Real UUIDs: the delete command validates its input with zod before executing, so the
+// profile-only cases below cannot run against readable placeholder ids.
+const ORG_ID = '11111111-1111-4111-8111-111111111111'
+const TENANT_ID = '22222222-2222-4222-8222-222222222222'
+const PERSON_ID = '33333333-3333-4333-8333-333333333333'
+const COMPANY_A_ID = '44444444-4444-4444-8444-444444444444'
+const COMPANY_B_ID = '55555555-5555-4555-8555-555555555555'
+const LINK_A_ID = '66666666-6666-4666-8666-666666666666'
+const LINK_B_ID = '77777777-7777-4777-8777-777777777777'
 
 type LinkRow = { isPrimary: boolean; deletedAt: Date | null }
 type ProfileRow = { companyId: string | null }
@@ -194,7 +196,7 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
   return { person, companyA, companyB, profile, links, linkRows, profileRow, em }
 }
 
-function makeCtx(em: any): CommandRuntimeContext {
+function makeCtx(em: any, eventBus?: { emitEvent: jest.Mock }): CommandRuntimeContext {
   const dataEngine: any = {
     markOrmEntityChange: jest.fn(),
     flushOrmEntityChanges: jest.fn(async () => {}),
@@ -205,6 +207,7 @@ function makeCtx(em: any): CommandRuntimeContext {
       resolve: (token: string): any => {
         if (token === 'em') return em
         if (token === 'dataEngine') return dataEngine
+        if (token === 'eventBus' && eventBus) return eventBus
         throw new Error(`Unexpected DI token: ${token}`)
       },
     } as any,
@@ -308,6 +311,155 @@ describe('customers.personCompanyLinks undo — encryption re-baseline regressio
     const row = fixtures.linkRows.get(LINK_A_ID)!
     expect(row.deletedAt).toBeNull()
     expect(row.isPrimary).toBe(true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+})
+
+// A legacy profile-only association sets `customer_person_profiles.company_id` with no
+// backing link row (migrated CRM data). Detaching it must run through the same command as
+// a link-backed detach so it earns the audit entry, the undo token and — via the
+// `customers.personCompanyLink` resource kind on the log — the CRUD cache invalidation
+// that keeps the company People badge in sync with the People list (#5114).
+describe('customers.personCompanyLinks.delete — profile-only assignment (#5114)', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  function profileOnlyInput(companyId: string) {
+    return {
+      personEntityId: PERSON_ID,
+      companyEntityId: companyId,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    }
+  }
+
+  it('clears the legacy company assignment and reindexes the person', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const eventBus = { emitEvent: jest.fn(async () => {}) }
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    const result = await handler.execute(profileOnlyInput(COMPANY_A_ID), makeCtx(fixtures.em, eventBus))
+
+    expect(result).toEqual({ linkId: null, personEntityId: PERSON_ID, companyEntityId: COMPANY_A_ID })
+    expect(fixtures.profileRow.companyId).toBeNull()
+    // No link row exists to reindex, so the changed record is the person itself.
+    expect(eventBus.emitEvent).toHaveBeenCalledWith(
+      'query_index.upsert_one',
+      expect.objectContaining({ recordId: PERSON_ID, crudAction: 'updated' }),
+      expect.anything(),
+    )
+  })
+
+  // The link-backed branch broadcasts `customers.person_company_link.deleted` through
+  // `emitCrudSideEffects`, which is the only event the company People tab and the person
+  // Companies tab subscribe to. A profile-only detach has no link row to emit that for, so
+  // without this sibling broadcast every OTHER open viewer keeps listing a detached person.
+  it('broadcasts the profile-only detach so other viewers live-refresh', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const eventBus = { emitEvent: jest.fn(async () => {}) }
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await handler.execute(profileOnlyInput(COMPANY_A_ID), makeCtx(fixtures.em, eventBus))
+
+    expect(eventBus.emitEvent).toHaveBeenCalledWith(
+      'customers.person.company_assignment.detached',
+      {
+        linkId: null,
+        personEntityId: PERSON_ID,
+        companyEntityId: COMPANY_A_ID,
+        // The event bus only forwards a broadcast event cross-process when the payload
+        // itself carries a tenant scope, so these two keys are load-bearing, not decoration.
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+      },
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+  })
+
+  it('still completes the detach when the refresh broadcast fails', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const eventBus = {
+      emitEvent: jest.fn(async (event: string) => {
+        if (event === 'customers.person.company_assignment.detached') {
+          throw new Error('bus unavailable')
+        }
+      }),
+    }
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    const result = await handler.execute(profileOnlyInput(COMPANY_A_ID), makeCtx(fixtures.em, eventBus))
+
+    expect(result).toEqual({ linkId: null, personEntityId: PERSON_ID, companyEntityId: COMPANY_A_ID })
+    expect(fixtures.profileRow.companyId).toBeNull()
+  })
+
+  it('promotes a remaining primary link instead of leaving the person company-less', async () => {
+    const fixtures = makeFixtures(
+      [{ id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: true, deletedAt: null }],
+      COMPANY_A_ID,
+    )
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await handler.execute(profileOnlyInput(COMPANY_A_ID), makeCtx(fixtures.em, { emitEvent: jest.fn(async () => {}) }))
+
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+    expect(fixtures.linkRows.get(LINK_B_ID)!.deletedAt).toBeNull()
+  })
+
+  it('rejects a detach for a company the profile is not assigned to', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await expect(
+      handler.execute(profileOnlyInput(COMPANY_B_ID), makeCtx(fixtures.em, { emitEvent: jest.fn(async () => {}) })),
+    ).rejects.toMatchObject({
+      status: 404,
+    })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('logs the detach under the person-company-link resource kind so the cached badge is invalidated', async () => {
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+    const before = {
+      kind: 'profile-only' as const,
+      personEntityId: PERSON_ID,
+      companyEntityId: COMPANY_A_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    }
+
+    const log = await handler.buildLog!({
+      input: profileOnlyInput(COMPANY_A_ID),
+      result: { linkId: null, personEntityId: PERSON_ID, companyEntityId: COMPANY_A_ID },
+      snapshots: { before },
+    } as any)
+
+    expect(log.resourceKind).toBe('customers.personCompanyLink')
+    expect(log.parentResourceKind).toBe('customers.person')
+    expect(log.parentResourceId).toBe(PERSON_ID)
+    expect((log.payload as any).undo.before).toEqual(before)
+  })
+
+  it('undo restores the legacy company assignment', async () => {
+    const fixtures = makeFixtures([], null)
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await handler.undo!({
+      logEntry: {
+        payload: {
+          undo: {
+            before: {
+              kind: 'profile-only',
+              personEntityId: PERSON_ID,
+              companyEntityId: COMPANY_A_ID,
+              tenantId: TENANT_ID,
+              organizationId: ORG_ID,
+            },
+          },
+        },
+      },
+      ctx: makeCtx(fixtures.em, { emitEvent: jest.fn(async () => {}) }),
+    } as any)
+
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
   })
 })

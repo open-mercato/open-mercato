@@ -7,6 +7,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -19,6 +20,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 import type { RoleAssignment } from './RoleAssignmentRow'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembersPage } from './assignableStaff'
 
 const MANAGE_ROLE_TYPES_HREF = '/backend/config/customers'
@@ -64,6 +66,7 @@ export function AssignRoleDialog({
   canManageRoleTypes = false,
 }: AssignRoleDialogProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [step, setStep] = React.useState<StepId>(1)
   const [selectedRoleType, setSelectedRoleType] = React.useState('')
   const [selectedUser, setSelectedUser] = React.useState<StaffMember | null>(null)
@@ -75,6 +78,10 @@ export function AssignRoleDialog({
   const [activeTeam, setActiveTeam] = React.useState('all')
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [totalUsers, setTotalUsers] = React.useState(0)
+  // Short-page termination instead of `users.length >= totalUsers` — see
+  // `hasMoreFromPage`. Measured on the served count, not on `users`, which is
+  // deduped by id.
+  const [hasMore, setHasMore] = React.useState(false)
   const [currentPage, setCurrentPage] = React.useState(1)
   const deferredSearchQuery = React.useDeferredValue(searchQuery)
   const requestSequenceRef = React.useRef(0)
@@ -94,6 +101,7 @@ export function AssignRoleDialog({
       setActiveTeam('all')
       setLoadError(null)
       setTotalUsers(0)
+      setHasMore(false)
       setCurrentPage(1)
       requestSequenceRef.current = 0
       return
@@ -110,6 +118,7 @@ export function AssignRoleDialog({
     setActiveTeam('all')
     setLoadError(null)
     setTotalUsers(0)
+    setHasMore(false)
     setCurrentPage(1)
     requestSequenceRef.current = 0
   }, [initialRoleType, open])
@@ -137,6 +146,7 @@ export function AssignRoleDialog({
         const result = await fetchAssignableStaffMembersPage(query, {
           page,
           pageSize: ASSIGNABLE_STAFF_PAGE_SIZE,
+          activeOrgId,
         })
         if (requestSequenceRef.current !== requestId) return
 
@@ -154,6 +164,7 @@ export function AssignRoleDialog({
           return Array.from(merged.values())
         })
         setTotalUsers(result.total)
+        setHasMore(hasMoreFromPage(result.servedCount, ASSIGNABLE_STAFF_PAGE_SIZE))
         setCurrentPage(result.page)
         setLoadError(null)
       } catch {
@@ -161,6 +172,7 @@ export function AssignRoleDialog({
         if (!append) {
           setUsers([])
           setTotalUsers(0)
+          setHasMore(false)
           setCurrentPage(1)
         }
         setLoadError(
@@ -178,7 +190,7 @@ export function AssignRoleDialog({
         }
       }
     },
-    [t],
+    [activeOrgId, t],
   )
 
   React.useEffect(() => {
@@ -189,14 +201,14 @@ export function AssignRoleDialog({
   }, [deferredSearchQuery, searchUsers, step])
 
   const handleLoadMore = React.useCallback(() => {
-    if (loading || loadingMore || users.length >= totalUsers) return
+    if (loading || loadingMore || !hasMore) return
     // fire-and-forget: search results populate async; errors shown in list UI
     searchUsers({
       query: deferredSearchQuery,
       page: currentPage + 1,
       append: true,
     }).catch(() => {})
-  }, [currentPage, deferredSearchQuery, loading, loadingMore, searchUsers, totalUsers, users.length])
+  }, [currentPage, deferredSearchQuery, hasMore, loading, loadingMore, searchUsers])
 
   const selectedRole = React.useMemo(
     () => roleTypes.find((roleType) => roleType.value === selectedRoleType) ?? null,
@@ -262,7 +274,7 @@ export function AssignRoleDialog({
     )
   }, [t, totalUsers, users.length])
 
-  const canLoadMore = users.length < totalUsers
+  const canLoadMore = hasMore
 
   const handleAssign = React.useCallback(async () => {
     if (!selectedRoleType || !selectedUser) return
@@ -631,13 +643,18 @@ export function AssignRoleDialog({
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border/70 px-6 py-4 sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            {t(
-              'customers.roles.dialog.footerNote',
-              'One person per role · can be changed at any time',
-            )}
-          </p>
+        <DialogFooter
+          bordered={false}
+          className="shrink-0 border-t border-border/70 px-6 py-4"
+          leading={
+            <p className="text-xs text-muted-foreground sm:max-w-2xs">
+              {t(
+                'customers.roles.dialog.footerNote',
+                'One person per role · can be changed at any time',
+              )}
+            </p>
+          }
+        >
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
               {t('customers.roles.cancelAdd', 'Cancel')}

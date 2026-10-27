@@ -1,15 +1,25 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
+import {
+  actionLogBelongsToAuth,
+  resolveCanonicalAuthSubject,
+  resolveActionLogActorSubject,
+} from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 const logger = createLogger('audit_logs').child({ component: 'undo' })
 
@@ -37,6 +47,8 @@ const errorSchema = z.object({
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authSubject = resolveCanonicalAuthSubject(auth)
+  if (!authSubject) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await req.json().catch(() => null)) as UndoRequestBody | null
   const undoToken = body?.undoToken?.trim()
@@ -52,7 +64,14 @@ export async function POST(req: Request) {
     rbac = null
   }
 
-  const { organizationId } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const { organizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  let singleOrganizationId: string | null
+  try {
+    singleOrganizationId = organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const canUndoTenant = rbac
     ? await rbac.userHasAllFeatures(auth.sub, ['audit_logs.undo_tenant'], {
@@ -65,7 +84,14 @@ export async function POST(req: Request) {
   if (!target || target.executionState !== 'done') {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
-  if (target.actorUserId && target.actorUserId !== auth.sub && !canUndoTenant) {
+  const targetActorSubject = resolveActionLogActorSubject(target)
+  const isLegacyApiKeyOwner = target.actorUserId === authSubject.storageId
+    && authSubject.kind === 'api_key'
+    && target.contextJson?.actorSubject === undefined
+  if (target.actorUserId && !targetActorSubject && !isLegacyApiKeyOwner) {
+    return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
+  }
+  if (target.actorUserId && !actionLogBelongsToAuth(target, auth) && !canUndoTenant) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
   // Fail closed on tenant scope: `audit_logs.undo_tenant` only widens scope WITHIN a
@@ -75,7 +101,7 @@ export async function POST(req: Request) {
   if (target.tenantId && target.tenantId !== (auth.tenantId ?? null)) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
-  const scopedOrgId = canUndoTenant ? organizationId ?? null : organizationId ?? auth.orgId ?? null
+  const scopedOrgId = canUndoTenant ? organizationId ?? null : singleOrganizationId
   // Tenant-level undoers may undo across organizations within the tenant, so an
   // unresolved (null) caller org is allowed and only an explicit mismatch is rejected.
   // Every other caller must resolve to the target's own organization — a null caller
@@ -87,7 +113,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
 
-  const lookupActorId = canUndoTenant ? (target.actorUserId ?? auth.sub) : auth.sub
+  const lookupActorId = canUndoTenant
+    ? (targetActorSubject ?? (isLegacyApiKeyOwner ? authSubject.subject : auth.sub))
+    : authSubject.subject
   // Scope the latest-undoable re-lookup to the target row's own organization, not
   // the caller's currently-resolved org. The actor/tenant/org guards above already
   // authorized the caller for this row; reusing the caller's scope here breaks undo
@@ -114,14 +142,39 @@ export async function POST(req: Request) {
   if (!latest || latest.id !== target.id) {
     return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
   }
+  if (!rbac) return NextResponse.json({ error: 'Undo token not available' }, { status: 400 })
+  const replayRbac = rbac
 
   try {
     const ctx = await createRuntimeContext(container, auth, req)
+    ctx.replayTransactionGuard = ({ logEntry, transactionalEm }) =>
+      authorizeAuditReplayWithEntityManager(transactionalEm, replayRbac, logEntry, {
+        auth,
+        organizationId,
+        selfFeature: 'audit_logs.undo_self',
+        tenantFeature: 'audit_logs.undo_tenant',
+        unavailableMessage: 'Undo token not available',
+      })
     await commandBus.undo(undoToken, ctx)
     return NextResponse.json({ ok: true, logId: target.id })
   } catch (err) {
+    // A command can refuse an undo for a domain reason the operator can act on — e.g.
+    // reverting a role grant would drop a tenant below a protected role's active-holder
+    // floor. Those arrive as CrudHttpError with an already-localized body, so pass them
+    // through verbatim instead of flattening every failure to a generic message.
+    if (isCrudHttpError(err)) {
+      logger.warn('Undo rejected', { err, logId: target.id })
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    // A beforeUndo interceptor that blocked with an explicit status is a deliberate business
+    // rejection, not an undo failure — surface its status and message (issue #5045).
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     logger.error('Undo failed', { err })
-    return NextResponse.json({ error: 'Undo failed' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('audit_logs.error.undo_failed', 'Undo failed') }, { status: 400 })
   }
 }
 
@@ -156,6 +209,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid or unavailable undo token', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
         { status: 403, description: 'Undo blocked by organization or tenant scope', schema: errorSchema },
+        {
+          status: 422,
+          description:
+            'Undo deliberately blocked by a beforeUndo command interceptor. The interceptor chooses the status (any 4xx/5xx) and may replace the body.',
+          schema: errorSchema,
+        },
       ],
     },
   },

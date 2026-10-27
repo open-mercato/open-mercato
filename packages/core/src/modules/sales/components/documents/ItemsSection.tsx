@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { extensionPoints } from "@open-mercato/core/modules/sales/extension-points";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
@@ -15,18 +16,26 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import type { SalesLineRecord } from "./lineItemTypes";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  formatMoney,
+  normalizeNumber,
+  resolveLineDiscountDisplay,
+} from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import type { SalesLineUomSnapshot } from "../../lib/types";
+import { useInjectionDataWidgets } from "@open-mercato/ui/backend/injection/useInjectionDataWidgets";
+import type { InjectionColumnDefinition } from "@open-mercato/shared/modules/widgets/injection";
+import { OrderItemsInjectionContext } from "../../widgets/injection/order-items-context";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -110,6 +119,29 @@ function getUomFields(item: Record<string, unknown>) {
   };
 }
 
+function resolveInjectedColumnValue(
+  row: Record<string, unknown>,
+  accessorKey: string,
+): unknown {
+  const segments = accessorKey.split(".").filter(Boolean);
+  let current: unknown = row;
+  for (const segment of segments) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+const LINES_PAGE_SIZE = 100;
+// Upper bound on line pages fetched for one document, so an API that ignores `page`
+// cannot spin the loader forever.
+const LINES_MAX_PAGES = 200;
+
+const SHIPMENTS_PAGE_SIZE = 100;
+// A single order beyond this many shipment pages is pathological; stopping there
+// keeps the shipped state explicitly unresolved rather than silently partial.
+const SHIPMENTS_MAX_PAGES = 50;
+
 type SalesDocumentItemsSectionProps = {
   documentId: string;
   kind: "order" | "quote";
@@ -132,6 +164,8 @@ export function SalesDocumentItemsSection({
   onItemsChange,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
+  const locale = useLocale();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null;
@@ -147,6 +181,28 @@ export function SalesDocumentItemsSection({
   const [shippedTotals, setShippedTotals] = React.useState<Map<string, number>>(
     new Map(),
   );
+  // Quotes have no shipments at all, so their shipped state is known up front.
+  // For orders it stays unknown until every shipment page has been read — an
+  // empty map from a pending or failed load must never read as "nothing shipped".
+  const [shippedTotalsResolved, setShippedTotalsResolved] = React.useState(
+    kind !== "order",
+  );
+
+  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+    extensionPoints.hosts.orderItemColumns.spotId,
+  );
+  const columnWidgets = kind === "order" ? allColumnWidgets : [];
+  const injectedColumns = React.useMemo<InjectionColumnDefinition[]>(() => {
+    const cols: InjectionColumnDefinition[] = [];
+    for (const widget of columnWidgets) {
+      if (!("columns" in widget)) continue;
+      for (const def of (widget as { columns?: InjectionColumnDefinition[] })
+        .columns ?? []) {
+        cols.push(def);
+      }
+    }
+    return cols;
+  }, [columnWidgets]);
 
   const resourcePath = React.useMemo(
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
@@ -155,6 +211,7 @@ export function SalesDocumentItemsSection({
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const lineStatusesLoaded = React.useRef(false);
   const itemsLoadedForDocument = React.useRef<string | null>(null);
+  const itemsLoadSeq = React.useRef(0);
   const shipmentsLoadedForDocument = React.useRef<string | null>(null);
   const loadLineStatuses = React.useCallback(async () => {
     try {
@@ -173,21 +230,58 @@ export function SalesDocumentItemsSection({
   }, []);
 
   const loadItems = React.useCallback(async () => {
+    const loadSeq = ++itemsLoadSeq.current;
+    const isCurrentLoad = () => loadSeq === itemsLoadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        page: "1",
-        pageSize: "100",
-        [documentKey]: documentId,
-      });
-      const response = await apiCall<{
-        items?: Array<Record<string, unknown>>;
-      }>(`/api/${resourcePath}?${params.toString()}`, undefined, {
-        fallback: { items: [] },
-      });
-      if (response.ok && Array.isArray(response.result?.items)) {
-        const mapped = response.result.items.flatMap<SalesLineRecord>(
+      const collectedItems: Array<Record<string, unknown>> = [];
+      const seenIds = new Set<string>();
+      let loaded = false;
+      let complete = false;
+      let page = 1;
+      while (page <= LINES_MAX_PAGES) {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(LINES_PAGE_SIZE),
+          [documentKey]: documentId,
+        });
+        const response = await apiCall<{
+          items?: Array<Record<string, unknown>>;
+          total?: unknown;
+        }>(`/api/${resourcePath}?${params.toString()}`, undefined, {
+          fallback: { items: [] },
+        });
+        if (!response.ok || !Array.isArray(response.result?.items)) {
+          if (page > 1) throw new Error("[internal] sales line page failed to load");
+          complete = true;
+          break;
+        }
+        loaded = true;
+        const pageItems = response.result.items;
+        let added = 0;
+        pageItems.forEach((item) => {
+          const id = typeof item.id === "string" ? item.id : null;
+          if (id && seenIds.has(id)) return;
+          if (id) seenIds.add(id);
+          collectedItems.push(item);
+          added += 1;
+        });
+        const reportedTotal = normalizeNumber(response.result?.total, Number.NaN);
+        const hasMore =
+          added > 0 &&
+          pageItems.length >= LINES_PAGE_SIZE &&
+          (!Number.isFinite(reportedTotal) || collectedItems.length < reportedTotal);
+        if (!hasMore) {
+          complete = true;
+          break;
+        }
+        page += 1;
+      }
+      if (!complete) throw new Error("[internal] sales line page limit reached");
+      if (!isCurrentLoad()) return;
+      if (loaded) {
+        const mapped = collectedItems.flatMap<SalesLineRecord>(
           (item) => {
             const id = typeof item.id === "string" ? item.id : null;
             if (!id) return [];
@@ -206,6 +300,10 @@ export function SalesDocumentItemsSection({
                     typeof (item.catalog_snapshot as Record<string, unknown>).name === "string"
                   ? (item.catalog_snapshot as Record<string, unknown>).name as string
                   : null;
+            const description =
+              typeof item.description === "string" && item.description.trim()
+                ? item.description
+                : null;
             const quantity = normalizeNumber(item.quantity, 0);
             const uomFields = getUomFields(item);
             const quantityUnit = canonicalizeUnitCode(uomFields.quantityUnit);
@@ -270,6 +368,7 @@ export function SalesDocumentItemsSection({
             const record: SalesLineRecord = {
               id,
               name,
+              description,
               productId:
                 typeof item.product_id === "string" ? item.product_id : null,
               productVariantId:
@@ -288,6 +387,14 @@ export function SalesDocumentItemsSection({
                     : null,
               unitPriceNet,
               unitPriceGross,
+              discountAmount: normalizeNumber(
+                item.discount_amount ?? item.discountAmount,
+                0,
+              ),
+              discountPercent: normalizeNumber(
+                item.discount_percent ?? item.discountPercent,
+                0,
+              ),
               taxRate,
               totalNet,
               totalGross,
@@ -318,33 +425,44 @@ export function SalesDocumentItemsSection({
         if (onItemsChange) onItemsChange([]);
       }
     } catch (err) {
+      if (!isCurrentLoad()) return;
       logger.error('sales.document.items.load', { err });
       setError(t("sales.documents.items.errorLoad", "Failed to load items."));
+      setItems([]);
       if (onItemsChange) onItemsChange([]);
     } finally {
-      setLoading(false);
+      if (isCurrentLoad()) setLoading(false);
     }
   }, [currencyCode, documentId, documentKey, onItemsChange, resourcePath, t]);
 
   const loadShippedTotals = React.useCallback(async () => {
     if (kind !== "order") {
       setShippedTotals(new Map());
+      setShippedTotalsResolved(true);
       return;
     }
+    setShippedTotals(new Map());
+    setShippedTotalsResolved(false);
     try {
-      const params = new URLSearchParams({
-        page: "1",
-        pageSize: "100",
-        orderId: documentId,
-      });
-      const response = await apiCall<{
-        items?: Array<Record<string, unknown>>;
-      }>(`/api/sales/shipments?${params.toString()}`, undefined, {
-        fallback: { items: [] },
-      });
-      if (response.ok && Array.isArray(response.result?.items)) {
-        const totals = new Map<string, number>();
-        response.result.items.forEach((shipment) => {
+      const totals = new Map<string, number>();
+      let page = 1;
+      let collected = 0;
+      let complete = false;
+      while (page <= SHIPMENTS_MAX_PAGES) {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(SHIPMENTS_PAGE_SIZE),
+          orderId: documentId,
+        });
+        const response = await apiCall<{
+          items?: Array<Record<string, unknown>>;
+          total?: unknown;
+        }>(`/api/sales/shipments?${params.toString()}`, undefined, {
+          fallback: { items: [] },
+        });
+        if (!response.ok || !Array.isArray(response.result?.items)) return;
+        const shipments = response.result.items;
+        shipments.forEach((shipment) => {
           const entries = Array.isArray(shipment.items)
             ? (shipment.items as Array<Record<string, unknown>>)
             : [];
@@ -362,13 +480,22 @@ export function SalesDocumentItemsSection({
             totals.set(lineId, current + quantity);
           });
         });
-        setShippedTotals(totals);
-      } else {
-        setShippedTotals(new Map());
+        collected += shipments.length;
+        const reportedTotal = normalizeNumber(response.result?.total, Number.NaN);
+        const hasMore =
+          shipments.length >= SHIPMENTS_PAGE_SIZE &&
+          (!Number.isFinite(reportedTotal) || collected < reportedTotal);
+        if (!hasMore) {
+          complete = true;
+          break;
+        }
+        page += 1;
       }
+      if (!complete) return;
+      setShippedTotals(totals);
+      setShippedTotalsResolved(true);
     } catch (err) {
       logger.error('sales.document.shipments.load', { err });
-      setShippedTotals(new Map());
     }
   }, [documentId, kind]);
 
@@ -389,6 +516,7 @@ export function SalesDocumentItemsSection({
     if (kind !== "order") {
       shipmentsLoadedForDocument.current = null;
       setShippedTotals(new Map());
+      setShippedTotalsResolved(true);
       return;
     }
     const key = `${kind}:${documentId}`;
@@ -456,7 +584,7 @@ export function SalesDocumentItemsSection({
       });
       if (!confirmed) return;
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             deleteCrud(resourcePath, {
@@ -471,7 +599,7 @@ export function SalesDocumentItemsSection({
                 "Failed to delete line.",
               ),
             }),
-        );
+        ), { id: line.id, [documentKey]: documentId });
         if (result.ok) {
           flash(t("sales.documents.items.deleted", "Line removed."), "success");
           await loadItems();
@@ -499,6 +627,7 @@ export function SalesDocumentItemsSection({
       resourcePath,
       t,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
@@ -525,6 +654,11 @@ export function SalesDocumentItemsSection({
       );
     },
     [lineStatusMap, t],
+  );
+
+  const showDiscountColumn = React.useMemo(
+    () => items.some((item) => resolveLineDiscountDisplay(item) !== null),
+    [items],
   );
 
   const renderImage = (record: SalesLineRecord) => {
@@ -575,6 +709,7 @@ export function SalesDocumentItemsSection({
   };
 
   return (
+    <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
       {loading ? (
         <LoadingMessage
@@ -612,9 +747,22 @@ export function SalesDocumentItemsSection({
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.unit", "Unit price")}
                 </th>
+                {showDiscountColumn ? (
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">
+                    {t("sales.documents.items.table.discount", "Discount")}
+                  </th>
+                ) : null}
                 <th className="px-3 py-2 font-medium">
                   {t("sales.documents.items.table.total", "Total")}
                 </th>
+                {injectedColumns.map((col) => (
+                  <th
+                    key={col.id}
+                    className="px-3 py-2 font-medium whitespace-nowrap"
+                  >
+                    {col.headerKey ? t(col.headerKey, col.header) : col.header}
+                  </th>
+                ))}
                 <th className="px-3 py-2 font-medium sr-only">
                   {t("sales.documents.items.table.actions", "Actions")}
                 </th>
@@ -657,6 +805,7 @@ export function SalesDocumentItemsSection({
                 const unitPriceReference = resolveUnitPriceReference(
                   item.uomSnapshot,
                 );
+                const discount = resolveLineDiscountDisplay(item);
 
                 return (
                   <tr
@@ -681,6 +830,14 @@ export function SalesDocumentItemsSection({
                           {showProductSku ? (
                             <div className="text-xs text-muted-foreground truncate">
                               {showProductSku}
+                            </div>
+                          ) : null}
+                          {item.description ? (
+                            <div
+                              className="text-xs text-muted-foreground line-clamp-2"
+                              title={item.description}
+                            >
+                              {item.description}
                             </div>
                           ) : null}
                         </div>
@@ -719,6 +876,7 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.unitPriceGross,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           <span className="text-xs text-muted-foreground">
                             {t("sales.documents.items.table.gross", "gross")}
@@ -728,6 +886,7 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.unitPriceNet,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           {t("sales.documents.items.table.net", "net")}
                         </span>
@@ -742,6 +901,7 @@ export function SalesDocumentItemsSection({
                                   item.currencyCode ??
                                     currencyCode ??
                                     undefined,
+                                  locale,
                                 ),
                                 unit: unitPriceReference.referenceUnitCode,
                               },
@@ -750,12 +910,53 @@ export function SalesDocumentItemsSection({
                         ) : null}
                       </div>
                     </td>
+                    {showDiscountColumn ? (
+                      <td className="px-3 py-3">
+                        {discount ? (
+                          <div className="flex flex-col gap-0.5">
+                            {discount.amount !== null ? (
+                              <span className="font-mono text-sm">
+                                {t(
+                                  "sales.documents.items.table.discountAmount",
+                                  "−{{value}}",
+                                  {
+                                    value: formatMoney(
+                                      discount.amount,
+                                      item.currencyCode ??
+                                        currencyCode ??
+                                        undefined,
+                                      locale,
+                                    ),
+                                  },
+                                )}
+                              </span>
+                            ) : null}
+                            {discount.percent !== null ? (
+                              <span
+                                className={
+                                  discount.amount !== null
+                                    ? "font-mono text-xs text-muted-foreground"
+                                    : "font-mono text-sm"
+                                }
+                              >
+                                {t(
+                                  "sales.documents.items.table.discountPercent",
+                                  "{{value}}%",
+                                  { value: discount.percent },
+                                )}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-3 font-semibold">
                       <div className="flex flex-col gap-0.5">
                         <span>
                           {formatMoney(
                             item.totalGross,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           <span className="text-xs font-normal text-muted-foreground">
                             {t("sales.documents.items.table.gross", "gross")}
@@ -765,17 +966,35 @@ export function SalesDocumentItemsSection({
                           {formatMoney(
                             item.totalNet,
                             item.currencyCode ?? currencyCode ?? undefined,
+                            locale,
                           )}{" "}
                           {t("sales.documents.items.table.net", "net")}
                         </span>
                       </div>
                     </td>
+                    {injectedColumns.map((col) => {
+                      const colValue = resolveInjectedColumnValue(
+                        item as unknown as Record<string, unknown>,
+                        col.accessorKey,
+                      );
+                      const Cell = col.cell;
+                      return (
+                        <td
+                          key={col.id}
+                          className="px-3 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {Cell ? <Cell getValue={() => colValue} /> : null}
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
+                          aria-label={t('ui.actions.edit', 'Edit')}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -783,17 +1002,25 @@ export function SalesDocumentItemsSection({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleDelete(item);
-                          }}
+                        <span
+                          title={kind === 'order' && items.length === 1
+                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                            : undefined}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.delete', 'Delete')}
+                            disabled={kind === 'order' && items.length === 1}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDelete(item);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -822,6 +1049,7 @@ export function SalesDocumentItemsSection({
             ? Math.max(0, shippedTotals.get(lineForEdit.id) ?? 0)
             : 0
         }
+        shippedQuantityResolved={shippedTotalsResolved}
         onSaved={async () => {
           await loadItems();
           emitSalesDocumentTotalsRefresh({ documentId, kind });
@@ -829,5 +1057,6 @@ export function SalesDocumentItemsSection({
       />
       {ConfirmDialogElement}
     </div>
+    </OrderItemsInjectionContext.Provider>
   );
 }

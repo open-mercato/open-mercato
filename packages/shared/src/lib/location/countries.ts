@@ -1,32 +1,11 @@
-import registry from 'language-subtag-registry/data/json/registry.json'
-
-type RegistryEntry = {
-  Type: string
-  Subtag?: string
-  Description?: string[]
-  Deprecated?: string
-}
+import { REGISTRY_COUNTRIES } from './countries.generated'
 
 export type IsoCountry = {
   code: string
   name: string
 }
 
-function isIsoAlpha2(entry: RegistryEntry): entry is RegistryEntry & { Subtag: string; Description: string[] } {
-  if (entry.Type !== 'region') return false
-  if (!entry.Subtag || !/^[A-Z]{2}$/.test(entry.Subtag)) return false
-  if (entry.Deprecated) return false
-  if (!entry.Description || !entry.Description.length) return false
-  if (entry.Description[0] === 'Private use') return false
-  return true
-}
-
-const RAW_COUNTRIES: IsoCountry[] = (registry as RegistryEntry[])
-  .filter(isIsoAlpha2)
-  .map((entry) => ({
-    code: entry.Subtag,
-    name: entry.Description.join(', '),
-  }))
+const RAW_COUNTRIES: IsoCountry[] = REGISTRY_COUNTRIES
 
 // Codes in common use that the language-subtag registry does not list as region subtags.
 // XK is user-assigned rather than ISO 3166-1 assigned, so it never appears in the registry.
@@ -105,4 +84,21 @@ export function buildCountryOptions(options: {
     .sort((a, b) => a.label.localeCompare(b.label, locale ?? 'en', { sensitivity: 'base' }))
 
   return [...prioritized, ...remaining]
+}
+
+export function matchCountryCodes(
+  term: string,
+  options: { locales?: string[] } = {},
+): string[] {
+  const needle = term.trim().toLowerCase()
+  if (!needle) return []
+  const searchLocales = options.locales?.length ? options.locales : ['en']
+  return ISO_COUNTRIES
+    .filter((entry) => {
+      if (entry.name.toLowerCase().includes(needle)) return true
+      return searchLocales.some((locale) =>
+        resolveCountryName(entry.code, { locale }).toLowerCase().includes(needle),
+      )
+    })
+    .map((entry) => entry.code)
 }

@@ -161,6 +161,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "logo_preserve_aspect_ratio": {
+          "name": "logo_preserve_aspect_ratio",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "name": {
           "name": "name",
           "type": "text",

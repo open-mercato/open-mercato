@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { POST, PUT } from '../provider/[providername]/route'
-import { mapMfaError, resolveMfaRequestContext } from '../_shared'
+import { authorizeMfaEnrollmentMutation, mapMfaError, resolveMfaRequestContext } from '../_shared'
 
 jest.mock('../_shared', () => ({
+  authorizeMfaEnrollmentMutation: jest.fn(async () => null),
   mapMfaError: jest.fn((error: unknown) => {
     if (error instanceof Error && 'statusCode' in error) {
       return NextResponse.json({ error: error.message }, { status: (error as Error & { statusCode: number }).statusCode })
@@ -16,6 +17,9 @@ jest.mock('../_shared', () => ({
 
 const mockedResolveMfaRequestContext = resolveMfaRequestContext as jest.MockedFunction<typeof resolveMfaRequestContext>
 const mockedMapMfaError = mapMfaError as jest.MockedFunction<typeof mapMfaError>
+const mockedAuthorizeMfaEnrollmentMutation = authorizeMfaEnrollmentMutation as jest.MockedFunction<
+  typeof authorizeMfaEnrollmentMutation
+>
 
 function buildContext() {
   return {
@@ -38,6 +42,7 @@ function buildContext() {
 describe('security MFA provider route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockedAuthorizeMfaEnrollmentMutation.mockResolvedValue(null)
   })
 
   test('POST starts provider setup for the path provider type', async () => {
@@ -59,6 +64,25 @@ describe('security MFA provider route', () => {
       { label: 'Phone' },
       { request: expect.any(Request) },
     )
+  })
+
+  test('POST stops before provider setup when enrollment authorization fails', async () => {
+    const context = buildContext()
+    mockedResolveMfaRequestContext.mockResolvedValue(context)
+    mockedAuthorizeMfaEnrollmentMutation.mockResolvedValueOnce(
+      NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+    )
+
+    const response = await POST(new Request('https://example.test/api/security/mfa/provider/totp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    }), {
+      params: Promise.resolve({ providername: 'totp' }),
+    })
+
+    expect(response.status).toBe(403)
+    expect(context.mfaService.setupMethod).not.toHaveBeenCalled()
   })
 
   test('PUT passes provider type through to confirmMethod', async () => {

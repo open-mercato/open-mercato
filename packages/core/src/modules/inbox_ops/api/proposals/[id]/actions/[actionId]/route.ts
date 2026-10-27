@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -40,8 +42,28 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Action already processed' }, { status: 409 })
     }
 
+    // Optimistic lock: refuse a stale overwrite when two tabs edit the same action
+    // payload. Strictly additive — a no-op without the expected-version header.
+    try {
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: 'inbox_ops.action',
+        resourceId: action.id,
+        current: action.updatedAt ?? null,
+        request: req,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+
     const mergedPayload = { ...action.payload as Record<string, unknown>, ...parsed.data.payload }
-    const payloadValidation = validateActionPayloadForType(action.actionType, mergedPayload)
+    const { getInboxAction } = await import('@/.mercato/generated/inbox-actions.generated')
+    const definition = getInboxAction(action.actionType)
+    const payloadValidation = validateActionPayloadForType(
+      action.actionType,
+      mergedPayload,
+      definition?.payloadSchema,
+    )
     if (!payloadValidation.success) {
       return NextResponse.json({ error: payloadValidation.error }, { status: 400 })
     }
@@ -108,7 +130,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Action updated' },
         { status: 404, description: 'Action not found' },
-        { status: 409, description: 'Action already processed' },
+        { status: 409, description: 'Action already processed or stale (optimistic-lock conflict)' },
       ],
     },
   },

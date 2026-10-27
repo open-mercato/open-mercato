@@ -158,6 +158,12 @@ if (!response.ok) {
 const session = await response.json()
 ```
 
+Passing `orderId` makes the hub reconcile the request: `amount` and `currencyCode`
+must equal the authoritative amount still due on that sales order, in your own
+tenant and organization, or the call fails with `409` before Stripe is contacted.
+Send `orderId` only when the payment settles a sales order — a session without one
+is created for the amount you pass.
+
 Typical Stripe response:
 
 ```json

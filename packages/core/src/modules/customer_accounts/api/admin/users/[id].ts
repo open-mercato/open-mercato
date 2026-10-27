@@ -11,7 +11,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
+import { isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -168,12 +168,36 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     }
   }
 
+  // Same guard for the person FK. Without it the invite-side check is trivially
+  // bypassable: create the user normally, then PUT an unowned personEntityId.
+  // It persists (autoLinkCrm short-circuits on any non-null value) and leaks
+  // account status into the other org's people list via the account-status
+  // enricher. A null value (unlink) needs no ownership check.
+  if (parsed.data.personEntityId) {
+    const owned = await isOwnedPersonEntity(em, parsed.data.personEntityId, {
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    })
+    if (!owned) {
+      return NextResponse.json({ ok: false, error: 'Person not found' }, { status: 400 })
+    }
+  }
+
+  // `display_name` is encrypted at rest, and `nativeUpdate` skips the flush hooks the
+  // tenant-encryption subscriber relies on, so persisting it below would write plaintext PII
+  // into a ciphertext column (#3837). Route it through the service, which writes it via the
+  // managed entity. Runs before the `nativeUpdate` so the explicit `updated_at` below stays
+  // the value this response reports back as the optimistic-lock version.
+  if (parsed.data.displayName !== undefined) {
+    const customerUserService = container.resolve('customerUserService') as CustomerUserService
+    await customerUserService.updateProfile(user, { displayName: parsed.data.displayName })
+  }
+
   // Always bump updated_at so the optimistic-lock version advances on every save.
   // `nativeUpdate` bypasses MikroORM's `onUpdate` hook, so set it explicitly — without
   // this the version never changes and concurrent edits cannot be detected (#2055).
   const nextUpdatedAt = new Date()
   const updates: Record<string, unknown> = { updatedAt: nextUpdatedAt }
-  if (parsed.data.displayName !== undefined) updates.displayName = parsed.data.displayName
   if (parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive
   if (parsed.data.lockedUntil !== undefined) updates.lockedUntil = parsed.data.lockedUntil ? new Date(parsed.data.lockedUntil) : null
   if (parsed.data.personEntityId !== undefined) updates.personEntityId = parsed.data.personEntityId

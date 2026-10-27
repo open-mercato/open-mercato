@@ -74,7 +74,7 @@ Each view card shows:
 - "Default" badge if `isDefault`
 - Last updated date (relative: "2 hours ago", "yesterday")
 - Delete button (private only)
-- Active indicator (highlighted border when selected)
+- Active indicator (highlighted border when selected). The highlight is presentation only; the state itself is exposed as `data-active="true|false"` on the chip root and `aria-current="true"` on the chip's activate button, so tests, browser QA, and assistive technology read the active view without depending on the styling (issue #5846).
 
 ### 4. Quick View Switcher
 
@@ -188,6 +188,8 @@ Deferred — the current `RolePerspective` model covers sharing via roles. A tru
 4. **Migration path** — Should old `ui.perspectives.*` i18n keys be removed immediately or deprecated gradually?
 
 ## Changelog
+### 2026-09-08 (update)
+- Active view state is now exposed semantically, not just visually: `data-active="true|false"` on the `ViewChip` root and `aria-current="true"` on its activate button, so tests, browser QA and assistive technology read it without depending on the chip styling. Covered by `ViewChip.activeState.test.tsx` and `TC-PERSP-NEWVIEW-LAYOUT-001` (issue #5846, PR #5932).
 ### 2026-04-04 (update)
 - Updated dependencies section: @dnd-kit provided by PR #1144 (M.D.)
 ### 2026-04-04

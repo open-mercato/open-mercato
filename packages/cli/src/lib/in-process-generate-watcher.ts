@@ -24,6 +24,8 @@ export type GenerateWatcherChangeSignal = {
   currentVersion(): number
   /** Refresh filesystem subscriptions after module configuration changes. */
   refresh(): Promise<void> | void
+  /** Whether configured roots are missing and should be retried on idle polls. */
+  hasSkippedTargets?(): boolean
   /** When true, preserve the legacy full-checksum-on-every-poll behavior. */
   usesPollingFallback(): boolean
   /** Close filesystem subscriptions. Idempotent. */
@@ -130,16 +132,23 @@ export function startInProcessGenerateWatcher(
         if (stopping) return
         try {
           const changeVersion = changeSignal?.currentVersion() ?? 0
-          if (
+          const eventGatedIdle = Boolean(
             changeSignal
             && !changeSignal.usesPollingFallback()
             && changeVersion === observedChangeVersion
-          ) {
-            return
+          )
+          let refreshedSkippedTargets = false
+          if (eventGatedIdle) {
+            if (!changeSignal?.hasSkippedTargets?.()) return
+            await changeSignal.refresh()
+            refreshedSkippedTargets = true
+            if (changeSignal.hasSkippedTargets?.()) return
           }
           const nextChecksum = await computeStructureChecksum()
           observedChangeVersion = changeVersion
-          await changeSignal?.refresh()
+          if (!refreshedSkippedTargets) {
+            await changeSignal?.refresh()
+          }
           if (nextChecksum !== previousChecksum) {
             previousChecksum = nextChecksum
             await runOnce('structure change')

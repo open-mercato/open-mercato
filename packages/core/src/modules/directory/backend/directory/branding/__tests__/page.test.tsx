@@ -3,7 +3,9 @@
  */
 
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import OrganizationBrandingPage from '../page'
 
@@ -61,9 +63,14 @@ const brandingPayload = {
   organizationName: 'Acme',
   tenantId: '11111111-1111-4111-8111-111111111111',
   logoUrl: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
+  logoPreserveAspectRatio: false,
 }
 
 beforeEach(() => {
+  emitOrganizationScopeChanged({
+    organizationId: brandingPayload.organizationId,
+    tenantId: brandingPayload.tenantId,
+  })
   readApiResultOrThrowMock.mockReset()
   apiCallOrThrowMock.mockReset()
   flashMock.mockReset()
@@ -82,12 +89,82 @@ beforeEach(() => {
 })
 
 describe('OrganizationBrandingPage', () => {
+  it('explains the single-organization requirement without requesting branding for all organizations', () => {
+    emitOrganizationScopeChanged({ organizationId: null, tenantId: brandingPayload.tenantId })
+
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    expect(screen.getByText('Organization branding')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveAttribute('data-status', 'information')
+    expect(screen.getByText('Branding is managed for one organization at a time. Select a single organization to continue.')).toBeInTheDocument()
+    expect(screen.queryByText('Failed to load organization branding')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Logo URL')).not.toBeInTheDocument()
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it('hides the form for all organizations and restores it when one organization is selected', async () => {
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    await screen.findByLabelText('Logo URL')
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: null, tenantId: brandingPayload.tenantId })
+    })
+
+    expect(screen.getByRole('alert')).toHaveAttribute('data-status', 'information')
+    expect(screen.queryByRole('button', { name: /Save branding/ })).not.toBeInTheDocument()
+
+    act(() => {
+      emitOrganizationScopeChanged({
+        organizationId: brandingPayload.organizationId,
+        tenantId: brandingPayload.tenantId,
+      })
+    })
+
+    expect(await screen.findByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('loads the newly selected organization without retaining the previous file selection', async () => {
+    const otherOrganizationId = '33333333-3333-4333-8333-333333333333'
+    const otherBranding = { ...brandingPayload, organizationId: otherOrganizationId, organizationName: 'Other organization' }
+    readApiResultOrThrowMock.mockResolvedValueOnce(brandingPayload).mockResolvedValue(otherBranding)
+
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    const fileInput = await screen.findByLabelText('Upload logo')
+    fireEvent.change(fileInput, { target: { files: [new File(['logo'], 'acme.png', { type: 'image/png' })] } })
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: otherOrganizationId, tenantId: brandingPayload.tenantId })
+    })
+
+    expect(await screen.findByText('Other organization')).toBeInTheDocument()
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+    expect(screen.getByAltText('Other organization logo preview')).toHaveAttribute('src', brandingPayload.logoUrl)
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalled())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith('/api/attachments', expect.anything(), expect.anything())
+  })
+
+  it('continues to show an error when branding fails to load for a selected organization', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(new Error('Service unavailable'))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    renderWithProviders(<OrganizationBrandingPage />, { queryClient })
+
+    expect(await screen.findByText('Failed to load organization branding')).toBeInTheDocument()
+    expect(screen.getByText('Service unavailable')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Logo URL')).not.toBeInTheDocument()
+  })
+
   it('renders current organization branding', async () => {
     renderWithProviders(<OrganizationBrandingPage />)
 
     expect(await screen.findByText('Organization branding')).toBeInTheDocument()
     expect(screen.getByText('Acme')).toBeInTheDocument()
     expect(screen.getByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+    expect(screen.getByRole('switch', { name: 'Keep the aspect ratio' })).toHaveAttribute('aria-checked', 'false')
   })
 
   it('saves a pasted logo URL and refreshes the sidebar chrome', async () => {
@@ -102,13 +179,39 @@ describe('OrganizationBrandingPage', () => {
         '/api/directory/organization-branding',
         expect.objectContaining({
           method: 'PUT',
-          body: JSON.stringify({ logoUrl: 'https://example.com/logo.svg' }),
+          body: JSON.stringify({
+            logoUrl: 'https://example.com/logo.svg',
+            logoPreserveAspectRatio: false,
+          }),
         }),
         expect.anything(),
       )
     })
     expect(dispatchEventSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'om:refresh-sidebar' }))
     expect(flashMock).toHaveBeenCalledWith('Organization branding updated', 'success')
+  })
+
+  it('saves the aspect-ratio preference when enabled', async () => {
+    renderWithProviders(<OrganizationBrandingPage />)
+
+    const input = await screen.findByLabelText('Logo URL')
+    fireEvent.change(input, { target: { value: 'https://example.com/logo.svg' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Keep the aspect ratio' }))
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+
+    await waitFor(() => {
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/directory/organization-branding',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            logoUrl: 'https://example.com/logo.svg',
+            logoPreserveAspectRatio: true,
+          }),
+        }),
+        expect.anything(),
+      )
+    })
   })
 
   it('resets to the default logo', async () => {
@@ -122,29 +225,39 @@ describe('OrganizationBrandingPage', () => {
         '/api/directory/organization-branding',
         expect.objectContaining({
           method: 'PUT',
-          body: JSON.stringify({ logoUrl: null }),
+          body: JSON.stringify({
+            logoUrl: null,
+            logoPreserveAspectRatio: false,
+          }),
         }),
         expect.anything(),
       )
     })
   })
 
-  it('uploads a selected logo file before saving branding', async () => {
+  it.each([
+    ['png', 'image/png'],
+    ['jpg', 'image/jpeg'],
+    ['webp', 'image/webp'],
+  ])('uploads a selected %s logo file without storing the square thumbnail', async (extension, mimeType) => {
+    const attachmentId = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb${extension === 'png' ? 'c' : extension === 'jpg' ? 'd' : 'e'}`
+    const fileUrl = `/api/attachments/file/${attachmentId}`
+
     readApiResultOrThrowMock
       .mockResolvedValueOnce(brandingPayload)
       .mockResolvedValueOnce({
         ok: true,
         item: {
-          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-          url: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg',
-          thumbnailUrl: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320',
+          id: attachmentId,
+          url: fileUrl,
+          thumbnailUrl: `/api/attachments/image/${attachmentId}/acme.${extension}?width=320&height=320`,
         },
       })
 
     renderWithProviders(<OrganizationBrandingPage />)
 
     const input = await screen.findByLabelText('Upload logo')
-    const file = new File(['<svg />'], 'acme.svg', { type: 'image/svg+xml' })
+    const file = new File(['logo'], `acme.${extension}`, { type: mimeType })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
 
@@ -163,7 +276,8 @@ describe('OrganizationBrandingPage', () => {
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({
-          logoUrl: '/api/attachments/image/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/acme.svg?width=320',
+          logoUrl: fileUrl,
+          logoPreserveAspectRatio: false,
         }),
       }),
       expect.anything(),
@@ -177,7 +291,7 @@ describe('OrganizationBrandingPage', () => {
     renderWithProviders(<OrganizationBrandingPage />)
 
     const input = await screen.findByLabelText('Upload logo')
-    const file = new File(['<svg />'], 'acme.svg', { type: 'image/svg+xml' })
+    const file = new File(['logo'], 'acme.png', { type: 'image/png' })
     fireEvent.change(input, { target: { files: [file] } })
 
     await waitFor(() => {

@@ -250,6 +250,8 @@
   "checkout.linkTemplateForm.notFound.template.description": "This template no longer exists. It may have been deleted in another tab or by another user.",
   "checkout.linkTemplateForm.notFound.template.title": "Template not found",
   "checkout.linkTemplateForm.payment.fields.gatewayProvider": "Gateway provider",
+  "checkout.linkTemplateForm.payment.payerFields.description": "{provider} needs payer details to create a payment. Turn on customer details and mark these fields as required: {fields}.",
+  "checkout.linkTemplateForm.payment.payerFields.title": "This provider needs payer details",
   "checkout.linkTemplateForm.payment.placeholders.provider": "Select a provider…",
   "checkout.linkTemplateForm.payment.providerUnavailableSuffix": "(configure in Integrations first)",
   "checkout.linkTemplateForm.priceList.actions.addItem": "Add item",
@@ -326,6 +328,7 @@
   "checkout.payPage.errors.loadMessage": "We couldn't load this payment page. Please try again.",
   "checkout.payPage.errors.loadTitle": "Unable to load payment link",
   "checkout.payPage.errors.password": "Unable to verify password. Please try again.",
+  "checkout.payPage.errors.sessionStart": "Unable to start the payment session. Please try again.",
   "checkout.payPage.errors.submit": "Unable to start the payment. Please try again.",
   "checkout.payPage.fields.booleanFalse": "No",
   "checkout.payPage.fields.booleanTrue": "Yes",
@@ -379,6 +382,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Choose a payment option to continue.",
   "checkout.payPage.validation.requiredField": "Enter {field}.",
   "checkout.payPage.validation.thisField": "this field",
+  "checkout.search.subtitle.linkTemplate": "Link Template",
   "checkout.statusPage.backToPayment": "Back to payment page",
   "checkout.statusPage.cancel.cancelled": "Payment cancelled",
   "checkout.statusPage.cancel.failed": "Payment failed",
@@ -448,6 +452,7 @@
   "checkout.validation.fixedPriceCurrencyCode.required": "Currency is required for fixed pricing.",
   "checkout.validation.gatewayProviderKey.disabled": "This gateway provider is disabled in Integrations.",
   "checkout.validation.gatewayProviderKey.notConfigured": "This gateway provider is not configured in Integrations.",
+  "checkout.validation.gatewayProviderKey.payerFieldsNotCollected": "This gateway provider needs payer details that this link does not collect. Turn on customer details and mark the fields named in the payment section as required.",
   "checkout.validation.gatewayProviderKey.required": "Gateway provider is required.",
   "checkout.validation.name.required": "Name is required.",
   "checkout.validation.priceListItems.required": "Add at least one price-list item.",
@@ -457,5 +462,6 @@
   "checkout.widgets.gatewayTransactionLink.labels.link": "Link",
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "Transaction ID",
   "checkout.widgets.gatewayTransactionLink.title": "Checkout transaction",
-  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link"
+  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link",
+  "notifications.categories.checkout": "Checkout"
 }

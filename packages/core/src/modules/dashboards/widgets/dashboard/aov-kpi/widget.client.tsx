@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { DashboardDateRangeCompare, DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts'
 import {
   DateRangeSelect,
@@ -21,7 +21,8 @@ import {
 import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import { DEFAULT_SETTINGS, hydrateSettings, type AovKpiSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyWithDecimals } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { buildKpiWidgetRequests, mapKpiSeriesToTrend } from '../../../lib/kpiRequests'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -79,13 +80,16 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
   onRefreshStateChange,
 }) => {
   const t = useT()
+  const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [value, setValue] = React.useState<number | null>(null)
   const [delta, setDelta] = React.useState<KpiTrend | undefined>(undefined)
   const [sparkline, setSparkline] = React.useState<number[] | undefined>(undefined)
   const [comparisonLabel, setComparisonLabel] = React.useState<string | undefined>(undefined)
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
 
   const fetchWidgetData = useWidgetData()
   const showDateRangeControls = hydrated.dateRangeMode === 'custom' || !context.dateRange
@@ -98,6 +102,7 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
       setValue(data.value)
       setSparkline(trend)
       setComparisonLabel(getComparisonLabel(compare, hydrated, usesDashboardDateRange, t))
+      setCurrency(data.metadata?.currency ?? null)
       if (data.comparison) {
         setDelta({
           value: data.comparison.change,
@@ -165,7 +170,8 @@ const AovKpiWidget: React.FC<DashboardWidgetComponentProps<AovKpiSettings>> = ({
       comparisonLabel={comparisonLabel}
       loading={loading}
       error={error}
-      formatValue={formatCurrencyWithDecimals}
+      formatValue={money.formatWithDecimals}
+      footer={<UnlabelledAmountNotice currency={currency} loading={loading} error={error} />}
       headerAction={showDateRangeControls ? (
         <InlineDateRangeSelect
           value={hydrated.dateRange}

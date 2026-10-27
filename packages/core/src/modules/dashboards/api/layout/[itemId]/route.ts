@@ -58,8 +58,12 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     organizationId: auth.orgId ?? null,
   }
 
-  const acl = await rbac.loadAcl(scope.userId, { tenantId: scope.tenantId, organizationId: scope.organizationId })
-  if (!acl.isSuperAdmin && !hasFeature(acl.features, 'dashboards.configure')) {
+  const canConfigure = await rbac.userHasAllFeatures(
+    scope.userId,
+    ['dashboards.configure'],
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  if (!canConfigure) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

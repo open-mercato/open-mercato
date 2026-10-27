@@ -639,6 +639,104 @@
         color: var(--warning);
         word-break: break-all;
       }
+      .incident-box {
+        display: grid;
+        gap: 8px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(239, 68, 68, 0.24);
+        background: var(--danger-surface);
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .incident-box[hidden] {
+        display: none;
+      }
+      .incident-box[data-severity="warning"] {
+        border-color: rgba(234, 179, 8, 0.3);
+      }
+      .incident-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .incident-badge {
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--danger);
+        border: 1px solid rgba(239, 68, 68, 0.35);
+      }
+      .incident-box[data-severity="warning"] .incident-badge {
+        color: #b45309;
+        border-color: rgba(234, 179, 8, 0.45);
+      }
+      .incident-title {
+        color: var(--text);
+        font-size: 15px;
+        font-weight: 700;
+        word-break: break-word;
+      }
+      .incident-detail {
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.6;
+        word-break: break-word;
+      }
+      .incident-meta {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 2px 12px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .incident-meta dt {
+        font-weight: 600;
+      }
+      .incident-meta dd {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        word-break: break-all;
+      }
+      .incident-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .incident-actions:empty {
+        display: none;
+      }
+      .incident-action {
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .incident-action[disabled] {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .incident-action[data-tone="danger"] {
+        color: var(--danger);
+        border-color: rgba(239, 68, 68, 0.4);
+      }
+      .incident-hint {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
       .failure-box {
         display: grid;
         gap: 10px;
@@ -821,6 +919,17 @@
           </div>
           <div class="git-repo-secondary" id="git-repo-secondary" hidden></div>
         </section>
+        <section class="incident-box" id="incident-box" hidden>
+          <div class="incident-header">
+            <span class="incident-badge" id="incident-badge"></span>
+            <span class="incident-title" id="incident-title"></span>
+          </div>
+          <div class="incident-detail" id="incident-detail"></div>
+          <dl class="incident-meta" id="incident-meta"></dl>
+          <div class="incident-hint" id="incident-hint"></div>
+          <div class="incident-actions" id="incident-actions"></div>
+          <div class="incident-hint" id="incident-action-status" role="status" aria-live="polite"></div>
+        </section>
         <section class="failure-box" id="failure-box" hidden>
           <div class="failure-heading" id="failure-heading">Recent failure output</div>
           <div class="failure-command" id="failure-command"></div>
@@ -870,6 +979,14 @@
       const failureHeading = document.getElementById('failure-heading')
       const failureCommand = document.getElementById('failure-command')
       const failureLines = document.getElementById('failure-lines')
+      const incidentBox = document.getElementById('incident-box')
+      const incidentBadge = document.getElementById('incident-badge')
+      const incidentTitle = document.getElementById('incident-title')
+      const incidentDetail = document.getElementById('incident-detail')
+      const incidentMeta = document.getElementById('incident-meta')
+      const incidentHint = document.getElementById('incident-hint')
+      const incidentActions = document.getElementById('incident-actions')
+      const incidentActionStatus = document.getElementById('incident-action-status')
       const THEME_KEY = 'om-dev-theme'
       const LOCALE_KEY = 'om-dev-locale'
       const supportedLocales = Array.isArray(splashBootstrap.supportedLocales) && splashBootstrap.supportedLocales.length > 0
@@ -922,6 +1039,28 @@
           gitRepoBusyRemote: 'Publishing to GitHub…',
           gitRepoOpen: 'Open GitHub repository',
           gitRepoRestartHint: 'Install GitHub CLI, then restart `yarn dev`.',
+          incidentHealth_starting: 'Starting',
+          incidentHealth_degraded: 'Degraded',
+          incidentHealth_recovering: 'Recovering',
+          incidentHealth_unavailable: 'Unavailable',
+          incidentCode: 'Error code',
+          incidentSource: 'Source',
+          incidentOccurrences: 'Occurrences',
+          incidentLastSeen: 'Last seen',
+          incidentPath: 'Path',
+          incidentRecovery_generate: 'Suggested fix: rerun the generators (`yarn generate`).',
+          incidentRecovery_migrate: 'Suggested fix: apply database migrations (`yarn db:migrate`). This changes the database and is not automatically reversible.',
+          incidentRecovery_restart: 'Suggested fix: restart the dev runtime.',
+          incidentAction_generate: 'Run generators',
+          incidentAction_migrate: 'Run migrations',
+          incidentAction_restart: 'Restart runtime',
+          incidentActionConfirm_migrate: 'Confirm: apply migrations',
+          incidentActionCancel: 'Cancel',
+          incidentActionMigrateWarning: 'Migrations change the database and are not automatically reversible. Click again to confirm.',
+          incidentActionStarting: 'Starting the recovery action…',
+          incidentActionAccepted: 'Recovery action started. Watch the startup stream for progress.',
+          incidentActionBusy: 'A recovery action is already running.',
+          incidentActionFailed: 'The recovery action could not be started.',
         },
         pl: {
           badge: 'Open Mercato Dev',
@@ -960,6 +1099,28 @@
           gitRepoBusyRemote: 'Publikowanie na GitHub…',
           gitRepoOpen: 'Otwórz repozytorium GitHub',
           gitRepoRestartHint: 'Zainstaluj GitHub CLI, a potem uruchom ponownie `yarn dev`.',
+          incidentHealth_starting: 'Uruchamianie',
+          incidentHealth_degraded: 'Ograniczona sprawność',
+          incidentHealth_recovering: 'Odzyskiwanie',
+          incidentHealth_unavailable: 'Niedostępne',
+          incidentCode: 'Kod błędu',
+          incidentSource: 'Źródło',
+          incidentOccurrences: 'Wystąpienia',
+          incidentLastSeen: 'Ostatnie wystąpienie',
+          incidentPath: 'Ścieżka',
+          incidentRecovery_generate: 'Sugerowana naprawa: uruchom ponownie generatory (`yarn generate`).',
+          incidentRecovery_migrate: 'Sugerowana naprawa: zastosuj migracje bazy danych (`yarn db:migrate`). Zmienia to bazę i nie jest automatycznie odwracalne.',
+          incidentRecovery_restart: 'Sugerowana naprawa: zrestartuj środowisko developerskie.',
+          incidentAction_generate: 'Uruchom generatory',
+          incidentAction_migrate: 'Uruchom migracje',
+          incidentAction_restart: 'Zrestartuj środowisko',
+          incidentActionConfirm_migrate: 'Potwierdź: zastosuj migracje',
+          incidentActionCancel: 'Anuluj',
+          incidentActionMigrateWarning: 'Migracje zmieniają bazę danych i nie są automatycznie odwracalne. Kliknij ponownie, aby potwierdzić.',
+          incidentActionStarting: 'Uruchamianie akcji naprawczej…',
+          incidentActionAccepted: 'Akcja naprawcza uruchomiona. Obserwuj strumień startu.',
+          incidentActionBusy: 'Akcja naprawcza jest już w toku.',
+          incidentActionFailed: 'Nie udało się uruchomić akcji naprawczej.',
         },
         es: {
           badge: 'Open Mercato Dev',
@@ -998,6 +1159,28 @@
           gitRepoBusyRemote: 'Publicando en GitHub…',
           gitRepoOpen: 'Abrir repositorio de GitHub',
           gitRepoRestartHint: 'Instala GitHub CLI y luego reinicia `yarn dev`.',
+          incidentHealth_starting: 'Iniciando',
+          incidentHealth_degraded: 'Degradado',
+          incidentHealth_recovering: 'Recuperando',
+          incidentHealth_unavailable: 'No disponible',
+          incidentCode: 'Código de error',
+          incidentSource: 'Origen',
+          incidentOccurrences: 'Ocurrencias',
+          incidentLastSeen: 'Última vez',
+          incidentPath: 'Ruta',
+          incidentRecovery_generate: 'Solución sugerida: vuelve a ejecutar los generadores (`yarn generate`).',
+          incidentRecovery_migrate: 'Solución sugerida: aplica las migraciones de base de datos (`yarn db:migrate`). Modifica la base de datos y no es reversible automáticamente.',
+          incidentRecovery_restart: 'Solución sugerida: reinicia el entorno de desarrollo.',
+          incidentAction_generate: 'Ejecutar generadores',
+          incidentAction_migrate: 'Ejecutar migraciones',
+          incidentAction_restart: 'Reiniciar entorno',
+          incidentActionConfirm_migrate: 'Confirmar: aplicar migraciones',
+          incidentActionCancel: 'Cancelar',
+          incidentActionMigrateWarning: 'Las migraciones modifican la base de datos y no son reversibles automáticamente. Haz clic de nuevo para confirmar.',
+          incidentActionStarting: 'Iniciando la acción de recuperación…',
+          incidentActionAccepted: 'Acción de recuperación iniciada. Observa el flujo de arranque.',
+          incidentActionBusy: 'Ya hay una acción de recuperación en curso.',
+          incidentActionFailed: 'No se pudo iniciar la acción de recuperación.',
         },
         de: {
           badge: 'Open Mercato Dev',
@@ -1036,6 +1219,28 @@
           gitRepoBusyRemote: 'Auf GitHub wird veroeffentlicht…',
           gitRepoOpen: 'GitHub-Repository oeffnen',
           gitRepoRestartHint: 'Installiere GitHub CLI und starte dann `yarn dev` neu.',
+          incidentHealth_starting: 'Startet',
+          incidentHealth_degraded: 'Eingeschränkt',
+          incidentHealth_recovering: 'Erholt sich',
+          incidentHealth_unavailable: 'Nicht verfügbar',
+          incidentCode: 'Fehlercode',
+          incidentSource: 'Quelle',
+          incidentOccurrences: 'Vorkommen',
+          incidentLastSeen: 'Zuletzt gesehen',
+          incidentPath: 'Pfad',
+          incidentRecovery_generate: 'Empfohlene Behebung: Generatoren erneut ausführen (`yarn generate`).',
+          incidentRecovery_migrate: 'Empfohlene Behebung: Datenbankmigrationen anwenden (`yarn db:migrate`). Das ändert die Datenbank und ist nicht automatisch umkehrbar.',
+          incidentRecovery_restart: 'Empfohlene Behebung: Dev-Laufzeit neu starten.',
+          incidentAction_generate: 'Generatoren ausführen',
+          incidentAction_migrate: 'Migrationen ausführen',
+          incidentAction_restart: 'Laufzeit neu starten',
+          incidentActionConfirm_migrate: 'Bestätigen: Migrationen anwenden',
+          incidentActionCancel: 'Abbrechen',
+          incidentActionMigrateWarning: 'Migrationen ändern die Datenbank und sind nicht automatisch umkehrbar. Zum Bestätigen erneut klicken.',
+          incidentActionStarting: 'Wiederherstellungsaktion wird gestartet…',
+          incidentActionAccepted: 'Wiederherstellungsaktion gestartet. Verfolge den Startstream.',
+          incidentActionBusy: 'Es läuft bereits eine Wiederherstellungsaktion.',
+          incidentActionFailed: 'Die Wiederherstellungsaktion konnte nicht gestartet werden.',
         },
       }
       const exactTranslations = {
@@ -1281,8 +1486,158 @@
         scheduleActivityListLayout()
       }
 
+      function resolveActiveIncident(state) {
+        const runtime = state && typeof state.runtime === 'object' ? state.runtime : null
+        if (!runtime) return null
+        const summary = runtime.issueSummary
+        if (!summary || typeof summary !== 'object') return null
+        if (summary.generation !== runtime.generation) return null
+        return summary
+      }
+
+      function formatIncidentTimestamp(value) {
+        const parsed = Date.parse(String(value ?? ''))
+        if (!Number.isFinite(parsed)) return ''
+        return new Date(parsed).toLocaleTimeString()
+      }
+
+      function appendIncidentMetaRow(label, value) {
+        if (!value) return
+        const term = document.createElement('dt')
+        term.textContent = label
+        const definition = document.createElement('dd')
+        definition.textContent = value
+        incidentMeta.append(term, definition)
+      }
+
+      // Structured, human-readable preview of the current runtime incident. It
+      // stays above the raw failure output so a developer reads "what broke and
+      // what to do" before the log tail.
+      function renderIncident(state) {
+        const incident = resolveActiveIncident(state)
+        incidentBox.hidden = !incident
+        incidentMeta.replaceChildren()
+
+        if (!incident) {
+          incidentBadge.textContent = ''
+          incidentTitle.textContent = ''
+          incidentDetail.textContent = ''
+          incidentHint.textContent = ''
+          return
+        }
+
+        const health = state?.runtime?.health
+        incidentBox.dataset.severity = incident.severity === 'warning' ? 'warning' : 'error'
+        incidentBadge.textContent = t('incidentHealth_' + String(health)) || String(health ?? '')
+        incidentTitle.textContent = incident.title ?? ''
+        incidentDetail.textContent = incident.detail ?? ''
+
+        appendIncidentMetaRow(t('incidentCode'), incident.code)
+        appendIncidentMetaRow(t('incidentSource'), incident.source)
+        appendIncidentMetaRow(t('incidentOccurrences'), String(incident.occurrences ?? 1))
+        appendIncidentMetaRow(t('incidentLastSeen'), formatIncidentTimestamp(incident.lastSeenAt))
+        if (incident.path) appendIncidentMetaRow(t('incidentPath'), incident.path)
+
+        const recoveryHint = incident.recovery ? t('incidentRecovery_' + incident.recovery) : ''
+        incidentHint.textContent = recoveryHint || ''
+
+        renderIncidentActions(state, incident)
+      }
+
+      // `migrate` mutates the database and is not automatically reversible, so
+      // it always requires a second, explicit click rather than firing on the
+      // first one. A native confirm dialog is deliberately avoided.
+      let pendingConfirmAction = null
+      let runtimeActionInFlight = false
+
+      function resolveIncidentActions(state, incident) {
+        if (!splashBootstrap.runtimeToken) return []
+        const actions = []
+        if (incident.recovery === 'migrate') actions.push('migrate')
+        if (incident.recovery === 'generate') actions.push('generate')
+        if (!actions.includes('restart')) actions.push('restart')
+        return actions
+      }
+
+      function renderIncidentActions(state, incident) {
+        const busy = state?.runtime?.recovery?.busy === true
+        incidentActions.replaceChildren()
+
+        if (busy) {
+          incidentActionStatus.textContent = t('incidentActionBusy')
+          return
+        }
+        if (!runtimeActionInFlight) incidentActionStatus.textContent = incidentActionStatus.dataset.sticky ?? ''
+
+        for (const action of resolveIncidentActions(state, incident)) {
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = 'incident-action'
+          button.disabled = runtimeActionInFlight
+          if (action === 'migrate') button.dataset.tone = 'danger'
+          button.textContent = pendingConfirmAction === action
+            ? t('incidentActionConfirm_' + action)
+            : t('incidentAction_' + action)
+          button.addEventListener('click', () => { void handleIncidentAction(action) })
+          incidentActions.append(button)
+        }
+
+        if (pendingConfirmAction) {
+          const cancel = document.createElement('button')
+          cancel.type = 'button'
+          cancel.className = 'incident-action'
+          cancel.textContent = t('incidentActionCancel')
+          cancel.addEventListener('click', () => {
+            pendingConfirmAction = null
+            renderIncidentActions(state, incident)
+          })
+          incidentActions.append(cancel)
+        }
+      }
+
+      async function handleIncidentAction(action) {
+        if (runtimeActionInFlight) return
+        if (action === 'migrate' && pendingConfirmAction !== 'migrate') {
+          pendingConfirmAction = 'migrate'
+          incidentActionStatus.textContent = t('incidentActionMigrateWarning')
+          renderIncident(lastState)
+          return
+        }
+
+        pendingConfirmAction = null
+        runtimeActionInFlight = true
+        incidentActionStatus.textContent = t('incidentActionStarting')
+        renderIncident(lastState)
+
+        try {
+          const response = await fetch('/runtime/actions/' + encodeURIComponent(action), {
+            method: 'POST',
+            headers: { 'x-om-dev-runtime-token': splashBootstrap.runtimeToken },
+          })
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null)
+            incidentActionStatus.dataset.sticky = payload?.error?.message || t('incidentActionFailed')
+            incidentActionStatus.textContent = incidentActionStatus.dataset.sticky
+            return
+          }
+          incidentActionStatus.dataset.sticky = ''
+          incidentActionStatus.textContent = t('incidentActionAccepted')
+        } catch {
+          incidentActionStatus.dataset.sticky = t('incidentActionFailed')
+          incidentActionStatus.textContent = incidentActionStatus.dataset.sticky
+        } finally {
+          runtimeActionInFlight = false
+          renderIncident(lastState)
+        }
+      }
+
       function renderFailure(state) {
-        const failed = state?.failed === true && state?.ready !== true
+        const incident = resolveActiveIncident(state)
+        const lines = Array.isArray(state?.failureLines) ? state.failureLines : []
+        // Post-ready incidents project to `failed: false`, so the redacted log
+        // tail must follow the incident rather than the legacy flag alone.
+        const failed = (state?.failed === true && state?.ready !== true)
+          || (incident !== null && lines.length > 0)
         failureBox.hidden = !failed
 
         if (!failed) {
@@ -1296,7 +1651,6 @@
           ? state.failureCommand.trim()
           : ''
         failureCommand.textContent = command ? t('failureCommand') + ': ' + command : ''
-        const lines = Array.isArray(state.failureLines) ? state.failureLines : []
         failureLines.textContent = lines.join('\n')
       }
 
@@ -1661,6 +2015,7 @@
           progressFill.style.width = percent + '%'
           readyUrl.textContent = state.readyUrl || t('targetPending')
           renderActivities(state.activities)
+          renderIncident(state)
           renderFailure(state)
           lastState = state
           renderCodingFlow(state)

@@ -57,7 +57,7 @@ Base, reusable UI building blocks:
 
 | Component | Import Path | Purpose | Key Props |
 |-----------|-------------|---------|-----------|
-| **DataTable** | `@open-mercato/ui/backend/DataTable` | Feature-rich table with sorting, filtering, pagination, export, perspectives | `columns`, `data`, `filters`, `pagination`, `perspective`, `onRowClick` |
+| **DataTable** | `@open-mercato/ui/backend/DataTable` | Feature-rich table with sorting, filtering, pagination, export, perspectives | `columns`, `data`, `title`, `titleHeadingLevel`, `filters`, `pagination`, `perspective`, `onRowClick` |
 | **TruncatedCell** | `@open-mercato/ui/backend/TruncatedCell` | Table cell with text truncation and tooltip | `value`, `maxWidth` |
 | **EmptyState** | `@open-mercato/ui/backend/EmptyState` | Empty state placeholder | `title`, `description`, `action`, `icon` |
 | **RowActions** | `@open-mercato/ui/backend/RowActions` | Context menu for row actions | `items: {label, href?, onSelect?, destructive?}[]` |
@@ -68,7 +68,7 @@ Base, reusable UI building blocks:
 
 | Component | Import Path | Purpose | Key Props |
 |-----------|-------------|---------|-----------|
-| **CrudForm** | `@open-mercato/ui/backend/CrudForm` | Complete CRUD form with field registry, groups, custom fields, validation | `fields`, `groups`, `initialValues`, `onSubmit`, `schema`, `embedded`, `extraActions` |
+| **CrudForm** | `@open-mercato/ui/backend/CrudForm` | Complete CRUD form with field registry, groups, custom fields, validation | `fields`, `groups`, `titleHeadingLevel`, `initialValues`, `onSubmit`, `schema`, `embedded`, `extraActions` |
 | **FormHeader** | `@open-mercato/ui/backend/forms` | Unified page header with `edit` mode (compact, for CrudForm) and `detail` mode (large title, entity type label, status badge, Actions dropdown) | `mode`, `backHref`, `title`, `actions`, `menuActions`, `onDelete`, `statusBadge` |
 | **FormFooter** | `@open-mercato/ui/backend/forms` | Form footer wrapping FormActionButtons with embedded/dialog layout awareness | `actions`, `embedded`, `className` |
 | **FormActionButtons** | `@open-mercato/ui/backend/forms` | Atomic button bar: [extraActions] [Delete] [Cancel] [Save]. Shared by header and footer. | `showDelete`, `onDelete`, `cancelHref`, `submit` |
@@ -385,6 +385,8 @@ const deleted = await deleteCrud('module/items', id)
 ---
 
 ## Changelog
+
+- **2026-08-25** — Added explicit `titleHeadingLevel` controls to `DataTable` and `CrudForm`. Reusable string titles retain their section-level `h2` default; top-level pages opt into `h1`.
 
 | Date | Summary |
 |------|---------|

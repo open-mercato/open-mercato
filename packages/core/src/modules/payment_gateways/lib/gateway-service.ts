@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -11,16 +13,27 @@ import {
   type GatewayAdapter,
   type GatewayPaymentStatus,
   type PaymentGatewayPresentationRequest,
+  type PaymentOrderTotalResolver,
   type UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
-import { conflict } from '@open-mercato/shared/lib/crud/errors'
-import { GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
+import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
+import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
+import {
+  alignCapturedAmountWithStatus,
+  assertCaptureWithinRemaining,
+  formatAmountUnits,
+  parseAmountUnits,
+  releaseCaptureAmount,
+  reserveCaptureAmount,
+  settleCapturedAmount,
+} from './capture-ledger'
 import {
   completePaymentOperation,
   failPaymentOperation,
@@ -37,6 +50,7 @@ import {
 
 const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
 const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
+const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
@@ -67,6 +81,11 @@ export interface PaymentGatewayServiceDeps {
   integrationCredentialsService: CredentialsService
   integrationStateService?: IntegrationStateService
   integrationLogService?: IntegrationLogService
+  /**
+   * Optional seam supplied by the module that owns orders (`sales` by default).
+   * When absent, session amounts cannot be reconciled and are accepted as-is.
+   */
+  paymentOrderTotalResolver?: PaymentOrderTotalResolver | null
   sessionClaimOptions?: {
     staleAfterMs?: number
     heartbeatIntervalMs?: number
@@ -166,6 +185,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }, scope)
   }
 
+  async function stampLastPolledAt(transaction: GatewayTransaction, polledAt: Date): Promise<void> {
+    await em.nativeUpdate(
+      GatewayTransaction,
+      { id: transaction.id, organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+      { lastPolledAt: polledAt },
+    )
+  }
+
   async function resolveAdapterAndCredentials(providerKey: string, scope: { organizationId: string; tenantId: string }) {
     const integrationId = `gateway_${providerKey}`
     const selectedVersion = deps.integrationStateService
@@ -173,11 +200,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       : undefined
     const adapter = getGatewayAdapter(providerKey, selectedVersion)
     if (!adapter) {
-      throw new Error(
-        selectedVersion
-          ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
-          : `No gateway adapter registered for provider: ${providerKey}`,
-      )
+      const message = selectedVersion
+        ? `No gateway adapter registered for provider: ${providerKey} (version: ${selectedVersion})`
+        : `No gateway adapter registered for provider: ${providerKey}`
+      throw new CrudHttpError(422, { error: message })
     }
     const credentials = await integrationCredentialsService.resolve(integrationId, scope) ?? {}
 
@@ -192,6 +218,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     operationId?: string
     payload: Record<string, unknown>
     scope: { organizationId: string; tenantId: string }
+    assertInitialAllowed?: (transaction: GatewayTransaction) => void
+    beforeInvoke?: (context: { transaction: GatewayTransaction; operation: GatewayPaymentOperation }) => Promise<void>
+    releaseOnFailure?: (context: {
+      transaction: GatewayTransaction
+      operation: GatewayPaymentOperation
+      providerInvoked: boolean
+    }) => Promise<void>
     invoke: (context: {
       adapter: GatewayAdapter
       credentials: Record<string, unknown>
@@ -210,7 +243,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       operationId: input.operationId,
       payload: input.payload,
       scope: input.scope,
-      assertInitialAllowed: () => assertManualActionAllowed(input.action, transaction),
+      assertInitialAllowed: () => {
+        assertManualActionAllowed(input.action, transaction)
+        input.assertInitialAllowed?.(transaction)
+      },
     })
     if (prepared.kind === 'completed') {
       if (prepared.result.status !== transaction.unifiedStatus) {
@@ -221,7 +257,17 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       return prepared.result as unknown as TResult
     }
 
+    const operation = prepared.claim.record
+    // Everything after this flips to true is post-settlement: the provider moved the money and the
+    // completion transaction committed it. A later event or logging failure must not undo either,
+    // so the failure path below only runs while the operation can still be rolled back.
+    let settled = false
+    // Flips once the provider call returned, so the failure path can tell "the provider never
+    // moved the money" from "the provider moved it and only our bookkeeping failed" — the two
+    // cases need opposite rollback decisions.
+    let providerInvoked = false
     try {
+      await input.beforeInvoke?.({ transaction, operation })
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
@@ -232,6 +278,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         transaction,
         idempotencyKey: prepared.claim.providerIdempotencyKey,
       })
+      providerInvoked = true
       const statusChanged = await completePaymentOperation(
         em,
         prepared.claim,
@@ -243,6 +290,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           return changed
         },
       )
+      settled = true
       if (statusChanged) {
         await emitStatusEvent(result.status, {
           transactionId: transaction.id,
@@ -255,7 +303,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       await input.afterCommit(transaction, result)
       return result
     } catch (error: unknown) {
-      await Promise.allSettled([failPaymentOperation(em, prepared.claim)])
+      if (!settled) {
+        if (input.releaseOnFailure) {
+          await input.releaseOnFailure({ transaction, operation, providerInvoked }).catch(() => undefined)
+        }
+        await Promise.allSettled([failPaymentOperation(em, prepared.claim)])
+      }
       throw error
     }
   }
@@ -275,6 +328,9 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
       clientSecret: session.clientSecret ?? null,
       amount: String(input.amount),
+      // An automatic-capture session comes back already captured, so the ledger has to start
+      // at the full amount — otherwise a later manual capture would look like the first one.
+      capturedAmount: session.status === 'captured' ? String(input.amount) : '0',
       currencyCode: input.currencyCode,
       gatewayMetadata: {
         ...(session.providerData ?? {}),
@@ -366,6 +422,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   return {
     async createPaymentSession(input: CreatePaymentSessionInput): Promise<{ transaction: GatewayTransaction; session: CreateSessionResult }> {
       const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
+      await reconcileSessionAmountWithOrder({
+        orderId: input.orderId,
+        amount: input.amount,
+        currencyCode: input.currencyCode,
+        scope,
+        resolver: deps.paymentOrderTotalResolver,
+      })
       const { adapter, credentials } = await resolveAdapterAndCredentials(input.providerKey, scope)
 
       const sessionInput: CreateSessionInput = {
@@ -416,7 +479,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             scope,
           )
           if (!transaction) {
-            throw new Error('Completed payment session is missing its gateway transaction')
+            throw new Error('[internal] Completed payment session is missing its gateway transaction')
           }
           return { transaction, session: restoreSession(transaction) }
         }
@@ -437,7 +500,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         try {
           session = await adapter.createSession({ ...sessionInput, idempotencyKey: operationKey })
         } catch (error) {
-          await releasePaymentSessionInitialization(em, ownership, scope).catch(() => undefined)
+          try {
+            await releasePaymentSessionInitialization(em, ownership, scope)
+          } catch (releaseError) {
+            logger.warn('Failed to release payment session initialization claim', {
+              claimId: ownership.id,
+              providerKey: input.providerKey,
+              err: releaseError,
+            })
+          }
           throw error
         } finally {
           await stopHeartbeat()
@@ -481,15 +552,57 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
     ): Promise<CaptureResult> {
+      let reservedUnits: bigint | null = null
+      let providerAmount = amount
       return executeManualOperation({
         action: 'capture',
         transactionId,
         operationId,
         payload: { amount: amount ?? null },
         scope,
+        assertInitialAllowed: (transaction) => { assertCaptureWithinRemaining(transaction, amount) },
+        beforeInvoke: async ({ transaction, operation }) => {
+          const alreadyCapturedUnits = parseAmountUnits(transaction.capturedAmount)
+          reservedUnits = await reserveCaptureAmount(em, { transaction, operation, amount, scope })
+          // "Capture the rest" has to name the remaining amount once part of the authorization is
+          // already captured, otherwise the provider would capture the full amount a second time.
+          if (amount === undefined && alreadyCapturedUnits > 0n) {
+            providerAmount = Number(formatAmountUnits(reservedUnits))
+          }
+        },
+        // The slice goes back only while the provider has not been called yet. Once the capture
+        // call returned, the money may already have moved and only the completion transaction
+        // failed, so releasing would reopen the authorization for a fresh operation id and allow an
+        // over-capture. Holding the reservation is the conservative outcome: a retry of this same
+        // operation id reuses both the reservation and the provider idempotency key, so the provider
+        // itself collapses the duplicate.
+        releaseOnFailure: async ({ transaction, operation, providerInvoked }) => {
+          if (reservedUnits === null) return
+          if (providerInvoked) {
+            await writeTransactionLog(
+              transaction.providerKey,
+              { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+              transaction.id,
+              'warn',
+              'Capture reservation stays outstanding because the provider call already returned',
+              { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+            )
+            return
+          }
+          const released = await releaseCaptureAmount(em, { transactionId, operation, reservedUnits, scope })
+          if (released) return
+          await writeTransactionLog(
+            transaction.providerKey,
+            { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+            transaction.id,
+            'warn',
+            'Capture reservation stays outstanding after a failed capture',
+            { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+          )
+        },
         invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.capture({
           sessionId: readProviderSessionId(transaction),
-          amount,
+          amount: providerAmount,
           credentials,
           idempotencyKey,
         }),
@@ -498,6 +611,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             ...readGatewayMetadata(transaction.gatewayMetadata),
             captureResult: result.providerData,
           }
+          if (reservedUnits !== null) settleCapturedAmount(transaction, reservedUnits, result.capturedAmount)
         },
         afterCommit: (transaction, result) => writeTransactionLog(
           transaction.providerKey,
@@ -580,22 +694,39 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async getPaymentStatus(transactionId: string, scope: { organizationId: string; tenantId: string }): Promise<GatewayPaymentStatus> {
       const transaction = await findTransactionOrThrow(transactionId, scope)
-      const { adapter, credentials } = await resolveAdapterAndCredentials(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-      )
+      let status: GatewayPaymentStatus
+      try {
+        const { adapter, credentials } = await resolveAdapterAndCredentials(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        )
+        status = await adapter.getStatus({
+          sessionId: readProviderSessionId(transaction),
+          credentials,
+        })
+      } catch (error) {
+        try {
+          await stampLastPolledAt(transaction, new Date())
+        } catch (stampError) {
+          logger.warn('Failed to record last poll time after a failed status read', {
+            transactionId: transaction.id,
+            providerKey: transaction.providerKey,
+            err: stampError,
+          })
+        }
+        throw error
+      }
 
-      const status = await adapter.getStatus({
-        sessionId: readProviderSessionId(transaction),
-        credentials,
-      })
-
-      if (status.status !== transaction.unifiedStatus && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)) {
+      const polledAt = new Date()
+      const shouldApplyStatus = status.status !== transaction.unifiedStatus
+        && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)
+      if (shouldApplyStatus) {
         const previousStatus = transaction.unifiedStatus
         transaction.unifiedStatus = status.status
+        alignCapturedAmountWithStatus(transaction, status.status)
         transaction.gatewayStatus = status.status
         transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
-        transaction.lastPolledAt = new Date()
+        transaction.lastPolledAt = polledAt
         await em.flush()
         await emitStatusEvent(status.status, {
           transactionId: transaction.id,
@@ -616,6 +747,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             nextStatus: status.status,
           },
         )
+      } else {
+        await stampLastPolledAt(transaction, polledAt)
       }
 
       return status
@@ -639,6 +772,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       const previousStatus = transaction.unifiedStatus
       if (shouldApplyStatus) {
         transaction.unifiedStatus = update.unifiedStatus
+        alignCapturedAmountWithStatus(transaction, update.unifiedStatus)
       }
       if (update.providerStatus) {
         transaction.gatewayStatus = update.providerStatus
@@ -739,7 +873,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         GatewayTransaction,
         where,
         {
-          orderBy: { updatedAt: 'asc' },
+          orderBy: { lastPolledAt: QueryOrder.ASC_NULLS_FIRST, createdAt: QueryOrder.ASC },
           limit: scope?.limit ?? 100,
         },
         scope,

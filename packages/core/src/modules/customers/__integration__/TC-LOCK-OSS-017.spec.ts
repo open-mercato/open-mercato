@@ -28,7 +28,7 @@ import {
  *   - **Mark as Won / Mark as Lost** (`updateDealStatus`): the deal-card "Deal
  *     actions" menu (`DealCardMenu`, a `role="menu"` portal) → "Mark as Won" /
  *     "Mark as Lost" `role="menuitem"`. It PUTs `/api/customers/deals`
- *     `{ id, status: 'win' | 'loose' }` wrapped in
+ *     `{ id, status: 'win' | 'lost' }` wrapped in
  *     `withScopedApiRequestHeaders(buildOptimisticLockHeader(dealVersion), …)`,
  *     and routes a 409 through `surfaceRecordConflict(error, t)` →
  *     `data-testid="record-conflict-banner"`.

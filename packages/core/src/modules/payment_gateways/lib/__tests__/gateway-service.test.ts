@@ -20,17 +20,20 @@ const PROVIDER_KEY = 'mock-unit'
 
 const scope = { organizationId: 'org_1', tenantId: 'tenant_1' }
 
-function makeTransaction(status: UnifiedPaymentStatus): GatewayTransaction {
+function makeTransaction(status: UnifiedPaymentStatus, capturedAmount = '0.0000'): GatewayTransaction {
   return {
     id: 'txn_1',
     paymentId: 'pay_1',
     providerKey: PROVIDER_KEY,
     providerSessionId: 'sess_1',
     unifiedStatus: status,
+    amount: '100.0000',
+    capturedAmount,
     gatewayMetadata: {},
     gatewayRefundId: null,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
+    deletedAt: null,
   } as unknown as GatewayTransaction
 }
 
@@ -53,7 +56,7 @@ type PaymentOperationRecord = {
   [key: string]: unknown
 }
 
-function matchesWhere(record: PaymentOperationRecord, where: Record<string, unknown>): boolean {
+function matchesWhere(record: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, expected]) => {
     const actual = record[key]
     if (expected && typeof expected === 'object' && '$lt' in expected) {
@@ -84,10 +87,12 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
   const operationKey = (record: Pick<PaymentOperationRecord, 'operationId' | 'organizationId' | 'tenantId'>) => (
     `${record.operationId}|${record.organizationId}|${record.tenantId}`
   )
+  const transactionRecord = transaction as unknown as Record<string, unknown>
+  let operationSequence = 0
   const flush = jest.fn(async () => {})
   const em = {
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({
-      id: 'operation_1',
+      id: `operation_${++operationSequence}`,
       ...data,
     })),
     persist: jest.fn((record: PaymentOperationRecord) => ({
@@ -99,10 +104,13 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
         operations.set(key, record)
       },
     })),
-    nativeUpdate: jest.fn(async (_entity: unknown, where: Record<string, unknown>, update: Record<string, unknown>) => {
-      const operation = Array.from(operations.values()).find((candidate) => matchesWhere(candidate, where))
-      if (!operation || !matchesWhere(operation, where)) return 0
-      Object.assign(operation, update)
+    nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, update: Record<string, unknown>) => {
+      const candidates = (entity as { name?: string }).name === 'GatewayTransaction'
+        ? [transactionRecord]
+        : Array.from(operations.values())
+      const matched = candidates.find((candidate) => matchesWhere(candidate, where))
+      if (!matched) return 0
+      Object.assign(matched, update)
       return 1
     }),
     flush,
@@ -234,6 +242,19 @@ describe('payment gateway service — status-machine guard (#3271)', () => {
     expect(flush).toHaveBeenCalledTimes(1)
   })
 
+  it('rejects a capture above the authorized transaction amount before calling the adapter', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn, flush } = buildService(transaction, {
+      capture: { status: 'captured', capturedAmount: 125 },
+    })
+
+    await expect(service.capturePayment(transaction.id, 125, scope)).rejects.toMatchObject({ status: 409 })
+
+    expect(captureFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('authorized')
+    expect(flush).not.toHaveBeenCalled()
+  })
+
   it('treats a same-status capture as idempotent (double capture stays captured)', async () => {
     const transaction = makeTransaction('captured')
     const { service, captureFn } = buildService(transaction, {
@@ -345,6 +366,22 @@ describe('payment gateway service — status-machine guard (#3271)', () => {
     expect(refundFn).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects a capture once the transaction is already fully captured', async () => {
+    const transaction = makeTransaction('captured', '100.0000')
+    const { service, captureFn, flush } = buildService(transaction, {
+      capture: { status: 'captured', capturedAmount: 10 },
+    })
+
+    await expect(service.capturePayment(transaction.id, 10, scope)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_capture_ceiling_exceeded' },
+    })
+
+    expect(captureFn).not.toHaveBeenCalled()
+    expect(transaction.capturedAmount).toBe('100.0000')
+    expect(flush).not.toHaveBeenCalled()
+  })
+
   it('allows equal partial refunds when callers provide distinct operation ids', async () => {
     const transaction = makeTransaction('captured')
     const { service, refundFn } = buildService(transaction, {
@@ -360,5 +397,190 @@ describe('payment gateway service — status-machine guard (#3271)', () => {
     expect(firstKey).toEqual(expect.any(String))
     expect(secondKey).toEqual(expect.any(String))
     expect(secondKey).not.toBe(firstKey)
+  })
+})
+
+describe('payment gateway service — cumulative capture ceiling (#4487)', () => {
+  beforeAll(() => {
+    setGlobalEventBus({ emit: async () => {} })
+  })
+
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+  })
+
+  afterEach(() => {
+    clearGatewayAdapters()
+  })
+
+  it('allows sequential partial captures while their sum fits the authorized amount', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: 60 })
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: 30 })
+
+    await service.capturePayment(transaction.id, 60, scope, 'capture-a')
+    await service.capturePayment(transaction.id, 30, scope, 'capture-b')
+
+    expect(captureFn).toHaveBeenCalledTimes(2)
+    expect(transaction.capturedAmount).toBe('90.0000')
+  })
+
+  it('rejects a second partial capture that would push the running total past the authorization', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 60 })
+
+    await service.capturePayment(transaction.id, 60, scope, 'capture-a')
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-b')).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_capture_ceiling_exceeded' },
+    })
+
+    expect(captureFn).toHaveBeenCalledTimes(1)
+    expect(transaction.capturedAmount).toBe('60.0000')
+  })
+
+  it('replays a completed capture for a repeated operation id instead of capturing again', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 60 })
+
+    const first = await service.capturePayment(transaction.id, 60, scope, 'capture-replay')
+    const second = await service.capturePayment(transaction.id, 60, scope, 'capture-replay')
+
+    expect(second).toEqual(first)
+    expect(captureFn).toHaveBeenCalledTimes(1)
+    expect(transaction.capturedAmount).toBe('60.0000')
+  })
+
+  it('asks the provider only for the remaining amount when a later capture omits it', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: 60 })
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: 40 })
+
+    await service.capturePayment(transaction.id, 60, scope, 'capture-a')
+    await service.capturePayment(transaction.id, undefined, scope, 'capture-rest')
+
+    expect((captureFn.mock.calls[0]?.[0] as { amount?: number }).amount).toBe(60)
+    expect((captureFn.mock.calls[1]?.[0] as { amount?: number }).amount).toBe(40)
+    expect(transaction.capturedAmount).toBe('100.0000')
+  })
+
+  it('releases the reservation when the provider call fails so the amount stays capturable', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn
+      .mockRejectedValueOnce(new Error('provider timeout'))
+      .mockResolvedValueOnce({ status: 'captured', capturedAmount: 100 })
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-fails')).rejects.toThrow('provider timeout')
+    expect(transaction.capturedAmount).toBe('0.0000')
+
+    await service.capturePayment(transaction.id, 100, scope, 'capture-retry')
+    expect(transaction.capturedAmount).toBe('100.0000')
+  })
+
+  it('settles the ledger to what the provider actually captured', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValueOnce({ status: 'captured', capturedAmount: 50 })
+
+    await service.capturePayment(transaction.id, 60, scope, 'capture-short')
+
+    expect(transaction.capturedAmount).toBe('50.0000')
+
+    captureFn.mockResolvedValueOnce({ status: 'captured', capturedAmount: 50 })
+    await service.capturePayment(transaction.id, 50, scope, 'capture-rest')
+    expect(transaction.capturedAmount).toBe('100.0000')
+  })
+
+  it('keeps a settled capture settled when the post-completion event emission fails', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 60 })
+    setGlobalEventBus({ emit: async () => { throw new Error('event bus down') } })
+
+    try {
+      await expect(service.capturePayment(transaction.id, 60, scope, 'capture-event-fails'))
+        .rejects.toThrow('event bus down')
+    } finally {
+      setGlobalEventBus({ emit: async () => {} })
+    }
+
+    expect(transaction.capturedAmount).toBe('60.0000')
+
+    const replay = await service.capturePayment(transaction.id, 60, scope, 'capture-event-fails')
+    expect(replay).toMatchObject({ status: 'captured', capturedAmount: 60 })
+    expect(captureFn).toHaveBeenCalledTimes(1)
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-after-event-failure'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    expect(transaction.capturedAmount).toBe('60.0000')
+  })
+
+  it('keeps the reservation when the provider captured but the completion transaction failed', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn, flush } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 60 })
+    flush.mockRejectedValueOnce(new Error('database unavailable'))
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-completion-fails'))
+      .rejects.toThrow('database unavailable')
+
+    expect(transaction.capturedAmount).toBe('60.0000')
+
+    await expect(service.capturePayment(transaction.id, 60, scope, 'capture-after-completion-failure'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    expect(transaction.capturedAmount).toBe('60.0000')
+    expect(captureFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('records a webhook-confirmed full capture so a later manual capture cannot charge again', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+
+    await service.syncTransactionStatus(
+      transaction.id,
+      { unifiedStatus: 'captured', providerStatus: 'succeeded' },
+      scope,
+    )
+
+    expect(transaction.capturedAmount).toBe('100.0000')
+    await expect(service.capturePayment(transaction.id, 100, scope, 'capture-after-webhook'))
+      .rejects.toMatchObject({ status: 409, body: { code: 'payment_capture_ceiling_exceeded' } })
+    expect(captureFn).not.toHaveBeenCalled()
+  })
+
+  it('leaves the remainder capturable when a webhook only reports a partial capture', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 40 })
+
+    await service.syncTransactionStatus(
+      transaction.id,
+      { unifiedStatus: 'partially_captured', providerStatus: 'partially_succeeded' },
+      scope,
+    )
+
+    expect(transaction.capturedAmount).toBe('0.0000')
+    await service.capturePayment(transaction.id, 40, scope, 'capture-remainder')
+    expect(transaction.capturedAmount).toBe('40.0000')
+  })
+
+  it('keeps fractional captures exact instead of accumulating floating-point drift', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, captureFn } = buildService(transaction, {})
+    captureFn.mockResolvedValue({ status: 'captured', capturedAmount: 0.1 })
+
+    for (const operationId of ['a', 'b', 'c']) {
+      await service.capturePayment(transaction.id, 0.1, scope, `capture-${operationId}`)
+    }
+
+    expect(transaction.capturedAmount).toBe('0.3000')
   })
 })

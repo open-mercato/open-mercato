@@ -250,6 +250,8 @@
   "checkout.linkTemplateForm.notFound.template.description": "Ten szablon już nie istnieje. Mógł zostać usunięty w innej karcie lub przez innego użytkownika.",
   "checkout.linkTemplateForm.notFound.template.title": "Nie znaleziono szablonu",
   "checkout.linkTemplateForm.payment.fields.gatewayProvider": "Dostawca bramki",
+  "checkout.linkTemplateForm.payment.payerFields.description": "{provider} wymaga danych płatnika do utworzenia płatności. Włącz zbieranie danych klienta i oznacz te pola jako wymagane: {fields}.",
+  "checkout.linkTemplateForm.payment.payerFields.title": "Ten dostawca wymaga danych płatnika",
   "checkout.linkTemplateForm.payment.placeholders.provider": "Wybierz dostawcę…",
   "checkout.linkTemplateForm.payment.providerUnavailableSuffix": "(najpierw skonfiguruj w Integracjach)",
   "checkout.linkTemplateForm.priceList.actions.addItem": "Dodaj pozycję",
@@ -326,6 +328,7 @@
   "checkout.payPage.errors.loadMessage": "Nie udało się załadować tej strony płatności. Spróbuj ponownie.",
   "checkout.payPage.errors.loadTitle": "Nie udało się załadować linku płatności",
   "checkout.payPage.errors.password": "Nie udało się zweryfikować hasła. Spróbuj ponownie.",
+  "checkout.payPage.errors.sessionStart": "Nie udało się uruchomić sesji płatności. Spróbuj ponownie.",
   "checkout.payPage.errors.submit": "Nie udało się rozpocząć płatności. Spróbuj ponownie.",
   "checkout.payPage.fields.booleanFalse": "Nie",
   "checkout.payPage.fields.booleanTrue": "Tak",
@@ -379,6 +382,7 @@
   "checkout.payPage.validation.priceSelectionRequired": "Wybierz opcję płatności, aby kontynuować.",
   "checkout.payPage.validation.requiredField": "Uzupełnij pole {field}.",
   "checkout.payPage.validation.thisField": "to pole",
+  "checkout.search.subtitle.linkTemplate": "Szablon linku",
   "checkout.statusPage.backToPayment": "Wróć do strony płatności",
   "checkout.statusPage.cancel.cancelled": "Płatność anulowana",
   "checkout.statusPage.cancel.failed": "Płatność nieudana",
@@ -448,6 +452,7 @@
   "checkout.validation.fixedPriceCurrencyCode.required": "Waluta jest wymagana dla stałej ceny.",
   "checkout.validation.gatewayProviderKey.disabled": "Ten dostawca bramki jest wyłączony w Integracjach.",
   "checkout.validation.gatewayProviderKey.notConfigured": "Ten dostawca bramki nie jest skonfigurowany w Integracjach.",
+  "checkout.validation.gatewayProviderKey.payerFieldsNotCollected": "Ten dostawca bramki wymaga danych płatnika, których ten link nie zbiera. Włącz zbieranie danych klienta i oznacz jako wymagane pola wskazane w sekcji płatności.",
   "checkout.validation.gatewayProviderKey.required": "Dostawca bramki jest wymagany.",
   "checkout.validation.name.required": "Nazwa jest wymagana.",
   "checkout.validation.priceListItems.required": "Dodaj przynajmniej jedną pozycję cennika.",
@@ -457,5 +462,6 @@
   "checkout.widgets.gatewayTransactionLink.labels.link": "Link",
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "ID transakcji",
   "checkout.widgets.gatewayTransactionLink.title": "Transakcja checkout",
-  "checkout.widgets.paymentGatewayToolbarLink.action": "Utwórz link płatniczy"
+  "checkout.widgets.paymentGatewayToolbarLink.action": "Utwórz link płatniczy",
+  "notifications.categories.checkout": "Zamówienie"
 }
