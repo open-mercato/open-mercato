@@ -90,7 +90,8 @@ email stays hash-only. Presenters retain permitted display names but no contact
 email or phone, and source checksums use only the resulting safe source/presenter.
 
 The legacy `VectorIndexService` also applies the existing field-policy filter to
-snapshot/subtitle fallback fields. Regression tests call the real customer source
+snapshot, title, and subtitle fallback fields, including sources without a presenter.
+Regression tests call the real customer source
 builders through `SearchIndexer` → `SearchService` → `VectorSearchStrategy`, with a
 fake embedding provider and captured vector driver writes. Direct builder tests
 cover aliases, sparse records, policy precedence, and nested values. Legacy service

@@ -150,6 +150,30 @@ describe('VectorIndexService default source field protection (issue #2716)', () 
 })
 
 describe('Customer vector privacy at provider and storage boundaries (issue #7826)', () => {
+  it('keeps protected fields out of a generated presenter when a custom source omits its presenter', async () => {
+    const driver = createDriver()
+    const service = createService({
+      driver,
+      embeddingService: createEmbeddingService({ value: null }),
+      queryEngine: createQueryEngine({
+        id: 'fallback-record',
+        title: 'private-title',
+        description: 'private-description',
+        'cf:summary': 'private-summary',
+      }),
+      moduleConfigs: [{ entities: [{
+        entityId: 'demo:item',
+        fieldPolicy: { searchable: ['title', 'description', 'summary'], hashOnly: ['title'], excluded: ['description', 'summary'] },
+        buildSource: () => ({ input: 'Safe source', checksumSource: 'safe-checksum' }),
+      }] }],
+    })
+
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'fallback-record', tenantId: 'tenant-privacy' })
+    expect(driver.upsertCalls).toHaveLength(1)
+    expect(JSON.stringify(driver.upsertCalls[0])).not.toContain('private-')
+    expect(driver.upsertCalls[0].resultTitle).toBe('fallback-record')
+  })
+
   it.each([
     'customers:customer_person_profile',
     'customers:customer_company_profile',
