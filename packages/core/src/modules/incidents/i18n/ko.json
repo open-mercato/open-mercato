@@ -761,5 +761,6 @@
   "incidents.userSelect.searchPlaceholder": "사용자 검색",
   "incidents.widgets.accountIncidents.affectingCount": "이 계정에 영향을 미치는 인시던트 {count}개",
   "incidents.widgets.accountIncidents.title": "계정 인시던트",
-  "incidents.widgets.accountIncidents.viewIncident": "인시던트 {number} 보기"
+  "incidents.widgets.accountIncidents.viewIncident": "인시던트 {number} 보기",
+  "notifications.categories.incidents": "인시던트"
 }

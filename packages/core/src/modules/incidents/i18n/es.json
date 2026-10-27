@@ -761,5 +761,6 @@
   "incidents.userSelect.searchPlaceholder": "Buscar usuarios",
   "incidents.widgets.accountIncidents.affectingCount": "{count} incidentes afectan a esta cuenta",
   "incidents.widgets.accountIncidents.title": "Incidentes de la cuenta",
-  "incidents.widgets.accountIncidents.viewIncident": "Ver incidente {number}"
+  "incidents.widgets.accountIncidents.viewIncident": "Ver incidente {number}",
+  "notifications.categories.incidents": "Incidentes"
 }

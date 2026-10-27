@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react'
 import { DataTable, type DataTableProps } from '@open-mercato/ui'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,6 +12,7 @@ import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmpty
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { replaceWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { resolveCatalogLabel } from '../../../../lib/catalogLabels'
 
 type Props = { params: { orgSlug: string } }
@@ -170,7 +170,6 @@ function UpdatesFeed({
 
 export default function PortalIncidentsPage({ params }: Props) {
   const t = useT()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading: authLoading } = auth
   const [items, setItems] = React.useState<PortalIncident[]>([])
@@ -185,9 +184,9 @@ export default function PortalIncidentsPage({ params }: Props) {
 
   React.useEffect(() => {
     if (!authLoading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [authLoading, user, router, params.orgSlug])
+  }, [authLoading, user, params.orgSlug])
 
   const loadIncidents = React.useCallback(async () => {
     if (!user) return

@@ -57,6 +57,27 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
   RecordNotFoundState: ({ label }: { label: string }) => <div data-testid="record-not-found">{label}</div>,
   ErrorMessage: ({ label }: { label: string }) => <div data-testid="error-message">{label}</div>,
   DetailFieldsSection: () => null,
+  DetailTabsLayout: ({
+    tabs,
+    onTabChange,
+    sectionAction,
+    children,
+  }: {
+    tabs: Array<{ id: string; label: string }>
+    onTabChange: (id: string) => void
+    sectionAction: { label: string } | null
+    children: React.ReactNode
+  }) => (
+    <div>
+      {tabs.map((tab) => (
+        <button key={tab.id} type="button" data-testid={`tab-${tab.id}`} onClick={() => onTabChange(tab.id)}>
+          {tab.label}
+        </button>
+      ))}
+      {sectionAction ? <button type="button" data-testid="section-action">{sectionAction.label}</button> : null}
+      {children}
+    </div>
+  ),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
@@ -94,29 +115,7 @@ jest.mock('../../../../../components/detail/TasksSection', () => {
 })
 jest.mock('../../../../../components/detail/PersonHighlights', () => ({ PersonHighlights: () => null }))
 jest.mock('../../../../../components/detail/CustomDataSection', () => ({ CustomDataSection: () => null }))
-jest.mock('../../../../../components/detail/DetailTabsLayout', () => ({
-  DetailTabsLayout: ({
-    tabs,
-    onTabChange,
-    sectionAction,
-    children,
-  }: {
-    tabs: Array<{ id: string; label: string }>
-    onTabChange: (id: string) => void
-    sectionAction: { label: string } | null
-    children: React.ReactNode
-  }) => (
-    <div>
-      {tabs.map((tab) => (
-        <button key={tab.id} type="button" data-testid={`tab-${tab.id}`} onClick={() => onTabChange(tab.id)}>
-          {tab.label}
-        </button>
-      ))}
-      {sectionAction ? <button type="button" data-testid="section-action">{sectionAction.label}</button> : null}
-      {children}
-    </div>
-  ),
-}))
+
 jest.mock('../../../../../components/detail/InlineEditors', () => ({
   renderLinkedInDisplay: () => null,
   renderTwitterDisplay: () => null,

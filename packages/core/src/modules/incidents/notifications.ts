@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'incidents.escalated',
     module: 'incidents',
+    channels: ['in_app', 'email', 'push'],
     titleKey: 'incidents.notifications.escalated.title',
     bodyKey: 'incidents.notifications.escalated.body',
     icon: 'alert-circle',
@@ -23,6 +24,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'incidents.escalation_exhausted',
     module: 'incidents',
+    channels: ['in_app', 'email', 'push'],
     titleKey: 'incidents.notifications.escalation_exhausted.title',
     bodyKey: 'incidents.notifications.escalation_exhausted.body',
     icon: 'alert-triangle',
@@ -34,6 +36,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'incidents.assigned',
     module: 'incidents',
+    channels: ['in_app', 'email', 'push'],
     titleKey: 'incidents.notifications.assigned.title',
     bodyKey: 'incidents.notifications.assigned.body',
     icon: 'user-check',
@@ -45,6 +48,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'incidents.account_manager_alert',
     module: 'incidents',
+    channels: ['in_app', 'email', 'push'],
     titleKey: 'incidents.notifications.account_manager_alert.title',
     bodyKey: 'incidents.notifications.account_manager_alert.body',
     icon: 'alert-triangle',
@@ -56,6 +60,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'incidents.update_overdue',
     module: 'incidents',
+    channels: ['in_app', 'email', 'push'],
     titleKey: 'incidents.notifications.update_overdue.title',
     bodyKey: 'incidents.notifications.update_overdue.body',
     icon: 'clock',
