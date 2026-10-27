@@ -8,7 +8,7 @@
  * PURE — no React, so it can be imported by server code and unit-tested directly.
  */
 import type { StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
-import type { HealthState } from '../../lib/systemHealth'
+import type { HealthIndicatorId, HealthState } from '../../lib/systemHealth'
 
 export const HEALTH_STATE_VARIANT: Record<HealthState, StatusBadgeVariant> = {
   ok: 'success',
@@ -16,6 +16,14 @@ export const HEALTH_STATE_VARIANT: Record<HealthState, StatusBadgeVariant> = {
   down: 'error',
   unknown: 'neutral',
   error: 'error',
+}
+
+export const HEALTH_INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
+  webSearch: 'agent_orchestrator.overview.health.webSearch',
+  mcp: 'agent_orchestrator.overview.health.mcp',
+  opencode: 'agent_orchestrator.overview.health.opencode',
+  opencodeMcp: 'agent_orchestrator.overview.health.opencodeMcp',
+  otelExport: 'agent_orchestrator.health.otelExport.label',
 }
 
 export const HEALTH_STATE_LABEL_KEY: Record<HealthState, string> = {

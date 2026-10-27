@@ -200,6 +200,11 @@ export type GoldenCaseView = {
   expected: unknown
 }
 
+export type RunOtelLinkView = {
+  traceId: string
+  url: string
+}
+
 export type RunDetailView = {
   run: RunView
   spans: SpanView[]
@@ -211,6 +216,8 @@ export type RunDetailView = {
   proposals: ProposalView[]
   /** The approved golden case this run's input matched (online golden-match plane), or null. */
   goldenCase: GoldenCaseView | null
+  /** The exported OTel trace and its tracing-backend link; null when export or the link is not configured. */
+  otel: RunOtelLinkView | null
 }
 
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
@@ -610,7 +617,26 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
     const goldenId = asString((goldenCaseRaw as Record<string, unknown>).id)
     if (goldenId) goldenCase = { id: goldenId, expected: (goldenCaseRaw as Record<string, unknown>).expected ?? null }
   }
-  return { run, spans, toolCalls, evalResults, contextBundle, guardrailChecks, proposals, goldenCase }
+  return {
+    run,
+    spans,
+    toolCalls,
+    evalResults,
+    contextBundle,
+    guardrailChecks,
+    proposals,
+    goldenCase,
+    otel: mapRunOtelLink(payload.otel),
+  }
+}
+
+export function mapRunOtelLink(value: unknown): RunOtelLinkView | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const traceId = asString(record.traceId)
+  const url = asString(record.url)
+  if (!traceId || !url || !/^https?:\/\//i.test(url)) return null
+  return { traceId, url }
 }
 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {

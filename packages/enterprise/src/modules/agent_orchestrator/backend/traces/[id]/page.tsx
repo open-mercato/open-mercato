@@ -42,6 +42,7 @@ import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, C
 import { EmptyArt } from '../../../components/EmptyArt'
 import { RunManifestCard } from '../../../components/RunManifestCard'
 import { LlmStepMetadataCard } from '../../../components/trace/LlmStepMetadataCard'
+import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -1027,6 +1028,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </PopoverContent>
                         </Popover>
                       ) : null}
+                      {detail.otel ? <OtelTraceLink link={detail.otel} /> : null}
                       {run.workflowInstanceId ? (
                         <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.openProcessTooltip', 'Open the workflow run that started this agent')}>
                           <Button

@@ -143,7 +143,7 @@ export type RunExportBundle = {
 
 export type RunExportBundleSource = EntityManager | { resolve: (name: string) => unknown }
 
-type RunExportScope = { tenantId: string; organizationId: string }
+export type RunExportScope = { tenantId: string; organizationId: string }
 
 const runIdSchema = z.string().uuid()
 
@@ -217,7 +217,7 @@ function toExportSpan(row: SpanRow): RunExportSpan {
   }
 }
 
-async function resolveRootRunId(
+export async function resolveRootRunId(
   em: EntityManager,
   scope: RunExportScope,
   run: Pick<AgentRun, 'id' | 'parentRunId'>,
