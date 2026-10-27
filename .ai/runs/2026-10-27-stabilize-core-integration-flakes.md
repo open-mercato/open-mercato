@@ -49,5 +49,5 @@ Make the catalog bulk-create integration scenario deterministic under the epheme
 
 ### Phase 2: Verification and delivery
 
-- [ ] 2.1 Verify focused integration behavior and the configured validation gate
+- [x] 2.1 Verify focused integration behavior and the configured validation gate — pending progress commit
 - [ ] 2.2 Open, review, and finalize the test-stability PR
