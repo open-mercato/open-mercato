@@ -676,7 +676,7 @@ with the current behaviour registered as the built-in default (no behaviour chan
   and `capacityProviderId`. A provider, override or route failure falls back to the flat
   target and is reported through `reportError` (`staff.capacity_*`,
   `staff.my_work_capacity_failed`, and `staff.timesheet_capacity_load_failed` when the
-  timesheet page cannot reach the capacity route). Integration coverage: `TC-STAFF-030` (route access,
+  timesheet page cannot reach the capacity route). Integration coverage: `TC-STAFF-048` (route access,
   period validation, My Work week target, the footer caption with no provider registered).
 
 #### EP-41 · `registry` · Report approval / lock policy provider
