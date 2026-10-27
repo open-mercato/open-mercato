@@ -30,7 +30,7 @@
 | 3 | 3.3 | Cover step metadata and capture settings with integration tests | dispatch | done | 1092be826 |
 | 4 | 4.1 | Add deterministic OTel ids and the OTLP JSON encoder | dispatch | done | pending |
 | 4 | 4.2 | Add string redaction for exported attributes | dispatch:cheap | done | pending |
-| 4 | 4.3 | Load a run export bundle with tenant scoping | dispatch | todo | — |
+| 4 | 4.3 | Load a run export bundle with tenant scoping | dispatch | done | pending |
 | 4 | 4.4 | Map an agent run to OTLP resource spans | dispatch:capable | todo | — |
 | 4 | 4.5 | Add OTel export settings resolution and the OTLP HTTP client | dispatch | todo | — |
 | 4 | 4.6 | Add the export queue, subscribers and worker with retry | dispatch:capable | todo | — |

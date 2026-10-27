@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from 'react'
-import { z } from 'zod'
 import { Copy } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
@@ -9,51 +8,15 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { SpanView } from './types'
+import { findRunManifestView, type RunManifestView } from '../lib/trace/runManifestView'
 
-const MANIFEST_SPAN_NAME = 'run.manifest'
-const MANIFEST_SPAN_KIND = 'system'
 const HASH_PREFIX = 'sha256:'
 const HASH_VISIBLE_CHARS = 12
 
-const optionalString = z.string().min(1).optional().catch(undefined)
-const nullableId = z.string().nullable().optional().catch(undefined)
-
-const runManifestSchema = z.object({
-  'om.manifest.version': z.number().optional().catch(undefined),
-  'om.runtime': optionalString,
-  'om.agent.id': optionalString,
-  'om.agent.definition_hash': optionalString,
-  'om.agent.source': optionalString,
-  'om.prompt.override': z.object({ id: z.string(), version: z.number() }).optional().catch(undefined),
-  'om.prompt.system.sha256': optionalString,
-  'om.tools.sha256': optionalString,
-  'om.tools.names': z.array(z.string()).optional().catch(undefined),
-  'om.model.declared': optionalString,
-  'om.model.resolved': optionalString,
-  'om.provider': optionalString,
-  'om.knowledge': z.record(z.string(), z.string()).optional().catch(undefined),
-  'om.invoker': z
-    .object({ kind: z.string(), userId: nullableId, apiKeyId: nullableId, ownerUserId: nullableId })
-    .optional()
-    .catch(undefined),
-  'om.entry_point': optionalString,
-  'om.channel': optionalString,
-  'om.correlation_id': nullableId,
-  'om.principal': z
-    .object({ agentPrincipalId: nullableId, agentUserId: nullableId, onBehalfOfUserId: nullableId })
-    .optional()
-    .catch(undefined),
-  'om.capture': z.object({ level: z.string() }).passthrough().optional().catch(undefined),
-  'om.manifest.truncated': z.boolean().optional().catch(undefined),
-})
-
-export type RunManifestView = z.infer<typeof runManifestSchema>
+export type { RunManifestView }
 
 export function findRunManifest(spans: readonly SpanView[]): RunManifestView | null {
-  const span = spans.find((candidate) => candidate.name === MANIFEST_SPAN_NAME && candidate.kind === MANIFEST_SPAN_KIND)
-  if (!span || span.attributes == null || typeof span.attributes !== 'object') return null
-  const parsed = runManifestSchema.safeParse(span.attributes)
-  return parsed.success ? parsed.data : null
+  return findRunManifestView(spans)
 }
 
 export function shortenHash(value: string): string {
