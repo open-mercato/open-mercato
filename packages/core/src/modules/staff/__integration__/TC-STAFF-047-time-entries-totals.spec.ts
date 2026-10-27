@@ -5,7 +5,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import { createTestCustomer, type TestCustomerFixture } from './fixtures'
 
 /**
- * TC-STAFF-028: the time-entries list totals cover the whole filtered set (#6990).
+ * TC-STAFF-047: the time-entries list totals cover the whole filtered set (#6990).
  *
  * `?includeTotals=true` must sum every row the filters match — not the page —
  * and agree with the per-row `cost` the list returns. The entries page shows
@@ -59,7 +59,7 @@ async function readList(request: APIRequestContext, token: string, query: string
   return ((await readJsonSafe<ListBody>(response)) ?? {}) as ListBody
 }
 
-test.describe('TC-STAFF-028: time-entries totals for the whole filtered set', () => {
+test.describe('TC-STAFF-047: time-entries totals for the whole filtered set', () => {
   test('totals cover every matching row and the page shows them once, inside the table', async ({ page, request }) => {
     test.setTimeout(180_000)
 
