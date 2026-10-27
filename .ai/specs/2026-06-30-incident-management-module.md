@@ -650,6 +650,9 @@ Unit coverage: i18n locale-coverage guard; catalog-label resolver fallback; disp
 
 ## Changelog
 
+### 2026-10-27 — CI compatibility and locale completion
+Use the DataTable-compatible legacy column types, forward capped-count metadata from list responses to backend and portal pagination, and provide the complete Korean locale with coverage checks. Existing API routes and response shapes remain unchanged.
+
 ### 2026-07-03 — Follow-up implementation: service component catalog and dependency context
 Closed the service/catalog gap from the vendor-signal analysis. Added incident-owned `incident_service_component` and `incident_service_dependency` entities with settings-managed CRUD APIs, optional source soft links (`source_type`/`source_id`), SLO/criticality metadata, and first-hop dependency expansion through `GET /api/incidents/[id]/service-context`. `incident_impact.target_type` now accepts `service_component`, validates the target in-scope, and stores a non-PII component snapshot; the war-room impact dialog exposes service components through the existing `RecordSelect` pattern while preserving legacy freeform `component` labels. No resources/catalog ORM relation or direct peer import was introduced. Validation: `yarn generate`, `yarn db:generate`, `yarn workspace @open-mercato/core test packages/core/src/modules/incidents/__tests__ --runInBand`, `yarn typecheck`, `yarn build:packages`, `yarn build:app`.
 

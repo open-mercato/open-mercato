@@ -10,7 +10,7 @@ type LocaleCoverageAllowlist = {
 }
 
 const i18nDir = join(__dirname, '..', 'i18n')
-const checkedLocales = ['pl', 'de', 'es'] as const
+const checkedLocales = ['pl', 'de', 'es', 'ko'] as const
 
 function readJson<T>(fileName: string): T {
   return JSON.parse(readFileSync(join(i18nDir, fileName), 'utf8')) as T
