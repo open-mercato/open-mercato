@@ -14,6 +14,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (emInstance: any, entity: unknown, filters: unknown) =>
     emInstance.findOne(entity, filters),
+  findWithDecryption: (emInstance: any, entity: unknown, filters: unknown) =>
+    emInstance.find(entity, filters),
 }))
 
 const TENANT = 'tenant-1'
@@ -109,6 +111,16 @@ function lotSnapshot() {
     metadata: null,
     createdAt: '2026-04-15T00:00:00.000Z',
     updatedAt: '2026-04-16T00:00:00.000Z',
+  }
+}
+
+function transactionalEmStub() {
+  return {
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
+    find: jest.fn(async () => []),
+    nativeUpdate: jest.fn(async () => 0),
   }
 }
 
@@ -236,6 +248,7 @@ describe('WMS configuration commands — undoable contract', () => {
               fork: () => ({
                 findOne: jest.fn(async (_entity: unknown, filters: any) => (filters?.id === record.id ? record : null)),
                 flush: jest.fn(async () => { flushed.push('flush') }),
+                ...transactionalEmStub(),
               }),
             }
           }
@@ -251,7 +264,7 @@ describe('WMS configuration commands — undoable contract', () => {
       undoToken: 'token-1',
     } as any)
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(flushed).toHaveLength(1)
+    expect(flushed).toHaveLength(2)
   })
 
   it('undo of delete restores soft-deleted record from snapshot (warehouse)', async () => {
@@ -339,6 +352,7 @@ describe('WMS configuration commands — undoable contract', () => {
                 flush: jest.fn(async () => { flushed.push('flush') }),
                 create: jest.fn(),
                 persist: jest.fn(),
+                ...transactionalEmStub(),
               }),
             }
           }
@@ -368,7 +382,7 @@ describe('WMS configuration commands — undoable contract', () => {
     expect(record.addressLine1).toBe(before.addressLine1)
     expect(record.city).toBe(before.city)
     expect(record.country).toBe(before.country)
-    expect(flushed).toHaveLength(2)
+    expect(flushed).toHaveLength(4)
   })
 
   it('undo of primary swap restores demoted sibling primary flag', async () => {
@@ -378,7 +392,9 @@ describe('WMS configuration commands — undoable contract', () => {
       id: 'wh-primary',
       tenantId: TENANT,
       organizationId: ORG,
+      isActive: true,
       isPrimary: false,
+      deletedAt: null,
     }
     const updatedSecondary: any = {
       ...before,
@@ -401,6 +417,7 @@ describe('WMS configuration commands — undoable contract', () => {
                 flush: jest.fn(async () => { flushed.push('flush') }),
                 create: jest.fn(),
                 persist: jest.fn(),
+                ...transactionalEmStub(),
               }),
             }
           }
@@ -428,7 +445,7 @@ describe('WMS configuration commands — undoable contract', () => {
     expect(updatedSecondary.isPrimary).toBe(false)
     expect(updatedSecondary.name).toBe(before.name)
     expect(demotedPrimary.isPrimary).toBe(true)
-    expect(flushed).toHaveLength(2)
+    expect(flushed).toHaveLength(4)
   })
 
   it('undo is a no-op when payload has neither before nor after', async () => {

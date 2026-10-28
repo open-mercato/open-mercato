@@ -483,4 +483,213 @@ describe('WMS warehouse primary enforcement', () => {
       }),
     })
   })
+
+  describe('undo', () => {
+    const THIRD_ID = '66666666-6666-4666-8666-666666666666'
+
+    function warehouseRecord(id: string, overrides: Partial<WarehouseRecord> = {}): WarehouseRecord {
+      return {
+        id,
+        organizationId: ORG,
+        tenantId: TENANT,
+        name: `DC ${id.slice(0, 4)}`,
+        code: `DC-${id.slice(0, 4)}`,
+        isActive: true,
+        isPrimary: false,
+        deletedAt: null,
+        addressLine1: null,
+        city: null,
+        postalCode: null,
+        country: null,
+        timezone: null,
+        metadata: null,
+        createdAt: new Date('2026-04-15T00:00:00.000Z'),
+        updatedAt: new Date('2026-04-15T00:00:00.000Z'),
+        ...overrides,
+      }
+    }
+
+    function snapshotOf(record: WarehouseRecord) {
+      return {
+        ...record,
+        createdAt: record.createdAt.toISOString(),
+        updatedAt: record.updatedAt.toISOString(),
+      }
+    }
+
+    async function runUndo(
+      commandId: string,
+      store: ReturnType<typeof createWarehouseStore>,
+      undoPayload: Record<string, unknown>,
+    ) {
+      const handler = commandRegistry.get(commandId)!
+      await handler.undo!({
+        input: {},
+        logEntry: { commandPayload: { undo: undoPayload } },
+        ctx: createCtx(store.em),
+        undoToken: 'undo-token',
+      } as never)
+    }
+
+    function primaryIds(store: ReturnType<typeof createWarehouseStore>): string[] {
+      return [...store.records.values()].filter((record) => record.isPrimary && !record.deletedAt).map((record) => record.id)
+    }
+
+    it('undo of an update restores the primary flag by demoting the warehouse that is primary now', async () => {
+      const before = warehouseRecord(PRIMARY_ID, { isPrimary: true })
+      const store = createWarehouseStore([
+        { ...before, isActive: false, isPrimary: false },
+        warehouseRecord(SECONDARY_ID, { isPrimary: true }),
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, isActive: false, isPrimary: false }),
+      })
+
+      expect(store.records.get(PRIMARY_ID)?.isActive).toBe(true)
+      expect(primaryIds(store)).toEqual([PRIMARY_ID])
+    })
+
+    it('undo of an update translates a residual primary-conflict race into a 409 instead of a raw 500', async () => {
+      const before = warehouseRecord(PRIMARY_ID, { isPrimary: true })
+      const store = createWarehouseStore([
+        { ...before, isActive: false, isPrimary: false },
+        warehouseRecord(SECONDARY_ID, { isPrimary: true }),
+      ])
+      store.em.nativeUpdate.mockImplementation(async () => undefined)
+
+      await expect(
+        runUndo('wms.warehouses.update', store, {
+          before: snapshotOf(before),
+          after: snapshotOf({ ...before, isActive: false, isPrimary: false }),
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        body: expect.objectContaining({
+          fieldErrors: { isPrimary: expect.stringMatching(/retry/i) },
+        }),
+      })
+    })
+
+    it('undo of an update recreates a missing primary warehouse after demoting the warehouse that is primary now', async () => {
+      const before = warehouseRecord(PRIMARY_ID, { isPrimary: true })
+      const store = createWarehouseStore([warehouseRecord(SECONDARY_ID, { isPrimary: true })])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, isActive: false, isPrimary: false }),
+      })
+
+      expect(store.em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: PRIMARY_ID, isPrimary: false }))
+      expect(primaryIds(store)).toEqual([PRIMARY_ID])
+    })
+
+    it('undo of an update keeps a warehouse that is still primary as the only primary', async () => {
+      const before = warehouseRecord(PRIMARY_ID, { isPrimary: true, name: 'Before name' })
+      const store = createWarehouseStore([
+        { ...before, name: 'After name' },
+        warehouseRecord(SECONDARY_ID),
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, name: 'After name' }),
+      })
+
+      expect(store.records.get(PRIMARY_ID)?.name).toBe('Before name')
+      expect(primaryIds(store)).toEqual([PRIMARY_ID])
+    })
+
+    it('undo of a primary create translates a residual primary-conflict race into a 409 and rolls back', async () => {
+      const created = warehouseRecord(SECONDARY_ID)
+      const store = createWarehouseStore([warehouseRecord(PRIMARY_ID), created])
+      const realFind = store.em.find.getMockImplementation()!
+      store.em.find.mockImplementation(async (entity: unknown, filters: Record<string, unknown>) => {
+        const rows = await realFind(entity, filters)
+        if (!store.records.has(THIRD_ID)) store.records.set(THIRD_ID, warehouseRecord(THIRD_ID, { isPrimary: true }))
+        return rows
+      })
+
+      await expect(
+        runUndo('wms.warehouses.create', store, {
+          after: snapshotOf({ ...created, isPrimary: true }),
+          demotedPrimariesBefore: [{ id: PRIMARY_ID, isPrimary: true }],
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        body: expect.objectContaining({
+          fieldErrors: { isPrimary: expect.stringMatching(/retry/i) },
+        }),
+      })
+      expect(store.em.rollback).toHaveBeenCalled()
+      expect(store.em.commit).not.toHaveBeenCalled()
+    })
+
+    it('undo of a primary swap restores the demoted sibling while the undone warehouse still holds the flag', async () => {
+      const before = warehouseRecord(SECONDARY_ID)
+      const store = createWarehouseStore([
+        warehouseRecord(PRIMARY_ID),
+        { ...before, isPrimary: true },
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, isPrimary: true }),
+        demotedPrimariesBefore: [{ id: PRIMARY_ID, isPrimary: true }],
+      })
+
+      expect(primaryIds(store)).toEqual([PRIMARY_ID])
+    })
+
+    it('undo of a primary swap keeps the newer primary when another warehouse took the flag since', async () => {
+      const before = warehouseRecord(SECONDARY_ID)
+      const store = createWarehouseStore([
+        warehouseRecord(PRIMARY_ID),
+        before,
+        warehouseRecord(THIRD_ID, { isPrimary: true }),
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, isPrimary: true }),
+        demotedPrimariesBefore: [{ id: PRIMARY_ID, isPrimary: true }],
+      })
+
+      expect(primaryIds(store)).toEqual([THIRD_ID])
+    })
+
+    it('undo of a primary swap does not make an inactive sibling primary', async () => {
+      const before = warehouseRecord(SECONDARY_ID)
+      const store = createWarehouseStore([
+        warehouseRecord(PRIMARY_ID, { isActive: false }),
+        { ...before, isPrimary: true },
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, isPrimary: true }),
+        demotedPrimariesBefore: [{ id: PRIMARY_ID, isPrimary: true }],
+      })
+
+      expect(primaryIds(store)).toEqual([])
+    })
+
+    it('undo of a primary create keeps the newer primary when another warehouse took the flag since', async () => {
+      const created = warehouseRecord(SECONDARY_ID)
+      const store = createWarehouseStore([
+        warehouseRecord(PRIMARY_ID),
+        created,
+        warehouseRecord(THIRD_ID, { isPrimary: true }),
+      ])
+
+      await runUndo('wms.warehouses.create', store, {
+        after: snapshotOf({ ...created, isPrimary: true }),
+        demotedPrimariesBefore: [{ id: PRIMARY_ID, isPrimary: true }],
+      })
+
+      expect(store.records.get(SECONDARY_ID)?.deletedAt).toBeInstanceOf(Date)
+      expect(primaryIds(store)).toEqual([THIRD_ID])
+    })
+  })
 })
