@@ -1026,7 +1026,9 @@ const updateWarehouseCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const primaryFlagUnchanged = !!record && payload.after?.isPrimary === before.isPrimary
-    const restoredPrimary = primaryFlagUnchanged ? record.isPrimary && before.isActive : before.isPrimary
+    const restoredPrimary = primaryFlagUnchanged
+      ? record.isPrimary && !record.deletedAt && before.isActive
+      : before.isPrimary
     const target = record ?? em.create(Warehouse, {
       id: before.id,
       organizationId: before.organizationId,
