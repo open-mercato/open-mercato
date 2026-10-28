@@ -1162,6 +1162,7 @@
   "wms.errors.invalidPutawayState": "This putaway task cannot be updated in its current state.",
   "wms.errors.invalidQcTransition": "The QC status transition is not allowed for this receiving line.",
   "wms.errors.invalidReceiptState": "This ASN cannot be received or completed in its current state.",
+  "wms.errors.salesOrder.reRunReservationCancelled": "A cancelled order cannot hold a stock reservation.",
   "wms.errors.trackingRequired": "Lot or serial tracking data is required for this product.",
   "wms.errors.unauthorized": "Unauthorized",
   "wms.nav.group": "WMS",

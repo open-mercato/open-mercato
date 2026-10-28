@@ -648,6 +648,7 @@
   "catalog.products.errors.notFound": "Catalog product not found.",
   "catalog.products.errors.skuExists": "SKU already in use.",
   "catalog.products.errors.taxClassNotFound": "Tax class not found.",
+  "catalog.products.errors.undoVariantSkuInUse": "This product cannot be restored because SKU {sku} is already used by another variant. Change or remove that variant's SKU, then undo again.",
   "catalog.products.filters.active": "Active",
   "catalog.products.filters.categories": "Categories",
   "catalog.products.filters.categoriesLoadError": "Failed to load categories",

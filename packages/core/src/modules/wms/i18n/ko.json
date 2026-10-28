@@ -1162,6 +1162,7 @@
   "wms.errors.invalidPutawayState": "현재 상태에서는 이 적치 작업을 업데이트할 수 없습니다.",
   "wms.errors.invalidQcTransition": "이 입고 라인에는 해당 QC 상태 전환이 허용되지 않습니다.",
   "wms.errors.invalidReceiptState": "현재 상태에서는 이 ASN을 입고하거나 완료할 수 없습니다.",
+  "wms.errors.salesOrder.reRunReservationCancelled": "취소된 주문에는 재고 예약을 둘 수 없습니다.",
   "wms.errors.trackingRequired": "이 제품에는 로트 또는 시리얼 추적 데이터가 필요합니다.",
   "wms.errors.unauthorized": "승인되지 않은",
   "wms.nav.group": "WMS",

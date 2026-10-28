@@ -1162,6 +1162,7 @@
   "wms.errors.invalidPutawayState": "Diese Einlagerungsaufgabe kann in ihrem aktuellen Status nicht aktualisiert werden.",
   "wms.errors.invalidQcTransition": "Der QC-Statusübergang ist für diese Empfangsposition nicht erlaubt.",
   "wms.errors.invalidReceiptState": "Diese ASN kann im aktuellen Status nicht empfangen oder abgeschlossen werden.",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Eine stornierte Bestellung kann keine Bestandsreservierung haben.",
   "wms.errors.trackingRequired": "Für dieses Produkt sind Chargen- oder Seriennummern erforderlich.",
   "wms.errors.unauthorized": "Nicht autorisiert",
   "wms.nav.group": "WMS",

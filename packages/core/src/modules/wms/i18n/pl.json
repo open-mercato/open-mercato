@@ -1162,6 +1162,7 @@
   "wms.errors.invalidPutawayState": "Tego zadania odkładania nie można zaktualizować w bieżącym stanie.",
   "wms.errors.invalidQcTransition": "Ta zmiana statusu QC nie jest dozwolona dla tej linii przyjęcia.",
   "wms.errors.invalidReceiptState": "Tego ASN nie można przyjąć ani zamknąć w obecnym stanie.",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Anulowane zamówienie nie może mieć rezerwacji zapasu.",
   "wms.errors.trackingRequired": "Dla tego produktu wymagane są dane partii lub numeru seryjnego.",
   "wms.errors.unauthorized": "Brak autoryzacji",
   "wms.nav.group": "WMS",

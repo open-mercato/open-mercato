@@ -18,7 +18,13 @@ const DEFAULT_FEATURES = ['search.view', 'customers.deals.view', 'catalog.produc
 
 function makeCtx(
   queryResult: { items: unknown[]; total: number },
-  overrides: { userFeatures?: string[]; isSuperAdmin?: boolean } = {},
+  overrides: {
+    userFeatures?: string[]
+    isSuperAdmin?: boolean
+    userId?: string | null
+    organizationId?: string | null
+    orgScope?: { em: unknown; rbacService: unknown }
+  } = {},
 ) {
   const mockQuery = jest.fn().mockResolvedValue(queryResult)
   const searchIndexer = {
@@ -28,15 +34,50 @@ function makeCtx(
   }
   const ctx = {
     tenantId: 'tenant-1',
-    organizationId: 'org-1',
-    userId: null,
+    organizationId: overrides.organizationId !== undefined ? overrides.organizationId : 'org-1',
+    userId: overrides.userId !== undefined ? overrides.userId : 'user-1',
     userFeatures: overrides.userFeatures ?? DEFAULT_FEATURES,
     isSuperAdmin: overrides.isSuperAdmin ?? false,
     container: {
-      resolve: (name: string) => (name === 'searchIndexer' ? searchIndexer : { query: mockQuery }),
+      resolve: (name: string) => {
+        if (name === 'searchIndexer') return searchIndexer
+        if (name === 'em') {
+          if (overrides.orgScope) return overrides.orgScope.em
+          throw new Error('em not mocked')
+        }
+        if (name === 'rbacService') {
+          if (overrides.orgScope) return overrides.orgScope.rbacService
+          throw new Error('rbacService not mocked')
+        }
+        return { query: mockQuery }
+      },
     },
   }
   return { ctx, mockQuery }
+}
+
+/**
+ * Builds a real `em`/`rbacService` pair so `resolveActorOrganizationScope`
+ * (issue #7808) runs the full `resolveOrganizationScopeForRequest` resolution
+ * instead of its no-DI fallback — needed to assert the organization
+ * allowlist is actually enforced (not just the caller's single current org).
+ */
+function makeOrgScopeResolver(options: { aclOrganizations: string[] | null; isSuperAdmin?: boolean; knownOrgIds?: string[] }) {
+  const em = {
+    find: jest.fn(async (_entity: unknown, filter: { id?: { $in: string[] } }) => {
+      const ids = filter?.id?.$in ?? []
+      const known = new Set(options.knownOrgIds ?? ['org-1', 'org-2', 'org-3'])
+      return ids.filter((id) => known.has(id)).map((id) => ({ id, descendantIds: [] }))
+    }),
+  }
+  const rbacService = {
+    loadAcl: jest.fn(async () => ({
+      isSuperAdmin: options.isSuperAdmin ?? false,
+      features: [],
+      organizations: options.aclOrganizations,
+    })),
+  }
+  return { em, rbacService }
 }
 
 describe('search_aggregate tool', () => {
@@ -196,5 +237,54 @@ describe('search_aggregate tool', () => {
     await expect(
       aggregateTool.handler({ entityType: 'secret:unconfigured', groupBy: 'status', limit: 20 }, ctx),
     ).rejects.toThrow(/not configured for search/)
+  })
+
+  describe('org-allowlist enforcement (issue #7808)', () => {
+    it('scopes a restricted user with no current org to their organization allowlist', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: ['org-2', 'org-3'] })
+      const { ctx, mockQuery } = makeCtx(
+        { items: [{ status: 'open' }], total: 1 },
+        { organizationId: null, orgScope },
+      )
+
+      await aggregateTool.handler({ entityType: 'customers:customer_deal', groupBy: 'status', limit: 20 }, ctx)
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        'customers:customer_deal',
+        expect.objectContaining({ organizationIds: ['org-2', 'org-3'] }),
+      )
+    })
+
+    it('denies a restricted user whose allowlist is explicitly empty, without querying', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: [] })
+      const { ctx, mockQuery } = makeCtx(
+        { items: [{ status: 'open' }], total: 1 },
+        { organizationId: null, orgScope },
+      )
+
+      const result = await aggregateTool.handler(
+        { entityType: 'customers:customer_deal', groupBy: 'status', limit: 20 },
+        ctx,
+      ) as { total: number; buckets: unknown[] }
+
+      expect(mockQuery).not.toHaveBeenCalled()
+      expect(result.total).toBe(0)
+      expect(result.buckets).toEqual([])
+    })
+
+    it('leaves a superadmin unfiltered regardless of the ACL allowlist', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: [], isSuperAdmin: true })
+      const { ctx, mockQuery } = makeCtx(
+        { items: [{ status: 'open' }], total: 1 },
+        { organizationId: null, isSuperAdmin: true, userFeatures: [], orgScope },
+      )
+
+      await aggregateTool.handler({ entityType: 'customers:customer_deal', groupBy: 'status', limit: 20 }, ctx)
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        'customers:customer_deal',
+        expect.objectContaining({ organizationIds: undefined }),
+      )
+    })
   })
 })

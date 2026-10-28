@@ -138,8 +138,11 @@ type CompanyAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -190,6 +193,7 @@ type CompanyInteractionSnapshot = {
   body: string | null
   status: string
   scheduledAt: Date | null
+  timezone?: string | null
   occurredAt: Date | null
   priority: number | null
   authorUserId: string | null
@@ -358,8 +362,11 @@ async function loadCompanySnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -415,6 +422,7 @@ async function loadCompanySnapshot(
         body: interaction.body ?? null,
         status: interaction.status,
         scheduledAt: interaction.scheduledAt ?? null,
+        timezone: interaction.timezone ?? null,
         occurredAt: interaction.occurredAt ?? null,
         priority: interaction.priority ?? null,
         authorUserId: interaction.authorUserId ?? null,
@@ -1385,8 +1393,11 @@ const deleteCompanyCommand: CommandHandler<
               entity,
               name: address.name,
               purpose: address.purpose,
+              companyName: address.companyName ?? null,
               addressLine1: address.addressLine1,
               addressLine2: address.addressLine2,
+              buildingNumber: address.buildingNumber ?? null,
+              flatNumber: address.flatNumber ?? null,
               city: address.city,
               region: address.region,
               postalCode: address.postalCode,
@@ -1425,6 +1436,7 @@ const deleteCompanyCommand: CommandHandler<
               body: interaction.body,
               status: interaction.status,
               scheduledAt: interaction.scheduledAt,
+              timezone: interaction.timezone ?? null,
               occurredAt: interaction.occurredAt,
               priority: interaction.priority,
               authorUserId: interaction.authorUserId,

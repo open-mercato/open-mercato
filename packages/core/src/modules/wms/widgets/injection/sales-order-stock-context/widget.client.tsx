@@ -57,6 +57,7 @@ type SalesOrderWmsPayload = {
 
 export type SalesOrderRecord = Record<string, unknown> & {
   id?: string
+  status?: string | null
   _wms?: SalesOrderWmsPayload
 }
 
@@ -74,6 +75,11 @@ function formatQuantity(value: unknown): string {
     return value
   }
   return '0'
+}
+
+function isCancelledOrder(data: SalesOrderRecord | undefined): boolean {
+  const status = typeof data?.status === 'string' ? data.status.trim() : ''
+  return status === 'canceled' || status === 'cancelled'
 }
 
 function resolveOrderId(data: SalesOrderRecord | undefined): string | null {
@@ -474,7 +480,7 @@ export default function SalesOrderStockContextWidget(
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        {reservationStatus !== 'fully_reserved' && access.canRelease && orderId ? (
+        {reservationStatus !== 'fully_reserved' && access.canRelease && orderId && !isCancelledOrder(data) ? (
           <Button
             type="button"
             variant="outline"

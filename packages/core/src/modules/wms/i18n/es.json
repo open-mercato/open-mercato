@@ -1162,6 +1162,7 @@
   "wms.errors.invalidPutawayState": "Esta tarea de almacenamiento no se puede actualizar en su estado actual.",
   "wms.errors.invalidQcTransition": "La transición de estado QC no está permitida para esta línea de recepción.",
   "wms.errors.invalidReceiptState": "Este ASN no se puede recibir o completar en su estado actual.",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Un pedido cancelado no puede tener una reserva de stock.",
   "wms.errors.trackingRequired": "Se requieren datos de lote o serie para este producto.",
   "wms.errors.unauthorized": "No autorizado",
   "wms.nav.group": "WMS",
