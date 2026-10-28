@@ -41,18 +41,18 @@
 | 2 | 2.6 | Add intersectFeatureGrants to shared | dispatch:cheap | done | 2fd788317 |
 | 2 | 2.7 | Resolve the effective tool ACL with an intersect mode | dispatch:capable | done | 97bdeae71 |
 | 2 | 2.7-review-fix | Satisfy the core authorization guards for principals and tool ACL | inline | done | 70928a467 |
-| 2 | 2.8 | Record tools denied by the principal | dispatch | done | pending |
-| 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | done | pending |
-| 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | done | pending |
-| 2 | 2.10-review-fix | Stamp run correlation on tool writes through an ambient scope | dispatch:capable | done | pending |
-| 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | done | pending |
-| 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | done | pending |
-| 3 | 3.1 | Add the trace content namespace and tri-state artifact reads | dispatch:cheap | done | pending |
-| 3 | 3.2 | Build redacted and capped LLM request and response artifacts | dispatch:capable | done | pending |
-| 3 | 3.3 | Offload LLM content at the full capture level | dispatch:capable | done | pending |
-| 3 | 3.4 | Offload the packed context payload | dispatch:capable | done | pending |
-| 3 | 3.4-review-fix | Use explicit sort comparators in the new grant helpers | inline | done | pending |
-| 3 | 3.4-review-fix-2 | Reject malformed OAuth client ids before the principal lookup | inline | done | pending |
+| 2 | 2.8 | Record tools denied by the principal | dispatch | done | b1d456ab7 |
+| 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | done | b8bea2ed2 |
+| 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | done | 7018d3fe1 |
+| 2 | 2.10-review-fix | Stamp run correlation on tool writes through an ambient scope | dispatch:capable | done | c1ab24b1b |
+| 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | done | 0d15b481a |
+| 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | done | 0a8912423 |
+| 3 | 3.1 | Add the trace content namespace and tri-state artifact reads | dispatch:cheap | done | d56932ae3 |
+| 3 | 3.2 | Build redacted and capped LLM request and response artifacts | dispatch:capable | done | c77f06331 |
+| 3 | 3.3 | Offload LLM content at the full capture level | dispatch:capable | done | 5d627083f |
+| 3 | 3.4 | Offload the packed context payload | dispatch:capable | done | 7627dbf74 |
+| 3 | 3.4-review-fix | Use explicit sort comparators in the new grant helpers | inline | done | ca5002695 |
+| 3 | 3.4-review-fix-2 | Reject malformed OAuth client ids before the principal lookup | inline | done | 749ae48c2 |
 | 3 | 3.5 | Serve content artifacts with view_content, 410 and access logs | dispatch | todo | — |
 | 3 | 3.6 | Add the trace content retention worker | dispatch | todo | — |
 | 3 | 3.7 | Cover content capture with integration tests and docs | dispatch | todo | — |

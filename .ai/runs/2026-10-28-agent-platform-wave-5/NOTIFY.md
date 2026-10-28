@@ -21,3 +21,7 @@
 
 ## 2026-10-28T05:23:44Z — resumed
 - User: "Auto continue" — proceed without further 20-Step safety pauses; checkpoints every 10+ Steps continue.
+
+## 2026-10-28T06:18:37Z — checkpoint 3
+- Steps 2.8–3.4 verified; fixes 2.10-review-fix (ambient correlation), 3.4-review-fix (sort comparators), 3.4-review-fix-2 (token route 500 on malformed client_id).
+- Integration 26 passed / 5 skipped / 1 failed → fixed (re-run at the final gate).

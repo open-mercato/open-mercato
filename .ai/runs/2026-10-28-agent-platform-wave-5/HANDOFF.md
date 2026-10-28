@@ -1,23 +1,23 @@
 # Handoff — 2026-10-28-agent-platform-wave-5
 
-**Last updated:** 2026-10-28T04:42:57Z
+**Last updated:** 2026-10-28T06:18:37Z
 **Branch:** feat/agent-platform-wave-5
 **PR:** https://github.com/open-mercato/open-mercato/pull/8099 (draft, claimed)
-**Current phase/step:** Phase 2 Step 2.8 (paused at the safety checkpoint for user review)
-**Last commit:** 70928a467 — fix(agent_orchestrator): satisfy core authorization guards for principals and tool ACL
+**Current phase/step:** Phase 3 Step 3.5
+**Last commit:** 749ae48c2 — fix(agent_orchestrator): reject malformed OAuth client ids before the principal lookup
 
 ## What just happened
-- Phase 1 (Integrity) done; Phase 2 Steps 2.1–2.7 done (principals, central runAs, intersect tool ACL). Checkpoint 2 green after 2.7-review-fix.
+- Phase 2 (Identity P2–P4) complete; Phase 3 Steps 3.1–3.4 (content namespace, redacted artifacts, LLM content offload, context payload offload). Checkpoint 3 green after three fixes.
 
 ## Next concrete action
-- After user review: Step 2.8 — Record tools denied by the principal (D3.3).
+- Step 3.5 — Serve content artifacts with view_content, 410 and access logs (O3.5).
 
 ## Blockers / open questions
-- Paused for user review (skill safety stop after ~20 consecutive Steps).
+- none. User: auto-continue, no safety pauses; checkpoints every 10+ Steps.
 
 ## Environment caveats
-- Checkpoints every 10+ Steps (user preference). Ephemeral app stopped and cleaned.
-- Database/migration state: clean (core audit_logs migration comes at D4.1 / Step 2.10).
+- Re-run TC-AGENT-ACC-004 at the final gate (fix landed after the checkpoint app was built).
+- Ephemeral app stopped and cleaned.
 
 ## Worktree
 - Path: .ai/tmp/om-auto-create-pr-loop/agent-platform-wave-5-20261028-034518
