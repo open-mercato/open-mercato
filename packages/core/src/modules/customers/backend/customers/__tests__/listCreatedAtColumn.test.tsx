@@ -1,11 +1,4 @@
-/**
- * @jest-environment jsdom
- *
- * Regression coverage for the Created column on the People and Companies lists:
- * the column definition (header, created_at filter key, date filter type), the
- * created_at -> createdAt row mapping, the rendered date, and the sort wiring that
- * sends sortField=createdAt to the list API.
- */
+/** @jest-environment jsdom */
 import * as React from 'react'
 import { act, render, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'

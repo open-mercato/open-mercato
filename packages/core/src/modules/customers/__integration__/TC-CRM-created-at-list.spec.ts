@@ -9,17 +9,6 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 
-/**
- * TC-CRM-created-at-list: People and companies lists sort and filter by creation date.
- *
- * Fixtures get explicit `created_at` values, so the spec never depends on the wall clock:
- * - EARLIER is mid-day on 2026-01-15 UTC.
- * - NEAR_MIDNIGHT is 23:30 UTC on 2026-01-16, which is already 2026-01-17 in Europe/Warsaw.
- *
- * Bare dates sent to the list APIs name UTC days. The list pages send instant bounds for the
- * reader's time zone instead, so a record is found on the day its Created cell shows.
- */
-
 const EARLIER = '2026-01-15T10:00:00.000Z'
 const NEAR_MIDNIGHT = '2026-01-16T23:30:00.000Z'
 

@@ -1,14 +1,6 @@
 import { fromZonedTime } from 'date-fns-tz'
 import type { AdvancedFilterTree, FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 
-// The filter panel sends date-only values (`YYYY-MM-DD`) while `created_at` is a
-// timestamp. A date-only value names a calendar day, and a calendar day only has
-// bounds in a given time zone, so every date-only `created_at` rule is rewritten to
-// explicit instants for that zone. The list pages pass the reader's zone — the same
-// zone `toLocaleDateString()` uses to render the Created column — so what the column
-// shows and what the filter matches agree. The list APIs pass UTC for callers that
-// still send bare dates, so the result never depends on the database session zone.
-
 const CREATED_AT_FIELD = 'created_at'
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 

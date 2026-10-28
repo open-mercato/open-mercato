@@ -722,10 +722,10 @@ export default function CustomersPeoplePage() {
         accessorKey: 'createdAt',
         header: t('customers.people.list.columns.createdAt', 'Created'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'created_at',
           filterType: 'date' as const,
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) => (
