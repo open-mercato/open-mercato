@@ -547,6 +547,51 @@ describe('ScheduledJobSubscriber', () => {
     })
   })
 
+  describe('entity matching', () => {
+    it('syncs schedules whose class comes from another copy of the entities module', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+      class ScheduledJobFromOtherBundle {
+        id = 'job-copy'
+        name = 'Copied schedule'
+        isEnabled = true
+        deletedAt: Date | null = null
+      }
+      const enabled = new ScheduledJobFromOtherBundle()
+      const disabled = Object.assign(new ScheduledJobFromOtherBundle(), { id: 'job-copy-off', isEnabled: false })
+      const meta = { className: 'ScheduledJob' }
+
+      await subscriber.afterFlush({
+        em: committedEm,
+        uow: {
+          getChangeSets: () => [
+            { type: 'create', entity: enabled, meta },
+            { type: 'update', entity: disabled, meta, payload: { isEnabled: false } },
+            { type: 'delete', entity: Object.assign(new ScheduledJobFromOtherBundle(), { id: 'job-copy-gone' }), meta },
+          ],
+        },
+      } as any)
+
+      expect(calls).toEqual([
+        { method: 'register', scheduleId: 'job-copy' },
+        { method: 'unregister', scheduleId: 'job-copy-off' },
+        { method: 'unregister', scheduleId: 'job-copy-gone' },
+      ])
+    })
+
+    it('ignores other entities that carry metadata', async () => {
+      const calls: BullMQCall[] = []
+      const subscriber = createAsyncSubscriber(calls)
+
+      await subscriber.afterFlush({
+        em: committedEm,
+        uow: { getChangeSets: () => [{ type: 'create', entity: { id: 'log-1', isEnabled: true }, meta: { className: 'ActionLog' } }] },
+      } as any)
+
+      expect(calls).toEqual([])
+    })
+  })
+
   describe('transaction boundary', () => {
     it('defers the sync of a flush inside a transaction until that transaction commits', async () => {
       const calls: BullMQCall[] = []

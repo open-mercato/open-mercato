@@ -201,13 +201,17 @@ function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSn
  * Trigger BullMQ sync after undo operations.
  * Best-effort: if BullMQ service is unavailable (e.g. local strategy), this is a no-op.
  */
-async function syncBullMQAfterUndo(ctx: CommandRuntimeContext, schedule: ScheduledJob | null): Promise<void> {
+async function syncBullMQAfterUndo(
+  ctx: CommandRuntimeContext,
+  schedule: ScheduledJob | null,
+  options: { removed?: boolean } = {},
+): Promise<void> {
   try {
     if (!ctx.container?.resolve) return
     const bullmqService = ctx.container.resolve<BullMQSchedulerService>('bullmqSchedulerService')
     if (!bullmqService) return
 
-    if (schedule && schedule.isEnabled && !schedule.deletedAt) {
+    if (schedule && !options.removed && schedule.isEnabled && !schedule.deletedAt) {
       await bullmqService.register(schedule, { skipNextRunUpdate: true })
     } else if (schedule) {
       await bullmqService.unregister(schedule.id)
@@ -338,7 +342,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
 
     if (schedule) {
       await em.remove(schedule).flush()
-      await syncBullMQAfterUndo(ctx, schedule)
+      await syncBullMQAfterUndo(ctx, schedule, { removed: true })
     }
   },
 

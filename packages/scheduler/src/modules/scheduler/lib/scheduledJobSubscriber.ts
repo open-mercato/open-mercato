@@ -1,4 +1,5 @@
 import type {
+  EntityMetadata,
   EventSubscriber,
   FlushEventArgs,
   TransactionEventArgs,
@@ -17,6 +18,15 @@ type ScheduleSync = {
 }
 
 type SyncBatch = Map<string, ScheduleSync>
+
+/**
+ * Match by entity metadata rather than `instanceof`: a bundled server can evaluate this module
+ * more than once, and the entity class the ORM instantiates is then not the `ScheduledJob`
+ * imported here. MikroORM routes subscriber events by class name for the same reason.
+ */
+function isScheduledJob(entity: object, meta: EntityMetadata<object> | undefined): entity is ScheduledJob {
+  return entity instanceof ScheduledJob || meta?.className === ScheduledJob.name
+}
 
 /**
  * MikroORM Event Subscriber for ScheduledJob
@@ -158,8 +168,8 @@ export class ScheduledJobSubscriber implements EventSubscriber<ScheduledJob> {
   private collectScheduleSyncs(args: FlushEventArgs): SyncBatch {
     const batch: SyncBatch = new Map()
     for (const changeSet of args.uow.getChangeSets()) {
-      if (!(changeSet.entity instanceof ScheduledJob)) continue
       const schedule = changeSet.entity
+      if (!isScheduledJob(schedule, changeSet.meta)) continue
 
       if (changeSet.type === 'create' || changeSet.type === 'update') {
         // Skip BullMQ sync when only execution timestamps changed (lastRunAt/nextRunAt).

@@ -188,6 +188,20 @@ describe('scheduler.jobs undo restores state (issue #2504)', () => {
     expect(em.__removeFlush).toHaveBeenCalled()
   })
 
+  it('create undo removes the enabled schedule from BullMQ instead of registering it again', async () => {
+    const { create } = loadCommands()
+    const after = baseSnapshot({ isEnabled: true })
+    const em = makeEm({ ...after, deletedAt: null })
+    const bullmqService = { register: jest.fn(), unregister: jest.fn() }
+    const ctx = makeCtx(em)
+    ctx.container.resolve = jest.fn((key: string) => (key === 'bullmqSchedulerService' ? bullmqService : em))
+
+    await create.undo({ logEntry: persistedLogEntry({ after }), ctx })
+
+    expect(bullmqService.unregister).toHaveBeenCalledWith('job-1')
+    expect(bullmqService.register).not.toHaveBeenCalled()
+  })
+
   it('delete undo restores a soft-deleted row by clearing deletedAt', async () => {
     const { del } = loadCommands()
     const before = baseSnapshot()
