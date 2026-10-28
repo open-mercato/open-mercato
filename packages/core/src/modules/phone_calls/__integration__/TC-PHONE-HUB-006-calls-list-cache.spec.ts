@@ -43,7 +43,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
 
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
     const externalCallId = `qa-phone-hub-006-${stamp}`
-    const providerKey = `qa-phone-hub-006-${stamp}`
+    const providerKey = `qa-cache-${stamp}`
     let ingestedId: string | null = null
 
     try {

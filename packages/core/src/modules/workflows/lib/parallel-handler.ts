@@ -30,6 +30,11 @@ import {
   WorkflowEvent,
 } from '../data/entities'
 import { logWorkflowEvent } from './event-logger'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
@@ -202,25 +207,29 @@ export async function resumeBranchAfterActivities(
   }
 
   const namespace = branch.contextNamespace || {}
-  const pendingJobIds = (namespace._pendingAsyncActivities as any[]) || []
+  const pendingJobIds = readPendingAsyncJobIds(namespace._pendingAsyncActivities)
 
-  const completedEvents = await em.find(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_COMPLETED',
-    eventData: { async: true },
-  })
-  const failedCount = await em.count(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    branchInstanceId,
-    eventType: 'ACTIVITY_FAILED',
-    eventData: { async: true },
-  })
+  const outcomeEvents = pendingJobIds.length === 0
+    ? []
+    : await em.find(
+      WorkflowEvent,
+      {
+        workflowInstanceId: instanceId,
+        branchInstanceId,
+        eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+        eventData: { async: true, jobId: { $in: pendingJobIds } },
+      },
+      { orderBy: { occurredAt: 'asc', id: 'asc' } },
+    )
+  const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-  if (completedEvents.length + failedCount < pendingJobIds.length) {
+  if (!wait.settled) {
     // Still waiting on other branch activities.
     return { continueExecution: false }
   }
+
+  const completedEvents = wait.completed
+  const failedCount = wait.failed.length
 
   const now = new Date()
   if (failedCount > 0) {
