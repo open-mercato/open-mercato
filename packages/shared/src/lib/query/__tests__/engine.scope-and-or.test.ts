@@ -238,6 +238,38 @@ describe('normalizeFilters $or clause grouping', () => {
     expect(withoutGroup).toEqual(['is_enabled'])
     expect(withGroup.sort()).toEqual(['a', 'b'])
   })
+
+  test.each([
+    ['the narrower disjunct first', [{ $and: [{ tags: { $overlap: ['vip'] } }, { tags: { $overlap: ['eu'] } }] }, { tags: { $overlap: ['vip'] } }]],
+    ['the narrower disjunct last', [{ tags: { $overlap: ['vip'] } }, { $and: [{ tags: { $overlap: ['vip'] } }, { tags: { $overlap: ['eu'] } }] }]],
+  ])('a disjunct emptied by common-clause lifting absorbs the other disjuncts (%s)', (_order, disjuncts) => {
+    expect(normalizeFilters({ $or: disjuncts })).toEqual([{ field: 'tags', op: 'overlap', value: ['vip'] }])
+  })
+
+  test('absorption keeps the lifted clauses and every top-level conjunct', () => {
+    const normalized = normalizeFilters({
+      is_enabled: true,
+      $or: [{ a: 1, b: 2, c: 3 }, { a: 1 }, { a: 1, d: 4 }],
+    })
+    expect(normalized).toEqual([
+      { field: 'is_enabled', op: 'eq', value: true },
+      { field: 'a', op: 'eq', value: 1 },
+    ])
+  })
+
+  test('an unconstrained disjunct makes the whole OR unconstrained instead of making the other disjunct mandatory', () => {
+    expect(normalizeFilters({ $or: [{}, { a: 1 }] })).toEqual([])
+    expect(normalizeFilters({ is_enabled: true, $or: [{ a: 1 }, {}] })).toEqual([{ field: 'is_enabled', op: 'eq', value: true }])
+  })
+
+  test('disjuncts that all keep a remainder after lifting stay OR-grouped', () => {
+    const normalized = normalizeFilters({ $or: [{ a: 1, b: 2 }, { a: 1, c: 3 }] })
+    expect(normalized).toEqual([
+      { field: 'a', op: 'eq', value: 1 },
+      { field: 'b', op: 'eq', value: 2, orGroup: 'or_0' },
+      { field: 'c', op: 'eq', value: 3, orGroup: 'or_1' },
+    ])
+  })
 })
 
 describe('BasicQueryEngine — null equality', () => {
