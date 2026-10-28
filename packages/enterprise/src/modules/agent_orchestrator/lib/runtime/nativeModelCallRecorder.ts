@@ -130,12 +130,36 @@ export function createNativeModelCallCollector(): NativeModelCallCollector {
   }
 }
 
+function hasUsableStepNumber(call: NativeModelCallRecord): boolean {
+  return Number.isInteger(call.stepNumber) && call.stepNumber >= 0
+}
+
+function pairCallsWithSteps(stepCount: number, calls: NativeModelCallRecord[]): Array<number | null> {
+  if (!calls.some(hasUsableStepNumber)) {
+    return Array.from({ length: stepCount }, (_unused, index) => (index < calls.length ? index : null))
+  }
+  const used = new Set<number>()
+  return Array.from({ length: stepCount }, (_unused, stepIndex) => {
+    const callIndex = calls.findIndex(
+      (call, index) => !used.has(index) && hasUsableStepNumber(call) && call.stepNumber === stepIndex,
+    )
+    if (callIndex < 0) return null
+    used.add(callIndex)
+    return callIndex
+  })
+}
+
 export function attachModelCallsToSteps<TStep extends object>(
   steps: TStep[],
   calls: NativeModelCallRecord[],
 ): { steps: Array<TStep & { call?: NativeModelCallRecord }>; fallbackCall: NativeModelCallRecord | null } {
+  const pairing = pairCallsWithSteps(steps.length, calls)
+  const attachedIndexes = new Set(pairing.filter((callIndex): callIndex is number => callIndex !== null))
   return {
-    steps: steps.map((step, index) => (calls[index] ? { ...step, call: calls[index] } : step)),
-    fallbackCall: calls[steps.length] ?? null,
+    steps: steps.map((step, index) => {
+      const callIndex = pairing[index]
+      return callIndex === null ? step : { ...step, call: calls[callIndex] }
+    }),
+    fallbackCall: calls.find((_call, index) => !attachedIndexes.has(index)) ?? null,
   }
 }

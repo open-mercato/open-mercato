@@ -166,24 +166,62 @@ describe('createNativeModelCallCollector', () => {
 })
 
 describe('attachModelCallsToSteps', () => {
-  function recordFor(callId: string) {
+  function recordFor(callId: string, stepNumber = 0) {
     const collector = createNativeModelCallCollector()
-    collector.observer.onModelCallStart(startEvent({ callId }))
+    collector.observer.onModelCallStart(startEvent({ callId, stepNumber }))
     collector.observer.onModelCallEnd(endEvent({ callId }))
     return collector.records()[0]
   }
 
-  it('merges the n-th call into the n-th step', () => {
-    const calls = [recordFor('call-1'), recordFor('call-2')]
+  it('merges each call into the step with its step number', () => {
+    const calls = [recordFor('call-1', 0), recordFor('call-2', 1)]
     const attached = attachModelCallsToSteps([{ seq: 0 }, { seq: 1 }], calls)
     expect(attached.steps.map((step) => step.call?.callId)).toEqual(['call-1', 'call-2'])
     expect(attached.fallbackCall).toBeNull()
   })
 
-  it('leaves steps without a call untouched', () => {
-    const attached = attachModelCallsToSteps([{ seq: 0 }, { seq: 1 }], [recordFor('call-1')])
-    expect(attached.steps[0].call?.callId).toBe('call-1')
+  it('matches by step number when calls complete out of order', () => {
+    const calls = [recordFor('call-b', 1), recordFor('call-c', 2), recordFor('call-a', 0)]
+    const attached = attachModelCallsToSteps([{ seq: 0 }, { seq: 1 }, { seq: 2 }], calls)
+    expect(attached.steps.map((step) => step.call?.callId)).toEqual(['call-a', 'call-b', 'call-c'])
+    expect(attached.fallbackCall).toBeNull()
+  })
+
+  it('leaves a step whose call is missing untouched instead of shifting later calls', () => {
+    const attached = attachModelCallsToSteps(
+      [{ seq: 0 }, { seq: 1 }, { seq: 2 }],
+      [recordFor('call-a', 0), recordFor('call-c', 2)],
+    )
+    expect(attached.steps[0].call?.callId).toBe('call-a')
     expect(attached.steps[1]).toEqual({ seq: 1 })
+    expect(attached.steps[2].call?.callId).toBe('call-c')
+    expect(attached.fallbackCall).toBeNull()
+  })
+
+  it('never attaches one call to two steps and routes the first unattached call to the fallback', () => {
+    const attached = attachModelCallsToSteps(
+      [{ seq: 0 }, { seq: 1 }],
+      [recordFor('call-a', 0), recordFor('call-extra', 5), recordFor('call-dup', 0), recordFor('call-b', 1)],
+    )
+    expect(attached.steps.map((step) => step.call?.callId)).toEqual(['call-a', 'call-b'])
+    expect(attached.fallbackCall?.callId).toBe('call-extra')
+  })
+
+  it('falls back to positional matching only when no call carries a usable step number', () => {
+    const calls = [recordFor('call-1', -1), recordFor('call-2', Number.NaN), recordFor('call-3', 1.5)]
+    const attached = attachModelCallsToSteps([{ seq: 0 }, { seq: 1 }], calls)
+    expect(attached.steps.map((step) => step.call?.callId)).toEqual(['call-1', 'call-2'])
+    expect(attached.fallbackCall?.callId).toBe('call-3')
+  })
+
+  it('does not attach calls without a usable step number when others carry one', () => {
+    const attached = attachModelCallsToSteps(
+      [{ seq: 0 }, { seq: 1 }],
+      [recordFor('call-unknown', -1), recordFor('call-b', 1)],
+    )
+    expect(attached.steps[0]).toEqual({ seq: 0 })
+    expect(attached.steps[1].call?.callId).toBe('call-b')
+    expect(attached.fallbackCall?.callId).toBe('call-unknown')
   })
 
   it('routes a call without a matching step to the fallback call', () => {

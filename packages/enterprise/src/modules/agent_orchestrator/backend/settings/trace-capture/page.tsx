@@ -380,9 +380,15 @@ export default function TraceCaptureSettingsPage() {
                     min={RETENTION_DAYS_MIN}
                     max={RETENTION_DAYS_MAX}
                     value={form.retentionDays}
-                    disabled={!canManage}
-                    onChange={(event) => update({ retentionDays: event.target.value })}
+                    disabled
+                    aria-describedby="trace-capture-retention-hint"
                   />
+                  <p id="trace-capture-retention-hint" className="text-xs text-muted-foreground">
+                    {t(
+                      'agent_orchestrator.settings.traceCapture.retentionDaysHint',
+                      'Not available yet: takes effect together with content capture.',
+                    )}
+                  </p>
                   {showErrors && errors.retentionDays ? (
                     <p className="text-xs text-status-error-text">
                       {t(
@@ -397,15 +403,15 @@ export default function TraceCaptureSettingsPage() {
               <div className="flex items-start gap-3">
                 <Switch
                   checked={form.redactPii}
-                  disabled={!canManage}
-                  onCheckedChange={(next) => update({ redactPii: next })}
+                  disabled
+                  aria-label={t('agent_orchestrator.settings.traceCapture.redactPii', 'Redact personal data')}
                 />
                 <div className="min-w-0">
                   <Label>{t('agent_orchestrator.settings.traceCapture.redactPii', 'Redact personal data')}</Label>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {t(
                       'agent_orchestrator.settings.traceCapture.redactPiiHint',
-                      'Masks email addresses and secrets in captured content before it is stored.',
+                      'Not available yet: arrives together with content capture, and will then mask email addresses and secrets before captured content is stored.',
                     )}
                   </p>
                 </div>

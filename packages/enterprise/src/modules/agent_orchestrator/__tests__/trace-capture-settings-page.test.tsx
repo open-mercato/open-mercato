@@ -35,8 +35,8 @@ const SETTINGS = {
   policy: {
     level: 'metadata',
     perAgent: { 'claims.assess': { level: 'full' } },
-    retentionDays: 30,
-    redactPii: false,
+    retentionDays: 45,
+    redactPii: true,
     includeProviderBody: false,
   },
   source: 'tenant',
@@ -75,20 +75,31 @@ describe('trace capture settings page', () => {
     expect(screen.getByText('Content capture is not available yet')).toBeTruthy()
   })
 
-  it('saves the edited policy with the optimistic-lock version from GET', async () => {
+  it('shows retention and redaction as not available yet, read-only even for a manager', async () => {
     grant(['agent_orchestrator.*'])
-    readApiResultMock.mockResolvedValue({ ...SETTINGS, policy: { ...SETTINGS.policy, retentionDays: 45 } })
+    renderWithProviders(<TraceCaptureSettingsPage />)
+    const retention = (await screen.findByLabelText('Retention (days)')) as HTMLInputElement
+    expect(retention.disabled).toBe(true)
+    expect(retention.value).toBe('45')
+    const redact = screen.getByRole('switch', { name: 'Redact personal data' })
+    expect(redact.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('Not available yet: takes effect together with content capture.')).toBeTruthy()
+    expect(screen.queryByText(/Masks email addresses/)).toBeNull()
+  })
+
+  it('saves the edited policy with the optimistic-lock version from GET, keeping stored retention and redaction', async () => {
+    grant(['agent_orchestrator.*'])
+    readApiResultMock.mockResolvedValue({ ...SETTINGS, policy: { ...SETTINGS.policy, perAgent: {} } })
     const { withScopedApiRequestHeaders } = jest.requireMock('@open-mercato/ui/backend/utils/apiCall') as {
       withScopedApiRequestHeaders: jest.Mock
     }
     renderWithProviders(<TraceCaptureSettingsPage />)
-    const retention = await screen.findByLabelText('Retention (days)')
-    fireEvent.change(retention, { target: { value: '45' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove override' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(readApiResultMock).toHaveBeenCalledTimes(1))
     const [url, init] = readApiResultMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/agent_orchestrator/trace-capture/settings')
-    expect(JSON.parse(String(init.body))).toEqual({ ...SETTINGS.policy, retentionDays: 45 })
+    expect(JSON.parse(String(init.body))).toEqual({ ...SETTINGS.policy, perAgent: {} })
     expect(withScopedApiRequestHeaders.mock.calls[0][0]).toEqual({
       'x-om-ext-optimistic-lock-expected-updated-at': '2026-10-27T10:00:00.000Z',
     })

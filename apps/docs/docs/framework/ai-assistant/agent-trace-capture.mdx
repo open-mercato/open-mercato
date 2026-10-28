@@ -42,6 +42,8 @@ Stored in module config `agent_orchestrator/trace_capture_policy` per tenant:
 | `redactPii` | Default `false`. |
 | `includeProviderBody` | Default `false`. |
 
+`retentionDays`, `redactPii` and `includeProviderBody` are stored (the first two are also recorded in `om.capture`), but nothing enforces them yet: they take effect together with content capture. The settings page shows them read-only until then and keeps the stored values on save.
+
 Manage it at `/backend/settings/trace-capture`, or through `GET` and `PUT /api/agent_orchestrator/trace-capture/settings`. Saves go through the undoable command `agent_orchestrator.traceCapturePolicy.update` and use optimistic locking on the row's `updatedAt`.
 
 ## Step span attributes
@@ -62,19 +64,19 @@ Each LLM span carries these keys when the level is `metadata` or above.
 | `om.content.request.sha256`, `om.content.request.bytes`, and the `response` equivalents | Content hashes and sizes. |
 | `om.content.status` | `disabled` while content capture is unavailable. |
 | `om.capture.fidelity` | `exact`, `reconstructed` or `reported`. |
-| `om.params.defaults` | Parameters that were left to the provider default. |
+| `om.params.defaults` | `true` when no request parameters were sent at all, so every parameter was left to the provider default. Not written when any parameter was sent. |
 
 The legacy keys `inputTokens`, `outputTokens` and `finishReason` are still written, so existing consumers keep working.
 
 ### Fidelity
 
-- `exact`: the step came from the model SDK hooks, one start and end per step.
-- `reconstructed`: the call was synthesized from a single object generation or a caller-supplied generator, so there is one step with no tool list.
+- `exact`: the call was observed directly, either through the model SDK hooks (one start and end per step) or as a synthesized `generateObject` / `streamObject` call made by the runtime itself.
+- `reconstructed`: the call was made by a caller-supplied `generateObject` callback, so the runtime only sees what it handed over and there is one step with no tool list.
 - `reported`: the numbers were reported by an external runtime rather than measured here.
 
 ### Cost in micros
 
-`om.cost.micros` is the estimated cost in millionths of the currency unit (an integer), computed from the token counts and the price table. Prices come from the built-in table and can be overridden with `OM_AGENT_MODEL_PRICING` (JSON, per one million tokens); the currency is `OM_AGENT_COST_CURRENCY`. Cached and reasoning tokens have no separate price. When a model has no known price, no cost attributes are written.
+`om.cost.micros` is the estimated cost in millionths of the currency unit (an integer), computed from the token counts and the price table. Prices come from the built-in table and can be overridden with `OM_AGENT_MODEL_PRICING` (JSON, per one million tokens); the currency is `OM_AGENT_COST_CURRENCY`. Cached and reasoning tokens have no separate price. When a model has no known price, `om.cost.pricing_source` is set to `unknown` and `om.cost.micros` and `om.cost.currency` are omitted.
 
 ## Permissions
 
