@@ -24,11 +24,11 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### Cart line contention returns retryable 503 (#8072)
+### Inbound webhook retries resume unfinished receipt stages (#7601)
 
-`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+New inbound receipts track dispatch and received-event publication independently. A provider retry resumes an unfinished stage instead of treating receipt existence alone as completed delivery. Completed stages are preserved; delivery remains at least once, so handlers and persistent subscribers must stay idempotent.
 
-**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
+**Operator action:** apply `Migration20261018124142_webhooks` before deploying this application change. Its additive columns preserve existing receipts as completed and do not recover dispatch failures that happened before the upgrade. No migration is applied automatically by this PR. Older application code resumes its original receipt-existence deduplication behavior on rollback.
 
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
