@@ -265,6 +265,12 @@ export function inventoryConsoleSection(page: Page, table: WmsInventoryConsoleTa
   })
 }
 
+export function inventoryOperationsSection(page: Page) {
+  return page.locator('section').filter({
+    has: page.getByRole('heading', { level: 2, name: /Inventory operations|Operacje magazynowe/i }),
+  })
+}
+
 export async function ensureEnglishLocale(page: Page) {
   const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
   await page.context().addCookies([
