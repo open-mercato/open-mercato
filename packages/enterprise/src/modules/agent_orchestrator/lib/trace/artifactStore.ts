@@ -23,6 +23,9 @@ const logger = createLogger('agent_orchestrator').child({ component: 'trace-arti
 /** The `storage_s3` namespace all trace artifacts are written under. */
 export const AGENT_TRACE_ARTIFACT_NAMESPACE = 'agent-trace-artifacts'
 
+/** The `storage_s3` namespace full-fidelity LLM and context content is written under. */
+export const AGENT_TRACE_CONTENT_NAMESPACE = 'agent-trace-content'
+
 export type ArtifactScope = { tenantId: string; organizationId: string }
 
 /**
@@ -37,6 +40,9 @@ export const ARTIFACT_REFS = {
   runRawOutput: { entityId: 'agent_orchestrator:agent_run', field: 'output' },
   toolRequest: { entityId: 'agent_orchestrator:agent_tool_call', field: 'request_summary' },
   toolResponse: { entityId: 'agent_orchestrator:agent_tool_call', field: 'response_summary' },
+  llmRequest: { entityId: 'agent_orchestrator:agent_run', field: 'input' },
+  llmResponse: { entityId: 'agent_orchestrator:agent_run', field: 'output' },
+  contextPayload: { entityId: 'agent_orchestrator:agent_run', field: 'input' },
 } as const satisfies Record<string, ArtifactEncryptionRef>
 
 type StorageTenantScope = {
@@ -56,7 +62,15 @@ type StorageServiceLike = {
     scope: StorageTenantScope
   }): Promise<{ key: string }>
   download(input: { key: string; scope: StorageTenantScope }): Promise<{ buffer: Buffer; contentType?: string }>
+  delete(input: { key: string; scope: StorageTenantScope }): Promise<void>
 }
+
+export type ArtifactReadResult =
+  | { status: 'ok'; value: unknown }
+  | { status: 'missing' }
+  | { status: 'unavailable' }
+
+export type ArtifactDeleteResult = { status: 'deleted' } | { status: 'unavailable' }
 
 type StorageProxyLike = {
   _resolveService(scope: StorageTenantScope): Promise<StorageServiceLike>
@@ -136,6 +150,7 @@ export async function putArtifact(
   scope: ArtifactScope,
   ref: ArtifactEncryptionRef,
   value: unknown,
+  namespace: string = AGENT_TRACE_ARTIFACT_NAMESPACE,
 ): Promise<string | null> {
   try {
     const svc = await resolveStorageService(container, scope)
@@ -143,7 +158,7 @@ export async function putArtifact(
     const serialized = JSON.stringify(value ?? null)
     const wrapper = await encryptWrapper(container, scope, ref, serialized)
     const { key } = await svc.upload({
-      namespace: AGENT_TRACE_ARTIFACT_NAMESPACE,
+      namespace,
       fileName: `${ref.entityId.replace(/[^a-zA-Z0-9_-]+/g, '_')}-${ref.field}.json`,
       buffer: Buffer.from(JSON.stringify(wrapper), 'utf8'),
       contentType: 'application/json',
@@ -158,19 +173,35 @@ export async function putArtifact(
   }
 }
 
+function isMissingObjectError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as {
+    name?: unknown
+    code?: unknown
+    message?: unknown
+    $metadata?: { httpStatusCode?: unknown }
+  }
+  const tokens = [candidate.name, candidate.code].filter((token): token is string => typeof token === 'string')
+  if (tokens.some((token) => token === 'NoSuchKey' || token === 'NotFound')) return true
+  if (candidate.$metadata?.httpStatusCode === 404) return true
+  return typeof candidate.message === 'string' && candidate.message.includes('NoSuchKey')
+}
+
 /**
- * Download + decrypt a previously offloaded artifact, returning the original
- * value, or `null` when storage is unavailable or the read fails. Never throws.
+ * Download + decrypt a previously offloaded artifact with a tri-state result:
+ * `ok` with the value, `missing` when storage reports the object gone
+ * (NoSuchKey / 404), or `unavailable` when storage is unconfigured or any other
+ * step (download, parse, decrypt) fails. Never throws.
  */
-export async function getArtifact(
+export async function readArtifact(
   container: MinimalContainer,
   scope: ArtifactScope,
   ref: ArtifactEncryptionRef,
   key: string,
-): Promise<unknown | null> {
+): Promise<ArtifactReadResult> {
   try {
     const svc = await resolveStorageService(container, scope)
-    if (!svc) return null
+    if (!svc) return { status: 'unavailable' }
     const { buffer } = await svc.download({ key, scope })
     const wrapper = JSON.parse(buffer.toString('utf8')) as Record<string, unknown>
     const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
@@ -179,17 +210,54 @@ export async function getArtifact(
       const decrypted = await enc.decryptEntityPayload(ref.entityId, wrapper, scope.tenantId, scope.organizationId)
       serialized = decrypted[ref.field]
     }
-    if (typeof serialized !== 'string') return serialized ?? null
+    if (typeof serialized !== 'string') return { status: 'ok', value: serialized ?? null }
     try {
-      return JSON.parse(serialized)
+      return { status: 'ok', value: JSON.parse(serialized) }
     } catch {
-      return serialized
+      return { status: 'ok', value: serialized }
     }
   } catch (error) {
+    if (isMissingObjectError(error)) return { status: 'missing' }
     logger.warn('artifact fetch failed', {
       error: error instanceof Error ? error.message : String(error),
     })
-    return null
+    return { status: 'unavailable' }
+  }
+}
+
+/**
+ * Download + decrypt a previously offloaded artifact, returning the original
+ * value, or `null` when storage is unavailable, the object is missing or the
+ * read fails. Never throws.
+ */
+export async function getArtifact(
+  container: MinimalContainer,
+  scope: ArtifactScope,
+  ref: ArtifactEncryptionRef,
+  key: string,
+): Promise<unknown | null> {
+  const result = await readArtifact(container, scope, ref, key)
+  return result.status === 'ok' ? result.value : null
+}
+
+/**
+ * Strictly delete an offloaded artifact. An already-absent object (NoSuchKey /
+ * 404) counts as success; storage being unavailable is reported as
+ * `unavailable`; any other storage failure is thrown so retention can retry.
+ */
+export async function deleteArtifact(
+  container: MinimalContainer,
+  scope: ArtifactScope,
+  key: string,
+): Promise<ArtifactDeleteResult> {
+  const svc = await resolveStorageService(container, scope)
+  if (!svc) return { status: 'unavailable' }
+  try {
+    await svc.delete({ key, scope })
+    return { status: 'deleted' }
+  } catch (error) {
+    if (isMissingObjectError(error)) return { status: 'deleted' }
+    throw error
   }
 }
 
