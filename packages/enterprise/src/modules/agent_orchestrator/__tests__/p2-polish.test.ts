@@ -64,7 +64,8 @@ describe('P2 polish — trace inspector display', () => {
 
   it('tool and guardrail accordions expose aria-expanded', () => {
     expect(tracePage).toMatch(/aria-expanded=\{open\}/)
-    expect(tracePage).toMatch(/aria-expanded=\{expandable \? open : undefined\}/)
+    const guardrailsCard = readSource('components/trace/GuardrailsCard.tsx')
+    expect(guardrailsCard).toMatch(/aria-expanded=\{expandable \? open : undefined\}/)
   })
 
   it.each(LOCALES)('%s: new trace keys present', (locale) => {

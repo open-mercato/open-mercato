@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
+import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, Inbox, ClipboardCheck } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -24,7 +24,6 @@ import {
   formatTokens,
   formatCostMinor,
   type ContextBundleView,
-  type GuardrailCheckView,
   type ProposalView,
   type RunDetailView,
   type SpanView,
@@ -41,6 +40,8 @@ import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTime
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
 import { RunManifestCard } from '../../../components/RunManifestCard'
+import { InspectorCard } from '../../../components/trace/InspectorCard'
+import { GuardrailsCard } from '../../../components/trace/GuardrailsCard'
 import { LlmStepMetadataCard } from '../../../components/trace/LlmStepMetadataCard'
 import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
@@ -99,35 +100,6 @@ function StatCell({
       </div>
       <p className="mt-1 text-xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
     </div>
-  )
-}
-
-function InspectorCard({
-  title,
-  hint,
-  sampleLabel,
-  children,
-}: {
-  title: string
-  hint?: string
-  sampleLabel?: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-          {sampleLabel ? (
-            <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-              {sampleLabel}
-            </span>
-          ) : null}
-        </div>
-        {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-      </div>
-      {children}
-    </section>
   )
 }
 
@@ -199,94 +171,6 @@ function ContextAssembledCard({ bundle }: { bundle: ContextBundleView | null }) 
           </button>
         ) : null}
       </div>
-    </InspectorCard>
-  )
-}
-
-// Guardrails — the run's persisted AgentGuardrailCheck verdicts (all checks,
-// passed and tripped), each expandable to its redacted evidence + set version.
-const GUARDRAIL_RESULT_VARIANT: Record<GuardrailCheckView['result'], 'success' | 'warning' | 'error'> = {
-  pass: 'success',
-  warn: 'warning',
-  block: 'error',
-}
-
-function GuardrailsCard({ checks }: { checks: GuardrailCheckView[] }) {
-  const t = useT()
-  const [openId, setOpenId] = React.useState<string | null>(null)
-  const passedCount = checks.filter((check) => check.result === 'pass').length
-  return (
-    <InspectorCard
-      title={t('agent_orchestrator.traces.detail.guardrails')}
-      hint={
-        checks.length > 0
-          ? t('agent_orchestrator.traces.detail.guardrailsHint', undefined, {
-              passed: passedCount,
-              total: checks.length,
-            })
-          : undefined
-      }
-    >
-      {checks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('agent_orchestrator.traces.detail.noGuardrailChecks')}</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {checks.map((check) => {
-            const open = openId === check.id
-            const expandable = check.evidence != null || check.guardrailSetVersion != null
-            return (
-              <li key={check.id} className="overflow-hidden rounded-lg border border-border">
-                <button
-                  type="button"
-                  aria-expanded={expandable ? open : undefined}
-                  onClick={() => setOpenId(open ? null : check.id)}
-                  disabled={!expandable}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors enabled:hover:bg-muted/40"
-                >
-                  {check.result === 'pass' ? (
-                    <ShieldCheck className="size-4 shrink-0 text-status-success-text" />
-                  ) : (
-                    <ShieldAlert
-                      className={`size-4 shrink-0 ${check.result === 'block' ? 'text-status-error-text' : 'text-status-warning-text'}`}
-                    />
-                  )}
-                  <span className="truncate font-mono text-xs text-foreground">{check.kind}</span>
-                  <span className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                    {t(`agent_orchestrator.traces.detail.guardrailPhase.${check.phase}`, check.phase)}
-                  </span>
-                  <span className="min-w-0 flex-1" />
-                  <StatusBadge variant={GUARDRAIL_RESULT_VARIANT[check.result]}>
-                    {t(`agent_orchestrator.traces.detail.guardrailResult.${check.result}`, check.result)}
-                  </StatusBadge>
-                  {expandable ? (
-                    <ChevronRight
-                      className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
-                    />
-                  ) : null}
-                </button>
-                {open && expandable ? (
-                  <div className="space-y-2 border-t border-border bg-muted/30 px-3 py-2.5">
-                    {check.guardrailSetVersion ? (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">{t('agent_orchestrator.traces.detail.guardrailSetVersion')}:</span>{' '}
-                        <span className="font-mono">{check.guardrailSetVersion}</span>
-                      </p>
-                    ) : null}
-                    {check.evidence != null ? (
-                      <div>
-                        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          {t('agent_orchestrator.traces.detail.guardrailEvidence')}
-                        </p>
-                        <JsonDisplay data={check.evidence} />
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-      )}
     </InspectorCard>
   )
 }
@@ -1343,7 +1227,13 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   <ReasoningCard proposals={detail.proposals} input={run.input} output={run.output} />
                   <DispositionCard proposals={detail.proposals} />
                   {detail.guardrailChecks.length > 0 ? (
-                    <GuardrailsCard checks={detail.guardrailChecks} />
+                    <GuardrailsCard
+                      checks={detail.guardrailChecks}
+                      runId={run.id}
+                      integrityOutcome={detail.integrityOutcome}
+                      rawOutputKey={detail.rawOutputKey}
+                      returnedOutput={run.output}
+                    />
                   ) : null}
                   <FilesCard runId={run.id} />
                   {detail.contextBundle ? <ContextAssembledCard bundle={detail.contextBundle} /> : null}

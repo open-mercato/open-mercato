@@ -11,6 +11,8 @@ import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES, isAgentIconName } from '../../../data/agentIcons'
 import { normalizeAgentTags } from '../../../data/agentTags'
 import { agentTypeSchema } from '../../../data/validators'
+import { integrityRuleListItemSchema, listIntegrityRules } from '../../../lib/guardrails/integrity/ruleList'
+import { resolveIntegritySet } from '../../../lib/guardrails/integrity/integritySets'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -63,6 +65,10 @@ const agentDetailSchema = z.object({
   loop: z.object({ maxSteps: z.number().optional() }).nullable(),
   // Baked token-usage estimate for file-defined (opencode) agents; null otherwise.
   tokenUsage: tokenUsageSchema.nullable(),
+  // Declared output-integrity rules (pipeline order; empty when none) and the
+  // integrity set's content-hash version (null when the agent declares none).
+  integrityRules: z.array(integrityRuleListItemSchema),
+  integritySetVersion: z.string().nullable(),
 })
 
 const errorSchema = z.object({ error: z.string() })
@@ -142,6 +148,8 @@ export async function GET(req: Request, ctx: RouteContext) {
     defaultModel: entry.defaultModel ?? null,
     loop: entry.loop ?? null,
     tokenUsage: entry.tokenUsage ?? null,
+    integrityRules: listIntegrityRules(entry.integrity),
+    integritySetVersion: resolveIntegritySet(entry)?.version ?? null,
   })
 }
 
@@ -152,7 +160,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get the full definition of a registered agent',
       description:
-        'Returns the full in-module agent definition (id, module, result kind, tools, skills, instructions, provider/model, loop) for an agent declared via defineAgent. Gated by agent_orchestrator.agents.view.',
+        'Returns the full in-module agent definition (id, module, result kind, tools, skills, instructions, provider/model, loop, declared integrity rules and integrity set version) for an agent declared via defineAgent. Gated by agent_orchestrator.agents.view.',
       responses: [
         { status: 200, description: 'Agent definition', schema: agentDetailSchema },
       ],
