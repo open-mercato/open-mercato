@@ -5,13 +5,20 @@
  * for every successful content read.
  */
 
+import type { AwilixContainer } from 'awilix'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { loadInvokerAcl } from '../access/agentInvokeAccess'
+import { invokerFromAuth } from '../access/invokeDenial'
+import { readArtifact, type ArtifactEncryptionRef, type ArtifactScope } from './artifactStore'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'trace-content-access' })
 
 export const TRACE_CONTENT_ACCESS_RESOURCE_KIND = 'agent_orchestrator.agent_run.content'
 export const TRACE_CONTENT_ACCESS_TYPE = 'read:item'
+export const TRACE_VIEW_CONTENT_FEATURE = 'agent_orchestrator.trace.view_content'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const STORED_NAME_EPOCH_PATTERN = /^(\d{10,16})_/
@@ -100,4 +107,66 @@ export async function recordTraceContentAccess(
       attributes: { runId: entry.runId, kind: entry.kind },
     })
   }
+}
+
+/** Whether the caller holds `agent_orchestrator.trace.view_content` (superadmin passes). */
+export async function hasTraceViewContentAccess(
+  container: AwilixContainer,
+  auth: Exclude<AuthContext, null>,
+  tenantId: string,
+): Promise<boolean> {
+  const acl = await loadInvokerAcl(container, invokerFromAuth(auth), {
+    tenantId,
+    organizationId: auth.orgId ?? null,
+  })
+  return authorizeFeatures([TRACE_VIEW_CONTENT_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
+}
+
+export type TraceContentActor = { actorUserId: string | null; apiKeyId: string | null }
+
+/** The access-log actor of a request: the user, or the API key and its owning user. */
+export function traceContentActorFromAuth(auth: Exclude<AuthContext, null>): TraceContentActor {
+  const isApiKey = auth.isApiKey === true
+  return {
+    actorUserId: isApiKey ? auth.userId || null : auth.sub,
+    apiKeyId: isApiKey ? auth.keyId || null : null,
+  }
+}
+
+export type TraceContentReadResult =
+  | { status: 'ok'; value: unknown }
+  | { status: 'expired' }
+  | { status: 'unavailable' }
+
+export type TraceContentReadInput = {
+  scope: ArtifactScope
+  runId: string
+  kind: string
+  ref: ArtifactEncryptionRef
+  key: string
+  retentionDays: number
+  actor: TraceContentActor
+}
+
+/**
+ * Read one content artifact the caller already proved belongs to the run.
+ * A key past the retention window or a missing object is `expired`; a storage
+ * failure is `unavailable`; a successful read writes the access log.
+ */
+export async function readTraceContentArtifact(
+  container: AwilixContainer,
+  input: TraceContentReadInput,
+): Promise<TraceContentReadResult> {
+  if (isTraceContentKeyExpired(input.key, input.retentionDays)) return { status: 'expired' }
+  const result = await readArtifact(container, input.scope, input.ref, input.key)
+  if (result.status === 'missing') return { status: 'expired' }
+  if (result.status === 'unavailable') return { status: 'unavailable' }
+  await recordTraceContentAccess(container, {
+    ...input.scope,
+    ...input.actor,
+    runId: input.runId,
+    kind: input.kind,
+    key: input.key,
+  })
+  return { status: 'ok', value: result.value }
 }

@@ -5,22 +5,22 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AwilixContainer } from 'awilix'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { AgentContextBundle, AgentGuardrailCheck, AgentRun, AgentSpan, AgentToolCall } from '../../../../data/entities'
 import {
   ARTIFACT_REFS,
   getArtifact,
-  readArtifact,
   type ArtifactEncryptionRef,
   type ArtifactScope,
 } from '../../../../lib/trace/artifactStore'
 import { readRawOutputKey } from '../../../../lib/guardrails/integrity/summary'
 import { OM_LLM_ATTRIBUTES } from '../../../../lib/trace/genAiAttributes'
 import { readTraceCapturePolicy } from '../../../../lib/trace/capturePolicy'
-import { isTraceContentKeyExpired, recordTraceContentAccess } from '../../../../lib/trace/contentArtifactAccess'
-import { loadInvokerAcl } from '../../../../lib/access/agentInvokeAccess'
-import { invokerFromAuth } from '../../../../lib/access/invokeDenial'
+import {
+  hasTraceViewContentAccess,
+  readTraceContentArtifact,
+  traceContentActorFromAuth,
+} from '../../../../lib/trace/contentArtifactAccess'
 import { agentOrchestratorTag } from '../../../openapi'
 
 /**
@@ -53,7 +53,6 @@ const querySchema = z.object({
 type ArtifactKind = z.infer<typeof querySchema>['kind']
 type ContentKind = Extract<ArtifactKind, 'llm_request' | 'llm_response' | 'context_payload'>
 
-const VIEW_CONTENT_FEATURE = 'agent_orchestrator.trace.view_content'
 const CONTENT_KINDS: ReadonlySet<ArtifactKind> = new Set<ArtifactKind>(['llm_request', 'llm_response', 'context_payload'])
 
 function isContentKind(kind: ArtifactKind): kind is ContentKind {
@@ -64,18 +63,6 @@ const CONTENT_REFS: Record<ContentKind, ArtifactEncryptionRef> = {
   llm_request: ARTIFACT_REFS.llmRequest,
   llm_response: ARTIFACT_REFS.llmResponse,
   context_payload: ARTIFACT_REFS.contextPayload,
-}
-
-async function hasViewContentAccess(
-  container: AwilixContainer,
-  auth: Exclude<AuthContext, null>,
-  tenantId: string,
-): Promise<boolean> {
-  const acl = await loadInvokerAcl(container, invokerFromAuth(auth), {
-    tenantId,
-    organizationId: auth.orgId ?? null,
-  })
-  return authorizeFeatures([VIEW_CONTENT_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
 }
 
 function readAttribute(attributes: unknown, name: string): string | null {
@@ -120,25 +107,21 @@ async function serveContentArtifact(input: {
     return NextResponse.json({ error: 'Artifact not found' }, { status: 404 })
   }
   const { policy } = await readTraceCapturePolicy(container, run.tenantId)
-  if (isTraceContentKeyExpired(key, policy.retentionDays)) {
-    return NextResponse.json({ error: 'Artifact expired under the retention policy' }, { status: 410 })
-  }
-  const result = await readArtifact(container, storageScope, CONTENT_REFS[kind], key)
-  if (result.status === 'missing') {
+  const result = await readTraceContentArtifact(container, {
+    scope: storageScope,
+    runId: run.id,
+    kind,
+    ref: CONTENT_REFS[kind],
+    key,
+    retentionDays: policy.retentionDays,
+    actor: traceContentActorFromAuth(auth),
+  })
+  if (result.status === 'expired') {
     return NextResponse.json({ error: 'Artifact expired under the retention policy' }, { status: 410 })
   }
   if (result.status === 'unavailable') {
     return NextResponse.json({ error: 'Artifact is currently unavailable' }, { status: 502 })
   }
-  const isApiKey = auth.isApiKey === true
-  await recordTraceContentAccess(container, {
-    ...storageScope,
-    actorUserId: isApiKey ? auth.userId || null : auth.sub,
-    apiKeyId: isApiKey ? auth.keyId || null : null,
-    runId: run.id,
-    kind,
-    key,
-  })
   return NextResponse.json({ key, kind, payload: result.value })
 }
 
@@ -162,7 +145,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? undefined }
   const container = await createRequestContainer()
 
-  if (isContentKind(kind) && !(await hasViewContentAccess(container, auth, auth.tenantId))) {
+  if (isContentKind(kind) && !(await hasTraceViewContentAccess(container, auth, auth.tenantId))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

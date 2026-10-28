@@ -59,7 +59,7 @@
 | 4 | 4.1 | Accept llm and manifest fields on trace ingest | dispatch:capable | done | pending |
 | 4 | 4.2 | Emit OpenCode per-message llm spans | dispatch:capable | done | pending |
 | 4 | 4.3 | Report tool knowledge and retrieval over MCP | dispatch:capable | done | pending |
-| 4 | 4.4 | Add the run compare API | dispatch:capable | todo | — |
+| 4 | 4.4 | Add the run compare API | dispatch:capable | done | pending |
 | 4 | 4.5 | Add Request and Response tabs to model calls | dispatch:capable | todo | — |
 | 4 | 4.6 | Add the run compare dialog and run-level copy | dispatch | todo | — |
 | 4 | 4.7 | Cover compare and trace tabs with integration tests | dispatch | todo | — |
