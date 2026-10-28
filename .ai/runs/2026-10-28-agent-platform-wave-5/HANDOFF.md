@@ -1,23 +1,23 @@
 # Handoff — 2026-10-28-agent-platform-wave-5
 
-**Last updated:** 2026-10-28T03:01:44Z
+**Last updated:** 2026-10-28T04:01:22Z
 **Branch:** feat/agent-platform-wave-5
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** 2d407b96f — wave-4 base
+**PR:** https://github.com/open-mercato/open-mercato/pull/8099 (draft, claimed)
+**Current phase/step:** Phase 2 Step 2.1
+**Last commit:** d51ea26f5 — fix(agent_orchestrator): wrap guardrail check rows in narrow cards
 
 ## What just happened
-- Run planned: 59 Steps (Integrity P3–P5, Identity P2–P4, Observability P3–P4, Chat P3–P4, Eval P3–P5) in one PR, stacked on wave 4 (#8061).
+- Phase 1 (Integrity P3–P5) complete; checkpoint 1 green (typecheck, AO jest 2515, core guards, integration 16 passed / 3 skipped).
 
 ## Next concrete action
-- Step 1.1 — Declare the abstain_or_review integrity rule.
+- Step 2.1 — Close the agent identity route and tenant-scope follow-ups (D2.1).
 
 ## Blockers / open questions
-- none
+- none. Safety stop for user review after ~20 consecutive Steps (around Step 2.8).
 
 ## Environment caveats
-- Dev runtime runnable: yes (ephemeral app with `OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`, also in the Playwright process; HMAC ingest needs `JWT_SECRET=om-ephemeral-integration-jwt-secret`)
-- Browser / UI checks: at checkpoints via Playwright specs
+- Checkpoints every 10+ Steps (user preference).
+- Ephemeral app stopped and cleaned; it rewrites generated/file-agents.generated.ts while running — revert before commits.
 - Database/migration state: clean
 
 ## Worktree

@@ -20,19 +20,19 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Declare the abstain_or_review integrity rule | dispatch | done | pending |
-| 1 | 1.2 | Evaluate abstain_or_review after grounding | dispatch:capable | done | pending |
-| 1 | 1.3 | Hold auto-approval on integrity warnings that request it | dispatch | done | pending |
-| 1 | 1.4 | Emit agent_orchestrator.run.review_requested | dispatch:cheap | done | pending |
-| 1 | 1.5 | Declare and screen untrusted agent inputs | dispatch | done | pending |
-| 1 | 1.6 | Delimit untrusted input fields in the model prompt | dispatch:capable | done | pending |
-| 1 | 1.7 | Return the integrity summary and raw output key from the run APIs | dispatch | done | pending |
-| 1 | 1.8 | Show integrity rules and holds in the trace, caseload and agent UI | dispatch | done | pending |
-| 1 | 1.9 | Add the guardrail_check eval scorer | dispatch | done | pending |
-| 1 | 1.9-review-fix | Keep ScorerRunView.guardrailChecks optional | inline | done | pending |
-| 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | done | pending |
-| 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | done | pending |
-| 1 | 1.11-review-fix | Wrap guardrail check rows in narrow cards | inline | done | pending |
+| 1 | 1.1 | Declare the abstain_or_review integrity rule | dispatch | done | 40a4c30cf |
+| 1 | 1.2 | Evaluate abstain_or_review after grounding | dispatch:capable | done | a053ff428 |
+| 1 | 1.3 | Hold auto-approval on integrity warnings that request it | dispatch | done | e77d6648f |
+| 1 | 1.4 | Emit agent_orchestrator.run.review_requested | dispatch:cheap | done | 5a120d46d |
+| 1 | 1.5 | Declare and screen untrusted agent inputs | dispatch | done | 51d6d2985 |
+| 1 | 1.6 | Delimit untrusted input fields in the model prompt | dispatch:capable | done | 0b44572cf |
+| 1 | 1.7 | Return the integrity summary and raw output key from the run APIs | dispatch | done | 750310a24 |
+| 1 | 1.8 | Show integrity rules and holds in the trace, caseload and agent UI | dispatch | done | b33b20205 |
+| 1 | 1.9 | Add the guardrail_check eval scorer | dispatch | done | ffd559b5d |
+| 1 | 1.9-review-fix | Keep ScorerRunView.guardrailChecks optional | inline | done | 482c0737e |
+| 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | done | b992db30f |
+| 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | done | eccc2fef7 |
+| 1 | 1.11-review-fix | Wrap guardrail check rows in narrow cards | inline | done | d51ea26f5 |
 | 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | todo | — |
 | 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | todo | — |
 | 2 | 2.3 | Run principal sync in setup and the CLI | dispatch | todo | — |
