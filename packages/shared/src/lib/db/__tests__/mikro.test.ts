@@ -378,12 +378,19 @@ describe('instrumentPrimaryPool', () => {
     expect(pool.connect).toBe(originalConnect)
   })
 
-  it('does not let metric-provider failures change pool acquisition semantics', async () => {
+  it.each([false, true])('reports every metric failure and preserves pool acquisition (reporting throws: %s)', async (reportingThrows) => {
     const { EventEmitter } = await import('node:events')
     const { instrumentPrimaryPool } = await import('../mikro')
     const { registerTelemetryRuntime } = await import('../../telemetry/runtime')
     const client = { id: 'client' }
-    const originalConnect = jest.fn(() => Promise.resolve(client))
+    const failure = new Error('[internal] metric provider unavailable')
+    const reportError = jest.fn(() => {
+      if (reportingThrows) throw new Error('[internal] reporting sink failed')
+    })
+    const originalConnect = jest.fn((callback?: (error: Error | undefined, client: unknown, done: () => void) => void) => {
+      if (callback) return callback(undefined, client, () => {})
+      return Promise.resolve(client)
+    })
     const pool = Object.assign(new EventEmitter(), {
       totalCount: 1,
       idleCount: 0,
@@ -396,15 +403,24 @@ describe('instrumentPrimaryPool', () => {
       captureTraceContext: () => ({}),
       continueTrace: (_carrier, _name, fn) => fn(),
       recordMetric: () => {
-        throw new Error('[internal] metric provider unavailable')
+        throw failure
       },
       recordHttpDuration: () => {},
-      reportError: () => {},
+      reportError,
       shutdown: async () => {},
     })
     const dispose = instrumentPrimaryPool(pool, () => 100)
 
     await expect(pool.connect()).resolves.toBe(client)
+    await expect(pool.connect()).resolves.toBe(client)
+    const callback = jest.fn()
+    expect(() => pool.connect(callback)).not.toThrow()
+    expect(callback).toHaveBeenCalledWith(undefined, client, expect.any(Function))
+    expect(reportError).toHaveBeenCalledTimes(3)
+    expect(reportError).toHaveBeenLastCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.pool_wait_metric_failed',
+    })
 
     dispose()
   })

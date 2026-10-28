@@ -161,8 +161,13 @@ describe('runtime metrics sampler', () => {
       ])
   })
 
-  it('resets delay state after a sampling-source failure and disposes once', () => {
-    registerTelemetryRuntime(createRuntime(() => {}))
+  it.each([false, true])('reports sampling failures, recovers, and disposes once (reporting throws: %s)', (reportingThrows) => {
+    const failure = new Error('[internal] memory sample failed')
+    const reportError = jest.fn(() => {
+      if (reportingThrows) throw new Error('[internal] reporting sink failed')
+    })
+    const points: TelemetryMetricPoint[] = []
+    registerTelemetryRuntime({ ...createRuntime((point) => points.push(point)), reportError })
     let sample = () => {}
     const interval = { unref: jest.fn() } as unknown as ReturnType<typeof setInterval>
     const delay: EventLoopDelayMonitor = {
@@ -174,9 +179,7 @@ describe('runtime metrics sampler', () => {
     const sources: RuntimeMetricSources = {
       createEventLoopDelayMonitor: () => delay,
       eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }),
-      memoryUsage: () => {
-        throw new Error('[internal] memory sample failed')
-      },
+      memoryUsage: jest.fn().mockImplementationOnce(() => { throw failure }).mockReturnValue({ rss: 123 }),
       heapSpaceStatistics: () => [],
       setInterval: (handler) => {
         sample = handler
@@ -186,11 +189,17 @@ describe('runtime metrics sampler', () => {
     }
 
     const dispose = createRuntimeMetricsSampler(sources)
-    sample()
+    expect(sample).not.toThrow()
+    expect(sample).not.toThrow()
     dispose()
     dispose()
 
-    expect(delay.reset).toHaveBeenCalledTimes(1)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.runtime_sampling_failed',
+    })
+    expect(points).toContainEqual({ kind: 'gauge', name: 'process.memory.usage', value: 123, unit: 'By' })
+    expect(delay.reset).toHaveBeenCalledTimes(2)
     expect(delay.disable).toHaveBeenCalledTimes(1)
     expect(sources.clearInterval).toHaveBeenCalledTimes(1)
   })
