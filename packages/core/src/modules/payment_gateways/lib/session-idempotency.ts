@@ -151,27 +151,63 @@ export async function pruneCompletedPaymentSessionInitializations(
   scope: Scope,
   options: { now?: Date; batchSize?: number } = {},
 ): Promise<number> {
+  return prunePaymentSessionInitializations(em, scope, options, false)
+}
+
+export async function pruneExpiredPaymentSessionInitializations(
+  em: EntityManager,
+  scope: Scope,
+  options: { now?: Date; batchSize?: number } = {},
+): Promise<number> {
+  return prunePaymentSessionInitializations(em, scope, options, true)
+}
+
+async function prunePaymentSessionInitializations(
+  em: EntityManager,
+  scope: Scope,
+  options: { now?: Date; batchSize?: number },
+  includeIncomplete: boolean,
+): Promise<number> {
   const now = options.now ?? new Date()
   const batchSize = options.batchSize ?? PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE
   if (!Number.isInteger(batchSize) || batchSize < 1) {
     throw new Error('[internal] Payment-session initialization prune batch size must be a positive integer')
   }
   const cutoff = new Date(now.getTime() - PAYMENT_SESSION_REPLAY_WINDOW_MS)
+  const eligibleState = includeIncomplete
+    ? `(gateway_transaction_id is not null or (
+        gateway_transaction_id is null and (
+          (claim_token is null and claimed_at is null)
+          or (claim_token is not null and claimed_at < ?)
+        )
+      ))`
+    : 'gateway_transaction_id is not null'
   const connection = em.getConnection()
   const result = await connection.execute(
     `
-    delete from gateway_session_initializations
-    where id in (
+    with expired_claims as materialized (
       select id from gateway_session_initializations
       where tenant_id = ?
         and organization_id = ?
-        and gateway_transaction_id is not null
         and updated_at < ?
-      order by updated_at asc
+        and ${eligibleState}
+      order by updated_at asc, id asc
       limit ?
+      for update skip locked
     )
+    delete from gateway_session_initializations
+    where tenant_id = ? and organization_id = ?
+      and id in (select id from expired_claims)
     `,
-    [scope.tenantId, scope.organizationId, cutoff, batchSize],
+    [
+      scope.tenantId,
+      scope.organizationId,
+      cutoff,
+      ...(includeIncomplete ? [cutoff] : []),
+      batchSize,
+      scope.tenantId,
+      scope.organizationId,
+    ],
     'run',
   ) as { affectedRows?: number; rowCount?: number } | undefined
   return result?.affectedRows ?? result?.rowCount ?? 0
