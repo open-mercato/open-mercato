@@ -43,6 +43,8 @@
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | done | f4b704570, 8f5ff20aa |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | done | bd6c75aa8 |
 | 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | 9a0f3c245 |
+| 5 | 5.2-review-fix-2 | Harden the OTel export after review | dispatch:capable | todo | — |
+| 5 | 5.2-review-fix-3 | Fix the trace capture review findings | dispatch | todo | — |
 
 ## Goal
 
@@ -228,6 +230,8 @@ Shorthand: `AA` = `packages/ai-assistant/src/modules/ai_assistant`, `AO` = `pack
 - Observability spec: Phase 2 implemented + deviations; OTel spec: Phase 1 implemented + deviations (no job-id dedupe, health in module config, content select disabled); roadmap wave 4 row status; `UPGRADE_NOTES.md` entry (new feature `trace.view_content`, new env vars, new settings pages, new routes, trace span attribute additions, legacy keys kept).
 
 ## Execution notes
+
+- Review (`om-auto-review-pr`, comment review on #8061): no blocker/major; minor findings fixed in 5.2-review-fix-2 (OTel: retry unexpected failures, trace-link gate, double-typed keys, stable workflow root, cached-lock reads in both settings commands, fail-closed redaction, Retry-After cap, instance source label, span-name redaction, local-only note for delivery specs) and 5.2-review-fix-3 (trace capture: inert retention/redactPii controls, docs accuracy, step matching by stepNumber).
 
 - 5.2-review-fix (final gate): core guard tests required the two new settings commands on the `optimistic-lock-command-coverage` allowlist (exempt: single-admin config row guarded on `updated_at`) and the `trace.view_content` title in the auth ACL translation catalog (all five locales).
 
