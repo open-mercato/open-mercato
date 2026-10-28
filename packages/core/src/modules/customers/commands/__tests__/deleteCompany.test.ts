@@ -25,6 +25,7 @@ import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerEntity,
@@ -86,19 +87,23 @@ function isSoftDeletedLinkFilter(where: unknown): boolean {
   return typeof deletedAt === 'object' && deletedAt !== null && '$ne' in deletedAt
 }
 
-function makeEm(entity: CustomerEntity, counts: Counts = {}): jest.Mocked<Pick<EntityManager,
+type OperationLog = Array<{ op: 'findOne' | 'count'; entity: unknown; options?: unknown }>
+
+function makeEm(entity: CustomerEntity, counts: Counts = {}, opLog: OperationLog = []): jest.Mocked<Pick<EntityManager,
   'fork' | 'findOne' | 'find' | 'count' | 'nativeDelete' | 'nativeUpdate' | 'remove' | 'flush' | 'transactional' | 'create' | 'persist' | 'getReference'
 >> {
   let residualSoftDeletedLinks = counts.softDeletedPersonLinks ?? 0
   let companyRemoved = false
   const em: any = {
     fork: jest.fn().mockReturnThis(),
-    findOne: jest.fn(async (ctor: any) => {
+    findOne: jest.fn(async (ctor: any, _where: any, options?: any) => {
+      opLog.push({ op: 'findOne', entity: ctor, options })
       if (ctor === CustomerEntity) return entity
       return null
     }),
     find: jest.fn(async () => []),
     count: jest.fn(async (ctor: any) => {
+      opLog.push({ op: 'count', entity: ctor })
       if (ctor === CustomerPersonCompanyLink) return counts.personLinks ?? 0
       if (ctor === CustomerDealCompanyLink) return counts.dealLinks ?? 0
       if (ctor === CustomerPersonProfile) return counts.directPeople ?? 0
@@ -186,7 +191,10 @@ describe('customers.companies.delete — dependent guard', () => {
 
     mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
-    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({ entityId: COMPANY_ID })
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({
+      entityId: COMPANY_ID,
+      labelAssignments: [],
+    })
 
     expect(em.nativeDelete).toHaveBeenCalledWith(CustomerPersonCompanyLink, {
       company: entity,
@@ -270,5 +278,60 @@ describe('customers.companies.delete — dependent guard', () => {
     expect(body.error).toContain('1')
     expect(body.error).toContain('2')
     expect(body.error).toContain('3')
+  })
+})
+
+describe('customers.companies.delete — row lock (issue #7613)', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  function findLockIndex(opLog: OperationLog): number {
+    return opLog.findIndex((entry) =>
+      entry.op === 'findOne' && entry.entity === CustomerEntity
+      && (entry.options as { lockMode?: LockMode } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE)
+  }
+
+  it('locks the entity row with PESSIMISTIC_WRITE before any dependent check or child cleanup', async () => {
+    const entity = makeCompanyEntity()
+    const opLog: OperationLog = []
+    const em = makeEm(entity, { personLinks: 0, dealLinks: 0, directPeople: 0 }, opLog)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+
+    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
+
+    await handler.execute({ body: { id: COMPANY_ID } }, ctx)
+
+    // The row lock must be acquired before any dependent count or child
+    // cleanup, so a concurrent insert of a child row (label assignment,
+    // person link, deal link, direct person, etc.) serializes behind this
+    // transaction instead of racing the final delete with a 409
+    // FOREIGN_KEY_VIOLATION.
+    const lockIndex = findLockIndex(opLog)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    const personLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerPersonCompanyLink)
+    const dealLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerDealCompanyLink)
+    const directPeopleIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerPersonProfile)
+    expect(personLinksIndex).toBeGreaterThan(lockIndex)
+    expect(dealLinksIndex).toBeGreaterThan(lockIndex)
+    expect(directPeopleIndex).toBeGreaterThan(lockIndex)
+    expect(em.remove).toHaveBeenCalledWith(entity)
+  })
+
+  it('aborts without mutating anything when a concurrent person link already exists under the lock', async () => {
+    const entity = makeCompanyEntity()
+    const opLog: OperationLog = []
+    const em = makeEm(entity, { personLinks: 1 }, opLog)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+
+    await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).rejects.toBeInstanceOf(CrudHttpError)
+
+    const lockIndex = findLockIndex(opLog)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    const personLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerPersonCompanyLink)
+    expect(personLinksIndex).toBeGreaterThan(lockIndex)
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 })

@@ -120,4 +120,15 @@ export type CacheServiceOptions = {
    * disables the cap.
    */
   maxEntries?: number
+  /**
+   * Value compression for the redis and sqlite strategies. Falls back to
+   * `CACHE_COMPRESSION`, then `off`. Reads detect the stored format, so
+   * entries written under any setting stay readable.
+   */
+  compression?: 'off' | 'zstd' | 'gzip'
+  /**
+   * Smallest serialized entry, in bytes, that gets compressed. Falls back to
+   * `CACHE_COMPRESSION_MIN_BYTES`, then 1024.
+   */
+  compressionMinBytes?: number
 }

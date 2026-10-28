@@ -131,3 +131,22 @@ export async function deleteCarrierShipmentIdempotencyByKeyInDb(idempotencyKey: 
     await client.query('delete from carrier_shipment_idempotency_keys where idempotency_key = $1', [idempotencyKey])
   })
 }
+
+/** Whether the webhook worker has claimed (processed) a carrier event with this idempotency key. */
+export async function hasCarrierWebhookClaimInDb(idempotencyKey: string, providerKey: string): Promise<boolean> {
+  return withClient(async (client) => {
+    const result = await client.query(
+      'select 1 from carrier_webhook_events where idempotency_key = $1 and provider_key = $2 limit 1',
+      [idempotencyKey, providerKey],
+    )
+    return (result.rowCount ?? 0) > 0
+  })
+}
+
+/** Hard-deletes webhook claim rows for the given idempotency keys (best-effort test cleanup). */
+export async function deleteCarrierWebhookClaimsInDb(idempotencyKeys: string[]): Promise<void> {
+  if (idempotencyKeys.length === 0) return
+  await withClient(async (client) => {
+    await client.query('delete from carrier_webhook_events where idempotency_key = any($1::text[])', [idempotencyKeys])
+  })
+}

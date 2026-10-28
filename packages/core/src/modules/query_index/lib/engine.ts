@@ -4,12 +4,26 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import {
+  buildArrayColumnNoOverlapPredicate,
+  buildArrayColumnOverlapPredicate,
+  buildJsonbNoOverlapPredicate,
+  buildJsonbOverlapPredicate,
+  normalizeOverlapValues,
+} from '@open-mercato/shared/lib/query/overlap'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
+import {
+  DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+  DecryptRefusalTally,
+  resolveDecryptEnabled,
+  resolveDecryptScope,
+} from '@open-mercato/shared/lib/encryption/decryptScope'
 import {
   buildCustomFieldKindIndex,
   createCustomFieldKindMapResolver,
@@ -42,7 +56,13 @@ import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import {
+  matchEncryptedSortFields,
+  resolveEncryptedFieldNames,
+  resolveEncryptedSortFields,
+  resolveEncryptedSortMaxRows,
+  sortRowsInMemory,
+} from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
@@ -70,7 +90,7 @@ type CustomFieldDefRow = {
 
 /** Operators `buildCfFilterExpression` compiles; anything else yields no predicate. */
 const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
-  'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte',
+  'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte', 'overlap', 'noverlap',
 ])
 
 /** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
@@ -769,7 +789,8 @@ export class HybridQueryEngine implements QueryEngine {
       const fallbackOrgId =
         opts.organizationId
         ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-      const encSvc = this.getEncryptionService()
+      const decryptEnabled = resolveDecryptEnabled(opts)
+      const encSvc = decryptEnabled ? this.getEncryptionService() : null
       const resolvedSorts: Sort[] = []
       for (const sort of opts.sort || []) {
         const field = String(sort.field)
@@ -780,14 +801,40 @@ export class HybridQueryEngine implements QueryEngine {
           if (baseField) resolvedSorts.push({ ...sort, field: baseField })
         }
       }
-      const encryptedSortFields = await resolveEncryptedSortFields(
+      const plainSortFields = resolvedSorts
+        .filter((sort) => !sort.field.startsWith('cf:'))
+        .map((sort) => sort.field)
+      const encryptedFieldNames = await resolveEncryptedFieldNames(
         encSvc,
         entity,
-        resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
         opts.tenantId ?? null,
         fallbackOrgId,
       )
+      const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
       const requiresPlaintextSort = encryptedSortFields.size > 0
+      if (!decryptEnabled && plainSortFields.length > 0) {
+        const declinedSortFields = await resolveEncryptedSortFields(
+          this.getEncryptionService(),
+          entity,
+          plainSortFields,
+          opts.tenantId ?? null,
+          fallbackOrgId,
+        )
+        if (declinedSortFields.size > 0) {
+          logger.warn(DECLINED_ENCRYPTED_SORT_LOG_MESSAGE, {
+            entity: String(entity),
+            sortFields: Array.from(declinedSortFields),
+          })
+        }
+      }
+      const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
+      const injectsTenantIdForDecrypt =
+        encSvc != null
+        && hasTenantColumn
+        && requestedFields != null
+        && !requestedFields.includes('tenant_id')
+        && !requestedFields.includes('tenantId')
+        && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
 
       const cfSortKeys = Array.from(new Set(
         resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
@@ -1007,6 +1054,8 @@ export class HybridQueryEngine implements QueryEngine {
           case 'like': return target.where(column, 'like', value as any)
           case 'ilike': return target.where(column, 'ilike', value as any)
           case 'exists': return value ? target.where(column, 'is not', null) : target.where(column, 'is', null)
+          case 'overlap': return target.where(buildArrayColumnOverlapPredicate(column, value))
+          case 'noverlap': return target.where(buildArrayColumnNoOverlapPredicate(column, value))
           default: return target
         }
       }
@@ -1168,6 +1217,7 @@ export class HybridQueryEngine implements QueryEngine {
       if (requiresPlaintextSort) {
         for (const field of encryptedSortFields) selectFieldSet.add(field)
       }
+      if (injectsTenantIdForDecrypt) selectFieldSet.add('tenant_id')
       if (opts.includeCustomFields === true) {
         const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
         try {
@@ -1295,20 +1345,28 @@ export class HybridQueryEngine implements QueryEngine {
         return customFieldKinds
       }
 
+      const refusalTally = new DecryptRefusalTally()
+
       const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
         let next = item
+        if (!encSvc) return next
+        const decision = resolveDecryptScope({
+          rowTenantId: (next?.tenant_id ?? next?.tenantId ?? null) as string | null,
+          rowOrganizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
+          callerTenantId: opts.tenantId ?? null,
+          callerOrganizationId: fallbackOrgId ?? null,
+        })
+        if (!decision.decrypt) {
+          refusalTally.record(decision, next?.id == null ? null : String(next.id))
+          return next
+        }
         if (encSvc?.decryptEntityPayload) {
           const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
             entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
             options?: { em?: EntityManager },
           ) => Promise<Record<string, unknown>>
           try {
-            const decrypted = await decrypt(
-              entity, next,
-              (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-              (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
-              { em: this.em },
-            )
+            const decrypted = await decrypt(entity, next, decision.tenantId, decision.organizationId, { em: this.em })
             next = { ...next, ...decrypted }
           } catch (err) {
             logger.error('Error decrypting entity payload', { err })
@@ -1319,8 +1377,8 @@ export class HybridQueryEngine implements QueryEngine {
             // The kind is resolved against the very scope the value is decrypted with, so an
             // organization-specific definition can never type another organization's value.
             const cfScope = {
-              tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-              organizationId: (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
+              tenantId: decision.tenantId,
+              organizationId: decision.organizationId,
             }
             const resolveKinds = await resolveCustomFieldKinds()
             next = await decryptIndexDocCustomFields(
@@ -1330,6 +1388,11 @@ export class HybridQueryEngine implements QueryEngine {
           } catch { /* keep next as-is */ }
         }
         return next
+      }
+
+      const reportDecryptRefusals = () => {
+        if (refusalTally.refused === 0) return
+        logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, refusalTally.toLogContext(String(entity)))
       }
 
       let items: Record<string, unknown>[]
@@ -1421,6 +1484,10 @@ export class HybridQueryEngine implements QueryEngine {
           { page, pageSize }, profiler,
         ) as Record<string, unknown>[]
         items = await mapWithConcurrency(itemsRaw, DECRYPT_CONCURRENCY, decryptRow)
+      }
+      reportDecryptRefusals()
+      if (injectsTenantIdForDecrypt) {
+        for (const row of items) delete row.tenant_id
       }
       if (debugEnabled) this.debug('query:complete', { entity, total, items: items.length })
 
@@ -1710,6 +1777,18 @@ export class HybridQueryEngine implements QueryEngine {
           ])
         )
       }
+      case 'noverlap':
+        return sql<boolean>`false`
+      case 'overlap': {
+        const values = normalizeOverlapValues(value)
+        if (!values.length) return sql<boolean>`false`
+        return eb.or(
+          values.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        )
+      }
       case 'nin': {
         const values = this.toArray(value)
         return sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`
@@ -1886,6 +1965,18 @@ export class HybridQueryEngine implements QueryEngine {
           ])
         ))
       }
+      case 'noverlap':
+        return q.where(sql<boolean>`false`)
+      case 'overlap': {
+        const vals = normalizeOverlapValues(value)
+        if (!vals.length) return q.where(sql<boolean>`false`)
+        return q.where((eb: any) => eb.or(
+          vals.flatMap((val) => [
+            sql<boolean>`${textExpr} = ${val}`,
+            arrContains(val),
+          ])
+        ))
+      }
       case 'nin': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -1954,6 +2045,10 @@ export class HybridQueryEngine implements QueryEngine {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
       }
+      case 'overlap':
+        return q.where(buildJsonbOverlapPredicate(`${alias}.doc`, key, value))
+      case 'noverlap':
+        return q.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, key, value))
       case 'nin': {
         const vals = this.toArray(value)
         return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
@@ -2066,11 +2161,23 @@ export class HybridQueryEngine implements QueryEngine {
       case 'gte': return eb(column, '>=', value)
       case 'lt': return eb(column, '<', value)
       case 'lte': return eb(column, '<=', value)
-      case 'in': return eb(column, 'in', this.toArray(value))
-      case 'nin': return eb(column, 'not in', this.toArray(value))
+      case 'in': {
+        // An empty list ("no id survived validation", #7502) compiles to invalid
+        // SQL (`in ()`) under Kysely/Postgres — short-circuit to a predicate that
+        // never matches instead of letting the driver reject the query.
+        const inValues = this.toArray(value)
+        return inValues.length === 0 ? sql<boolean>`false` : eb(column, 'in', inValues)
+      }
+      case 'nin': {
+        // Mirrors 'in' above: empty means "exclude nothing".
+        const ninValues = this.toArray(value)
+        return ninValues.length === 0 ? sql<boolean>`true` : eb(column, 'not in', ninValues)
+      }
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
       case 'exists': return eb(column, value ? 'is not' : 'is', null)
+      case 'overlap': return buildArrayColumnOverlapPredicate(column, value)
+      case 'noverlap': return buildArrayColumnNoOverlapPredicate(column, value)
       default: return sql<boolean>`true`
     }
   }
@@ -2102,6 +2209,10 @@ export class HybridQueryEngine implements QueryEngine {
         const vals = this.toArray(value)
         return sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
       }
+      case 'overlap':
+        return buildJsonbOverlapPredicate(`${alias}.doc`, key, value)
+      case 'noverlap':
+        return buildJsonbNoOverlapPredicate(`${alias}.doc`, key, value)
       case 'nin': {
         const vals = this.toArray(value)
         return sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
@@ -2156,6 +2267,14 @@ export class HybridQueryEngine implements QueryEngine {
           next = this.applyColumnFilter(next, column, filter, {
             ...searchRuntime, entity, field: String(filter.field), recordIdColumn: `${alias}.entity_id`,
           })
+          continue
+        }
+        if (filter.op === 'overlap') {
+          next = next.where(buildJsonbOverlapPredicate(`${alias}.doc`, String(filter.field), filter.value))
+          continue
+        }
+        if (filter.op === 'noverlap') {
+          next = next.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, String(filter.field), filter.value))
           continue
         }
         // Unknown field → filter on doc JSON text
@@ -2748,6 +2867,8 @@ export class HybridQueryEngine implements QueryEngine {
             case '$like': add(field, 'like', opVal); break
             case '$ilike': add(field, 'ilike', opVal); break
             case '$exists': add(field, 'exists', opVal); break
+            case '$overlap': add(field, 'overlap', opVal); break
+            case '$noverlap': add(field, 'noverlap', opVal); break
           }
         }
       } else {
@@ -2879,16 +3000,26 @@ export class HybridQueryEngine implements QueryEngine {
         const operator = filter.op === 'gt' ? '>' : filter.op === 'gte' ? '>=' : filter.op === 'lt' ? '<' : '<='
         return q.where(col, operator, filter.value as any)
       }
-      case 'in':
-        return q.where(col, 'in', this.toArray(filter.value))
-      case 'nin':
-        return q.where(col, 'not in', this.toArray(filter.value))
+      case 'in': {
+        // Mirrors the guard in applyColumnFilter above (#7502).
+        const inValues = this.toArray(filter.value)
+        return inValues.length === 0 ? q.where(sql<boolean>`false`) : q.where(col, 'in', inValues)
+      }
+      case 'nin': {
+        // Mirrors 'in' above: empty means "exclude nothing".
+        const ninValues = this.toArray(filter.value)
+        return ninValues.length === 0 ? q.where(sql<boolean>`true`) : q.where(col, 'not in', ninValues)
+      }
       case 'like':
         return q.where(col, 'like', filter.value as any)
       case 'ilike':
         return q.where(col, 'ilike', filter.value as any)
       case 'exists':
         return filter.value ? q.where(col, 'is not', null) : q.where(col, 'is', null)
+      case 'overlap':
+        return q.where(buildArrayColumnOverlapPredicate(col, filter.value))
+      case 'noverlap':
+        return q.where(buildArrayColumnNoOverlapPredicate(col, filter.value))
       default:
         return q
     }

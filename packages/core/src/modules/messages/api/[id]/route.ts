@@ -16,9 +16,9 @@ import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
   canPostToChannelThread,
-  hasChannelThreadReadAccess,
   hasOrganizationAccess,
   resolveMessageContext,
+  resolveMessageReadAccess,
 } from '../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
@@ -103,13 +103,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  const recipient = await em.findOne(MessageRecipient, {
-    messageId: params.id,
-    recipientUserId: scope.userId,
-    deletedAt: null,
-  })
-
-  const isSender = message.senderUserId === scope.userId
+  const { recipient, isSender, hasChannelThreadAccess } = await resolveMessageReadAccess(ctx, scope, message)
   const isRecipient = Boolean(recipient)
 
   // #5535: a message that arrived over a communication channel has the channel
@@ -126,7 +120,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // `requireAuth` only so that a participant can always read their own message.
   // The gate goes through RBAC, not through `ctx.auth.features` — the session JWT
   // carries no `features` claim at all, so reading it would deny everyone.
-  const hasChannelThreadAccess = await hasChannelThreadReadAccess(ctx, scope, message)
 
   if (!isSender && !isRecipient && !hasChannelThreadAccess) {
     return Response.json({ error: 'Access denied' }, { status: 403 })

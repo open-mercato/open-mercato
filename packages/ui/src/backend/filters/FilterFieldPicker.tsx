@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Search, Activity, Calendar, Hash, Tag, ArrowRight, ALargeSmall, UserRound, Mail, Phone, Filter, type LucideIcon } from 'lucide-react'
 import { Popover, PopoverContent, PopoverAnchor } from '../../primitives/popover'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { UNGROUPED_GROUP_ID, resolveGroupLabel } from '../utils/groupLabels'
 import type { FilterFieldDef, FilterFieldType } from '@open-mercato/shared/lib/query/advanced-filter'
 
 const TYPE_ICON: Record<FilterFieldType, LucideIcon> = {
@@ -54,7 +55,7 @@ export function FilterFieldPicker({ fields, open, onOpenChange, onSelect, trigge
     const map = new Map<string, FilterFieldDef[]>()
     const order: string[] = []
     for (const f of filtered) {
-      const g = f.group ?? 'More'
+      const g = f.group ?? UNGROUPED_GROUP_ID
       if (!map.has(g)) { map.set(g, []); order.push(g) }
       map.get(g)!.push(f)
     }
@@ -103,7 +104,7 @@ export function FilterFieldPicker({ fields, open, onOpenChange, onSelect, trigge
           <div className="max-h-[400px] overflow-y-auto py-1" role="listbox">
             {grouped.map(({ group, items }) => (
               <div key={group}>
-                <div className="px-3 pt-2 pb-1 text-overline font-semibold uppercase tracking-widest text-muted-foreground">{group}</div>
+                <div className="px-3 pt-2 pb-1 text-overline font-semibold uppercase tracking-widest text-muted-foreground">{resolveGroupLabel(t, group, 'ui.advancedFilter.fieldPicker.ungrouped', 'More')}</div>
                 {items.map((f) => {
                   const flatIdx = flatVisible.indexOf(f)
                   const Icon = resolveIcon(f)
