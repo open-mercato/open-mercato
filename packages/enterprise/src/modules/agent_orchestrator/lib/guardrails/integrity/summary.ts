@@ -59,6 +59,12 @@ export function readCheckRuleId(evidence: unknown): string | null {
   return typeof ruleId === 'string' && ruleId.length > 0 ? ruleId : null
 }
 
+/** The `abstain_or_review` outcome a check row's evidence records, or null when it records none. */
+export function readCheckOutcome(evidence: unknown): string | null {
+  const outcome = evidenceRecord(evidence)?.outcome
+  return typeof outcome === 'string' && outcome.length > 0 ? outcome : null
+}
+
 /** The pre-repair raw-output artifact key a check row's evidence points at, if any. */
 export function readRawOutputKey(evidence: unknown): string | null {
   const rawOutput = evidenceRecord(evidence)?.rawOutput

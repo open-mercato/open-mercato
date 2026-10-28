@@ -7,7 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { AgentProposal, AgentRun, AgentSpan, AgentToolCall } from '../../../data/entities'
-import { projectRunView } from '../../../lib/eval/projectRunView'
+import { loadRunGuardrailChecks, projectRunView } from '../../../lib/eval/projectRunView'
 import { getScorerDefinition, parseScorerConfig, runScorer } from '../../../lib/eval/registry'
 import { createModelJudge } from '../../../lib/eval/llmJudge'
 import { normalizeJudgeRubric } from '../../../lib/eval/judgeRubric'
@@ -73,7 +73,8 @@ export async function POST(req: Request) {
   const toolCalls = await findWithDecryption(em, AgentToolCall, { agentRunId: run.id, ...scope }, undefined, scope)
   const spans = await em.find(AgentSpan, { agentRunId: run.id, ...scope })
   const proposal = await em.findOne(AgentProposal, { runId: run.id, ...scope })
-  const runView = projectRunView({ run, toolCalls, spans, disposition: proposal?.disposition ?? null })
+  const guardrailChecks = await loadRunGuardrailChecks(em, run.id, scope)
+  const runView = projectRunView({ run, toolCalls, spans, disposition: proposal?.disposition ?? null, guardrailChecks })
 
   const expected = (input.expected ?? null) as Json | null
 

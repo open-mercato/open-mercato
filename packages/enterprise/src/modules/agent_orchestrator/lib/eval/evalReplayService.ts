@@ -15,7 +15,7 @@ import {
   AgentToolCall,
 } from '../../data/entities'
 import { parseCaseAssertionRefs, resolveEffectiveAssertions } from './assertionResolution'
-import { projectRunView } from './projectRunView'
+import { loadRunGuardrailChecks, projectRunView } from './projectRunView'
 import { runScorer } from './registry'
 import { createModelJudge, runLlmJudgeForRun, type JudgeCaseLinkage } from './llmJudge'
 import {
@@ -417,7 +417,8 @@ async function scoreCaseRun(
   // for the `disposition_equals` scorer.
   const proposal = await em.findOne(AgentProposal, { runId: run.id, ...scope })
 
-  const runView = projectRunView({ run, toolCalls, spans, disposition: proposal?.disposition ?? null })
+  const guardrailChecks = await loadRunGuardrailChecks(em, run.id, scope)
+  const runView = projectRunView({ run, toolCalls, spans, disposition: proposal?.disposition ?? null, guardrailChecks })
 
   // Deterministic only: judge assertions need an async model round-trip and are
   // scored on their own path (Phase 3), not by this synchronous replay.
