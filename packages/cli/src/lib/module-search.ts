@@ -225,25 +225,16 @@ export function parseCatalogIndex(value: unknown): CatalogIndex | null {
   if (!isRecord(value) || value.schemaVersion !== 1) return null
   if (!isString(value.generatedAt) || !isString(value.dataVersion) || !isString(value.site)) return null
   if (!Array.isArray(value.lines) || !Array.isArray(value.entries)) return null
-  const dataAsOf = value.dataAsOf
-  if (
-    !isAbsentOr(
-      dataAsOf,
-      (item) => isRecord(item) && isAbsentOr(item.source, (source) => source === null || source === 'ci' || source === 'preview'),
-    )
-  ) {
+  if (!isAbsentOr(value.dataAsOf, isRecord)) return null
+  if (!value.lines.every((line) => isRecord(line) && isString(line.key) && isString(line.version) && isString(line.source))) {
     return null
   }
+  if (!value.entries.every(isCatalogEntry)) return null
   const lines = value.lines.filter(
     (line): line is CatalogIndex['lines'][number] =>
-      isRecord(line) &&
-      isString(line.key) &&
-      isString(line.version) &&
-      (line.source === 'latest' || line.source === 'previous' || line.source === 'develop'),
+      line.source === 'latest' || line.source === 'previous' || line.source === 'develop',
   )
-  if (lines.length !== value.lines.length) return null
-  if (!value.entries.every(isCatalogEntry)) return null
-  return value as CatalogIndex
+  return { ...(value as CatalogIndex), lines }
 }
 
 export function parseBuiltInIndex(value: unknown): BuiltInIndex | null {
@@ -690,7 +681,7 @@ export function buildInfoView(searcher: CatalogSearcher, ref: string, app: AppCo
         entry: null,
         candidates: resolved.candidates,
         anatomy: null,
-        warnings: builtInWarnings(coreModule, line),
+        warnings: builtInWarnings(coreModule, latest),
         untrusted: null,
         card: cardUrl(searcher, coreModule.page),
       },

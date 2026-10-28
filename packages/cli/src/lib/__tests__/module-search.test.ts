@@ -189,6 +189,16 @@ describe('module search fixture', () => {
     expect(parseBuiltInIndex({ schemaVersion: 1, coreVersion: '0.9.0', modules: [{ id: 'x' }] })).toBeNull()
   })
 
+  it('ignores a line source or a receipt source this CLI does not know yet', () => {
+    const parsed = parseCatalogIndex({
+      ...index,
+      lines: [...index.lines, { key: '0.7', version: '0.7.4', source: 'lts' }],
+      dataAsOf: { source: 'nightly' },
+    }) as CatalogIndex
+    expect(parsed.lines.map((line) => line.key)).toEqual(index.lines.map((line) => line.key))
+    expect(searchModules(createCatalogSearcher(parsed, builtIn), { query: 'ksef' }).receiptSource).toBeNull()
+  })
+
   it('rejects an index whose nested fields search or module info would trip over', () => {
     const ksef = index.entries.find((entry) => entry.locator === 'npm:@fastwhitecat/integration-ksef-direct') as CatalogEntry
     const anatomy = ksef.anatomy as NonNullable<CatalogEntry['anatomy']>

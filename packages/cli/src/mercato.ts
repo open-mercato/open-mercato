@@ -1469,7 +1469,7 @@ export async function run(argv = process.argv) {
         const { runModuleSearch, runModuleInfo } = await import('./lib/module-search')
         const { readEnabledModules } = await import('./lib/modules-config')
         const deps = { readEnabledModules }
-        return subcommand === 'search' ? runModuleSearch(commandArgs, deps) : runModuleInfo(commandArgs, deps)
+        return subcommand === 'search' ? await runModuleSearch(commandArgs, deps) : await runModuleInfo(commandArgs, deps)
       }
 
       if (subcommand === 'add') {

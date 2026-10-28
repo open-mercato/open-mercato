@@ -209,6 +209,7 @@ export const BUILTIN_RATIO = 0.5
 export const BOOST_VERIFIED = 0.15
 export const BOOST_OFFICIAL = 0.1
 export const MIN_AND_RESULTS = 3
+/** An OR hit that matched no query word as typed and scores below this share of the best hit is dropped. */
 export const WEAK_HIT_RATIO = 0.2
 export const SEARCH_MAX_LIMIT = 20
 export const SEARCH_DEFAULTS = { verifiedOnly: false, includeBuiltIn: true, includeExamples: false, limit: 10 } as const
@@ -486,7 +487,7 @@ export function lineVersion(entry: CatalogEntry, line: string | null): string | 
   return (line !== null ? entry.compat.ships?.[line] : undefined) ?? installVersion(entry, line)
 }
 
-// A cell whose receipt judged another version than the one a fresh app gets on the line is no verdict on that line.
+/** A cell whose receipt judged another version than the one a fresh app gets on the line is no verdict on that line. */
 function judgedCell(entry: CatalogEntry, line: string): CellSummary | null {
   const cell = entry.compat.lines[line] ?? null
   if (!cell || cell.moduleVersion === null || cell.moduleVersion === undefined || !VERDICT_STATES.has(cell.status)) return cell
@@ -528,8 +529,10 @@ function declaredRangeOf(entry: CatalogEntry, version: string): string | null {
   return [...lines].some((line) => lineVersion(entry, line) === version) ? builtFor.range : null
 }
 
-// The version an app from the empty preset installs: the one a new app ships where the install version broke in
-// isolation there, or where its declared peers reject the version that line ships.
+/**
+ * The version an app from the empty preset installs: the one a new app ships where the install version broke in
+ * isolation there, or where its declared peers reject the version that line ships.
+ */
 export function emptyPresetVersion(entry: CatalogEntry, line: string | null): string | null {
   const version = installVersion(entry, line)
   if (line === null || !version) return version
@@ -794,7 +797,6 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
   }
   const none = (hits: Hits) => hits.modules.length === 0 && hits.builtIns.length === 0
   const topOf = (hits: Hits) => Math.max(hits.modules[0]?.result.score ?? 0, hits.builtIns[0]?.result.score ?? 0)
-  // An OR hit that matched no query word as typed and scores below WEAK_HIT_RATIO of the best hit is noise.
   const typed = new Set(tokenize(input.query).filter((term) => processTerm(term) !== null))
   const strong = <T extends { result: SearchResult }>(hits: readonly T[], top: number): T[] =>
     hits.filter((hit) => hit.result.score >= WEAK_HIT_RATIO * top || Object.keys(hit.result.match).some((term) => typed.has(term)))
@@ -874,7 +876,8 @@ export function toModuleCard(searcher: CatalogSearcher, hit: RankedModule, line:
 }
 
 export function receiptSourceOf(searcher: CatalogSearcher): ReceiptSource | null {
-  return searcher.index.dataAsOf?.source ?? null
+  const source = searcher.index.dataAsOf?.source
+  return source === 'ci' || source === 'preview' ? source : null
 }
 
 export function searchModules(searcher: CatalogSearcher, input: SearchModulesInput): SearchModulesOutput {
