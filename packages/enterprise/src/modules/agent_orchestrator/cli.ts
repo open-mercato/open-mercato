@@ -31,6 +31,11 @@ import {
   runOtelExportBackfill,
 } from './lib/trace/otel/exportBackfill'
 import { loadRunExportBundle } from './lib/trace/otel/loadRunExportBundle'
+import {
+  createPrincipalSyncDeps,
+  formatPrincipalSyncSummary,
+  runPrincipalSync,
+} from './lib/identity/principalSyncCommand'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -968,6 +973,32 @@ const otelExport: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, tokenUsage, otelExport]
+/**
+ * Reconciles declared agent principals (`defineAgent({ principal })`) into each
+ * organization's execution identities. Without flags every live organization of
+ * every tenant is synced; `--tenant` / `--org` narrow the set. Idempotent.
+ *
+ *   yarn mercato agent_orchestrator principals:sync [--tenant <tenantId>] [--org <organizationId>]
+ */
+const principalsSync: ModuleCli = {
+  command: 'principals:sync',
+  async run(rest: string[]) {
+    const args = parseArgs(rest ?? [])
+    const container = await createRequestContainer()
+    const summary = await runPrincipalSync(
+      { tenantId: args.tenant, organizationId: args.org },
+      createPrincipalSyncDeps(container),
+    )
+    if (summary.outcomes.length === 0) {
+      console.error('No organization found for the given --tenant/--org.')
+      process.exitCode = 1
+      return
+    }
+    for (const line of formatPrincipalSyncSummary(summary)) console.log(line)
+    if (summary.totals.failed > 0) process.exitCode = 1
+  },
+}
+
+const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, tokenUsage, otelExport, principalsSync]
 
 export default agentOrchestratorCliCommands

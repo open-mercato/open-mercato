@@ -163,6 +163,25 @@ export const setup: ModuleSetupConfig = {
       })
     }
 
+    try {
+      const { ensureAgentsLoaded, listAgentEntries } = await import('./lib/sdk/defineAgent')
+      const { syncAgentPrincipals } = await import('./lib/identity/syncAgentPrincipals')
+      await ensureAgentsLoaded()
+      await syncAgentPrincipals(
+        ctx.container,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        { agents: listAgentEntries() },
+      )
+    } catch (error) {
+      logger.warn('failed to sync declared agent principals', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'agent_orchestrator',
+        code: 'agent_orchestrator.principal_sync_failed',
+      })
+    }
+
     // F2: register the per-org metric-rollup interval job. Best-effort + guarded
     // — a deployment without the scheduler module is a safe no-op, and a
     // scheduler failure must not abort tenant init for every other module. The
