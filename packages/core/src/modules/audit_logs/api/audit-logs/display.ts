@@ -1,6 +1,9 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 
 type IdBuckets = {
   userIds: Iterable<string>
@@ -23,7 +26,12 @@ function toUniqueArray(values: Iterable<string>): string[] {
   return Array.from(set)
 }
 
-export async function loadAuditLogDisplayMaps(em: EntityManager, ids: IdBuckets): Promise<DisplayMaps> {
+export async function loadAuditLogDisplayMaps(
+  em: EntityManager,
+  ids: IdBuckets,
+  options?: { translate?: TranslateWithFallbackFn },
+): Promise<DisplayMaps> {
+  const translate = options?.translate
   const userIds = toUniqueArray(ids.userIds)
   const tenantIds = toUniqueArray(ids.tenantIds)
   const organizationIds = toUniqueArray(ids.organizationIds)
@@ -46,6 +54,21 @@ export async function loadAuditLogDisplayMaps(em: EntityManager, ids: IdBuckets)
     acc[id] = display ?? id
     return acc
   }, {})
+
+  // api_keys is optional; its ORM metadata exists only when the module is enabled.
+  const unresolvedUserIds = userIds.filter((id) => !usersMap[id])
+  const entityIds = getEntityIds(false)
+  if (unresolvedUserIds.length && entityIds.api_keys?.api_key) {
+    const apiKeyFilter: FilterQuery<ApiKey> = { id: { $in: unresolvedUserIds } }
+    const apiKeys = await em.find(ApiKey, apiKeyFilter)
+    for (const apiKey of apiKeys) {
+      const id = String(apiKey.id)
+      const label = apiKey.deletedAt
+        ? translate?.('audit_logs.actor.api_key_revoked', 'API key: {name} (revoked)', { name: apiKey.name }) ?? `API key: ${apiKey.name} (revoked)`
+        : translate?.('audit_logs.actor.api_key', 'API key: {name}', { name: apiKey.name }) ?? `API key: ${apiKey.name}`
+      usersMap[id] = label
+    }
+  }
 
   const tenantsMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
     const id = String(tenant.id)

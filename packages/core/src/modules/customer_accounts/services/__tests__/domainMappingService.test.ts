@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
 import { DomainMappingService, DomainMappingOrgScopeError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import {
   DomainMapping,
@@ -611,6 +612,30 @@ describe('DomainMappingService.healthCheck', () => {
 // ---------------------------------------------------------------------------
 
 describe('DomainMappingService.remove', () => {
+  it('invalidates an anonymous hostname resolution when its mapping is deleted by an admin', async () => {
+    const row = seedDomain({ status: 'active', tenantId: TENANT_A, organizationId: ORG_A })
+    const em = createFakeEm({ domains: [row], orgs: [{ id: ORG_A, slug: 'acme', tenantId: TENANT_A }] })
+    const cache = createCacheService({ strategy: 'memory' })
+    const service = new DomainMappingService(em as unknown as EntityManager, { cacheService: cache })
+
+    expect(await runWithCacheTenant(null, () => service.resolveByHostname(row.hostname))).toMatchObject({
+      domainMappingId: row.id,
+    })
+    expect(await runWithCacheTenant(TENANT_B, () => service.resolveByHostname(row.hostname))).toMatchObject({
+      domainMappingId: row.id,
+    })
+    expect(await runWithCacheTenant(TENANT_A, () => service.resolveActiveByOrg(ORG_A))).toEqual({
+      hostname: row.hostname,
+      status: 'active',
+    })
+
+    await runWithCacheTenant(TENANT_A, () => service.remove(row.id, { tenantId: TENANT_A }))
+
+    expect(await runWithCacheTenant(null, () => service.resolveByHostname(row.hostname))).toBeNull()
+    expect(await runWithCacheTenant(TENANT_B, () => service.resolveByHostname(row.hostname))).toBeNull()
+    expect(await runWithCacheTenant(TENANT_A, () => service.resolveActiveByOrg(ORG_A))).toBeNull()
+  })
+
   it('removes a mapping owned by the requested tenant (happy path)', async () => {
     const row = seedDomain({ tenantId: TENANT_A })
     const em = createFakeEm({ domains: [row] })
