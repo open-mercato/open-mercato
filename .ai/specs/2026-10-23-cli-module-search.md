@@ -26,7 +26,7 @@ modules.
 ## Proposed Solution
 
 ```bash
-yarn mercato module search <query> [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]
+yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]
 yarn mercato module info <package-or-module-id> [--json]
 ```
 
@@ -37,6 +37,11 @@ yarn mercato module info <package-or-module-id> [--json]
   age gate does not hide a module) plus built-in modules; the rest is counted in `hidden` and named in one closing
   line (`N more modules are listed but not verified on 0.9. Use --all-lines.`). When every match is hidden the
   first line says `No modules verified on <line> matched "<query>".`
+- Ranking follows the catalog's `search_modules`: stop words (`when`, `use`, `for` and others) are dropped, AND
+  first, then OR hits without weak fuzzy or prefix matches, then one swapped pair of letters (`didYouMean`). A
+  `--category` or `--kind` without a query lists what the filter picks, in the catalog's relevance order.
+- On a line whose new app already registers a package (`compat.inPresets`), the card says there is nothing to
+  install and gives the command for an app from the empty preset; core modules say the same with `presetNote`.
 - `installable from: <date>` is printed only while that date is ahead and the install version is not verified.
 - No telemetry; the only requests are the two downloads.
 
@@ -88,7 +93,7 @@ additive.
 | Field | Type |
 | --- | --- |
 | `schemaVersion` | `1` |
-| `query` | `string` |
+| `query` | `string` (empty for a filter-only search) |
 | `line` | `string \| null` |
 | `omVersion` | `string \| null` |
 | `builtIn` | `BuiltInCard[]` (`tools@1`, plus `enabled: boolean \| null` from `src/modules.ts`) |
@@ -97,6 +102,8 @@ additive.
 | `total` | `number`, matches on any line |
 | `hidden` | `number`, matches not verified on `line` (`0` with `--all-lines`) |
 | `dataVersion`, `generatedAt` | `string`, version and time of the catalog data |
+| `receiptSource` | `'ci' \| 'preview' \| null`, from `modules.json` `dataAsOf.source` |
+| `didYouMean` | `string`, only when the results are for a spelling with one swap undone |
 
 `module info --json`: `{ schemaVersion, line, entry, candidates, anatomy: null, warnings, untrusted: null, card }`,
 or `{ schemaVersion: 1, error, candidates }` with exit code 1 for an unknown module.
@@ -109,7 +116,8 @@ second line `Reason: <detail>` (for example `Reason: https://mirror.example.com/
 
 No API route and no UI path is added, so there is no `.ai/qa/tests/` scenario. Coverage is in unit tests
 (`packages/cli/src/lib/__tests__/module-search.test.ts`, `packages/cli/src/__tests__/mercato.test.ts`) with the
-catalog's fixture through an injected `fetch`: parity with `search_modules` and `get_module`, golden queries,
+catalog's fixture through an injected `fetch`: parity with `search_modules` and `get_module` on the fixture and on a
+patched variant with presets and preview receipts (goldens produced by the catalog's handlers), golden queries,
 `--json` keys, line filter and `--all-lines`, line detection, download, TTL cache, ETag 304, retry, stale copy,
 a malformed or unsearchable download that keeps the cached copy, a cached copy the CLI cannot read,
 exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON.
@@ -135,3 +143,7 @@ exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON
 - 2026-10-23: Initial spec, implemented in the same change.
 - 2026-10-25: A malformed index (an entry with `providers: [null]`) can no longer replace a working cached copy:
   nested fields are validated and the searcher is built before the copy is saved.
+- 2026-10-28: Ported the catalog's search of 25 Oct (open-mercato/modules `587b293`): new stop words, weak OR hits
+  cut, filter without a query, one-swap typo retry, judged line statuses, preset-aware install fields
+  (`presetNote`, `installEmptyPreset`), `receiptSource`, and the preview line and preset notes in `module info`
+  warnings. Goldens regenerated from the catalog's handlers.

@@ -11,7 +11,7 @@ Both commands only read. They never install, enable or change anything; use [`mo
 ## Usage
 
 ```bash
-yarn mercato module search <query> [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]
+yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]
 yarn mercato module info <package-or-module-id> [--json]
 ```
 
@@ -20,6 +20,7 @@ Examples:
 ```bash
 yarn mercato module search "exchange rates"
 yarn mercato module search ksef --json
+yarn mercato module search --category payments-finance
 yarn mercato module info @fastwhitecat/integration-ksef-direct
 yarn mercato module info currencies
 ```
@@ -30,7 +31,7 @@ yarn mercato module info currencies
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `<query>` | What you need, in plain words (`send invoices to KSeF`, `exchange rates`) or a name (`stripe`, `data_sync`). Several words are joined into one query. Maximum 200 characters. | required |
+| `<query>` | What you need, in plain words (`send invoices to KSeF`, `exchange rates`) or a name (`stripe`, `data_sync`). Several words are joined into one query. Maximum 200 characters. Filler words such as `when`, `use` or `for` are ignored. Leave it out to list what `--category` or `--kind` picks. | required without a filter |
 | `--category <id>` | Only modules in one catalog category, for example `payments-finance` or `integrations-sync`. | all |
 | `--kind <kind>` | Only these kinds, comma-separated: `module`, `provider`, `library`, `tool`, `built-in`. | all |
 | `--all-lines` | Also show modules that the catalog has not verified on your app's Open Mercato line. | `false` |
@@ -59,6 +60,8 @@ Already in Open Mercato core:
 
 - **Built-in first.** When a core module matches, enable it instead of installing a package. If `src/modules.ts` already enables it, the line says `Already enabled.`
 - **Your line only.** The command reads the Open Mercato version from `node_modules/@open-mercato/core/package.json` (or the `@open-mercato/core` range in `package.json`) and shows only modules with a verified install on that line, with the version the catalog verified there. A closing line such as `2 more modules are listed but not verified on 0.9. Use --all-lines.` tells you what was left out. When your version is not a line the catalog tests, every line is shown with a note.
+- **Ranking.** Every word must match first. When nothing does, modules that match some of the words follow, without loose fuzzy matches. When still nothing matches, one swap of two letters is undone (`stirpe` finds Stripe) and the first line says `Nothing matched "stirpe". Showing results for "stripe".`
+- **New apps.** When a new app on your line already registers a package or has a core module on, the line says so (`Nothing to install: a new app already registers ...`), followed by the command for an app from the empty preset.
 - **Agent policy.** `allow`, `ask` or `refuse`, with the reasons, for your line. Coding agents use it to decide whether they may install a module after you agree.
 
 ## JSON output
@@ -73,11 +76,13 @@ Already in Open Mercato core:
 | `query` | The query as searched. |
 | `line` | Catalog line of the app (`0.9`, `next`), or `null` when the app's version is not tested. |
 | `omVersion` | The Open Mercato version read from the app, or `null`. |
-| `builtIn` | Matching core modules: `id`, `title`, `description`, `category`, `enabled` (`true`/`false` from `src/modules.ts`, `null` when unknown), `install`, `page`, `matchedOn`. |
-| `results` | Module cards: `locator`, `path`, `title`, `summary`, `whenToUse`, `type`, `kind`, `category`, `license`, `tier`, `omQuality`, `verifiedOn`, `line`, `status`, `agentPolicy`, `installableFrom`, `install`, `matchedOn`, `card`. |
+| `builtIn` | Matching core modules: `id`, `title`, `description`, `category`, `enabled` (`true`/`false` from `src/modules.ts`, `null` when unknown), `install`, `page`, `matchedOn`, `presetNote` (what a new app on `line` has, or `null` when a new app has it off). |
+| `results` | Module cards: `locator`, `path`, `title`, `summary`, `whenToUse`, `type`, `kind`, `category`, `license`, `tier`, `omQuality`, `verifiedOn`, `line`, `status`, `agentPolicy`, `installableFrom`, `install`, `matchedOn`, `card`. On a line whose new app already registers the package, `install` is that sentence, and `presetNote` and `installEmptyPreset` (the command for an app from the empty preset, or `null`) are set. |
 | `total` | All catalog modules that matched, on any line. |
 | `hidden` | How many of them were left out because they are not verified on `line` (always `0` with `--all-lines`). |
 | `dataVersion`, `generatedAt` | Version and time of the catalog data. |
+| `receiptSource` | Where the install receipts come from: `ci`, `preview` (a preview run, not CI) or `null`. |
+| `didYouMean` | Present when nothing matched the query and the results are for this spelling of it. |
 
 `module info --json` returns `schemaVersion`, `line`, `entry` (the catalog entry as published in `modules.json`, or `null` for a core module), `candidates`, `warnings` and `card` (the Markdown card with the install plan). `anatomy` and `untrusted` stay `null` in the CLI; read the card for the full plan. An unknown module prints `{ "schemaVersion": 1, "error": "...", "candidates": [...] }` and exits with code 1.
 
