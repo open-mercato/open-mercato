@@ -358,7 +358,7 @@ describe('--help never triggers side effects (issue #5581)', () => {
 
       expect(exitCode).toBe(0)
       const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
-      expect(printed).toContain('yarn mercato module search <query>')
+      expect(printed).toContain('yarn mercato module search [<query>]')
       expect(printed).toContain('yarn mercato module info <package-or-module-id> [--json]')
 
       consoleLogSpy.mockRestore()
@@ -374,7 +374,7 @@ describe('--help never triggers side effects (issue #5581)', () => {
       expect(searchExit).toBe(1)
       expect(infoExit).toBe(1)
       const printed = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
-      expect(printed).toContain('Usage: yarn mercato module search <query>')
+      expect(printed).toContain('Usage: yarn mercato module search [<query>]')
       expect(printed).toContain('Usage: yarn mercato module info <package-or-module-id> [--json]')
 
       consoleLogSpy.mockRestore()

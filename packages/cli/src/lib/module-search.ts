@@ -3,17 +3,20 @@ import path from 'node:path'
 import type { ModuleEntry } from './modules-config'
 import {
   builtInEnableCommand,
-  builtInWarning,
+  builtInPresetText,
+  builtInWarnings,
   cardUrl,
   CORE_PACKAGE,
   createCatalogSearcher,
   entryWarnings,
-  installCommand,
+  installFields,
   installVersion,
   latestLine,
   rankModules,
+  receiptSourceOf,
   resolveLine,
   resolveRef,
+  SEARCH_MAX_LIMIT,
   sharedModuleIdWarning,
   statusOn,
   stripVersion,
@@ -27,6 +30,7 @@ import {
   type CatalogIndex,
   type CatalogSearcher,
   type ModuleCard,
+  type ReceiptSource,
 } from './module-search-index'
 import { parseModuleInfoArgs, parseModuleSearchArgs } from './module-search-args'
 
@@ -127,6 +131,38 @@ function isAgentPolicy(value: unknown): boolean {
   )
 }
 
+function isBuiltFor(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isString(value.kind) &&
+    isNullableString(value.range) &&
+    isStringArray(value.lines) &&
+    isAbsentOr(value.ranges, (ranges) => isRecordOf(ranges, isString))
+  )
+}
+
+function isCompat(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isRecordOf(
+      value.lines,
+      (cell) =>
+        isRecord(cell) &&
+        isString(cell.status) &&
+        isAbsentOr(cell.at, isNullableString) &&
+        isAbsentOr(cell.moduleVersion, isNullableString),
+    ) &&
+    isStringArray(value.verifiedOn) &&
+    isAbsentOr(value.builtFor, isBuiltFor) &&
+    isAbsentOr(value.inPresets, isStringArray) &&
+    isAbsentOr(value.inEmptyPreset, isStringArray) &&
+    isAbsentOr(value.ships, (ships) => isRecordOf(ships, isString)) &&
+    isAbsentOr(value.isolation, (isolation) =>
+      isRecordOf(isolation, (cell) => isRecord(cell) && isString(cell.status) && isNullableString(cell.moduleVersion)),
+    )
+  )
+}
+
 function isSignals(value: unknown): boolean {
   if (value === null || value === undefined) return true
   return (
@@ -142,7 +178,6 @@ function isSignals(value: unknown): boolean {
 function isCatalogEntry(value: unknown): value is CatalogEntry {
   if (!isRecord(value)) return false
   const version = value.version
-  const compat = value.compat
   const install = value.install
   const links = value.links
   const license = value.license
@@ -162,6 +197,7 @@ function isCatalogEntry(value: unknown): value is CatalogEntry {
     isStringArray(value.renamedFrom) &&
     isString(value.status) &&
     typeof value.listed === 'boolean' &&
+    typeof value.featured === 'boolean' &&
     isNullableString(value.tier) &&
     isRecord(license) &&
     isNullableString(license.spdx) &&
@@ -172,9 +208,7 @@ function isCatalogEntry(value: unknown): value is CatalogEntry {
     isNullableString(version.installableFrom) &&
     isNullableString(version.gitRef) &&
     isRecordOf(version.recommended, isNullableString) &&
-    isRecord(compat) &&
-    isRecordOf(compat.lines, (cell) => isRecord(cell) && isString(cell.status)) &&
-    isStringArray(compat.verifiedOn) &&
+    isCompat(value.compat) &&
     isAnatomy(value.anatomy) &&
     isSignals(value.signals) &&
     isRecordOf(value.agentPolicy, isAgentPolicy) &&
@@ -191,6 +225,15 @@ export function parseCatalogIndex(value: unknown): CatalogIndex | null {
   if (!isRecord(value) || value.schemaVersion !== 1) return null
   if (!isString(value.generatedAt) || !isString(value.dataVersion) || !isString(value.site)) return null
   if (!Array.isArray(value.lines) || !Array.isArray(value.entries)) return null
+  const dataAsOf = value.dataAsOf
+  if (
+    !isAbsentOr(
+      dataAsOf,
+      (item) => isRecord(item) && isAbsentOr(item.source, (source) => source === null || source === 'ci' || source === 'preview'),
+    )
+  ) {
+    return null
+  }
   const lines = value.lines.filter(
     (line): line is CatalogIndex['lines'][number] =>
       isRecord(line) &&
@@ -218,6 +261,7 @@ export function parseBuiltInIndex(value: unknown): BuiltInIndex | null {
       isString(coreModule.page) &&
       isAbsentOr(coreModule.requires, isStringArray) &&
       isAbsentOr(coreModule.inPresets, isStringArray) &&
+      isAbsentOr(coreModule.inEmptyPreset, isStringArray) &&
       isAnatomy(coreModule.anatomy),
   )
   return valid ? (value as BuiltInIndex) : null
@@ -464,6 +508,9 @@ export type ModuleSearchJson = {
   hidden: number
   dataVersion: string
   generatedAt: string
+  receiptSource: ReceiptSource | null
+  /** Set when nothing matched the query and the results are for this spelling of it (`stirpe` -> `stripe`). */
+  didYouMean?: string
 }
 
 export type ModuleSearchView = {
@@ -474,7 +521,7 @@ export type ModuleSearchView = {
 }
 
 export type ModuleSearchRequest = {
-  query: string
+  query: string | null
   category?: string | null
   kinds?: ('module' | 'provider' | 'library' | 'tool' | 'built-in')[] | null
   allLines?: boolean
@@ -493,7 +540,7 @@ export function buildSearchView(
 ): ModuleSearchView {
   const resolved = app.omVersion ? resolveLine(app.omVersion, searcher.index.lines) : null
   const ranked = rankModules(searcher, {
-    query: request.query,
+    query: request.query ?? '',
     ...(app.omVersion ? { omVersion: app.omVersion } : {}),
     ...(request.category ? { category: request.category } : {}),
     ...(request.kinds ? { kind: request.kinds } : {}),
@@ -501,7 +548,7 @@ export function buildSearchView(
   const line = ranked.line
   const allLines = request.allLines === true || line === null
   const kept = ranked.modules.filter((hit) => allLines || (line !== null && Boolean(hit.meta.entry.version.recommended[line])))
-  const limit = Math.min(20, Math.max(1, Math.floor(request.limit ?? 10)))
+  const limit = Math.min(SEARCH_MAX_LIMIT, Math.max(1, Math.floor(request.limit ?? 10)))
   const results = kept.slice(0, limit).map((hit) => toModuleCard(searcher, hit, line, ranked.latest))
   const entries = new Map<string, CatalogEntry>()
   for (const hit of kept.slice(0, limit)) entries.set(hit.meta.entry.locator, hit.meta.entry)
@@ -513,7 +560,7 @@ export function buildSearchView(
   return {
     json: {
       schemaVersion: 1,
-      query: request.query,
+      query: request.query ?? '',
       line,
       omVersion: app.omVersion,
       results,
@@ -522,6 +569,8 @@ export function buildSearchView(
       hidden: ranked.modules.length - kept.length,
       dataVersion: searcher.index.dataVersion,
       generatedAt: searcher.index.generatedAt,
+      receiptSource: receiptSourceOf(searcher),
+      ...(ranked.didYouMean ? { didYouMean: ranked.didYouMean } : {}),
     },
     entries,
     lineNote,
@@ -560,12 +609,13 @@ export function renderSearchHuman(view: ModuleSearchView, today: string = new Da
   const { json } = view
   const out: string[] = []
   if (view.lineNote) out.push(view.lineNote, '')
+  if (json.didYouMean) out.push(`Nothing matched "${json.query}". Showing results for "${json.didYouMean}".`, '')
   if (json.builtIn.length > 0) {
     out.push('Already in Open Mercato core:')
     const idWidth = Math.max(...json.builtIn.map((card) => card.id.length))
     const titleWidth = Math.max(...json.builtIn.map((card) => card.title.length))
     for (const card of json.builtIn) {
-      const action = card.enabled ? 'Already enabled.' : card.install
+      const action = card.enabled ? 'Already enabled.' : card.enabled === false ? card.install : (card.presetNote ?? card.install)
       out.push(`  ${card.id.padEnd(idWidth)}  ${card.title.padEnd(titleWidth)}   ${action}`)
     }
     out.push('')
@@ -583,7 +633,7 @@ export function renderSearchHuman(view: ModuleSearchView, today: string = new Da
     if (card.installableFrom && card.installableFrom > today && card.status !== 'verified') {
       out.push(`  installable from: ${card.installableFrom}`)
     }
-    out.push(`  install: ${card.install}`)
+    out.push(`  install: ${card.presetNote ?? card.install}`)
     out.push(`  more: ${card.card}`)
     out.push('')
   }
@@ -594,7 +644,8 @@ export function renderSearchHuman(view: ModuleSearchView, today: string = new Da
         : `${json.hidden} more modules are listed but not verified on ${json.line}. Use --all-lines.`
       : null
   if (json.results.length === 0 && json.builtIn.length === 0) {
-    out.push(hiddenLine ? `No modules verified on ${json.line} matched "${json.query}".` : `No modules matched "${json.query}".`)
+    const what = json.query ? `"${json.query}"` : 'the filters'
+    out.push(hiddenLine ? `No modules verified on ${json.line} matched ${what}.` : `No modules matched ${what}.`)
     if (hiddenLine) out.push(hiddenLine)
     out.push(`Browse the catalog: ${MODULES_SITE_URL}`)
   } else if (hiddenLine) {
@@ -639,7 +690,7 @@ export function buildInfoView(searcher: CatalogSearcher, ref: string, app: AppCo
         entry: null,
         candidates: resolved.candidates,
         anatomy: null,
-        warnings: [builtInWarning(coreModule)],
+        warnings: builtInWarnings(coreModule, line),
         untrusted: null,
         card: cardUrl(searcher, coreModule.page),
       },
@@ -683,7 +734,7 @@ export function buildInfoView(searcher: CatalogSearcher, ref: string, app: AppCo
       entry,
       candidates: [],
       anatomy: null,
-      warnings: entryWarnings(entry, today, latest),
+      warnings: entryWarnings(entry, today, latest, receiptSourceOf(searcher)),
       untrusted: null,
       card: cardUrl(searcher, entry.links.md),
     },
@@ -719,7 +770,10 @@ export function renderInfoHuman(view: ModuleInfoView, searcher: CatalogSearcher)
     const coreModule = view.builtIn
     out.push(`${coreModule.id} is built into Open Mercato core: ${coreModule.title}.`)
     if (coreModule.description) out.push(`  ${coreModule.description}`)
-    out.push(view.builtInEnabled ? '  Already enabled.' : `  enable: ${coreModule.install || builtInEnableCommand(coreModule.id)}`)
+    const presetNote = view.builtInEnabled === false ? null : builtInPresetText(coreModule, json.line)
+    if (view.builtInEnabled) out.push('  Already enabled.')
+    else if (presetNote) out.push(`  ${presetNote}`)
+    else out.push(`  enable: ${coreModule.install || builtInEnableCommand(coreModule.id)}`)
     if (json.candidates.length > 0) out.push(`  catalog modules with the same id: ${json.candidates.join(', ')}`)
     if (json.card) out.push(`  more: ${json.card}`)
     return out
@@ -747,7 +801,8 @@ export function renderInfoHuman(view: ModuleInfoView, searcher: CatalogSearcher)
   const settings = [...(lists?.env ?? []), ...(lists?.credentials ?? []).map((credential) => credential.key)]
   if (settings.length > 0) out.push(`  needs settings: ${settings.slice(0, 10).join(', ')}`)
   if (lists?.hosts && lists.hosts.length > 0) out.push(`  talks to: ${lists.hosts.slice(0, 10).join(', ')}`)
-  out.push(`  install: ${installCommand(entry, line, latestLine(searcher.index.lines)?.key ?? null)}`)
+  const install = installFields(entry, line, latestLine(searcher.index.lines)?.key ?? null)
+  out.push(`  install: ${install.presetNote ?? install.install}`)
   for (const warning of json.warnings) out.push(`  warning: ${warning}`)
   out.push(`  install plan: ${json.card ?? entry.links.md}`)
   out.push(`  more: ${cardUrl(searcher, entry.links.page)}`)
@@ -765,7 +820,7 @@ export type ModuleSearchDeps = {
 }
 
 const SEARCH_USAGE =
-  'Usage: yarn mercato module search <query> [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]'
+  'Usage: yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json] (a query, a --category or a --kind)'
 const INFO_USAGE = 'Usage: yarn mercato module info <package-or-module-id> [--json]'
 
 export const BUILT_IN_UNAVAILABLE_MESSAGE =
@@ -812,7 +867,7 @@ export async function runModuleSearch(args: string[], deps: ModuleSearchDeps = {
   const stdout = deps.stdout ?? ((line: string) => console.log(line))
   const stderr = deps.stderr ?? ((line: string) => console.error(line))
   const parsed = parseModuleSearchArgs(args)
-  if (!parsed.query) {
+  if (!parsed.query && !parsed.category && !parsed.kinds) {
     stderr(SEARCH_USAGE)
     return 1
   }

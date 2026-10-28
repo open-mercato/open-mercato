@@ -20,13 +20,15 @@
               "entity exchange_rates",
               "event currencies.exchange_rate.created",
               "summary"
-            ]
+            ],
+            "presetNote": null
           }
         ],
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -82,7 +84,8 @@
         "total": 1,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -136,7 +139,8 @@
         "total": 1,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -149,7 +153,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -202,7 +207,8 @@
         "total": 1,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -291,7 +297,8 @@
         "total": 2,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -343,7 +350,8 @@
         "total": 1,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -356,7 +364,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -455,7 +464,8 @@
         "total": 2,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -607,13 +617,15 @@
               "event data_sync.run.completed",
               "event data_sync.run.cancelled",
               "event data_sync.run.started"
-            ]
+            ],
+            "presetNote": null
           }
         ],
         "total": 3,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -626,7 +638,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -639,7 +652,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -652,7 +666,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -665,7 +680,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -688,13 +704,15 @@
               "event wms.warehouse.created",
               "entity wms_warehouses",
               "summary"
-            ]
+            ],
+            "presetNote": null
           }
         ],
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -784,7 +802,8 @@
         "total": 2,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -797,7 +816,8 @@
         "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -920,7 +940,8 @@
         "total": 3,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -928,325 +949,13 @@
         "query": "when a deal is won"
       },
       "output": {
-        "results": [
-          {
-            "locator": "npm:@open-mercato/gateway-stripe",
-            "path": "@open-mercato/gateway-stripe",
-            "title": "Stripe Payment Gateway",
-            "summary": "Card payments through Stripe for checkout and sales documents.",
-            "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
-            "type": "official",
-            "kind": "module",
-            "category": "payments-finance",
-            "license": {
-              "spdx": "MIT",
-              "kind": "osi"
-            },
-            "tier": "verified",
-            "omQuality": false,
-            "verifiedOn": [
-              "0.9"
-            ],
-            "line": "0.9",
-            "status": "verified",
-            "agentPolicy": {
-              "decision": "allow",
-              "reasons": [
-                {
-                  "code": "OFFICIAL_VERIFIED",
-                  "text": "Official, verified on 0.9."
-                }
-              ]
-            },
-            "installableFrom": "2026-10-09",
-            "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
-          },
-          {
-            "locator": "npm:@fastwhitecat/integration-ksef-direct",
-            "path": "@fastwhitecat/integration-ksef-direct",
-            "title": "KSeF Integration",
-            "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
-            "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
-            "type": "3rd-party",
-            "kind": "module",
-            "category": "localization-compliance",
-            "license": {
-              "spdx": "MIT",
-              "kind": "osi"
-            },
-            "tier": "verified",
-            "omQuality": false,
-            "verifiedOn": [
-              "0.9",
-              "next"
-            ],
-            "line": "0.9",
-            "status": "verified",
-            "agentPolicy": {
-              "decision": "ask",
-              "reasons": [
-                {
-                  "code": "THIRD_PARTY",
-                  "text": "Third-party code runs with access to all tenants' data."
-                }
-              ],
-              "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
-            },
-            "installableFrom": "2026-10-20",
-            "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct"
-          },
-          {
-            "locator": "npm:@fullstackhouse/open-mercato-durable-work",
-            "path": "@fullstackhouse/open-mercato-durable-work",
-            "title": "Durable Work",
-            "summary": "Durable at-least-once background work on leased job records in Postgres.",
-            "whenToUse": "Use when background jobs must survive deploys and worker kills and resume where they stopped.",
-            "type": "3rd-party",
-            "kind": "module",
-            "category": "storage-infrastructure",
-            "license": {
-              "spdx": "MIT",
-              "kind": "osi"
-            },
-            "tier": "verified",
-            "omQuality": false,
-            "verifiedOn": [
-              "0.9"
-            ],
-            "line": "0.9",
-            "status": "verified",
-            "agentPolicy": {
-              "decision": "ask",
-              "reasons": [
-                {
-                  "code": "THIRD_PARTY",
-                  "text": "Third-party code runs with access to all tenants' data."
-                }
-              ],
-              "consentText": "Install @fullstackhouse/open-mercato-durable-work@0.6.0"
-            },
-            "installableFrom": "2026-09-22",
-            "install": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work"
-          },
-          {
-            "locator": "npm:@open-mercato/enterprise",
-            "path": "@open-mercato/enterprise",
-            "title": "Enterprise",
-            "summary": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
-            "whenToUse": "Use when a production app needs SSO, record locks or agent orchestration under a commercial license.",
-            "type": "official",
-            "kind": "module",
-            "category": "auth-security",
-            "license": {
-              "spdx": null,
-              "kind": "enterprise"
-            },
-            "tier": null,
-            "omQuality": false,
-            "verifiedOn": [],
-            "line": "0.9",
-            "status": "untested",
-            "agentPolicy": {
-              "decision": "ask",
-              "reasons": [
-                {
-                  "code": "NOT_VERIFIED",
-                  "text": "No receipt on 0.9 yet."
-                },
-                {
-                  "code": "LICENSE",
-                  "text": "License: enterprise (SEE LICENSE IN LICENSE.md)."
-                }
-              ],
-              "consentText": "Install @open-mercato/enterprise@0.9.0"
-            },
-            "installableFrom": "2026-10-09",
-            "install": "yarn mercato module add @open-mercato/enterprise@0.9.0",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@open-mercato/enterprise"
-          },
-          {
-            "locator": "npm:@open-mercato/gateway-tpay",
-            "path": "@open-mercato/gateway-tpay",
-            "title": "Tpay Payment Gateway",
-            "summary": "PLN payments and BLIK through Tpay for checkout and sales documents.",
-            "whenToUse": "Use when the app takes PLN bank transfers or BLIK payments through a Tpay account.",
-            "type": "official",
-            "kind": "module",
-            "category": "payments-finance",
-            "license": {
-              "spdx": "MIT",
-              "kind": "osi"
-            },
-            "tier": "listed",
-            "omQuality": false,
-            "verifiedOn": [],
-            "line": "0.9",
-            "status": "untested",
-            "agentPolicy": {
-              "decision": "ask",
-              "reasons": [
-                {
-                  "code": "NOT_VERIFIED",
-                  "text": "No receipt on 0.9 yet."
-                }
-              ],
-              "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
-            },
-            "installableFrom": "2026-10-10",
-            "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay"
-          },
-          {
-            "locator": "github:Chmarusso/open-mercato-enrichment-treg",
-            "path": "github/chmarusso/open-mercato-enrichment-treg",
-            "title": "treg.to Enrichment",
-            "summary": "Enriches companies with data from the Polish business register.",
-            "whenToUse": "Use when CRM company records need registry data looked up by tax number.",
-            "type": "3rd-party",
-            "kind": "module",
-            "category": "crm-sales",
-            "license": {
-              "spdx": "MIT",
-              "kind": "osi"
-            },
-            "tier": "listed",
-            "omQuality": false,
-            "verifiedOn": [],
-            "line": "0.9",
-            "status": "untested",
-            "agentPolicy": {
-              "decision": "refuse",
-              "reasons": [
-                {
-                  "code": "UNPINNED_GIT",
-                  "text": "GitHub source without a pinned tag."
-                },
-                {
-                  "code": "THIRD_PARTY",
-                  "text": "Third-party code runs with access to all tenants' data."
-                },
-                {
-                  "code": "NOT_VERIFIED",
-                  "text": "No receipt on 0.9 yet."
-                }
-              ]
-            },
-            "installableFrom": null,
-            "install": "npx create-mercato-module install Chmarusso/open-mercato-enrichment-treg",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/github/chmarusso/open-mercato-enrichment-treg"
-          },
-          {
-            "locator": "npm:@fullstackhouse/open-mercato-data-sync-durable",
-            "path": "@fullstackhouse/open-mercato-data-sync-durable",
-            "title": "Durable Data Sync",
-            "summary": "Drop-in replacement for the built-in data_sync module on leased durable jobs.",
-            "whenToUse": "Use when long imports must survive worker restarts with lease and epoch fencing.",
-            "type": "3rd-party",
-            "kind": "module",
-            "category": "integrations-sync",
-            "license": {
-              "spdx": "MIT",
-              "kind": "osi"
-            },
-            "tier": "listed",
-            "omQuality": false,
-            "verifiedOn": [],
-            "line": "0.9",
-            "status": "untested",
-            "agentPolicy": {
-              "decision": "ask",
-              "reasons": [
-                {
-                  "code": "THIRD_PARTY",
-                  "text": "Third-party code runs with access to all tenants' data."
-                },
-                {
-                  "code": "NOT_VERIFIED",
-                  "text": "No receipt on 0.9 yet."
-                },
-                {
-                  "code": "REPLACES",
-                  "text": "Replaces core data_sync. Remove the core registration first."
-                }
-              ],
-              "consentText": "Install @fullstackhouse/open-mercato-data-sync-durable@0.6.0"
-            },
-            "installableFrom": "2026-09-22",
-            "install": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-data-sync-durable"
-          },
-          {
-            "locator": "npm:@piotrkarwatka/marketing-consents",
-            "path": "@piotrkarwatka/marketing-consents",
-            "title": "Marketing Consents",
-            "summary": "Records and withdraws marketing consents for customers, with encrypted fields.",
-            "whenToUse": "Use when the app must store marketing consent records and let staff withdraw them.",
-            "type": "community",
-            "kind": "module",
-            "category": "marketing-loyalty",
-            "license": {
-              "spdx": null,
-              "kind": "proprietary"
-            },
-            "tier": "listed",
-            "omQuality": false,
-            "verifiedOn": [],
-            "line": "0.9",
-            "status": "broken",
-            "agentPolicy": {
-              "decision": "refuse",
-              "reasons": [
-                {
-                  "code": "BROKEN",
-                  "text": "Fails at typecheck on 0.9 since 23 Oct."
-                },
-                {
-                  "code": "THIRD_PARTY",
-                  "text": "Third-party code runs with access to all tenants' data."
-                },
-                {
-                  "code": "LICENSE",
-                  "text": "License: proprietary (UNLICENSED)."
-                }
-              ]
-            },
-            "installableFrom": "2026-10-19",
-            "install": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
-            "matchedOn": [
-              "summary"
-            ],
-            "card": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents"
-          }
-        ],
+        "results": [],
         "builtIn": [],
-        "total": 8,
+        "total": 0,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1307,7 +1016,8 @@
         "total": 1,
         "line": "0.8",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1364,7 +1074,8 @@
         "total": 1,
         "line": "next",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1454,7 +1165,8 @@
         "total": 2,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1557,7 +1269,8 @@
         "total": 2,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1649,7 +1362,8 @@
         "total": 2,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1708,7 +1422,8 @@
         "total": 1,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     },
     {
@@ -1765,7 +1480,693 @@
         "total": 1,
         "line": "0.9",
         "dataVersion": "1.0.0-202610230305.ha3da99",
-        "generatedAt": "2026-10-23T03:05:00Z"
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "query": "stirpe"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@open-mercato/gateway-stripe",
+            "path": "@open-mercato/gateway-stripe",
+            "title": "Stripe Payment Gateway",
+            "summary": "Card payments through Stripe for checkout and sales documents.",
+            "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+            "type": "official",
+            "kind": "module",
+            "category": "payments-finance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "allow",
+              "reasons": [
+                {
+                  "code": "OFFICIAL_VERIFIED",
+                  "text": "Official, verified on 0.9."
+                }
+              ]
+            },
+            "installableFrom": "2026-10-09",
+            "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+            "matchedOn": [
+              "name",
+              "provider Stripe",
+              "permission gateway_stripe.view",
+              "summary"
+            ],
+            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null,
+        "didYouMean": "stripe"
+      }
+    },
+    {
+      "input": {
+        "query": "ksfe"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@fastwhitecat/integration-ksef-direct",
+            "path": "@fastwhitecat/integration-ksef-direct",
+            "title": "KSeF Integration",
+            "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+            "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
+            "type": "3rd-party",
+            "kind": "module",
+            "category": "localization-compliance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9",
+              "next"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "THIRD_PARTY",
+                  "text": "Third-party code runs with access to all tenants' data."
+                }
+              ],
+              "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+            },
+            "installableFrom": "2026-10-20",
+            "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+            "matchedOn": [
+              "name",
+              "provider KSeF",
+              "event ksef_direct.connection.connected",
+              "event ksef_direct.received_document.synced",
+              "event ksef_direct.received_document.failed"
+            ],
+            "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null,
+        "didYouMean": "ksef"
+      }
+    },
+    {
+      "input": {
+        "query": "exchange rated"
+      },
+      "output": {
+        "results": [],
+        "builtIn": [
+          {
+            "id": "currencies",
+            "title": "Currencies",
+            "description": "Currencies and Exchange rate management",
+            "category": "payments-finance",
+            "enabled": null,
+            "install": "yarn mercato module enable @open-mercato/core --module currencies",
+            "page": "https://modules.openmercato.com/built-in/currencies",
+            "matchedOn": [
+              "entity exchange_rates",
+              "event currencies.exchange_rate.created",
+              "summary"
+            ],
+            "presetNote": null
+          }
+        ],
+        "total": 0,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "query": "when"
+      },
+      "output": {
+        "results": [],
+        "builtIn": [],
+        "total": 0,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "query": "when",
+        "category": "payments-finance"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@open-mercato/gateway-stripe",
+            "path": "@open-mercato/gateway-stripe",
+            "title": "Stripe Payment Gateway",
+            "summary": "Card payments through Stripe for checkout and sales documents.",
+            "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+            "type": "official",
+            "kind": "module",
+            "category": "payments-finance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "allow",
+              "reasons": [
+                {
+                  "code": "OFFICIAL_VERIFIED",
+                  "text": "Official, verified on 0.9."
+                }
+              ]
+            },
+            "installableFrom": "2026-10-09",
+            "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+            "matchedOn": [
+              "category payments-finance"
+            ],
+            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
+          },
+          {
+            "locator": "npm:@open-mercato/gateway-tpay",
+            "path": "@open-mercato/gateway-tpay",
+            "title": "Tpay Payment Gateway",
+            "summary": "PLN payments and BLIK through Tpay for checkout and sales documents.",
+            "whenToUse": "Use when the app takes PLN bank transfers or BLIK payments through a Tpay account.",
+            "type": "official",
+            "kind": "module",
+            "category": "payments-finance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "listed",
+            "omQuality": false,
+            "verifiedOn": [],
+            "line": "0.9",
+            "status": "untested",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "NOT_VERIFIED",
+                  "text": "No receipt on 0.9 yet."
+                }
+              ],
+              "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+            },
+            "installableFrom": "2026-10-10",
+            "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+            "matchedOn": [
+              "category payments-finance"
+            ],
+            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay"
+          }
+        ],
+        "builtIn": [
+          {
+            "id": "currencies",
+            "title": "Currencies",
+            "description": "Currencies and Exchange rate management",
+            "category": "payments-finance",
+            "enabled": null,
+            "install": "yarn mercato module enable @open-mercato/core --module currencies",
+            "page": "https://modules.openmercato.com/built-in/currencies",
+            "matchedOn": [
+              "category payments-finance"
+            ],
+            "presetNote": null
+          }
+        ],
+        "total": 2,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "query": "",
+        "category": "payments-finance"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@open-mercato/gateway-stripe",
+            "path": "@open-mercato/gateway-stripe",
+            "title": "Stripe Payment Gateway",
+            "summary": "Card payments through Stripe for checkout and sales documents.",
+            "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+            "type": "official",
+            "kind": "module",
+            "category": "payments-finance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "allow",
+              "reasons": [
+                {
+                  "code": "OFFICIAL_VERIFIED",
+                  "text": "Official, verified on 0.9."
+                }
+              ]
+            },
+            "installableFrom": "2026-10-09",
+            "install": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+            "matchedOn": [
+              "category payments-finance"
+            ],
+            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
+          },
+          {
+            "locator": "npm:@open-mercato/gateway-tpay",
+            "path": "@open-mercato/gateway-tpay",
+            "title": "Tpay Payment Gateway",
+            "summary": "PLN payments and BLIK through Tpay for checkout and sales documents.",
+            "whenToUse": "Use when the app takes PLN bank transfers or BLIK payments through a Tpay account.",
+            "type": "official",
+            "kind": "module",
+            "category": "payments-finance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "listed",
+            "omQuality": false,
+            "verifiedOn": [],
+            "line": "0.9",
+            "status": "untested",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "NOT_VERIFIED",
+                  "text": "No receipt on 0.9 yet."
+                }
+              ],
+              "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+            },
+            "installableFrom": "2026-10-10",
+            "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+            "matchedOn": [
+              "category payments-finance"
+            ],
+            "card": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay"
+          }
+        ],
+        "builtIn": [
+          {
+            "id": "currencies",
+            "title": "Currencies",
+            "description": "Currencies and Exchange rate management",
+            "category": "payments-finance",
+            "enabled": null,
+            "install": "yarn mercato module enable @open-mercato/core --module currencies",
+            "page": "https://modules.openmercato.com/built-in/currencies",
+            "matchedOn": [
+              "category payments-finance"
+            ],
+            "presetNote": null
+          }
+        ],
+        "total": 2,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "category": "localization-compliance"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@fastwhitecat/integration-ksef-direct",
+            "path": "@fastwhitecat/integration-ksef-direct",
+            "title": "KSeF Integration",
+            "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+            "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
+            "type": "3rd-party",
+            "kind": "module",
+            "category": "localization-compliance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9",
+              "next"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "THIRD_PARTY",
+                  "text": "Third-party code runs with access to all tenants' data."
+                }
+              ],
+              "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+            },
+            "installableFrom": "2026-10-20",
+            "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+            "matchedOn": [
+              "category localization-compliance"
+            ],
+            "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "consumes": "ksef_direct.document.created"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@fastwhitecat/integration-ksef-direct",
+            "path": "@fastwhitecat/integration-ksef-direct",
+            "title": "KSeF Integration",
+            "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+            "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
+            "type": "3rd-party",
+            "kind": "module",
+            "category": "localization-compliance",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9",
+              "next"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "THIRD_PARTY",
+                  "text": "Third-party code runs with access to all tenants' data."
+                }
+              ],
+              "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+            },
+            "installableFrom": "2026-10-20",
+            "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+            "matchedOn": [
+              "event ksef_direct.document.created"
+            ],
+            "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "emits": "durable_work.job.created"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@fullstackhouse/open-mercato-durable-work",
+            "path": "@fullstackhouse/open-mercato-durable-work",
+            "title": "Durable Work",
+            "summary": "Durable at-least-once background work on leased job records in Postgres.",
+            "whenToUse": "Use when background jobs must survive deploys and worker kills and resume where they stopped.",
+            "type": "3rd-party",
+            "kind": "module",
+            "category": "storage-infrastructure",
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi"
+            },
+            "tier": "verified",
+            "omQuality": false,
+            "verifiedOn": [
+              "0.9"
+            ],
+            "line": "0.9",
+            "status": "verified",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "THIRD_PARTY",
+                  "text": "Third-party code runs with access to all tenants' data."
+                }
+              ],
+              "consentText": "Install @fullstackhouse/open-mercato-durable-work@0.6.0"
+            },
+            "installableFrom": "2026-09-22",
+            "install": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.6.0 --allow-third-party",
+            "matchedOn": [
+              "event durable_work.job.created"
+            ],
+            "card": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "kind": [
+          "built-in"
+        ]
+      },
+      "output": {
+        "results": [],
+        "builtIn": [
+          {
+            "id": "currencies",
+            "title": "Currencies",
+            "description": "Currencies and Exchange rate management",
+            "category": "payments-finance",
+            "enabled": null,
+            "install": "yarn mercato module enable @open-mercato/core --module currencies",
+            "page": "https://modules.openmercato.com/built-in/currencies",
+            "matchedOn": [],
+            "presetNote": null
+          },
+          {
+            "id": "data_sync",
+            "title": "Data Sync",
+            "description": "Streaming data sync hub for import/export integrations.",
+            "category": "integrations-sync",
+            "enabled": null,
+            "install": "yarn mercato module enable @open-mercato/core --module data_sync",
+            "page": "https://modules.openmercato.com/built-in/data_sync",
+            "matchedOn": [],
+            "presetNote": null
+          },
+          {
+            "id": "wms",
+            "title": "Warehouse Management System",
+            "description": "Warehouse topology, inventory balances, reservations, and movement ledger.",
+            "category": "warehouse-shipping",
+            "enabled": null,
+            "install": "yarn mercato module enable @open-mercato/core --module wms",
+            "page": "https://modules.openmercato.com/built-in/wms",
+            "matchedOn": [],
+            "presetNote": null
+          }
+        ],
+        "total": 0,
+        "line": "0.9",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "query": "sso",
+        "omVersion": "0.8"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@open-mercato/enterprise",
+            "path": "@open-mercato/enterprise",
+            "title": "Enterprise",
+            "summary": "Commercial Open Mercato modules for SSO, security, record locks and agent orchestration.",
+            "whenToUse": "Use when a production app needs SSO, record locks or agent orchestration under a commercial license.",
+            "type": "official",
+            "kind": "module",
+            "category": "auth-security",
+            "license": {
+              "spdx": null,
+              "kind": "enterprise"
+            },
+            "tier": null,
+            "omQuality": false,
+            "verifiedOn": [],
+            "line": "0.8",
+            "status": "untested",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "NOT_VERIFIED",
+                  "text": "No receipt on 0.8 yet."
+                },
+                {
+                  "code": "LICENSE",
+                  "text": "License: enterprise (SEE LICENSE IN LICENSE.md)."
+                }
+              ],
+              "consentText": "Install @open-mercato/enterprise@0.8.0"
+            },
+            "installableFrom": "2026-10-09",
+            "install": "echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && yarn generate",
+            "matchedOn": [
+              "module sso",
+              "summary"
+            ],
+            "card": "https://modules.openmercato.com/m/@open-mercato/enterprise"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.8",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
+      }
+    },
+    {
+      "input": {
+        "query": "consents",
+        "omVersion": "0.8.0"
+      },
+      "output": {
+        "results": [
+          {
+            "locator": "npm:@piotrkarwatka/marketing-consents",
+            "path": "@piotrkarwatka/marketing-consents",
+            "title": "Marketing Consents",
+            "summary": "Records and withdraws marketing consents for customers, with encrypted fields.",
+            "whenToUse": "Use when the app must store marketing consent records and let staff withdraw them.",
+            "type": "community",
+            "kind": "module",
+            "category": "marketing-loyalty",
+            "license": {
+              "spdx": null,
+              "kind": "proprietary"
+            },
+            "tier": "listed",
+            "omQuality": false,
+            "verifiedOn": [],
+            "line": "0.8",
+            "status": "untested",
+            "agentPolicy": {
+              "decision": "ask",
+              "reasons": [
+                {
+                  "code": "THIRD_PARTY",
+                  "text": "Third-party code runs with access to all tenants' data."
+                },
+                {
+                  "code": "NOT_VERIFIED",
+                  "text": "No receipt on 0.8 yet."
+                },
+                {
+                  "code": "LICENSE",
+                  "text": "License: proprietary (UNLICENSED)."
+                }
+              ],
+              "consentText": "Install @piotrkarwatka/marketing-consents@0.1.0"
+            },
+            "installableFrom": "2026-10-19",
+            "install": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
+            "matchedOn": [
+              "name",
+              "permission marketing_consents.record",
+              "entity marketing_consent_records",
+              "summary"
+            ],
+            "card": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents"
+          }
+        ],
+        "builtIn": [],
+        "total": 1,
+        "line": "0.8",
+        "dataVersion": "1.0.0-202610230305.ha3da99",
+        "generatedAt": "2026-10-23T03:05:00Z",
+        "receiptSource": null
       }
     }
   ],
@@ -1841,6 +2242,690 @@
       "ok": false,
       "error": "Unknown module \"nothing-like-this\".",
       "candidates": []
+    }
+  ],
+  "variants": [
+    {
+      "name": "presets and preview receipts",
+      "patch": {
+        "dataAsOf": {
+          "source": "preview"
+        },
+        "entries": {
+          "npm:@open-mercato/gateway-stripe": {
+            "compat": {
+              "inPresets": [
+                "0.8",
+                "0.9"
+              ],
+              "inEmptyPreset": [],
+              "ships": {
+                "0.8": "0.8.0"
+              },
+              "isolation": {
+                "0.8": {
+                  "status": "broken",
+                  "step": null,
+                  "moduleVersion": "0.9.0",
+                  "at": "2026-10-22T02:00:00Z",
+                  "receipt": "r/0.8/gateway-stripe"
+                }
+              }
+            }
+          },
+          "npm:@fastwhitecat/integration-ksef-direct": {
+            "compat": {
+              "inPresets": [
+                "0.9"
+              ],
+              "inEmptyPreset": [
+                "0.9"
+              ]
+            }
+          },
+          "npm:@fullstackhouse/open-mercato-durable-work": {
+            "compat": {
+              "inPresets": [
+                "0.8"
+              ],
+              "ships": {
+                "0.8": "0.5.0"
+              }
+            }
+          },
+          "npm:@piotrkarwatka/marketing-consents": {
+            "compat": {
+              "inPresets": [
+                "0.9"
+              ],
+              "ships": {
+                "0.9": "0.0.9"
+              }
+            }
+          }
+        },
+        "builtIn": {
+          "currencies": {
+            "inPresets": [
+              "0.9"
+            ]
+          },
+          "wms": {
+            "inPresets": [
+              "0.9"
+            ],
+            "inEmptyPreset": [
+              "0.9"
+            ]
+          }
+        }
+      },
+      "search": [
+        {
+          "input": {
+            "query": "stripe"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/gateway-stripe",
+                "path": "@open-mercato/gateway-stripe",
+                "title": "Stripe Payment Gateway",
+                "summary": "Card payments through Stripe for checkout and sales documents.",
+                "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+                "type": "official",
+                "kind": "module",
+                "category": "payments-finance",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "verified",
+                "omQuality": false,
+                "verifiedOn": [
+                  "0.9"
+                ],
+                "line": "0.9",
+                "status": "verified",
+                "agentPolicy": {
+                  "decision": "allow",
+                  "reasons": [
+                    {
+                      "code": "OFFICIAL_VERIFIED",
+                      "text": "Official, verified on 0.9."
+                    }
+                  ]
+                },
+                "installableFrom": "2026-10-09",
+                "install": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts.",
+                "presetNote": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts. In an app from the empty preset: yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+                "installEmptyPreset": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+                "matchedOn": [
+                  "name",
+                  "provider Stripe",
+                  "permission gateway_stripe.view",
+                  "summary"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "stripe",
+            "omVersion": "0.8"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/gateway-stripe",
+                "path": "@open-mercato/gateway-stripe",
+                "title": "Stripe Payment Gateway",
+                "summary": "Card payments through Stripe for checkout and sales documents.",
+                "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+                "type": "official",
+                "kind": "module",
+                "category": "payments-finance",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "verified",
+                "omQuality": false,
+                "verifiedOn": [
+                  "0.9"
+                ],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/gateway-stripe@0.9.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts.",
+                "presetNote": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts. In an app from the empty preset: yarn mercato module add @open-mercato/gateway-stripe@0.8.0",
+                "installEmptyPreset": "yarn mercato module add @open-mercato/gateway-stripe@0.8.0",
+                "matchedOn": [
+                  "name",
+                  "provider Stripe",
+                  "permission gateway_stripe.view",
+                  "summary"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.8",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "ksef"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@fastwhitecat/integration-ksef-direct",
+                "path": "@fastwhitecat/integration-ksef-direct",
+                "title": "KSeF Integration",
+                "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+                "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
+                "type": "3rd-party",
+                "kind": "module",
+                "category": "localization-compliance",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "verified",
+                "omQuality": false,
+                "verifiedOn": [
+                  "0.9",
+                  "next"
+                ],
+                "line": "0.9",
+                "status": "verified",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "THIRD_PARTY",
+                      "text": "Third-party code runs with access to all tenants' data."
+                    }
+                  ],
+                  "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+                },
+                "installableFrom": "2026-10-20",
+                "install": "Nothing to install: a new app already registers integration_ksef_direct in src/modules.ts.",
+                "presetNote": "Nothing to install: a new app already registers integration_ksef_direct in src/modules.ts.",
+                "installEmptyPreset": null,
+                "matchedOn": [
+                  "name",
+                  "provider KSeF",
+                  "event ksef_direct.connection.connected",
+                  "event ksef_direct.received_document.synced",
+                  "event ksef_direct.received_document.failed"
+                ],
+                "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "ksef",
+            "omVersion": "0.8.0"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@fastwhitecat/integration-ksef-direct",
+                "path": "@fastwhitecat/integration-ksef-direct",
+                "title": "KSeF Integration",
+                "summary": "Sends and receives Polish structured e-invoices through the KSeF API v2.",
+                "whenToUse": "Use when the app must issue or receive structured invoices in KSeF (Poland).",
+                "type": "3rd-party",
+                "kind": "module",
+                "category": "localization-compliance",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "verified",
+                "omQuality": false,
+                "verifiedOn": [
+                  "0.9",
+                  "next"
+                ],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "THIRD_PARTY",
+                      "text": "Third-party code runs with access to all tenants' data."
+                    },
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @fastwhitecat/integration-ksef-direct@0.1.8"
+                },
+                "installableFrom": "2026-10-20",
+                "install": "yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party",
+                "matchedOn": [
+                  "name",
+                  "provider KSeF",
+                  "event ksef_direct.connection.connected",
+                  "event ksef_direct.received_document.synced",
+                  "event ksef_direct.received_document.failed"
+                ],
+                "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.8",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "exchange rates"
+          },
+          "output": {
+            "results": [],
+            "builtIn": [
+              {
+                "id": "currencies",
+                "title": "Currencies",
+                "description": "Currencies and Exchange rate management",
+                "category": "payments-finance",
+                "enabled": null,
+                "install": "yarn mercato module enable @open-mercato/core --module currencies",
+                "page": "https://modules.openmercato.com/built-in/currencies",
+                "matchedOn": [
+                  "entity exchange_rates",
+                  "event currencies.exchange_rate.created",
+                  "summary"
+                ],
+                "presetNote": "On in a new app on 0.9: nothing to enable. In an app from the empty preset: yarn mercato module enable @open-mercato/core --module currencies"
+              }
+            ],
+            "total": 0,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "warehouse"
+          },
+          "output": {
+            "results": [],
+            "builtIn": [
+              {
+                "id": "wms",
+                "title": "Warehouse Management System",
+                "description": "Warehouse topology, inventory balances, reservations, and movement ledger.",
+                "category": "warehouse-shipping",
+                "enabled": null,
+                "install": "yarn mercato module enable @open-mercato/core --module wms",
+                "page": "https://modules.openmercato.com/built-in/wms",
+                "matchedOn": [
+                  "name",
+                  "event wms.warehouse.created",
+                  "entity wms_warehouses",
+                  "summary"
+                ],
+                "presetNote": "On in a new app on 0.9: nothing to enable."
+              }
+            ],
+            "total": 0,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "durable jobs",
+            "omVersion": "0.8"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@fullstackhouse/open-mercato-durable-work",
+                "path": "@fullstackhouse/open-mercato-durable-work",
+                "title": "Durable Work",
+                "summary": "Durable at-least-once background work on leased job records in Postgres.",
+                "whenToUse": "Use when background jobs must survive deploys and worker kills and resume where they stopped.",
+                "type": "3rd-party",
+                "kind": "module",
+                "category": "storage-infrastructure",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "verified",
+                "omQuality": false,
+                "verifiedOn": [
+                  "0.9"
+                ],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "THIRD_PARTY",
+                      "text": "Third-party code runs with access to all tenants' data."
+                    },
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @fullstackhouse/open-mercato-durable-work@0.6.0"
+                },
+                "installableFrom": "2026-09-22",
+                "install": "Nothing to install: a new app already registers durable_work in src/modules.ts.",
+                "presetNote": "Nothing to install: a new app already registers durable_work in src/modules.ts. In an app from the empty preset: yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.5.0 --allow-third-party",
+                "installEmptyPreset": "yarn mercato module add @fullstackhouse/open-mercato-durable-work@0.5.0 --allow-third-party",
+                "matchedOn": [
+                  "name",
+                  "event durable_work.job.created",
+                  "entity durable_work_jobs",
+                  "event durable_work.job.mirror_stuck",
+                  "event durable_work.job.lease_lost"
+                ],
+                "card": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-durable-work"
+              },
+              {
+                "locator": "npm:@fullstackhouse/open-mercato-data-sync-durable",
+                "path": "@fullstackhouse/open-mercato-data-sync-durable",
+                "title": "Durable Data Sync",
+                "summary": "Drop-in replacement for the built-in data_sync module on leased durable jobs.",
+                "whenToUse": "Use when long imports must survive worker restarts with lease and epoch fencing.",
+                "type": "3rd-party",
+                "kind": "module",
+                "category": "integrations-sync",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "THIRD_PARTY",
+                      "text": "Third-party code runs with access to all tenants' data."
+                    },
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    },
+                    {
+                      "code": "REPLACES",
+                      "text": "Replaces core data_sync. Remove the core registration first."
+                    }
+                  ],
+                  "consentText": "Install @fullstackhouse/open-mercato-data-sync-durable@0.6.0"
+                },
+                "installableFrom": "2026-09-22",
+                "install": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
+                "matchedOn": [
+                  "name",
+                  "summary"
+                ],
+                "card": "https://modules.openmercato.com/m/@fullstackhouse/open-mercato-data-sync-durable"
+              }
+            ],
+            "builtIn": [],
+            "total": 2,
+            "line": "0.8",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "consents"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@piotrkarwatka/marketing-consents",
+                "path": "@piotrkarwatka/marketing-consents",
+                "title": "Marketing Consents",
+                "summary": "Records and withdraws marketing consents for customers, with encrypted fields.",
+                "whenToUse": "Use when the app must store marketing consent records and let staff withdraw them.",
+                "type": "community",
+                "kind": "module",
+                "category": "marketing-loyalty",
+                "license": {
+                  "spdx": null,
+                  "kind": "proprietary"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.9",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "refuse",
+                  "reasons": [
+                    {
+                      "code": "BROKEN",
+                      "text": "Fails at typecheck on 0.9 since 23 Oct."
+                    },
+                    {
+                      "code": "THIRD_PARTY",
+                      "text": "Third-party code runs with access to all tenants' data."
+                    },
+                    {
+                      "code": "LICENSE",
+                      "text": "License: proprietary (UNLICENSED)."
+                    }
+                  ]
+                },
+                "installableFrom": "2026-10-19",
+                "install": "Nothing to install: a new app already registers marketing_consents in src/modules.ts.",
+                "presetNote": "Nothing to install: a new app already registers marketing_consents in src/modules.ts. In an app from the empty preset: yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
+                "installEmptyPreset": "yarn mercato module add @piotrkarwatka/marketing-consents@0.1.0 --allow-third-party",
+                "matchedOn": [
+                  "name",
+                  "permission marketing_consents.record",
+                  "entity marketing_consent_records",
+                  "summary"
+                ],
+                "card": "https://modules.openmercato.com/m/@piotrkarwatka/marketing-consents"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        },
+        {
+          "input": {
+            "query": "payments",
+            "category": "payments-finance"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/gateway-stripe",
+                "path": "@open-mercato/gateway-stripe",
+                "title": "Stripe Payment Gateway",
+                "summary": "Card payments through Stripe for checkout and sales documents.",
+                "whenToUse": "Use when the app takes card payments and you already have a Stripe account.",
+                "type": "official",
+                "kind": "module",
+                "category": "payments-finance",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "verified",
+                "omQuality": false,
+                "verifiedOn": [
+                  "0.9"
+                ],
+                "line": "0.9",
+                "status": "verified",
+                "agentPolicy": {
+                  "decision": "allow",
+                  "reasons": [
+                    {
+                      "code": "OFFICIAL_VERIFIED",
+                      "text": "Official, verified on 0.9."
+                    }
+                  ]
+                },
+                "installableFrom": "2026-10-09",
+                "install": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts.",
+                "presetNote": "Nothing to install: a new app already registers gateway_stripe in src/modules.ts. In an app from the empty preset: yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+                "installEmptyPreset": "yarn mercato module add @open-mercato/gateway-stripe@0.9.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "category payments-finance"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe"
+              },
+              {
+                "locator": "npm:@open-mercato/gateway-tpay",
+                "path": "@open-mercato/gateway-tpay",
+                "title": "Tpay Payment Gateway",
+                "summary": "PLN payments and BLIK through Tpay for checkout and sales documents.",
+                "whenToUse": "Use when the app takes PLN bank transfers or BLIK payments through a Tpay account.",
+                "type": "official",
+                "kind": "module",
+                "category": "payments-finance",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.9",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.9 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e"
+                },
+                "installableFrom": "2026-10-10",
+                "install": "yarn mercato module add @open-mercato/gateway-tpay@0.8.1-develop.7442.1.4c1dbf1f0e",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "category payments-finance"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/gateway-tpay"
+              }
+            ],
+            "builtIn": [],
+            "total": 2,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": "preview"
+          }
+        }
+      ],
+      "info": [
+        {
+          "ref": "currencies",
+          "ok": true,
+          "locator": null,
+          "candidates": [],
+          "warnings": [
+            "Built into Open Mercato core as currencies.",
+            "On in a new app on 0.9: nothing to enable. In an app from the empty preset: yarn mercato module enable @open-mercato/core --module currencies"
+          ],
+          "card": "https://modules.openmercato.com/built-in/currencies"
+        },
+        {
+          "ref": "wms",
+          "ok": true,
+          "locator": null,
+          "candidates": [],
+          "warnings": [
+            "Built into Open Mercato core as wms.",
+            "On in a new app on 0.9: nothing to enable."
+          ],
+          "card": "https://modules.openmercato.com/built-in/wms"
+        },
+        {
+          "ref": "@open-mercato/gateway-stripe",
+          "ok": true,
+          "locator": "npm:@open-mercato/gateway-stripe",
+          "candidates": [],
+          "warnings": [
+            "Receipts: Preview run in Docker on the maintainer's machine, not CI. The first nightly CI run replaces it.",
+            "Hygiene warn: peer-exact-pin."
+          ],
+          "card": "https://modules.openmercato.com/m/@open-mercato/gateway-stripe.md"
+        },
+        {
+          "ref": "npm:@fastwhitecat/integration-ksef-direct",
+          "ok": true,
+          "locator": "npm:@fastwhitecat/integration-ksef-direct",
+          "candidates": [],
+          "warnings": [
+            "Receipts: Preview run in Docker on the maintainer's machine, not CI. The first nightly CI run replaces it.",
+            "Hygiene warn: event-prefix."
+          ],
+          "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct.md"
+        }
+      ]
     }
   ]
 }

@@ -42,13 +42,41 @@ type ParityInfo =
   | { ref: string; ok: true; locator: string | null; candidates: string[]; warnings: string[]; card: string | null }
   | { ref: string; ok: false; error: string; candidates: string[] }
 
-const parity = readFixture('catalog-parity.json') as {
-  now: string
+type ParityCases = {
   search: { input: SearchModulesInput; output: SearchModulesOutput }[]
   info: ParityInfo[]
 }
 
-const BUILT_IN_CARD_KEYS = ['category', 'description', 'enabled', 'id', 'install', 'matchedOn', 'page', 'title']
+type ParityPatch = {
+  dataAsOf?: Partial<NonNullable<CatalogIndex['dataAsOf']>>
+  entries?: Record<string, { compat?: Partial<CatalogEntry['compat']> }>
+  builtIn?: Record<string, Partial<BuiltInModule>>
+}
+
+const parity = readFixture('catalog-parity.json') as ParityCases & {
+  now: string
+  variants: (ParityCases & { name: string; patch: ParityPatch })[]
+}
+
+// The same merge the golden generator applies before it runs the catalog (see the fixture README).
+function patchedFixture(patch: ParityPatch): { index: CatalogIndex; builtIn: BuiltInIndex } {
+  const patchedIndex = structuredClone(index)
+  const patchedBuiltIn = structuredClone(builtIn)
+  if (patch.dataAsOf) patchedIndex.dataAsOf = { ...patchedIndex.dataAsOf, ...patch.dataAsOf }
+  for (const entry of patchedIndex.entries) {
+    const compat = patch.entries?.[entry.locator]?.compat
+    if (compat) entry.compat = { ...entry.compat, ...compat }
+  }
+  patchedBuiltIn.modules = patchedBuiltIn.modules.map((coreModule) => ({ ...coreModule, ...(patch.builtIn?.[coreModule.id] ?? {}) }))
+  return { index: patchedIndex, builtIn: patchedBuiltIn }
+}
+
+const parityRuns = [
+  { name: 'fixture', cases: parity as ParityCases, data: { index, builtIn } },
+  ...parity.variants.map((variant) => ({ name: variant.name, cases: variant as ParityCases, data: patchedFixture(variant.patch) })),
+]
+
+const BUILT_IN_CARD_KEYS = ['category', 'description', 'enabled', 'id', 'install', 'matchedOn', 'page', 'presetNote', 'title']
 const MODULE_CARD_KEYS = [
   'agentPolicy',
   'card',
@@ -94,7 +122,10 @@ function jsonResponse(status: number, body: unknown, etag: string | null = null)
 
 type FetchCall = { url: string; headers: Record<string, string> }
 
-function fixtureFetch(options: { fail?: boolean; failFirst?: number; notModified?: boolean; noBuiltIn?: boolean } = {}) {
+function fixtureFetch(
+  options: { fail?: boolean; failFirst?: number; notModified?: boolean; noBuiltIn?: boolean; patch?: ParityPatch } = {},
+) {
+  const data = options.patch ? patchedFixture(options.patch) : null
   const calls: FetchCall[] = []
   let failuresLeft = options.failFirst ?? 0
   const fetchImpl: FetchLike = async (url, init) => {
@@ -105,8 +136,10 @@ function fixtureFetch(options: { fail?: boolean; failFirst?: number; notModified
       throw new Error('socket hang up')
     }
     if (options.notModified && init?.headers?.['if-none-match']) return jsonResponse(304, null)
-    if (url.endsWith('/modules.json')) return jsonResponse(200, readFixture('modules-index.json'), '"idx-1"')
-    if (url.endsWith('/built-in.json') && !options.noBuiltIn) return jsonResponse(200, readFixture('built-in.json'), '"bi-1"')
+    if (url.endsWith('/modules.json')) return jsonResponse(200, data?.index ?? readFixture('modules-index.json'), '"idx-1"')
+    if (url.endsWith('/built-in.json') && !options.noBuiltIn) {
+      return jsonResponse(200, data?.builtIn ?? readFixture('built-in.json'), '"bi-1"')
+    }
     return jsonResponse(404, null)
   }
   return { fetchImpl, calls }
@@ -179,12 +212,16 @@ describe('module search fixture', () => {
   })
 })
 
-describe('parity with the catalog search_modules tool (tools@1)', () => {
-  const searcher = createCatalogSearcher(index, builtIn)
+describe.each(parityRuns)('parity with the catalog search_modules tool (tools@1), $name', ({ cases, data }) => {
+  const searcher = createCatalogSearcher(data.index, data.builtIn)
 
-  it.each(parity.search.map((item) => [JSON.stringify(item.input), item] as const))('%s', (_label, item) => {
+  it.each(cases.search.map((item) => [JSON.stringify(item.input), item] as const))('%s', (_label, item) => {
     expect(searchModules(searcher, item.input)).toEqual(item.output)
   })
+})
+
+describe('golden queries of the catalog spec', () => {
+  const searcher = createCatalogSearcher(index, builtIn)
 
   it.each(GOLDEN_IN_FIXTURE)('golden query "%s" keeps its expected result in the top 3', (query, modules, builtIns) => {
     const result = searchModules(searcher, { query })
@@ -195,11 +232,11 @@ describe('parity with the catalog search_modules tool (tools@1)', () => {
   })
 })
 
-describe('parity with the catalog get_module tool (tools@1)', () => {
-  const searcher = createCatalogSearcher(index, builtIn)
+describe.each(parityRuns)('parity with the catalog get_module tool (tools@1), $name', ({ cases, data }) => {
+  const searcher = createCatalogSearcher(data.index, data.builtIn)
   const today = parity.now.slice(0, 10)
 
-  it.each(parity.info.map((item) => [item.ref, item] as const))('%s', (ref, expected) => {
+  it.each(cases.info.map((item) => [item.ref, item] as const))('%s', (ref, expected) => {
     const view = buildInfoView(searcher, ref, { omVersion: null, enabledModules: null }, today)
     if (!expected.ok) {
       expect(view.found).toBe(false)
@@ -234,7 +271,19 @@ describe('yarn mercato module search', () => {
     expect(code).toBe(0)
     const json = JSON.parse(io.stdout.join('\n'))
     expect(Object.keys(json).sort()).toEqual(
-      ['builtIn', 'dataVersion', 'generatedAt', 'hidden', 'line', 'omVersion', 'query', 'results', 'schemaVersion', 'total'],
+      [
+        'builtIn',
+        'dataVersion',
+        'generatedAt',
+        'hidden',
+        'line',
+        'omVersion',
+        'query',
+        'receiptSource',
+        'results',
+        'schemaVersion',
+        'total',
+      ],
     )
     expect(json).toMatchObject({ schemaVersion: 1, query: 'ksef', line: '0.9', omVersion: '0.9.0', hidden: 0 })
     expect(json.dataVersion).toBe(index.dataVersion)
@@ -337,10 +386,56 @@ describe('yarn mercato module search', () => {
     expect(json.builtIn).toEqual([])
   })
 
-  it('prints usage without a query', async () => {
+  it('lists what --category picks without a query', async () => {
+    const io = capture()
+    const { fetchImpl } = fixtureFetch()
+    const code = await runModuleSearch(['--category', 'payments-finance', '--json'], deps(tempApp({ coreVersion: '0.9.0' }), fetchImpl, io))
+    expect(code).toBe(0)
+    const json = JSON.parse(io.stdout.join('\n'))
+    expect(json.query).toBe('')
+    expect(json.results.map((card: { locator: string }) => card.locator)).toEqual(['npm:@open-mercato/gateway-stripe'])
+    expect(json.results[0].matchedOn).toEqual(['category payments-finance'])
+    expect(json.builtIn.map((card: { id: string }) => card.id)).toEqual(['currencies'])
+    expect(json.hidden).toBe(1)
+  })
+
+  it('ignores stop words, so "when a deal is won" lists nothing', async () => {
+    const io = capture()
+    const { fetchImpl } = fixtureFetch()
+    await runModuleSearch(['when a deal is won', '--all-lines'], deps(tempApp({ coreVersion: '0.9.0' }), fetchImpl, io))
+    expect(io.stdout[0]).toBe('No modules matched "when a deal is won".')
+  })
+
+  it('names the spelling it searched when one swap of two letters is undone', async () => {
+    const io = capture()
+    const { fetchImpl } = fixtureFetch()
+    await runModuleSearch(['stirpe'], deps(tempApp({ coreVersion: '0.9.0' }), fetchImpl, io))
+    expect(io.stdout[0]).toBe('Nothing matched "stirpe". Showing results for "stripe".')
+    expect(io.stdout.join('\n')).toContain('@open-mercato/gateway-stripe 0.9.0')
+  })
+
+  it('says there is nothing to install where a new app already registers the package or has the core module on', async () => {
+    const patch = parity.variants[0]?.patch as ParityPatch
+    const app = tempApp({ coreVersion: '0.9.0' })
+    const stripe = capture()
+    await runModuleSearch(['stripe'], deps(app, fixtureFetch({ patch }).fetchImpl, stripe))
+    expect(stripe.stdout).toContain(
+      '  install: Nothing to install: a new app already registers gateway_stripe in src/modules.ts. In an app from the empty preset: yarn mercato module add @open-mercato/gateway-stripe@0.9.0',
+    )
+    const rates = capture()
+    await runModuleSearch(['exchange rates'], deps(tempApp({ coreVersion: '0.9.0' }), fixtureFetch({ patch }).fetchImpl, rates))
+    expect(rates.stdout[1]).toContain('On in a new app on 0.9: nothing to enable.')
+    const info = capture()
+    await runModuleInfo(['currencies'], deps(tempApp({ coreVersion: '0.9.0' }), fixtureFetch({ patch }).fetchImpl, info))
+    expect(info.stdout).toContain(
+      '  On in a new app on 0.9: nothing to enable. In an app from the empty preset: yarn mercato module enable @open-mercato/core --module currencies',
+    )
+  })
+
+  it('prints usage without a query or a filter', async () => {
     const io = capture()
     expect(await runModuleSearch([], deps(tempApp(), fixtureFetch().fetchImpl, io))).toBe(1)
-    expect(io.stderr[0]).toContain('Usage: yarn mercato module search <query>')
+    expect(io.stderr[0]).toContain('Usage: yarn mercato module search [<query>]')
   })
 })
 

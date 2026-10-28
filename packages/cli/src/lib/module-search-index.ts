@@ -3,11 +3,13 @@
 // stop words, boosts and built-in rules, so the CLI, the catalog site and its MCP server rank the same way.
 // `__tests__/module-search.test.ts` holds this file to the catalog's own output on a fixture built from real data.
 import MiniSearch, { type Options, type SearchResult } from 'minisearch'
+import { satisfies } from 'semver'
 
 export type CellStatus = string
 export type OriginType = 'official' | 'community' | '3rd-party'
 export type EntryKind = 'module' | 'provider' | 'library' | 'tool'
 export type LicenseKind = 'osi' | 'proprietary' | 'enterprise' | 'unknown'
+export type ReceiptSource = 'ci' | 'preview'
 
 export type AgentPolicy = {
   decision: 'allow' | 'ask' | 'refuse'
@@ -40,6 +42,10 @@ export type AnatomySummary = {
   callout?: string | null
 }
 
+export type CellSummary = { status: CellStatus; at: string | null; moduleVersion?: string | null }
+
+export type BuiltFor = { range: string | null; kind: string; lines: string[]; ranges?: Record<string, string> }
+
 export type CatalogEntry = {
   locator: string
   path: string
@@ -66,8 +72,13 @@ export type CatalogEntry = {
     recommended: Record<string, string | null>
   }
   compat: {
-    lines: Record<string, { status: CellStatus; at: string | null }>
+    lines: Record<string, CellSummary>
     verifiedOn: string[]
+    builtFor?: BuiltFor
+    inPresets?: string[]
+    inEmptyPreset?: string[]
+    ships?: Record<string, string>
+    isolation?: Record<string, { status: CellStatus; moduleVersion: string | null }>
   }
   anatomy: AnatomySummary | null
   signals?: {
@@ -90,6 +101,7 @@ export type CatalogIndex = {
   site: string
   lines: CatalogLine[]
   entries: CatalogEntry[]
+  dataAsOf?: { source?: ReceiptSource | null }
   builtIn?: { coreVersion: string; count: number; href: string }
 }
 
@@ -100,6 +112,7 @@ export type BuiltInModule = {
   category: string
   requires?: string[]
   inPresets?: string[]
+  inEmptyPreset?: string[]
   anatomy: AnatomySummary | null
   install: string
   page: string
@@ -132,6 +145,8 @@ export type ModuleCard = {
   install: string
   matchedOn: string[]
   card: string
+  presetNote?: string
+  installEmptyPreset?: string | null
 }
 
 export type BuiltInCard = {
@@ -143,10 +158,11 @@ export type BuiltInCard = {
   install: string
   page: string
   matchedOn: string[]
+  presetNote: string | null
 }
 
 export type SearchModulesInput = {
-  query: string
+  query?: string
   omVersion?: string
   category?: string
   type?: OriginType[]
@@ -167,6 +183,8 @@ export type SearchModulesOutput = {
   line: string | null
   dataVersion: string
   generatedAt: string
+  receiptSource?: ReceiptSource | null
+  didYouMean?: string
 }
 
 export const SEARCH_BOOST = {
@@ -191,12 +209,20 @@ export const BUILTIN_RATIO = 0.5
 export const BOOST_VERIFIED = 0.15
 export const BOOST_OFFICIAL = 0.1
 export const MIN_AND_RESULTS = 3
+export const WEAK_HIT_RATIO = 0.2
+export const SEARCH_MAX_LIMIT = 20
 export const SEARCH_DEFAULTS = { verifiedOnly: false, includeBuiltIn: true, includeExamples: false, limit: 10 } as const
 export const CORE_PACKAGE = '@open-mercato/core'
+export const ENTERPRISE_PACKAGE = '@open-mercato/enterprise'
+export const ENTERPRISE_ENABLE_STEP = 'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env'
+export const PREVIEW_LINE =
+  "Receipts: Preview run in Docker on the maintainer's machine, not CI. The first nightly CI run replaces it."
+const VERDICT_STATES: ReadonlySet<CellStatus> = new Set(['verified', 'broken', 'harness-red', 'infra-error'])
 
 const STOPWORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'i', 'in', 'into', 'is', 'it', 'its', 'me',
   'module', 'modules', 'my', 'of', 'on', 'or', 'our', 'that', 'the', 'this', 'to', 'via', 'we', 'with', 'you', 'your',
+  'can', 'do', 'does', 'how', 'need', 'needs', 'use', 'used', 'uses', 'want', 'wants', 'what', 'when', 'which',
 ])
 
 export function tokenize(text: string): string[] {
@@ -446,9 +472,31 @@ function anatomyChips(
   return chips
 }
 
+const STABLE_VERSION = /^\d+\.\d+\.\d+$/
+
+function satisfiesRange(version: string, range: string): boolean {
+  try {
+    return satisfies(version, range, { includePrerelease: true })
+  } catch {
+    return false
+  }
+}
+
+export function lineVersion(entry: CatalogEntry, line: string | null): string | null {
+  return (line !== null ? entry.compat.ships?.[line] : undefined) ?? installVersion(entry, line)
+}
+
+// A cell whose receipt judged another version than the one a fresh app gets on the line is no verdict on that line.
+function judgedCell(entry: CatalogEntry, line: string): CellSummary | null {
+  const cell = entry.compat.lines[line] ?? null
+  if (!cell || cell.moduleVersion === null || cell.moduleVersion === undefined || !VERDICT_STATES.has(cell.status)) return cell
+  const installs = lineVersion(entry, line)
+  return installs === null || cell.moduleVersion === installs ? cell : null
+}
+
 export function statusOn(entry: CatalogEntry, line: string): CellStatus {
   if (entry.version.recommended[line]) return 'verified'
-  return entry.compat.lines[line]?.status ?? 'untested'
+  return judgedCell(entry, line)?.status ?? 'untested'
 }
 
 function installableOn(entry: CatalogEntry, line: string | null): string | null | undefined {
@@ -469,34 +517,183 @@ export function installVersion(entry: CatalogEntry, line: string | null): string
   )
 }
 
+function declaredRangeOf(entry: CatalogEntry, version: string): string | null {
+  const builtFor = entry.compat.builtFor
+  if (!builtFor || builtFor.kind === 'missing' || builtFor.kind === 'star') return null
+  if (builtFor.ranges) {
+    for (const [line, range] of Object.entries(builtFor.ranges)) if (lineVersion(entry, line) === version) return range
+    return null
+  }
+  const lines = new Set([...Object.keys(entry.compat.lines), ...Object.keys(entry.compat.ships ?? {})])
+  return [...lines].some((line) => lineVersion(entry, line) === version) ? builtFor.range : null
+}
+
+// The version an app from the empty preset installs: the one a new app ships where the install version broke in
+// isolation there, or where its declared peers reject the version that line ships.
+export function emptyPresetVersion(entry: CatalogEntry, line: string | null): string | null {
+  const version = installVersion(entry, line)
+  if (line === null || !version) return version
+  const ships = entry.compat.ships?.[line]
+  if (!ships || ships === version) return version
+  const isolation = entry.compat.isolation?.[line]
+  if (isolation?.moduleVersion === version) return isolation.status === 'broken' ? ships : version
+  const range = declaredRangeOf(entry, version)
+  return STABLE_VERSION.test(ships) && range !== null && !satisfiesRange(ships, range) ? ships : version
+}
+
 export function builtInEnableCommand(id: string): string {
   return `yarn mercato module enable ${CORE_PACKAGE} --module ${id}`
 }
 
-export function installCommand(entry: CatalogEntry, line: string | null, latest: string | null): string {
-  if (line === null || line === latest) return entry.install.cli
-  const version = installVersion(entry, line)
+function packageCommand(entry: CatalogEntry, spec: string): string | null {
+  if (entry.kind === 'tool') return entry.tags.includes('cli') ? `npx ${spec}` : `yarn add ${spec}`
+  if (entry.kind === 'provider' && entry.moduleIds.length === 0) return `yarn add ${spec}`
+  return entry.kind === 'library' ? `yarn add ${spec}` : null
+}
+
+function inPreset(entry: CatalogEntry, enabled: readonly { id: string; from: string }[] | null): boolean {
+  if (!enabled || !entry.npm || entry.moduleIds.length === 0) return false
+  return entry.moduleIds.every((id) => enabled.some((item) => item.id === id && item.from === entry.npm))
+}
+
+function installCli(
+  entry: CatalogEntry,
+  line: string | null,
+  preset: readonly { id: string; from: string }[] | null,
+  version: string | null = installVersion(entry, line),
+): string {
   if (entry.npm === null) {
     const repo = entry.locator.replace(/^github:/, '')
     const ref = entry.version.gitRef ? ` --ref ${entry.version.gitRef}` : ''
     return `npx create-mercato-module install ${repo}${ref}`
   }
   const spec = version ? `${entry.npm}@${version}` : entry.npm
-  const thirdParty = !entry.npm.startsWith('@open-mercato/')
-  const moduleFlag = entry.install.moduleFlag
-  return `yarn mercato module add ${spec}${thirdParty ? ' --allow-third-party' : ''}${moduleFlag ? ` --module ${moduleFlag}` : ''}`
+  const own = packageCommand(entry, spec)
+  if (own) return own
+  if (inPreset(entry, preset)) return `yarn add ${spec}`
+  const moduleFlag = entry.install.moduleFlag ?? null
+  if (entry.npm === ENTERPRISE_PACKAGE && !moduleFlag) return `${ENTERPRISE_ENABLE_STEP} && yarn generate`
+  const thirdParty = entry.npm.startsWith('@open-mercato/') ? '' : ' --allow-third-party'
+  if (!moduleFlag && entry.moduleIds.length > 1) {
+    return entry.moduleIds.map((id) => `yarn mercato module add ${spec}${thirdParty} --module ${id}`).join(' && ')
+  }
+  return `yarn mercato module add ${spec}${thirdParty}${moduleFlag ? ` --module ${moduleFlag}` : ''}`
 }
+
+/** The command of an app that does not register the package yet (an app from the empty preset) on a line. */
+export function installCommand(entry: CatalogEntry, line: string | null, latest: string | null): string {
+  if (line === null || line === latest) return entry.install.cli
+  const both = entry.npm !== null && (entry.compat.inEmptyPreset ?? []).includes(line)
+  const version = (entry.compat.inPresets ?? []).includes(line)
+    ? emptyPresetVersion(entry, line)
+    : installVersion(entry, line)
+  const npm = entry.npm
+  return installCli(entry, line, both && npm ? entry.moduleIds.map((id) => ({ id, from: npm })) : null, version)
+}
+
+function listAnd(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+const EMPTY_PRESET_LEAD = 'In an app from the empty preset:'
+
+function presetInstallText(moduleIds: readonly string[]): string {
+  return `Nothing to install: a new app already registers ${moduleIds.length ? listAnd(moduleIds) : 'it'} in src/modules.ts.`
+}
+
+function newAppInstallText(moduleIds: readonly string[], emptyCommand: string | null): string {
+  return emptyCommand ? `${presetInstallText(moduleIds)} ${EMPTY_PRESET_LEAD} ${emptyCommand}` : presetInstallText(moduleIds)
+}
+
+/**
+ * Where a new app (classic preset) of the line already registers the package, `install` is that sentence, `presetNote`
+ * the whole install sentence and `installEmptyPreset` the command of an app from the empty preset (null when that
+ * preset registers it too). Elsewhere `install` is the command.
+ */
+export function installFields(
+  entry: CatalogEntry,
+  line: string | null,
+  latest: string | null,
+): Pick<ModuleCard, 'install' | 'presetNote' | 'installEmptyPreset'> {
+  const command = installCommand(entry, line, latest)
+  if (line === null || !(entry.compat.inPresets ?? []).includes(line)) return { install: command }
+  const empty = (entry.compat.inEmptyPreset ?? []).includes(line) ? null : command
+  return {
+    install: presetInstallText(entry.moduleIds),
+    presetNote: newAppInstallText(entry.moduleIds, empty),
+    installEmptyPreset: empty,
+  }
+}
+
+/** What a new app (classic preset) of the line has of a built-in module; null when a new app has it off. */
+export function builtInPresetText(coreModule: BuiltInModule, line: string | null): string | null {
+  if (!line || !coreModule.inPresets?.includes(line)) return null
+  const on = `On in a new app on ${line}: nothing to enable.`
+  if (coreModule.inEmptyPreset?.includes(line)) return on
+  return `${on} ${EMPTY_PRESET_LEAD} ${coreModule.install || builtInEnableCommand(coreModule.id)}`
+}
+
+/** The `get_module` warnings of a built-in module. */
+export function builtInNotes(coreModule: BuiltInModule, line: string | null): string[] {
+  const text = builtInPresetText(coreModule, line)
+  if (text) return [`Built into Open Mercato core as ${coreModule.id}.`, text]
+  return [`Built into Open Mercato core as ${coreModule.id}. Enable it: ${builtInEnableCommand(coreModule.id)}`]
+}
+
+/** Order without a query: OM Quality, Verified, Listed, then featured, receipt freshness on the line, title. */
+function relevanceCompare(line: string | null) {
+  const level = (meta: ModuleMeta) =>
+    meta.omQuality ? 0 : meta.entry.tier === 'verified' ? 1 : meta.entry.tier === 'listed' ? 2 : 3
+  const fresh = (meta: ModuleMeta) => {
+    const at = line ? judgedCell(meta.entry, line)?.at : null
+    return at ? Date.parse(at) : 0
+  }
+  return (left: ModuleMeta, right: ModuleMeta) =>
+    level(left) - level(right) ||
+    Number(right.entry.featured) - Number(left.entry.featured) ||
+    fresh(right) - fresh(left) ||
+    left.entry.title.localeCompare(right.entry.title)
+}
+
+/** The query with one swap of two adjacent letters undone in one word (`stirpe` -> `stripe`); at most 60 variants. */
+export function swapVariants(query: string): string[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length > 6) return []
+  const variants: string[] = []
+  words.forEach((word, wordIndex) => {
+    if (word.length < 3 || word.length > 24 || !/^[a-z0-9]+$/.test(word) || processTerm(word) === null) return
+    for (let index = 0; index < word.length - 1; index++) {
+      if (word[index] === word[index + 1]) continue
+      const swapped = `${word.slice(0, index)}${word[index + 1]}${word[index]}${word.slice(index + 2)}`
+      variants.push([...words.slice(0, wordIndex), swapped, ...words.slice(wordIndex + 1)].join(' '))
+    }
+  })
+  return [...new Set(variants)].slice(0, 60)
+}
+
+export type RankedModule = { meta: ModuleMeta; matchedOn: string[] }
 
 export type RankedSearch = {
   line: string | null
   latest: string | null
-  modules: { meta: ModuleMeta; result: SearchResult }[]
+  modules: RankedModule[]
   builtIn: BuiltInCard[]
+  didYouMean: string | null
 }
 
+type Hits = {
+  modules: { meta: ModuleMeta; result: SearchResult }[]
+  builtIns: { meta: BuiltInMeta; result: SearchResult }[]
+}
+
+/**
+ * `search_modules` ranking (tools@1): AND first, then OR with weak hits cut, then one swapped pair of letters. Without
+ * a query (blank, or only stop words next to a filter) the filters alone pick the modules, in relevance order.
+ */
 export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesInput): RankedSearch {
   const input = {
     ...rawInput,
+    query: rawInput.query ?? '',
     verifiedOnly: rawInput.verifiedOnly ?? SEARCH_DEFAULTS.verifiedOnly,
     includeBuiltIn: rawInput.includeBuiltIn ?? SEARCH_DEFAULTS.includeBuiltIn,
     includeExamples: rawInput.includeExamples ?? SEARCH_DEFAULTS.includeExamples,
@@ -512,6 +709,7 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
   }
   const wantKinds = input.kind
   const provider = input.provider?.toLowerCase()
+  const providerMatches = (item: { name: string; label: string }) => item.name === provider || item.label.toLowerCase() === provider
   const moduleOk = (meta: ModuleMeta) => {
     const entry = meta.entry
     return (
@@ -523,7 +721,7 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
       (!input.verifiedOnly || (line !== null && statusOn(entry, line) === 'verified')) &&
       (!input.emits || meta.ids.emits.includes(input.emits)) &&
       (!input.consumes || meta.ids.consumes.includes(input.consumes)) &&
-      (!provider || entry.providers.some((item) => item.name === provider || item.label.toLowerCase() === provider))
+      (!provider || entry.providers.some(providerMatches))
     )
   }
   const builtInOk = (meta: BuiltInMeta) =>
@@ -535,17 +733,53 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
     !input.verifiedOnly &&
     (!input.emits || meta.ids.emits.includes(input.emits)) &&
     (!input.consumes || meta.ids.consumes.includes(input.consumes))
+  const builtInCard = (meta: BuiltInMeta, chips: string[]): BuiltInCard => ({
+    id: meta.module.id,
+    title: meta.module.title,
+    description: meta.module.description,
+    category: meta.module.category,
+    enabled: null,
+    install: meta.module.install || builtInEnableCommand(meta.module.id),
+    page: absolute(searcher.site, meta.module.page),
+    matchedOn: chips,
+    presetNote: builtInPresetText(meta.module, line),
+  })
 
-  const run = (combineWith: 'AND' | 'OR') => {
-    const hits = searcher.miniSearch.search(input.query, {
+  const filtered = Boolean(
+    input.category || input.emits || input.consumes || input.provider || input.type || wantKinds || input.verifiedOnly,
+  )
+  const words = tokenize(input.query).some((term) => processTerm(term) !== null)
+  if (input.query.trim() === '' || (filtered && !words)) {
+    const filterChips = (category: string, providers: readonly { name: string; label: string }[]): string[] => [
+      ...(input.emits ? [`event ${input.emits}`] : []),
+      ...(input.consumes && input.consumes !== input.emits ? [`event ${input.consumes}`] : []),
+      ...(provider ? providers.filter(providerMatches).slice(0, 1).map((item) => `provider ${item.label}`) : []),
+      ...(input.category ? [`category ${category}`] : []),
+    ]
+    const modules = [...searcher.modules.values()].filter(moduleOk).sort(relevanceCompare(line))
+    const narrowed = Boolean(input.category || input.emits || input.consumes || wantKinds)
+    const builtIns = narrowed
+      ? [...searcher.builtInModules.values()].filter(builtInOk).sort((left, right) => left.module.title.localeCompare(right.module.title))
+      : []
+    return {
+      line,
+      latest,
+      modules: modules.map((meta) => ({ meta, matchedOn: filterChips(meta.entry.category, meta.entry.providers) })),
+      builtIn: builtIns.slice(0, BUILTIN_MAX).map((meta) => builtInCard(meta, filterChips(meta.module.category, []))),
+      didYouMean: null,
+    }
+  }
+
+  const run = (combineWith: 'AND' | 'OR', query: string = input.query): Hits => {
+    const hits = searcher.miniSearch.search(query, {
       combineWith,
       prefix: true,
       fuzzy: 0.2,
       boost: { ...SEARCH_BOOST },
       boostDocument,
     })
-    const modules: { meta: ModuleMeta; result: SearchResult }[] = []
-    const builtIns: { meta: BuiltInMeta; result: SearchResult }[] = []
+    const modules: Hits['modules'] = []
+    const builtIns: Hits['builtIns'] = []
     for (const result of hits) {
       const id = String(result.id)
       if (result['group'] === 'builtin') {
@@ -558,17 +792,43 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
     }
     return { modules, builtIns }
   }
+  const none = (hits: Hits) => hits.modules.length === 0 && hits.builtIns.length === 0
+  const topOf = (hits: Hits) => Math.max(hits.modules[0]?.result.score ?? 0, hits.builtIns[0]?.result.score ?? 0)
+  // An OR hit that matched no query word as typed and scores below WEAK_HIT_RATIO of the best hit is noise.
+  const typed = new Set(tokenize(input.query).filter((term) => processTerm(term) !== null))
+  const strong = <T extends { result: SearchResult }>(hits: readonly T[], top: number): T[] =>
+    hits.filter((hit) => hit.result.score >= WEAK_HIT_RATIO * top || Object.keys(hit.result.match).some((term) => typed.has(term)))
   let found = run('AND')
-  if (found.modules.length === 0 && found.builtIns.length === 0) found = run('OR')
-  else if (found.modules.length < MIN_AND_RESULTS && tokenize(input.query).filter((term) => processTerm(term)).length > 1) {
+  let didYouMean: string | null = null
+  if (none(found)) {
     const orHits = run('OR')
+    const top = topOf(orHits)
+    found = { modules: strong(orHits.modules, top), builtIns: strong(orHits.builtIns, top) }
+    if (none(found)) {
+      let best: { variant: string; hits: Hits; top: number } | null = null
+      for (const variant of swapVariants(input.query)) {
+        const hits = run('AND', variant)
+        const top = topOf(hits)
+        if (!none(hits) && (!best || top > best.top)) best = { variant, hits, top }
+      }
+      if (best) {
+        found = best.hits
+        didYouMean = best.variant
+      }
+    }
+  } else if (found.modules.length < MIN_AND_RESULTS && tokenize(input.query).filter((term) => processTerm(term)).length > 1) {
+    const orHits = run('OR')
+    const top = Math.max(topOf(found), topOf(orHits))
     const seen = new Set(found.modules.map((hit) => hit.meta.entry.locator))
-    found = { modules: [...found.modules, ...orHits.modules.filter((hit) => !seen.has(hit.meta.entry.locator))], builtIns: found.builtIns }
+    found = {
+      modules: [...found.modules, ...strong(orHits.modules, top).filter((hit) => !seen.has(hit.meta.entry.locator))],
+      builtIns: found.builtIns,
+    }
   }
 
   const best = found.modules[0]?.result.score ?? 0
-  const query = input.query.trim().toLowerCase()
-  const builtIn: BuiltInCard[] = found.builtIns
+  const query = (didYouMean ?? input.query).trim().toLowerCase()
+  const builtIn = found.builtIns
     .filter(
       ({ meta, result }) =>
         result.score >= BUILTIN_RATIO * best ||
@@ -576,25 +836,19 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
         meta.module.id === query.replace(/[\s-]+/g, '_'),
     )
     .slice(0, BUILTIN_MAX)
-    .map(({ meta, result }) => ({
-      id: meta.module.id,
-      title: meta.module.title,
-      description: meta.module.description,
-      category: meta.module.category,
-      enabled: null,
-      install: meta.module.install || builtInEnableCommand(meta.module.id),
-      page: absolute(searcher.site, meta.module.page),
-      matchedOn: matchedOn(result.match, { ids: meta.ids }, result.queryTerms),
-    }))
-  return { line, latest, modules: found.modules, builtIn }
+    .map(({ meta, result }) => builtInCard(meta, matchedOn(result.match, { ids: meta.ids }, result.queryTerms)))
+  const modules = found.modules.map(({ meta, result }) => ({
+    meta,
+    matchedOn: matchedOn(
+      result.match,
+      { providers: meta.entry.providers, tags: meta.entry.tags, ids: meta.ids, category: meta.entry.category },
+      result.queryTerms,
+    ),
+  }))
+  return { line, latest, modules, builtIn, didYouMean }
 }
 
-export function toModuleCard(
-  searcher: CatalogSearcher,
-  hit: { meta: ModuleMeta; result: SearchResult },
-  line: string | null,
-  latest: string | null,
-): ModuleCard {
+export function toModuleCard(searcher: CatalogSearcher, hit: RankedModule, line: string | null, latest: string | null): ModuleCard {
   const entry = hit.meta.entry
   return {
     locator: entry.locator,
@@ -613,18 +867,18 @@ export function toModuleCard(
     status: line ? statusOn(entry, line) : null,
     agentPolicy: line ? (entry.agentPolicy[line] ?? null) : null,
     installableFrom: entry.version.installableFrom,
-    install: installCommand(entry, line, latest),
-    matchedOn: matchedOn(
-      hit.result.match,
-      { providers: entry.providers, tags: entry.tags, ids: hit.meta.ids, category: entry.category },
-      hit.result.queryTerms,
-    ),
+    ...installFields(entry, line, latest),
+    matchedOn: hit.matchedOn,
     card: absolute(searcher.site, entry.links.page),
   }
 }
 
+export function receiptSourceOf(searcher: CatalogSearcher): ReceiptSource | null {
+  return searcher.index.dataAsOf?.source ?? null
+}
+
 export function searchModules(searcher: CatalogSearcher, input: SearchModulesInput): SearchModulesOutput {
-  const limit = Math.min(20, Math.max(1, Math.floor(input.limit ?? SEARCH_DEFAULTS.limit)))
+  const limit = Math.min(SEARCH_MAX_LIMIT, Math.max(1, Math.floor(input.limit ?? SEARCH_DEFAULTS.limit)))
   const ranked = rankModules(searcher, input)
   return {
     results: ranked.modules.slice(0, limit).map((hit) => toModuleCard(searcher, hit, ranked.line, ranked.latest)),
@@ -633,6 +887,8 @@ export function searchModules(searcher: CatalogSearcher, input: SearchModulesInp
     line: ranked.line,
     dataVersion: searcher.index.dataVersion,
     generatedAt: searcher.index.generatedAt,
+    receiptSource: receiptSourceOf(searcher),
+    ...(ranked.didYouMean ? { didYouMean: ranked.didYouMean } : {}),
   }
 }
 
@@ -685,7 +941,12 @@ export function resolveRef(ref: string, entries: readonly CatalogEntry[], builtI
 
 const clip = (text: string, max = 200) => (text.length > max ? `${text.slice(0, max - 3)}...` : text)
 
-export function entryWarnings(entry: CatalogEntry, today: string, line: string | null): string[] {
+export function entryWarnings(
+  entry: CatalogEntry,
+  today: string,
+  line: string | null,
+  receiptSource: ReceiptSource | null = null,
+): string[] {
   const warnings: string[] = []
   if (!entry.listed) warnings.push(`Not listed: ${(line ? entry.agentPolicy[line] : null)?.reasons[0]?.text ?? 'see the card.'}`)
   if (entry.status !== 'active') warnings.push(`Status: ${entry.status}.`)
@@ -700,7 +961,7 @@ export function entryWarnings(entry: CatalogEntry, today: string, line: string |
   const hygiene = entry.signals?.hygiene
   if (hygiene && hygiene.status !== 'ok') warnings.push(`Hygiene ${hygiene.status}: ${hygiene.failing.join(', ') || 'see the card'}.`)
   if (entry.signals?.anatomy === 'hidden') warnings.push('Anatomy is not published for this entry.')
-  return warnings.map((warning) => clip(warning)).slice(0, 10)
+  return [...(receiptSource === 'preview' ? [PREVIEW_LINE] : []), ...warnings.map((warning) => clip(warning))].slice(0, 10)
 }
 
 export function unknownModuleMessage(ref: string, candidates: readonly string[]): string {
@@ -709,8 +970,8 @@ export function unknownModuleMessage(ref: string, candidates: readonly string[])
     : `Unknown module "${ref.slice(0, 80)}".`
 }
 
-export function builtInWarning(coreModule: BuiltInModule): string {
-  return clip(`Built into Open Mercato core as ${coreModule.id}. Enable it: ${coreModule.install}`)
+export function builtInWarnings(coreModule: BuiltInModule, line: string | null): string[] {
+  return builtInNotes(coreModule, line).map((note) => clip(note))
 }
 
 export function sharedModuleIdWarning(id: string, count: number): string {
