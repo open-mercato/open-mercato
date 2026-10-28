@@ -239,6 +239,47 @@ describe('modules-config', () => {
       expect(fs.readFileSync(filePath, 'utf8')).toBe(before)
     })
 
+    it('never suggests a flag value it cannot vouch for', () => {
+      process.env.OM_ENABLE_STORAGE_S3 = 'true'
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(
+        filePath,
+        [
+          "import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'",
+          '',
+          'const enableS3 = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)',
+          'const settings = { enableS3: false }',
+          '',
+          'export const enabledModules = []',
+          '',
+          'if (!parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {',
+          "  enabledModules.push({ id: 'negated', from: '@open-mercato/negated' })",
+          '}',
+          '',
+          'if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {',
+          "  enabledModules.push({ id: 'unrelated', from: '@open-mercato/unrelated' })",
+          '} else {',
+          "  enabledModules.push({ id: 'fallback', from: '@open-mercato/fallback' })",
+          '}',
+          '',
+          'if (settings.enableS3) {',
+          "  enabledModules.push({ id: 'property_gated', from: '@open-mercato/property-gated' })",
+          '}',
+        ].join('\n'),
+      )
+
+      for (const id of ['negated', 'fallback', 'property_gated']) {
+        let message = ''
+        try {
+          ensureModuleRegistration(filePath, { id, from: `@open-mercato/${id.replace('_', '-')}` })
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error)
+        }
+        expect(message).toContain('Make that condition true to enable it.')
+        expect(message).not.toMatch(/=true/)
+      }
+    })
+
     it('ignores inactive gated entries when switching the source of an active registration', () => {
       delete process.env.OM_ENABLE_STORAGE_S3
       const filePath = writeGatedModulesFile()

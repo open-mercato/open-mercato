@@ -45,20 +45,15 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
   }
 }
 
-function parseProcessEnvAccess(
-  node: ts.Expression,
-  env: NodeJS.ProcessEnv,
-): { matched: boolean; value: string | undefined } {
-  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.name)) {
-    const target = node.expression
-    if (
-      ts.isPropertyAccessExpression(target)
-      && ts.isIdentifier(target.expression)
-      && target.expression.text === 'process'
-      && target.name.text === 'env'
-    ) {
-      return { matched: true, value: env[node.name.text] }
-    }
+function readProcessEnvName(node: ts.Expression): string | null {
+  if (
+    ts.isPropertyAccessExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === 'process'
+    && node.expression.name.text === 'env'
+  ) {
+    return node.name.text
   }
 
   if (
@@ -69,10 +64,10 @@ function parseProcessEnvAccess(
     && node.expression.name.text === 'env'
     && ts.isStringLiteralLike(node.argumentExpression)
   ) {
-    return { matched: true, value: env[node.argumentExpression.text] }
+    return node.argumentExpression.text
   }
 
-  return { matched: false, value: undefined }
+  return null
 }
 
 function evaluateStaticExpressionWithScope(
@@ -100,9 +95,9 @@ function evaluateStaticExpressionWithScope(
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false
   if (node.kind === ts.SyntaxKind.NullKeyword) return null
 
-  const envAccess = parseProcessEnvAccess(node, env)
-  if (envAccess.matched) {
-    return envAccess.value
+  const envName = readProcessEnvName(node)
+  if (envName) {
+    return env[envName]
   }
 
   if (ts.isPropertyAccessExpression(node)) {
@@ -206,29 +201,40 @@ function evaluateStaticCondition(
   return Boolean(evaluateStaticExpressionWithScope(node, env, scope))
 }
 
-function collectEnvFlags(node: ts.Node, env: NodeJS.ProcessEnv, envFlagScope: EnvFlagScope): string[] {
-  const flags: string[] = []
-  const visit = (current: ts.Node) => {
-    if (ts.isExpression(current)) {
-      const envAccess = parseProcessEnvAccess(current, env)
-      if (envAccess.matched) {
-        const name = ts.isPropertyAccessExpression(current)
-          ? current.name.text
-          : ts.isElementAccessExpression(current) && ts.isStringLiteralLike(current.argumentExpression)
-            ? current.argumentExpression.text
-            : null
-        if (name) flags.push(name)
-        return
-      }
-    }
-    if (ts.isIdentifier(current)) {
-      flags.push(...(envFlagScope.get(current.text) ?? []))
-      return
-    }
-    ts.forEachChild(current, visit)
+function collectEnablingEnvFlags(node: ts.Expression, envFlagScope: EnvFlagScope): string[] {
+  if (ts.isParenthesizedExpression(node)) {
+    return collectEnablingEnvFlags(node.expression, envFlagScope)
   }
-  visit(node)
-  return Array.from(new Set(flags))
+
+  const envName = readProcessEnvName(node)
+  if (envName) return [envName]
+
+  if (ts.isIdentifier(node)) {
+    return envFlagScope.get(node.text) ?? []
+  }
+
+  if (
+    ts.isBinaryExpression(node)
+    && (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return Array.from(new Set([
+      ...collectEnablingEnvFlags(node.left, envFlagScope),
+      ...collectEnablingEnvFlags(node.right, envFlagScope),
+    ]))
+  }
+
+  if (
+    ts.isCallExpression(node)
+    && ts.isIdentifier(node.expression)
+    && node.expression.text === 'parseBooleanWithDefault'
+    && node.arguments[0]
+  ) {
+    const envArgument = readProcessEnvName(node.arguments[0])
+    return envArgument ? [envArgument] : []
+  }
+
+  return []
 }
 
 type BranchContext = {
@@ -253,7 +259,7 @@ function collectPushEntriesFromStatement(
   if (ts.isIfStatement(statement)) {
     const conditionMet = evaluateStaticCondition(statement.expression, env, scope)
     const envFlags = Array.from(
-      new Set([...branch.envFlags, ...collectEnvFlags(statement.expression, env, envFlagScope)]),
+      new Set([...branch.envFlags, ...collectEnablingEnvFlags(statement.expression, envFlagScope)]),
     )
     const thenEntries = collectPushEntriesFromStatement(
       statement.thenStatement,
@@ -270,7 +276,7 @@ function collectPushEntriesFromStatement(
           targetVariableName,
           scope,
           envFlagScope,
-          { active: branch.active && !conditionMet, envFlags },
+          { active: branch.active && !conditionMet, envFlags: branch.envFlags },
         )
       : []
     return [...thenEntries, ...elseEntries]
@@ -338,7 +344,7 @@ function parseModuleConfigShape(
           declaration.name.text,
           evaluateStaticExpressionWithScope(declaration.initializer, env, scope),
         )
-        envFlagScope.set(declaration.name.text, collectEnvFlags(declaration.initializer, env, envFlagScope))
+        envFlagScope.set(declaration.name.text, collectEnablingEnvFlags(declaration.initializer, envFlagScope))
       }
       continue
     }
@@ -424,13 +430,22 @@ function buildInactiveRegistrationMessage(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const envFlags = Array.from(new Set(occurrences.flatMap((occurrence) => occurrence.envFlags)))
-  const disabledFlags = envFlags.filter((flag) => !parseBooleanWithDefault(env[flag], false))
-  const flagsToSet = disabledFlags.length > 0 ? disabledFlags : envFlags
+  const flagsToSet = envFlags.filter((flag) => !parseBooleanWithDefault(env[flag], false))
   const prefix = `Module "${moduleId}" is already registered in ${modulesPath} behind a condition that is currently off, so no second entry was added.`
   if (flagsToSet.length === 0) {
     return `${prefix} Make that condition true to enable it.`
   }
   return `${prefix} Enable it by setting ${flagsToSet.map((flag) => `${flag}=true`).join(' and ')} in your environment (.env), then run \`yarn generate\`.`
+}
+
+export function assertModuleNotGatedOff(modulesPath: string, moduleId: string): void {
+  if (!fs.existsSync(modulesPath)) return
+
+  const config = parseModuleConfigShape(fs.readFileSync(modulesPath, 'utf8'))
+  const matches = config.occurrences.filter((occurrence) => occurrence.entry.id === moduleId)
+  if (matches.length > 0 && matches.every((occurrence) => !occurrence.active)) {
+    throw new Error(buildInactiveRegistrationMessage(moduleId, modulesPath, matches))
+  }
 }
 
 export function ensureModuleRegistration(

@@ -206,6 +206,35 @@ describe('enableOfficialModule', () => {
     )
   })
 
+  it('rejects --eject for a module gated behind a disabled env flag before copying any source', async () => {
+    const originalFlag = process.env.OM_ENABLE_TEST_PACKAGE
+    delete process.env.OM_ENABLE_TEST_PACKAGE
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package', { ejectable: true })
+
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      [
+        'export const enabledModules = []',
+        "if (process.env.OM_ENABLE_TEST_PACKAGE === 'true') {",
+        "  enabledModules.push({ id: 'test_package', from: '@open-mercato/test-package' })",
+        '}',
+      ].join('\n'),
+    )
+
+    try {
+      await expect(
+        enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true),
+      ).rejects.toThrow('behind a condition that is currently off')
+      expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package'))).toBe(false)
+    } finally {
+      if (originalFlag === undefined) delete process.env.OM_ENABLE_TEST_PACKAGE
+      else process.env.OM_ENABLE_TEST_PACKAGE = originalFlag
+    }
+  })
+
   it('rejects enabling with --eject when the package is not ejectable', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     const appDir = path.join(tmpDir, 'app')
