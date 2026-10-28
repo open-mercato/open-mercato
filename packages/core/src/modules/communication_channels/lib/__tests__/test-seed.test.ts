@@ -1,6 +1,7 @@
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   TEST_CHANNEL_SEEDING_ENV,
   TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV,
@@ -8,6 +9,7 @@ import {
   TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestChannelSeedingEnabled,
   isTestEmailCaptureAccessAuthorized,
@@ -195,6 +197,28 @@ describe('communication_channels test-seed gate', () => {
       process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV] = 'too-short'
       expect(isTestEmailCaptureAccessAuthorized('too-short')).toBe(false)
     })
+  })
+})
+
+describe('deleteTestSeedPlatformMessage', () => {
+  it('scopes deletion to a test-seed stamp or the verified external conversation', async () => {
+    const execute = jest.fn().mockResolvedValue(undefined)
+    const em = {
+      getConnection: () => ({ execute }),
+    } as unknown as EntityManager
+
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: 'message-1',
+      channelId: 'channel-1',
+      conversationId: 'conversation-1',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.stringContaining("source_entity_type = 'communication_channels.external_conversation'"),
+      ['message-1', 'channel-1', 'conversation-1', 'tenant-1', 'organization-1'],
+    )
   })
 })
 

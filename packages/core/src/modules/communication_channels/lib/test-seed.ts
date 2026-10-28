@@ -143,15 +143,16 @@ export async function createTestSeedPlatformMessage(
 }
 
 /**
- * Hard-delete a `messages` row seeded by {@link createTestSeedPlatformMessage}.
- * Matches only rows stamped as test-seed inbound for the given channel and
- * scope, so integration teardown can never remove a real message.
+ * Hard-delete a platform message created by the test-seed harness. Matches only
+ * the direct seed stamp or a test-prefixed conversation already verified by the
+ * test-seed route, so integration teardown cannot remove real traffic.
  */
 export async function deleteTestSeedPlatformMessage(
   em: EntityManager,
   input: {
     messageId: string
     channelId: string
+    conversationId: string
     tenantId: string
     organizationId: string | null
   },
@@ -159,11 +160,20 @@ export async function deleteTestSeedPlatformMessage(
   await em.getConnection().execute(
     `DELETE FROM messages
      WHERE id = ?
-       AND source_entity_type = 'communication_channels.test_seed_inbound'
-       AND source_entity_id = ?
+       AND (
+         (source_entity_type = 'communication_channels.test_seed_inbound' AND source_entity_id = ?)
+         OR
+         (source_entity_type = 'communication_channels.external_conversation' AND source_entity_id = ?)
+       )
        AND tenant_id = ?
        AND organization_id IS NOT DISTINCT FROM ?`,
-    [input.messageId, input.channelId, input.tenantId, input.organizationId],
+    [
+      input.messageId,
+      input.channelId,
+      input.conversationId,
+      input.tenantId,
+      input.organizationId,
+    ],
   )
 }
 

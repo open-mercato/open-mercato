@@ -8,6 +8,7 @@ import {
   ingestInboundEmailMessage,
   isChannelSeedingAvailable,
   listCapturedSystemEmails,
+  purgeSeededInboundMessage,
   seedConnectedChannel,
   seedSystemEmailChannel,
   waitForCapturedSystemEmail,
@@ -50,7 +51,11 @@ test.describe('TC-MSG-EMAIL-002: inbound channel email is not echoed to its send
     const outboundSubject = `QA outbound public message ${stamp}`
 
     let channelId: string | null = null
-    let inboundMessageId: string | null = null
+    let inboundSeeded: {
+      messageId: string
+      conversationId: string
+      channelLinkId: string
+    } | null = null
     let outboundMessageId: string | null = null
 
     try {
@@ -68,11 +73,20 @@ test.describe('TC-MSG-EMAIL-002: inbound channel email is not echoed to its send
         subject: inboundSubject,
         body: 'Inbound email body for the echo regression.',
         externalMessageId: `<tc-msg-email-002-${stamp}@example.test>`,
-        externalConversationId: `tc-msg-email-002-conversation-${stamp}`,
+        externalConversationId: `inbound-seed:tc-msg-email-002-conversation-${stamp}`,
       })
       expect(ingested.status, 'the hub accepted the inbound email').toBe('created')
-      inboundMessageId = ingested.messageId
-      expect(inboundMessageId, 'ingest composed a platform message').toBeTruthy()
+      expect(ingested.messageId, 'ingest composed a platform message').toBeTruthy()
+      expect(ingested.conversationId, 'ingest created an external conversation').toBeTruthy()
+      expect(ingested.channelLinkId, 'ingest created a channel link').toBeTruthy()
+      if (!ingested.messageId || !ingested.conversationId || !ingested.channelLinkId) {
+        throw new Error('[internal] Inbound test ingest returned an incomplete result')
+      }
+      inboundSeeded = {
+        messageId: ingested.messageId,
+        conversationId: ingested.conversationId,
+        channelLinkId: ingested.channelLinkId,
+      }
 
       // (2) Positive control: a user-composed public message that asks for email
       // delivery. If this one is not captured, the pipeline itself is broken and
@@ -111,8 +125,9 @@ test.describe('TC-MSG-EMAIL-002: inbound channel email is not echoed to its send
       ).toEqual([])
     } finally {
       await deleteMessageIfExists(request, token, outboundMessageId)
-      await deleteMessageIfExists(request, token, inboundMessageId)
+      await purgeSeededInboundMessage(request, token, channelId, inboundSeeded)
       await deleteChannelIfExists(request, token, channelId)
+      await clearCapturedSystemEmails(request, token)
     }
   })
 })

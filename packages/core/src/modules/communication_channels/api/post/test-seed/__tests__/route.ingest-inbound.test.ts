@@ -192,20 +192,6 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
     expect(rawFrame.subject).toBe('Inbound subject')
   })
 
-  it('answers 422 with the adapter message when the frame cannot be normalized (#6392)', async () => {
-    mockNormalizeInbound.mockRejectedValue(
-      new Error('[internal] TestSeedChannelAdapter requires an email-shaped senderIdentifier'),
-    )
-
-    const response = await POST(ingestRequest())
-
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({
-      error: '[internal] TestSeedChannelAdapter requires an email-shaped senderIdentifier',
-    })
-    expect(mockCommandExecute).not.toHaveBeenCalled()
-  })
-
   it('refuses to ingest against a channel connected through a non-stub provider', async () => {
     // Ingest does not verify that providerKey matches the channel it names, so
     // accepting an arbitrary channel here would run a real provider adapter

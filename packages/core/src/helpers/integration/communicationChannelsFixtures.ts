@@ -265,8 +265,9 @@ export async function seedInboundMessage(
 }
 
 /**
- * Best-effort hard delete of the rows one {@link seedInboundMessage} call created
- * (thread mapping, channel link, conversation and message). Run it before
+ * Best-effort hard delete of the rows one seeded or test-ingested inbound message
+ * created (thread mapping, channel link, external message, conversation and
+ * platform message). Run it before
  * {@link deleteChannelIfExists}: the purge is authorized against the live channel,
  * and disconnecting a channel deliberately retains its conversations and messages.
  * Safe to call with null ids in `finally`.
@@ -342,7 +343,7 @@ export async function ingestInboundChatMessage(
 }
 
 /**
- * Ingest an inbound EMAIL through the REAL `ingest_inbound_message` command on a
+ * Ingest an inbound email through the real `ingest_inbound_message` command on a
  * channel connected with the default `email` flavor. The stub adapter turns the
  * frame into an email-shaped inbound message whose sender is `senderAddress`, so
  * the hub derives `externalEmail` from it and composes the platform message via
@@ -350,7 +351,9 @@ export async function ingestInboundChatMessage(
  *
  * Use this — not {@link seedInboundMessage}, which bypasses compose — for any
  * assertion about what the hub does with an inbound email after ingest (for
- * example that it is NOT echoed back to its sender, #6089).
+ * example that it is not echoed back to its sender, #6089). Prefix the supplied
+ * external conversation id with `inbound-seed:` when the test will use
+ * {@link purgeSeededInboundMessage} for teardown.
  */
 export async function ingestInboundEmailMessage(
   request: APIRequestContext,
