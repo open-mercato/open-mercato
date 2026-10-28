@@ -26,6 +26,7 @@ export const INTEGRITY_CHECK_KINDS = [
   'reference_exists',
   'tool_consulted',
   'custom_integrity',
+  'abstain_or_review',
 ] as const
 export const GUARDRAIL_CHECKS_PATH = '/api/agent_orchestrator/guardrail-checks'
 export const TRACE_VIEW_FEATURE = 'agent_orchestrator.trace.view'
@@ -41,9 +42,12 @@ export function rawOutputKeyFor(runId: string): string {
   return `agent-runs/${runId}/raw-output-${randomUUID()}.json`
 }
 
-export type SeededIntegrityRun = {
+export type SeededRun = {
   runId: string
   checkIds: string[]
+}
+
+export type SeededIntegrityRun = SeededRun & {
   rawOutputKey: string
 }
 
@@ -81,7 +85,76 @@ export async function seedIntegrityRun(scope: {
   }
 }
 
-export async function deleteSeededIntegrityRuns(seeds: SeededIntegrityRun[]): Promise<void> {
+export const REVIEW_RULE_ID = 'needs-review'
+export const UNTRUSTED_INPUT_LABEL = 'customer_message'
+export const RULE_LESS_AGENT_ID = 'deals.health_check'
+
+/**
+ * Seeds one `support.policy_check` run whose checks are the shapes Integrity
+ * Phases 3–4 write: an output-phase `abstain_or_review` warn that fired
+ * `needsReview` and holds auto-approval, and an input-phase `prompt_injection`
+ * warn raised by screening a declared untrusted input field. Evidence carries
+ * reason codes and pointers only, never input text.
+ */
+export async function seedReviewHoldRun(scope: {
+  tenantId: string
+  organizationId: string
+}): Promise<SeededRun> {
+  const [runId] = await insertAgentRunFixtures([
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, agentId: POLICY_CHECK_AGENT_ID, createdAt: new Date() },
+  ])
+  try {
+    const checkIds = await insertAgentGuardrailCheckFixtures([
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        agentRunId: runId,
+        phase: 'input',
+        kind: 'prompt_injection',
+        result: 'warn',
+        capability: POLICY_CHECK_AGENT_ID,
+        guardrailSetVersion: INTEGRITY_SEED_VERSION,
+        evidence: { sourceKind: 'input', sourceRef: UNTRUSTED_INPUT_LABEL, locator: 'reply' },
+      },
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        agentRunId: runId,
+        phase: 'output',
+        kind: 'abstain_or_review',
+        result: 'warn',
+        capability: POLICY_CHECK_AGENT_ID,
+        guardrailSetVersion: INTEGRITY_SEED_VERSION,
+        evidence: {
+          ruleId: REVIEW_RULE_ID,
+          items: 0,
+          violations: [],
+          dropped: 0,
+          repaired: 0,
+          ambiguous: 0,
+          outcome: 'needs_review',
+          reasons: ['violations_at_least'],
+          route: 'review',
+          holdsAutoApproval: true,
+        },
+      },
+    ])
+    return { runId, checkIds }
+  } catch (error) {
+    await deleteAgentRunsByIds([runId])
+    throw error
+  }
+}
+
+/** Seeds one run of an agent that declares no integrity rules, with no guardrail checks. */
+export async function seedRuleLessRun(scope: { tenantId: string; organizationId: string }): Promise<SeededRun> {
+  const [runId] = await insertAgentRunFixtures([
+    { tenantId: scope.tenantId, organizationId: scope.organizationId, agentId: RULE_LESS_AGENT_ID, createdAt: new Date() },
+  ])
+  return { runId, checkIds: [] }
+}
+
+export async function deleteSeededIntegrityRuns(seeds: SeededRun[]): Promise<void> {
   await deleteAgentGuardrailChecksByIds(seeds.flatMap((seed) => seed.checkIds))
   await deleteAgentRunsByIds(seeds.map((seed) => seed.runId))
 }

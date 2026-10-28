@@ -196,6 +196,16 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 - Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes; `full` records metadata only (never write content until the content-capture phase ships). Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
 - OTel export is opt-in (deployment switch + tenant setting + allowlist) and fail-open: never throw into a run, report failures with `reportError` codes. Never export encrypted or free-text fields; pass string attributes through `redactAttributeValues`; derive ids only via `lib/trace/otel/ids.ts`. No `@opentelemetry/*` imports. Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-*.mdx`.
 
+## Output Integrity (`lib/guardrails/integrity/`)
+
+Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`. `defineAgent({ integrity, untrustedInputs })`; paths are relative to the result envelope (`data.findings[*]`).
+
+- Rules run in declaration order after the output schema; `abstain_or_review` MUST be last. One `AgentGuardrailCheck` per rule with `evidence.ruleId`; evidence holds counts, pointers and reason codes, never input text.
+- A rule asks for a human by writing `holdsAutoApproval: true` on a `warn` row — the disposition gate holds those (`auto_disposition_block='guardrail'`). `route: 'review'` also emits `run.review_requested`. Shadow mode (`OM_AGENT_INTEGRITY=off`) strips the flag.
+- Untrusted input fields are screened as `sourceKind: 'input'` spans and rendered as nonce-delimited blocks; never interpolate them into the prompt yourself.
+- The run API `integrity` summary is derived from the check rows (`summary.ts`) — add new outcomes there, not in routes. The pre-repair output is an encrypted artifact (`rawOutputKey`, `kind=raw_output`), never inline.
+- OpenCode runs the integrity rules only (no `tool_scope`, grounding or untrusted inputs).
+
 ## Web Egress (`web_search` / `web_fetch`)
 
 Read-only web access for agents (spec `.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md`). Two `defineAiTool`s on the existing `open-mercato` MCP server; agents opt in via `tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]` in `AGENT.md` (example: `apps/mercato/src/modules/agent_examples/agents/deal_web_researcher/`).
@@ -324,7 +334,7 @@ Override per deployment with `RATE_LIMIT_{PREFIX}_{POINTS,DURATION,BLOCK_DURATIO
 
 ## Events (`events.ts`)
 
-`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
+`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `run.review_requested`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
 
 ## Backend Cockpit (`backend/`)
 

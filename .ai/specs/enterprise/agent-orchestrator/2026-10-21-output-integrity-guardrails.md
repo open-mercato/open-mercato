@@ -490,3 +490,17 @@ Approved for implementation once Q1–Q6 are answered.
   - Example: `support.policy_check` in `agent_examples` with a static policy catalogue and the resolver `agent_examples.support_policy`.
   - Integration: `TC-AGENT-INT-001..004` (004 needs a real model).
 - Fixed while verifying (pre-existing on `main`): `GET /api/agent_orchestrator/guardrail-checks` and `/context-bundles` returned 500 for every request because their `ENTITY_TYPE` named no registered entity; they now use `agent_orchestrator:agent_guardrail_check` / `agent_orchestrator:agent_context_bundle`, guarded by `__tests__/crud-route-entity-ids.test.ts`.
+
+### 2026-10-28
+- Phases 3–5 implemented (wave 5):
+  - `abstain_or_review` (`rules/abstainOrReview.ts`): last rule only, evaluated after grounding; `needsReview` wins over `notApplicable`; `set` writes are re-validated against the result schema; evidence carries `outcome`, stable `reasons` codes and `route`, never input text.
+  - Auto-approval honours `holdsAutoApproval` on `warn` checks (`auto_disposition_block='guardrail'`); the Caseload names the holding rule ids. `route: 'review'` also emits `agent_orchestrator.run.review_requested` (best-effort).
+  - `defineAgent({ untrustedInputs })`: declared fields become `sourceKind: 'input'` spans for the injection screen with a per-field `warn | block | off` action, and are rendered as nonce-delimited blocks after the input JSON.
+  - Surfaces: `GET /runs/:id` and the run routes return `integrity` (null without integrity checks) and `rawOutputKey`; a block 422 carries `ruleId`; `GET /guardrail-checks` items carry `ruleId`; `GET /agents/:id` returns `integrityRules` + `integritySetVersion`; GuardrailsCard (kind labels, rule id, "Holds approval", raw-vs-returned diff), Caseload hold reason and the agent "Integrity rules" list; `guardrail_check` eval scorer (`ScorerRunView.guardrailChecks` optional).
+  - Integration: `TC-AGENT-INT-005` (rule-less run `integrity: null`, `kind=abstain_or_review` org scope, `integrityRules`, `guardrail_check` in `GET /eval-scorers`, trace labels); the real-run case needs a model.
+- Deviations from the plan above:
+  - The run API summary is derived from the run's persisted check rows (`lib/guardrails/integrity/summary.ts`), not an `onIntegritySummary` context hook.
+  - The untrusted-input instruction is baked into the agent system prompt, not a separate fixed system-prompt section; each delimiter block also carries the concrete `path`.
+  - `run.review_requested` payload adds `ruleId`.
+  - OpenCode runs the integrity rules only on the submitted outcome — no `tool_scope`, grounding or untrusted-input handling there.
+  - No example agent declares `abstain_or_review` or `untrustedInputs`, so their end-to-end integration cases stay a documented gap covered by unit tests (no scripted model either).
