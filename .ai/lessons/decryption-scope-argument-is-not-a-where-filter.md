@@ -15,6 +15,8 @@ topics: ["data-scoping","access-control","command-pattern","row-locking","refere
 
 **Locking reads**: Apply the authorized scope predicates before a pessimistic lock is acquired. A scope check after `findOneWithDecryption(..., { id }, { lockMode })` can prevent mutation while still selecting and locking a foreign record. Test the execute path's query predicates as well as rejection, and carry the same authorized scope into transaction-bound undo snapshot loaders.
 
+**Multi-organization enrichment (#7531)**: Build author lookup predicates from each authorized row's own tenant and organization, including descendant and all-organization views. Key batched results by scope plus user ID; a user-ID-only map can resolve a poisoned reference through another organization's valid row. A missing selected organization does not mean an authorized row lacks organization scope. Cover both all-organization reads and valid descendant authors alongside poisoned references.
+
 **Applies to**: Command handlers, action endpoints, subscribers, enrichers, and any loader that reads an entity by id or FK outside a `makeCrudRoute` factory.
 
 **Evidence (issue #7851)**: The customers deal-stage loader accepted a foreign stage UUID and inferred its pipeline while copying the stage label into caller-owned deals, dictionaries, and history. Explicit stage predicates plus parent-pipeline validation reject those references before mutation. The correction ships 32 command regressions and `TC-CRM-7851-pipeline-reference-scope.spec.ts`; the saved HTTP regression passed locally and in CI, including stage-only inference for valid references.

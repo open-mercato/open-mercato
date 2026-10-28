@@ -263,6 +263,7 @@ Legacy tables:
 6. Error payloads must not reveal provider credentials or internal stack traces.
 7. Persistence/query layer uses ORM parameterized queries only; no dynamic SQL string interpolation for user input.
 8. External URLs surfaced in `_integrations.*.externalUrl` must be validated and encoded before rendering/navigation.
+9. Explicit interaction author/owner references must resolve to a non-deleted user in the interaction's exact tenant and organization. Canonical commands enforce this before persistence, including compatibility activity writes and undo/redo restoration. Author enrichment applies the same predicates and keys results by tenant, organization, and user ID so mixed-organization pages cannot resolve a poisoned reference through another row's author lookup.
 
 ### Detail endpoint include tokens
 - Add `include=interactions`.
@@ -337,6 +338,14 @@ This spec follows the deprecation protocol for contract surfaces (API routes, re
 3. Keep adapter bridge for at least one minor release.
 4. Document migration in `RELEASE_NOTES.md`.
 5. Prepare follow-up removal spec for legacy surfaces in a later release.
+
+### Migration & Backward Compatibility — interaction users (#7531)
+
+Canonical interaction create/update, legacy activity adapters, and snapshot restoration reject explicit foreign, missing, or deleted author/owner references with a generic `400` user-not-found response. Null and omitted update fields retain their clearing and preservation semantics. Create retains author normalization and superadmin delegation for valid references; an implicit actor outside the selected record's scope is stored as a null author so cross-scope administration remains possible. Users with no tenant or organization are not assignable interaction references.
+
+Routes and response fields remain unchanged. Canonical lists, compatibility activity lists, and person/company details return null author names and emails for historical invalid references, while retaining the reference UUID. No database migration runs. Clients must select authors and owners from the interaction's tenant and organization. Operators should audit historical invalid references and clear or replace them with valid same-scope users before replaying their command history or promoting legacy activities; invalid snapshot restoration or legacy promotion fails rather than restoring a foreign reference.
+
+Regression coverage: `TC-CRM-7531-interaction-user-scope.spec.ts` exercises canonical and legacy writes across two tenants and multiple organizations, plus poisoned canonical/legacy rows on list and person/company detail reads. Focused command tests cover missing/deleted users, valid delegation, implicit actors, null/omitted updates, and poisoned undo/redo snapshots; mixed-scope read tests cover per-row enrichment isolation.
 
 ### Migration plan
 1. Create `customer_interactions`.
@@ -593,6 +602,9 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Fully compliant**: Approved for implementation planning.
 
 ## Changelog
+### 2026-10-28
+- Scope interaction author/owner references and author enrichment to non-deleted users in the record's tenant and organization (#7531); document historical invalid references and migration behavior.
+
 ### 2026-03-19
 - Clarified rollout behavior: dotted feature flags are canonical, underscore aliases remain readable for transition safety, and `customers.interactions.unified` stays off by default until `mercato customers interactions:backfill` is completed per tenant.
 - Clarified compatibility read behavior: legacy adapter GET routes may merge canonical adapter writes with legacy fallback while unified mode is disabled, but canonical interactions remain the only new write source.

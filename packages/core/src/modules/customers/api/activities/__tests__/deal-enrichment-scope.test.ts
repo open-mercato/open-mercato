@@ -41,6 +41,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { decorateActivityItems } from '../route'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal } from '../../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 
 const DEAL_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
@@ -126,5 +127,52 @@ describe('activities decorateActivityItems deal scope (#2117)', () => {
 
     expect(result).toHaveLength(1)
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, { tenantId: 'tenant-1' }])('returns null author details without querying when scope is incomplete %p', async (scope) => {
+    const em = { find: jest.fn() }
+
+    const result = await decorateActivityItems(
+      em as never,
+      [makeItem({ dealId: null, authorUserId: 'author-1' })],
+      scope as { tenantId: string; organizationId: string } | undefined,
+    )
+
+    expect(result[0]).toMatchObject({ authorUserId: 'author-1', authorName: null, authorEmail: null })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
+  it('scopes author lookup by tenant, organization, and live user status', async () => {
+    mockFindWithDecryption.mockResolvedValue([{ id: 'author-1', name: 'Local author', email: 'local@example.com' }])
+    const em = { find: jest.fn() }
+    const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+
+    const result = await decorateActivityItems(
+      em as never,
+      [makeItem({ dealId: null, authorUserId: 'author-1' })],
+      scope,
+    )
+
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(em, User, {
+      id: { $in: ['author-1'] },
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      deletedAt: null,
+    }, undefined, scope)
+    expect(em.find).not.toHaveBeenCalled()
+    expect(result[0]).toMatchObject({ authorName: 'Local author', authorEmail: 'local@example.com' })
+  })
+
+  it('returns null author details for historical unavailable references', async () => {
+    mockFindWithDecryption.mockResolvedValue([])
+
+    const result = await decorateActivityItems(
+      { find: jest.fn() } as never,
+      [makeItem({ dealId: null, authorUserId: 'foreign-author' })],
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result[0]).toMatchObject({ authorUserId: 'foreign-author', authorName: null, authorEmail: null })
   })
 })

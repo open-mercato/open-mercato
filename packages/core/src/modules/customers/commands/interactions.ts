@@ -57,6 +57,7 @@ import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib
 import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCoreClears, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
 import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
 import { canonicalCalendarTimezone } from '../lib/calendar/timezone'
+import { findInteractionUserInScope, requireInteractionUsersInScope } from '../lib/interactionUsers'
 
 const logger = createLogger('customers')
 
@@ -205,6 +206,7 @@ async function ensureInteractionRestoreAccess(
     await ensureInteractionPrivacyChangeAccess(ctx, current, { ...restored, visibility: restored.visibility ?? null })
   }
   await ensureInteractionMutationAccess(ctx, em, { ...restored, channelId: current?.channelId })
+  await requireInteractionUsersInScope(em, restored, restored)
 }
 
 async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {
@@ -559,11 +561,16 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
 
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
-    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
+    const defaultAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
+
+      await requireInteractionUsersInScope(trx, entity, parsed)
+      const normalizedAuthor = defaultAuthor && await findInteractionUserInScope(trx, defaultAuthor, entity)
+        ? defaultAuthor
+        : null
 
       if (parsed.dealId) {
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
@@ -865,6 +872,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       })
 
       await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
+      await requireInteractionUsersInScope(trx, interaction, parsed)
 
       const nextType = parsed.interactionType ?? interaction.interactionType
       const changingType = nextType !== interaction.interactionType

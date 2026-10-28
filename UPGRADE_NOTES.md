@@ -24,6 +24,14 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Customer interaction authors and owners must belong to the record's scope (#7531)
+
+Canonical interaction writes, legacy activity adapters, and undo/redo restoration now reject explicit author/owner user IDs outside the interaction's exact tenant and organization, including missing and deleted users, with a generic `400` user-not-found response. Users without a tenant or organization are also unavailable as explicit references. Valid author normalization and superadmin delegation remain supported. An implicit actor outside the selected scope is stored as a null author, allowing cross-scope administration to continue.
+
+**Client action:** supply same-scope author/owner IDs, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Existing routes and response fields remain available; historical invalid references now produce null author names and emails on canonical/legacy lists and customer detail reads.
+
+**Operator action:** audit historical author/owner references and clear or replace invalid IDs with live users from the record's tenant and organization before replaying affected command history or promoting legacy activities. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its

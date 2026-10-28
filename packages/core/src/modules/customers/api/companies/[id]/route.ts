@@ -758,6 +758,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       {
         id: { $in: authorIdList },
         tenantId: company.tenantId,
+        organizationId: company.organizationId,
+        deletedAt: null,
       },
       {},
       companyScope,

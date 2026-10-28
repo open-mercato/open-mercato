@@ -770,7 +770,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+      const users = await findWithDecryption(em, User, {
+        id: { $in: Array.from(authorIds) },
+        tenantId: person.tenantId,
+        organizationId: person.organizationId,
+        deletedAt: null,
+      }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [
           user.id,
