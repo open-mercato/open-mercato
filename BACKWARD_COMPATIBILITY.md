@@ -12,17 +12,17 @@ Open Mercato modules are developed by third-party developers who depend on stabl
 
 ### Emergency Security Exception
 
-**Only steps 1-3 are waived** when the removed surface *is itself* the vulnerability: accepting its old shape alongside the replacement preserves the exploit throughout the deprecation window. Merely enabling insecure usage does not qualify.
+Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
 
-All conditions below MUST hold; authors/reviewers cannot waive them. Otherwise follow the ordinary protocol:
+This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
 
-1. The PR **argues, not merely asserts**, the surface, vulnerability, and why a bridge keeps it exploitable.
-2. Use the **narrowest removal** that closes the flaw: no unrelated tightening or vulnerable branch retained behind a flag, config toggle, or opt-in.
-3. **Steps 4-5 apply in full**: `UPGRADE_NOTES.md` includes client AND operator migration; a spec under `.ai/specs/` or `.ai/specs/enterprise/` includes "Migration & Backward Compatibility".
-4. Add a **dated entry at this document's end**: surface, classification, qualifying argument, and migration path.
-5. The PR has `security` and **named human maintainer approval acknowledging the waiver**; automated review cannot clear it.
+1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
+2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
+3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
+4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
+5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
 
-Disclosure compensates for the missing bridge: `UPGRADE_NOTES.md` MUST plainly state what stops working, for whom, what to do, and any stored credentials/data made unusable or newly suspect.
+Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
 
 ---
 
@@ -33,7 +33,7 @@ Disclosure compensates for the missing bridge: `UPGRADE_NOTES.md` MUST plainly s
 The following file names, their expected export names, and their role in module auto-discovery MUST NOT change. New convention files may be added, but existing ones are immutable.
 
 | Convention File | Required Export | Contract |
-|-----------------|---------------|----------|
+|---|---|---|
 | `index.ts` | `metadata: ModuleInfo` | MUST NOT rename export or change `ModuleInfo` shape in a breaking way |
 | `acl.ts` | `features: Array<{id,title,module}>` | MUST NOT change array item shape; may add optional fields |
 | `setup.ts` | `setup: ModuleSetupConfig` | MUST NOT remove hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`, `defaultRoleFeatures`); may add optional hooks |
@@ -59,7 +59,7 @@ The following file names, their expected export names, and their role in module 
 **Auto-discovery directory conventions** (FROZEN):
 
 | Directory Pattern | Route Mapping | Contract |
-|-------------------|--------------|----------|
+|---|---|---|
 | `frontend/<path>.tsx` | `/<path>` | MUST NOT change routing algorithm |
 | `backend/<path>.tsx` | `/backend/<path>` | MUST NOT change routing algorithm |
 | `api/<method>/<path>.ts` | `/api/<path>` by HTTP method | MUST NOT change dispatch logic |
@@ -115,7 +115,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
 
 | Function | Package | Contract |
-|----------|---------|----------|
+|---|---|---|
 | `createModuleEvents(options)` | `@open-mercato/shared/modules/events` | MUST NOT change `options` required shape or return type |
 | `makeCrudRoute(opts)` | `@open-mercato/shared/lib/crud/factory` | MUST NOT remove existing `opts` fields; MUST NOT change return shape |
 | `findWithDecryption(em, entityName, where, options?, scope?)` | `@open-mercato/shared/lib/encryption/find` | MUST NOT change parameter order or required params |
@@ -287,7 +287,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 ## Allowed vs Breaking Changes — Quick Reference
 
 | Surface | Add new | Add optional field | Remove field | Rename | Change type |
-|---------|---------|-------------------|-------------|--------|-------------|
+|---|---|---|---|---|---|
 | Convention files | OK | OK | BREAKING | BREAKING | BREAKING |
 | Type interfaces | OK | OK | BREAKING | BREAKING | BREAKING (narrowing) |
 | Function params | OK (optional) | OK | BREAKING | BREAKING | BREAKING |
@@ -311,7 +311,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 `.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Type interface (`IntegrationScope`) | New **optional** field `userId?: string \| null` | ✓ ADDITIVE (Type interface, optional field) |
 | Database schema | New nullable column `integration_credentials.user_id uuid` via additive migration `Migration20260526154136`, plus partial unique index `integration_credentials_user_lookup_idx` on `(integration_id, organization_id, tenant_id, user_id)` `WHERE user_id IS NOT NULL AND deleted_at IS NULL` | ✓ ADDITIVE (NULL default; the partial index leaves existing tenant-wide rows untouched) |
 | `createCredentialsService` API | `getRaw` / `resolve` / `save` / `saveField` signatures unchanged; when `scope.userId` is falsy the lookup filter pins `user_id = NULL`, reproducing the prior tenant-wide behaviour exactly | ✓ Behaviour-preserving for existing callers |
@@ -327,7 +327,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 > **Update (2026-06-02):** the Microsoft Graph push surfaces (the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and `OM_MICROSOFT_WEBHOOK_BASE_URL` / `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`) were removed together with the `@open-mercato/channel-microsoft` provider — they never shipped in a release, so the removal is not a breaking change. The rows below reflect the Gmail-only surfaces that remain. The `client_state_encrypted` column — proposed solely for Microsoft Graph's anti-tampering nonce — was dropped from scope together with the provider before this branch's migrations were finalized; it appears in no committed migration or snapshot, so there is no schema change to reconcile.
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Adapter type interface (`ChannelAdapter`) | Three new **optional** methods: `registerPush?`, `unregisterPush?`, `applyPushNotification?` | ✓ ADDITIVE (Type interface, optional fields) |
 | Adapter input/output types | New exported types: `PushRegistration`, `RegisterPushInput`, `UnregisterPushInput`, `ApplyPushNotificationInput` | ✓ ADDITIVE (new types, no rename) |
 | Event IDs | Four new events: `communication_channels.push.{registered,failed,renewed,deactivated}` | ✓ ADDITIVE (new event IDs) |
@@ -347,7 +347,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 `.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`. **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Type interface (`CommandInterceptorBeforeResult`) | Two new **optional** fields: `status?: number`, `body?: Record<string, unknown>` | ✓ ADDITIVE (Type interface, optional fields) |
 | Function signature (`CommandInterceptorError` constructor) | New **optional** second parameter `options?: { status?, body?, cause? }` | ✓ ADDITIVE (optional parameter appended; every `new CommandInterceptorError(message)` call site compiles and behaves identically) |
 | Function return types (`runCommandInterceptorsBefore`, `runCommandInterceptorsBeforeUndo`) | Returned `error` widens from `{ message: string }` to `{ message: string; status?: number; body?: Record<string, unknown> }` | ✓ ADDITIVE (a widened return type is safe for readers; callers reading `.message` are unaffected) |
@@ -368,7 +368,7 @@ This closes a policy bypass where a mixed-case or percent-encoded spelling dispa
 to a handler but did not select its exact `before` interceptor.
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Function signature (`findApiRouteManifestMatch`) | New optional fourth parameter `request?: Request`; existing three-argument callers keep the same return value and matching behavior | ✓ ADDITIVE (optional parameter appended) |
 | API route URLs and handler context | No route is added, removed, or renamed; handler `params` and request query semantics are unchanged | ✓ No contract change |
 | Interceptor selection | Static segments use the matched manifest spelling, while matched dynamic/catch-all values stay concrete. Alternate spellings that already reached a route now run the same exact/prefix interceptors as its normal spelling; malformed percent encoding reaches no handler | ⚠️ Intentional security narrowing only (previous policy-bypass requests are denied or intercepted) |
@@ -389,7 +389,7 @@ authored route constant directly to the interceptor runner.
 Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Import path / exports (`@open-mercato/shared/lib/db/pg-errors`) | New exports `isForeignKeyViolation(err)` and `getForeignKeyViolationConstraint(err)` | ✓ ADDITIVE (new exports, nothing removed or renamed) |
 | HTTP response shapes (`makeCrudRoute` handlers) | A handler that throws a Postgres foreign-key violation now answers `409 { error, code: 'FOREIGN_KEY_VIOLATION', requestId }` with an `x-request-id` header, where it previously answered the generic `500 { error, message, requestId }`. The constraint name is logged and reported to telemetry but never returned to the client. Every other error class keeps its byte-identical historical answer | ⚠️ Behaviour change for one error class only. No retained response loses a field, but a client that treated the old `500` as retryable now receives a non-retryable `409`. Regression-tested in `crud-factory.test.ts` |
 | Database schema (`user_sidebar_preferences_user_id_foreign`, `sidebar_variants_user_id_foreign`) | Both constraints are dropped and recreated with `on update cascade on delete cascade` (`Migration20260907120000_auth`). No table or column is added, renamed, removed or retyped, and `down()` restores each constraint to its original definition | ✓ ADDITIVE-ONLY compatible (delete behaviour widened, nothing narrowed) |
@@ -405,7 +405,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 `TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Import path / exports (`@open-mercato/shared/lib/encryption/aes`) | New export `isEncryptedPayloadShape(value)` — a key-free structural check (`<iv>:<ct>:<tag>:v1` with a 12-byte IV, 16-byte tag and non-empty ciphertext). Explicitly NOT an "is this encrypted" oracle; the shape is forgeable | ✓ ADDITIVE (new export, nothing removed or renamed) |
 | Function behaviour (`encryptEntityPayload` / `encryptFields`) | A field holding a structurally well-formed envelope that does not decrypt under the current DEK now raises `TenantDataEncryptionError` with code `WRONG_KEY`, where it previously returned a payload containing a nested envelope. Signature, return type and every other input keep their byte-identical historical behaviour | ⚠️ Behaviour change on one previously-corrupting path. `WRONG_KEY` was already declared in `TenantDataEncryptionErrorCode` and emitted nowhere, so no existing handler changes meaning. Regression-tested in `tenantDataEncryptionService.test.ts` |
 | Encryption-at-rest guarantee (#2720) | Unchanged. Nothing is ever stored verbatim: a forgery whose shape is not length-valid (the check is length-based, not content-based) still fails the structural check and is encrypted as ordinary plaintext, and a length-valid one is rejected rather than persisted | ✓ Preserved (pinned by the retained `#2720` test cases) |
@@ -421,7 +421,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Function signatures | New export `onModulesRegistered(listener)` on `@open-mercato/shared/lib/modules/registry` | ✓ ADDITIVE (new function) |
 | Type definitions | New export `ModulesRegisteredListener = (modules: Module[]) => void \| PromiseLike<void>` | ✓ ADDITIVE (new type, no rename) |
 | `registerModules(modules)` | Signature, return type, and synchronous behavior unchanged; it now also notifies listeners after the reconciliation it already performed | ✓ Behaviour-preserving for existing callers |
@@ -441,7 +441,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Exception requirements, as met by this change:**
 
 | Requirement | How it is satisfied |
-|-------------|--------------------|
+|---|---|
 | 1. Qualifying condition argued | See *Why the deprecation protocol does not apply* below — both values the removed shape compared are disclosed by the server, so accepting it *is* the bypass |
 | 2. Narrowest removal, no retained vulnerable branch | Only `verifyPayloadSchema` and the two non-cryptographic acceptance paths are deleted. The `{ response }` path, the challenge TTL check and the signature-counter update are untouched, and **no flag, config toggle or opt-in keeps the old shape reachable** |
 | 3. Steps 4 and 5 | [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.6.7 → 0.7.0` (client *and* operator actions); spec [`.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`](.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md) § Migration & Backward Compatibility |
@@ -449,7 +449,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 | 5. Maintainer sign-off | PR carries the `security` label; the waiver is called out in the PR body for explicit human approval |
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | API request shape (`POST /api/security/mfa/verify`, `POST /api/security/sudo/verify`, `methodType: 'passkey'`) | `payload` must be `{ response }` carrying a WebAuthn assertion. The `{ credentialId, challenge }` alternative is removed and now answers `401` | ✗ BREAKING (deliberate — see rationale) |
 | Provider contract (`MfaProviderInterface.verifySchema` for `passkey`) | `verifyPayloadSchema` narrows from a union to a single object requiring `response` | ✗ BREAKING for a caller that validated against the exported schema |
 | Verification behavior | A verified `verifyAuthenticationResponse` is the only route to a positive verdict; an absent verify context is a rejection rather than a `credentialId` comparison | ✗ BREAKING for a client that skipped `/api/security/mfa/prepare` |
@@ -465,7 +465,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 [`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Type definitions (§2) | New optional method `DataSyncAdapter.supportsStartControl?(control, entityType)`; new exported type `DataSyncStartControl = 'fullSync' \| 'batchSize'` | ✓ ADDITIVE (optional member, new type — same shape as the `persistsSharedCursor` and `runParameters` additions before it) |
 | Import paths (§4) | New module `data_sync/lib/start-controls.ts` exporting `resolveStartControlMap`, `applicableStartControls`, `StartControlMap`, `StartControlApplicability`, `DATA_SYNC_START_CONTROLS` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
 | API route URLs (§7) | `GET /api/data_sync/options` items gain a `startControls` object; `POST /api/data_sync/run` is unchanged and keeps honouring `fullSync` and `batchSize` whatever an adapter declares | ✓ ADDITIVE (new optional response field, no request-shape change) |
@@ -480,7 +480,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | `TelemetryProvider` | Optional `reportError?()` added, called in addition to the span/log/metric path. MUST stay optional — third parties implement this interface | ✓ ADDITIVE |
 | `ReportErrorContext` / `TelemetryRuntime['reportError']` context | Optional `code?: string` fingerprint added | ✓ ADDITIVE |
 | `data_sync.run.completed` payload | Optional `createdCount`, `updatedCount`, `skippedCount`, `failedCount` added; no existing field changed (§5 permits additive payload fields) | ✓ ADDITIVE |
@@ -501,7 +501,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 [`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Type definitions (§2) | New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun` | ✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it) |
 | Import paths (§4) | New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
 | API route URLs (§7) | **No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12 | ✓ n/a |
@@ -519,7 +519,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 [`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Widget Injection Spot IDs (§6) | `CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering | ✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3) |
 | Widget Injection Spot IDs (§6) | The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages) | ✓ ADDITIVE ("MAY add new spot IDs to new or existing pages") |
 | Context passed to widgets at `crud-form:customers.person` / `…company` | These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId` | Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape) |
@@ -532,7 +532,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 [`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Type definitions (`CommandHandler`, `CommandRuntimeContext`, `CommandExecuteResult`) | New optional `atomicReplay?: boolean` and `stabilizeReplay(...)` handler capabilities, optional `replayTransactionGuard` request guard, optional caller-owned `transactionLifetime`, and optional `replaySourceFinalized?: boolean` result signal. `TransactionLifetime` plus its observation/completion-registration helpers are new exports; lifetime creation/completion remains owned by `withAtomicFlush` | ✓ ADDITIVE (optional fields and exports; omitted handlers and contexts keep the prior flow) |
 | `ActionLogService` method signatures | `log`, `claimForUndo`, `releaseUndoClaim`, and `markUndone` accept an optional trailing transactional `EntityManager`; new `claimForRedo` method | ✓ ADDITIVE (optional parameters appended and a new method; existing calls retain behavior) |
 | `RbacService` | New `loadAclWithEntityManager`, `userHasAllFeaturesWithEntityManager`, and `getGrantedFeaturesWithEntityManager` methods bypass caches and bind every query to the supplied transaction | ✓ ADDITIVE (new methods; existing cache-backed methods are unchanged) |
@@ -551,7 +551,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 `directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Command behaviour (`directory.organizations.update`) | `parentId` is written and validated only when present in the input; children are reconciled only when `childIds` is present. Explicit `parentId: null` and `childIds: []` still clear. With `childIds` present and `parentId` omitted, listing the current parent answers `400 Child cannot equal parent` (it answered `400 Cannot assign ancestor as child`) | ⚠️ Behaviour change on a previously-corrupting path. A caller that omitted the fields to clear the hierarchy must send the explicit values. Regression-tested in `updateOrganization.partial-hierarchy.test.ts` and `TC-DIR-018` |
 | API routes (`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`) | Same URLs, request schema (`organizationUpdateSchema` already declares both fields optional) and response shapes | ✓ No shape change |
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
@@ -565,7 +565,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 `POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
 | URL, method, response shape | Unchanged | ✓ n/a |
 | `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
@@ -584,7 +584,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 [`.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md`](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [`.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md`](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
 
 | Surface | Change | Classification |
-|---------|--------|----------------|
+|---|---|---|
 | Import paths (§4) | New `@open-mercato/shared/lib/db/advisoryLock` (explicit `exports` entry); `@open-mercato/core/modules/integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}` and `…/lib/oauth/testing/fakeAuthorizationServer` — exactly these files, no directory index. Every path, plus `…/lib/credentials-service`, `…/lib/log-service` and the hub's `…/communication_channels/lib/oauth-state`, is verified against the built `dist` by `scripts/check-oauth-publish-shape.mjs` in CI | ✓ ADDITIVE (new import paths) |
 | Type definitions (§2) | New `OAuthProviderDescriptor`, `OAuthGrantOwner`, `OAuthTokenEndpointResponse`, `OAuthClientAuthMethod`, the grant-service result and inspection types (the inspection carries no token), `AdvisoryLockOptions` (`waitDeadlineMs`, `maxConcurrentHolders`); the `FakeAuthorizationServer` handle with its options, `FakeInjection` and `FakeRotationMode`; error classes `OAuthGrantError`, `OAuthDescriptorError`, `AdvisoryLockUnavailableError` (`reason: AdvisoryLockUnavailableReason` = `'deadline' \| 'transient_db' \| 'commit_unknown'`); closed unions (`OAuthTokenFailure`, `OAuthConnectFailure`, `OAuthConnectionState`, `OAuthUnavailableReason`, …) that are additive-only, so consumers keep a default branch. `IntegrationOAuthGrantService` is a type to call, not to implement: adding a method is additive. Optional `IntegrationDetailPageConfig.connectTabId`. `CredentialsService`, `IntegrationLogService` and `IntegrationCredentialFieldOauth` are unchanged apart from `@internal` options | ✓ ADDITIVE (new types; optional fields) |
 | Function signatures (§3) | New `withAdvisoryXactLock`, `createPkcePair`, `buildAuthorizationUrl`, `exchangeAuthorizationCode`, `resolveOAuthRedirectUri`, `classifyResourceChallenge`, `mapInspectionToHealth` with `OAUTH_HEALTH_CODES`, `startFakeAuthorizationServer` with the methods of the handle it returns (`issueAuthorizationCode`, `inject`, `revokeAuthorization`, `reset`, `counters`, `requests`, `issuedTokens`, `close`) and the `IntegrationOAuthGrantService` methods | ✓ ADDITIVE (new functions) |
