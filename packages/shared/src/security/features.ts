@@ -21,7 +21,7 @@ export type FeatureGrantSet = {
 }
 
 function normalizeFeatures(features: readonly string[]): string[] {
-  return Array.from(new Set(features)).sort()
+  return Array.from(new Set(features)).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 export function intersectFeatureGrants(

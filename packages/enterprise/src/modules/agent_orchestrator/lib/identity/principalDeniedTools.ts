@@ -36,7 +36,7 @@ export function computePrincipalDeniedTools(
     if (!requiredFeatures || requiredFeatures.length === 0) continue
     if (isGranted(requiredFeatures, callerAcl) && !isGranted(requiredFeatures, effectiveAcl)) denied.add(toolName)
   }
-  return Array.from(denied).sort()
+  return Array.from(denied).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 export function resolveRegistryToolRequiredFeatures(toolName: string): readonly string[] | null {

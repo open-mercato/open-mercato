@@ -51,6 +51,7 @@
 | 3 | 3.2 | Build redacted and capped LLM request and response artifacts | dispatch:capable | done | pending |
 | 3 | 3.3 | Offload LLM content at the full capture level | dispatch:capable | done | pending |
 | 3 | 3.4 | Offload the packed context payload | dispatch:capable | done | pending |
+| 3 | 3.4-review-fix | Use explicit sort comparators in the new grant helpers | inline | done | pending |
 | 3 | 3.5 | Serve content artifacts with view_content, 410 and access logs | dispatch | todo | — |
 | 3 | 3.6 | Add the trace content retention worker | dispatch | todo | — |
 | 3 | 3.7 | Cover content capture with integration tests and docs | dispatch | todo | — |
@@ -184,6 +185,9 @@ See the two research files (verified on `2d407b96f`). Key cross-cutting rules fo
 - Implements **O3.3** in `research-observability-chat.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 3.4 Offload the packed context payload
 - Implements **O3.4** in `research-observability-chat.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
+#### 3.4-review-fix Use explicit sort comparators in the new grant helpers
+- Core guard `explicit-sort-comparators` (#3620) flagged `intersectFeatureGrants` (2.6) and `computePrincipalDeniedTools` (2.8); both now pass a code-unit comparator, so the order is unchanged.
+
 #### 3.5 Serve content artifacts with view_content, 410 and access logs
 - Implements **O3.5** in `research-observability-chat.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 3.6 Add the trace content retention worker
