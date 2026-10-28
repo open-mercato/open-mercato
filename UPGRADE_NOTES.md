@@ -40,6 +40,12 @@ keep the same endpoint payloads and token formats; update MCP client secrets aft
 regeneration. Custom delegated-key issuers should supply `sessionUserId` to
 `createApiKey`; leave it unset only for independently administered machine keys.
 
+Regenerated MCP keys are not available as Business Rules "call Open Mercato"
+API-key profiles; use independently administered machine keys for those actions.
+A regenerated MCP key becomes invalid if its owner's home organization changes,
+including a change from no home organization to a concrete one. Generate a new
+key and update the MCP client secret after such a change.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
