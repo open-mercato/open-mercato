@@ -678,6 +678,25 @@ function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   )
 }
 
+function printModuleCommandResult(
+  result: { moduleId: string; from: string; registrationChanged: boolean },
+  alreadyEnabledNote?: string,
+): void {
+  if (!result.registrationChanged) {
+    console.log(`\nℹ️  Module "${result.moduleId}" from "${result.from}" is already enabled in modules.ts. Nothing to change.`)
+    if (alreadyEnabledNote) {
+      console.log(alreadyEnabledNote)
+    }
+    console.log('')
+    return
+  }
+
+  console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
+  console.log('Next steps:')
+  console.log('  1. Review generated files if needed: .mercato/generated/')
+  console.log('  2. Start dev:                         yarn dev')
+}
+
 async function handleDirectEjectCommand(args: string[]): Promise<number> {
   const { createResolver } = await import('./lib/resolver')
   const { listEjectableModules, ejectModule } = await import('./lib/eject')
@@ -1469,10 +1488,7 @@ export async function run(argv = process.argv) {
         }
 
         const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result, 'The package itself was installed or updated by yarn add.')
         return 0
       }
 
@@ -1487,10 +1503,7 @@ export async function run(argv = process.argv) {
         const { enableOfficialModule } = await import('./lib/module-install')
         const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
         const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result)
         return 0
       }
 

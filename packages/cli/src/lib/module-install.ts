@@ -87,6 +87,31 @@ function runCommand(
   })
 }
 
+function readFileIfExists(filePath: string): string | null {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null
+}
+
+function isDeclaredAppDependency(appDir: string, packageName: string): boolean {
+  const packageJsonContent = readFileIfExists(path.join(appDir, 'package.json'))
+  if (!packageJsonContent) {
+    return false
+  }
+
+  const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>
+  return ['dependencies', 'devDependencies', 'optionalDependencies'].some((field) => {
+    const dependencies = packageJson[field]
+    return typeof dependencies === 'object' && dependencies !== null && packageName in dependencies
+  })
+}
+
+function withLeftoverPackageHint(error: unknown, resolver: PackageResolver, packageName: string): Error {
+  const message = error instanceof Error ? error.message : String(error)
+  const removeArgs = [...resolveInstallTarget(resolver).args.slice(0, -1), 'remove', packageName]
+  return new Error(
+    `${message} The package "${packageName}" stayed in package.json. To remove it, run: yarn ${removeArgs.join(' ')}`,
+  )
+}
+
 async function installPackageSpec(
   resolver: PackageResolver,
   packageSpec: string,
@@ -231,13 +256,9 @@ async function registerResolvedOfficialModule(
     },
   )
 
-  if (!registration.changed) {
-    throw new Error(
-      `Module "${modulePackage.metadata.moduleId}" from "${from}" is already enabled in modules.ts.`,
-    )
+  if (registration.changed) {
+    await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
   }
-
-  await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
 
   return {
     moduleId: modulePackage.metadata.moduleId,
@@ -258,10 +279,21 @@ export async function addOfficialModule(
   const packageName = parsePackageNameFromSpec(safePackageSpec)
   assertPackageName(packageName)
 
+  const wasDeclaredBefore = isDeclaredAppDependency(resolver.getAppDir(), packageName)
+  const modulesConfigBefore = readFileIfExists(resolver.getModulesConfigPath())
+
   await installPackageSpec(resolver, safePackageSpec)
 
-  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
-  return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
+  try {
+    const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
+    return await registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
+  } catch (error) {
+    const moduleWasRegistered = readFileIfExists(resolver.getModulesConfigPath()) !== modulesConfigBefore
+    if (wasDeclaredBefore || moduleWasRegistered) {
+      throw error
+    }
+    throw withLeftoverPackageHint(error, resolver, packageName)
+  }
 }
 
 export async function enableOfficialModule(
