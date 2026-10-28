@@ -32,39 +32,39 @@ Downstream authors get no bridge in this case, so the compensating obligation is
 
 The following file names, their expected export names, and their role in module auto-discovery MUST NOT change. New convention files may be added, but existing ones are immutable.
 
-| Convention File | Required Export | Contract |
+|Convention File|Required Export|Contract|
 |---|---|---|
-| `index.ts` | `metadata: ModuleInfo` | MUST NOT rename export or change `ModuleInfo` shape in a breaking way |
-| `acl.ts` | `features: Array<{id,title,module}>` | MUST NOT change array item shape; may add optional fields |
-| `setup.ts` | `setup: ModuleSetupConfig` | MUST NOT remove hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`, `defaultRoleFeatures`); may add optional hooks |
-| `runtime.ts` | `runtime: ModuleRuntime` (or default export) | MUST NOT change `ModuleRuntime` required members (`start`) or the `ModuleRuntimeContext` / `ModuleRuntimeHandle` shape; may add optional fields and additional `ModuleRuntimeRole` values |
-| `ce.ts` | `entities: CustomEntitySpec[]` | MUST NOT change `CustomEntitySpec` required fields; may add optional fields |
-| `search.ts` | `searchConfig: SearchModuleConfig` | MUST NOT change `SearchEntityConfig` required fields; may add optional fields |
-| `events.ts` | `eventsConfig` via `createModuleEvents()` | MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields |
-| `extension-points.ts` | `extensionPoints: ModuleExtensionPoints` | New additive convention; declared exact/pattern host IDs, aliases, fallbacks, family/capability semantics, and bound call-site meaning MUST NOT change incompatibly |
-| `translations.ts` | `translatableFields` | MUST NOT change record shape |
-| `notifications.ts` | `notificationTypes: NotificationTypeDefinition[]` | MUST NOT change required fields; may add optional fields |
-| `notifications.client.ts` | — | MUST NOT change renderer props contract |
-| `ai-agents.ts` | `aiAgents: AiAgentDefinition[]` | MUST NOT change `AiAgentDefinition` required fields; optional sibling exports `aiAgentOverrides` and `aiAgentExtensions` are stable |
-| `ai-tools.ts` | `aiTools: AiToolDefinition[]` | MUST NOT change `AiToolDefinition` / inherited `McpToolDefinition` required fields; optional sibling export `aiToolOverrides` is stable |
-| `di.ts` | `register(container)` | MUST NOT change function signature |
-| `cli.ts` | default export | MUST NOT change expected signature |
-| `data/entities.ts` | Entity class exports | See Database Schema rules below |
-| `data/validators.ts` | Zod schema exports | MUST NOT remove or narrow existing schemas |
-| `data/extensions.ts` | `extensions: EntityExtension[]` | MUST NOT change required fields (`base`, `extension`, `join`); may add optional fields |
-| `widgets/injection-table.ts` | `ModuleInjectionTable` | MUST NOT change table type or spot ID resolution |
-| `widgets/injection/*/widget.ts` | `InjectionWidgetModule` | MUST NOT change module shape or component props |
-| `widgets/dashboard/*/widget.ts` | `DashboardWidgetModule` | MUST NOT change module shape or component props |
+|`index.ts`|`metadata: ModuleInfo`|MUST NOT rename export or change `ModuleInfo` shape in a breaking way|
+|`acl.ts`|`features: Array<{id,title,module}>`|MUST NOT change array item shape; may add optional fields|
+|`setup.ts`|`setup: ModuleSetupConfig`|MUST NOT remove hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`, `defaultRoleFeatures`); may add optional hooks|
+|`runtime.ts`|`runtime: ModuleRuntime` (or default export)|MUST NOT change `ModuleRuntime` required members (`start`) or the `ModuleRuntimeContext` / `ModuleRuntimeHandle` shape; may add optional fields and additional `ModuleRuntimeRole` values|
+|`ce.ts`|`entities: CustomEntitySpec[]`|MUST NOT change `CustomEntitySpec` required fields; may add optional fields|
+|`search.ts`|`searchConfig: SearchModuleConfig`|MUST NOT change `SearchEntityConfig` required fields; may add optional fields|
+|`events.ts`|`eventsConfig` via `createModuleEvents()`|MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields|
+|`extension-points.ts`|`extensionPoints: ModuleExtensionPoints`|New additive convention; declared exact/pattern host IDs, aliases, fallbacks, family/capability semantics, and bound call-site meaning MUST NOT change incompatibly|
+|`translations.ts`|`translatableFields`|MUST NOT change record shape|
+|`notifications.ts`|`notificationTypes: NotificationTypeDefinition[]`|MUST NOT change required fields; may add optional fields|
+|`notifications.client.ts`|—|MUST NOT change renderer props contract|
+|`ai-agents.ts`|`aiAgents: AiAgentDefinition[]`|MUST NOT change `AiAgentDefinition` required fields; optional sibling exports `aiAgentOverrides` and `aiAgentExtensions` are stable|
+|`ai-tools.ts`|`aiTools: AiToolDefinition[]`|MUST NOT change `AiToolDefinition` / inherited `McpToolDefinition` required fields; optional sibling export `aiToolOverrides` is stable|
+|`di.ts`|`register(container)`|MUST NOT change function signature|
+|`cli.ts`|default export|MUST NOT change expected signature|
+|`data/entities.ts`|Entity class exports|See Database Schema rules below|
+|`data/validators.ts`|Zod schema exports|MUST NOT remove or narrow existing schemas|
+|`data/extensions.ts`|`extensions: EntityExtension[]`|MUST NOT change required fields (`base`, `extension`, `join`); may add optional fields|
+|`widgets/injection-table.ts`|`ModuleInjectionTable`|MUST NOT change table type or spot ID resolution|
+|`widgets/injection/*/widget.ts`|`InjectionWidgetModule`|MUST NOT change module shape or component props|
+|`widgets/dashboard/*/widget.ts`|`DashboardWidgetModule`|MUST NOT change module shape or component props|
 
 **Auto-discovery directory conventions** (FROZEN):
 
-| Directory Pattern | Route Mapping | Contract |
+|Directory Pattern|Route Mapping|Contract|
 |---|---|---|
-| `frontend/<path>.tsx` | `/<path>` | MUST NOT change routing algorithm |
-| `backend/<path>.tsx` | `/backend/<path>` | MUST NOT change routing algorithm |
-| `api/<method>/<path>.ts` | `/api/<path>` by HTTP method | MUST NOT change dispatch logic |
-| `subscribers/*.ts` | Event handler auto-registered | MUST NOT change metadata shape `{event, persistent?, id?}` |
-| `workers/*.ts` | Queue worker auto-registered | MUST NOT change metadata shape `{queue, id?, concurrency?}` |
+|`frontend/<path>.tsx`|`/<path>`|MUST NOT change routing algorithm|
+|`backend/<path>.tsx`|`/backend/<path>`|MUST NOT change routing algorithm|
+|`api/<method>/<path>.ts`|`/api/<path>` by HTTP method|MUST NOT change dispatch logic|
+|`subscribers/*.ts`|Event handler auto-registered|MUST NOT change metadata shape `{event, persistent?, id?}`|
+|`workers/*.ts`|Queue worker auto-registered|MUST NOT change metadata shape `{queue, id?, concurrency?}`|
 
 ### 2. Type Definitions & Interfaces (STABLE)
 
@@ -114,43 +114,43 @@ These exported types are consumed by module developers. Required fields MUST NOT
 
 These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
 
-| Function | Package | Contract |
+|Function|Package|Contract|
 |---|---|---|
-| `createModuleEvents(options)` | `@open-mercato/shared/modules/events` | MUST NOT change `options` required shape or return type |
-| `makeCrudRoute(opts)` | `@open-mercato/shared/lib/crud/factory` | MUST NOT remove existing `opts` fields; MUST NOT change return shape |
-| `findWithDecryption(em, entityName, where, options?, scope?)` | `@open-mercato/shared/lib/encryption/find` | MUST NOT change parameter order or required params |
-| `findOneWithDecryption(...)` | `@open-mercato/shared/lib/encryption/find` | Same as above |
-| `findAndCountWithDecryption(...)` | `@open-mercato/shared/lib/encryption/find` | Same as above |
-| `entityId(moduleId, entity)` | `@open-mercato/shared/modules/dsl` | MUST NOT change |
-| `defineLink(base, extension, opts)` | `@open-mercato/shared/modules/dsl` | MUST NOT change |
-| `defineModuleExtensionPoints(declaration)` | `@open-mercato/shared/modules/widgets/extension-points` | MUST preserve immutable data-only declaration semantics and exact module/host values |
-| `injectionExtensionHost`, `dataTableExtensionHost`, `crudFormExtensionHost`, `componentExtensionHost` | `@open-mercato/shared/modules/widgets/extension-points` | MUST preserve family discrimination, exact/pattern validation, and returned IDs |
-| `defineFields(entity, fields, source?)` | `@open-mercato/shared/modules/dsl` | MUST NOT change |
-| `cf.text`, `cf.multiline`, `cf.integer`, `cf.float`, `cf.boolean`, `cf.select`, `cf.currency`, `cf.dictionary` | `@open-mercato/shared/modules/dsl` | MUST NOT remove any helper or change required params |
-| `lazyDashboardWidget(loader)` | `@open-mercato/shared/modules/dashboard/widgets` | MUST NOT change |
-| `registerMcpTool(tool, options?)` | `@open-mercato/ai-assistant` | MUST NOT change |
-| `defineAiAgent(definition)` | `@open-mercato/ai-assistant` | MUST NOT change parameter or return shape |
-| `defineAiAgentExtension(extension)` | `@open-mercato/ai-assistant` | MUST NOT change parameter or return shape |
-| `defineAiTool(definition)` | `@open-mercato/ai-assistant` | MUST NOT change parameter or return shape |
-| `applyAiAgentOverrides(overrides)` | `@open-mercato/ai-assistant` | MUST preserve map semantics and precedence |
-| `applyAiToolOverrides(overrides)` | `@open-mercato/ai-assistant` | MUST preserve map semantics and precedence |
-| `applyAiAgentExtensions(extensions)` | `@open-mercato/ai-assistant` | MUST preserve append/patch semantics |
-| `applyAiOverridesFromEnabledModules(modules)` | `@open-mercato/ai-assistant` | MUST keep accepting the `overrides.ai` module-entry shape |
-| `prepareMutation(input, context)` | `@open-mercato/ai-assistant` | MUST NOT bypass pending-action approval semantics or change required params |
-| `runAiAgentText(input)` / `runAiAgentObject(input)` | `@open-mercato/ai-assistant` | MUST NOT remove existing input fields or narrow output shape |
-| `applyModuleOverridesFromEnabledModules(modules)` | `@open-mercato/shared/modules/overrides` | MUST keep dispatching `entry.overrides.<domain>` by module-load order |
-| `registerModuleOverrideApplier(domain, applier)` | `@open-mercato/shared/modules/overrides` | MUST NOT change registration semantics |
-| `onModulesRegistered(listener)` | `@open-mercato/shared/lib/modules/registry` | MUST keep accepting a single listener and returning an unsubscribe function; MUST keep notifying synchronously after `setGlobalModules()`; MUST stay fail-soft for a listener that throws or rejects. Full contract: [spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) |
-| `apiCall` / `apiCallOrThrow` / `readApiResultOrThrow` | `@open-mercato/ui/backend/utils/apiCall` | MUST NOT change |
-| `useT()` | `@open-mercato/shared/lib/i18n/context` | MUST NOT change return type |
-| `resolveTranslations()` | `@open-mercato/shared/lib/i18n/server` | MUST NOT change |
-| `createCrudOpenApiFactory(config)` | `@open-mercato/shared/lib/openapi/crud` | MUST NOT change |
-| `collectCustomFieldValues()` | `@open-mercato/ui/backend/utils/customFieldValues` | MUST NOT change |
-| `flash()` | `@open-mercato/ui` | MUST NOT change |
-| `CrudForm` component props | `@open-mercato/ui/backend/crud` | MUST NOT remove existing props |
-| Built-in `CrudFormGroup.id` values | any module's form-group builder (e.g. `createCompanyFormGroups`) | MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely |
-| `DataTable` component props | `@open-mercato/ui/backend` | MUST NOT remove existing props |
-| `parseBooleanToken` / `parseBooleanWithDefault` | `@open-mercato/shared/lib/boolean` | MUST NOT change |
+|`createModuleEvents(options)`|`@open-mercato/shared/modules/events`|MUST NOT change `options` required shape or return type|
+|`makeCrudRoute(opts)`|`@open-mercato/shared/lib/crud/factory`|MUST NOT remove existing `opts` fields; MUST NOT change return shape|
+|`findWithDecryption(em, entityName, where, options?, scope?)`|`@open-mercato/shared/lib/encryption/find`|MUST NOT change parameter order or required params|
+|`findOneWithDecryption(...)`|`@open-mercato/shared/lib/encryption/find`|Same as above|
+|`findAndCountWithDecryption(...)`|`@open-mercato/shared/lib/encryption/find`|Same as above|
+|`entityId(moduleId, entity)`|`@open-mercato/shared/modules/dsl`|MUST NOT change|
+|`defineLink(base, extension, opts)`|`@open-mercato/shared/modules/dsl`|MUST NOT change|
+|`defineModuleExtensionPoints(declaration)`|`@open-mercato/shared/modules/widgets/extension-points`|MUST preserve immutable data-only declaration semantics and exact module/host values|
+|`injectionExtensionHost`, `dataTableExtensionHost`, `crudFormExtensionHost`, `componentExtensionHost`|`@open-mercato/shared/modules/widgets/extension-points`|MUST preserve family discrimination, exact/pattern validation, and returned IDs|
+|`defineFields(entity, fields, source?)`|`@open-mercato/shared/modules/dsl`|MUST NOT change|
+|`cf.text`, `cf.multiline`, `cf.integer`, `cf.float`, `cf.boolean`, `cf.select`, `cf.currency`, `cf.dictionary`|`@open-mercato/shared/modules/dsl`|MUST NOT remove any helper or change required params|
+|`lazyDashboardWidget(loader)`|`@open-mercato/shared/modules/dashboard/widgets`|MUST NOT change|
+|`registerMcpTool(tool, options?)`|`@open-mercato/ai-assistant`|MUST NOT change|
+|`defineAiAgent(definition)`|`@open-mercato/ai-assistant`|MUST NOT change parameter or return shape|
+|`defineAiAgentExtension(extension)`|`@open-mercato/ai-assistant`|MUST NOT change parameter or return shape|
+|`defineAiTool(definition)`|`@open-mercato/ai-assistant`|MUST NOT change parameter or return shape|
+|`applyAiAgentOverrides(overrides)`|`@open-mercato/ai-assistant`|MUST preserve map semantics and precedence|
+|`applyAiToolOverrides(overrides)`|`@open-mercato/ai-assistant`|MUST preserve map semantics and precedence|
+|`applyAiAgentExtensions(extensions)`|`@open-mercato/ai-assistant`|MUST preserve append/patch semantics|
+|`applyAiOverridesFromEnabledModules(modules)`|`@open-mercato/ai-assistant`|MUST keep accepting the `overrides.ai` module-entry shape|
+|`prepareMutation(input, context)`|`@open-mercato/ai-assistant`|MUST NOT bypass pending-action approval semantics or change required params|
+|`runAiAgentText(input)` / `runAiAgentObject(input)`|`@open-mercato/ai-assistant`|MUST NOT remove existing input fields or narrow output shape|
+|`applyModuleOverridesFromEnabledModules(modules)`|`@open-mercato/shared/modules/overrides`|MUST keep dispatching `entry.overrides.<domain>` by module-load order|
+|`registerModuleOverrideApplier(domain, applier)`|`@open-mercato/shared/modules/overrides`|MUST NOT change registration semantics|
+|`onModulesRegistered(listener)`|`@open-mercato/shared/lib/modules/registry`|MUST keep accepting a single listener and returning an unsubscribe function; MUST keep notifying synchronously after `setGlobalModules()`; MUST stay fail-soft for a listener that throws or rejects. Full contract: [spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md)|
+|`apiCall` / `apiCallOrThrow` / `readApiResultOrThrow`|`@open-mercato/ui/backend/utils/apiCall`|MUST NOT change|
+|`useT()`|`@open-mercato/shared/lib/i18n/context`|MUST NOT change return type|
+|`resolveTranslations()`|`@open-mercato/shared/lib/i18n/server`|MUST NOT change|
+|`createCrudOpenApiFactory(config)`|`@open-mercato/shared/lib/openapi/crud`|MUST NOT change|
+|`collectCustomFieldValues()`|`@open-mercato/ui/backend/utils/customFieldValues`|MUST NOT change|
+|`flash()`|`@open-mercato/ui`|MUST NOT change|
+|`CrudForm` component props|`@open-mercato/ui/backend/crud`|MUST NOT remove existing props|
+|Built-in `CrudFormGroup.id` values|any module's form-group builder (e.g. `createCompanyFormGroups`)|MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely|
+|`DataTable` component props|`@open-mercato/ui/backend`|MUST NOT remove existing props|
+|`parseBooleanToken` / `parseBooleanWithDefault`|`@open-mercato/shared/lib/boolean`|MUST NOT change|
 
 ### 4. Import Paths (STABLE)
 
@@ -286,21 +286,21 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Allowed vs Breaking Changes — Quick Reference
 
-| Surface | Add new | Add optional field | Remove field | Rename | Change type |
+|Surface|Add new|Add optional field|Remove field|Rename|Change type|
 |---|---|---|---|---|---|
-| Convention files | OK | OK | BREAKING | BREAKING | BREAKING |
-| Type interfaces | OK | OK | BREAKING | BREAKING | BREAKING (narrowing) |
-| Function params | OK (optional) | OK | BREAKING | BREAKING | BREAKING |
-| Event IDs | OK | OK (payload) | BREAKING | BREAKING | n/a |
-| Spot IDs | OK | OK (context) | BREAKING | BREAKING | BREAKING (context) |
-| API routes | OK | OK (req/res fields) | BREAKING (res fields) | BREAKING | BREAKING |
-| DB columns | OK (with default) | n/a | BREAKING | BREAKING | BREAKING (narrowing) |
-| DI names | OK | OK | BREAKING | BREAKING | BREAKING |
-| Feature IDs | OK | n/a | BREAKING* | BREAKING | n/a |
-| AI agent/tool IDs | OK | OK | BREAKING | BREAKING | BREAKING |
-| AI override surfaces | OK | OK | BREAKING | BREAKING | BREAKING |
-| Import paths | OK | n/a | BREAKING | BREAKING | n/a |
-| Generated registry exports | OK | OK | BREAKING | BREAKING | BREAKING |
+|Convention files|OK|OK|BREAKING|BREAKING|BREAKING|
+|Type interfaces|OK|OK|BREAKING|BREAKING|BREAKING (narrowing)|
+|Function params|OK (optional)|OK|BREAKING|BREAKING|BREAKING|
+|Event IDs|OK|OK (payload)|BREAKING|BREAKING|n/a|
+|Spot IDs|OK|OK (context)|BREAKING|BREAKING|BREAKING (context)|
+|API routes|OK|OK (req/res fields)|BREAKING (res fields)|BREAKING|BREAKING|
+|DB columns|OK (with default)|n/a|BREAKING|BREAKING|BREAKING (narrowing)|
+|DI names|OK|OK|BREAKING|BREAKING|BREAKING|
+|Feature IDs|OK|n/a|BREAKING*|BREAKING|n/a|
+|AI agent/tool IDs|OK|OK|BREAKING|BREAKING|BREAKING|
+|AI override surfaces|OK|OK|BREAKING|BREAKING|BREAKING|
+|Import paths|OK|n/a|BREAKING|BREAKING|n/a|
+|Generated registry exports|OK|OK|BREAKING|BREAKING|BREAKING|
 
 \* Feature ID removal requires a data migration.
 

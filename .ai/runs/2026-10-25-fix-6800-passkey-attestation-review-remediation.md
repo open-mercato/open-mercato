@@ -103,3 +103,9 @@ Merged verified live main e1a6f9de51 cleanly. The reviewed security module remai
 Restored the harness catalog and compatibility regression exactly to main, removing all four context-cap increases and the test-reporting-only delta. Main's unchanged limits first reproduced four overflows; the documentation repair now fits all five contexts (OMH-057: 114604/114688 bytes). The native regression and independent measurements pass without changing limits, file/read sets, assertions or containment. The specific certification finding concerned the now-removed harness contract delta; fresh independent review must confirm its disposition. No certified release pass or waiver is claimed.
 
 Corrected the merged lesson catalog to its actual160 records; the native checker and all five script tests pass. Runner: local for these focused documentation checks; no broad test/build or live QA rerun. Historical exact-head CI40531421748 passed before this update; the new head requires fresh CI. The named human security-exception acknowledgment remains required before merge.
+
+### Concurrent disclosure budget proof
+
+The batch review identified that the independently prepared checkout and CLI entries add232 and228 bytes to the same document. Their exact combined text reproduced an OMH-057 overflow of376 bytes; the separator savings cannot be counted three times. Removed only cell-edge padding from the first four existing tables (78rows,552bytes). The complete parsed Markdown AST, all21tables/cells/alignment, every disclosure and the exception policy are identical before/after this formatting change.
+
+Both the actual native compatibility regression and five-case measurements pass for the own document (OMH-057114052/114688) and the combined three-entry document (114512/114688). Other PR entries were temporary test input and are absent from this branch. All existing caps, contexts, assertions and production source remain unchanged.
