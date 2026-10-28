@@ -206,6 +206,16 @@ Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardr
 - The run API `integrity` summary is derived from the check rows (`summary.ts`) — add new outcomes there, not in routes. The pre-repair output is an encrypted artifact (`rawOutputKey`, `kind=raw_output`), never inline.
 - OpenCode runs the integrity rules only (no `tool_scope`, grounding or untrusted inputs).
 
+## Agent Principals and Audit Correlation (`lib/identity/`)
+
+Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`. `defineAgent({ principal: { roleFeatures, toolAcl?, required? } })`.
+
+- `syncAgentPrincipals` (setup hook, `principals:sync` CLI) provisions one principal per organization (key `<agentId>@<orgId>`) through core `provisionExecutionPrincipal`; never write User/Role/ACL rows here.
+- runAs is bound once in the runtime (`resolveRunAsForAgent`); never bind it per entry point. A `required` principal that is missing refuses with 409 `agent_principal_missing`.
+- Tool ACL: `principal.toolAcl` or `OM_AGENT_TOOL_ACL_MODE` (default `caller`); `intersect` uses `intersectFeatureGrants`. Denied tools never reach the model and are recorded in the manifest (`om.tool_acl`).
+- The `principal` summary on `GET /agents` / `/agents/:id` is for `agents.manage` holders only.
+- Run writes carry `agentRunId` (and effector writes `proposalId`) in action-log `correlation_keys`: pass `auditCorrelation` on command contexts, or wrap tool phases in `withAuditCorrelation`. `GET /runs/:id/actions` reads them through `actionLogService.listByCorrelationKeys`; never query `context_json` (encrypted).
+
 ## Web Egress (`web_search` / `web_fetch`)
 
 Read-only web access for agents (spec `.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md`). Two `defineAiTool`s on the existing `open-mercato` MCP server; agents opt in via `tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]` in `AGENT.md` (example: `apps/mercato/src/modules/agent_examples/agents/deal_web_researcher/`).

@@ -46,7 +46,7 @@
 | 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | done | pending |
 | 2 | 2.10-review-fix | Stamp run correlation on tool writes through an ambient scope | dispatch:capable | done | pending |
 | 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | done | pending |
-| 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | todo | — |
+| 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | done | pending |
 | 3 | 3.1 | Add the trace content namespace and tri-state artifact reads | dispatch:cheap | todo | — |
 | 3 | 3.2 | Build redacted and capped LLM request and response artifacts | dispatch:capable | todo | — |
 | 3 | 3.3 | Offload LLM content at the full capture level | dispatch:capable | todo | — |
