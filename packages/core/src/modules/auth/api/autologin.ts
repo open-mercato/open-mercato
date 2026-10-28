@@ -8,6 +8,7 @@ import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mer
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { resolveAutoLoginCredentials } from '@open-mercato/core/modules/auth/lib/autologin'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 
 export const metadata = { requireAuth: false }
 
@@ -57,7 +58,12 @@ export async function GET(req: Request) {
   const roles = await auth.getUserRoles(user, resolvedTenantId)
   await auth.updateLastLoginAt(user)
   const expiresAt = new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
-  const { session } = await auth.createSession(user, expiresAt)
+  const createdSession = await auth.createSession(user, expiresAt).catch((error: unknown) => {
+    if (!isAuthSessionRejectedError(error)) throw error
+    return null
+  })
+  if (!createdSession) return buildSafeRedirectResponse(req, '/login')
+  const { session } = createdSession
   const token = signJwt({
     sub: String(user.id),
     sid: String(session.id),

@@ -1,4 +1,4 @@
-import { EntityManager } from '@mikro-orm/postgresql'
+import { EntityManager, type RequiredEntityData } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
@@ -95,11 +95,19 @@ export class AuthService {
 
 
   async createSession(user: User, expiresAt: Date): Promise<{ session: Session; token: string }> {
+    return this.createSessionWithEntityManager(this.em, user, expiresAt)
+  }
+
+  protected async createSessionWithEntityManager(
+    em: EntityManager,
+    user: User,
+    expiresAt: Date,
+  ): Promise<{ session: Session; token: string }> {
     const rawToken = generateAuthToken()
     const tokenHash = hashAuthToken(rawToken)
-    const sess = this.em.create(Session as any, { user, token: tokenHash, expiresAt, createdAt: new Date() } as any)
-    await this.em.persist(sess).flush()
-    return { session: sess as Session, token: rawToken }
+    const session = em.create(Session, { user, token: tokenHash, expiresAt, createdAt: new Date() } as RequiredEntityData<Session>)
+    await em.persist(session).flush()
+    return { session, token: rawToken }
   }
 
   async deleteSessionByToken(token: string) {

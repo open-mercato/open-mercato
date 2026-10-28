@@ -120,5 +120,8 @@ describe('SCIM deactivation enforcement during account linking', () => {
     deactivation.reactivatedAt = new Date()
     await expect(service.handleOidcCallback({ state: 'flow-state' }, 'cookie', 'https://app/callback')).resolves.toHaveProperty('token', 'signed-token')
     expect(authService.createSession).toHaveBeenCalledTimes(1)
+    expect(authService.createSession).toHaveBeenCalledWith(expect.objectContaining({ id: 'user-1' }), expect.any(Date), {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1',
+    })
   })
 })

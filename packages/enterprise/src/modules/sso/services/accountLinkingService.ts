@@ -147,8 +147,9 @@ export class AccountLinkingService {
     ssoConfigId: string,
     tenantId: string,
     organizationId: string,
+    em: EntityManager = this.em,
   ): Promise<void> {
-    if (await isSsoUserDeactivated(this.em, { userId, ssoConfigId, tenantId: tenantId || null, organizationId })) {
+    if (await isSsoUserDeactivated(em, { userId, ssoConfigId, tenantId: tenantId || null, organizationId })) {
       throw new Error('[internal] SSO identity is deactivated')
     }
   }
@@ -271,6 +272,7 @@ export class AccountLinkingService {
       userIds: [String(user.id)],
       roleIds: Array.from(lockedRoleIds),
     })
+    await this.requireActiveUser(user.id, config.id, resolvedTenantId, config.organizationId, em)
     allRoles = await em.find(Role, {
       tenantId: resolvedTenantId,
       deletedAt: null,
