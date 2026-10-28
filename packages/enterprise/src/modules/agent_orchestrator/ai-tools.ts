@@ -7,7 +7,12 @@ import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId, getCurrentRunInvoker, getCurrentRunSource } from './lib/runtime/runContext'
-import { AGENT_INVOKE_DENIED_CODE, isAgentInvokeDeniedError } from './lib/runtime/errors'
+import {
+  AGENT_INVOKE_DENIED_CODE,
+  AGENT_PRINCIPAL_MISSING_CODE,
+  isAgentInvokeDeniedError,
+  isAgentPrincipalMissingError,
+} from './lib/runtime/errors'
 import { agentResultPayload } from './lib/runtime/agentResultPayload'
 import { webSearchTool, webFetchTool } from './lib/webSearch/tools'
 
@@ -135,6 +140,9 @@ const delegateAgentTool: AiToolDefinition = {
     } catch (err) {
       if (isAgentInvokeDeniedError(err)) {
         return { ok: false as const, agentId, error: AGENT_INVOKE_DENIED_CODE }
+      }
+      if (isAgentPrincipalMissingError(err)) {
+        return { ok: false as const, agentId, error: AGENT_PRINCIPAL_MISSING_CODE }
       }
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false as const, agentId, error: message }

@@ -20,6 +20,7 @@ export {
   AgentRuntimeService,
   AgentNotFoundError,
   AgentInvokeDeniedError,
+  AgentPrincipalMissingError,
   AgentOutputInvalidError,
   AgentGuardrailBlockedError,
 } from './lib/runtime/agentRuntime'

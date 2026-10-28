@@ -71,8 +71,8 @@ export function isAuditedCommandActive(): boolean {
 /**
  * Run `fn` inside a runtime-audit write scope. The agent runtime's own
  * observability writes (spans, tool calls, guardrail checks, context bundles,
- * eval results, run artifacts, run sessions and the run row updated by trace
- * ingest) execute inside this so the flush-time guard admits them under an agent
+ * eval results, run artifacts, run sessions, the integrity guardrail sets synced
+ * on first use and the run row updated by trace ingest) execute inside this so the flush-time guard admits them under an agent
  * actor. Only the agent-orchestrator runtime-audit entity allowlist passes; any
  * other entity flushed in the same scope still fails closed.
  */

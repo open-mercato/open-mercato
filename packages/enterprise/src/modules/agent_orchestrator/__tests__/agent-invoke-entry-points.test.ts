@@ -44,7 +44,12 @@ import { aiTools } from '../ai-tools'
 import { DELEGATE_TOOL_ID, defineAgent } from '../lib/sdk/defineAgent'
 import { AgentWorkflowBridgeService } from '../lib/runtime/invokeAgentForWorkflow'
 import { executeCaseRun, resetEvalSetManifestCache } from '../lib/eval/evalReplayService'
-import { AgentInvokeDeniedError, AGENT_INVOKE_DENIED_CODE } from '../lib/runtime/errors'
+import {
+  AgentInvokeDeniedError,
+  AgentPrincipalMissingError,
+  AGENT_INVOKE_DENIED_CODE,
+  AGENT_PRINCIPAL_MISSING_CODE,
+} from '../lib/runtime/errors'
 import { invokerFromAuth } from '../lib/access/invokeDenial'
 import { AgentEvalCase, AgentEvalCaseRun, AgentEvalSuiteRun, AgentRun } from '../data/entities'
 
@@ -86,11 +91,14 @@ function createFakeEm(seed: Map<unknown, Row[]> = new Map()) {
   return { em: em as unknown as EntityManager, storeFor }
 }
 
+const invokeDenied = (agentId: string): Error => new AgentInvokeDeniedError(agentId)
+let runtimeFailure: (agentId: string) => Error = invokeDenied
+
 function deniedRuntime() {
   const calls: RunCtx[] = []
   const run = jest.fn(async (agentId: string, _input: unknown, ctx: RunCtx) => {
     calls.push(ctx)
-    throw new AgentInvokeDeniedError(agentId)
+    throw runtimeFailure(agentId)
   })
   return { run, calls }
 }
@@ -224,7 +232,7 @@ async function viaEvalReplay(): Promise<AdapterOutcome> {
   } as unknown as AwilixContainer
   const outcome = await executeCaseRun(container, 'case-run-1', { tenantId: TENANT, organizationId: ORG }, USER)
   const message = String(caseRun.errorMessage ?? '')
-  const code = message.includes(AGENT_INVOKE_DENIED_CODE) ? AGENT_INVOKE_DENIED_CODE : message
+  const code = [AGENT_INVOKE_DENIED_CODE, AGENT_PRINCIPAL_MISSING_CODE].find((known) => message.includes(known)) ?? message
   return { code, ctx: runtime.calls[0], body: { status: outcome.status, errorMessage: message } }
 }
 
@@ -243,6 +251,7 @@ beforeAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   resetEvalSetManifestCache()
+  runtimeFailure = invokeDenied
 })
 
 describe('invokerFromAuth', () => {
@@ -326,5 +335,33 @@ describe('entry-point parity', () => {
     const outcome = await adapter()
     expect(outcome.code).toBe(AGENT_INVOKE_DENIED_CODE)
     expect(outcome.ctx.entryPoint).toEqual(expect.any(String))
+  })
+})
+
+describe('a required principal that is missing', () => {
+  beforeEach(() => {
+    runtimeFailure = (agentId) => new AgentPrincipalMissingError(agentId)
+  })
+
+  it.each([
+    ['run', viaRunRoute],
+    ['rerun', viaRerunRoute],
+  ] as const)('%s answers 409 agent_principal_missing', async (_name, adapter) => {
+    const outcome = await adapter(SESSION_AUTH)
+    expect(outcome.status).toBe(409)
+    expect(outcome.body).toEqual({ error: expect.any(String), code: 'agent_principal_missing', agentId: AGENT_ID })
+  })
+
+  it('delegate_agent returns the code as data', async () => {
+    const outcome = await viaDelegateTool()
+    expect(outcome.body).toEqual({ ok: false, agentId: AGENT_ID, error: 'agent_principal_missing' })
+  })
+
+  it.each([
+    ['workflow INVOKE_AGENT', viaWorkflowBridge],
+    ['eval replay', viaEvalReplay],
+  ] as const)('%s surfaces agent_principal_missing', async (_name, adapter) => {
+    const outcome = await adapter()
+    expect(outcome.code).toBe(AGENT_PRINCIPAL_MISSING_CODE)
   })
 })

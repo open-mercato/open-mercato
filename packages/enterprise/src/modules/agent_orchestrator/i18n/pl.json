@@ -345,6 +345,7 @@
   "agent_orchestrator.errors.agent_invalid_output": "Agent wygenerował nieprawidłowe wyjście",
   "agent_orchestrator.errors.agent_invoke_denied": "Nie masz uprawnień do uruchomienia tego agenta",
   "agent_orchestrator.errors.agent_not_found": "Nie znaleziono agenta",
+  "agent_orchestrator.errors.agent_principal_missing": "Ten agent nie ma aktywnego podmiotu w tej organizacji",
   "agent_orchestrator.errors.agent_run_failed": "Uruchomienie agenta nieoczekiwanie się nie powiodło",
   "agent_orchestrator.errors.already_disposed": "Ta propozycja została już rozpatrzona",
   "agent_orchestrator.errors.api_key_missing": "Skonfigurowany dostawca LLM nie ma klucza API w tym wdrożeniu",

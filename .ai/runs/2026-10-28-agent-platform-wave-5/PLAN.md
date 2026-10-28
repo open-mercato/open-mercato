@@ -36,7 +36,7 @@
 | 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | done | pending |
 | 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | done | pending |
 | 2 | 2.3 | Run principal sync in setup and the CLI | dispatch | done | pending |
-| 2 | 2.4 | Bind runAs centrally in the agent runtime | dispatch:capable | todo | — |
+| 2 | 2.4 | Bind runAs centrally in the agent runtime | dispatch:capable | done | pending |
 | 2 | 2.5 | Show the agent principal on the agents API and detail page | dispatch | todo | — |
 | 2 | 2.6 | Add intersectFeatureGrants to shared | dispatch:cheap | todo | — |
 | 2 | 2.7 | Resolve the effective tool ACL with an intersect mode | dispatch:capable | todo | — |

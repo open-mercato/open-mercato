@@ -8,7 +8,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { agentRunRequestSchema } from '../../../../data/validators'
 import type { AgentRunCtx, AgentRuntimeService } from '../../../../lib/runtime/agentRuntime'
-import { invokerFromAuth, invokeDeniedErrorSchema } from '../../../../lib/access/invokeDenial'
+import { invokerFromAuth, invokeDeniedErrorSchema, principalMissingErrorSchema } from '../../../../lib/access/invokeDenial'
 import {
   agentRunErrorResponse,
   agentRunErrorSchema as errorSchema,
@@ -141,6 +141,12 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.union([errorSchema, invokeDeniedErrorSchema]),
         },
         { status: 404, description: 'Unknown agent id', schema: errorSchema },
+        {
+          status: 409,
+          description:
+            'The agent declares `principal.required` and has no enabled principal in this organization (`code: "agent_principal_missing"`)',
+          schema: principalMissingErrorSchema,
+        },
         {
           status: 422,
           description:

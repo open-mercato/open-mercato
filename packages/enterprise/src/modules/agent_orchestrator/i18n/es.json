@@ -345,6 +345,7 @@
   "agent_orchestrator.errors.agent_invalid_output": "El agente produjo una salida no válida",
   "agent_orchestrator.errors.agent_invoke_denied": "No tienes permiso para ejecutar este agente",
   "agent_orchestrator.errors.agent_not_found": "Agente no encontrado",
+  "agent_orchestrator.errors.agent_principal_missing": "Este agente no tiene un principal activo en esta organización",
   "agent_orchestrator.errors.agent_run_failed": "La ejecución del agente falló de forma inesperada",
   "agent_orchestrator.errors.already_disposed": "Esta propuesta ya ha sido resuelta",
   "agent_orchestrator.errors.api_key_missing": "El proveedor de LLM configurado no tiene clave de API en este despliegue",

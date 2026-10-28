@@ -7,7 +7,7 @@ import { resolveAgentOutcomeZod } from '../sdk/agentOutcomeContract'
 import { processSubjectSchema, type ProcessSubject } from '../../data/validators'
 import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
-import { resolveAgentPrincipal } from '../identity/agentPrincipalService'
+import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 import { withProcessSubject } from '../processes/subjectContext'
 import type {
   AgentDispositionReview,
@@ -253,24 +253,24 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
   }
 
   /**
-   * Resolves the on-behalf-of attribution for an `INVOKE_AGENT` run. Returns the
-   * agent principal's `auth.User` id (actor) + the invoking human (`onBehalfOfUserId`)
-   * when the agent is provisioned and enabled; null otherwise (fail-open — the run
-   * keeps its `userId`-derived attribution until a principal exists). Org-scoped.
+   * Resolves the on-behalf-of attribution for an `INVOKE_AGENT` run through the
+   * runtime's shared resolver: the agent principal's `auth.User` id (actor) and
+   * the invoking human (`onBehalfOfUserId`) when the agent has an enabled
+   * principal; null otherwise (fail-open, unless the agent declares
+   * `principal.required`, which throws `AgentPrincipalMissingError`).
    */
-  private async resolveRunAs(
+  private resolveRunAs(
     agentId: string,
     ctx: InvokeAgentForWorkflowArgs['ctx'],
   ): Promise<AgentRunAs | null> {
-    const principal = await resolveAgentPrincipal(
-      this.container,
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    return resolveRunAsForAgent(this.container, {
       agentId,
-    )
-    if (!principal || !principal.enabled) return null
-    return {
-      agentUserId: principal.userId,
-      onBehalfOfUserId: ctx.userId ?? null,
-    }
+      ctx: {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId ?? '',
+        ...(ctx.userId ? { invoker: { kind: 'workflow' as const, actingUserId: ctx.userId } } : {}),
+      },
+    })
   }
 }

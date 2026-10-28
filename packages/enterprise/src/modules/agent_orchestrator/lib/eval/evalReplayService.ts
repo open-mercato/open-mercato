@@ -8,7 +8,6 @@ import {
   AgentEvalCaseRun,
   AgentEvalResult,
   AgentEvalSuiteRun,
-  AgentPrincipal,
   AgentProposal,
   AgentRun,
   AgentSpan,
@@ -31,7 +30,13 @@ import { createEvalSetManifestCache, evalSetManifestCacheKey } from './manifestC
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
-import { AGENT_INVOKE_DENIED_CODE, isAgentInvokeDeniedError } from '../runtime/errors'
+import {
+  AGENT_INVOKE_DENIED_CODE,
+  AGENT_PRINCIPAL_MISSING_CODE,
+  isAgentInvokeDeniedError,
+  isAgentPrincipalMissingError,
+} from '../runtime/errors'
+import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -313,27 +318,27 @@ async function runCase(
   let topLevelRunId: string | null = null
   const runtime = container.resolve('agentRuntime') as AgentRuntimeLike
 
-  // Run under the AGENT'S OWN principal, exactly as production does. Replaying
-  // under the operator's identity would give the agent a different tool surface
-  // and a different write guard than the configuration being measured, which
-  // would quietly invalidate the regression signal.
-  const principal = await em.findOne(AgentPrincipal, {
-    agentDefinitionId,
-    ...scope,
-    enabled: true,
-    deletedAt: null,
-  })
-  const actingUserId = principal?.userId ?? userId
-
   try {
+    // Run under the AGENT'S OWN principal, exactly as production does. Replaying
+    // under the operator's identity would give the agent a different tool surface
+    // and a different write guard than the configuration being measured, which
+    // would quietly invalidate the regression signal.
+    const runAs = await resolveRunAsForAgent(
+      container,
+      {
+        agentId: agentDefinitionId,
+        ctx: { ...scope, userId, invoker: { kind: 'user', userId } },
+      },
+      { em },
+    )
     await runtime.run(agentDefinitionId, sourceInput(source), {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      userId: actingUserId,
+      userId: runAs?.agentUserId ?? userId,
       // No principal provisioned yet (legacy/playground agents): fall back to the
       // operator's identity rather than refusing to run, and leave `runAs` unset
       // so nothing is misattributed to an agent that has none.
-      ...(principal ? { runAs: { agentUserId: principal.userId, onBehalfOfUserId: userId } } : {}),
+      ...(runAs ? { runAs } : {}),
       // Tags THIS run and its proposal at creation, closing the window in which a
       // replay proposal would otherwise be broadcast and rendered as operator work.
       //
@@ -358,9 +363,11 @@ async function runCase(
       agentRunId: topLevelRunId,
       errorMessage: isAgentInvokeDeniedError(error)
         ? `[internal] ${AGENT_INVOKE_DENIED_CODE}: the operator who started the suite run may not invoke this agent`
-        : error instanceof Error
-          ? error.message
-          : String(error),
+        : isAgentPrincipalMissingError(error)
+          ? `[internal] ${AGENT_PRINCIPAL_MISSING_CODE}: the agent requires a provisioned principal and has none in this organization`
+          : error instanceof Error
+            ? error.message
+            : String(error),
     })
   }
 

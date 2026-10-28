@@ -7,7 +7,7 @@ import {
   type AiAgentRunDispatcher,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
 import { ensureAgentsLoaded, getAgentEntry, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { isAgentInvokeDeniedError } from './errors'
+import { isAgentInvokeDeniedError, isAgentPrincipalMissingError } from './errors'
 import { agentResultPayload } from './agentResultPayload'
 import type { AgentEntryPoint, AgentInvoker, AgentRunCtx } from './persistence'
 import type { AgentRuntimeService } from './agentRuntime'
@@ -84,6 +84,9 @@ export function createAiAgentRunDispatcher(container: DispatcherContainer): AiAg
       } catch (error) {
         if (isAgentInvokeDeniedError(error)) {
           throw new AiAgentDispatchDeniedError('agent_invoke_denied', dispatch.agentId)
+        }
+        if (isAgentPrincipalMissingError(error)) {
+          throw new AiAgentDispatchDeniedError('agent_principal_missing', dispatch.agentId)
         }
         throw error
       }

@@ -3,6 +3,7 @@ import {
   AgentContextBundle,
   AgentEvalResult,
   AgentGuardrailCheck,
+  AgentGuardrailSet,
   AgentRun,
   AgentRunArtifact,
   AgentRunSession,
@@ -48,6 +49,13 @@ const RUNTIME_AUDIT_ENTITY_CLASSES = [
 const RUNTIME_AUDIT_ENTITY_CLASS_SET: ReadonlySet<unknown> = new Set<unknown>(RUNTIME_AUDIT_ENTITY_CLASSES)
 
 /**
+ * Append-only AO entities the runtime may only INSERT under
+ * `withRuntimeAuditWrite`: the integrity guardrail set a run syncs on first use
+ * (`agent_guardrail_sets` rows are immutable per `(org, capability, version)`).
+ */
+const RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES: ReadonlySet<unknown> = new Set<unknown>([AgentGuardrailSet])
+
+/**
  * `AgentRun` properties the runtime may change on an EXISTING run under
  * `withRuntimeAuditWrite`: the usage/cost/latency stamp native trace capture
  * sends through `ingestTrace` and the online eval verdict `evaluateRun` writes.
@@ -76,7 +84,8 @@ function entityClassOf(args: EventArgs<unknown>): unknown {
 }
 
 export function isRuntimeAuditEntity(args: EventArgs<unknown>): boolean {
-  return RUNTIME_AUDIT_ENTITY_CLASS_SET.has(entityClassOf(args))
+  const entityClass = entityClassOf(args)
+  return RUNTIME_AUDIT_ENTITY_CLASS_SET.has(entityClass) || RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES.has(entityClass)
 }
 
 function isRuntimeAuditTraceUpdate(operation: 'create' | 'update' | 'delete', args: EventArgs<unknown>): boolean {
@@ -91,7 +100,9 @@ export function isRuntimeAuditWriteAllowed(
   args: EventArgs<unknown>,
 ): boolean {
   if (!isRuntimeAuditEntity(args)) return false
-  if (entityClassOf(args) !== AgentRun) return true
+  const entityClass = entityClassOf(args)
+  if (RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES.has(entityClass)) return operation === 'create'
+  if (entityClass !== AgentRun) return true
   return isRuntimeAuditTraceUpdate(operation, args)
 }
 

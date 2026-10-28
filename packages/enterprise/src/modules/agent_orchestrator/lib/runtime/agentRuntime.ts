@@ -11,6 +11,7 @@ import { withAgentActor } from '../identity/agentWriteScope'
 import { registerAgentKindNoBypassSubscriber } from '../identity/agentNoBypassSubscriber'
 import { AgentNotFoundError } from './errors'
 import { enforceAgentInvocable } from '../access/agentInvokeAccess'
+import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 import type { AgentRunCtx } from './persistence'
 
 export type { AgentRunCtx } from './persistence'
@@ -19,6 +20,7 @@ export type { AgentRunCtx } from './persistence'
 export {
   AgentNotFoundError,
   AgentInvokeDeniedError,
+  AgentPrincipalMissingError,
   AgentRunTimeoutError,
   AgentOutputInvalidError,
   AgentGuardrailBlockedError,
@@ -55,9 +57,12 @@ export class AgentRuntimeService {
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
     await enforceAgentInvocable(this.container, entry, ctx)
+    const runAs = ctx.runAs ?? (await resolveRunAsForAgent(this.container, { agentId, entry, ctx }))
+    const runCtx: AgentRunCtx = runAs && !ctx.runAs ? { ...ctx, runAs } : ctx
 
     // Runtime no-bypass enforcement (Wave 4 Phase 3, layer B-b). When the run is
-    // bound to a provisioned agent principal (`ctx.runAs`), bind the async-scoped
+    // bound to a provisioned agent principal (the caller's `ctx.runAs`, or the
+    // agent's own enabled principal resolved above), bind the async-scoped
     // agent-actor context for the WHOLE run and register the fail-closed flush-time
     // subscriber on the EM. From here on any write reaching `em.flush()` that is
     // NOT inside the agent's own audited Command write throws — making a raw
@@ -70,13 +75,13 @@ export class AgentRuntimeService {
           commandBus: this.commandBus,
           openCodeClient: this.container.resolve('openCodeClient'),
         })
-        return runner.run(entry, input, ctx)
+        return runner.run(entry, input, runCtx)
       }
       const runner = new NativeAgentRunner({
         container: this.container,
         commandBus: this.commandBus,
       })
-      return runner.run(agentId, entry, input, ctx)
+      return runner.run(agentId, entry, input, runCtx)
     }
 
     // Admission gate (performance hardening Phase 2): bounded global +
@@ -91,7 +96,7 @@ export class AgentRuntimeService {
       : await acquireAgentRunSlot(ctx.tenantId)
 
     try {
-      if (ctx.runAs) {
+      if (runAs) {
         try {
           registerAgentKindNoBypassSubscriber(this.container.resolve('em') as EntityManager)
         } catch {
@@ -99,7 +104,7 @@ export class AgentRuntimeService {
           // any EM that did get the subscriber (the shared request EM).
         }
         return await withAgentActor(
-          { agentUserId: ctx.runAs.agentUserId, onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null },
+          { agentUserId: runAs.agentUserId, onBehalfOfUserId: runAs.onBehalfOfUserId ?? null },
           dispatch,
         )
       }

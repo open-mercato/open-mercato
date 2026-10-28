@@ -345,6 +345,7 @@
   "agent_orchestrator.errors.agent_invalid_output": "Agent produced invalid output",
   "agent_orchestrator.errors.agent_invoke_denied": "You are not allowed to run this agent",
   "agent_orchestrator.errors.agent_not_found": "Agent not found",
+  "agent_orchestrator.errors.agent_principal_missing": "This agent has no active principal in this organization",
   "agent_orchestrator.errors.agent_run_failed": "The agent run failed unexpectedly",
   "agent_orchestrator.errors.already_disposed": "This proposal has already been disposed",
   "agent_orchestrator.errors.api_key_missing": "The configured LLM provider has no API key on this deployment",

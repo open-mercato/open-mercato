@@ -16,6 +16,7 @@ import {
   AgentContextBundle,
   AgentEvalResult,
   AgentGuardrailCheck,
+  AgentGuardrailSet,
   AgentPrincipal,
   AgentProposal,
   AgentRun,
@@ -215,6 +216,20 @@ describe('agent no-bypass enforcement (three-layer)', () => {
             ).toThrow(AgentWriteBypassError)
           }
         })
+      })
+    })
+
+    it('lets an AgentGuardrailSet insert pass inside the scope but never an update or delete', async () => {
+      expect(isRuntimeAuditEntity(entityEventArgs(AgentGuardrailSet))).toBe(true)
+      await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          expect(() => subscriber.beforeCreate(entityEventArgs(AgentGuardrailSet))).not.toThrow()
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentGuardrailSet, { body: {} }))).toThrow(
+            AgentWriteBypassError,
+          )
+          expect(() => subscriber.beforeDelete(entityEventArgs(AgentGuardrailSet))).toThrow(AgentWriteBypassError)
+        })
+        expect(() => subscriber.beforeCreate(entityEventArgs(AgentGuardrailSet))).toThrow(AgentWriteBypassError)
       })
     })
 

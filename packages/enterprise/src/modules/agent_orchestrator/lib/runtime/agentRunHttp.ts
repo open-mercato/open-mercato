@@ -12,9 +12,9 @@ import {
   AgentOutputInvalidError,
   AgentRunTimeoutError,
 } from './agentRuntime'
-import { isAgentInvokeDeniedError } from './errors'
+import { isAgentInvokeDeniedError, isAgentPrincipalMissingError } from './errors'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from './admission'
-import { invokeDeniedBody } from '../access/invokeDenial'
+import { invokeDeniedBody, principalMissingBody } from '../access/invokeDenial'
 import { integritySummarySchema, loadRunIntegritySummary, type IntegritySummary } from '../guardrails/integrity/summary'
 
 /**
@@ -157,6 +157,9 @@ export function agentRunErrorResponse(
   }
   if (isAgentInvokeDeniedError(err)) {
     return NextResponse.json(invokeDeniedBody(err, agentId), { status: 403 })
+  }
+  if (isAgentPrincipalMissingError(err)) {
+    return NextResponse.json(principalMissingBody(err, agentId), { status: 409 })
   }
   // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
   // the typed reason (kind/phase/set version) must reach the client instead

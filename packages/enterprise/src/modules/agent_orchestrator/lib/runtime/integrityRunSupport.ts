@@ -6,6 +6,7 @@ import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import type { RawOutputPointer } from '../guardrails/integrity/pipeline'
 import { syncIntegritySets } from '../guardrails/integrity/integritySets'
 import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 import type { AgentRunCtx } from './persistence'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'integrity-run-support' })
@@ -46,7 +47,9 @@ export async function storeRunRawOutput(
 /**
  * Makes sure the integrity set the check rows pin exists in
  * `agent_guardrail_sets` for this organization (tenants created before the set
- * changed are synced on first use). Fail-open: a sync failure never fails the run.
+ * changed are synced on first use). Runs in the runtime-audit write scope so a
+ * principal-bound run may append the set row. Fail-open: a sync failure never
+ * fails the run.
  */
 export async function ensureRunIntegritySetSynced(
   container: AwilixContainer,
@@ -55,7 +58,9 @@ export async function ensureRunIntegritySetSynced(
 ): Promise<void> {
   try {
     const em = (container.resolve('em') as EntityManager).fork()
-    await syncIntegritySets(em, { tenantId: ctx.tenantId, organizationId: ctx.organizationId }, [entry])
+    await withRuntimeAuditWrite(() =>
+      syncIntegritySets(em, { tenantId: ctx.tenantId, organizationId: ctx.organizationId }, [entry]),
+    )
   } catch (error) {
     logger.warn('integrity set sync failed', {
       agentId: entry.id,

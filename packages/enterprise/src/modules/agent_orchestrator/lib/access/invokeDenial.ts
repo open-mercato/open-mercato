@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { AgentInvoker } from '../runtime/persistence'
-import { AGENT_INVOKE_DENIED_CODE } from '../runtime/errors'
+import { AGENT_INVOKE_DENIED_CODE, AGENT_PRINCIPAL_MISSING_CODE } from '../runtime/errors'
 
 /**
  * The invoker of an HTTP-originated run is the authenticated caller: an API key
@@ -36,6 +36,27 @@ export function invokeDeniedBody(err: { agentId?: string }, fallbackAgentId = ''
   return {
     error: 'You are not allowed to run this agent',
     code: AGENT_INVOKE_DENIED_CODE,
+    agentId: err.agentId ?? fallbackAgentId,
+  }
+}
+
+export const principalMissingErrorSchema = z.object({
+  error: z.string(),
+  code: z.literal(AGENT_PRINCIPAL_MISSING_CODE),
+  agentId: z.string(),
+})
+
+export type PrincipalMissingErrorBody = z.infer<typeof principalMissingErrorSchema>
+
+/**
+ * The 409 body when an agent declaring `principal.required` has no enabled
+ * principal in the run's organization. The English `error` is an API contract
+ * string; clients render the locale entry keyed by `code`.
+ */
+export function principalMissingBody(err: { agentId?: string }, fallbackAgentId = ''): PrincipalMissingErrorBody {
+  return {
+    error: 'This agent has no active principal in this organization',
+    code: AGENT_PRINCIPAL_MISSING_CODE,
     agentId: err.agentId ?? fallbackAgentId,
   }
 }

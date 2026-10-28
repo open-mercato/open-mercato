@@ -4,7 +4,7 @@ import {
   type AiAgentRunDispatchInput,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
 import type { AgentRegistryEntry } from '../lib/sdk/defineAgent'
-import { AgentInvokeDeniedError, AgentRunTimeoutError } from '../lib/runtime/errors'
+import { AgentInvokeDeniedError, AgentPrincipalMissingError, AgentRunTimeoutError } from '../lib/runtime/errors'
 import type { AgentRunCtx } from '../lib/runtime/persistence'
 
 const registeredEntries = new Map<string, AgentRegistryEntry>()
@@ -185,13 +185,22 @@ describe('AO ai-assistant agent run dispatcher', () => {
     })
   })
 
-  it('maps an invoke denial to the port denial and lets other errors through', async () => {
+  it('maps an invoke denial and a missing required principal to the port denial and lets other errors through', async () => {
     const denied = buildRuntime(async () => {
       throw new AgentInvokeDeniedError('test.research')
     })
     await expect(denied.dispatcher.runObject(dispatchInput())).rejects.toMatchObject({
       name: 'AiAgentDispatchDeniedError',
       code: 'agent_invoke_denied',
+      agentId: 'test.research',
+    })
+
+    const principalMissing = buildRuntime(async () => {
+      throw new AgentPrincipalMissingError('test.research')
+    })
+    await expect(principalMissing.dispatcher.runObject(dispatchInput())).rejects.toMatchObject({
+      name: 'AiAgentDispatchDeniedError',
+      code: 'agent_principal_missing',
       agentId: 'test.research',
     })
 

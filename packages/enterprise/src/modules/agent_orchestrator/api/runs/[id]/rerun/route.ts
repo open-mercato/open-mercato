@@ -17,10 +17,16 @@ import {
   type AgentRunCtx,
   type AgentRuntimeService,
 } from '../../../../lib/runtime/agentRuntime'
-import { isAgentInvokeDeniedError } from '../../../../lib/runtime/errors'
+import { isAgentInvokeDeniedError, isAgentPrincipalMissingError } from '../../../../lib/runtime/errors'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from '../../../../lib/runtime/admission'
 import { withRerunOf } from '../../../../lib/runtime/rerunContext'
-import { invokerFromAuth, invokeDeniedBody, invokeDeniedErrorSchema } from '../../../../lib/access/invokeDenial'
+import {
+  invokerFromAuth,
+  invokeDeniedBody,
+  invokeDeniedErrorSchema,
+  principalMissingBody,
+  principalMissingErrorSchema,
+} from '../../../../lib/access/invokeDenial'
 
 /**
  * "Re-run" from the trace inspector: executes the run's agent again with the
@@ -117,6 +123,9 @@ export async function POST(req: Request, ctx: RouteContext) {
     if (isAgentInvokeDeniedError(err)) {
       return NextResponse.json(invokeDeniedBody(err, sourceRun.agentId), { status: 403 })
     }
+    if (isAgentPrincipalMissingError(err)) {
+      return NextResponse.json(principalMissingBody(err, sourceRun.agentId), { status: 409 })
+    }
     // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
     // the typed reason (kind/phase/set version) must reach the client instead
     // of the generic invalid-output message (data-honesty spec §3.6).
@@ -196,6 +205,12 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.union([errorSchema, invokeDeniedErrorSchema]),
         },
         { status: 404, description: 'Unknown run id, cross-tenant run, or the agent is no longer registered', schema: errorSchema },
+        {
+          status: 409,
+          description:
+            'The run\'s agent declares `principal.required` and has no enabled principal in this organization (`code: "agent_principal_missing"`)',
+          schema: principalMissingErrorSchema,
+        },
         {
           status: 422,
           description:

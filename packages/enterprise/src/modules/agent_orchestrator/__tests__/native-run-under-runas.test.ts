@@ -10,6 +10,11 @@
 // the runtime's own append-only audit writes run inside the runtime-audit write
 // scope, so the principal-bound run persists every audit row while a domain
 // write reaching a wrapped site still fails closed.
+//
+// Identity spec Phase 2: when the caller passes no `runAs`, the runtime binds
+// the agent's own enabled principal itself (`resolveRunAsForAgent`); a
+// delegated child binds its own principal on behalf of the original human, and
+// `principal.required` refuses a run with no principal.
 
 import { randomUUID } from 'node:crypto'
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
@@ -46,6 +51,8 @@ import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
 import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
 import { AgentWriteBypassError, registerAgentKindNoBypassSubscriber } from '../lib/identity/agentNoBypassSubscriber'
 import { withAgentActor } from '../lib/identity/agentWriteScope'
+import { AgentPrincipalMissingError } from '../lib/runtime/errors'
+import { integrityRuleSchema } from '../data/validators'
 import { persistVerdict, GUARDRAIL_SET_VERSION } from '../lib/guardrails/guardrailService'
 import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
 import {
@@ -53,6 +60,8 @@ import {
   AgentEvalAssertion,
   AgentEvalResult,
   AgentGuardrailCheck,
+  AgentGuardrailSet,
+  AgentPrincipal,
   AgentProposal,
   AgentRun,
   AgentSpan,
@@ -66,7 +75,10 @@ const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
 const HUMAN = '33333333-3333-4333-8333-333333333333'
 const AGENT_USER = '44444444-4444-4444-8444-444444444444'
+const PARENT_AGENT_USER = '55555555-5555-4555-8555-555555555555'
 const AGENT_ID = 'runas_test.grounded_researcher'
+const REQUIRED_AGENT_ID = 'runas_test.required_principal_researcher'
+const INTEGRITY_AGENT_ID = 'runas_test.integrity_researcher'
 const SUBJECT_ENTITY = 'runas_test:subject'
 const SUBJECT_ID = 'subject-1'
 const SUBJECT_LOCATOR = `${SUBJECT_ENTITY}:${SUBJECT_ID}`
@@ -212,9 +224,12 @@ type FakeOrm = ReturnType<typeof createFakeOrm>
  * fork of the shared EM, as the real handlers do, inside the audited-command
  * scope the real `persistence.ts` wrappers establish around `commandBus.execute`.
  */
-function createCommandBus(orm: FakeOrm) {
+type CommandRunAs = { actorUserId?: string; onBehalfOfUserId?: string | null; source?: string } | undefined
+
+function createCommandBus(orm: FakeOrm, commandRunAs: CommandRunAs[]) {
   return {
-    async execute(commandId: string, args: { input: Row }) {
+    async execute(commandId: string, args: { input: Row; ctx?: { runAs?: CommandRunAs } }) {
+      commandRunAs.push(args.ctx?.runAs)
       const em = orm.em.fork()
       const input = args.input
       if (commandId === 'agent_orchestrator.runs.create') {
@@ -266,7 +281,7 @@ function createQueryEngine(): QueryEngine {
   }
 }
 
-function createService(orm: FakeOrm): AgentRuntimeService {
+function createService(orm: FakeOrm, commandRunAs: CommandRunAs[] = []): AgentRuntimeService {
   const registrations: Record<string, unknown> = { em: orm.em, queryEngine: createQueryEngine() }
   const container = {
     resolve(name: string) {
@@ -277,7 +292,10 @@ function createService(orm: FakeOrm): AgentRuntimeService {
       return name in registrations
     },
   }
-  return new AgentRuntimeService({ container: container as never, commandBus: createCommandBus(orm) as never })
+  return new AgentRuntimeService({
+    container: container as never,
+    commandBus: createCommandBus(orm, commandRunAs) as never,
+  })
 }
 
 function registerGroundedResearcher(): AgentRegistryEntry {
@@ -309,6 +327,37 @@ function registerGroundedResearcher(): AgentRegistryEntry {
   }
   registerFileAgent(entry)
   return entry
+}
+
+function registerResearcherVariant(id: string, extra: Partial<AgentRegistryEntry>): AgentRegistryEntry {
+  const existing = getAgentEntry(id)
+  if (existing) return existing
+  const base = registerGroundedResearcher()
+  const entry: AgentRegistryEntry = { ...base, id, label: `${base.label} (${id})`, ...extra }
+  registerFileAgent(entry)
+  return entry
+}
+
+function seedPrincipal(orm: FakeOrm, agentDefinitionId: string, overrides: Row = {}): void {
+  orm.seed(AgentPrincipal, {
+    id: randomUUID(),
+    tenantId: TENANT,
+    organizationId: ORG,
+    userId: AGENT_USER,
+    agentDefinitionId,
+    roleId: randomUUID(),
+    credentialMode: 'internal',
+    enabled: true,
+    deletedAt: null,
+    ...overrides,
+  })
+}
+
+function manifestPrincipal(orm: FakeOrm): unknown {
+  const manifest = rowsForRun(orm, AgentSpan, String(onlyRun(orm).id)).find(
+    (span) => span.name === RUN_MANIFEST_SPAN_NAME,
+  )
+  return (manifest?.attributes as Record<string, unknown> | undefined)?.['om.principal']
 }
 
 const SCRIPTED_OUTPUT = {
@@ -445,11 +494,147 @@ describe('native run without a principal (harness control)', () => {
   it('persists guardrail checks, the context bundle, spans, tool calls and eval results', async () => {
     const orm = createFakeOrm()
     seedOnlineEval(orm)
+    const commandRunAs: CommandRunAs[] = []
 
-    const result = await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+    const result = await createService(orm, commandRunAs).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
 
     expect(result.kind).toBe('research')
     expectEveryAuditRow(orm)
+    expect(manifestPrincipal(orm)).toBeUndefined()
+    expect(commandRunAs.every((runAs) => runAs === undefined)).toBe(true)
+  })
+
+  it('stays unbound when the only principal is disabled or belongs to another organization', async () => {
+    const orm = createFakeOrm()
+    seedPrincipal(orm, AGENT_ID, { enabled: false })
+    seedPrincipal(orm, AGENT_ID, { organizationId: '99999999-9999-4999-8999-999999999999' })
+
+    await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    expect(manifestPrincipal(orm)).toBeUndefined()
+  })
+})
+
+describe('central runAs binding (identity spec Phase 2)', () => {
+  it("binds the agent's own enabled principal when the caller passes no runAs", async () => {
+    const orm = createFakeOrm()
+    seedOnlineEval(orm)
+    seedPrincipal(orm, AGENT_ID)
+    const commandRunAs: CommandRunAs[] = []
+
+    const result = await createService(orm, commandRunAs).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    expect(result.kind).toBe('research')
+    expectEveryAuditRow(orm)
+    expect(manifestPrincipal(orm)).toEqual({ agentPrincipalId: null, agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN })
+    expect(commandRunAs.length).toBeGreaterThan(0)
+    for (const runAs of commandRunAs) {
+      expect(runAs).toEqual({ actorUserId: AGENT_USER, onBehalfOfUserId: HUMAN, source: 'agent' })
+    }
+  })
+
+  it("acts on behalf of an API key's owner", async () => {
+    const orm = createFakeOrm()
+    seedPrincipal(orm, AGENT_ID)
+    const keyOwner = '66666666-6666-4666-8666-666666666666'
+
+    await createService(orm).run(
+      AGENT_ID,
+      { subjectId: SUBJECT_ID },
+      { ...baseCtx, invoker: { kind: 'api_key', apiKeyId: randomUUID(), ownerUserId: keyOwner } },
+    )
+
+    expect(manifestPrincipal(orm)).toMatchObject({ agentUserId: AGENT_USER, onBehalfOfUserId: keyOwner })
+  })
+
+  it('keeps a caller-provided runAs instead of resolving one', async () => {
+    const orm = createFakeOrm()
+    seedPrincipal(orm, AGENT_ID, { userId: '77777777-7777-4777-8777-777777777777' })
+
+    await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, runAsCtx)
+
+    expect(manifestPrincipal(orm)).toMatchObject({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN })
+  })
+
+  it('refuses an agent declaring principal.required that has no principal, before any run row', async () => {
+    registerResearcherVariant(REQUIRED_AGENT_ID, { principal: { roleFeatures: [], required: true } })
+    const orm = createFakeOrm()
+
+    const attempt = createService(orm).run(REQUIRED_AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    await expect(attempt).rejects.toBeInstanceOf(AgentPrincipalMissingError)
+    await expect(attempt).rejects.toMatchObject({ code: 'agent_principal_missing', agentId: REQUIRED_AGENT_ID })
+    expect(orm.rows(AgentRun)).toHaveLength(0)
+    expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+  })
+
+  it('runs an agent declaring principal.required once its principal exists', async () => {
+    registerResearcherVariant(REQUIRED_AGENT_ID, { principal: { roleFeatures: [], required: true } })
+    const orm = createFakeOrm()
+    seedPrincipal(orm, REQUIRED_AGENT_ID)
+
+    const result = await createService(orm).run(REQUIRED_AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    expect(result.kind).toBe('research')
+    expect(manifestPrincipal(orm)).toMatchObject({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN })
+  })
+
+  it('binds a delegated child to its own principal on behalf of the original human, never the parent agent', async () => {
+    const orm = createFakeOrm()
+    seedOnlineEval(orm)
+    seedPrincipal(orm, AGENT_ID)
+    const commandRunAs: CommandRunAs[] = []
+
+    await withAgentActor({ agentUserId: PARENT_AGENT_USER, onBehalfOfUserId: HUMAN }, () =>
+      createService(orm, commandRunAs).run(
+        AGENT_ID,
+        { subjectId: SUBJECT_ID },
+        { tenantId: TENANT, organizationId: ORG, userId: PARENT_AGENT_USER, parentRunId: randomUUID(), entryPoint: 'delegate' },
+      ),
+    )
+
+    expectEveryAuditRow(orm)
+    expect(manifestPrincipal(orm)).toEqual({ agentPrincipalId: null, agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN })
+    for (const runAs of commandRunAs) {
+      expect(runAs).toEqual({ actorUserId: AGENT_USER, onBehalfOfUserId: HUMAN, source: 'agent' })
+    }
+  })
+})
+
+describe('integrity set sync under a bound principal', () => {
+  it('appends the integrity guardrail set inside the runtime-audit scope', async () => {
+    registerResearcherVariant(INTEGRITY_AGENT_ID, {
+      integrity: [
+        integrityRuleSchema.parse({
+          id: 'claims_quoted',
+          kind: 'evidence_quote',
+          items: 'data.claims[*]',
+          quote: 'claim',
+          source: { input: 'content' },
+          onViolation: 'drop',
+        }),
+      ],
+    })
+    const orm = createFakeOrm()
+    seedPrincipal(orm, INTEGRITY_AGENT_ID)
+    const logs = captureLogs()
+
+    try {
+      await createService(orm).run(
+        INTEGRITY_AGENT_ID,
+        { subjectId: SUBJECT_ID, content: 'The renewal status is on track.' },
+        baseCtx,
+      )
+    } finally {
+      logs.restore()
+    }
+
+    expect(manifestPrincipal(orm)).toMatchObject({ agentUserId: AGENT_USER })
+    const sets = orm.rows(AgentGuardrailSet).filter((row) => row.capability === INTEGRITY_AGENT_ID)
+    expect(sets).toHaveLength(1)
+    expect(sets[0]).toMatchObject({ tenantId: TENANT, organizationId: ORG })
+    expect(logs.at('warn').map((record) => record.message)).not.toContain('integrity set sync failed')
+    expect(onlyRun(orm).status).toBe('ok')
   })
 })
 
