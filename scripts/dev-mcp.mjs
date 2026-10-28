@@ -35,11 +35,11 @@ export function resolveMcpPort(env = {}) {
   return parsed
 }
 
-function probeMcpPort(port) {
+function probeMcpBind(port, host) {
   return new Promise((resolve, reject) => {
     const server = createServer()
     server.once('error', reject)
-    server.listen({ port, exclusive: true }, () => {
+    server.listen({ port, host, exclusive: true }, () => {
       const address = server.address()
       server.close((error) => {
         if (error) {
@@ -50,6 +50,19 @@ function probeMcpPort(port) {
       })
     })
   })
+}
+
+async function probeMcpPort(port) {
+  const selectedPort = await probeMcpBind(port)
+  for (const host of ['0.0.0.0', '127.0.0.1', '::1']) {
+    try {
+      await probeMcpBind(selectedPort, host)
+    } catch (error) {
+      if (host === '::1' && ['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'EPROTONOSUPPORT'].includes(error?.code)) continue
+      throw error
+    }
+  }
+  return selectedPort
 }
 
 export async function selectAvailableMcpPort(preferredPort, options = {}) {

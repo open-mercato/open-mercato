@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { selectAvailableMcpPort as selectStandaloneMcpPort } from '../../packages/create-app/template/scripts/dev-mcp.mjs'
 
 import {
   MCP_DEFAULT_PORT,
@@ -82,6 +83,40 @@ test('selectAvailableMcpPort preserves a free preference and falls back when occ
     await new Promise((resolve) => occupied.close(resolve))
   }
 })
+
+for (const [runtime, selectPort] of [['monorepo', selectAvailableMcpPort], ['standalone', selectStandaloneMcpPort]]) {
+  for (const host of ['127.0.0.1', '0.0.0.0', '::1', '::']) {
+    test(`${runtime} MCP selection avoids an occupied ${host} port`, async (context) => {
+      const occupied = createServer()
+      try {
+        await new Promise((resolve, reject) => {
+          occupied.once('error', reject)
+          occupied.listen({ port: 0, host, ipv6Only: host.includes(':'), exclusive: true }, resolve)
+        })
+      } catch (error) {
+        if (host.includes(':') && ['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'EPROTONOSUPPORT'].includes(error?.code)) {
+          context.skip('IPv6 is unavailable on this host')
+          return
+        }
+        throw error
+      }
+
+      const selected = createServer()
+      try {
+        const preferred = occupied.address().port
+        const fallback = await selectPort(preferred)
+        assert.notEqual(fallback, preferred)
+        await new Promise((resolve, reject) => {
+          selected.once('error', reject)
+          selected.listen({ port: fallback, host, ipv6Only: host.includes(':'), exclusive: true }, resolve)
+        })
+      } finally {
+        if (selected.listening) await new Promise((resolve) => selected.close(resolve))
+        await new Promise((resolve) => occupied.close(resolve))
+      }
+    })
+  }
+}
 
 test('resolveMcpKeyFilePath defaults under .mercato/mcp-shared and honors the env override', () => {
   const cwd = path.join(path.sep, 'srv', 'repo')
