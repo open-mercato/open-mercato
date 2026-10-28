@@ -233,3 +233,38 @@ describe('setup seedDefaults principal sync', () => {
     })
   })
 })
+
+describe('setup seedDefaults schedules', () => {
+  it('registers the daily per-org trace content retention schedule', async () => {
+    mockSyncAgentPrincipals.mockResolvedValueOnce(syncResult())
+    const register = jest.fn(async () => undefined)
+    const ctx = {
+      em: {},
+      container: {
+        resolve: (name: string) => (name === 'schedulerService' ? { register } : undefined),
+        hasRegistration: (name: string) => name === 'schedulerService',
+      },
+      tenantId: 'tenant-A',
+      organizationId: 'org-A',
+    } as unknown as Parameters<NonNullable<typeof setup.seedDefaults>>[0]
+
+    await setup.seedDefaults!(ctx)
+
+    expect(register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: 'organization',
+        organizationId: 'org-A',
+        tenantId: 'tenant-A',
+        scheduleType: 'interval',
+        scheduleValue: '86400s',
+        targetType: 'queue',
+        targetQueue: 'agent-orchestrator-trace-content-retention',
+        targetPayload: { scope: SCOPE_A },
+      }),
+    )
+    const retentionCall = register.mock.calls.find(
+      (call) => (call as unknown as [{ targetQueue: string }])[0].targetQueue === 'agent-orchestrator-trace-content-retention',
+    ) as unknown as [{ id: string }]
+    expect(retentionCall[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  })
+})

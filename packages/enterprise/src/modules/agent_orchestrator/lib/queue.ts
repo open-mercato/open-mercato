@@ -23,6 +23,13 @@ export type MetricRollupJobPayload = {
   scope: { tenantId: string; organizationId: string }
 }
 
+/** Daily per-org purge of expired full-fidelity trace content artifacts. */
+export const AGENT_ORCHESTRATOR_TRACE_CONTENT_RETENTION_QUEUE = 'agent-orchestrator-trace-content-retention'
+
+export type TraceContentRetentionJobPayload = {
+  scope: { tenantId: string; organizationId: string }
+}
+
 /**
  * Payload carries the executionId ONLY — the worker re-resolves tenant/org scope
  * from the ProcessInstance row itself, so a forged payload cannot cross tenants.

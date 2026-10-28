@@ -7,7 +7,7 @@ import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
 import { syncIntegritySets } from './lib/guardrails/integrity/integritySets'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
+import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE, AGENT_ORCHESTRATOR_TRACE_CONTENT_RETENTION_QUEUE } from './lib/queue'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'setup' })
 
@@ -212,6 +212,31 @@ export const setup: ModuleSetupConfig = {
       })
     } catch (error) {
       logger.warn('failed to register metric-rollup schedule', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+    try {
+      const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+      const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+      await schedulerService.register({
+        id: stableScheduleUuid(`agent_orchestrator:trace-content-retention:${ctx.organizationId}`),
+        name: 'Agent trace content retention',
+        description: 'Deletes full-fidelity trace content artifacts older than the tenant retention window once a day.',
+        scopeType: 'organization',
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        scheduleType: 'interval',
+        scheduleValue: '86400s',
+        timezone: 'UTC',
+        targetType: 'queue',
+        targetQueue: AGENT_ORCHESTRATOR_TRACE_CONTENT_RETENTION_QUEUE,
+        targetPayload: { scope },
+        sourceType: 'module',
+        sourceModule: 'agent_orchestrator',
+        isEnabled: true,
+      })
+    } catch (error) {
+      logger.warn('failed to register trace-content-retention schedule', {
         error: error instanceof Error ? error.message : String(error),
       })
     }
