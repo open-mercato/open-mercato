@@ -40,6 +40,7 @@
 | 2 | 2.5 | Show the agent principal on the agents API and detail page | dispatch | done | pending |
 | 2 | 2.6 | Add intersectFeatureGrants to shared | dispatch:cheap | done | pending |
 | 2 | 2.7 | Resolve the effective tool ACL with an intersect mode | dispatch:capable | done | pending |
+| 2 | 2.7-review-fix | Satisfy the core authorization guards for principals and tool ACL | inline | done | pending |
 | 2 | 2.8 | Record tools denied by the principal | dispatch | todo | — |
 | 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | todo | — |
 | 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | todo | — |
@@ -155,6 +156,9 @@ See the two research files (verified on `2d407b96f`). Key cross-cutting rules fo
 - Implements **D3.1** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 2.7 Resolve the effective tool ACL with an intersect mode
 - Implements **D3.2** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
+#### 2.7-review-fix Satisfy the core authorization guards for principals and tool ACL
+- `authorizationStateWriterCoverage.test.ts` still required `lockAuthorizationState` in `agentPrincipalService.ts`, but since 2.3 neither it nor `syncAgentPrincipals.ts` writes User/Role/RoleAcl/UserAcl/UserRole rows: both delegate to core `provisionExecutionPrincipal` (already covered and locked). Their only own write is the AO-owned `AgentPrincipal.enabled` flag, which is not authorization state in the lock module's sense. The guard entry now asserts both files delegate to `provisionExecutionPrincipal` and import none of RoleAcl/UserAcl/UserRole.
+- `feature-policy-authorization-coverage.test.ts` flagged `resolveEffectiveToolAcl.ts` for importing `shared/security/features`. The pure intersection moved to `lib/identity/toolAclGrantIntersection.ts`, allowlisted under the grant-computation block; the ACL-loading file no longer imports the low-level matcher module and uses no hasFeature/matchFeature/`.features.includes`.
 #### 2.8 Record tools denied by the principal
 - Implements **D3.3** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 2.9 Carry audit correlation into action logs

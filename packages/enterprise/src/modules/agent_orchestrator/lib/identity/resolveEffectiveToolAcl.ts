@@ -1,11 +1,11 @@
 import type { AwilixContainer } from 'awilix'
-import { intersectFeatureGrants, type FeatureGrantSet } from '@open-mercato/shared/security/features'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { agentPrincipalToolAclModeSchema, type AgentPrincipalToolAclMode } from '../../data/validators'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveCallerAcl, type AgentRunCtx } from '../runtime/persistence'
 import { AgentPrincipalMissingError } from '../runtime/errors'
+import { intersectToolAclGrants, type FeatureGrantSet } from './toolAclGrantIntersection'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'tool-acl' })
 
@@ -99,6 +99,6 @@ export async function resolveEffectiveToolAcl(
     return { ...callerAcl, mode }
   }
   const principalAcl = await loadPrincipalAcl(container, agentId, ctx.runAs.agentUserId, ctx)
-  const effective = intersectFeatureGrants(principalAcl, callerAcl)
+  const effective = intersectToolAclGrants(principalAcl, callerAcl)
   return { features: [...effective.features], isSuperAdmin: effective.isSuperAdmin, mode }
 }
