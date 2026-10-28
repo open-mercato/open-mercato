@@ -193,7 +193,8 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 
 ## Trace Capture and OTel Export (`lib/trace/`)
 
-- Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes; `full` records metadata only (never write content until the content-capture phase ships). Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
+- Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes. Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
+- Content capture (`full` only, `contentCapture.ts`): build artifacts through the redacting, capped builders and upload to `AGENT_TRACE_CONTENT_NAMESPACE`; never put prompt or response text on spans. Upload failures set `om.content.status = storage_unavailable` and never fail the run. Content is read only through `runs/[id]/artifact` (content kinds need `trace.view_content`, key must be referenced by the run, 410 when expired/missing, access-logged). Retention (`contentRetention.ts`) enumerates keys from the DB, never storage listings, and never mutates span/bundle rows.
 - OTel export is opt-in (deployment switch + tenant setting + allowlist) and fail-open: never throw into a run, report failures with `reportError` codes. Never export encrypted or free-text fields; pass string attributes through `redactAttributeValues`; derive ids only via `lib/trace/otel/ids.ts`. No `@opentelemetry/*` imports. Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-*.mdx`.
 
 ## Output Integrity (`lib/guardrails/integrity/`)

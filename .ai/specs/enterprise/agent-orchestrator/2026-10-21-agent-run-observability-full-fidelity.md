@@ -586,3 +586,18 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **A non-tenant (default) policy never applies per-agent overrides**; a level lowered by the ceiling reports `source: 'deployment'`.
 - Fixed while verifying: module-config cache entries were scoped by the caller's cache tenant, so persistent subscribers and workers read settings up to 60 s stale after a route wrote them. `module-config-service` now scopes each cache entry by its row (cache key `v3`).
 
+### 2026-10-28
+- Phase 3 implemented (agent platform wave 5):
+  - `lib/trace/artifactStore.ts` gains the `agent-trace-content` namespace, the `llmRequest` / `llmResponse` / `contextPayload` refs, the tri-state `readArtifact` (`ok` / `missing` / `unavailable`) and `deleteArtifact`.
+  - `lib/trace/contentCapture.ts` builds the redacted, capped `om.llm_request.v1`, `om.llm_response.v1` and `om.context_payload.v1` artifacts (secret keys and strings always, PII with `redactPii`, file parts as `{ type, mediaType, bytes, sha256 }`, cap `OM_AGENT_TRACE_CONTENT_MAX_BYTES`, default 1 MiB).
+  - At `full` the native runner uploads request and response artifacts and writes `om.content.*.key`, `om.content.status` and `om.content.redactions`; `contextResolver.assemble` uploads the packed payload and sets `payloadRef`.
+  - The artifact route serves `llm_request` / `llm_response` / `context_payload` behind `agent_orchestrator.trace.view_content`, checks that the key belongs to the run, answers 410 for missing or retention-expired content and 502 when storage is unavailable, and writes an access log row per read.
+  - Daily per-organization `trace-content-retention` worker; the settings page re-enables `retentionDays` and `redactPii`.
+  - Integration coverage: `TC-AGENT-TRACE-006` (403 without `view_content`, 404 for a foreign key and another organization's run, 410 by key age; the stored-system-prompt case skips without a provider or storage). Docs: `agent-trace-capture.mdx`.
+- Deviations:
+  - **`om.content.*.sha256` hashes the request as sent, before redaction.** The stored artifact is redacted, so its bytes do not match the hash.
+  - **No separate `om.content.truncated` key:** truncation is reported as status `over_cap_truncated`.
+  - **410 also comes from key age:** a key whose `<epochMs>` prefix is older than `retentionDays` returns 410 even when the object still exists, because spans and bundles are append-only and keep their keys.
+  - **Retention enumerates keys from the database, not by listing storage:** `list` cannot know the deployment `pathPrefix`. The worker scans spans and bundles created in `[cutoff − 7 days, cutoff)`, so a bucket lifecycle rule is the documented backstop for missed days.
+  - **`includeProviderBody` stays a no-op:** the AI SDK start event carries no raw provider body.
+  - **The existing kinds** (`output`, `tool_request`, `tool_response`, `raw_output`) keep answering 502 when the object is missing; only the content kinds use 410.
