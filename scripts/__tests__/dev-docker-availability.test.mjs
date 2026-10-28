@@ -63,12 +63,12 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
   assert.ok(start >= 0 && end > start)
   const restartSource = runtimeSource.slice(start, end)
 
-  function runRestart(probeResult) {
+  function runRestart(probeResult, ports = [3123, 3123], environment = {}) {
     const calls = []
     const warnings = []
     const activities = []
-    const result = runInNewContext(`${restartSource}\n[restartOpencodeContainer('test'), restartOpencodeContainer('test')]`, {
-      opencodeRestartAttempted: false,
+    const result = runInNewContext(`${restartSource}\n${JSON.stringify(ports)}.map((port) => { mcpPort = port; return restartOpencodeContainer('test') })`, {
+      opencodeLastRestartEndpoint: null,
       shuttingDown: false,
       DOCKER_PROBE_TIMEOUT_MS,
       classifyDockerProbe,
@@ -76,7 +76,7 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
       updateSplashState: (state) => activities.push(state),
       fs: { existsSync: (candidate) => candidate.endsWith('starters/docker/compose.infra.yml') },
       path,
-      process: { cwd: () => '/repo', env: {} },
+      process: { cwd: () => '/repo', env: environment },
       mcpPort: 3123,
       spawnSync: (command, args, options) => {
         calls.push({ command, args: Array.from(args), options })
@@ -125,5 +125,26 @@ for (const runtimePath of ['../dev.mjs', '../../packages/create-app/template/scr
     assert.equal(calls[1].options.env.OPENCODE_MCP_URL, 'http://host.docker.internal:3123/mcp')
     assert.equal(warnings.length, 0)
     assert.equal(activities.length, 1)
+  })
+
+  test(`${runtimePath} recreates OpenCode once for each MCP endpoint transition`, () => {
+    const { result, calls, activities } = runRestart({ status: 0, stdout: 'container-id\n' }, [3123, 3123, 4123, 4123, 3123, 3123])
+
+    assert.deepEqual(result, [true, false, true, false, true, false])
+    assert.deepEqual(calls.filter((call) => call.args.includes('up')).map((call) => call.options.env.OPENCODE_MCP_URL), [
+      'http://host.docker.internal:3123/mcp',
+      'http://host.docker.internal:4123/mcp',
+      'http://host.docker.internal:3123/mcp',
+    ])
+    assert.equal(activities.length, 3)
+  })
+
+  test(`${runtimePath} keeps an explicit OpenCode endpoint across managed port changes`, () => {
+    const endpoint = 'https://external.example/mcp'
+    const { result, calls } = runRestart({ status: 0, stdout: 'container-id\n' }, [3123, 3123, 4123, 4123], { OPENCODE_MCP_URL: endpoint })
+
+    assert.deepEqual(result, [true, false, false, false])
+    assert.equal(calls.length, 2)
+    assert.equal(calls[1].options.env.OPENCODE_MCP_URL, endpoint)
   })
 }

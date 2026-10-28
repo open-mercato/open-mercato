@@ -2404,10 +2404,10 @@ async function fetchOpencodeMcpStatus() {
 // The OpenCode entrypoint reads the MCP key ONCE at container start. When the
 // key appears or rotates after that (headerless start on a slow first run, a
 // reseeded database), the container holds a stale binding until recreated —
-// do it automatically, once per dev session so a broken hop can't loop it.
+// do it automatically, once per endpoint transition so a broken hop can't loop it.
 let opencodeKeyRefreshNeeded = false
 let opencodeEndpointRefreshNeeded = false
-let opencodeRestartAttempted = false
+let opencodeLastRestartEndpoint = null
 
 // The monorepo keeps its compose files under starters/docker/; a standalone app
 // scaffolded by create-app keeps them at its own root and gates the OpenCode
@@ -2455,16 +2455,14 @@ function isOpencodeContainerRunning(composeArgs) {
 }
 
 function restartOpencodeContainer(reason) {
-  if (opencodeRestartAttempted || shuttingDown) return false
-  opencodeRestartAttempted = true
+  const endpoint = process.env.OPENCODE_MCP_URL || `http://host.docker.internal:${mcpPort}/mcp`
+  if (shuttingDown || opencodeLastRestartEndpoint === endpoint) return false
+  opencodeLastRestartEndpoint = endpoint
   const composeArgs = resolveOpencodeComposeArgs()
   if (!composeArgs || !isOpencodeContainerRunning(composeArgs)) return false
   console.log(`🔄 ${reason} — recreating the OpenCode container with the current MCP endpoint...`)
   updateSplashState({ activity: 'Recreating OpenCode with the current MCP endpoint' })
-  const environment = { ...process.env }
-  if (!process.env.OPENCODE_MCP_URL) {
-    environment.OPENCODE_MCP_URL = `http://host.docker.internal:${mcpPort}/mcp`
-  }
+  const environment = { ...process.env, OPENCODE_MCP_URL: endpoint }
   const restart = spawnSync(
     'docker',
     [...composeArgs, 'up', '-d', '--no-deps', '--force-recreate', 'opencode'],

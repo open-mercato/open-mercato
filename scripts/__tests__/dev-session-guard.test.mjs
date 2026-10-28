@@ -245,3 +245,137 @@ test('root and standalone guard implementations remain byte-identical', () => {
   const templateGuard = fs.readFileSync(new URL('../../packages/create-app/template/scripts/dev-session-guard.mjs', import.meta.url), 'utf8')
   assert.equal(templateGuard, rootGuard)
 })
+
+test('session acquisition removes its short-lived gate after success and conflict', () => {
+  const workspaceRoot = createWorkspace()
+  const stateDirectory = path.join(workspaceRoot, '.mercato')
+  const owner = acquireDevSession({ workspaceRoot })
+  try {
+    assert.deepEqual(fs.readdirSync(stateDirectory), ['dev-session.lock'])
+    assert.throws(() => acquireDevSession({ workspaceRoot }), DevSessionConflictError)
+    assert.deepEqual(fs.readdirSync(stateDirectory), ['dev-session.lock'])
+  } finally {
+    owner.release()
+    assert.deepEqual(fs.readdirSync(stateDirectory), [])
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('session acquisition recovers a dead gate and retains its generation tombstone', () => {
+  const workspaceRoot = createWorkspace()
+  const stateDirectory = path.join(workspaceRoot, '.mercato')
+  const gateDirectory = path.join(stateDirectory, 'dev-session-acquire.lock')
+  const token = '11111111-1111-4111-8111-111111111111'
+  fs.mkdirSync(gateDirectory, { recursive: true })
+  fs.writeFileSync(path.join(gateDirectory, 'owner.json'), JSON.stringify({ pid: 2_147_483_647, token }))
+  const generation = fs.statSync(gateDirectory, { bigint: true })
+  const tombstone = path.join(stateDirectory, `.dev-session-acquire.stale-${generation.dev}-${generation.ino}-${token}`)
+  const owner = acquireDevSession({ workspaceRoot })
+  try {
+    assert.equal(fs.existsSync(gateDirectory), false)
+    assert.equal(JSON.parse(fs.readFileSync(path.join(tombstone, 'owner.json'), 'utf8')).token, token)
+    assert.equal(fs.readdirSync(stateDirectory).filter((name) => name.startsWith('.dev-session-acquire-')).length, 0)
+  } finally {
+    owner.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a live acquisition gate times out without losing its owner or leaving a candidate', () => {
+  const workspaceRoot = createWorkspace()
+  const stateDirectory = path.join(workspaceRoot, '.mercato')
+  const gateDirectory = path.join(stateDirectory, 'dev-session-acquire.lock')
+  const gateOwner = { pid: process.pid, token: '11111111-1111-4111-8111-111111111111' }
+  fs.mkdirSync(gateDirectory, { recursive: true })
+  fs.writeFileSync(path.join(gateDirectory, 'owner.json'), JSON.stringify(gateOwner))
+  const originalNow = Date.now
+  let elapsed = 0
+  Date.now = () => originalNow() + (elapsed += 1_000)
+  try {
+    assert.throws(() => acquireDevSession({ workspaceRoot }), DevSessionConflictError)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(gateDirectory, 'owner.json'), 'utf8')), gateOwner)
+    assert.deepEqual(fs.readdirSync(stateDirectory), ['dev-session-acquire.lock'])
+  } finally {
+    Date.now = originalNow
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('a delayed stale recoverer cannot remove a competing live session', async () => {
+  const workspaceRoot = fs.realpathSync(createWorkspace())
+  const lockDirectory = path.join(workspaceRoot, '.mercato', 'dev-session.lock')
+  const gateDirectory = path.join(workspaceRoot, '.mercato', 'dev-session-acquire.lock')
+  const signalPath = path.join(workspaceRoot, 'contender-waiting')
+  const resultPath = path.join(workspaceRoot, 'contender-result.json')
+  const releasePath = path.join(workspaceRoot, 'contender-release')
+  fs.mkdirSync(path.join(lockDirectory, 'members'), { recursive: true })
+  fs.writeFileSync(path.join(lockDirectory, 'owner.json'), JSON.stringify({
+    version: 1, token: 'stale-session', pid: 2_147_483_647, mode: 'dev', workspaceRoot,
+  }))
+  const guardUrl = new URL('../dev-session-guard.mjs', import.meta.url).href
+  const program = `
+    import fs from 'node:fs'
+    import { acquireDevSession } from ${JSON.stringify(guardUrl)}
+    const originalRename = fs.renameSync
+    fs.renameSync = (source, destination, ...options) => {
+      try { return originalRename(source, destination, ...options) }
+      catch (error) {
+        if (destination === ${JSON.stringify(gateDirectory)}) fs.writeFileSync(${JSON.stringify(signalPath)}, 'waiting')
+        throw error
+      }
+    }
+    try {
+      const session = acquireDevSession({ workspaceRoot: ${JSON.stringify(workspaceRoot)}, token: null })
+      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result: 'acquired' }))
+      const poll = setInterval(() => {
+        if (!fs.existsSync(${JSON.stringify(releasePath)})) return
+        clearInterval(poll)
+        session.release()
+      }, 10)
+    } catch (error) {
+      fs.writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result: error.name === 'DevSessionConflictError' ? 'conflict' : error.message }))
+    }
+  `
+  const originalRename = fs.renameSync
+  let contender
+  let contenderClosed
+  let owner
+  let paused = false
+  let contenderErrors = ''
+  fs.renameSync = (source, destination, ...options) => {
+    if (source === lockDirectory && !paused) {
+      paused = true
+      contender = spawn(process.execPath, ['--input-type=module', '--eval', program], { stdio: ['ignore', 'ignore', 'pipe'] })
+      contender.stderr.on('data', (chunk) => { contenderErrors += chunk })
+      contenderClosed = new Promise((resolve) => contender.once('close', resolve))
+      const deadline = Date.now() + 10_000
+      const waitState = new Int32Array(new SharedArrayBuffer(4))
+      while (!fs.existsSync(signalPath) && !fs.existsSync(resultPath)) {
+        assert.ok(Date.now() < deadline, 'Contender did not reach acquisition')
+        Atomics.wait(waitState, 0, 0, 10)
+      }
+    }
+    return originalRename(source, destination, ...options)
+  }
+
+  try {
+    owner = acquireDevSession({ workspaceRoot, token: null })
+    fs.renameSync = originalRename
+    const deadline = Date.now() + 10_000
+    while (!fs.existsSync(resultPath)) {
+      assert.ok(Date.now() < deadline, `Contender did not finish acquisition: ${contenderErrors}`)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(JSON.parse(fs.readFileSync(resultPath, 'utf8')).result, 'conflict')
+    assert.equal(JSON.parse(fs.readFileSync(path.join(lockDirectory, 'owner.json'), 'utf8')).token, owner.token)
+  } finally {
+    fs.renameSync = originalRename
+    if (contender) {
+      fs.writeFileSync(releasePath, 'release')
+      if (contender.exitCode === null && contender.signalCode === null) contender.kill('SIGTERM')
+      await contenderClosed
+    }
+    owner?.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})

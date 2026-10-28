@@ -7,6 +7,9 @@ const OWNER_FILE_NAME = 'owner.json'
 const MEMBERS_DIRECTORY_NAME = 'members'
 const HEARTBEAT_INTERVAL_MS = 5_000
 const OWNER_WRITE_GRACE_MS = 5_000
+const ACQUISITION_DIRECTORY_NAME = 'dev-session-acquire.lock'
+const ACQUISITION_TIMEOUT_MS = 5_000
+const ACQUISITION_POLL_MS = 10
 
 function canonicalizeWorkspaceRoot(workspaceRoot) {
   const resolved = path.resolve(workspaceRoot)
@@ -62,6 +65,61 @@ function removeStaleLock(lockDirectory) {
   const staleDirectory = `${lockDirectory}.stale-${process.pid}-${randomUUID()}`
   fs.renameSync(lockDirectory, staleDirectory)
   fs.rmSync(staleDirectory, { recursive: true, force: true })
+}
+
+function withSessionAcquisition(lockDirectory, operation) {
+  const stateDirectory = path.dirname(lockDirectory)
+  const acquisitionDirectory = path.join(stateDirectory, ACQUISITION_DIRECTORY_NAME)
+  const candidateDirectory = fs.mkdtempSync(path.join(stateDirectory, '.dev-session-acquire-'))
+  const deadline = Date.now() + ACQUISITION_TIMEOUT_MS
+  const waitState = new Int32Array(new SharedArrayBuffer(4))
+  let acquired = false
+
+  try {
+    fs.writeFileSync(path.join(candidateDirectory, OWNER_FILE_NAME), JSON.stringify({
+      pid: process.pid,
+      token: randomUUID(),
+      mode: 'claiming',
+    }), { mode: 0o600 })
+
+    while (!acquired) {
+      if (Date.now() >= deadline) {
+        throw new DevSessionConflictError(readJsonFile(path.join(acquisitionDirectory, OWNER_FILE_NAME)), path.dirname(stateDirectory))
+      }
+      try {
+        fs.renameSync(candidateDirectory, acquisitionDirectory)
+        acquired = true
+        break
+      } catch (error) {
+        if (!['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(error?.code)) throw error
+      }
+
+      try {
+        const generation = fs.statSync(acquisitionDirectory, { bigint: true })
+        const owner = readJsonFile(path.join(acquisitionDirectory, OWNER_FILE_NAME))
+        if (typeof owner?.token === 'string' && /^[0-9a-f-]{36}$/i.test(owner.token) && Number.isInteger(owner.pid) && !isProcessAlive(owner.pid)) {
+          const currentOwner = readJsonFile(path.join(acquisitionDirectory, OWNER_FILE_NAME))
+          const currentGeneration = fs.statSync(acquisitionDirectory, { bigint: true })
+          if (currentOwner?.token !== owner.token || currentGeneration.dev !== generation.dev || currentGeneration.ino !== generation.ino) continue
+          const staleDirectory = path.join(stateDirectory, `.dev-session-acquire.stale-${generation.dev}-${generation.ino}-${owner.token}`)
+          try {
+            fs.renameSync(acquisitionDirectory, staleDirectory)
+          } catch (error) {
+            if (error?.code !== 'ENOENT' && !(['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES'].includes(error?.code) && fs.existsSync(staleDirectory))) throw error
+          }
+          continue
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+      Atomics.wait(waitState, 0, 0, ACQUISITION_POLL_MS)
+    }
+
+    return operation()
+  } finally {
+    if (acquired) fs.renameSync(acquisitionDirectory, candidateDirectory)
+    fs.rmSync(candidateDirectory, { recursive: true, force: true })
+  }
 }
 
 function registerMember(lockDirectory, token, pid, role) {
@@ -142,31 +200,33 @@ function createHandle({ lockDirectory, owner, ownsLock, role }) {
     },
     release() {
       if (released) return
-      released = true
-      clearInterval(heartbeat)
-      for (const [pid, member] of trackedMembers) {
-        if (pid === process.pid || !isProcessAlive(pid)) {
-          fs.rmSync(member.memberPath, { force: true })
+      return withSessionAcquisition(lockDirectory, () => {
+        released = true
+        clearInterval(heartbeat)
+        for (const [pid, member] of trackedMembers) {
+          if (pid === process.pid || !isProcessAlive(pid)) {
+            fs.rmSync(member.memberPath, { force: true })
+          }
         }
-      }
-      trackedMembers.clear()
-      const ownerPath = path.join(lockDirectory, OWNER_FILE_NAME)
-      const currentOwner = readJsonFile(ownerPath)
-      const canFinalizeOwnership = currentOwner?.token === owner.token
-        && (ownsLock || (currentOwner.transferredAt && currentOwner.pid === process.pid))
-      if (!canFinalizeOwnership) return
+        trackedMembers.clear()
+        const ownerPath = path.join(lockDirectory, OWNER_FILE_NAME)
+        const currentOwner = readJsonFile(ownerPath)
+        const canFinalizeOwnership = currentOwner?.token === owner.token
+          && (ownsLock || (currentOwner.transferredAt && currentOwner.pid === process.pid))
+        if (!canFinalizeOwnership) return
 
-      const survivingMember = findLiveMember(lockDirectory, null)
-      if (survivingMember) {
-        writeJsonAtomically(ownerPath, {
-          ...currentOwner,
-          pid: survivingMember.pid,
-          role: survivingMember.role,
-          transferredAt: new Date().toISOString(),
-        })
-        return
-      }
-      fs.rmSync(lockDirectory, { recursive: true, force: true })
+        const survivingMember = findLiveMember(lockDirectory, null)
+        if (survivingMember) {
+          writeJsonAtomically(ownerPath, {
+            ...currentOwner,
+            pid: survivingMember.pid,
+            role: survivingMember.role,
+            transferredAt: new Date().toISOString(),
+          })
+          return
+        }
+        fs.rmSync(lockDirectory, { recursive: true, force: true })
+      })
     },
   }
 }
@@ -183,49 +243,51 @@ export function acquireDevSession({
   const lockDirectory = path.join(stateDirectory, LOCK_DIRECTORY_NAME)
   fs.mkdirSync(stateDirectory, { recursive: true })
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      fs.mkdirSync(lockDirectory)
-      fs.mkdirSync(path.join(lockDirectory, MEMBERS_DIRECTORY_NAME))
-      const owner = {
-        version: 1,
-        token: token || randomUUID(),
-        pid: process.pid,
-        mode,
-        url,
-        workspaceRoot: canonicalWorkspaceRoot,
-        startedAt: new Date().toISOString(),
+  return withSessionAcquisition(lockDirectory, () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        fs.mkdirSync(lockDirectory)
+        fs.mkdirSync(path.join(lockDirectory, MEMBERS_DIRECTORY_NAME))
+        const owner = {
+          version: 1,
+          token: token || randomUUID(),
+          pid: process.pid,
+          mode,
+          url,
+          workspaceRoot: canonicalWorkspaceRoot,
+          startedAt: new Date().toISOString(),
+        }
+        writeJsonAtomically(path.join(lockDirectory, OWNER_FILE_NAME), owner)
+        return createHandle({ lockDirectory, owner, ownsLock: true, role })
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error
       }
-      writeJsonAtomically(path.join(lockDirectory, OWNER_FILE_NAME), owner)
-      return createHandle({ lockDirectory, owner, ownsLock: true, role })
-    } catch (error) {
-      if (error?.code !== 'EEXIST') throw error
-    }
 
-    const ownerPath = path.join(lockDirectory, OWNER_FILE_NAME)
-    const owner = readJsonFile(ownerPath)
-    if (owner?.token && token && owner.token === token && owner.workspaceRoot === canonicalWorkspaceRoot) {
-      return createHandle({ lockDirectory, owner, ownsLock: false, role })
-    }
+      const ownerPath = path.join(lockDirectory, OWNER_FILE_NAME)
+      const owner = readJsonFile(ownerPath)
+      if (owner?.token && token && owner.token === token && owner.workspaceRoot === canonicalWorkspaceRoot) {
+        return createHandle({ lockDirectory, owner, ownsLock: false, role })
+      }
 
-    const liveMember = findLiveMember(lockDirectory, owner)
-    if (liveMember) {
-      throw new DevSessionConflictError(owner ?? liveMember, canonicalWorkspaceRoot)
-    }
+      const liveMember = findLiveMember(lockDirectory, owner)
+      if (liveMember) {
+        throw new DevSessionConflictError(owner ?? liveMember, canonicalWorkspaceRoot)
+      }
 
-    if (!owner) {
-      const lockAgeMs = Date.now() - fs.statSync(lockDirectory).mtimeMs
-      if (lockAgeMs < OWNER_WRITE_GRACE_MS) {
-        throw new DevSessionConflictError({ mode: 'starting' }, canonicalWorkspaceRoot)
+      if (!owner) {
+        const lockAgeMs = Date.now() - fs.statSync(lockDirectory).mtimeMs
+        if (lockAgeMs < OWNER_WRITE_GRACE_MS) {
+          throw new DevSessionConflictError({ mode: 'starting' }, canonicalWorkspaceRoot)
+        }
+      }
+
+      try {
+        removeStaleLock(lockDirectory)
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
       }
     }
 
-    try {
-      removeStaleLock(lockDirectory)
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
-    }
-  }
-
-  throw new DevSessionConflictError(readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME)), canonicalWorkspaceRoot)
+    throw new DevSessionConflictError(readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME)), canonicalWorkspaceRoot)
+  })
 }
