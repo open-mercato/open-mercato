@@ -5,6 +5,7 @@ import { createMcpHttpRequestHandler } from '../http-server'
 import { DEFAULT_MCP_EXPOSURE_CONFIG } from '../mcp-exposure'
 import { MCP_AUDIT_RESOURCE_KIND, type McpAuditAccessLogInput } from '../mcp-audit'
 import { buildAgentToolOutputSchema } from '../agent-tool'
+import type { McpToolExecutionObserver, McpToolExecutionObserverContext } from '../mcp-tool-execution-observer'
 import type { AiToolDefinition, McpServerConfig, McpToolDefinition, ToolExecutionResult } from '../types'
 
 const mockRegisteredTools = new Map<string, McpToolDefinition>()
@@ -45,6 +46,7 @@ const SECRET_ARG_VALUE = 'very-secret-customer-name'
 
 const aclBySubject = new Map<string, AclFixture>()
 const accessLogEntries: McpAuditAccessLogInput[] = []
+let toolExecutionObserver: McpToolExecutionObserver | null = null
 
 function registerTool(overrides: Partial<AiToolDefinition> & { name: string }): void {
   mockRegisteredTools.set(overrides.name, {
@@ -68,6 +70,7 @@ function makeContainer() {
     resolve: (key: string) => {
       if (key === 'rbacService') return rbacService
       if (key === 'accessLogService') return accessLogService
+      if (key === 'mcpToolExecutionObserver' && toolExecutionObserver) return toolExecutionObserver
       return {}
     },
   }
@@ -125,6 +128,7 @@ describe('MCP HTTP server — tools/call audit', () => {
     mockFindApiKeyBySecret.mockReset()
     mockFindSessionApiKeyWithSecret.mockReset()
     mockExecuteTool.mockReset()
+    toolExecutionObserver = null
 
     registerTool({ name: 'customers.list_people', requiredFeatures: ['customers.people.view'] })
     registerTool({ name: 'customers.update_person', requiredFeatures: ['customers.people.manage'], isMutation: true })
@@ -263,6 +267,54 @@ describe('MCP HTTP server — tools/call audit', () => {
       },
     })
     expect(JSON.stringify(accessLogEntries[0])).not.toContain(SESSION_TOKEN)
+  })
+
+  it('wraps tool execution in the registered observer with the session id', async () => {
+    const observedContexts: McpToolExecutionObserverContext[] = []
+    toolExecutionObserver = {
+      wrap: async (ctx, fn) => {
+        observedContexts.push(ctx)
+        return fn()
+      },
+    }
+    mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
+    registerTool({ name: 'catalog.list_products', requiredFeatures: ['catalog.products.view'] })
+    const baseUrl = await startHandler()
+
+    const body = await callTool(
+      baseUrl,
+      'catalog.list_products',
+      { _sessionToken: SESSION_TOKEN },
+      { 'x-om-session-token': SESSION_TOKEN, 'x-correlation-id': 'corr-observer' },
+    )
+
+    expect(body.result?.isError).toBeUndefined()
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+    expect(observedContexts).toEqual([
+      {
+        sessionId: SESSION_TOKEN,
+        toolName: 'catalog.list_products',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        correlationId: 'corr-observer',
+      },
+    ])
+  })
+
+  it('still executes the tool once when the observer throws', async () => {
+    toolExecutionObserver = {
+      wrap: async () => {
+        throw new Error('observer unavailable')
+      },
+    }
+    mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
+    const baseUrl = await startHandler()
+
+    const body = await callTool(baseUrl, 'customers.list_people', {})
+
+    expect(body.result?.isError).toBeUndefined()
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+    expect(accessLogEntries[0].context).toMatchObject({ outcome: 'ok' })
   })
 
   it('queues session-principal mutations for the session user without the server api key id', async () => {

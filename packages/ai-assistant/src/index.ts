@@ -126,6 +126,12 @@ export { createMcpServer, runMcpServer } from './modules/ai_assistant/lib/mcp-se
 // MCP HTTP server
 export { runMcpHttpServer, type McpHttpServerOptions } from './modules/ai_assistant/lib/http-server'
 
+export {
+  MCP_TOOL_EXECUTION_OBSERVER_DI_KEY,
+  type McpToolExecutionObserver,
+  type McpToolExecutionObserverContext,
+} from './modules/ai_assistant/lib/mcp-tool-execution-observer'
+
 // MCP auth
 export {
   authenticateMcpRequest,

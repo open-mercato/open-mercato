@@ -30,6 +30,7 @@ import {
   type McpExposureConfig,
 } from './mcp-exposure'
 import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
+import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
   attachCorrelationMeta,
@@ -495,19 +496,31 @@ async function createMcpServerForRequest(
           }
 
           try {
-            const result = await executeTool(tool.name, toolArgs, effectiveContext, {
-              channel: 'mcp',
-              mutationMode: exposureConfig.mutationMode,
-              requester: {
-                userId: resolveAuditActorUserId({
-                  sessionUserId: principal === 'session' ? effectiveContext.userId : null,
-                  apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
-                  apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
-                }),
-                apiKeyId: principal === 'session' ? null : apiKeyRecord.id,
+            const executionContext = effectiveContext
+            const result = await runWithMcpToolExecutionObserver(
+              toolContext.container,
+              {
+                sessionId: executionContext.sessionId,
+                toolName: tool.name,
+                tenantId: executionContext.tenantId,
+                organizationId: executionContext.organizationId,
+                correlationId,
               },
-              correlationId,
-            })
+              () =>
+                executeTool(tool.name, toolArgs, executionContext, {
+                  channel: 'mcp',
+                  mutationMode: exposureConfig.mutationMode,
+                  requester: {
+                    userId: resolveAuditActorUserId({
+                      sessionUserId: principal === 'session' ? executionContext.userId : null,
+                      apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
+                      apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
+                    }),
+                    apiKeyId: principal === 'session' ? null : apiKeyRecord.id,
+                  },
+                  correlationId,
+                }),
+            )
             const outcome = mapToolResultToAuditOutcome(result)
 
             if (result.pendingApproval) {

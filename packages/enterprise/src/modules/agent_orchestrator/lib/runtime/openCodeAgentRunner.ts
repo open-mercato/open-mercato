@@ -60,6 +60,14 @@ import {
   type OpenCodeAssistantMessage,
   type OpenCodeMessageCollector,
 } from './openCodeMessageTrace'
+import {
+  TOOL_OBSERVATION_SPAN_NAME,
+  foldToolObservationsIntoToolSpans,
+  mergeToolObservationKnowledge,
+  parseToolObservationRecord,
+  type ToolObservationRecord,
+} from '../trace/toolObservation'
+import { AgentSpan } from '../../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
@@ -470,6 +478,7 @@ export class OpenCodeAgentRunner {
       if (startedAtMs != null) {
         const endedAtMs = Date.now()
         const observedMessages = messageCollector?.assistantMessages() ?? []
+        const toolObservations = await this.loadToolObservations(runId, ctx.tenantId, ctx.organizationId)
         const manifestSpan = traceCaptureEnabled
           ? this.buildManifestSpan(
               runId,
@@ -480,6 +489,7 @@ export class OpenCodeAgentRunner {
               runCapture,
               integrityRawOutputKey,
               observedMessages,
+              toolObservations,
             )
           : null
         await this.ingestSessionTrace(commandCtx, {
@@ -495,6 +505,7 @@ export class OpenCodeAgentRunner {
           messages: observedMessages,
           reconstructedRequest,
           includeResponses: runCapture?.level === 'full',
+          toolObservations,
         })
       }
 
@@ -630,6 +641,7 @@ export class OpenCodeAgentRunner {
     capture: RunManifestCapture | null,
     integrityRawOutputKey: string | null,
     observedMessages: readonly OpenCodeAssistantMessage[] = [],
+    toolObservations: readonly ToolObservationRecord[] = [],
   ): TraceSpanIngest | null {
     try {
       const manifest = buildAgentRunManifestInput({
@@ -639,6 +651,7 @@ export class OpenCodeAgentRunner {
         traceparent,
         capture,
         integrityRawOutputKey,
+        observation: toolObservations.length > 0 ? mergeToolObservationKnowledge(toolObservations) : null,
       })
       const observedModel = resolveObservedModel(observedMessages)
       if (observedModel?.modelResolved) manifest.modelResolved = observedModel.modelResolved
@@ -688,11 +701,12 @@ export class OpenCodeAgentRunner {
       messages?: readonly OpenCodeAssistantMessage[]
       reconstructedRequest?: TraceLlmRequestIngest | null
       includeResponses?: boolean
+      toolObservations?: readonly ToolObservationRecord[]
     },
   ): Promise<void> {
     if (args.toolCalls.length === 0 && args.latencyMs == null) return
     try {
-      const toolSpans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
+      const capturedToolSpans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
         externalSpanId: `${toolCall.id}-${index}`,
         sequence: index,
         name: toolCall.toolName,
@@ -709,6 +723,7 @@ export class OpenCodeAgentRunner {
           },
         ],
       }))
+      const toolSpans = foldToolObservationsIntoToolSpans(capturedToolSpans, args.toolObservations ?? [])
       const messageSpans = buildOpenCodeMessageSpans({
         externalRunId: args.externalRunId,
         messages: args.messages ?? [],
@@ -768,6 +783,43 @@ export class OpenCodeAgentRunner {
         agentId: args.agentId,
         error: err instanceof Error ? err.message : String(err),
       })
+    }
+  }
+
+  /**
+   * Reads the `tool.observation` spans the MCP process wrote for this run
+   * (knowledge/retrieval reported by tools) so the ingest can fold them into the
+   * manifest and the matching tool spans. Best-effort: any failure yields none.
+   */
+  private async loadToolObservations(
+    runId: string,
+    tenantId: string,
+    organizationId: string,
+  ): Promise<ToolObservationRecord[]> {
+    try {
+      const em = (this.container.resolve('em') as EntityManager).fork()
+      const spans = await findWithDecryption(
+        em,
+        AgentSpan,
+        { agentRunId: runId, tenantId, organizationId, name: TOOL_OBSERVATION_SPAN_NAME },
+        { orderBy: { startedAt: 'asc' } },
+        { tenantId, organizationId },
+      )
+      const spanList = Array.isArray(spans) ? spans : []
+      return spanList
+        .map((span) => parseToolObservationRecord(span))
+        .filter((record): record is ToolObservationRecord => record !== null)
+    } catch (err) {
+      logger.warn('failed to load OpenCode tool observations', {
+        runId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'agent_orchestrator',
+        code: 'tool_observation_load_failed',
+        attributes: { runId },
+      })
+      return []
     }
   }
 

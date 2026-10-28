@@ -19,8 +19,16 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
     return Promise.resolve()
   },
 }))
+const mockObservationSpans: Array<Record<string, unknown>> = []
+const mockObservationQueries: Array<Record<string, unknown>> = []
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: () => Promise.resolve([{ role: { id: 'role-caller' } }]),
+  findWithDecryption: (_em: unknown, entity: { name?: string }, where: Record<string, unknown>) => {
+    if (entity?.name === 'AgentSpan') {
+      mockObservationQueries.push(where)
+      return Promise.resolve(mockObservationSpans)
+    }
+    return Promise.resolve([{ role: { id: 'role-caller' } }])
+  },
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
 
@@ -211,6 +219,56 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockObservationSpans.length = 0
+    mockObservationQueries.length = 0
+  })
+
+  it('folds MCP tool observations into the matching tool span and the manifest knowledge', async () => {
+    mockObservationSpans.push(
+      {
+        name: 'tool.observation',
+        startedAt: new Date('2026-10-28T10:00:00.000Z'),
+        attributes: {
+          'om.tool.name': 'load_skill',
+          'om.knowledge': { 'support.playbook': 'v7' },
+          'om.retrieval': [{ source: 'kb', queryHash: 'qh-1', k: 5, hits: [{ ref: 'doc-1', score: 0.9 }] }],
+        },
+      },
+      {
+        name: 'tool.observation',
+        startedAt: new Date('2026-10-28T10:00:01.000Z'),
+        attributes: { 'om.tool.name': 'customers.search', 'om.knowledge': { 'customers.segments': 'v2' }, 'om.retrieval': [] },
+      },
+    )
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'observed tools' }, runCtx)
+
+    expect(mockObservationQueries[0]).toMatchObject({
+      agentRunId: 'run-123',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      name: 'tool.observation',
+    })
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const loadSkillSpan = spans.find((span) => span.name === 'load_skill')
+    expect(loadSkillSpan?.attributes).toEqual({
+      'om.knowledge': { 'support.playbook': 'v7' },
+      'om.retrieval': [{ source: 'kb', queryHash: 'qh-1', k: 5, hits: [{ ref: 'doc-1', score: 0.9 }] }],
+    })
+    const scriptSpan = spans.find((span) => span.name === 'run_skill_script')
+    expect(scriptSpan?.attributes).toBeUndefined()
+    const manifest = spans.find((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.knowledge']).toEqual({
+      'customers.segments': 'v2',
+      'support.playbook': 'v7',
+    })
   })
 
   it('ingests captured tool calls as trace spans, correlated on runtime+externalRunId', async () => {
