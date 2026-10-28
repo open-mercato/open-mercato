@@ -72,6 +72,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-cache-purge.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-port-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-port-preflight.mjs'),
+    rel: 'scripts/dev-port-preflight.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-inotify-limits.mjs'),
     rel: 'scripts/dev-inotify-limits.mjs',

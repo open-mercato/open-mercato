@@ -215,3 +215,17 @@ Browser QA: load the splash during startup and after ready, click
 - Recorded a relaunch rejected inside the cooldown in the server snapshot
   (`building.lastResult.code = 'already_started'`), so the splash status poll
   no longer replaces the "just started" notice with the earlier success text.
+
+### 2026-10-28
+
+- QA follow-up: `dev:*` now checks the app port before the splash starts. When
+  the port is busy and was not pinned in the shell, the run moves to the next
+  free port and sets `PORT` and `APP_URL` for the app, so the splash, the
+  readiness probe and redirects all target this run's server. A port pinned
+  through `PORT` or `APP_URL` stops the run with a clear error instead.
+- `dev:greenfield` no longer purges `.mercato/next/dev` while a live
+  `next dev` holds its lock. It stops and names the running server's PID, so
+  the purge can no longer delete the manifests that server is serving (the
+  `routes-manifest.json` ENOENT).
+- Making Start building reuse an already-running Cezar cockpit is tracked in
+  open-mercato/cezar#1732.
