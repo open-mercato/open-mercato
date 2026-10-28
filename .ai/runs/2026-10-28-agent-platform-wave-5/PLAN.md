@@ -30,7 +30,7 @@
 | 1 | 1.8 | Show integrity rules and holds in the trace, caseload and agent UI | dispatch | done | pending |
 | 1 | 1.9 | Add the guardrail_check eval scorer | dispatch | done | pending |
 | 1 | 1.9-review-fix | Keep ScorerRunView.guardrailChecks optional | inline | done | pending |
-| 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | todo | — |
+| 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | done | pending |
 | 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | todo | — |
 | 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | todo | — |
 | 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | todo | — |

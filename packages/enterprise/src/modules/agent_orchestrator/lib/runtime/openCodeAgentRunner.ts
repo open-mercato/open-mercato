@@ -10,13 +10,26 @@ import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
-import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, buildRunManifestSpan, captureManifestTraceparent } from '../trace/runManifestEntry'
 import { resolveRunCapture } from '../trace/capturePolicy'
 import type { RunManifestCapture } from '../trace/runManifest'
 import { isNativeTraceCaptureEnabled } from './nativeTraceCapture'
-import { type AgentResult } from '../../data/validators'
+import { type AgentResult, type GuardResults } from '../../data/validators'
+import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
+import {
+  attachRawOutputPointer,
+  normalizeToolName,
+  runOutputPipeline,
+  type OutputPipelineResult,
+} from '../guardrails/integrity/pipeline'
+import { isAgentIntegrityEnforced, resolveIntegritySet } from '../guardrails/integrity/integritySets'
+import type { IntegrityToolCall } from '../guardrails/integrity/types'
+import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { readCheckRuleId } from '../guardrails/integrity/summary'
+import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSupport'
+import { AgentGuardrailBlockedError } from './errors'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
   type AgentRunCtx,
@@ -291,6 +304,7 @@ export class OpenCodeAgentRunner {
     // leaving the debugger with no duration, no spans and no tool calls — the
     // exact evidence needed to see WHERE it broke.
     let startedAtMs: number | null = null
+    let integrityRawOutputKey: string | null = null
 
     try {
       if (filesEnabled) {
@@ -349,9 +363,14 @@ export class OpenCodeAgentRunner {
         throw new OpenCodeRunFailedError(agentId, 'no outcome submitted')
       }
 
+      const integrity = entry.integrity?.length
+        ? await this.runIntegrityPipeline({ entry, ctx, commandCtx, runId, businessInput, capturedOutcome, capturedToolCalls })
+        : null
+      integrityRawOutputKey = integrity?.rawOutputKey ?? null
+
       // Defense in depth: re-validate the captured outcome against the schema
       // even though submit_outcome already validated it server-side.
-      const parsed = entry.schema.safeParse(capturedOutcome)
+      const parsed = entry.schema.safeParse(integrity ? integrity.finalOutput : capturedOutcome)
       if (!parsed.success) {
         const detail = parsed.error.message
         await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
@@ -380,6 +399,18 @@ export class OpenCodeAgentRunner {
           confidence: deriveEnvelopeConfidence(result.proposal),
           workflowInstanceId: ctx.workflowInstanceId ?? null,
           stepId: ctx.stepId ?? null,
+          ...(integrity ? { guardResults: integrity.guardResults } : {}),
+        })
+      }
+
+      if (integrity) {
+        await emitRunReviewRequested({
+          agentRunId: runId,
+          agentId,
+          workflowInstanceId: ctx.workflowInstanceId ?? null,
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          reviewRequest: integrity.reviewRequest,
         })
       }
 
@@ -421,7 +452,7 @@ export class OpenCodeAgentRunner {
       if (startedAtMs != null) {
         const endedAtMs = Date.now()
         const manifestSpan = traceCaptureEnabled
-          ? this.buildManifestSpan(runId, entry, ctx, traceparent, startedAtMs, runCapture)
+          ? this.buildManifestSpan(runId, entry, ctx, traceparent, startedAtMs, runCapture, integrityRawOutputKey)
           : null
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
@@ -468,6 +499,97 @@ export class OpenCodeAgentRunner {
     }
   }
 
+  /**
+   * Runs the output integrity pipeline (spec `2026-10-21-output-integrity-guardrails`
+   * → Phase 5) on the submitted outcome of an agent whose registry entry declares
+   * `integrity` rules: persists the verdict, offloads the raw outcome when a rule
+   * repaired it, and fails the run with a typed guardrail block. `attemptedTools`
+   * stays empty: the session also records OpenCode built-in tools, which are not
+   * registry tools and would trip a false `tool_scope` block; the MCP session
+   * token already gates every Open Mercato tool call by the caller's ACL.
+   */
+  private async runIntegrityPipeline(args: {
+    entry: AgentRegistryEntry
+    ctx: AgentRunCtx
+    commandCtx: ReturnType<typeof buildCommandContext>
+    runId: string
+    businessInput: unknown
+    capturedOutcome: unknown
+    capturedToolCalls: readonly CapturedToolCall[]
+  }): Promise<{
+    finalOutput: unknown
+    guardResults: GuardResults
+    rawOutputKey: string | null
+    reviewRequest: OutputPipelineResult['reviewRequest']
+  }> {
+    const { entry, ctx, commandCtx, runId } = args
+    const agentId = entry.id
+    const integritySet = resolveIntegritySet(entry)
+    if (integritySet) await ensureRunIntegritySetSynced(this.container, ctx, entry)
+    const allowedTools = resolveAgentEffectiveTools(entry)
+
+    let outcome: OutputPipelineResult
+    try {
+      outcome = await runOutputPipeline({
+        entry,
+        rawObject: args.capturedOutcome,
+        input: args.businessInput,
+        toolCalls: toIntegrityToolCalls(args.capturedToolCalls, collectKnownToolIds(entry, allowedTools)),
+        guardrailService: new GuardrailService(this.container),
+        capability: agentId,
+        allowedTools,
+        attemptedTools: [],
+        guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        container: this.container,
+        shadow: !isAgentIntegrityEnforced(),
+      })
+    } catch (err) {
+      await failRun(this.commandBus, commandCtx, {
+        runId,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+
+    const rawOutputPointer = outcome.changed
+      ? await storeRunRawOutput(this.container, ctx, runId, outcome.rawOutput)
+      : null
+    const verdict = rawOutputPointer
+      ? attachRawOutputPointer(outcome.verdict, outcome.changedCheckIndexes, rawOutputPointer)
+      : outcome.verdict
+    const guardEm = this.container.resolve<EntityManager>('em').fork()
+    const guardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
+    const guardResults = await persistVerdict({ em: guardEm }, guardScope, {
+      verdict,
+      capability: agentId,
+      phase: 'output',
+      proposalId: null,
+    })
+
+    if (verdict.result === 'block') {
+      const blocked = verdict.blockedReason
+      const parsed = entry.schema.safeParse(outcome.finalOutput)
+      const detail = parsed.success ? 'guardrail block' : parsed.error.message
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      if (!blocked) throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
+      const blockingCheck = verdict.checks.find((check) => check.result === 'block')
+      throw new AgentGuardrailBlockedError(agentId, detail, {
+        phase: blocked.phase,
+        kind: blocked.kind,
+        guardrailSetVersion: blockingCheck?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+        ruleId: readCheckRuleId(blockingCheck?.evidence),
+      })
+    }
+
+    return {
+      finalOutput: outcome.finalOutput,
+      guardResults,
+      rawOutputKey: rawOutputPointer?.key ?? null,
+      reviewRequest: outcome.reviewRequest,
+    }
+  }
+
   private buildManifestSpan(
     runId: string,
     entry: AgentRegistryEntry,
@@ -475,11 +597,19 @@ export class OpenCodeAgentRunner {
     traceparent: string | null,
     startedAtMs: number,
     capture: RunManifestCapture | null,
+    integrityRawOutputKey: string | null,
   ): TraceSpanIngest | null {
     try {
       return buildRunManifestSpan({
         runId,
-        manifest: buildAgentRunManifestInput({ entry, ctx, runtime: 'opencode', traceparent, capture }),
+        manifest: buildAgentRunManifestInput({
+          entry,
+          ctx,
+          runtime: 'opencode',
+          traceparent,
+          capture,
+          integrityRawOutputKey,
+        }),
         sequence: 0,
         recordedAtMs: startedAtMs,
       })
@@ -828,6 +958,38 @@ export class OpenCodeAgentRunner {
 }
 
 const NO_OUTCOME = Symbol('no-outcome')
+
+const OPENCODE_MCP_TOOL_PREFIX = 'open-mercato_'
+
+function collectKnownToolIds(entry: AgentRegistryEntry, allowedTools: readonly string[]): string[] {
+  const ruleTools = (entry.integrity ?? []).flatMap((rule) => (rule.kind === 'tool_consulted' ? rule.tools : []))
+  return [...new Set([...allowedTools, ...ruleTools].map(normalizeToolName))]
+}
+
+/**
+ * Resolves an OpenCode tool name back to its registry id: OpenCode exposes MCP
+ * tools as `open-mercato_<id with dots as underscores>`, so the prefix is dropped
+ * and the remainder matched against the agent's known tool ids. Names that match
+ * nothing (OpenCode built-ins, `submit_outcome`) pass through unchanged.
+ */
+function resolveRegistryToolName(rawToolName: string, knownToolIds: readonly string[]): string {
+  if (!rawToolName.startsWith(OPENCODE_MCP_TOOL_PREFIX)) return rawToolName
+  const bareName = rawToolName.slice(OPENCODE_MCP_TOOL_PREFIX.length)
+  const match = knownToolIds.find((toolId) => toolId === bareName || toolId.replace(/\./g, '_') === bareName)
+  return match ?? bareName
+}
+
+function toIntegrityToolCalls(
+  capturedToolCalls: readonly CapturedToolCall[],
+  knownToolIds: readonly string[],
+): IntegrityToolCall[] {
+  return capturedToolCalls.map((toolCall) => ({
+    toolName: resolveRegistryToolName(toolCall.toolName, knownToolIds),
+    args: toolCall.args,
+    result: toolCall.result,
+    ...(toolCall.status === 'error' ? { error: 'tool_error' } : {}),
+  }))
+}
 
 /**
  * Extract a tool invocation from an OpenCode `message.part.updated` part and fold

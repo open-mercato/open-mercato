@@ -32,19 +32,13 @@ import {
   normalizeToolName,
   runOutputPipeline,
   type OutputPipelineResult,
-  type RawOutputPointer,
 } from '../guardrails/integrity/pipeline'
-import {
-  isAgentIntegrityEnforced,
-  resolveIntegritySet,
-  syncIntegritySets,
-} from '../guardrails/integrity/integritySets'
+import { isAgentIntegrityEnforced, resolveIntegritySet } from '../guardrails/integrity/integritySets'
 import {
   buildUntrustedInputSpans,
   createUntrustedInputNonce,
   renderUntrustedModelInput,
 } from '../guardrails/integrity/untrustedInput'
-import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import {
   buildToolConsultedPrepareStep,
@@ -65,6 +59,7 @@ import {
   type NativeStepRecord,
 } from './nativeTraceCapture'
 import { attachModelCallsToSteps, createNativeModelCallCollector } from './nativeModelCallRecorder'
+import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSupport'
 import {
   AgentGuardrailBlockedError,
   AgentOutputInvalidError,
@@ -220,7 +215,7 @@ export class NativeAgentRunner {
     const untrustedInputSpans = buildUntrustedInputSpans(input, entry.untrustedInputs)
     let integritySetSynced = false
     if (integritySet && entry.untrustedInputs?.length) {
-      await this.ensureIntegritySetSynced(ctx, entry)
+      await ensureRunIntegritySetSynced(this.container, ctx, entry)
       integritySetSynced = true
     }
     const inputGuardrail = new GuardrailService(this.container)
@@ -606,7 +601,7 @@ export class NativeAgentRunner {
       })
     }
 
-    if (integrityRules && integritySet && !integritySetSynced) await this.ensureIntegritySetSynced(ctx, entry)
+    if (integrityRules && integritySet && !integritySetSynced) await ensureRunIntegritySetSynced(this.container, ctx, entry)
 
     const failRunAfterUnexpectedError = async (err: unknown): Promise<void> => {
       const message = err instanceof Error ? err.message : String(err)
@@ -649,7 +644,7 @@ export class NativeAgentRunner {
       throw err
     }
     const rawOutputPointer = integrityOutcome?.changed
-      ? await this.storeRawOutput(ctx, runId, integrityOutcome.rawOutput)
+      ? await storeRunRawOutput(this.container, ctx, runId, integrityOutcome.rawOutput)
       : null
     integrityRawOutputKey = rawOutputPointer?.key ?? null
     const verdict = integrityOutcome
@@ -751,60 +746,6 @@ export class NativeAgentRunner {
     await captureTrace()
 
     return result
-  }
-
-  /**
-   * Offloads the pre-repair model output as an encrypted artifact (spec
-   * `2026-10-21-output-integrity-guardrails` → Raw model output). Fail-open: an
-   * unavailable store or a failed upload never fails the run.
-   */
-  private async storeRawOutput(
-    ctx: AgentRunCtx,
-    runId: string,
-    rawOutput: unknown,
-  ): Promise<RawOutputPointer> {
-    try {
-      const key = await putArtifact(
-        this.container,
-        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-        ARTIFACT_REFS.runRawOutput,
-        rawOutput,
-      )
-      return key ? { key, status: 'stored' } : { status: 'storage_unavailable' }
-    } catch (error) {
-      logger.warn('raw model output offload failed', {
-        runId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      getTelemetryRuntime()?.reportError(error, {
-        module: 'agent_orchestrator',
-        code: 'agent_orchestrator.raw_output_store_failed',
-        attributes: { runId },
-      })
-      return { status: 'storage_unavailable' }
-    }
-  }
-
-  /**
-   * Makes sure the integrity set the check rows pin exists in
-   * `agent_guardrail_sets` for this organization (tenants created before the set
-   * changed are synced on first use). Fail-open: a sync failure never fails the run.
-   */
-  private async ensureIntegritySetSynced(ctx: AgentRunCtx, entry: AgentRegistryEntry): Promise<void> {
-    try {
-      const em = (this.container.resolve('em') as EntityManager).fork()
-      await syncIntegritySets(em, { tenantId: ctx.tenantId, organizationId: ctx.organizationId }, [entry])
-    } catch (error) {
-      logger.warn('integrity set sync failed', {
-        agentId: entry.id,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      getTelemetryRuntime()?.reportError(error, {
-        module: 'agent_orchestrator',
-        code: 'agent_orchestrator.integrity_set_sync_failed',
-        attributes: { agentId: entry.id },
-      })
-    }
   }
 
   /**
