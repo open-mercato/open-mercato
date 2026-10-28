@@ -48,6 +48,7 @@ function isBalanceIntegrityViolationError(error: unknown): boolean {
 type SalesOrderRow = {
   id?: string
   order_number?: string | null
+  status?: string | null
   tenant_id?: string | null
   organization_id?: string | null
 }
@@ -117,10 +118,30 @@ async function loadOrderViaQueryEngine(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     filters: { id: { $eq: orderId } },
-    fields: ['id', 'order_number', 'tenant_id', 'organization_id'],
+    fields: ['id', 'order_number', 'status', 'tenant_id', 'organization_id'],
     page: { page: 1, pageSize: 1 },
   })
   return result.items[0] ?? null
+}
+
+// Mirrors the sales module's own cancelled-status check; WMS reads the status
+// through QueryEngine rather than importing sales internals.
+function isCancelledOrderStatus(status: unknown): boolean {
+  if (typeof status !== 'string') return false
+  const normalized = status.trim()
+  return normalized === 'canceled' || normalized === 'cancelled'
+}
+
+export async function isSalesOrderCancelled(
+  payload: SalesOrderLifecyclePayload,
+  ctx: EventContext,
+): Promise<boolean> {
+  if (!payload.orderId || !payload.tenantId || !payload.organizationId) return false
+  const order = await loadOrderViaQueryEngine(ctx, payload.orderId, {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+  return isCancelledOrderStatus(order?.status)
 }
 
 async function loadOrderLinesViaQueryEngine(
@@ -250,6 +271,7 @@ export async function reserveInventoryForConfirmedOrder(
   const commandCtx = buildCommandContext(ctx, scope)
   const order = await loadOrderViaQueryEngine(ctx, payload.orderId, scope)
   if (!order || typeof order.id !== 'string') return
+  if (isCancelledOrderStatus(order.status)) return
 
   const orderId = order.id
   const orderNumber = typeof order.order_number === 'string' ? order.order_number : null

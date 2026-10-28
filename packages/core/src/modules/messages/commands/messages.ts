@@ -266,6 +266,13 @@ async function buildComposeResultFromExisting(
   }
 }
 
+/**
+ * `parentMessageId` is trusted: the thread is derived from it without a read
+ * check, because the acting `userId` is itself an input and server-side callers
+ * (channel ingest) pass parents the actor is not a participant of. Every surface
+ * that accepts a parent from a caller MUST resolve it against its own read rule
+ * first (`resolveReplyParentMessage` for the messages API).
+ */
 const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[]; deduplicated?: boolean }> = {
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {

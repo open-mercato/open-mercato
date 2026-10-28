@@ -1,6 +1,6 @@
 ---
 name: om-auto-qa-scenarios
-description: Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass.
+description: Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `main`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass.
 ---
 
 # Auto QA Scenarios
@@ -9,7 +9,7 @@ Produce a QA-tester-facing report that translates a window of merged pull
 requests into a practical manual verification plan. The report groups PRs by
 product area, recommends a testing order, tells QA where to click, what to
 verify, and what can go wrong. The final deliverable is a docs-only PR
-against `develop` with markdown and HTML artifacts under `.ai/analysis/`.
+against `main` with markdown and HTML artifacts under `.ai/analysis/`.
 
 This skill is a specialization of `om-auto-create-pr`. It adopts that skill's
 worktree, branch, commit, validation, self-review, and label discipline
@@ -27,8 +27,9 @@ workflow.
   - Omitted — defaults to the last 7 days (UTC), i.e. everything merged
     between today minus 7 days and today.
 - `--base <branch>` (optional) — which base branch to count merges into.
-  Defaults to `develop`. `main` merges are still reported but flagged when
-  a different base is specified.
+  Defaults to `main`. PRs merged into a `release/v*` branch in the window are
+  backports: report them flagged as such, and do not double count them with
+  their `main` originals.
 - `--include-open` (optional) — also include open non-draft PRs in the
   report, labelled as "not yet merged" so QA can sanity-check upcoming
   changes. Off by default.
@@ -59,12 +60,12 @@ Translate `{windowSpec}` into a concrete query:
 ```bash
 # Date mode
 gh search prs --repo $(gh repo view --json nameWithOwner --jq .nameWithOwner) \
-  --merged --base "${BASE:-develop}" --sort updated --order desc \
+  --merged --base "${BASE:-main}" --sort updated --order desc \
   --merged-at ">=${DATE_FLOOR}" --limit 500 \
   --json number,title,url,author,body,labels,headRefName,baseRefName,mergedAt,mergeCommit,files
 
 # PR-number-floor mode (fetch list, filter by number >= floor, merged == true)
-gh pr list --state merged --base "${BASE:-develop}" --limit 500 \
+gh pr list --state merged --base "${BASE:-main}" --limit 500 \
   --json number,title,url,author,body,labels,headRefName,baseRefName,mergedAt
 
 # Default (last 7 days) — same as date mode with DATE_FLOOR = today - 7
@@ -174,14 +175,14 @@ Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 3. The plan at
 
 ### Phase 4: PR delivery
 
-- [ ] 4.1 Commit artifacts, push branch, open PR against `develop` (do not merge)
+- [ ] 4.1 Commit artifacts, push branch, open PR against `main` (do not merge)
 - [ ] 4.2 Apply `review`, `documentation`, and `skip-qa` labels with comments
 ```
 
 ### 5. Isolated worktree, branch, first commit
 
 Follow `.agents/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim. Branch
-base is always `develop`. Commit the plan first, then push.
+base is always `main`. Commit the plan first, then push.
 
 ### 6. Execute the phases
 
@@ -202,7 +203,7 @@ Report window: **{start date or PR floor} through {end date}** (base: `{base}`).
 ## Executive Summary
 
 - Reviewed **{count} merged PRs** in the requested window.
-- Base branches covered: **{n} into `develop`** and **{m} into `main`**.
+- Base branches covered: **{n} into `main`** and **{m} backports into `release/v*`** (counted once, not on top of their `main` originals).
 - Grouped into {N} practical testing routes below. Use the appendix for
   full PR-by-PR traceability.
 - {one sentence on the riskiest theme in this window}.
@@ -305,7 +306,7 @@ needed.
 Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 9 with these specifics:
 
 - Title: `docs(analysis): add auto-qa-scenarios report for {window caption}`.
-- Base: `develop`. Never merge directly.
+- Base: `main`. Never merge directly.
 - Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}.md` and
   `Status: complete` (or `in-progress` if phases remain).
 - Body MUST link both artifacts under `.ai/analysis/` and summarize the
@@ -356,7 +357,7 @@ If the run cannot finish in a single invocation:
 
 ## Rules
 
-- Always deliver as a PR. Never push the report to `develop` directly.
+- Always deliver as a PR. Never push the report to `main` directly.
   Never merge the PR from within this skill.
 - Default window is the last 7 days (UTC) when `{windowSpec}` is omitted.
 - Artifacts go under `.ai/analysis/` with a dated filename. Both markdown
