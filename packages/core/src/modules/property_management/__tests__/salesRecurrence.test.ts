@@ -152,13 +152,13 @@ describe('salesRecurrence adapter', () => {
     expect(await readRecurrence(em, scope, 'order-1')).toBeNull()
   })
 
-  it('falls back to prorate while sales has no default settlement setting', async () => {
+  it('falls back to keep, the sales default, while sales has no settlement setting', async () => {
     const { em } = connectionEm([[]])
-    expect(await defaultCancelSettlement(em, scope)).toBe('prorate')
+    expect(await defaultCancelSettlement(em, scope)).toBe('keep')
   })
 
   it('reads the organization default settlement once sales stores it', async () => {
-    const { em } = connectionEm([[{ column_name: 'recurring_cancel_settlement' }], [{ recurring_cancel_settlement: 'keep' }]])
-    expect(await defaultCancelSettlement(em, scope)).toBe('keep')
+    const { em } = connectionEm([[{ column_name: 'recurring_cancel_settlement' }], [{ recurring_cancel_settlement: 'credit_full' }]])
+    expect(await defaultCancelSettlement(em, scope)).toBe('credit_full')
   })
 })

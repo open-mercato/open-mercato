@@ -10,7 +10,7 @@ import type { Scope } from './productUse'
 export const SALES_RECURRENCE_CANCEL_COMMAND = 'sales.orders.recurrence.cancel'
 export const CANCEL_SETTLEMENTS = ['prorate', 'credit_full', 'keep'] as const
 export type CancelSettlement = (typeof CANCEL_SETTLEMENTS)[number]
-export const FALLBACK_CANCEL_SETTLEMENT: CancelSettlement = 'prorate'
+export const FALLBACK_CANCEL_SETTLEMENT: CancelSettlement = 'keep'
 
 export type CancelRecurrenceInput = {
   orderId: string
