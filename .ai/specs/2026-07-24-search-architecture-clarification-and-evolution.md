@@ -84,7 +84,13 @@ vector source's `fieldPolicy` filtering does not sanitize custom text. Person an
 company sources now select approved scalar fields, with `hashOnly`/`excluded`
 taking precedence across snake/camel and custom-field prefixes. Fields declared
 encrypted by the module are excluded from embedding text, including encrypted
-names. Related customer contact details and arbitrary record/custom-field fallback
+names. Sources resolve the live tenant/organization encryption policy for both the
+profile and related customer entity, union it with module defaults, and normalize
+field aliases before exclusion. Search DI supplies the existing `container` context
+to source callbacks. Tenant-wide indexing also unions organization declarations
+from the loaded profile/related rows; row scope never replaces the trusted tenant
+or weakens the context's exclusions. A missing policy dependency or failed lookup skips vector
+writes. Related customer contact details and arbitrary record/custom-field fallback
 serialization are excluded. Customer-account source text uses the account ID;
 email stays hash-only. Presenters retain permitted display names but no contact
 email or phone, and source checksums use only the resulting safe source/presenter.
@@ -93,7 +99,14 @@ The legacy `VectorIndexService` also applies the existing field-policy filter to
 snapshot, title, and subtitle fallback fields, including sources without a presenter.
 Regression tests call the real customer source
 builders through `SearchIndexer` → `SearchService` → `VectorSearchStrategy`, with a
-fake embedding provider and captured vector driver writes. Direct builder tests
+fake embedding provider and captured vector driver writes. These tests
+cover direct, by-ID, and bulk entry points. Bulk indexing shares source preparation
+with single-record indexing. Configured source errors, null, and empty text skip
+vector embedding rather than activating raw-field fallback; other strategies still
+run. Provider-boundary tests exercise these cases through single, by-ID, queued
+batch, and bulk paths, plus scoped live encryption additions and lookup failures.
+Read-time presenter fallback also applies `fieldPolicy` after formatter failures.
+Direct builder tests
 cover aliases, sparse records, policy precedence, and nested values. Legacy service
 tests cover excluded, hash-only, and unlisted snapshot fields. No live customer
 data or external embedding call is required for these checks.
@@ -270,6 +283,8 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-10-28 — Closed independent-review gaps for #7826: scoped live encryption declarations, config-aware bulk sources, fail-closed source errors/null/empty text, and protected read-time presenter fallback.
 
 - 2026-10-27 — Added the customer vector privacy invariant and #7826 regression/remediation contract: allowlisted sources and presenters, encrypted-field exclusion from embedding text, policy-filtered snapshot fallback, and operator purge/reindex.
 

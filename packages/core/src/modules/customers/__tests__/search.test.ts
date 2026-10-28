@@ -14,6 +14,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { searchConfig } from '../search'
 import type { SearchBuildContext } from '@open-mercato/shared/modules/search'
 
+const encryptionPolicyContainer = { resolve: () => ({ getEncryptedFieldNames: async () => [] }) }
+
 describe('customers search config', () => {
   test('exclusions override searchable custom fields across supported key spellings', async () => {
     const config = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_company_profile')!
@@ -21,6 +23,7 @@ describe('customers search config', () => {
     try {
       config.fieldPolicy = { searchable: ['size_bucket', 'description'], hashOnly: ['sizeBucket'], excluded: ['cf:description'] }
       const source = await config.buildSource!({
+        container: encryptionPolicyContainer,
         tenantId: 'tenant-privacy',
         record: { id: 'policy-company', sizeBucket: 'private-record-size', description: 'private-record-description' },
         customFields: { 'cf:size_bucket': 'private-custom-size', cf_description: 'private-custom-description' },
@@ -35,6 +38,7 @@ describe('customers search config', () => {
   test('does not serialize nested objects under an approved scalar field', async () => {
     const config = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_company_profile')!
     const source = await config.buildSource!({
+      container: encryptionPolicyContainer,
       tenantId: 'tenant-privacy',
       record: { id: 'nested-company' },
       customFields: { size_bucket: { email: 'private-nested@example.com' } },
@@ -46,6 +50,7 @@ describe('customers search config', () => {
   test.each(['person', 'company'] as const)('%s vector source and presenter exclude contact PII and unapproved custom fields', async (kind) => {
     const config = searchConfig.entities.find((entity) => entity.entityId === `customers:customer_${kind}_profile`)!
     const context: SearchBuildContext = {
+      container: encryptionPolicyContainer,
       tenantId: 'tenant-privacy',
       organizationId: 'org-privacy',
       record: {
@@ -90,6 +95,7 @@ describe('customers search config', () => {
   test.each(['person', 'company'] as const)('%s sparse vector source never serializes arbitrary record fields', async (kind) => {
     const config = searchConfig.entities.find((entity) => entity.entityId === `customers:customer_${kind}_profile`)!
     const source = await config.buildSource!({
+      container: encryptionPolicyContainer,
       tenantId: 'tenant-privacy',
       record: { id: `sparse-${kind}`, primaryEmail: 'sparse-private@example.com', ssn: 'private-ssn', extra: 'private-extra' },
       customFields: {},
@@ -115,6 +121,7 @@ describe('customers search config', () => {
     }))
 
     const result = await personConfig!.buildSource!({
+      container: encryptionPolicyContainer,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       queryEngine: {

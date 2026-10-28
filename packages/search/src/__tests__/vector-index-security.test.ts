@@ -9,10 +9,14 @@ import { searchConfig as accountsSearchConfig } from '@open-mercato/core/modules
 import { SearchIndexer } from '../indexer/search-indexer'
 import { SearchService } from '../service'
 import { VectorSearchStrategy } from '../strategies/vector.strategy'
+import type { SearchStrategy } from '../types'
+import { asValue, createContainer } from 'awilix'
+import { registerSearchModule } from '../di'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
 }))
+jest.mock('../fulltext/drivers', () => ({ createFulltextDriver: jest.fn() }))
 
 type CapturedEmbeddingInput = { value: string | string[] | null }
 
@@ -48,6 +52,23 @@ function createQueryEngine(record: Record<string, unknown>): QueryEngine {
   return {
     query: async () => ({ items: [record], total: 1 }),
   } as unknown as QueryEngine
+}
+
+function createCustomerIndexer(args: {
+  driver: VectorDriver
+  embeddingService: EmbeddingService
+  queryEngine: QueryEngine
+  encryptionService?: Pick<TenantDataEncryptionService, 'getEncryptedFieldNames'>
+}): SearchIndexer {
+  const container = createContainer()
+  container.register({
+    vectorDrivers: asValue([args.driver]),
+    vectorEmbeddingService: asValue(args.embeddingService),
+    queryEngine: asValue(args.queryEngine),
+    tenantEncryptionService: asValue(args.encryptionService ?? { getEncryptedFieldNames: async () => [] }),
+  })
+  registerSearchModule(container, { skipTokens: true, skipFulltext: true, moduleConfigs: [customersSearchConfig, accountsSearchConfig] })
+  return container.resolve<SearchIndexer>('searchIndexer')
 }
 
 function createService(args: {
@@ -150,6 +171,89 @@ describe('VectorIndexService default source field protection (issue #2716)', () 
 })
 
 describe('Customer vector privacy at provider and storage boundaries (issue #7826)', () => {
+  it.each(['protected-scope', 'other-scope', 'tenant-wide', 'related-scope'])('applies live profile and related-entity declarations for the trusted %s', async (scope) => {
+    const driver = createDriver()
+    const captured: CapturedEmbeddingInput = { value: null }
+    const getEncryptedFieldNames = jest.fn(async (entityId: string, tenantId: string | null | undefined, organizationId?: string | null) => {
+      if (tenantId !== 'tenant-privacy' || organizationId !== 'protected-scope') return []
+      return entityId === 'customers:customer_company_profile' ? ['cf:sizeBucket'] : ['status', 'lifecycleStage']
+    })
+    const organizationId = scope === 'tenant-wide' || scope === 'related-scope' ? undefined : scope
+    const record = { id: 'live-company', entity_id: 'live-entity', tenant_id: 'untrusted-tenant', organization_id: scope === 'tenant-wide' ? 'protected-scope' : scope === 'related-scope' ? undefined : 'untrusted-org', sizeBucket: 'private-size', 'cf:size_bucket': 'private-custom-size' }
+    const queryEngine = { query: async (entityId: string) => ({ items: [
+      entityId === 'customers:customer_entity'
+        ? { id: 'live-entity', organization_id: scope === 'related-scope' ? 'protected-scope' : undefined, status: 'private-status', lifecycleStage: 'private-stage' }
+        : record,
+    ], total: 1 }) } as QueryEngine
+    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine, encryptionService: { getEncryptedFieldNames } })
+    await indexer.indexRecordById({ entityId: 'customers:customer_company_profile', recordId: record.id, tenantId: 'tenant-privacy', organizationId })
+    expect(driver.upsertCalls).toHaveLength(1)
+    if (scope !== 'other-scope') expect(JSON.stringify(captured.value)).not.toContain('private-')
+    else expect(JSON.stringify(captured.value)).toContain('private-custom-size')
+    for (const entityId of ['customers:customer_company_profile', 'customers:customer_entity']) {
+      expect(getEncryptedFieldNames).toHaveBeenCalledWith(entityId, 'tenant-privacy', organizationId, { ignoreRuntimeHealth: true })
+    }
+  })
+
+  it('does not send decrypted fields when live encryption policy lookup fails', async () => {
+    const driver = createDriver()
+    const captured: CapturedEmbeddingInput = { value: null }
+    const indexer = createCustomerIndexer({
+      driver, embeddingService: createEmbeddingService(captured),
+      queryEngine: createQueryEngine({ id: 'policy-failure', size_bucket: 'private-size' }),
+      encryptionService: { getEncryptedFieldNames: async () => { throw new Error('[internal] Policy unavailable') } },
+    })
+    await indexer.indexRecordById({ entityId: 'customers:customer_company_profile', recordId: 'policy-failure', tenantId: 'tenant-privacy', organizationId: 'org-privacy' })
+    expect(captured.value).toBeNull()
+    expect(driver.upsertCalls).toHaveLength(0)
+  })
+
+  it.each(['missing-container', 'missing-service'])('does not embed customer fields with %s', async (failure) => {
+    const driver = createDriver()
+    const captured: CapturedEmbeddingInput = { value: null }
+    const company = customersSearchConfig.entities.find((entity) => entity.entityId === 'customers:customer_company_profile')!
+    const indexer = new SearchIndexer(new SearchService({ strategies: [new VectorSearchStrategy(createEmbeddingService(captured), driver)] }), [{ entities: [{
+      ...company,
+      buildSource: (ctx) => company.buildSource!({ ...ctx, container: failure === 'missing-service' ? { resolve: () => undefined } : undefined }),
+    }] }])
+    await indexer.indexRecord({ entityId: company.entityId, recordId: 'missing-policy', tenantId: 'tenant-privacy', record: { size_bucket: 'private-size' } })
+    expect(captured.value).toBeNull()
+    expect(driver.upsertCalls).toHaveLength(0)
+  })
+
+  it.each(['throw', 'null', 'empty-string', 'empty-array', 'whitespace'].flatMap((failure) =>
+    ['single', 'by-id', 'batch', 'bulk'].map((mode) => ({ failure, mode })),
+  ))('fails closed for $failure sources through $mode indexing without blocking other strategies', async ({ failure, mode }) => {
+    const captured: CapturedEmbeddingInput = { value: null }
+    const driver = createDriver()
+    const otherIndex = jest.fn(async () => {})
+    const otherStrategy: SearchStrategy = {
+      id: 'fulltext', name: 'Fake fulltext', priority: 1,
+      isAvailable: async () => true, ensureReady: async () => {}, search: async () => [],
+      index: otherIndex, delete: async () => {},
+    }
+    const record = { id: 'source-failure', email: 'private-email@example.com', password_hash: 'private-password-hash' }
+    const indexer = new SearchIndexer(new SearchService({ strategies: [
+      new VectorSearchStrategy(createEmbeddingService(captured), driver), otherStrategy,
+    ] }), [{ entities: [{
+      entityId: 'customer_accounts:customer_user',
+      buildSource: () => {
+        if (failure === 'throw') throw new Error('[internal] Injected source failure')
+        if (failure === 'null') return null
+        return { text: failure === 'empty-string' ? '' : failure === 'whitespace' ? ' \n ' : [] }
+      },
+    }] }], { queryEngine: createQueryEngine(record) })
+    const params = { entityId: 'customer_accounts:customer_user', recordId: record.id, tenantId: 'tenant-privacy', organizationId: 'org-privacy' }
+    if (mode === 'single') await indexer.indexRecord({ ...params, record })
+    if (mode === 'by-id') await indexer.indexRecordById(params)
+    if (mode === 'batch') await indexer.indexRecordsById({ ...params, items: [params] })
+    if (mode === 'bulk') await indexer.bulkIndexRecords([{ ...params, record }])
+    expect(captured.value).toBeNull()
+    expect(driver.upsertCalls).toHaveLength(0)
+    expect(otherIndex).toHaveBeenCalledTimes(1)
+    expect(otherIndex).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-privacy', organizationId: 'org-privacy' }))
+  })
+
   it('keeps protected fields out of a generated presenter when a custom source omits its presenter', async () => {
     const driver = createDriver()
     const service = createService({
@@ -174,14 +278,14 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
     expect(driver.upsertCalls[0].resultTitle).toBe('fallback-record')
   })
 
-  it.each([
+  const customerIndexingCases = [
     'customers:customer_person_profile',
     'customers:customer_company_profile',
     'customer_accounts:customer_user',
-  ])('keeps contact and excluded custom values out of %s embeddings and stored metadata', async (entityId) => {
+  ].flatMap((entityId) => ['by-id', 'single', 'bulk'].map((mode) => ({ entityId, mode })))
+  it.each(customerIndexingCases)('keeps contact and excluded custom values out of $entityId $mode embeddings and stored metadata', async ({ entityId, mode }) => {
     const driver = createDriver()
     const captured: CapturedEmbeddingInput = { value: null }
-    const strategy = new VectorSearchStrategy(createEmbeddingService(captured), driver)
     const record = {
       id: `record-${entityId}`,
       entity_id: `entity-${entityId}`,
@@ -189,6 +293,7 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
       email: 'private-account@example.com',
       primary_email: 'private-profile@example.com',
       primary_phone: '+48-555-030-7826',
+      password_hash: 'private-password-hash',
       'cf:personal_email': 'private-custom@example.com',
       cf_government_id: 'private-government-id',
       'cf:bank_account': 'private-bank-account',
@@ -208,16 +313,24 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
       items: [queriedEntity === 'customers:customer_entity' ? related : record],
       total: 1,
     }))
-    const indexer = new SearchIndexer(new SearchService({ strategies: [strategy] }), [customersSearchConfig, accountsSearchConfig], {
-      queryEngine: { query } as unknown as QueryEngine,
-    })
+    const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine: { query } as unknown as QueryEngine })
 
-    await indexer.indexRecordById({
+    const params = {
       entityId,
       recordId: record.id,
       tenantId: 'tenant-privacy',
       organizationId: 'org-privacy',
-    })
+    }
+    if (mode === 'by-id') {
+      await indexer.indexRecordById(params)
+    } else {
+      const recordParams = { ...params, record, customFields: { personal_email: 'private-separate@example.com' } }
+      if (mode === 'bulk') {
+        await indexer.bulkIndexRecords([recordParams])
+      } else {
+        await indexer.indexRecord(recordParams)
+      }
+    }
 
     expect(captured.value).not.toBeNull()
     expect(driver.upsertCalls).toHaveLength(1)

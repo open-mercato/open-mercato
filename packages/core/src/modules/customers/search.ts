@@ -11,6 +11,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { defaultEncryptionMaps } from './encryption'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 const logger = createLogger('customers')
 
@@ -419,10 +420,31 @@ function normalizeSearchFieldKey(key: string): string {
   return key.replace(/^cf[:_]/, '').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
 }
 
+async function resolveProfileEncryptedFields(ctx: SearchContext, kind: CustomerProfileKind, entity: Record<string, unknown> | null): Promise<string[]> {
+  const container = ctx.container as { resolve?: (name: string) => unknown } | undefined
+  if (typeof container?.resolve !== 'function') {
+    throw new Error('[internal] Customer search encryption policy container is unavailable')
+  }
+  const service = container.resolve('tenantEncryptionService') as Pick<TenantDataEncryptionService, 'getEncryptedFieldNames'> | undefined
+  if (typeof service?.getEncryptedFieldNames !== 'function') {
+    throw new Error('[internal] Customer search encryption policy service is unavailable')
+  }
+  const organizationIds = new Set([ctx.organizationId])
+  for (const record of [ctx.record, entity]) {
+    const organizationId = record?.organization_id ?? record?.organizationId
+    if (typeof organizationId === 'string' && organizationId) organizationIds.add(organizationId)
+  }
+  const fields = await Promise.all(Array.from(organizationIds).flatMap((organizationId) => [
+    `customers:customer_${kind}_profile`,
+    'customers:customer_entity',
+  ].map((entityId) => service.getEncryptedFieldNames(entityId, ctx.tenantId, organizationId, { ignoreRuntimeHealth: true }))))
+  return fields.flat()
+}
+
 function selectProfileSearchFields(
   source: Record<string, unknown> | null,
   kind: CustomerProfileKind,
-  options: { forEmbedding?: boolean; customerEntity?: boolean } = {},
+  options: { forEmbedding?: boolean; customerEntity?: boolean; encryptedFields?: string[] } = {},
 ): Record<string, unknown> {
   const entityId = `customers:customer_${kind}_profile`
   const policy = searchConfig.entities.find((entry) => entry.entityId === entityId)?.fieldPolicy
@@ -431,6 +453,7 @@ function selectProfileSearchFields(
     : policy?.searchable ?? []).map(normalizeSearchFieldKey))
   const excluded = new Set([...(policy?.hashOnly ?? []), ...(policy?.excluded ?? [])].map(normalizeSearchFieldKey))
   if (options.forEmbedding) {
+    for (const field of options.encryptedFields ?? []) excluded.add(normalizeSearchFieldKey(field))
     for (const map of defaultEncryptionMaps) {
       if (map.entityId !== entityId && map.entityId !== 'customers:customer_entity') continue
       for (const entry of map.fields) excluded.add(normalizeSearchFieldKey(entry.field))
@@ -641,13 +664,14 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
-        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'person', { forEmbedding: true }), '')
 
         const { entity, entityId, profileCustomFields, entityOnlyCustomFields } =
           await hydrateProfileContext(ctx, 'person')
-        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'person', { forEmbedding: true }), 'Person custom')
+        const embeddingOptions = { forEmbedding: true, encryptedFields: await resolveProfileEncryptedFields(ctx, 'person', entity) }
+        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'person', embeddingOptions), '')
+        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'person', embeddingOptions), 'Person custom')
         if (Object.keys(entityOnlyCustomFields).length) {
-          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'person', { forEmbedding: true }), 'Customer custom')
+          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'person', embeddingOptions), 'Customer custom')
         }
         if (!entity) {
           logger.warn('Failed to load customer entity for person profile', {
@@ -657,7 +681,7 @@ export const searchConfig: SearchModuleConfig = {
             recordKeys: Object.keys(record),
           })
         }
-        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'person', { forEmbedding: true, customerEntity: true }))
+        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'person', { ...embeddingOptions, customerEntity: true }))
         ensureFallbackLines(lines, { id: record.id ?? entityId ?? 'customers:customer_person_profile' })
         if (!lines.length) return null
 
@@ -740,15 +764,16 @@ export const searchConfig: SearchModuleConfig = {
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
-        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'company', { forEmbedding: true }), '')
 
         const { entity, entityId, profileCustomFields, entityOnlyCustomFields } =
           await hydrateProfileContext(ctx, 'company')
-        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'company', { forEmbedding: true }), 'Company custom')
+        const embeddingOptions = { forEmbedding: true, encryptedFields: await resolveProfileEncryptedFields(ctx, 'company', entity) }
+        appendCustomFieldLines(lines, selectProfileSearchFields(record, 'company', embeddingOptions), '')
+        appendCustomFieldLines(lines, selectProfileSearchFields(profileCustomFields, 'company', embeddingOptions), 'Company custom')
         if (Object.keys(entityOnlyCustomFields).length) {
-          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'company', { forEmbedding: true }), 'Customer custom')
+          appendCustomFieldLines(lines, selectProfileSearchFields(entityOnlyCustomFields, 'company', embeddingOptions), 'Customer custom')
         }
-        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'company', { forEmbedding: true, customerEntity: true }))
+        appendCustomerEntityLines(lines, selectProfileSearchFields(entity, 'company', { ...embeddingOptions, customerEntity: true }))
         ensureFallbackLines(lines, { id: record.id ?? entityId ?? 'customers:customer_company_profile' })
         if (!lines.length) return null
 

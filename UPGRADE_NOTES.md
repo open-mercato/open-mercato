@@ -33,6 +33,15 @@ Contact details are also omitted from result presenters. Names remain available
 for result display; semantic matching no longer uses encrypted name/contact
 fields. Customer-account email remains available through hashed search.
 
+Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
+source. Failed, null, or empty sources skip vector writes instead of embedding
+raw fields; independent fulltext/token indexing continues. Customer sources also
+exclude live tenant/organization encryption declarations. Search DI supplies the
+existing source-context `container`; integrations invoking customer builders
+directly must provide it with `tenantEncryptionService`. Missing dependencies or
+failed policy lookup skip the vector write. Restore policy access and reindex any
+records skipped during an outage.
+
 Deploy the fix to every app and indexing worker before rebuilding. Existing
 embeddings and stored presenters are **not automatically removed** by this code
 change. For every affected tenant and organization scope:
