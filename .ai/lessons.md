@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 155 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 157 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,7 +18,7 @@ This catalog indexes 155 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
-- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,sales,warranty_claims; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation
 
 ### architecture
 
@@ -57,12 +57,12 @@ This catalog indexes 155 focused lessons. Route the task first, then read only r
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [A migration with swapped up/down can silently drop a unique constraint the code relies on](lessons/swapped-migration-up-down-can-silently-drop-a-unique-constraint.md) — area:module-data,debugging,testing; module:payment_gateways; topic:database-migrations,data-integrity,webhooks
-- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
+- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers; topic:command-pattern,data-integrity,generated-files,encryption
 - [Classify redo creation by operation and snapshot](lessons/classify-redo-creation-by-operation-and-snapshot.md) — area:module-data,testing; module:feature_toggles; topic:command-pattern,data-integrity,undo-redo
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Data migrations must declare the query-index projections they invalidate](lessons/data-migrations-must-declare-the-projections-they.md) — area:module-data,architecture,debugging; module:query_index,cli,customers; topic:database-migrations,query-index,events
-- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,reference-integrity
+- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,row-locking,reference-integrity
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
@@ -179,6 +179,7 @@ This catalog indexes 155 focused lessons. Route the task first, then read only r
 
 ### testing
 
+- [Verify persisted state with fresh CRUD reads](lessons/verify-persisted-state-with-fresh-crud-reads.md) — area:testing,integration,module-data; module:customers,shared; topic:cache,data-integrity,testing
 - [Repository-source tests must register as cross-package guards](lessons/repository-source-tests-must-register-as-cross-package-guards.md) — area:testing; module:cli,catalog; topic:testing,module-boundaries,generated-files
 
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
@@ -186,6 +187,7 @@ This catalog indexes 155 focused lessons. Route the task first, then read only r
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
 - [Enqueue then stamp](lessons/enqueue-then-stamp.md) — area:testing; module:events; topic:events,workers
 - [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,polling,query-index,route-coverage
+- [Permission-sensitive exports need live API coverage](lessons/permission-sensitive-exports-need-live-api-coverage.md) — area:testing,integration; module:staff,auth; topic:access-control,testing,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
