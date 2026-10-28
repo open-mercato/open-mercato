@@ -110,6 +110,7 @@ type BackfillRow = {
   changed_fields: string[] | null
   changes_json: Record<string, unknown> | null
   command_id: string
+  correlation_keys: string[] | null
   context_json: Record<string, unknown> | null
   created_at: Date
   id: string
@@ -342,6 +343,7 @@ export class ActionLogService {
       changesJson: isRecord(data.changes) ? data.changes : null,
       changedFields: projection.changedFields,
       primaryChangedField: projection.primaryChangedField,
+      correlationKeys: projection.correlationKeys.length > 0 ? projection.correlationKeys : null,
       contextJson: isRecord(data.context) ? data.context : null,
       sourceKey: projection.sourceKey,
       createdAt: new Date(),
@@ -848,6 +850,7 @@ export class ActionLogService {
           'action_logs.source_key',
           'action_logs.changed_fields',
           'action_logs.primary_changed_field',
+          'action_logs.correlation_keys',
           'action_logs.created_at',
         ])
         .where('action_logs.deleted_at', 'is', null) as any
@@ -903,6 +906,7 @@ export class ActionLogService {
             || row.source_key !== projection.sourceKey
             || row.primary_changed_field !== projection.primaryChangedField
             || !stringArraysEqual(row.changed_fields, projection.changedFields)
+            || !stringArraysEqual(row.correlation_keys ?? [], projection.correlationKeys)
 
           if (!needsUpdate) {
             result.skipped += 1
@@ -915,6 +919,7 @@ export class ActionLogService {
               action_type: projection.actionType,
               changed_fields: projection.changedFields,
               primary_changed_field: projection.primaryChangedField,
+              correlation_keys: projection.correlationKeys.length > 0 ? projection.correlationKeys : null,
               source_key: projection.sourceKey,
             })
             .where('id', '=', row.id)

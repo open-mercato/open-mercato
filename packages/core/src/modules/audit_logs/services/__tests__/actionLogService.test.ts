@@ -491,6 +491,126 @@ describe('ActionLogService normalizeInput', () => {
     expect(created.primaryChangedField).toBe('entity.displayName')
     expect(created.relatedResourceKind).toBe('customers.deal')
     expect(created.relatedResourceId).toBe('deal-1')
+    expect(created.correlationKeys).toBeNull()
+  })
+
+  it('populates correlation keys from context.correlation when creating a log entity', () => {
+    const service = new ActionLogService(
+      {} as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    const serviceWithPrivateAccess = service as unknown as {
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, {
+      commandId: 'customers.deals.update',
+      context: {
+        source: 'agent',
+        correlation: { proposalId: 'prop-1', agentRunId: 'run-1', note: 'free text here' },
+      },
+      executionState: 'done',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    })
+
+    expect(created.correlationKeys).toEqual(['agentRunId:run-1', 'proposalId:prop-1'])
+    expect(created.contextJson).toEqual({
+      source: 'agent',
+      correlation: { proposalId: 'prop-1', agentRunId: 'run-1', note: 'free text here' },
+    })
+  })
+})
+
+describe('ActionLogService.backfillProjections - correlation keys', () => {
+  function buildBackfillService(rows: Record<string, unknown>[]) {
+    const updates: Array<{ values: Record<string, unknown>; id: unknown }> = []
+    let served = false
+    const selectBuilder = {
+      select: () => selectBuilder,
+      where: () => selectBuilder,
+      orderBy: () => selectBuilder,
+      limit: async () => {
+        if (served) return []
+        served = true
+        return rows
+      },
+    }
+    const fakeKysely = {
+      selectFrom: () => selectBuilder,
+      updateTable: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_column: string, _operator: string, id: unknown) => ({
+            execute: async () => {
+              updates.push({ values, id })
+            },
+          }),
+        }),
+      }),
+    }
+    const service = new ActionLogService(
+      { getKysely: () => fakeKysely } as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, updates }
+  }
+
+  const baseRow = {
+    tenant_id: 'tenant-1',
+    organization_id: 'org-1',
+    actor_user_id: null,
+    command_id: 'customers.deals.update',
+    action_label: null,
+    snapshot_before: null,
+    changes_json: null,
+    action_type: 'edit',
+    source_key: 'agent',
+    changed_fields: [],
+    primary_changed_field: null,
+    created_at: new Date('2026-10-01T00:00:00.000Z'),
+  }
+
+  it('fills correlation_keys for rows whose context carries correlation ids', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-1',
+        correlation_keys: null,
+        context_json: { source: 'agent', correlation: { agentRunId: 'run-1' } },
+      },
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 0, updated: 1 })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].id).toBe('log-1')
+    expect(updates[0].values.correlation_keys).toEqual(['agentRunId:run-1'])
+  })
+
+  it('skips rows whose correlation keys already match and keeps null for uncorrelated rows', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-2',
+        correlation_keys: ['agentRunId:run-2'],
+        context_json: { source: 'agent', correlation: { agentRunId: 'run-2' } },
+      },
+      {
+        ...baseRow,
+        id: 'log-3',
+        correlation_keys: null,
+        context_json: { source: 'agent' },
+      },
+    ])
+
+    const result = await service.backfillProjections({ batchSize: 10 })
+
+    expect(result).toEqual({ errors: 0, scanned: 2, skipped: 2, updated: 0 })
+    expect(updates).toHaveLength(0)
   })
 })
 

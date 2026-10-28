@@ -561,6 +561,76 @@ describe('CommandBus', () => {
     )
   })
 
+  describe('auditCorrelation', () => {
+    async function runWithCorrelation(
+      commandId: string,
+      auditCorrelation: Record<string, unknown> | undefined,
+      metadataContext?: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+      const logMock = jest.fn(async () => ({ id: 'log-correlation' }))
+      registerCommand({
+        id: commandId,
+        execute: jest.fn(async () => ({ ok: true })),
+        buildLog: jest.fn(() => ({ actionLabel: 'Correlated', resourceKind: 'test', resourceId: '1' })),
+      })
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      container.register({ actionLogService: asValue({ log: logMock }) })
+      await new CommandBus().execute(commandId, {
+        input: {},
+        ctx: {
+          container,
+          auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+          organizationScope: null,
+          selectedOrganizationId: 'org-1',
+          organizationIds: ['org-1'],
+          auditCorrelation: auditCorrelation as Record<string, string> | undefined,
+        },
+        metadata: metadataContext ? { context: metadataContext } : undefined,
+      })
+      return logMock.mock.calls[0][0] as Record<string, unknown>
+    }
+
+    it('merges ctx.auditCorrelation into context.correlation', async () => {
+      const payload = await runWithCorrelation('test.correlation.merge', { agentRunId: 'run-1', proposalId: 'prop-1' })
+      expect(payload.context).toEqual({ correlation: { agentRunId: 'run-1', proposalId: 'prop-1' } })
+    })
+
+    it('keeps existing context and correlation keys instead of overwriting them', async () => {
+      const payload = await runWithCorrelation(
+        'test.correlation.no-overwrite',
+        { agentRunId: 'run-new', proposalId: 'prop-1', source: 'evil' },
+        { source: 'api', correlation: { agentRunId: 'run-existing' } },
+      )
+      expect(payload.context).toEqual({
+        source: 'api',
+        correlation: { agentRunId: 'run-existing', proposalId: 'prop-1', source: 'evil' },
+      })
+    })
+
+    it('drops non-string values and leaves the context untouched when nothing remains', async () => {
+      const payload = await runWithCorrelation(
+        'test.correlation.non-string',
+        { agentRunId: 42, nested: { id: 'x' }, empty: '' },
+        { untouched: true },
+      )
+      expect(payload.context).toEqual({ untouched: true })
+    })
+
+    it('does not replace a non-object correlation value', async () => {
+      const payload = await runWithCorrelation(
+        'test.correlation.scalar',
+        { agentRunId: 'run-1' },
+        { correlation: 'legacy' },
+      )
+      expect(payload.context).toEqual({ correlation: 'legacy' })
+    })
+
+    it('omits correlation when no auditCorrelation is provided', async () => {
+      const payload = await runWithCorrelation('test.correlation.absent', undefined)
+      expect(payload.context).toBeUndefined()
+    })
+  })
+
   it('does not set onBehalfOfUserId for ordinary (non-runAs) human writes — additive default', async () => {
     const logMock = jest.fn(async () => ({ id: 'log-plain' }))
     registerCommand({

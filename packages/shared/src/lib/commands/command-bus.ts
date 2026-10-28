@@ -97,6 +97,28 @@ function asRecord(input: unknown): Record<string, unknown> | null {
   return input as Record<string, unknown>
 }
 
+function mergeAuditCorrelation(
+  baseContext: Record<string, unknown> | null,
+  auditCorrelation: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const incoming = asRecord(auditCorrelation)
+  if (!incoming) return null
+  const context = baseContext ?? {}
+  const existingValue = context.correlation
+  const existing = asRecord(existingValue)
+  if (existingValue !== undefined && existingValue !== null && !existing) return null
+  const merged: Record<string, unknown> = { ...(existing ?? {}) }
+  let added = false
+  for (const [key, value] of Object.entries(incoming)) {
+    if (typeof value !== 'string' || value.length === 0) continue
+    if (Object.prototype.hasOwnProperty.call(merged, key)) continue
+    merged[key] = value
+    added = true
+  }
+  if (!added) return null
+  return { ...context, correlation: merged }
+}
+
 /** Command handlers often return domain keys (e.g. warehouseId) without `id`; cache invalidation must still resolve the record. */
 function extractPrimaryIdFromCommandResult(result: unknown): string | null {
   const r = asRecord(result)
@@ -967,6 +989,9 @@ export class CommandBus {
       const baseContext = asRecord(payload.context) ?? {}
       payload.context = { ...baseContext, source: runAs.source }
     }
+
+    const correlationContext = mergeAuditCorrelation(asRecord(payload.context), options.ctx.auditCorrelation)
+    if (correlationContext) payload.context = correlationContext
 
     if (metadata.replayable === false) {
       delete payload.commandPayload
