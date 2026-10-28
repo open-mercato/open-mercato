@@ -2,6 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentGuardrailCheck, AgentProposal, AgentSpan } from '../../data/entities'
 import type { AutoDispositionBlock, ProposalOption } from '../../data/validators'
 import { normalizeProposalEnvelope, rankProposalOptions } from '../../data/proposalEnvelope'
@@ -20,6 +21,16 @@ import {
 } from './autoApprovalPolicy'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'disposition-service' })
+
+/**
+ * An integrity rule asks for a human by setting `holdsAutoApproval` on its `warn`
+ * row. Shadow mode strips the flag before persisting, and legacy grounding and
+ * injection warns never carry it, so neither holds a proposal.
+ */
+function holdsAutoApproval(evidence: unknown): boolean {
+  if (!evidence || typeof evidence !== 'object') return false
+  return (evidence as { holdsAutoApproval?: unknown }).holdsAutoApproval === true
+}
 
 /**
  * Disposition config carried verbatim from the INVOKE_AGENT node's `onResult`.
@@ -125,6 +136,9 @@ export class DispositionServiceImpl implements DispositionService {
   /**
    * The run-level evidence the policy weighs beside the model's own confidence.
    *
+   * Guardrails pass only when this run has no `block` row and no `warn` row an
+   * integrity rule flagged with `holdsAutoApproval`.
+   *
    * Every read here is best-effort and fails CLOSED in the direction that matters:
    * a guardrail table we cannot read reports `guardrailsPassed: false` (an
    * unreadable safety check is not a passed one), while an unreadable tenant
@@ -142,11 +156,19 @@ export class DispositionServiceImpl implements DispositionService {
     let guardrailsPassed = false
     let traceComplete = false
     try {
-      const [blocked, spanCount] = await Promise.all([
+      const [blocked, warnRows, spanCount] = await Promise.all([
         em.count(AgentGuardrailCheck, { ...scope, agentRunId: proposal.runId, result: 'block' }),
+        findWithDecryption(
+          em,
+          AgentGuardrailCheck,
+          { ...scope, agentRunId: proposal.runId, result: 'warn' },
+          { fields: ['id', 'evidence'] },
+          scope,
+        ),
         em.count(AgentSpan, { ...scope, agentRunId: proposal.runId, kind: { $in: ['llm', 'tool'] } }),
       ])
-      guardrailsPassed = blocked === 0
+      const heldWarns = warnRows.filter((row) => holdsAutoApproval(row.evidence)).length
+      guardrailsPassed = blocked === 0 && heldWarns === 0
       // A run that left no trace at all cannot be audited after the fact, and an
       // unauditable mutation is exactly what auto-approval must not produce.
       traceComplete = spanCount > 0

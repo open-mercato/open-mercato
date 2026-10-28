@@ -104,8 +104,7 @@ function reportCheckerFailure(rule: CustomIntegrityRule, error: unknown): void {
  * - `repairedOutput` replaces the output (`changed`); the pipeline re-validates
  *   it against the result schema. Violations are then read against it.
  * - Violations follow `onViolation`: `flag` keeps the item and records a `warn`
- *   with `holdsAutoApproval` on the check row (auto-approval honours it once
- *   Integrity Phase 3 lands — until then `flag` only records a `warn`), `drop`
+ *   with `holdsAutoApproval` on the check row, which holds auto-approval, `drop`
  *   removes the nearest enclosing array item (unaddressable paths stay
  *   flagged), `block` stops the run.
  *

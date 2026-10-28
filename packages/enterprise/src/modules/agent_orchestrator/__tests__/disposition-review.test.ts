@@ -58,9 +58,12 @@ function makeProposal(overrides: Partial<AgentProposal> = {}): AgentProposal {
   } as AgentProposal
 }
 
+type GuardrailRow = { agentRunId: string; result: 'pass' | 'warn' | 'block'; evidence?: unknown }
+
 function makeService(
   execute = jest.fn<(...args: unknown[]) => Promise<unknown>>(),
   spanKinds: string[] | null = null,
+  guardrailRows: GuardrailRow[] = [],
 ) {
   const nativeUpdate = jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(1)
   const container = {
@@ -73,8 +76,16 @@ function makeService(
         return {
           fork: () => ({
             nativeUpdate,
-            count: async (entity: unknown, where?: { kind?: { $in?: string[] } }) => {
-              if (((entity as { name?: string })?.name ?? '') === 'AgentGuardrailCheck') return 0
+            find: async (entity: unknown, where?: { agentRunId?: string; result?: string }) => {
+              if (((entity as { name?: string })?.name ?? '') !== 'AgentGuardrailCheck') return []
+              return guardrailRows
+                .filter((row) => row.agentRunId === where?.agentRunId && row.result === where?.result)
+                .map((row, index) => ({ id: `check-${index}`, evidence: row.evidence ?? null }))
+            },
+            count: async (entity: unknown, where?: { agentRunId?: string; result?: string; kind?: { $in?: string[] } }) => {
+              if (((entity as { name?: string })?.name ?? '') === 'AgentGuardrailCheck') {
+                return guardrailRows.filter((row) => row.agentRunId === where?.agentRunId && row.result === where?.result).length
+              }
               if (spanKinds === null) return 1
               const allowed = where?.kind?.$in
               return spanKinds.filter((kind) => !allowed || allowed.includes(kind)).length
@@ -246,6 +257,62 @@ describe('DispositionService — the trace-completeness gate counts only llm and
 
   test.each([['llm'], ['tool']])('a run with a manifest and an %s span passes the gate', async (kind) => {
     const { service } = makeService(undefined, ['system', kind])
+
+    const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(outcome.kind).toBe('auto_approved')
+  })
+})
+
+describe('DispositionService — integrity warns that request it hold auto-approval', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    createAgentDispositionTask.mockResolvedValue({ userTaskId: 'task-1' })
+  })
+
+  test('a warn row of this run with holdsAutoApproval routes to a human with the guardrail block', async () => {
+    const { service, execute, nativeUpdate } = makeService(undefined, null, [
+      { agentRunId: 'run-1', result: 'warn', evidence: { ruleId: 'abstain', outcome: 'needs_review', holdsAutoApproval: true } },
+    ])
+
+    const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(outcome.kind).toBe('user_task')
+    expect(execute).not.toHaveBeenCalled()
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ autoDispositionBlock: 'guardrail' }),
+    )
+  })
+
+  test('legacy grounding and injection warns without the flag do not hold', async () => {
+    const { service, execute } = makeService(undefined, null, [
+      { agentRunId: 'run-1', result: 'warn', evidence: { detector: 'grounding', score: 0.4 } },
+      { agentRunId: 'run-1', result: 'warn', evidence: null },
+      { agentRunId: 'run-1', result: 'warn', evidence: { holdsAutoApproval: 'true' } },
+    ])
+
+    const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(outcome.kind).toBe('auto_approved')
+    expect(execute).toHaveBeenCalled()
+  })
+
+  test('a shadow-mode warn, persisted without the flag, does not hold', async () => {
+    const { service } = makeService(undefined, null, [
+      { agentRunId: 'run-1', result: 'warn', evidence: { ruleId: 'abstain', outcome: 'needs_review', route: 'review' } },
+    ])
+
+    const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(outcome.kind).toBe('auto_approved')
+  })
+
+  test('a held warn on another run does not hold this proposal', async () => {
+    const { service } = makeService(undefined, null, [
+      { agentRunId: 'run-2', result: 'warn', evidence: { holdsAutoApproval: true } },
+    ])
 
     const outcome = await service.dispose(makeProposal({ confidence: 1 }), { autoApproveThreshold: 0.8 }, ctx)
 
