@@ -331,7 +331,22 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
     }
   }
 
-  return modules
+  return dedupeModulesById(modules)
+}
+
+function dedupeModulesById(modules: ModuleEntry[]): ModuleEntry[] {
+  const seen = new Map<string, ModuleEntry>()
+  for (const entry of modules) {
+    const existing = seen.get(entry.id)
+    if (!existing) {
+      seen.set(entry.id, entry)
+      continue
+    }
+    console.warn(
+      `[resolver] Module "${entry.id}" is registered more than once in src/modules.ts (from "${existing.from ?? '@open-mercato/core'}" and "${entry.from ?? '@open-mercato/core'}"). Keeping the first registration; remove the duplicate entry.`,
+    )
+  }
+  return Array.from(seen.values())
 }
 
 export function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
