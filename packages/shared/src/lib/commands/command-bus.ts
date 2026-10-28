@@ -34,6 +34,7 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import { getAmbientAuditCorrelation } from './auditCorrelationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
@@ -992,6 +993,8 @@ export class CommandBus {
 
     const correlationContext = mergeAuditCorrelation(asRecord(payload.context), options.ctx.auditCorrelation)
     if (correlationContext) payload.context = correlationContext
+    const ambientCorrelationContext = mergeAuditCorrelation(asRecord(payload.context), getAmbientAuditCorrelation())
+    if (ambientCorrelationContext) payload.context = ambientCorrelationContext
 
     if (metadata.replayable === false) {
       delete payload.commandPayload

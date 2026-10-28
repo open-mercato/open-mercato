@@ -44,6 +44,7 @@
 | 2 | 2.8 | Record tools denied by the principal | dispatch | done | pending |
 | 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | done | pending |
 | 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | done | pending |
+| 2 | 2.10-review-fix | Stamp run correlation on tool writes through an ambient scope | dispatch:capable | done | pending |
 | 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | todo | — |
 | 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | todo | — |
 | 3 | 3.1 | Add the trace content namespace and tri-state artifact reads | dispatch:cheap | todo | — |
@@ -165,6 +166,10 @@ See the two research files (verified on `2d407b96f`). Key cross-cutting rules fo
 - Implements **D4.1** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 2.10 Stamp run and proposal correlation on agent and effector writes
 - Implements **D4.2** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
+#### 2.10-review-fix Stamp run correlation on tool writes through an ambient scope
+- Native tools build their own command contexts, so the runner's explicit `auditCorrelation` never reached tool writes. `@open-mercato/shared/lib/commands/auditCorrelationScope` adds an AsyncLocalStorage scope (`withAuditCorrelation` / `getAmbientAuditCorrelation`, globalThis `Symbol.for` store, nested scopes merge with inner winning); the command bus merges it after the explicit one, so precedence is existing log context keys > `ctx.auditCorrelation` > ambient (strings only, non-empty).
+- The native runner wraps the `runAiAgentObject` phase in `withAuditCorrelation(buildRunAuditCorrelation(ctx, runId))`; AI SDK tool `execute` is awaited inside that chain, so every tool command write carries `agentRunId` (nested `delegate_agent` runs override it with their own id).
+- Remaining gap: OpenCode/MCP agents run tools in the `mcp:serve-http` process, outside the runner's async context, so their writes stay uncorrelated until O4.3 adds an MCP tool-execution hook where the scope can be bound.
 #### 2.11 List a run's actions and show them on the trace page
 - Implements **D4.3** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 2.12 Cover principals and run actions with integration tests

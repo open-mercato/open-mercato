@@ -10,6 +10,7 @@ import type {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { bindRunObservation, createRunObservationCollector } from '@open-mercato/shared/lib/ai/run-observation'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { withAuditCorrelation } from '@open-mercato/shared/lib/commands/auditCorrelationScope'
 import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
 import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { resolveAgentDefinitionHash } from '../trace/definitionHash'
@@ -69,6 +70,7 @@ import {
 import {
   type AgentRunCtx,
   buildCommandContext,
+  buildRunAuditCorrelation,
   withRunAuditCorrelation,
   createRun,
   completeRun,
@@ -514,38 +516,40 @@ export class NativeAgentRunner {
         withRunContext(
           runId,
           () =>
-            runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-              const objectResult = await runAiAgentObject({
-                agentId,
-                input: renderUntrustedModelInput(input, entry.untrustedInputs, createUntrustedInputNonce()),
-                authContext,
-                container: this.container,
-                output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
-                // Propose-only agents stay read-only: run a read-only tool loop so the
-                // agent can gather data (via its own tools or skill-contributed tools)
-                // before proposing. The runtime auto-falls back to a plain structured
-                // generate when no tools resolve, so toolless agents are unaffected.
-                // Writes never execute directly (read-only policy + proposal → effector).
-                enableTools: true,
-                trace: { persist: false },
-                ...(ctx.callSettings ? { callSettings: ctx.callSettings } : {}),
-                ...(traceEnabled ? { observe: runObserver } : {}),
-                ...(wireStepFinish
-                  ? {
-                      loop: {
-                        onStepFinish: onAgentStepFinish,
-                        ...(toolConsultedPrepareStep ? { prepareStep: toolConsultedPrepareStep } : {}),
-                      },
-                    }
-                  : {}),
-              })
-              // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
-              if (objectResult.mode === 'stream') {
-                return await objectResult.object
-              }
-              fallbackUsage = objectResult.usage ?? null
-              return objectResult.object
-            }),
+            withAuditCorrelation(buildRunAuditCorrelation(ctx, runId), () =>
+              runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
+                const objectResult = await runAiAgentObject({
+                  agentId,
+                  input: renderUntrustedModelInput(input, entry.untrustedInputs, createUntrustedInputNonce()),
+                  authContext,
+                  container: this.container,
+                  output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+                  // Propose-only agents stay read-only: run a read-only tool loop so the
+                  // agent can gather data (via its own tools or skill-contributed tools)
+                  // before proposing. The runtime auto-falls back to a plain structured
+                  // generate when no tools resolve, so toolless agents are unaffected.
+                  // Writes never execute directly (read-only policy + proposal → effector).
+                  enableTools: true,
+                  trace: { persist: false },
+                  ...(ctx.callSettings ? { callSettings: ctx.callSettings } : {}),
+                  ...(traceEnabled ? { observe: runObserver } : {}),
+                  ...(wireStepFinish
+                    ? {
+                        loop: {
+                          onStepFinish: onAgentStepFinish,
+                          ...(toolConsultedPrepareStep ? { prepareStep: toolConsultedPrepareStep } : {}),
+                        },
+                      }
+                    : {}),
+                })
+                // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
+                if (objectResult.mode === 'stream') {
+                  return await objectResult.object
+                }
+                fallbackUsage = objectResult.usage ?? null
+                return objectResult.object
+              }),
+            ),
           ctx.source,
           resolveInvoker(ctx) ?? undefined,
           runToolCallSink,

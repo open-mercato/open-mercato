@@ -5,6 +5,7 @@ import {
   registerCommandLoaders,
   CommandBus,
   isCommandInterceptorError,
+  withAuditCorrelation,
 } from '@open-mercato/shared/lib/commands'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
 import type { CommandInterceptor, CommandInterceptorContext } from '@open-mercato/shared/lib/commands/command-interceptor'
@@ -627,6 +628,39 @@ describe('CommandBus', () => {
 
     it('omits correlation when no auditCorrelation is provided', async () => {
       const payload = await runWithCorrelation('test.correlation.absent', undefined)
+      expect(payload.context).toBeUndefined()
+    })
+
+    it('merges the ambient correlation when no explicit correlation is provided', async () => {
+      const payload = await withAuditCorrelation({ agentRunId: 'run-ambient' }, () =>
+        runWithCorrelation('test.correlation.ambient', undefined),
+      )
+      expect(payload.context).toEqual({ correlation: { agentRunId: 'run-ambient' } })
+    })
+
+    it('ranks existing context keys over explicit correlation over the ambient scope', async () => {
+      const payload = await withAuditCorrelation(
+        { agentRunId: 'run-ambient', proposalId: 'prop-ambient', workflowInstanceId: 'wf-ambient' },
+        () =>
+          runWithCorrelation(
+            'test.correlation.precedence',
+            { proposalId: 'prop-explicit', correlationId: 'corr-explicit' },
+            { correlation: { workflowInstanceId: 'wf-existing' } },
+          ),
+      )
+      expect(payload.context).toEqual({
+        correlation: {
+          workflowInstanceId: 'wf-existing',
+          proposalId: 'prop-explicit',
+          correlationId: 'corr-explicit',
+          agentRunId: 'run-ambient',
+        },
+      })
+    })
+
+    it('does not leak an ambient correlation into writes outside the scope', async () => {
+      await withAuditCorrelation({ agentRunId: 'run-scoped' }, async () => undefined)
+      const payload = await runWithCorrelation('test.correlation.outside-scope', undefined)
       expect(payload.context).toBeUndefined()
     })
   })

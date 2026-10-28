@@ -20,6 +20,13 @@ import { randomUUID } from 'node:crypto'
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
 import type { QueryEngine, QueryOptions, QueryResult } from '@open-mercato/shared/lib/query/types'
 import { captureLogs } from './support/captureLogs'
+import { createContainer, asValue, InjectionMode } from 'awilix'
+import {
+  CommandBus as SharedCommandBus,
+  commandRegistry,
+  getAmbientAuditCorrelation,
+  registerCommand,
+} from '@open-mercato/shared/lib/commands'
 
 jest.setTimeout(60_000)
 
@@ -787,5 +794,49 @@ describe('effective tool ACL (identity spec Phase 3)', () => {
     await createService(orm, [], { rbacService: createRbac() }).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
 
     expect(toolAuthContext()).toMatchObject({ features: ['customers.deals.view'], isSuperAdmin: false })
+  })
+})
+
+describe('ambient run correlation for tool writes', () => {
+  const TOOL_COMMAND_ID = 'test.tool_write.recorded'
+
+  afterEach(() => {
+    commandRegistry.unregister(TOOL_COMMAND_ID)
+  })
+
+  it('stamps the run id on a command a tool executes with its own context', async () => {
+    const actionLog = jest.fn(async (_entry: Record<string, unknown>) => ({ id: 'log-tool' }))
+    registerCommand({
+      id: TOOL_COMMAND_ID,
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ actionLabel: 'Tool write', resourceKind: 'test.tool', resourceId: SUBJECT_ID })),
+    })
+    const toolContainer = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    toolContainer.register({ actionLogService: asValue({ log: actionLog }) })
+    let ambientSeenByTool: Record<string, string> | null = null
+    runAiAgentObjectMock.mockImplementation(async () => {
+      ambientSeenByTool = getAmbientAuditCorrelation()
+      await new SharedCommandBus().execute(TOOL_COMMAND_ID, {
+        input: {},
+        ctx: {
+          container: toolContainer,
+          auth: { sub: HUMAN, tenantId: TENANT, orgId: ORG },
+          organizationScope: null,
+          selectedOrganizationId: ORG,
+          organizationIds: [ORG],
+        },
+      })
+      return { mode: 'generate', object: SCRIPTED_OUTPUT, usage: { inputTokens: 10, outputTokens: 5 } }
+    })
+    const orm = createFakeOrm()
+
+    await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, { ...baseCtx, correlationId: 'corr-1' })
+
+    const runId = String(onlyRun(orm).id)
+    expect(ambientSeenByTool).toEqual({ agentRunId: runId, correlationId: 'corr-1' })
+    expect(actionLog).toHaveBeenCalledTimes(1)
+    const logged = actionLog.mock.calls[0][0]
+    expect(logged.context).toEqual({ correlation: { agentRunId: runId, correlationId: 'corr-1' } })
+    expect(getAmbientAuditCorrelation()).toBeNull()
   })
 })
