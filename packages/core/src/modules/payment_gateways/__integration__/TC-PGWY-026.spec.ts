@@ -4,7 +4,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { capturePayment, createPaymentSession, getTransactionDetails } from './helpers/fixtures'
 
 /**
- * TC-PGWY-026: A manual cancel never strands funds that were already captured
+ * TC-PGWY-026: A manual cancel is refused once part of the payment was captured
  *
  * Cancelling a partially captured payment used to move it to the terminal `cancelled` status
  * while the captured amount stayed on the ledger, so the money could never be refunded through
