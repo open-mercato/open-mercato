@@ -184,10 +184,10 @@ export function mergeDevUrlEnv(env = {}, fileEnv = {}) {
 //
 //   env: process.env-like object (wins over the file, like dotenv).
 //   fileEnv: parsed app `.env`.
-//   options.bindsPort: true when Next.js itself binds the public port (direct
-//     runtime mode). It binds PORT, so a loopback APP_URL with another port
-//     (the scaffold's `.env.example` ships APP_URL=http://localhost:3000) must
-//     not hide the port the server actually listens on.
+//   options.bindsPort: true when a local process (Next.js or the dev gateway)
+//     binds the public port. It binds PORT, so a loopback APP_URL with another
+//     port (the scaffold ships APP_URL=http://localhost:3000) must not hide the
+//     port the process actually listens on.
 //
 // Proxy-fronted dev (non-loopback APP_URL) keeps the historical behavior: a
 // PORT coming only from `.env` is the hidden internal port and must not leak
@@ -202,6 +202,10 @@ export function resolveDevAppBaseUrl(env = {}, fileEnv = {}, options = {}) {
   }
   const boundPort = options.bindsPort === true ? parsePortNumber(merged.PORT) : null
   return resolveDevBaseUrl(merged, boundPort !== null ? { actualPort: boundPort } : {})
+}
+
+export function resolveDevPublicAppBaseUrl(env = {}, fileEnv = {}) {
+  return resolveDevAppBaseUrl(env, fileEnv, { bindsPort: true })
 }
 
 // Resolve the URL where the dev splash itself can be reached. The splash

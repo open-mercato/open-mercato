@@ -64,7 +64,7 @@ import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
 import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
   mergeDevUrlEnv,
-  resolveDevAppBaseUrl,
+  resolveDevPublicAppBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
@@ -258,7 +258,8 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
 const appDotEnv = readAppDotEnv(isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd())
-const publicAppPort = resolveDevAppBaseUrl(process.env, appDotEnv).port ?? 3000
+const publicAppBaseUrl = resolveDevPublicAppBaseUrl(process.env, appDotEnv)
+const publicAppPort = publicAppBaseUrl.port ?? 3000
 const devRuntimeConfig = (() => {
   try {
     return resolveDevRuntimeConfig(process.env, { splashEnabled, publicPort: publicAppPort })
@@ -273,7 +274,7 @@ const devRuntimeConfig = (() => {
 // The gateway owns the public port only when explicitly opted in; `direct` mode
 // keeps the historical topology where Next.js binds it.
 const gatewayMode = devRuntimeConfig.mode === 'proxy'
-const expectedAppBaseUrl = resolveDevAppBaseUrl(process.env, appDotEnv, { bindsPort: !gatewayMode }).url
+const expectedAppBaseUrl = publicAppBaseUrl.url
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
 const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')

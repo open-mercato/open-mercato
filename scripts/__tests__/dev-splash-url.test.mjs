@@ -9,6 +9,7 @@ import {
   parsePortNumber,
   resolveDevAppBaseUrl,
   resolveDevBaseUrl,
+  resolveDevPublicAppBaseUrl,
   resolveSplashUrl,
 } from '../dev-splash-url.mjs'
 
@@ -239,6 +240,12 @@ test('resolveDevAppBaseUrl prefers the bound PORT over a loopback APP_URL port i
   const fileEnv = { PORT: '3100', APP_URL: 'http://localhost:3000' }
   assert.equal(resolveDevAppBaseUrl({}, fileEnv, { bindsPort: true }).url, 'http://localhost:3100')
   assert.equal(resolveDevAppBaseUrl({}, fileEnv).url, 'http://localhost:3000')
+})
+
+test('resolveDevPublicAppBaseUrl uses the bound PORT for the proxy gateway with a loopback APP_URL', () => {
+  const shellEnv = { OM_DEV_RUNTIME_MODE: 'proxy' }
+  const fileEnv = { PORT: '51000', APP_URL: 'http://localhost:3000' }
+  assert.equal(resolveDevPublicAppBaseUrl(shellEnv, fileEnv).url, 'http://localhost:51000')
 })
 
 test('resolveDevAppBaseUrl falls back to 3000 when neither the shell nor .env set a port', () => {

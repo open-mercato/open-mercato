@@ -13,7 +13,7 @@ import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
-import { describeInfraProblem, devRuntimeArgs, removeLeftoverComposeResources } from '../infra.mjs'
+import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
 import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
 
@@ -741,6 +741,31 @@ test('--no-infra: the container runtime, host gateway and infra steps are skippe
   assert.deepEqual(devRuntimeArgs(['--verbose'], { noInfra: true }), ['--verbose', '--no-infra'])
   assert.deepEqual(devRuntimeArgs(['--no-infra'], { noInfra: true }), ['--no-infra'])
   assert.deepEqual(devRuntimeArgs(['--verbose'], { noInfra: false }), ['--verbose'])
+})
+
+test('--no-infra overrides explicit and remembered docker modes for the current run', () => {
+  const explicitMode = 'docker'
+  const rememberedMode = 'docker'
+  assert.equal(resolveUpMode(explicitMode, { noInfra: true }), 'hybrid')
+  assert.equal(resolveUpMode(rememberedMode, { noInfra: true }), 'hybrid')
+  assert.equal(resolveUpMode('docker', { noInfra: false }), 'docker')
+  assert.equal(resolveUpMode('hybrid', { noInfra: true }), 'hybrid')
+})
+
+test('monorepo infra reports an external DATABASE_URL before starting local containers', async () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/shared\n')
+  const lines = []
+  const outcome = await startInfra(repo, {
+    env: {},
+    log: (line) => lines.push(String(line)),
+    startImpl: async () => ({ ok: true }),
+  })
+  assert.equal(outcome.ok, true)
+  assert.equal(externalDatabaseHost(repo, {}), 'db.example.com')
+  assert.match(lines.join('\n'), /DATABASE_URL points at db\.example\.com; it is kept as is/)
+  assert.match(lines.join('\n'), /--no-infra/)
 })
 
 test('an automatic infra failure stops the pipeline before the database step', async () => {

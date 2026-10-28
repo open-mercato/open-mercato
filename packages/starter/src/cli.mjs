@@ -26,7 +26,7 @@ import { readEnvValue } from './env-file.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
-import { describeInfraProblem, devRuntimeArgs, infraDown, ensureMcpSharedDir, removeLeftoverComposeResources, startInfra } from './infra.mjs'
+import { describeInfraProblem, devRuntimeArgs, infraDown, ensureMcpSharedDir, removeLeftoverComposeResources, resolveUpMode, startInfra } from './infra.mjs'
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
@@ -156,7 +156,8 @@ async function confirm(question, { nonInteractive }) {
 }
 
 async function commandUp(flags) {
-  const mode = resolveMode(flags.mode)
+  const selectedMode = resolveMode(flags.mode)
+  const mode = resolveUpMode(selectedMode, flags)
   if (flags.clean) {
     // Full re-converge: drop the completed-step markers (keeps the mode, all
     // data, and the one-time initialize state — `reset` is the destructive
@@ -169,6 +170,9 @@ async function commandUp(flags) {
   printBanner(`dev environment starter — mode: ${mode}${ctx.company.name ? ` — company profile: ${ctx.company.name}` : ''}`)
   console.log(color.dim(`  Repo: ${repoRoot}`))
   console.log(color.dim('  Every step is idempotent — re-running always resumes where it stopped.'))
+  if (selectedMode !== mode) {
+    console.log(color.dim('  --no-infra: using the host runtime for this run so no Docker command is invoked.'))
+  }
 
   if (mode === 'docker') return commandUpDocker(ctx, flags)
 

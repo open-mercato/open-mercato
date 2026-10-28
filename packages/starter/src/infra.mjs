@@ -9,7 +9,10 @@ import { fileURLToPath } from 'node:url'
 
 import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runCaptureSync } from './compose.mjs'
 import { resolveStackPorts } from './constants.mjs'
+import { readEnvValue } from './env-file.mjs'
 import { formatInfraProblem, startInfraServices } from './infra-preflight.mjs'
+
+const LOOPBACK_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal'])
 
 export function ensureMcpSharedDir(repoRoot) {
   // Pre-create the bind-mount source so dockerd never creates it root-owned
@@ -45,11 +48,26 @@ export function infraServices(repoRoot, env = process.env) {
   return Object.entries(INFRA_SERVICE_PORT_KEYS).map(([service, envKey]) => ({ service, port: ports[service], envKey }))
 }
 
+export function externalDatabaseHost(repoRoot, env = process.env) {
+  const raw = env.DATABASE_URL ?? readEnvValue(path.join(repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL')
+  if (!raw) return null
+  try {
+    const host = new URL(raw).hostname.toLowerCase()
+    return host && !LOOPBACK_DATABASE_HOSTS.has(host) ? host : null
+  } catch {
+    return null
+  }
+}
+
 // infraUp plus the shared preflight: distinguishes missing CLI / compose,
 // stopped daemon, port conflicts, and failed healthchecks instead of a bare
 // non-zero compose exit. Returns { ok, problem? }; never touches volumes.
-export async function startInfra(repoRoot, { profiles = [], log = console.log, beforeUp, startImpl = startInfraServices } = {}) {
+export async function startInfra(repoRoot, { profiles = [], env = process.env, log = console.log, beforeUp, startImpl = startInfraServices } = {}) {
   ensureMcpSharedDir(repoRoot)
+  const externalHost = externalDatabaseHost(repoRoot, env)
+  if (externalHost) {
+    log(`   DATABASE_URL points at ${externalHost}; it is kept as is. Use --no-infra to skip the local containers.`)
+  }
   return startImpl({
     composeArgs: (extra) => composeArgs(repoRoot, extra),
     services: infraServices(repoRoot),
@@ -64,6 +82,10 @@ export async function startInfra(repoRoot, { profiles = [], log = console.log, b
 // runtime the starter launches afterwards (scripts/dev.mjs honors the flag).
 export function devRuntimeArgs(passthrough, { noInfra = false } = {}) {
   return noInfra && !passthrough.includes('--no-infra') ? [...passthrough, '--no-infra'] : passthrough
+}
+
+export function resolveUpMode(selectedMode, { noInfra = false } = {}) {
+  return noInfra && selectedMode === 'docker' ? 'hybrid' : selectedMode
 }
 
 // Monorepo layout: DATABASE_URL lives in apps/mercato/.env, and the compose

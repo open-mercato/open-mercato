@@ -268,7 +268,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 
     console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
     try {
-      await adminClient.query(`CREATE DATABASE "${dbName.replace(/"/g, '')}"`)
+      await adminClient.query(`CREATE DATABASE ${quotePostgresIdentifier(dbName)}`)
       console.log(`   Database "${dbName}" created successfully.`)
       return true
     } catch (createError: unknown) {
@@ -907,7 +907,7 @@ export function isHelpRequest(args: string[]): boolean {
 // generic help branch. Without an entry here, `mercato init --help` runs a full install.
 const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
   init: [
-    'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
+    'Usage: mercato init [--reinstall|-r] [--skip-if-initialized] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
     'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
   ],
   'agentic:init': [
