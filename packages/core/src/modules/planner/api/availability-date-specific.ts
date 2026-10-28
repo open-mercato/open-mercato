@@ -30,7 +30,6 @@ export const metadata = {
 type RequestContext = {
   ctx: CommandRuntimeContext
 }
-
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
@@ -218,4 +217,3 @@ function resolveDateSet(input: { date?: string; dates?: string[] }): Set<string>
   }
   return dates
 }
-
