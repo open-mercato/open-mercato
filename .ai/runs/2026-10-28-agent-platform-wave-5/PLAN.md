@@ -53,15 +53,15 @@
 | 3 | 3.4 | Offload the packed context payload | dispatch:capable | done | 7627dbf74 |
 | 3 | 3.4-review-fix | Use explicit sort comparators in the new grant helpers | inline | done | ca5002695 |
 | 3 | 3.4-review-fix-2 | Reject malformed OAuth client ids before the principal lookup | inline | done | 749ae48c2 |
-| 3 | 3.5 | Serve content artifacts with view_content, 410 and access logs | dispatch | done | pending |
-| 3 | 3.6 | Add the trace content retention worker | dispatch | done | pending |
-| 3 | 3.7 | Cover content capture with integration tests and docs | dispatch | done | pending |
-| 4 | 4.1 | Accept llm and manifest fields on trace ingest | dispatch:capable | done | pending |
-| 4 | 4.2 | Emit OpenCode per-message llm spans | dispatch:capable | done | pending |
-| 4 | 4.3 | Report tool knowledge and retrieval over MCP | dispatch:capable | done | pending |
-| 4 | 4.4 | Add the run compare API | dispatch:capable | done | pending |
-| 4 | 4.5 | Add Request and Response tabs to model calls | dispatch:capable | done | pending |
-| 4 | 4.6 | Add the run compare dialog and run-level copy | dispatch | done | pending |
+| 3 | 3.5 | Serve content artifacts with view_content, 410 and access logs | dispatch | done | 6ad6ba32a |
+| 3 | 3.6 | Add the trace content retention worker | dispatch | done | 280054e44 |
+| 3 | 3.7 | Cover content capture with integration tests and docs | dispatch | done | bf2cfbae6 |
+| 4 | 4.1 | Accept llm and manifest fields on trace ingest | dispatch:capable | done | 965204473 |
+| 4 | 4.2 | Emit OpenCode per-message llm spans | dispatch:capable | done | 5f33a24d6 |
+| 4 | 4.3 | Report tool knowledge and retrieval over MCP | dispatch:capable | done | a0de40326 |
+| 4 | 4.4 | Add the run compare API | dispatch:capable | done | c50777d98 |
+| 4 | 4.5 | Add Request and Response tabs to model calls | dispatch:capable | done | 7a2904b85 |
+| 4 | 4.6 | Add the run compare dialog and run-level copy | dispatch | done | d2069757e |
 | 4 | 4.7 | Cover compare and trace tabs with integration tests | dispatch | todo | — |
 | 5 | 5.1 | Add the chat run ACL features and query validators | dispatch:cheap | todo | — |
 | 5 | 5.2 | Add the chat runs API | dispatch:capable | todo | — |

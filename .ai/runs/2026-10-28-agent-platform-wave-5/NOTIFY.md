@@ -25,3 +25,7 @@
 ## 2026-10-28T06:18:37Z — checkpoint 3
 - Steps 2.8–3.4 verified; fixes 2.10-review-fix (ambient correlation), 3.4-review-fix (sort comparators), 3.4-review-fix-2 (token route 500 on malformed client_id).
 - Integration 26 passed / 5 skipped / 1 failed → fixed (re-run at the final gate).
+
+## 2026-10-28T07:22:00Z — paused by the user
+- User asked to stop after Step 4.6. Rows 3.5–4.6 are unit-verified by executors; checkpoint 4 (incl. integration) is due on resume.
+- Step 4.6 added an additive `createdBefore` filter to GET /runs.
