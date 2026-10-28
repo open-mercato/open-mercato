@@ -100,6 +100,18 @@ type TaskDetailInjectionContext = {
 
 export const TASK_DRAWER_MUTATION_CONTEXT_ID = 'staff.time_tracking.task_drawer'
 
+/**
+ * The drawer's writes carry no `resourceKind`/`resourceId`, so the enterprise
+ * record-lock widget leaves them alone: every property saves on its own (the
+ * spec's per-field saves), and the `updated_at` version each save sends is what
+ * guards concurrent edits. A lock taken per save, never released and never
+ * resolvable from here, could only block the user (#8045, #8101). The `formId`
+ * is still scoped to the task so no guarded-mutation state crosses tasks.
+ */
+function taskDrawerFormId(taskId: string): string {
+  return `${TASK_DRAWER_MUTATION_CONTEXT_ID}:${taskId}`
+}
+
 const ASSIGNMENT_RACE_CODES = new Set(['task_already_claimed', 'task_assignment_changed'])
 
 function isAssignmentRace(error: unknown): boolean {
@@ -232,19 +244,10 @@ export function TaskDrawer({
    * with the token the first blur just invalidated.
    */
   const versionRef = React.useRef<string | null>(null)
-  /**
-   * Guarded-mutation state (the enterprise record-lock base, for one) is keyed by
-   * `formId`, so it is scoped to the task *and* the version on screen: the drawer
-   * live-refreshes to other users' writes, and a key shared across tasks or
-   * versions would keep validating against a record the user no longer looks at.
-   */
-  const formIdRef = React.useRef<string>(`${TASK_DRAWER_MUTATION_CONTEXT_ID}:${taskId}`)
   const [notice, setNotice] = React.useState<{ status: 'warning' | 'error'; message: string } | null>(null)
 
   const { runMutation: runGuardedMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
-    resourceKind: string
-    resourceId: string
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: TASK_DRAWER_MUTATION_CONTEXT_ID,
@@ -301,7 +304,6 @@ export function TaskDrawer({
   React.useEffect(() => {
     if (!task) return
     versionRef.current = task.updatedAt
-    formIdRef.current = `${TASK_DRAWER_MUTATION_CONTEXT_ID}:${task.id}:${task.updatedAt ?? 'none'}`
     setTagIds(task.tagIds)
   }, [task])
 
@@ -585,9 +587,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.quickLog.error', 'Could not save the time entry.') },
             ),
           context: {
-            formId: formIdRef.current,
-            resourceKind: 'staff.timesheets.time_entry',
-            resourceId: taskId,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -616,14 +616,12 @@ export function TaskDrawer({
             { errorMessage: t('staff.time_tracking.board.timer.stopError', 'Could not stop the timer.') },
           ),
         context: {
-          formId: formIdRef.current,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: entryId,
+          formId: taskDrawerFormId(taskId),
           retryLastMutation,
         },
       })
     },
-    [retryLastMutation, runMutation, t],
+    [retryLastMutation, runMutation, t, taskId],
   )
 
   const handleStopTimer = React.useCallback(async () => {
@@ -678,9 +676,7 @@ export function TaskDrawer({
             { errorMessage: t('staff.time_tracking.board.timer.startError', 'Could not start the timer.') },
           ),
         context: {
-          formId: formIdRef.current,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: taskId,
+          formId: taskDrawerFormId(taskId),
           retryLastMutation,
         },
       })
@@ -763,9 +759,7 @@ export function TaskDrawer({
                 ),
               ),
             context: {
-              formId: formIdRef.current,
-              resourceKind: 'staff.timesheets.task',
-              resourceId: taskId,
+              formId: taskDrawerFormId(taskId),
               retryLastMutation,
             },
           })
@@ -803,9 +797,7 @@ export function TaskDrawer({
                 ),
               ),
             context: {
-              formId: formIdRef.current,
-              resourceKind: 'staff.timesheets.task',
-              resourceId: taskId,
+              formId: taskDrawerFormId(taskId),
               retryLastMutation,
             },
           })
@@ -868,9 +860,7 @@ export function TaskDrawer({
                 { errorMessage },
               ),
             context: {
-              formId: formIdRef.current,
-              resourceKind: 'staff.timesheets.task',
-              resourceId: taskId,
+              formId: taskDrawerFormId(taskId),
               retryLastMutation,
             },
           })
@@ -952,9 +942,7 @@ export function TaskDrawer({
               ),
             ),
           context: {
-            formId: formIdRef.current,
-            resourceKind: 'staff.timesheets.task',
-            resourceId: child.id,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -970,7 +958,7 @@ export function TaskDrawer({
         setBusy(false)
       }
     },
-    [invalidate, onChanged, reportError, retryLastMutation, runMutation, statuses, t],
+    [invalidate, onChanged, reportError, retryLastMutation, runMutation, statuses, t, taskId],
   )
 
   const handleAddSubtask = React.useCallback(async () => {
@@ -1001,9 +989,7 @@ export function TaskDrawer({
             },
           ),
         context: {
-          formId: formIdRef.current,
-          resourceKind: 'staff.timesheets.task',
-          resourceId: taskId,
+          formId: taskDrawerFormId(taskId),
           retryLastMutation,
         },
       })
@@ -1069,9 +1055,7 @@ export function TaskDrawer({
               ),
             ),
           context: {
-            formId: formIdRef.current,
-            resourceKind: 'staff.timesheets.task_comment',
-            resourceId: comment.id,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -1105,9 +1089,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.comments.error', 'Could not post the comment.') },
             ),
           context: {
-            formId: formIdRef.current,
-            resourceKind: 'staff.timesheets.task_comment',
-            resourceId: taskId,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })
@@ -1143,9 +1125,7 @@ export function TaskDrawer({
               { errorMessage: t('staff.time_tracking.taskDrawer.properties.tagError', 'Could not save the tags.') },
             ),
           context: {
-            formId: formIdRef.current,
-            resourceKind: 'staff.timesheets.task_tag',
-            resourceId: taskId,
+            formId: taskDrawerFormId(taskId),
             retryLastMutation,
           },
         })

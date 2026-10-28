@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { TaskDrawer } from '../TaskDrawer'
+import { TASK_DRAWER_MUTATION_CONTEXT_ID, TaskDrawer } from '../TaskDrawer'
 import { buildEntryClocks } from '../taskDrawerData'
 import { todayIsoDate } from '../taskDrawerData'
 
@@ -77,9 +77,14 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
   }),
 }))
 
+const mockMutationContexts: Array<Record<string, unknown>> = []
+
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    runMutation: async ({ operation, context }: { operation: () => Promise<unknown>; context: Record<string, unknown> }) => {
+      mockMutationContexts.push(context)
+      return operation()
+    },
     retryLastMutation: jest.fn(async () => true),
   }),
 }))
@@ -223,6 +228,7 @@ function writeCalls(pattern: string) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockMutationContexts.length = 0
   taskRow = {
     id: TASK_ID,
     title: 'Migracja koszyka B2B',
@@ -664,6 +670,31 @@ describe('TaskDrawer', () => {
     fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
 
     expect(await screen.findByTestId('task-drawer-notice')).toHaveTextContent('Someone else changed this task.')
+  })
+
+  it('keeps its writes out of record locking with one form id per task across versions', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes(`/tasks/${TASK_ID}/status`)) {
+        taskRow = { ...taskRow, task_status_id: DONE_ID, updated_at: VERSION_TWO }
+        return ok({ updatedAt: VERSION_TWO }) as never
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/status`).length).toBe(1))
+    fireEvent.click(await screen.findByTestId('task-drawer-claim'))
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/claim`).length).toBe(1))
+
+    expect(mockMutationContexts.length).toBeGreaterThanOrEqual(2)
+    for (const context of mockMutationContexts) {
+      expect(context).not.toHaveProperty('resourceKind')
+      expect(context).not.toHaveProperty('resourceId')
+      expect(context.formId).toBe(`${TASK_DRAWER_MUTATION_CONTEXT_ID}:${TASK_ID}`)
+    }
   })
 
   it('reports a save a guard refused as a conflict when the task moved underneath it', async () => {

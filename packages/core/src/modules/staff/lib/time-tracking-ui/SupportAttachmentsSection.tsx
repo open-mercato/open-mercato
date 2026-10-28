@@ -94,10 +94,10 @@ export function SupportAttachmentsSection({ taskId }: SupportAttachmentsSectionP
         if (share) form.set('tags', JSON.stringify([CUSTOMER_VISIBLE_TAG]))
         const result = await runMutation({
           operation: () => apiCall('/api/attachments', { method: 'POST', body: form }),
+          // Like the rest of the task drawer, an upload carries no record-lock
+          // resource: it adds a row rather than editing one.
           context: {
-            formId: MUTATION_CONTEXT_ID,
-            resourceKind: 'attachments.attachment',
-            resourceId: taskId,
+            formId: `${MUTATION_CONTEXT_ID}:${taskId}`,
             retryLastMutation,
           },
           mutationPayload: { taskId, fileName: file.name, shared: share },
