@@ -378,3 +378,64 @@ export async function buildPersonEmailThreads(
   threads.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
   return threads.slice(0, maxThreads)
 }
+
+export type PersonEmailMessageAccessOptions = Pick<
+  BuildPersonEmailThreadsOptions,
+  'personId' | 'tenantId' | 'organizationId' | 'viewerUserId' | 'userFeatures' | 'sharedConversations' | 'sharedChannelIds'
+> & {
+  /** Open Mercato `messages.message` id the caller wants to reply to. */
+  messageId: string
+}
+
+/**
+ * Whether `messageId` is on this Person's email history as the viewer sees it —
+ * i.e. whether {@link buildPersonEmailThreads} would show it to them.
+ *
+ * Walks the same anchor (email `CustomerInteraction` → `MessageChannelLink` →
+ * message) with the same scope and the same visibility predicate, so a reply
+ * from the Person page can only name a parent the Emails tab could have shown:
+ * the viewer's own mail, shared or legacy mail, a conversation shared for THIS
+ * Person, or a shared team mailbox. Callers remain responsible for resolving the
+ * Person in scope first.
+ */
+export async function isMessageOnPersonEmailHistory(
+  em: EntityManager,
+  opts: PersonEmailMessageAccessOptions,
+): Promise<boolean> {
+  const { personId, tenantId, organizationId, messageId } = opts
+  const dscope = { tenantId, organizationId: organizationId ?? null }
+
+  const linkWhere: JsonRecord = { messageId, tenantId }
+  if (organizationId) linkWhere.organizationId = organizationId
+  const links = (await findWithDecryption(
+    em,
+    'MessageChannelLink' as never,
+    linkWhere as never,
+    undefined,
+    dscope,
+  )) as JsonRecord[]
+  const linkIds = links
+    .map((link) => (typeof link.id === 'string' ? (link.id as string) : null))
+    .filter((value): value is string => !!value)
+  if (linkIds.length === 0) return false
+
+  const interactionWhere: JsonRecord = {
+    entity: personId,
+    interactionType: 'email',
+    deletedAt: null,
+    tenantId,
+    externalMessageId: { $in: linkIds },
+  }
+  if (organizationId) interactionWhere.organizationId = organizationId
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: opts.viewerUserId,
+      userFeatures: opts.userFeatures,
+      sharedConversations: opts.sharedConversations,
+      sharedChannelIds: opts.sharedChannelIds,
+    }),
+  )
+  const visible = await em.count(CustomerInteraction, interactionWhere as never)
+  return visible > 0
+}

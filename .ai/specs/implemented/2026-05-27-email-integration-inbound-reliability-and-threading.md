@@ -1961,14 +1961,14 @@ One minor addition: if the legacy `_client` path is hit, log `[channel-gmail] re
 | Public type `RefreshCredentialsInput` | Optional field `oauthClient?` added | ✓ ADDITIVE |
 | Public type `OAuthClientConfig` | New export | ✓ ADDITIVE |
 | Helper `refreshCredentialsIfNeeded` | New behavior: resolves OAuth client config when `credentialsService` is registered. When the service is *not* registered (e.g., disabled in a downstream app), behavior is identical to today. | ✓ ADDITIVE |
-| Gmail adapter `refreshCredentials` signature | Implementation reads new field; legacy `_client` still recognized with deprecation warning | ✓ ADDITIVE + DEPRECATION |
+| Gmail adapter `refreshCredentials` signature | ~~`_client` legacy path removed in #3828 (2026-09-20)~~ — `oauthClient` is now the only accepted source; `_client` is ignored | ✓ REMOVED (deprecation window honoured) |
 | Event IDs / API URLs / widget spot IDs / DI keys / ACL features | Unchanged | ✓ |
 | DB schema | Unchanged | ✓ |
 
 ### Deprecation timeline
 
 - **This release (Spec A merge):** new `oauthClient` field shipped; legacy `_client` read path still works with deprecation log.
-- **Next minor release:** remove `legacyParseClientFromCredentialsOrThrow` from the Gmail adapter; remove `_client` test injections from unit tests.
+- **Next minor release:** ~~remove `legacyParseClientFromCredentialsOrThrow` from the Gmail adapter; remove `_client` test injections from unit tests.~~ ✅ **Done** — executed in #3828 (2026-09-20).
 - **Documentation update**: [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md) gains an entry for `RefreshCredentialsInput._client` → `oauthClient` (deprecation tracked).
 
 ### Deployment notes
@@ -2191,6 +2191,9 @@ None.
 | `BACKWARD_COMPATIBILITY.md` | Modified — added `RefreshCredentialsInput.oauthClient` + `_client` deprecation entries |
 
 ## Changelog
+
+### 2026-09-20
+- **`credentials._client` legacy path removed** (#3828). `legacyParseClientFromCredentialsOrThrow` deleted from the Gmail adapter; all unit-test fixtures migrated to pass `oauthClient` directly. Deprecation window (`v0.6.4` → `v0.8.1`) honoured per `BACKWARD_COMPATIBILITY.md` § Deprecation Protocol. BC table row updated to `REMOVED`; deprecation timeline step marked done.
 
 ### 2026-05-27
 - Initial specification. Surgical fix for the `RefreshCredentialsInput._client` wiring bug uncovered during the Spec B research audit. Companion to [`2026-05-27-email-integration-inbound-reliability-and-threading.md`](2026-05-27-email-integration-inbound-reliability-and-threading.md); ships independently and in parallel.

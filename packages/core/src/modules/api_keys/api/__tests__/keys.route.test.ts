@@ -2,6 +2,7 @@
 
 import { features } from '../../acl'
 import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const secretFixture = { secret: 'omk_test.secret', prefix: 'omk_testpref' }
 
@@ -36,6 +37,10 @@ interface MockContainer {
   resolve: jest.Mock<unknown, [string]>
 }
 
+interface MockCommandBus {
+  execute: jest.Mock<Promise<{ result: Record<string, unknown>; logEntry: null }>, [string, Record<string, unknown>]>
+}
+
 const queue: QueueEntry[] = []
 
 const mockGetAuthFromCookies = jest.fn()
@@ -62,11 +67,15 @@ const mockRbac: MockRbacService = {
   invalidateUserCache: jest.fn<Promise<void>, [string]>(),
   loadAcl: jest.fn<Promise<MockAcl | null>, [string, { tenantId: string | null; organizationId: string | null }]>(),
 }
+const mockCommandBus: MockCommandBus = {
+  execute: jest.fn(),
+}
 const mockContainer: MockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'dataEngine') return mockDataEngine
     if (token === 'rbacService') return mockRbac
+    if (token === 'commandBus') return mockCommandBus
     return undefined
   }),
 }
@@ -124,6 +133,28 @@ describe('API Keys route', () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.transactional.mockImplementation((cb) => cb(mockEm))
+    mockCommandBus.execute.mockImplementation(async (commandId, options) => {
+      if (commandId !== 'api_keys.keys.create') return { result: { id: 'key-1' }, logEntry: null }
+      const input = options.input as {
+        name: string
+        description?: string | null
+        tenantId: string | null
+        organizationId: string | null
+        roleIds: string[]
+      }
+      return {
+        result: {
+          id: 'key-1',
+          name: input.name,
+          keyPrefix: secretFixture.prefix,
+          secret: secretFixture.secret,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          roles: input.roleIds.map((id) => ({ id, name: id === 'role-123' ? 'Manager' : null })),
+        },
+        logEntry: null,
+      }
+    })
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
@@ -225,20 +256,18 @@ describe('API Keys route', () => {
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
     })
     expect(payload.roles).toEqual([{ id: 'role-123', name: 'Manager' }])
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
-    const createArgs = mockDataEngine.createOrmEntity.mock.calls[0][0]
-    expect(createArgs.data).toMatchObject({
-      name: 'Integration key',
-      description: 'Machine access',
-      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      tenantId: '123e4567-e89b-12d3-a456-426614174000',
-      createdBy: 'user-1',
-      rolesJson: ['role-123'],
-      keyPrefix: secretFixture.prefix,
-      keyHash: `hashed:${secretFixture.secret}`,
-    })
-    expect(mockHashApiKey).toHaveBeenCalledWith(secretFixture.secret)
-    expect(mockRbac.invalidateUserCache).toHaveBeenCalledWith('api_key:key-1')
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.create',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          name: 'Integration key',
+          description: 'Machine access',
+          organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          tenantId: '123e4567-e89b-12d3-a456-426614174000',
+          roleIds: ['role-123'],
+        }),
+      }),
+    )
   })
 
   it('preserves an explicit null organization for a tenant-scoped API key', async () => {
@@ -257,12 +286,10 @@ describe('API Keys route', () => {
 
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ organizationId: null })
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        organizationId: null,
-        createdBy: 'user-1',
-      }),
-    }))
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.create',
+      expect.objectContaining({ input: expect.objectContaining({ organizationId: null }) }),
+    )
   })
 
   it('rejects a tenant-scoped API key when the actor has an organization allowlist', async () => {
@@ -276,7 +303,7 @@ describe('API Keys route', () => {
 
     expect(res.status).toBe(403)
     await expect(res.json()).resolves.toEqual({ error: 'Organization out of scope' })
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('rejects role-backed API keys when the requested role grants features outside the actor ACL', async () => {
@@ -310,7 +337,7 @@ describe('API Keys route', () => {
 
     expect(res.status).toBe(403)
     expect(payload.error).toContain('Cannot grant feature wildcard auth.*')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('rejects creation when organization is outside the allowed scope', async () => {
@@ -332,7 +359,7 @@ describe('API Keys route', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('denies creation when the resolved organization allowlist is empty', async () => {
@@ -350,7 +377,7 @@ describe('API Keys route', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('denies tenant-wide creation for an organization-restricted principal', async () => {
@@ -369,7 +396,7 @@ describe('API Keys route', () => {
     expect(res.status).toBe(403)
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
-    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('preserves unrestricted (null allowlist) creation for a non-superadmin', async () => {
@@ -385,9 +412,12 @@ describe('API Keys route', () => {
       }),
     )
     expect(res.status).toBe(201)
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
-    const createArgs = mockDataEngine.createOrmEntity.mock.calls[0][0]
-    expect(createArgs.data).toMatchObject({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.create',
+      expect.objectContaining({
+        input: expect.objectContaining({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }),
+      }),
+    )
   })
 
   it('allows a superadmin to create across organizations despite an empty allowlist', async () => {
@@ -412,7 +442,7 @@ describe('API Keys route', () => {
       }),
     )
     expect(res.status).toBe(201)
-    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
   })
 
   it('denies deletion when the resolved organization allowlist is empty', async () => {
@@ -426,6 +456,7 @@ describe('API Keys route', () => {
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
     mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Not found' }))
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=11111111-1111-4111-8111-111111111111', { method: 'DELETE' }),
@@ -433,17 +464,9 @@ describe('API Keys route', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'Not found' })
-    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      mockEm,
-      expect.any(Function),
-      {
-        id: '11111111-1111-4111-8111-111111111111',
-        tenantId: '123e4567-e89b-12d3-a456-426614174000',
-        organizationId: { $in: [] },
-        deletedAt: null,
-      },
-      undefined,
-      { tenantId: '123e4567-e89b-12d3-a456-426614174000', organizationId: null },
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.delete',
+      expect.objectContaining({ input: { id: '11111111-1111-4111-8111-111111111111' } }),
     )
     expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
   })
@@ -458,6 +481,7 @@ describe('API Keys route', () => {
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
     mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockResolvedValueOnce({ result: { id: record.id }, logEntry: null })
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=22222222-2222-4222-8222-222222222222', { method: 'DELETE' }),
@@ -465,13 +489,10 @@ describe('API Keys route', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ success: true })
-    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        id: '22222222-2222-4222-8222-222222222222',
-        tenantId: '123e4567-e89b-12d3-a456-426614174000',
-        deletedAt: null,
-      },
-    }))
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.delete',
+      expect.objectContaining({ input: { id: record.id } }),
+    )
   })
 
   it('returns the same not-found response for a foreign organization without mutation', async () => {
@@ -483,6 +504,7 @@ describe('API Keys route', () => {
     }
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Not found' }))
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=33333333-3333-4333-8333-333333333333', { method: 'DELETE' }),
@@ -505,6 +527,7 @@ describe('API Keys route', () => {
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
     mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockResolvedValueOnce({ result: { id: record.id }, logEntry: null })
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=44444444-4444-4444-8444-444444444444', { method: 'DELETE' }),
@@ -512,7 +535,7 @@ describe('API Keys route', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ success: true })
-    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
   })
 
   it('preserves unrestricted legacy organization access for a non-superadmin', async () => {
@@ -526,6 +549,7 @@ describe('API Keys route', () => {
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
     mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockResolvedValueOnce({ result: { id: record.id }, logEntry: null })
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=77777777-7777-4777-8777-777777777777', { method: 'DELETE' }),
@@ -533,7 +557,7 @@ describe('API Keys route', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ success: true })
-    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+    expect(mockCommandBus.execute).toHaveBeenCalledTimes(1)
   })
 
   it('preserves a superadmin selected-tenant override for lookup and deletion', async () => {
@@ -563,6 +587,7 @@ describe('API Keys route', () => {
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
     mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockResolvedValueOnce({ result: { id: record.id }, logEntry: null })
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=88888888-8888-4888-8888-888888888888', { method: 'DELETE' }),
@@ -570,24 +595,10 @@ describe('API Keys route', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ success: true })
-    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      mockEm,
-      expect.any(Function),
-      {
-        id: record.id,
-        tenantId: selectedTenantId,
-        deletedAt: null,
-      },
-      undefined,
-      { tenantId: selectedTenantId, organizationId: null },
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'api_keys.keys.delete',
+      expect.objectContaining({ input: { id: record.id } }),
     )
-    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        id: record.id,
-        tenantId: selectedTenantId,
-        deletedAt: null,
-      },
-    }))
   })
 
   it('does not enumerate or mutate an API key from another tenant', async () => {
@@ -599,6 +610,7 @@ describe('API Keys route', () => {
     }
     mockEm.findOne.mockResolvedValueOnce(record)
     mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockCommandBus.execute.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Not found' }))
 
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=55555555-5555-4555-8555-555555555555', { method: 'DELETE' }),
@@ -610,6 +622,7 @@ describe('API Keys route', () => {
   })
 
   it('returns not found for an unknown API key without mutation', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Not found' }))
     const response = await deleteHandler(
       new Request('http://localhost/api/api_keys/keys?id=66666666-6666-4666-8666-666666666666', { method: 'DELETE' }),
     )

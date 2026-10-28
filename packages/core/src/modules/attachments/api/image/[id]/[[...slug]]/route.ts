@@ -20,7 +20,7 @@ import {
   validateImageMagicBytes,
 } from '@open-mercato/core/modules/attachments/lib/imageSafety'
 import { StorageDriverFactory } from '../../../../lib/drivers'
-import { resolveAttachmentOrganizationId } from '@open-mercato/core/modules/attachments/lib/requestScope'
+import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('attachments').child({ component: 'image' })
@@ -57,9 +57,11 @@ export async function GET(
   const storageDriverFactory =
     (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
 
-  const scopedAuth = auth
-    ? { ...auth, orgId: await resolveAttachmentOrganizationId(container, auth, req) }
-    : auth
+  const requestScope = await resolveAttachmentRequestScope(container, auth, req)
+  if (requestScope.denied) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const scopedAuth = auth ? { ...auth, orgId: requestScope.organizationId } : auth
   const findFilter: Record<string, unknown> = { id }
   if (scopedAuth && !isSuperAdminAuth(scopedAuth)) {
     if (scopedAuth.tenantId) findFilter.tenantId = scopedAuth.tenantId

@@ -33,7 +33,8 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
 
   if ((organizationId == null || tenantId == null) && em) {
     try {
-      const db = em.getKysely()
+      const lookupEm = typeof em.fork === 'function' ? em.fork() : em
+      const db = lookupEm.getKysely()
       const table = resolveEntityTableName(em, entityType)
       const row = await db
         .selectFrom(table as any)

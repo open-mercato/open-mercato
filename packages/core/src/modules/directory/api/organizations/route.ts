@@ -631,7 +631,7 @@ const organizationsPostDoc: OpenApiMethodDoc = {
 
 const organizationsPutDoc: OpenApiMethodDoc = {
   summary: 'Update organization',
-  description: 'Updates organization details and hierarchy assignments.',
+  description: 'Updates organization details and hierarchy assignments. Fields that are omitted keep their current value; send `parentId: null` or `childIds: []` to clear the parent or the children.',
   tags: [directoryTag],
   requestBody: {
     contentType: 'application/json',

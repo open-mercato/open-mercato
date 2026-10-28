@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { CustomerEntity } from '../../../../data/entities'
 import { buildPersonEmailThreads } from '../../../../lib/personEmailThreads'
@@ -51,7 +52,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       deletedAt: null,
     } as never,
     undefined,
-    { tenantId: auth.tenantId as string, organizationId: scope?.selectedId ?? (auth as { orgId?: string | null }).orgId ?? null },
+    { tenantId: auth.tenantId as string, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null },
   )
   if (!person) {
     return NextResponse.json({ error: 'Person not found' }, { status: 404 })

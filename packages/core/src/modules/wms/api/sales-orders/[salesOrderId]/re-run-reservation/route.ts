@@ -52,6 +52,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Order not found', schema: errorSchema },
+        { status: 409, description: 'The sales order is cancelled and cannot hold a reservation', schema: errorSchema },
       ],
     },
   },

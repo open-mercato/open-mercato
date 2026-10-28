@@ -3,6 +3,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
+import { applyIndexDocEnrichers, type IndexDocEnrichmentTarget } from './doc-enrichers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 
@@ -231,6 +232,7 @@ export async function upsertIndexBatch(
   const debugEnabled = isSearchDebugEnabled()
   const searchConfig = resolveSearchConfig()
 
+  const builtDocs: IndexDocEnrichmentTarget[] = []
   for (const row of rows) {
     const recordId = normalizeId(row.id)
     const baseOrg = normalizeScopedValue((row as AnyRow).organization_id)
@@ -266,15 +268,29 @@ export async function upsertIndexBatch(
       if (!entityRow) return row
       return { ...entityRow, ...row }
     })()
-    let doc = buildIndexDocument(
-      mergedRow,
-      values,
-      {
-        organizationId: scopeOrg ?? null,
-        tenantId: scopeTenant ?? null,
-      },
-      { entityType, config: searchConfig },
-    )
+    builtDocs.push({
+      recordId,
+      doc: buildIndexDocument(
+        mergedRow,
+        values,
+        {
+          organizationId: scopeOrg ?? null,
+          tenantId: scopeTenant ?? null,
+        },
+        { entityType, config: searchConfig },
+      ),
+      tenantId: scopeTenant ?? null,
+      organizationId: scopeOrg ?? null,
+    })
+  }
+
+  await applyIndexDocEnrichers(db, entityType, builtDocs)
+
+  for (const built of builtDocs) {
+    const recordId = built.recordId
+    const scopeOrg = built.organizationId
+    const scopeTenant = built.tenantId
+    let doc = built.doc
     let tokenDoc: Record<string, unknown> = doc
     if (typeof options.encryptDoc === 'function') {
       try {
