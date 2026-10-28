@@ -31,7 +31,7 @@ Ship the opt-in `--modules` / `--module-picker` flags of `create-mercato-app`, i
 ## Assumptions
 
 - The warning is shown when the new app is made from the classic preset, or when the preset registers one of the `conflictsWith` modules. A preset without those modules does not hit the route clash.
-- The warning is also written to `.mercato/catalog-selection.json`, only for modules that carry it.
+- The warning is printed, not written to `.mercato/catalog-selection.json`, so the file format stays unchanged.
 
 ## Risks
 
@@ -47,10 +47,10 @@ Ship the opt-in `--modules` / `--module-picker` flags of `create-mercato-app`, i
 
 ### Phase 2: Catalog route-collision warnings
 
-- [ ] 2.1 Parse conflictsWith and warning from picker.json
-- [ ] 2.2 Show the warning in the plan output and in --module-picker
-- [ ] 2.3 Tests on a fixture entry with conflictsWith and warning
-- [ ] 2.4 Update the spec and PR body for the warning
+- [x] 2.1 Parse conflictsWith and warning from picker.json — 82ad4df53b
+- [x] 2.2 Show the warning in the plan output and in --module-picker — 82ad4df53b
+- [x] 2.3 Tests on a fixture entry with conflictsWith and warning — 82ad4df53b
+- [x] 2.4 Update the spec and PR body for the warning — 705c4a303d
 
 ### Phase 3: Merge-ready
 
