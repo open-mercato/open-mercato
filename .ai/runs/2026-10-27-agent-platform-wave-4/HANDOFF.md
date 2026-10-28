@@ -1,24 +1,25 @@
 # Handoff — 2026-10-27-agent-platform-wave-4
 
-**Last updated:** 2026-10-27T19:43:17Z
+**Last updated:** 2026-10-28T02:40:29Z
 **Branch:** feat/agent-platform-wave-4
-**PR:** https://github.com/open-mercato/open-mercato/pull/8061 (draft, claimed)
-**Current phase/step:** Phase 5 Step 5.1
-**Last commit:** 4c0445581 — fix(configs): share module-config cache entries across cache tenant scopes
+**PR:** https://github.com/open-mercato/open-mercato/pull/8061
+**Current phase/step:** complete — every Tasks row is done
+**Last code commit:** 8d5b99f6d — fix(agent_orchestrator): export the workflow root when a process finishes
 
 ## What just happened
-- OTel P1 complete (queue/worker, APIs, settings page, health line, trace link, CLI, compose profile, integration specs) plus the core module-config cache-scope fix. Checkpoint 5 green, integration 5 passed / 1 skipped.
+- Wave 4 (Observability P2 + OTel P1) implemented, final gate passed, review pass done (comment review — no blocker/major), all minor findings and the two re-review findings fixed (5.2-review-fix-2..4), gate re-verified.
 
 ## Next concrete action
-- Step 5.1 — Document trace capture and OTel export and mirror env vars. Then 5.2 (specs/roadmap/upgrade notes; deviations collected in the main session's notes), final gate, review.
+- Human review of #8061 (commits after `11031e1e6`), then manual QA (needs-qa). Merge order: #7794 → #8011 → #8018 → #8061, each re-based on `main`.
 
 ## Blockers / open questions
-- none.
+- `CONFLICTING` with `main` is inherited from the unmerged stack (#7794).
+- The OTel delivery integration cases run only when the app is started with the exporter env (documented); upstream CI skips them.
 
 ## Environment caveats
-- Ephemeral app stopped and cleaned. For the final gate's integration suite start it with the AO flags (and the OTel env if TC-AGENT-OTEL-002 should deliver; it skips otherwise).
-- Database/migration state: clean
+- Ephemeral apps stopped and cleaned.
+- Database/migration state: clean (no DDL).
 
 ## Worktree
 - Path: .ai/tmp/om-auto-create-pr-loop/agent-platform-wave-4-20261027-175130
-- Created this run: yes
+- Created this run: yes (kept until the user's final push)

@@ -36,3 +36,13 @@ Wave-4 specs in the full run: `TC-AGENT-OTEL-001` (2 tests), `TC-AGENT-OTEL-002`
 `eslint --config eslint.ds.config.mjs` (through `scripts/typescript-js-require-hook.cjs`, as `yarn lint:ds` does) on the 8 changed `.tsx` files: clean.
 
 Artifacts: `final-gate-artifacts/integration-full-summary.log`, `final-gate-artifacts/integration-isolated-rerun.log`; UI screenshots in `checkpoint-3-artifacts/` and `checkpoint-5-artifacts/`.
+
+## 4. After the review fixes (5.2-review-fix-2..4, head `8d5b99f6d`)
+
+| Check | Result |
+|---|---|
+| `yarn typecheck` | pass |
+| `npx jest src/modules/agent_orchestrator` | pass — 2373 tests; `submit-outcome` hit a jest-worker SIGSEGV and passed alone (8/8) |
+| core guards (`optimistic-lock-command-coverage`, `feature-policy-authorization-coverage`, `acl-feature-catalog.i18n`) + `configs` | pass — 95 tests (after review-fix-3) |
+| `yarn build:app --force` | pass |
+| `yarn i18n:check-sync`, DS lint on changed `.tsx` | pass (after review-fix-3) |

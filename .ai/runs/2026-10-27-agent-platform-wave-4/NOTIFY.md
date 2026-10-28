@@ -47,3 +47,7 @@
 
 ## 2026-10-28T02:38:18Z — 5.2-review-fix-4 trigger choice
 - `agent_orchestrator.process.execution.completed` is declared but never emitted, and `process.execution.failed` is only emitted before a workflow instance exists (no runs), so subscribing to them would not fix N1. The re-export is instead enqueued by the existing persistent terminal subscribers (`workflows.instance.completed|failed|cancelled` → `process-workflow-*`) right after the projection row turns terminal, which also guarantees the worker sees the terminal status. No new subscriber, so `yarn generate` produced no change.
+
+## 2026-10-28T02:40:29Z — review pass and run end
+- om-auto-review-pr: comment review (self-authored), no blocker/major; 9 minors + 4 nits fixed in 5.2-review-fix-2/3; re-review found N1 (unexported workflow root) and N2 (subscriber rethrow side effect) → fixed in 5.2-review-fix-4 (terminal workflow subscribers re-export one top-level run; best-effort enqueue).
+- Gate re-verified at 8d5b99f6d. Status: complete.
