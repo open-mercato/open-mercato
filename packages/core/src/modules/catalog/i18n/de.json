@@ -648,6 +648,7 @@
   "catalog.products.errors.notFound": "Catalog product not found.",
   "catalog.products.errors.skuExists": "SKU wird bereits verwendet.",
   "catalog.products.errors.taxClassNotFound": "Steuerklasse nicht gefunden.",
+  "catalog.products.errors.undoVariantSkuInUse": "Dieses Produkt kann nicht wiederhergestellt werden, weil die SKU {sku} bereits von einer anderen Variante verwendet wird. Ändern oder entfernen Sie die SKU dieser Variante und machen Sie den Vorgang dann erneut rückgängig.",
   "catalog.products.filters.active": "Aktiv",
   "catalog.products.filters.categories": "Kategorien",
   "catalog.products.filters.categoriesLoadError": "Kategorien konnten nicht geladen werden",

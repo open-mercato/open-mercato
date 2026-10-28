@@ -238,6 +238,8 @@ Use the shared [Production Readiness checklist](../deployment/production-readine
 - [ ] The nginx routes and body-size limits match the enabled webhook providers and application limits.
 - [ ] Named-volume backups, a restore rehearsal, container resource limits, and disk-space alerts cover this host.
 
+If deploying a generated standalone app on a VPS, also follow the [Readiness Scanner guide](../deployment/readiness-scanner): scan locally before deployment and inside the staging and production application containers with their injected environment. Use runtime secret injection and keep plaintext secret files out of the release image. The framework-monorepo checkout used in this page's quick start is not a supported scanner target; complete the shared checklist manually for that topology.
+
 ---
 
 ## Troubleshooting
