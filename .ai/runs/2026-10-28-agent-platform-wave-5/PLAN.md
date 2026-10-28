@@ -33,7 +33,7 @@
 | 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | done | b992db30f |
 | 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | done | eccc2fef7 |
 | 1 | 1.11-review-fix | Wrap guardrail check rows in narrow cards | inline | done | d51ea26f5 |
-| 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | todo | — |
+| 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | done | pending |
 | 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | todo | — |
 | 2 | 2.3 | Run principal sync in setup and the CLI | dispatch | todo | — |
 | 2 | 2.4 | Bind runAs centrally in the agent runtime | dispatch:capable | todo | — |

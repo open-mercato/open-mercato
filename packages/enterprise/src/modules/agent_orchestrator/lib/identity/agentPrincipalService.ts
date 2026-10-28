@@ -220,7 +220,7 @@ export async function provisionAgentPrincipal(
 /**
  * Resolves the agent principal for `(organizationId, agentDefinitionId)` without
  * provisioning. Returns null when the agent has not been provisioned yet (or was
- * soft-deleted). Org-scoped — never returns another tenant's row.
+ * soft-deleted or disabled). Tenant- and org-scoped — never returns another tenant's row.
  */
 export async function resolveAgentPrincipal(
   container: AwilixContainer,
@@ -229,8 +229,10 @@ export async function resolveAgentPrincipal(
 ): Promise<AgentPrincipal | null> {
   const em = resolveEm(container)
   return em.findOne(AgentPrincipal, {
+    tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     agentDefinitionId,
+    enabled: true,
     deletedAt: null,
   })
 }

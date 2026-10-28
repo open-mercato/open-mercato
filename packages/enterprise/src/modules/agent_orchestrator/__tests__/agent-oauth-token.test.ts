@@ -290,6 +290,24 @@ describe('agent OAuth client-credentials token server (Wave 4 Phase 3)', () => {
     expect(await verifyAgentToken(createContainer(em), result!.accessToken)).toBeNull()
   })
 
+  it('denies a token whose grant lives in another tenant, even with a matching organization id', async () => {
+    const em = createFakeEm()
+    const principal = await seedPrincipalWithSecret(em, {
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      agentUserId: AGENT_USER_A,
+    })
+    const grant = seedGrant(em, principal, { scopes: ['deals:read'] })
+    const result = await issueAgentToken(createContainer(em), {
+      clientId: principal.id,
+      clientSecret: CLIENT_SECRET,
+    })
+    expect(await verifyAgentToken(createContainer(em), result!.accessToken)).not.toBeNull()
+
+    ;(grant as unknown as Record<string, unknown>).tenantId = TENANT_B
+    expect(await verifyAgentToken(createContainer(em), result!.accessToken)).toBeNull()
+  })
+
   it('an agent JWT cannot be replayed as a staff session (audience isolation)', async () => {
     const em = createFakeEm()
     const principal = await seedPrincipalWithSecret(em, {

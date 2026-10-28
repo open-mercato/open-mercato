@@ -267,6 +267,7 @@ export async function verifyAgentToken(
   const em = (container.resolve('em') as EntityManager).fork()
   const grant = await em.findOne(AgentDelegationGrant, {
     id: claims.grantId,
+    tenantId: claims.tenantId,
     organizationId: claims.organizationId,
     deletedAt: null,
   })
