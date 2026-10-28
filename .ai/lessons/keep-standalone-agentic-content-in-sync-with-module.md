@@ -2,7 +2,7 @@
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
 areas: ["architecture","framework-context","testing"]
-topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing"]
+topics: ["auto-discovery","events","generated-files","package-runtime","session-export","context-budgets"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -17,4 +17,4 @@ When an enabled package-backed module adds a generated fact sheet, add or expand
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
 
-**Context budgets**: When a release-matched contract document grows, measure each affected case's existing exact required and allowed files in a fresh scaffold. Adjust only overflowing total caps with bounded measured headroom; preserve initial budgets and read sets, report cases independently, and retain the unmodified knowledge-change controller's failing-base/passing-head evidence. A deterministic pass does not establish the full packed-preset or certified release gate.
+**Context budgets**: When a release-matched contract document grows, measure each affected case's existing exact required and allowed files in a fresh scaffold. First remove duplicated release-specific prose with precise links and use equivalent Markdown table formatting without changing policy or cells. If knowledge growth still requires a cap change, adjust only overflowing total caps with bounded measured headroom; preserve initial budgets and read sets, report cases independently, and retain the unmodified knowledge-change controller's failing-base/passing-head evidence. A deterministic pass does not establish the full packed-preset or certified release gate.
