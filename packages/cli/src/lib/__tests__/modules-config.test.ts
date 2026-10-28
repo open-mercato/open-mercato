@@ -217,12 +217,39 @@ describe('modules-config', () => {
       )
     })
 
+    it('handles a spread or a comma-less last element', () => {
+      expect(
+        appendEntry("export const enabledModules = [\n  { id: 'auth' },\n  ...officialModuleEntries,\n]\n"),
+      ).toBe(
+        "export const enabledModules = [\n  { id: 'auth' },\n  ...officialModuleEntries,\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\n]\n",
+      )
+      expect(appendEntry("export const enabledModules = [\n  { id: 'auth' }\n]\n")).toBe(
+        "export const enabledModules = [\n  { id: 'auth' },\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' }\n]\n",
+      )
+    })
+
+    it('indents from the opening line when brackets share a line with elements', () => {
+      expect(appendEntry("export const enabledModules = [{ id: 'auth' }]\n")).toBe(
+        "export const enabledModules = [{ id: 'auth' },\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' }\n]\n",
+      )
+      expect(appendEntry("export const enabledModules = [\n  { id: 'auth' },\n  { id: 'directory' }]\n")).toBe(
+        "export const enabledModules = [\n  { id: 'auth' },\n  { id: 'directory' },\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' }\n]\n",
+      )
+    })
+
     it('leaves the create-app template untouched apart from the new entry', () => {
       const templatePath = path.resolve(__dirname, '../../../../create-app/template/src/modules.ts')
       const source = fs.readFileSync(templatePath, 'utf8')
-      const updated = appendEntry(source)
-      const added = "  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\n"
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(filePath, source)
+      const added = "  { id: 'template_probe', from: '@open-mercato/template-probe' },\n"
 
+      expect(source).not.toContain('template_probe')
+      expect(
+        ensureModuleRegistration(filePath, { id: 'template_probe', from: '@open-mercato/template-probe' }).changed,
+      ).toBe(true)
+
+      const updated = fs.readFileSync(filePath, 'utf8')
       expect(updated.length).toBe(source.length + added.length)
       expect(updated.replace(added, '')).toBe(source)
       expect(updated.split('\n').filter((line) => line.trim().startsWith('//'))).toEqual(

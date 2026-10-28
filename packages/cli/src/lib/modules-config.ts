@@ -346,8 +346,9 @@ function insertArrayElement(
 ): string {
   const newline = source.includes('\r\n') ? '\r\n' : '\n'
   const entryLiteral = buildModuleEntryLiteral(entry)
+  const openingBracket = arrayNode.getStart(sourceFile)
   const closingBracket = arrayNode.end - 1
-  const closingIndent = lineIndentAt(source, closingBracket)
+  const openingIndent = lineIndentAt(source, openingBracket)
   const lastElement = arrayNode.elements[arrayNode.elements.length - 1]
 
   let head: string
@@ -355,11 +356,10 @@ function insertArrayElement(
   let insertion: string
 
   if (!lastElement) {
-    const openingBracketEnd = arrayNode.getStart(sourceFile) + 1
-    const innerContent = source.slice(openingBracketEnd, closingBracket).trimEnd()
-    insertAt = openingBracketEnd + innerContent.length
+    const innerContent = source.slice(openingBracket + 1, closingBracket).trimEnd()
+    insertAt = openingBracket + 1 + innerContent.length
     head = source.slice(0, insertAt)
-    insertion = `${newline}${closingIndent}  ${entryLiteral},`
+    insertion = `${newline}${openingIndent}  ${entryLiteral},`
   } else {
     const hasTrailingComma = arrayNode.elements.hasTrailingComma
     const anchor = hasTrailingComma ? nextTokenEnd(source, lastElement.end) : lastElement.end
@@ -367,12 +367,16 @@ function insertArrayElement(
     head = hasTrailingComma
       ? source.slice(0, insertAt)
       : `${source.slice(0, anchor)},${source.slice(anchor, insertAt)}`
-    const elementIndent = lineIndentAt(source, lastElement.getStart(sourceFile))
+    const lastElementStart = lastElement.getStart(sourceFile)
+    const startsOnOpeningLine = !source.slice(openingBracket, lastElementStart).includes('\n')
+    const elementIndent = startsOnOpeningLine
+      ? `${openingIndent}  `
+      : lineIndentAt(source, lastElementStart)
     insertion = `${newline}${elementIndent}${entryLiteral}${hasTrailingComma ? ',' : ''}`
   }
 
   const closesOnSameLine = !source.slice(insertAt, closingBracket).includes('\n')
-  const closingLine = closesOnSameLine ? `${newline}${closingIndent}` : ''
+  const closingLine = closesOnSameLine ? `${newline}${openingIndent}` : ''
   const tail = closesOnSameLine ? source.slice(closingBracket) : source.slice(insertAt)
 
   return head + insertion + closingLine + tail
