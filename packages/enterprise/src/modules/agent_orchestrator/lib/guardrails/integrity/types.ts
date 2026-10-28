@@ -37,6 +37,11 @@ export type IntegrityRuleContext = {
   guardrailSetVersion: string
   scope?: IntegrityRuleScope
   container?: AwilixContainer
+  /**
+   * Every check recorded before this rule ran (earlier integrity rules, then
+   * grounding and tool scope); set for `abstain_or_review`, which reacts to them.
+   */
+  priorChecks?: readonly GuardrailCheck[]
 }
 
 export type IntegrityViolation = {
@@ -46,11 +51,21 @@ export type IntegrityViolation = {
 
 export const MAX_EVIDENCE_VIOLATIONS = 20
 
+export const INTEGRITY_REPAIR_INVALID = 'integrity_repair_invalid'
+
+/** Asked by an `abstain_or_review` rule whose `needsReview` outcome fired (never in shadow mode). */
+export type IntegrityReviewRequest = {
+  ruleId: string
+  route: 'flag' | 'review'
+  reasons: string[]
+}
+
 export type IntegrityRuleOutcome = {
   output: unknown
   check: GuardrailCheck
   changed: boolean
   blocked: boolean
+  reviewRequest?: IntegrityReviewRequest
 }
 
 /**

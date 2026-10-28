@@ -1249,6 +1249,12 @@ export const integrityEvidenceSchema = guardrailEvidenceSchema.extend({
   shadow: z.boolean().optional(),
   /** Under shadow mode, the rule would have blocked the run (the row records `warn`). */
   wouldBlock: z.boolean().optional(),
+  /** `abstain_or_review`: which outcome fired. */
+  outcome: z.enum(['none', 'not_applicable', 'needs_review']).optional(),
+  /** `abstain_or_review`: stable reason codes (signal names and rule ids), never input text. */
+  reasons: z.array(z.string().min(1).max(200)).max(100).optional(),
+  /** `abstain_or_review` needs review: how the run is routed. */
+  route: z.enum(['flag', 'review']).optional(),
 })
 export type IntegrityEvidence = z.infer<typeof integrityEvidenceSchema>
 

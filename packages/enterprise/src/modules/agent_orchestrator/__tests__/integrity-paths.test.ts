@@ -183,6 +183,19 @@ describe('validatePathAgainstSchema', () => {
     }
   })
 
+  it('returns the declared leaf schemas with their wrappers kept', () => {
+    const wrapped = z.object({ data: z.object({ note: z.string().nullable().optional() }) })
+    const check = validatePathAgainstSchema(wrapped, 'data.note')
+    expect(check.ok).toBe(true)
+    if (check.ok) {
+      expect(check.leaves[0].safeParse(null).success).toBe(false)
+      expect(check.rawLeaves[0].safeParse(null).success).toBe(true)
+      expect(check.rawLeaves[0].safeParse(undefined).success).toBe(true)
+    }
+    const root = validatePathAgainstSchema(wrapped, [])
+    expect(root.ok && root.rawLeaves[0]).toBe(wrapped)
+  })
+
   it('reports the failing segment', () => {
     expect(validatePathAgainstSchema(schema, 'data.findings[*].ruleIds')).toEqual({
       ok: false,

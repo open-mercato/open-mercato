@@ -15,7 +15,7 @@ export type IntegrityPathSegment =
 export type IntegrityPathMatch = { value: unknown; concretePath: string }
 
 export type IntegrityPathSchemaCheck =
-  | { ok: true; leaves: ZodTypeAny[] }
+  | { ok: true; leaves: ZodTypeAny[]; rawLeaves: ZodTypeAny[] }
   | { ok: false; segment: string; segmentIndex: number }
 
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
@@ -269,7 +269,9 @@ function stepSchema(schema: ZodTypeAny, segment: IntegrityPathSegment): ZodTypeA
  * schema accepts. Wrappers (optional, nullable, default, readonly, lazy, pipes,
  * catch) are unwrapped; a union or intersection passes when ANY branch does;
  * `unknown`/`any` accept every continuation. On success the (unwrapped) leaf
- * schemas are returned so a caller can validate an item-relative path against them.
+ * schemas are returned so a caller can validate an item-relative path against them,
+ * plus the leaves as declared (`rawLeaves`, wrappers kept) so a value written at the
+ * path can be validated with the leaf's own nullability, optionality and defaults.
  */
 export function validatePathAgainstSchema(
   schema: ZodTypeAny,
@@ -277,13 +279,16 @@ export function validatePathAgainstSchema(
 ): IntegrityPathSchemaCheck {
   const segments = toSegments(path)
   let current = unwrapSchema(schema)
+  let raw: ZodTypeAny[] = [schema]
   for (let position = 0; position < segments.length; position += 1) {
     const segment = segments[position]
-    const next = current.flatMap((candidate) => stepSchema(candidate, segment)).flatMap((candidate) => unwrapSchema(candidate))
+    const stepped = current.flatMap((candidate) => stepSchema(candidate, segment))
+    const next = stepped.flatMap((candidate) => unwrapSchema(candidate))
     if (next.length === 0) {
       return { ok: false, segment: formatIntegrityPath([segment]) || '[*]', segmentIndex: position }
     }
     current = next
+    raw = stepped
   }
-  return { ok: true, leaves: current }
+  return { ok: true, leaves: current, rawLeaves: raw }
 }

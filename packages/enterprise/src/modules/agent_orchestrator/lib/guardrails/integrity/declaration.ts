@@ -15,12 +15,22 @@ function registrationError(agentId: string, ruleId: string | null, detail: strin
   return new Error(`[internal] agent "${agentId}" integrity${ruleLabel}: ${detail}`)
 }
 
-function resolveBase(agentId: string, rule: IntegrityRule, schema: ZodTypeAny, field: string, path: string): ZodTypeAny[] {
+function resolveLeaves(
+  agentId: string,
+  rule: IntegrityRule,
+  schema: ZodTypeAny,
+  field: string,
+  path: string,
+): { leaves: ZodTypeAny[]; rawLeaves: ZodTypeAny[] } {
   const check = validatePathAgainstSchema(schema, path)
   if (!check.ok) {
     throw registrationError(agentId, rule.id, `${field} path "${path}" cannot exist in the result schema (at "${check.segment}")`)
   }
-  return check.leaves
+  return { leaves: check.leaves, rawLeaves: check.rawLeaves }
+}
+
+function resolveBase(agentId: string, rule: IntegrityRule, schema: ZodTypeAny, field: string, path: string): ZodTypeAny[] {
+  return resolveLeaves(agentId, rule, schema, field, path).leaves
 }
 
 function requireOnItems(agentId: string, rule: IntegrityRule, itemSchemas: ZodTypeAny[], checks: PathCheck[]): void {
@@ -84,8 +94,8 @@ function validateAbstainOrReviewPaths(agentId: string, rule: AbstainOrReviewRule
       if (path) resolveBase(agentId, rule, schema, `${outcomeKey}.when.${signalIndex}.path`, path)
     })
     for (const [path, value] of Object.entries(outcome.set)) {
-      const leaves = resolveBase(agentId, rule, schema, `${outcomeKey}.set`, path)
-      if (!leaves.some((leaf) => leaf.safeParse(value).success)) {
+      const { rawLeaves } = resolveLeaves(agentId, rule, schema, `${outcomeKey}.set`, path)
+      if (!rawLeaves.some((leaf) => leaf.safeParse(value).success)) {
         throw registrationError(agentId, rule.id, `${outcomeKey}.set value for "${path}" does not satisfy the result schema`)
       }
     }

@@ -32,6 +32,7 @@ const resultSchema = z.object({
     confidence: z.number().optional(),
     needsHumanReview: z.boolean().optional(),
     reviewReasons: z.array(z.string()).optional(),
+    finding: z.string().nullable().optional(),
   }),
 })
 
@@ -339,9 +340,26 @@ describe('abstain_or_review declaration', () => {
       { needsReview: { when: [{ signal: 'retrieval_empty' }], reasonsPath: 'data.reasons' } },
       /needsReview\.reasonsPath path "data\.reasons" cannot exist/,
     ],
+    [
+      'null for a non-nullable leaf',
+      { notApplicable: { when: [{ signal: 'retrieval_empty' }], set: { 'data.needsHumanReview': null } } },
+      /notApplicable\.set value for "data\.needsHumanReview" does not satisfy the result schema/,
+    ],
   ])('rejects an invalid %s naming the agent and rule', (_label, outcomes, message) => {
     const rule = { id: 'abstain', kind: 'abstain_or_review', ...outcomes } as IntegrityRuleInput
     expect(() => register([rule])).toThrow(/^\[internal\] agent "test\.integrity_agent_\d+" integrity rule "abstain"/)
     expect(() => register([rule])).toThrow(message)
+  })
+
+  it('accepts null for a nullable leaf and undefined for an optional one', () => {
+    const rule = {
+      id: 'abstain',
+      kind: 'abstain_or_review',
+      notApplicable: {
+        when: [{ signal: 'output_empty', path: 'data.findings' }],
+        set: { 'data.finding': null, 'data.confidence': undefined, 'data.overall': 'not_applicable' },
+      },
+    } as IntegrityRuleInput
+    expect(getAgentEntry(register([rule]))?.integrity?.[0].kind).toBe('abstain_or_review')
   })
 })

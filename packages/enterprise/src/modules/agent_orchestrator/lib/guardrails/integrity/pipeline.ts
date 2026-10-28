@@ -10,19 +10,22 @@ import {
   type IntegrityRule,
 } from '../../../data/validators'
 import type { CheckOutputArgs, GuardrailService } from '../guardrailService'
+import { evaluateAbstainOrReview } from './rules/abstainOrReview'
 import { evaluateCustomIntegrity } from './rules/custom'
 import { evaluateEvidenceQuote } from './rules/evidenceQuote'
 import { evaluateReferenceExists } from './rules/referenceExists'
 import { evaluateToolConsulted } from './rules/toolConsulted'
-import type {
-  IntegrityRuleContext,
-  IntegrityRuleEvaluator,
-  IntegrityRuleOutcome,
-  IntegrityRuleScope,
-  IntegrityToolCall,
+import {
+  INTEGRITY_REPAIR_INVALID,
+  type IntegrityReviewRequest,
+  type IntegrityRuleContext,
+  type IntegrityRuleEvaluator,
+  type IntegrityRuleOutcome,
+  type IntegrityRuleScope,
+  type IntegrityToolCall,
 } from './types'
 
-export const INTEGRITY_REPAIR_INVALID = 'integrity_repair_invalid'
+export { INTEGRITY_REPAIR_INVALID }
 export const INTEGRITY_RULE_UNSUPPORTED = 'integrity_rule_unsupported'
 
 export type IntegrityRuleEvaluators = Partial<{
@@ -34,6 +37,7 @@ export const INTEGRITY_RULE_EVALUATORS: IntegrityRuleEvaluators = {
   reference_exists: evaluateReferenceExists,
   tool_consulted: evaluateToolConsulted,
   custom: evaluateCustomIntegrity,
+  abstain_or_review: evaluateAbstainOrReview,
 }
 
 export type OutputPipelineArgs = {
@@ -61,6 +65,8 @@ export type OutputPipelineResult = {
   rawOutput: unknown
   changed: boolean
   changedCheckIndexes: number[]
+  /** Set when an `abstain_or_review` rule routed the run to a human (never in shadow mode or on a block). */
+  reviewRequest?: IntegrityReviewRequest
 }
 
 export type RawOutputPointer = { key?: string; status: 'stored' | 'storage_unavailable' }
@@ -151,9 +157,12 @@ function toShadowOutcome(outcome: IntegrityRuleOutcome, input: unknown): Integri
  * order): 1 schema on the raw object, 2 integrity rules in declaration order
  * (each on an immutable copy of the previous output), 3 schema re-validation of
  * the repaired output, 4 grounding and 6 `tool_scope` (with the run's attempted
- * tools) on the final output. Reuses `checkOutput` for steps 1, 4 and 6 and
- * folds every check into one verdict; it never persists anything. With `shadow`
- * every rule is evaluated and recorded but the raw output stays final.
+ * tools) on the repaired output, then 5 `abstain_or_review` — which sees every
+ * earlier check — followed by a schema re-validation of what it wrote. Reuses
+ * `checkOutput` for steps 1, 4 and 6 and folds every check into one verdict
+ * (integrity rows in declaration order); it never persists anything. With
+ * `shadow` every rule is evaluated and recorded but the raw output stays final
+ * and no review is requested.
  */
 export async function runOutputPipeline(args: OutputPipelineArgs): Promise<OutputPipelineResult> {
   const rawOutput = args.rawObject
@@ -174,11 +183,20 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
   }
 
   const evaluators = args.evaluators ?? INTEGRITY_RULE_EVALUATORS
+  const rules = args.entry.integrity ?? []
+  const abstainRules = rules.filter((rule) => rule.kind === 'abstain_or_review')
   const integrityChecks: GuardrailCheck[] = []
   let current: unknown = structuredClone(rawOutput)
   let changed = false
   const changedCheckIndexes: number[] = []
-  for (const rule of args.entry.integrity ?? []) {
+  const blockedResult = (): OutputPipelineResult => ({
+    verdict: buildVerdict([...schemaChecks, ...integrityChecks]),
+    finalOutput: rawOutput,
+    rawOutput,
+    changed: false,
+    changedCheckIndexes: [],
+  })
+  const runRule = async (rule: IntegrityRule, priorChecks?: readonly GuardrailCheck[]): Promise<IntegrityRuleOutcome> => {
     const evaluated = await evaluateRule(
       evaluators,
       {
@@ -190,29 +208,20 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
         guardrailSetVersion: args.guardrailSetVersion,
         ...(args.scope ? { scope: args.scope } : {}),
         ...(args.container ? { container: args.container } : {}),
+        ...(priorChecks ? { priorChecks } : {}),
       },
       rule,
     )
     const outcome = args.shadow ? toShadowOutcome(evaluated, current) : evaluated
     integrityChecks.push(outcome.check)
-    if (outcome.blocked) {
-      return {
-        verdict: buildVerdict([...schemaChecks, ...integrityChecks]),
-        finalOutput: rawOutput,
-        rawOutput,
-        changed: false,
-        changedCheckIndexes: [],
-      }
-    }
-    if (outcome.changed) {
+    if (!outcome.blocked && outcome.changed) {
       current = outcome.output
       changed = true
       changedCheckIndexes.push(schemaChecks.length + integrityChecks.length - 1)
     }
+    return outcome
   }
-  const finalOutput = changed ? current : rawOutput
-
-  if (changed && !args.entry.schema.safeParse(finalOutput).success) {
+  const repairInvalidResult = (finalChecks: GuardrailCheck[]): OutputPipelineResult => {
     const repairCheck: GuardrailCheck = {
       kind: 'schema',
       result: 'block',
@@ -220,28 +229,52 @@ export async function runOutputPipeline(args: OutputPipelineArgs): Promise<Outpu
       evidence: { detail: INTEGRITY_REPAIR_INVALID },
     }
     return {
-      verdict: buildVerdict([...schemaChecks, ...integrityChecks, repairCheck]),
-      finalOutput,
+      verdict: buildVerdict([...schemaChecks, ...integrityChecks, ...finalChecks, repairCheck]),
+      finalOutput: current,
       rawOutput,
       changed,
       changedCheckIndexes,
     }
   }
 
+  for (const rule of rules) {
+    if (rule.kind === 'abstain_or_review') continue
+    const outcome = await runRule(rule)
+    if (outcome.blocked) return blockedResult()
+  }
+
+  if (changed && !args.entry.schema.safeParse(current).success) return repairInvalidResult([])
+
   const finalVerdict = await args.guardrailService.checkOutput({
     capability: args.capability,
     schema: args.entry.schema,
-    output: finalOutput,
+    output: changed ? current : rawOutput,
     allowedTools: args.allowedTools,
     attemptedTools: args.attemptedTools,
     grounding: args.grounding,
   })
   const finalChecks = finalVerdict.checks.filter((check) => check.kind !== 'schema')
+
+  let reviewRequest: IntegrityReviewRequest | undefined
+  if (!finalChecks.some((check) => check.result === 'block')) {
+    let abstainChanged = false
+    for (const rule of abstainRules) {
+      const outcome = await runRule(rule, [...integrityChecks, ...finalChecks])
+      if (outcome.blocked) {
+        return { ...blockedResult(), verdict: buildVerdict([...schemaChecks, ...integrityChecks, ...finalChecks]) }
+      }
+      if (outcome.changed) abstainChanged = true
+      if (outcome.reviewRequest) reviewRequest = outcome.reviewRequest
+    }
+    if (abstainChanged && !args.entry.schema.safeParse(current).success) return repairInvalidResult(finalChecks)
+  }
+
   return {
     verdict: buildVerdict([...schemaChecks, ...integrityChecks, ...finalChecks]),
-    finalOutput,
+    finalOutput: changed ? current : rawOutput,
     rawOutput,
     changed,
     changedCheckIndexes,
+    ...(reviewRequest ? { reviewRequest } : {}),
   }
 }
