@@ -63,6 +63,8 @@ function toCatalogModule(value: unknown): CatalogModule | null {
     installByLine: toInstallByLine(value.installByLine),
     inPresets: isStringArray(value.inPresets) ? value.inPresets : [],
     presetNote: isString(value.presetNote) ? value.presetNote : null,
+    conflictsWith: isStringArray(value.conflictsWith) ? value.conflictsWith : [],
+    warning: isString(value.warning) && value.warning.trim() !== '' ? value.warning : null,
   }
 }
 

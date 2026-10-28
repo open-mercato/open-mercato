@@ -59,6 +59,16 @@ export function parsePickerAnswer(answer: string, count: number): number[] {
   return [...new Set(numbers)]
 }
 
+/**
+ * The catalog's warning that `yarn generate` refuses this module next to a module of the new app with the same backend
+ * route. For a preset other than classic, only when that preset registers one of the modules named in `conflictsWith`.
+ */
+export function collisionWarning(entry: CatalogModule, presetModuleIds: readonly string[] | null): string | null {
+  if (entry.warning === null) return null
+  if (presetModuleIds === null || entry.conflictsWith.length === 0) return entry.warning
+  return entry.conflictsWith.some((id) => presetModuleIds.includes(id)) ? entry.warning : null
+}
+
 export async function promptCatalogModules(
   ask: CatalogAsk,
   selectable: readonly CatalogModule[],
@@ -66,6 +76,7 @@ export async function promptCatalogModules(
   log: (line: string) => void,
   warn: (line: string) => void,
   alreadyInAppCount = 0,
+  presetModuleIds: readonly string[] | null = null,
 ): Promise<CatalogModule[]> {
   log('')
   log(`🧩  Modules from the Open Mercato Modules catalog (verified on ${line})`)
@@ -77,6 +88,8 @@ export async function promptCatalogModules(
     const number = String(index + 1).padStart(String(selectable.length).length)
     const from = shared(entry) ? `${entry.from} · ` : ''
     log(`   ${number}. ${entry.id.padEnd(idWidth)}  ${entry.title}  (${from}${describeModule(entry, line)})`)
+    const warning = collisionWarning(entry, presetModuleIds)
+    if (warning) warn(`   ${' '.repeat(number.length)}  Warning: ${warning}`)
   })
   if (alreadyInAppCount > 0) {
     log(`   Not listed: ${alreadyInAppCount} catalog module${alreadyInAppCount === 1 ? '' : 's'} the app already registers in src/modules.ts.`)
@@ -202,6 +215,8 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
   for (const { entry, reason } of selection.selected) {
     const required = reason === 'required' ? ', required by another pick' : ''
     options.log(`  ${entry.id} from ${entry.from} (${describeModule(entry, line)}${required})`)
+    const warning = collisionWarning(entry, options.presetModuleIds)
+    if (warning) options.warn(`    Warning: ${warning}`)
   }
   if (selection.selected.some(({ entry }) => entry.source === 'third-party' || entry.source === 'community')) {
     options.log('  Community and third-party code runs with access to all tenants\' data; their commands carry --allow-third-party.')
@@ -244,7 +259,15 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
           options.log(`Nothing to add from the module catalog: the app already registers the modules verified on ${line}.`)
         } else if (withoutLineInstall.length === 0) options.warn(`No catalog modules are verified on ${line} yet.`)
       } else {
-        picked = await promptCatalogModules(options.ask, selectable, line, options.log, options.warn, inApp.length)
+        picked = await promptCatalogModules(
+          options.ask,
+          selectable,
+          line,
+          options.log,
+          options.warn,
+          inApp.length,
+          options.presetModuleIds,
+        )
       }
     }
   }

@@ -24,6 +24,10 @@ export type CatalogModule = {
   inPresets: string[]
   /** What the catalog says instead of a command when the latest line's new app has the module (`presetNote`). */
   presetNote: string | null
+  /** Module IDs of a new app whose backend route this module adds too (`picker.json` `conflictsWith`); [] when none. */
+  conflictsWith: string[]
+  /** The catalog's sentence that `yarn generate` refuses this module next to them (`warning`); null when none. */
+  warning: string | null
 }
 
 export type PickerIndex = {

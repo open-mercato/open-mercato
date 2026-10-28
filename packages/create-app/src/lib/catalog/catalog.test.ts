@@ -23,7 +23,13 @@ import {
   parseModulesFlag,
   resolveCatalogSelection,
 } from './selection.js'
-import { closestCatalogName, parsePickerAnswer, runCatalogStep, type CatalogStepOptions } from './catalog-step.js'
+import {
+  closestCatalogName,
+  collisionWarning,
+  parsePickerAnswer,
+  runCatalogStep,
+  type CatalogStepOptions,
+} from './catalog-step.js'
 import type { PickerIndex } from './types.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -116,13 +122,13 @@ function stepOptions(overrides: Partial<CatalogStepOptions> = {}) {
 test('parsePickerIndex reads the published picker.json and drops malformed modules', () => {
   assert.equal(index.schemaVersion, 1)
   assert.deepEqual(index.lines, ['0.9', '0.8', 'next'])
-  assert.equal(index.modules.length, 14)
+  assert.equal(index.modules.length, 15)
   assert.deepEqual(index.modules.find((entry) => entry.id === 'integration_ksef_direct')?.installByLine, {
     '0.9': 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
     next: 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
   })
   const broken = { ...(fixture() as Record<string, unknown>), modules: [{ id: 'x' }, ...index.modules] }
-  assert.equal(parsePickerIndex(broken)?.modules.length, 14)
+  assert.equal(parsePickerIndex(broken)?.modules.length, 15)
   assert.equal(parsePickerIndex({ schemaVersion: 2 }), null)
   assert.equal(parsePickerIndex(null), null)
 })
@@ -410,6 +416,7 @@ test('runCatalogStep runs the interactive picker with the license and level of e
   assert.ok(warnings.some((line) => line.includes('9 is not on the list (1-3).')))
   assert.ok(logs.some((line) => line.includes('1. integration_ksef_direct  KSeF Integration  (third-party · MIT · verified on 0.9)')))
   assert.ok(logs.some((line) => line.includes('3. gateway_stripe')))
+  assert.ok(!warnings.some((line) => line.includes('Warning:')))
 })
 
 test('runCatalogStep installs the package picked, not another package with the same module id', async () => {
@@ -632,4 +639,53 @@ test('closestCatalogName suggests a near module ID or npm name, and nothing for 
   assert.equal(closestCatalogName('@open-mercato/gateway-stripee', index.modules), '@open-mercato/gateway-stripe')
   assert.equal(closestCatalogName('nonexistent-x', index.modules), null)
   assert.equal(closestCatalogName('  ', index.modules), null)
+})
+
+const SHIPMENT_WARNING =
+  'Adds the backend route /backend/webhooks, which a new app on 0.8, 0.9 and next already has from the webhooks module (@open-mercato/webhooks). The generate step refuses two modules with one backend route.'
+const SHIPMENT = 'yarn mercato module add @freighttech/shipment-tracking@0.7.2 --allow-third-party'
+
+test('parsePickerIndex reads conflictsWith and warning, and entries without them', () => {
+  const shipment = index.modules.find((entry) => entry.id === 'shipment_tracking')!
+  assert.deepEqual(shipment.conflictsWith, ['webhooks'])
+  assert.equal(shipment.warning, SHIPMENT_WARNING)
+  const ksef = index.modules.find((entry) => entry.id === 'integration_ksef_direct')!
+  assert.deepEqual(ksef.conflictsWith, [])
+  assert.equal(ksef.warning, null)
+})
+
+test('collisionWarning applies to a classic app, and to another preset only when it has a conflicting module', () => {
+  const shipment = index.modules.find((entry) => entry.id === 'shipment_tracking')!
+  assert.equal(collisionWarning(shipment, null), SHIPMENT_WARNING)
+  assert.equal(collisionWarning(shipment, ['auth', 'webhooks']), SHIPMENT_WARNING)
+  assert.equal(collisionWarning(shipment, ['auth']), null)
+  assert.equal(collisionWarning({ ...shipment, conflictsWith: [] }, ['auth']), SHIPMENT_WARNING)
+  const ksef = index.modules.find((entry) => entry.id === 'integration_ksef_direct')!
+  assert.equal(collisionWarning(ksef, null), null)
+})
+
+test('runCatalogStep plans a module with a route collision and shows the catalog warning', async () => {
+  const { options, logs, warnings } = stepOptions({ version: '0.8.2', requested: ['shipment_tracking'], presetModuleIds: null })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, [SHIPMENT])
+  const planned = logs.indexOf('  shipment_tracking from @freighttech/shipment-tracking (third-party · MIT · listed, installs on 0.8)')
+  assert.ok(planned >= 0)
+  assert.deepEqual(warnings, [`    Warning: ${SHIPMENT_WARNING}`])
+
+  const withoutWebhooks = stepOptions({
+    version: '0.8.2',
+    requested: ['shipment_tracking'],
+    presetModuleIds: ['auth'],
+    presetModules: [{ id: 'auth', from: '@open-mercato/core' }],
+  })
+  assert.deepEqual((await runCatalogStep(withoutWebhooks.options)).commands, [SHIPMENT])
+  assert.deepEqual(withoutWebhooks.warnings, [])
+})
+
+test('runCatalogStep shows the catalog warning under the module in the picker', async () => {
+  const { options, logs, warnings } = stepOptions({ version: '0.8.2', picker: true, presetModuleIds: null, ask: async () => '1' })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, [SHIPMENT])
+  assert.ok(logs.includes('   1. shipment_tracking  Shipment Tracking  (third-party · MIT · listed, installs on 0.8)'))
+  assert.equal(warnings[0], `      Warning: ${SHIPMENT_WARNING}`)
 })

@@ -217,6 +217,31 @@
       "installByLine": {}
     },
     {
+      "id": "shipment_tracking",
+      "from": "@freighttech/shipment-tracking",
+      "title": "Shipment Tracking",
+      "description": "Tracks ocean containers through DCSA carrier APIs such as Maersk and MSC, with a ShipsGo fallback and a journey timeline.",
+      "requires": [],
+      "source": "third-party",
+      "locator": "npm:@freighttech/shipment-tracking",
+      "license": {
+        "spdx": "MIT",
+        "kind": "osi"
+      },
+      "tier": "listed",
+      "verifiedOn": [
+        "0.8"
+      ],
+      "install": "yarn mercato module add @freighttech/shipment-tracking@0.7.2 --allow-third-party",
+      "installByLine": {
+        "0.8": "yarn mercato module add @freighttech/shipment-tracking@0.7.2 --allow-third-party"
+      },
+      "conflictsWith": [
+        "webhooks"
+      ],
+      "warning": "Adds the backend route /backend/webhooks, which a new app on 0.8, 0.9 and next already has from the webhooks module (@open-mercato/webhooks). The generate step refuses two modules with one backend route."
+    },
+    {
       "id": "currencies",
       "from": "@open-mercato/core",
       "title": "Currencies",
