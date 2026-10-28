@@ -354,8 +354,9 @@ This corrects predicates previously discarded as though no constraint existed.
 
 Absent filters, `{}`, `[]`, and `{ $and: [] }` retain their unconstrained meaning.
 Supported operators, custom-field aliases, and array filter metadata retain their
-existing behavior. No exported signature, operator union, API route, schema, or
-tenant/organization scope changes. No compatibility mode preserves discarded
+existing behavior. The approved repair adds `not_ilike` to `FilterOp` and the
+optional field-level `WhereOps.$not: { $ilike: string }` shape. Exported function
+signatures, API routes, schema, and tenant/organization scope stay unchanged. No compatibility mode preserves discarded
 predicates: the issue explicitly requires rejection or an explicit false predicate.
 
 Module authors must omit optional OR conditions when no restriction is intended,
@@ -384,10 +385,46 @@ filtering emits `$overlap` rather than unsupported `$contains`.
 Regression coverage sends every other advertised UI operator through both
 compilers and `normalizeFilters`, preserves multiple all-of constraints, and
 checks JSONB/native-array SQL and the real staff route filter configuration.
-`does_not_contain` remains an unresolved review finding: its emitted `$not` with
-`$ilike` needs an additive QueryEngine contract and encrypted-field semantics
-approved before publication. This partial repair does not change FilterOp,
-WhereOps, API routes, or database schema.
+`does_not_contain` now uses its existing `$not: { $ilike: string }` output,
+normalized to the additive `not_ilike` operation. All advertised operators pass
+compiler-to-normalizer conformance tests. Malformed negation, other nested
+operators, non-string patterns, and top-level `$not` are rejected. No general
+NOT expression is introduced.
+
+Plaintext SQL preserves the supplied ILIKE pattern, including wrapper wildcards
+and already escaped `%`, `_`, and backslash literals. SQL null and absent values
+do not satisfy negation. A known encrypted or unknown base field requires an
+indexable term and enabled search-token storage; otherwise it throws TypeError.
+Encrypted negation excludes records matching all query token hashes, independent
+of word order, under the existing tokenizer's prefix/minimum-length semantics.
+It is not arbitrary substring matching over ciphertext. Both token-presence and
+token-exclusion predicates correlate the exact entity, record, field, tenant, and
+record organization, intersected with the requested organization scope. Missing,
+wrong-scope, or wrong-field token evidence cannot satisfy the negative branch.
+No token-result cache is introduced.
+
+Custom fields and custom-storage documents can mix plaintext and ciphertext
+independently of a base encryption map. Each scalar value uses plaintext SQL or
+scoped token exclusion according to its stored envelope. Unsearchable encrypted
+values fail closed; they never use ciphertext NOT ILIKE. Arrays require a present
+scalar value, and any matching, unsearchable encrypted, or unsupported non-scalar
+value prevents negation from matching. Basic EAV and Hybrid JSONB paths agree.
+Custom-field token context follows the selected source entity, record and
+organization. Basic reuses definition/source scoring in both data and count;
+Hybrid preserves first-non-null source precedence. Declared secondary sources,
+including generated aliases, remain supported. Token evidence is scoped to the
+record/entity/field, not to each individual stored value. Table-only/unresolved
+joins reject negative filters rather than discarding them. Forced custom-document
+storage rejects secondary joins it cannot resolve. Joined OR predicates retain their
+original disjunct through the existing scoped join resolver; custom-storage OR
+branches are also preserved.
+
+`negated-text.pg.test.ts` creates an isolated random PostgreSQL schema and verifies
+both engines, custom storage, escaped literals, short/empty patterns, encrypted
+token presence/scope, multi-value custom fields, direct joins, and mixed join OR.
+It runs only with the explicit disposable-test URL `OM_QUERY_NEGATION_PG_URL` and
+removes its own schema. Ordinary CI retains the ungated compiler/normalizer and
+SQL parity coverage. No route-level HTTP 400 adapter is added.
 
 ### Existing UI compatibility
 
@@ -663,7 +700,8 @@ No other new dependencies. All other features built on existing TanStack React T
 
 | Date | Change |
 |------|--------|
-| 2026-10-28 | #7996: Repair all-of compilation and JSONB staff role filters without extending the operator contract; negated-text support remains pending approval. |
+| 2026-10-29 | #7996: Add approved narrow negated ILIKE support with scoped encrypted-token exclusion, resolved custom-field sources, preserved join/custom-storage OR groups, and disposable-PostgreSQL regression coverage. |
+| 2026-10-28 | #7996: Repair all-of compilation and JSONB staff role filters. |
 | 2026-10-26 | #7831: Reject empty OR and unsupported QueryEngine field operators; preserve absent-filter semantics and document module/preset migration. |
 | 2026-04-03 | Initial skeleton with open questions |
 | 2026-04-03 | Full spec after Q&A — 4 phases, 8 features, UX designer notes incorporated |

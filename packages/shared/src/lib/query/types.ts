@@ -12,7 +12,7 @@ import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-defini
  * NULL column never does); an empty value list excludes nothing. Unsupported on `cf:*` keys, where
  * it compiles to `false`.
  */
-export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'not_ilike' | 'exists' | 'overlap' | 'noverlap'
 
 export enum SortDir {
   Asc = 'asc',
@@ -43,6 +43,7 @@ export type WhereOps<T> = {
   $nin?: T[]
   $like?: T extends string ? string : never
   $ilike?: T extends string ? string : never
+  $not?: { $ilike: T extends string ? string : never }
   $exists?: boolean
   $overlap?: T extends readonly (infer Element)[] ? Element[] : T[]
   $noverlap?: T extends readonly (infer Element)[] ? Element[] : T[]

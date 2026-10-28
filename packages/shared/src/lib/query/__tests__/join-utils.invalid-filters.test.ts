@@ -1,4 +1,4 @@
-import { normalizeFilters } from '../join-utils'
+import { normalizeFilters, partitionFilters } from '../join-utils'
 import type { Filter, QueryOptions } from '../types'
 
 describe('QueryEngine filter validation (#7831)', () => {
@@ -47,4 +47,37 @@ describe('QueryEngine filter validation (#7831)', () => {
       { field: 'cf:status', op: 'eq', value: 'open', orGroup: 'scope' },
     ])
   })
+})
+
+
+describe('narrow negated ILIKE validation (#7996)', () => {
+  test.each([
+    { display_name: { $not: null } },
+    { display_name: { $not: [] } },
+    { display_name: { $not: '%text%' } },
+    { display_name: { $not: {} } },
+    { display_name: { $not: { $like: '%text%' } } },
+    { display_name: { $not: { $ilike: 42 } } },
+    { display_name: { $not: { $ilike: '%text%', $eq: 'other' } } },
+    { $not: { $ilike: '%text%' } },
+    { display_name: { $not_ilike: null } },
+  ])('rejects malformed or unsupported negative forms: %j', (filters) => {
+    expect(() => normalizeFilters(filters)).toThrow(TypeError)
+  })
+
+  test('validates direct normalized negative patterns without losing metadata', () => {
+    expect(() => normalizeFilters([{ field: 'display_name', op: 'not_ilike', value: null }])).toThrow(TypeError)
+    expect(normalizeFilters([{ field: 'cf_labels', op: 'not_ilike', value: '%x%', orGroup: 'branch' }])).toEqual([
+      { field: 'cf:labels', op: 'not_ilike', value: '%x%', orGroup: 'branch' },
+    ])
+  })
+})
+
+test('base-qualified negative filters retain their original OR metadata', () => {
+  const filters = normalizeFilters({ $or: [{ 'base.secret': { $not: { $ilike: '%Daniel%' } } }, { id: 'record-1' }] })
+  const { baseFilters } = partitionFilters('users', filters, new Map())
+  expect(baseFilters).toEqual([
+    { field: 'secret', op: 'not_ilike', value: '%Daniel%', orGroup: 'or_0', qualified: 'users.secret' },
+    { field: 'id', op: 'eq', value: 'record-1', orGroup: 'or_1' },
+  ])
 })

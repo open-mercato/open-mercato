@@ -1,3 +1,4 @@
+import { bindNotIlikeValueSource, buildNotIlikeJsonPredicate, buildNotIlikePredicate, prepareNotIlikeFilters } from './not-ilike'
 import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, ListCountCapWarning, QueryCustomFieldSource, QueryExtensionsConfig, Sort } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -5,6 +6,7 @@ import { type Kysely, sql, type RawBuilder } from 'kysely'
 import {
   applyJoinFilters,
   normalizeFilters,
+  buildGroupedJoinFilterPredicates,
   partitionFilters,
   resolveJoins,
   type BaseFilter,
@@ -476,7 +478,33 @@ export class BasicQueryEngine implements QueryEngine {
       if (!targetTable) return null
       return this.getColumnType(targetTable, column)
     })
-    const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
+    await prepareNotIlikeFilters(normalizedFilters, async (field) => {
+      const separator = field.indexOf('.')
+      const alias = separator > 0 ? field.slice(0, separator) : null
+      const join = alias ? joinMap.get(alias) : undefined
+      if ((alias && !aliasTables.has(alias)) || (join && !join.entityId)) {
+        throw new TypeError('[internal] QueryEngine: text negation requires one declared entity source')
+      }
+      const targetEntity = join?.entityId ?? entity
+      const targetField = alias ? field.slice(separator + 1) : field
+      if (join && !await this.columnExists(join.table, targetField)) {
+        throw new TypeError('[internal] QueryEngine: text negation requires a resolved joined column')
+      }
+      const service = this.getEncryptionService()
+      const encryptedFields = field.startsWith('cf:') ? null : service?.getEncryptedFieldNames
+        ? await service.getEncryptedFieldNames(targetEntity, opts.tenantId ?? null, null, { ignoreRuntimeHealth: true })
+        : isTenantDataEncryptionEnabled() ? null : []
+      return {
+        entity: String(targetEntity), field: targetField,
+        recordIdColumn: join ? `${join.alias}.id` : qualify('id'),
+        organizationIdColumn: await this.columnExists(join?.table ?? table, 'organization_id')
+          ? join ? `${join.alias}.organization_id` : qualify('organization_id') : null,
+        tenantId: opts.tenantId ?? null, organizationScope: orgScope,
+        searchEnabled: !skipAutoScope && await this.searchAvailability().staticEnabled(),
+        searchConfig: resolveSearchConfig(), encryptedFields,
+      }
+    })
+    const { baseFilters, joinFilters, groupedJoinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     // Custom-field leaves carrying an orGroup belong to an OR disjunct; applying them
     // one `.where()` at a time would AND them onto every disjunct (#5039).
@@ -745,6 +773,15 @@ export class BasicQueryEngine implements QueryEngine {
       return next
     }
 
+    const groupedJoinPredicates = await buildGroupedJoinFilterPredicates({
+      db, baseTable: table, joinMap, groupedJoinFilters, aliasTables,
+      qualifyBase: qualify,
+      applyAliasScope: (builder, alias) => applyAliasScopes(builder, alias),
+      applyFilterOp: (builder, column, op, value) => applyFilterOp(builder, column, op, value),
+      applyJoinFilterOp,
+      columnExists: (targetTable, column) => this.columnExists(targetTable, column),
+    })
+
     const fallbackOrgId =
       opts.organizationId
       ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
@@ -866,16 +903,21 @@ export class BasicQueryEngine implements QueryEngine {
         | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
         | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
         | { kind: 'cf'; key: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'predicate'; expression: RawBuilder<boolean> }
       const resolvedGroupFilters: ResolvedOrClause[][] = []
-      if (orGroupFilters.length > 0 || orGroupCfFilters.length > 0) {
+      if (orGroupFilters.length > 0 || orGroupCfFilters.length > 0 || groupedJoinPredicates.size > 0) {
         const groups = new Map<string, NormalizedFilter[]>()
         for (const f of [...orGroupFilters, ...orGroupCfFilters]) {
           const group = groups.get(f.orGroup!) ?? []
           group.push(f as NormalizedFilter)
           groups.set(f.orGroup!, group)
         }
-        for (const [, groupFilters] of groups) {
-          const resolved: ResolvedOrClause[] = []
+        for (const groupId of groupedJoinPredicates.keys()) {
+          if (!groups.has(groupId)) groups.set(groupId, [])
+        }
+        for (const [groupId, groupFilters] of groups) {
+          const predicate = groupedJoinPredicates.get(groupId)
+          const resolved: ResolvedOrClause[] = predicate ? [{ kind: 'predicate', expression: predicate }] : []
           for (const filter of groupFilters) {
             const field = String(filter.field)
             if (field.startsWith('cf:')) {
@@ -976,7 +1018,9 @@ export class BasicQueryEngine implements QueryEngine {
           if (typeof s.field === 'string' && s.field.startsWith('cf:')) cfKeys.add(s.field.slice(3))
         }
       }
-      if (projection === 'full' && opts.includeCustomFields === true) {
+      if (!isSortKeysProjection) for (const key of requestedCustomFieldKeys) cfKeys.add(key)
+      const expandsCustomFieldProjection = projection === 'full' && opts.includeCustomFields === true
+      if (expandsCustomFieldProjection || cfFilters.some((filter) => filter.op === 'not_ilike')) {
         if (entityIdToSource.size > 0) {
           const entityIdList = Array.from(entityIdToSource.keys())
           const entityOrder = new Map<string, number>()
@@ -994,6 +1038,8 @@ export class BasicQueryEngine implements QueryEngine {
               'deleted_at' as any,
             ])
             .where('entity_id' as any, 'in', entityIdList)
+            .where((expression: import('kysely').ExpressionBuilder<Record<string, Record<string, unknown>>, string>) =>
+              expandsCustomFieldProjection ? expression.val(true) : expression('key', 'in', [...cfKeys]))
             .where('is_active' as any, '=', true)
             .where((eb: any) => eb.or([
               eb('tenant_id' as any, '=', tenantId),
@@ -1023,11 +1069,13 @@ export class BasicQueryEngine implements QueryEngine {
             deletedAt: row.deleted_at ?? null,
             updatedAt: row.updated_at ?? null,
           }))
-          resolvedCustomFieldDefinitions = {
-            index: buildCustomFieldDefinitionIndexFromRows(definitionRows, { organizationIds: orgCandidates }),
-            entityIds: entityIdList,
-            tenantId: tenantId ?? null,
-            organizationIds: orgCandidates,
+          if (expandsCustomFieldProjection) {
+            resolvedCustomFieldDefinitions = {
+              index: buildCustomFieldDefinitionIndexFromRows(definitionRows, { organizationIds: orgCandidates }),
+              entityIds: entityIdList,
+              tenantId: tenantId ?? null,
+              organizationIds: orgCandidates,
+            }
           }
           type ScoredCustomFieldRow = {
             key: string
@@ -1058,6 +1106,7 @@ export class BasicQueryEngine implements QueryEngine {
           })
           const selectedSources = new Map<string, { source: ResolvedCustomFieldSource; score: number; penalty: number; entityIndex: number }>()
           for (const row of sorted) {
+            if (!expandsCustomFieldProjection && !cfKeys.has(row.key)) continue
             const source = entityIdToSource.get(row.entityId)
             if (!source) continue
             const cfg = row.config || {}
@@ -1067,14 +1116,12 @@ export class BasicQueryEngine implements QueryEngine {
             if (!existing || scores.base > existing.score || (scores.base === existing.score && (scores.penalty < existing.penalty || (scores.penalty === existing.penalty && scores.entityIndex < existing.entityIndex)))) {
               selectedSources.set(row.key, { source, score: scores.base, penalty: scores.penalty, entityIndex: scores.entityIndex })
             }
-            cfKeys.add(row.key)
+            if (expandsCustomFieldProjection) cfKeys.add(row.key)
           }
           for (const [key, entry] of selectedSources.entries()) {
             keySource.set(key, entry.source)
           }
         }
-      } else if (!isSortKeysProjection && requestedCustomFieldKeys.length > 0) {
-        for (const key of requestedCustomFieldKeys) cfKeys.add(key)
       }
       const unresolvedKeys = Array.from(cfKeys).filter((key) => !keySource.has(key))
       if (unresolvedKeys.length > 0 && entityIdToSource.size > 0) {
@@ -1219,6 +1266,12 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
+      if (cfFilters.some((filter) => filter.op === 'not_ilike' && (
+        !keySource.has(filter.field.slice(3)) || (!isCountProjection && !cfValueExprByKey[filter.field.slice(3)])
+      ))) {
+        throw new TypeError('[internal] QueryEngine: custom-field text negation requires a resolved field source')
+      }
+
       // Apply cf:* filters (on raw expressions; as EXISTS semi-joins for the count
       // shape). OR-grouped ones are excluded here and combined with their
       // disjunct's other leaves right below.
@@ -1263,7 +1316,7 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
-        if (isCountProjection || f.op === 'overlap') {
+        if (isCountProjection || f.op === 'overlap' || f.op === 'not_ilike') {
           q = this.applyCfValueExistsFilter(q, {
             source: filterSource,
             qualify,
@@ -1311,9 +1364,10 @@ export class BasicQueryEngine implements QueryEngine {
         q = q.where((eb: any) => {
           const disjuncts = applicableGroupFilters.map((group) => {
             const parts = group.map((rf) => {
+              if (rf.kind === 'predicate') return rf.expression
               if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
               if (rf.kind === 'cf') {
-                if (isCountProjection || rf.op === 'overlap') {
+                if (isCountProjection || rf.op === 'overlap' || rf.op === 'not_ilike') {
                   return this.buildCfValueExistsExpression(eb, {
                     source: keySource.get(rf.key)!,
                     qualify,
@@ -1688,6 +1742,8 @@ export class BasicQueryEngine implements QueryEngine {
         return builder.where(column as any, 'like', value as any)
       case 'ilike':
         return builder.where(column as any, 'ilike', value as any)
+      case 'not_ilike':
+        return builder.where(buildNotIlikePredicate(column, value))
       case 'exists':
         return value
           ? builder.where(column as any, 'is not', null)
@@ -1784,6 +1840,18 @@ export class BasicQueryEngine implements QueryEngine {
       return sub
     }
 
+    if (op === 'not_ilike') {
+      const textExpression = sql`coalesce(${caseExpr}, ${sql.ref(`${valAlias}.value_text`)})`
+      const sourceValue = bindNotIlikeValueSource(value, {
+        entity: String(source.entityId), field: `cf:${key}`,
+        recordIdColumn: `${valAlias}.record_id`, organizationIdColumn: `${valAlias}.organization_id`,
+      })
+      return eb.and([
+        eb.exists(buildSub(eb).where(sql<boolean>`${textExpression} is not null`)),
+        eb.not(eb.exists(buildSub(eb).where(eb.not(buildNotIlikePredicate(textExpression, sourceValue))))),
+      ])
+    }
+
     const absenceSatisfiable = (op === 'eq' && value === null) || (op === 'exists' && !value)
     if (absenceSatisfiable) {
       return eb.or([
@@ -1862,6 +1930,7 @@ export class BasicQueryEngine implements QueryEngine {
       }
       case 'like': return eb(column, 'like', value)
       case 'ilike': return eb(column, 'ilike', value)
+      case 'not_ilike': return buildNotIlikePredicate(column, value)
       case 'exists': return value ? eb(column, 'is not', null) : eb(column, 'is', null)
       case 'overlap': return buildArrayColumnOverlapPredicate(column, value)
       case 'noverlap': return buildArrayColumnNoOverlapPredicate(column, value)
@@ -2093,6 +2162,8 @@ export class BasicQueryEngine implements QueryEngine {
           sub = sub.where(sql<boolean>`${textExpr} like ${opts.value}`); break
         case 'ilike':
           sub = sub.where(sql<boolean>`${textExpr} ilike ${opts.value}`); break
+        case 'not_ilike':
+          sub = sub.where(buildNotIlikeJsonPredicate(sql`${sql.ref(`${alias}.doc`)} -> ${opts.field}`, opts.value)); break
         case 'exists':
           sub = opts.value
             ? sub.where(sql<boolean>`${textExpr} is not null`)

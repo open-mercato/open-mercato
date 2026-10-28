@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely'
-import { sql } from 'kysely'
+import { sql, type RawBuilder } from 'kysely'
 import type { QueryOptions, QueryJoinEdge } from './types'
 import type { FilterOp } from './types'
 
@@ -7,7 +7,7 @@ type AnyBuilder = any
 
 export type NormalizedFilter = { field: string; op: FilterOp; value?: unknown; orGroup?: string; qualified?: string | null }
 
-const VALID_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'exists', 'overlap', 'noverlap'] as const
+const VALID_OPS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'nin', 'like', 'ilike', 'not_ilike', 'exists', 'overlap', 'noverlap'] as const
 
 const normalizeField = (key: string) => (key.startsWith('cf_') ? `cf:${key.slice(3)}` : key)
 
@@ -59,6 +59,7 @@ function compileToDnf(filter: unknown): LeafClause[][] {
   const partialDnfs: LeafClause[][][] = []
 
   for (const [rawKey, rawVal] of Object.entries(obj)) {
+    if (rawKey === '$not') throw new TypeError('[internal] QueryEngine: top-level filter negation is unsupported')
     if (rawKey === '$and' && Array.isArray(rawVal)) {
       partialDnfs.push(cartesianAnd((rawVal as unknown[]).map(compileToDnf)))
       continue
@@ -78,6 +79,20 @@ function compileToDnf(filter: unknown): LeafClause[][] {
     if (rawVal !== null && typeof rawVal === 'object' && !Array.isArray(rawVal)) {
       const clauses: LeafClause[] = []
       for (const [opKey, opVal] of Object.entries(rawVal as Record<string, unknown>)) {
+        if (opKey === '$not') {
+          if (opVal === null || typeof opVal !== 'object' || Array.isArray(opVal)) {
+            throw new TypeError('[internal] QueryEngine: unsupported filter negation')
+          }
+          const negated = opVal as Record<string, unknown>
+          if (Object.keys(negated).length !== 1 || typeof negated.$ilike !== 'string') {
+            throw new TypeError('[internal] QueryEngine: only string $ilike filter negation is supported')
+          }
+          clauses.push({ field, op: 'not_ilike', value: negated.$ilike })
+          continue
+        }
+        if ((opKey === '$not_ilike' || opKey === 'not_ilike') && typeof opVal !== 'string') {
+          throw new TypeError('[internal] QueryEngine: text negation requires a string pattern')
+        }
         const op = validateFilterOp(opKey.startsWith('$') ? opKey.slice(1) : opKey)
         clauses.push({ field, op, value: opVal })
       }
@@ -156,11 +171,12 @@ function liftCommonClauses(dnf: LeafClause[][]): { common: LeafClause[]; remaini
 export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedFilter[] {
   if (!filters) return []
   if (Array.isArray(filters)) {
-    return filters.map((filter) => ({
-      ...filter,
-      field: normalizeField(String(filter.field)),
-      op: validateFilterOp(filter.op),
-    }))
+    return filters.map((filter) => {
+      if (filter.op === 'not_ilike' && typeof filter.value !== 'string') {
+        throw new TypeError('[internal] QueryEngine: text negation requires a string pattern')
+      }
+      return { ...filter, field: normalizeField(String(filter.field)), op: validateFilterOp(filter.op) }
+    })
   }
   const dnf = compileToDnf(filters)
   if (dnf.length === 0) return []
@@ -261,9 +277,10 @@ export function partitionFilters(
   baseTable: string,
   filters: NormalizedFilter[],
   joinMap: Map<string, ResolvedJoin>,
-): { baseFilters: BaseFilter[]; joinFilters: Map<string, JoinFilter[]> } {
+): { baseFilters: BaseFilter[]; joinFilters: Map<string, JoinFilter[]>; groupedJoinFilters: Map<string, Map<string, JoinFilter[]>> } {
   const baseFilters: BaseFilter[] = []
   const joinFilters = new Map<string, JoinFilter[]>()
+  const groupedJoinFilters = new Map<string, Map<string, JoinFilter[]>>()
   for (const filter of filters) {
     const field = String(filter.field)
     if (field.startsWith('cf:')) continue
@@ -272,6 +289,14 @@ export function partitionFilters(
       const [aliasNameRaw, column] = parts
       const aliasName = aliasNameRaw || ''
       if (joinMap.has(aliasName)) {
+        if (filter.orGroup) {
+          const group = groupedJoinFilters.get(filter.orGroup) ?? new Map<string, JoinFilter[]>()
+          const list = group.get(aliasName) ?? []
+          list.push({ alias: aliasName, column, op: filter.op, value: filter.value })
+          group.set(aliasName, list)
+          groupedJoinFilters.set(filter.orGroup, group)
+          continue
+        }
         const list = joinFilters.get(aliasName) ?? []
         list.push({ alias: aliasName, column, op: filter.op, value: filter.value })
         joinFilters.set(aliasName, list)
@@ -279,6 +304,7 @@ export function partitionFilters(
       }
       if (aliasName === baseTable || aliasName === 'base') {
         baseFilters.push({
+          ...filter,
           field: column,
           op: filter.op,
           value: filter.value,
@@ -289,7 +315,7 @@ export function partitionFilters(
     }
     baseFilters.push({ ...filter })
   }
-  return { baseFilters, joinFilters }
+  return { baseFilters, joinFilters, groupedJoinFilters }
 }
 
 type ApplyJoinFiltersOptions = {
@@ -379,4 +405,28 @@ export async function applyJoinFilters({
     }
   }
   return nextBuilder
+}
+
+export async function buildGroupedJoinFilterPredicates(
+  options: Omit<ApplyJoinFiltersOptions, 'builder' | 'joinFilters'> & { groupedJoinFilters: Map<string, Map<string, JoinFilter[]>> },
+): Promise<Map<string, RawBuilder<boolean>>> {
+  const { groupedJoinFilters, ...joinOptions } = options
+  const predicates = new Map<string, RawBuilder<boolean>>()
+  for (const [groupId, joinFilters] of groupedJoinFilters) {
+    for (const [alias, filters] of joinFilters) {
+      if (!buildJoinChain(alias, options.joinMap, options.baseTable).length) {
+        throw new TypeError('[internal] QueryEngine: grouped join requires a resolved join chain')
+      }
+      const table = options.aliasTables.get(alias)
+      for (const filter of filters) {
+        if (!table || (options.columnExists && !await options.columnExists(table, filter.column))) {
+          throw new TypeError('[internal] QueryEngine: grouped join requires a resolved column')
+        }
+      }
+    }
+    const seed = options.db.selectFrom(sql`(select 1)`.as('om_grouped_join')).select(sql<number>`1`.as('one'))
+    const query = await applyJoinFilters({ ...joinOptions, builder: seed, joinFilters })
+    predicates.set(groupId, sql<boolean>`exists (${query})`)
+  }
+  return predicates
 }

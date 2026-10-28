@@ -21,7 +21,7 @@ function sampleValue(type: FilterFieldType, operator: FilterOperator): unknown {
 }
 
 const cases = (Object.entries(OPERATORS_BY_FIELD_TYPE) as Array<[FilterFieldType, FilterOperator[]]>)
-  .flatMap(([type, operators]) => operators.filter((operator) => operator !== 'does_not_contain').map((operator) => ({ type, operator, value: sampleValue(type, operator) })))
+  .flatMap(([type, operators]) => operators.map((operator) => ({ type, operator, value: sampleValue(type, operator) })))
 
 const treeFor = (field: string, operator: FilterOperator, value: unknown): AdvancedFilterTree => ({
   root: { id: 'root', type: 'group', combinator: 'and', children: [{ id: 'rule', type: 'rule', field, operator, value }] },
@@ -59,5 +59,29 @@ test('all-tags retains every member and AND condition in both compilers', () => 
     { field: 'role_ids', op: 'overlap', value: ['editor'] },
     { field: 'role_ids', op: 'overlap', value: ['viewer'] },
     { field: 'is_active', op: 'eq', value: true },
+  ])
+})
+
+test('text negation keeps escaped literal wildcard characters', () => {
+  expect(normalizeFilters(compileTreeToWhere(treeFor('display_name', 'does_not_contain', 'x%_\\')) ?? {})).toEqual([
+    { field: 'display_name', op: 'not_ilike', value: '%x\\%\\_\\\\%' },
+  ])
+})
+
+
+test('all-tags remains one AND disjunct when ORed with text negation', () => {
+  const conditions = [
+    { id: 'tags', field: 'tags', operator: 'has_all_of' as const, value: ['alpha', 'beta'] },
+    { id: 'name', field: 'display_name', operator: 'does_not_contain' as const, value: 'x', join: 'or' as const },
+  ]
+  const legacy = convertAdvancedFilterToWhere({ logic: 'or', conditions })
+  const current = compileTreeToWhere({ root: {
+    id: 'root', type: 'group', combinator: 'or', children: conditions.map((condition) => ({ ...condition, type: 'rule' })),
+  } })
+  expect(normalizeFilters(current ?? {})).toEqual(normalizeFilters(legacy))
+  expect(normalizeFilters(legacy)).toEqual([
+    { field: 'tags', op: 'overlap', value: ['alpha'], orGroup: 'or_0' },
+    { field: 'tags', op: 'overlap', value: ['beta'], orGroup: 'or_0' },
+    { field: 'display_name', op: 'not_ilike', value: '%x%', orGroup: 'or_1' },
   ])
 })
