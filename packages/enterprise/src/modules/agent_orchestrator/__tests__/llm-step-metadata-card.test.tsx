@@ -2,8 +2,10 @@
  * @jest-environment jsdom
  */
 
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { LlmStepMetadataCard } from '../components/trace/LlmStepMetadataCard'
 import {
   deriveLlmStepRows,
@@ -12,6 +14,20 @@ import {
 } from '../components/trace/llmStepRows'
 import { GEN_AI_ATTRIBUTES, OM_LLM_ATTRIBUTES } from '../lib/trace/genAiAttributes'
 import type { SpanView } from '../components/types'
+
+jest.mock('next/dynamic', () => () => jest.requireActual('../components/trace/LlmStepPanels').default)
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({ apiCall: jest.fn() }))
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({ useBackendChrome: jest.fn() }))
+
+const apiCallMock = apiCall as jest.Mock
+const useBackendChromeMock = useBackendChrome as jest.Mock
+const RUN_ID = '11111111-1111-4111-8111-111111111111'
+
+beforeEach(() => {
+  apiCallMock.mockReset()
+  useBackendChromeMock.mockReturnValue({ payload: { grantedFeatures: ['agent_orchestrator.*'] } })
+})
 
 function span(overrides: Partial<SpanView>): SpanView {
   return {
@@ -142,13 +158,14 @@ describe('fidelityBadgeVariant', () => {
 
 describe('LlmStepMetadataCard', () => {
   it('renders nothing when the run has no llm spans', () => {
-    renderWithProviders(<LlmStepMetadataCard spans={[span({ kind: 'tool' })]} currency="USD" />)
+    renderWithProviders(<LlmStepMetadataCard runId={RUN_ID} spans={[span({ kind: 'tool' })]} currency="USD" />)
     expect(screen.queryByTestId('llm-step-metadata-card')).toBeNull()
   })
 
   it('renders one row per llm span with parameters, defaults and legacy notes', () => {
     renderWithProviders(
       <LlmStepMetadataCard
+        runId={RUN_ID}
         spans={[
           span({ id: 'a', sequence: 0, attributes: RECORDED_ATTRIBUTES }),
           span({ id: 'b', sequence: 1, attributes: DEFAULTS_ATTRIBUTES }),
@@ -171,5 +188,58 @@ describe('LlmStepMetadataCard', () => {
     const legacy = within(rows[2])
     expect(legacy.getByText('agent_orchestrator.trace.notRecorded')).not.toBeNull()
     expect(legacy.getByText('stop')).not.toBeNull()
+  })
+
+  it('loads step content lazily only when a row is expanded', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { payload: { schema: 'om.llm_request.v1', system: 'Be brief.', messages: [], tools: [], params: {} } },
+    })
+    renderWithProviders(
+      <LlmStepMetadataCard
+        runId={RUN_ID}
+        spans={[
+          span({
+            attributes: {
+              ...RECORDED_ATTRIBUTES,
+              [OM_LLM_ATTRIBUTES.contentStatus]: 'stored',
+              [OM_LLM_ATTRIBUTES.contentRequestKey]: '1761650000000/request-object',
+            },
+          }),
+        ]}
+        currency="USD"
+      />,
+    )
+    expect(screen.queryByTestId('llm-step-panels')).toBeNull()
+    expect(apiCallMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'agent_orchestrator.trace.showContent' }))
+    expect(await screen.findByText('Be brief.')).not.toBeNull()
+    expect(apiCallMock).toHaveBeenCalledTimes(1)
+    expect(apiCallMock.mock.calls[0][0]).toContain('kind=llm_request')
+    fireEvent.click(screen.getByRole('button', { name: 'agent_orchestrator.trace.hideContent' }))
+    expect(screen.queryByTestId('llm-step-panels')).toBeNull()
+  })
+
+  it('shows the permission alert without calling the API when view_content is not granted', () => {
+    useBackendChromeMock.mockReturnValue({ payload: { grantedFeatures: ['agent_orchestrator.trace.view'] } })
+    renderWithProviders(
+      <LlmStepMetadataCard
+        runId={RUN_ID}
+        spans={[
+          span({
+            attributes: {
+              ...RECORDED_ATTRIBUTES,
+              [OM_LLM_ATTRIBUTES.contentStatus]: 'stored',
+              [OM_LLM_ATTRIBUTES.contentRequestKey]: '1761650000000/request-object',
+            },
+          }),
+        ]}
+        currency="USD"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'agent_orchestrator.trace.showContent' }))
+    expect(screen.getByTestId('llm-content-forbidden')).not.toBeNull()
+    expect(apiCallMock).not.toHaveBeenCalled()
   })
 })

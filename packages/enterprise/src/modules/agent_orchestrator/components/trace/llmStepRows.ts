@@ -5,6 +5,7 @@ import {
   type LlmUsage,
 } from '../../lib/trace/genAiAttributes'
 import type { SpanView } from '../types'
+import { readLlmStepContentRefs, type LlmStepContentRefs } from './llmStepContent'
 
 const LLM_SPAN_KIND = 'llm'
 const MICROS_PER_UNIT = 1_000_000
@@ -38,6 +39,7 @@ export type LlmStepRow = {
   latencyMs: number | null
   finishReasons: string[]
   fidelity: CaptureFidelity | null
+  content: LlmStepContentRefs
 }
 
 function formatParameterValue(value: number | string[]): string {
@@ -82,6 +84,7 @@ export function deriveLlmStepRows(spans: readonly SpanView[], runCurrency: strin
       latencyMs: metadata.latencyMs ?? span.durationMs ?? null,
       finishReasons: metadata.finishReasons ?? [],
       fidelity: metadata.fidelity ?? null,
+      content: readLlmStepContentRefs(metadata),
     }
   })
 }

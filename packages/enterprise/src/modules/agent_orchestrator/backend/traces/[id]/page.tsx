@@ -1203,7 +1203,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 </InspectorCard>
                 </div>
 
-                <LlmStepMetadataCard spans={detail.spans} currency={run.currency} />
+                <LlmStepMetadataCard runId={runId} spans={detail.spans} currency={run.currency} />
 
                 {/* Tool calls + Output — two columns */}
                 <div className="grid gap-6 lg:grid-cols-2">
