@@ -48,7 +48,7 @@ function parseTimeOfDay(value: string): { hours: number; minutes: number } | nul
   return { hours, minutes }
 }
 
-type WallClock = { year: number; month: number; day: number; hours: number; minutes: number }
+type WallClock = { year: number; month: number; day: number; hours: number; minutes: number; seconds: number }
 
 const MINUTE_MS = 60 * 1000
 const DAY_MS = 24 * 60 * MINUTE_MS
@@ -65,6 +65,7 @@ function zonedFormatter(timeZone: string): Intl.DateTimeFormat {
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
     })
     formatterCache.set(timeZone, formatter)
   }
@@ -81,11 +82,18 @@ function zonedWallClock(epochMs: number, timeZone: string): WallClock {
   for (const part of zonedFormatter(timeZone).formatToParts(new Date(epochMs))) {
     if (part.type !== 'literal') values[part.type] = Number(part.value)
   }
-  return { year: values.year, month: values.month, day: values.day, hours: values.hour, minutes: values.minute }
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+    hours: values.hour,
+    minutes: values.minute,
+    seconds: values.second,
+  }
 }
 
 function wallClockAsUtc(clock: WallClock): number {
-  return Date.UTC(clock.year, clock.month - 1, clock.day, clock.hours, clock.minutes)
+  return Date.UTC(clock.year, clock.month - 1, clock.day, clock.hours, clock.minutes, clock.seconds)
 }
 
 function offsetAt(epochMs: number, timeZone: string): number {
@@ -119,10 +127,17 @@ export function zonedWallTimeToInstant(dateKey: string, time: string, timeZone: 
   const date = parseDateKey(dateKey)
   const parsed = parseTimeOfDay(time)
   if (!date || !parsed) return null
+  const wall = new Date(Date.UTC(date.year, date.month - 1, date.day, parsed.hours, parsed.minutes))
+  return zonedWallDateToInstant(wall, timeZone)
+}
+
+/** Resolve a UTC-encoded wall clock with compatible DST disambiguation. */
+export function zonedWallDateToInstant(wall: Date, timeZone: string): Date {
   const zone = resolveTimeZone(timeZone)
-  const wallAsUtc = Date.UTC(date.year, date.month - 1, date.day, parsed.hours, parsed.minutes)
+  const wallAsUtc = wall.getTime()
   const offsetBefore = offsetAt(wallAsUtc - DAY_MS, zone)
   const offsetAfter = offsetAt(wallAsUtc + DAY_MS, zone)
+  if (offsetBefore === offsetAfter) return new Date(wallAsUtc - offsetBefore)
   const candidates = [wallAsUtc - offsetBefore, wallAsUtc - offsetAfter].sort((left, right) => left - right)
   const matching = candidates.find((candidate) => candidate + offsetAt(candidate, zone) === wallAsUtc)
   return new Date(matching ?? wallAsUtc - offsetBefore)
@@ -140,7 +155,7 @@ export function zonedDayBounds(dateKey: string, timeZone: string): { start: Date
   const nextDateKey = formatUtcDateKey(Date.UTC(date.year, date.month - 1, date.day) + DAY_MS)
   const start = zonedWallTimeToInstant(dateKey, '00:00', timeZone)
   const end = zonedWallTimeToInstant(nextDateKey, '00:00', timeZone)
-  if (!start || !end) return null
+  if (!start || !end || end <= start) return null
   return { start, end }
 }
 

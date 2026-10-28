@@ -446,14 +446,14 @@ describe(`planner availability writes (host TZ=${process.env.TZ ?? 'unset'})`, (
     })
 
     it('ends the spring-forward Sunday at the requested local time too', async () => {
-      // 2027-03-28 skips 02:00–03:00 in Warsaw, so 00:00–08:00 lasts 7 hours
+      // 2025-03-30 skips 02:00–03:00 in Warsaw, so 00:00–08:00 lasts 7 hours
       // that day. Adding the stored 8 hours as an exact span opened the window
       // until 09:00.
-      const [rrule] = await persistedWeeklyRrulesAt('2027-03-17T10:00:00Z', sundayNight)
+      const [rrule] = await persistedWeeklyRrulesAt('2025-03-19T10:00:00Z', sundayNight)
       expect(rrule).toContain('DURATION:PT8H')
-      expect(warsawWindows(rrule, { start: '2027-03-27T00:00:00Z', end: '2027-04-05T00:00:00Z' })).toEqual([
-        '2027-03-28 00:00 – 2027-03-28 08:00',
-        '2027-04-04 00:00 – 2027-04-04 08:00',
+      expect(warsawWindows(rrule, { start: '2025-03-29T00:00:00Z', end: '2025-04-07T00:00:00Z' })).toEqual([
+        '2025-03-30 00:00 – 2025-03-30 08:00',
+        '2025-04-06 00:00 – 2025-04-06 08:00',
       ])
     })
   })

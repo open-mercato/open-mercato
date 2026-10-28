@@ -27,7 +27,6 @@ const logger = createLogger('planner').child({ component: 'availability' })
 export const metadata = {
   POST: { requireAuth: true },
 }
-
 type RequestContext = {
   ctx: CommandRuntimeContext
 }

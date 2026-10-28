@@ -5,7 +5,7 @@
  *
  * Every expectation here is an absolute instant or a zone-relative calendar
  * field, so none of them may depend on the host process's `TZ`. The suite runs
- * on both CI legs (`test` at UTC and `test:tz` at a positive offset).
+ * on both CI legs (`test` in America/New_York and `test:tz` at a positive offset).
  */
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -129,6 +129,7 @@ describe('zonedDayBounds', () => {
     // 25 hours: the fall-back day.
     expect(bounds('2026-10-25', 'Europe/Warsaw')).toEqual(['2026-10-24T22:00:00.000Z', '2026-10-25T23:00:00.000Z'])
     expect(bounds('2026-12-31', 'UTC')).toEqual(['2026-12-31T00:00:00.000Z', '2027-01-01T00:00:00.000Z'])
+    expect(zonedDayBounds('2011-12-30', 'Pacific/Apia')).toBeNull()
     expect(zonedDayBounds('2026-13-01', 'UTC')).toBeNull()
   })
 })

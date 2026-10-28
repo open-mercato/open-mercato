@@ -1,3 +1,5 @@
+import { resolveTimeZone, zonedWallDateToInstant } from './availabilityTimezone'
+
 type AvailabilityKind = 'availability' | 'unavailability'
 
 export type AvailabilityRuleLike = {
@@ -46,21 +48,8 @@ function zonedParts(instant: Date, timezone: string): { year: number; month: num
   return { year: number('year'), month: number('month'), day: number('day'), hour: number('hour'), minute: number('minute'), second: number('second') }
 }
 
-function zonedWallToInstant(wall: Date, timezone: string): Date | null {
-  const target = wall.getTime()
-  let candidate = target
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const parts = zonedParts(new Date(candidate), timezone)
-    const displayed = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
-    const next = candidate + target - displayed
-    if (next === candidate) return new Date(candidate)
-    candidate = next
-  }
-  return null
-}
-
 function zonedStartOfDay(dayKey: string, timezone: string): Date | null {
-  return zonedWallToInstant(new Date(`${dayKey}T00:00:00Z`), timezone)
+  return zonedWallDateToInstant(new Date(`${dayKey}T00:00:00Z`), timezone)
 }
 
 function dayKeyForRule(instant: Date, timezone?: string): string {
@@ -146,9 +135,9 @@ function expandZonedRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: 
   let wall = new Date(anchorWall + skipped * step)
   let remaining = (parsed.count ?? Number.POSITIVE_INFINITY) - skipped
   while (wall.getTime() <= range.end.getTime() + DAY_MS && remaining > 0) {
-    const start = zonedWallToInstant(wall, timezone)
-    if (start && !shouldExcludeOccurrence(start, rule.exdates, timezone)) {
-      const end = zonedWallToInstant(new Date(wall.getTime() + duration), timezone) ?? new Date(start.getTime() + duration)
+    const start = zonedWallDateToInstant(wall, timezone)
+    if (!shouldExcludeOccurrence(start, rule.exdates, timezone)) {
+      const end = zonedWallDateToInstant(new Date(wall.getTime() + duration), timezone)
       if (end > range.start && start < range.end) windows.push({ start, end, ruleId: rule.id })
     }
     wall = new Date(wall.getTime() + step)
@@ -231,7 +220,12 @@ export function getMergedAvailabilityWindows(params: {
   respectTimezone?: boolean
   weeklyScheduleTemplate?: boolean
 }): AvailabilityWindow[] {
-  const rules = params.respectTimezone ? params.rules : params.rules.map((rule) => ({ ...rule, timezone: undefined }))
+  const rules: AvailabilityRuleLike[] = params.respectTimezone
+    ? params.rules.map((rule) => ({
+        ...rule,
+        timezone: rule.timezone ? resolveTimeZone(rule.timezone) : rule.timezone,
+      }))
+    : params.rules.map((rule) => ({ ...rule, timezone: undefined }))
   const parsedRules = rules
     .map((rule) => {
       const parsed = parseRrule(rule.rrule)
