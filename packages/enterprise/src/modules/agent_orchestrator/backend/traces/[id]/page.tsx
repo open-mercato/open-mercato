@@ -44,6 +44,7 @@ import { InspectorCard } from '../../../components/trace/InspectorCard'
 import { GuardrailsCard } from '../../../components/trace/GuardrailsCard'
 import { LlmStepMetadataCard } from '../../../components/trace/LlmStepMetadataCard'
 import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
+import { RunActionsCard } from '../../../components/trace/RunActionsCard'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -1236,6 +1237,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     />
                   ) : null}
                   <FilesCard runId={run.id} />
+                  <RunActionsCard runId={run.id} />
                   {detail.contextBundle ? <ContextAssembledCard bundle={detail.contextBundle} /> : null}
                   <RunManifestCard spans={detail.spans} agentVersion={run.agentVersion} />
                 </div>

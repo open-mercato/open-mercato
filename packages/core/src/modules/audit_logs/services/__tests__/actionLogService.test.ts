@@ -921,3 +921,83 @@ describe('ActionLogService markRedone', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 })
+
+describe('ActionLogService correlation key filter', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+  const runKey = 'agentRunId:33333333-3333-4333-8333-333333333333'
+  const proposalKey = 'proposalId:44444444-4444-4444-8444-444444444444'
+
+  function captureWheres(query: Record<string, unknown>): unknown[] {
+    const wheres: unknown[] = []
+    const builder: Record<string, unknown> = {}
+    builder.selectAll = () => builder
+    builder.where = (...args: unknown[]) => {
+      wheres.push(args)
+      return builder
+    }
+    builder.orderBy = () => builder
+    const fakeEm = { getKysely: () => ({ selectFrom: () => builder }) }
+    const service = new ActionLogService(fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const internals = service as unknown as {
+      buildListQuery: (parsed: Record<string, unknown>) => unknown
+      parseListQuery: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+    internals.buildListQuery(internals.parseListQuery(query))
+    return wheres
+  }
+
+  function serializeWheres(wheres: unknown[]): string {
+    return JSON.stringify(wheres.map((args) => (args as unknown[]).map((arg) => {
+      if (arg && typeof arg === 'object' && 'toOperationNode' in arg) {
+        return (arg as { toOperationNode: () => unknown }).toOperationNode()
+      }
+      return arg
+    })))
+  }
+
+  it('adds an array-overlap predicate over correlation_keys with every requested key', () => {
+    const serialized = serializeWheres(captureWheres({ tenantId, organizationId, correlationKeys: [runKey, proposalKey, runKey] }))
+    expect(serialized).toContain('action_logs.correlation_keys && array[')
+    expect(serialized).toContain(runKey)
+    expect(serialized).toContain(proposalKey)
+    expect(serialized.split(runKey)).toHaveLength(2)
+  })
+
+  it('adds no correlation predicate when no keys are requested', () => {
+    expect(serializeWheres(captureWheres({ tenantId }))).not.toContain('correlation_keys')
+  })
+
+  function buildServiceWithListSpy() {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const list = jest.spyOn(service, 'list').mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+    return { service, list }
+  }
+
+  it('lists by correlation keys within the tenant and organization scope', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    await service.listByCorrelationKeys({ tenantId, organizationId, keys: [runKey, ' ', proposalKey], page: 2, pageSize: 25 })
+
+    expect(list).toHaveBeenCalledWith({ tenantId, organizationId, correlationKeys: [runKey, proposalKey], page: 2, pageSize: 25 })
+  })
+
+  it('caps the page size at 100', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    await service.listByCorrelationKeys({ tenantId, organizationId, keys: [runKey], pageSize: 500 })
+
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 100, page: 1 }))
+  })
+
+  it('returns an empty page without querying when the scope or keys are missing', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    const missingOrg = await service.listByCorrelationKeys({ tenantId, organizationId: '', keys: [runKey] })
+    const missingKeys = await service.listByCorrelationKeys({ tenantId, organizationId, keys: [] })
+
+    expect(list).not.toHaveBeenCalled()
+    expect(missingOrg).toEqual({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+    expect(missingKeys.total).toBe(0)
+  })
+})
