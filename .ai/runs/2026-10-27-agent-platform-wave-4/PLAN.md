@@ -43,8 +43,9 @@
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | done | f4b704570, 8f5ff20aa |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | done | bd6c75aa8 |
 | 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | 9a0f3c245 |
-| 5 | 5.2-review-fix-2 | Harden the OTel export after review | dispatch:capable | done | pending |
-| 5 | 5.2-review-fix-3 | Fix the trace capture review findings | dispatch | done | pending |
+| 5 | 5.2-review-fix-2 | Harden the OTel export after review | dispatch:capable | done | 8c4a57933 |
+| 5 | 5.2-review-fix-3 | Fix the trace capture review findings | dispatch | done | aaba7d05f |
+| 5 | 5.2-review-fix-4 | Export the workflow root when a process finishes | dispatch:capable | todo | — |
 
 ## Goal
 
@@ -236,6 +237,8 @@ Shorthand: `AA` = `packages/ai-assistant/src/modules/ai_assistant`, `AO` = `pack
 - 5.2-review-fix (final gate): core guard tests required the two new settings commands on the `optimistic-lock-command-coverage` allowlist (exempt: single-admin config row guarded on `updated_at`) and the `trace.view_content` title in the auth ACL translation catalog (all five locales).
 
 - Step 5.1 landed as two commits (`f4b704570` docs, `8f5ff20aa` template `.env.example` mirror): `yarn template:sync:fix` does not mirror `.env.example`, and the run never rewrites history.
+
+- Re-review of the two fix commits: N1 (workflow root could stay unexported when a process finishes after its last run) and N2 (subscriber rethrow re-runs every persistent subscriber of the event) → 5.2-review-fix-4.
 
 ## Risks
 
