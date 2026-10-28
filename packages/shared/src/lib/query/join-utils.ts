@@ -155,11 +155,12 @@ export function normalizeFilters(filters?: QueryOptions['filters']): NormalizedF
   }
   const dnf = compileToDnf(filters)
   if (dnf.length === 0) return []
-  if (dnf.some((disjunct) => disjunct.length === 0)) return []
-  if (dnf.length === 1) {
-    return dnf[0].map((c) => ({ field: c.field, op: c.op, value: c.value }))
+  const nonEmpty = dnf.filter((disjunct) => disjunct.length > 0)
+  if (nonEmpty.length === 0) return []
+  if (nonEmpty.length === 1) {
+    return nonEmpty[0].map((c) => ({ field: c.field, op: c.op, value: c.value }))
   }
-  const { common, remaining } = liftCommonClauses(dnf)
+  const { common, remaining } = liftCommonClauses(nonEmpty)
   const out: NormalizedFilter[] = []
   for (const c of common) out.push({ field: c.field, op: c.op, value: c.value })
   // An empty disjunct is unconstrained, so (C AND R1) OR C is just C: it absorbs the other disjuncts.

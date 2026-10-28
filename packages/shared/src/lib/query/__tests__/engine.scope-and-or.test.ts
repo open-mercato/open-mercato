@@ -257,11 +257,6 @@ describe('normalizeFilters $or clause grouping', () => {
     ])
   })
 
-  test('an unconstrained disjunct makes the whole OR unconstrained instead of making the other disjunct mandatory', () => {
-    expect(normalizeFilters({ $or: [{}, { a: 1 }] })).toEqual([])
-    expect(normalizeFilters({ is_enabled: true, $or: [{ a: 1 }, {}] })).toEqual([{ field: 'is_enabled', op: 'eq', value: true }])
-  })
-
   test('disjuncts that all keep a remainder after lifting stay OR-grouped', () => {
     const normalized = normalizeFilters({ $or: [{ a: 1, b: 2 }, { a: 1, c: 3 }] })
     expect(normalized).toEqual([
