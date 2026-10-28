@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { z } from 'zod'
 import { signAudienceJwt, verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import {
@@ -98,11 +99,17 @@ export async function provisionAgentClientSecret(
  * and a wrong secret for a real one cost the same. The dummy compare's result is
  * discarded, so it can never authenticate anyone.
  */
+const clientIdSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+
 async function verifyClientCredentials(
   em: EntityManager,
   clientId: string,
   clientSecret: string,
 ): Promise<AgentPrincipal | null> {
+  if (!clientIdSchema.safeParse(clientId).success) {
+    await verifyApiKey(clientSecret, TIMING_EQUALIZER_CLIENT_SECRET_HASH)
+    return null
+  }
   const principal = await em.findOne(AgentPrincipal, {
     id: clientId,
     credentialMode: 'oauth_client',

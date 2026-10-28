@@ -226,6 +226,17 @@ describe('agent OAuth client-credentials token server (Wave 4 Phase 3)', () => {
     expect(result).toBeNull()
   })
 
+  it('returns null (→ 401) for a client id that is not a uuid, without querying principals', async () => {
+    const em = createFakeEm()
+    const findOne = jest.spyOn(em, 'findOne')
+    const result = await issueAgentToken(createContainer(em), {
+      clientId: 'it-agent-not-a-uuid',
+      clientSecret: CLIENT_SECRET,
+    })
+    expect(result).toBeNull()
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
   it('refuses to mint when the grant is revoked', async () => {
     const em = createFakeEm()
     const principal = await seedPrincipalWithSecret(em, {
