@@ -650,6 +650,8 @@ Manual capture, refund, and cancel are protected by a durable `gateway_payment_o
 
 Integration coverage: `TC-PGWY-021` verifies completed replay, payload-conflict rejection, and distinct equal partial refunds through the authenticated API routes. Unit coverage uses a barrier-controlled concurrent refund to prove that only one adapter call occurs.
 
+Migration and backward compatibility of the cancel guard: `payment_cancel_captured_funds` is an additive `code` on the 409 the cancel route already documented. There is no bridge, because the previous behaviour moved captured funds into a terminal status with no refund path. Adapters for multi-capture providers can no longer release the uncaptured remainder of a partially captured authorization through cancel; that needs its own contract. Transactions that were already cancelled with a captured amount are not repaired and are refunded in the provider's dashboard.
+
 ### 6.5 Events
 
 ```typescript
