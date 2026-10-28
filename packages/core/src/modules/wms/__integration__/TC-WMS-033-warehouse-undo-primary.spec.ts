@@ -68,6 +68,19 @@ async function createWarehouse(
   })
 }
 
+async function restoreOriginalPrimary(
+  request: APIRequestContext,
+  token: string,
+  originalPrimaryIds: string[],
+): Promise<void> {
+  if (!originalPrimaryIds[0]) return
+  const response = await apiRequest(request, 'PUT', WAREHOUSES_PATH, {
+    token,
+    data: { id: originalPrimaryIds[0], isPrimary: true },
+  })
+  expect.soft(response.ok(), `re-promoting the original primary warehouse: ${response.status()}`).toBeTruthy()
+}
+
 async function updateWarehouse(
   request: APIRequestContext,
   token: string,
@@ -116,9 +129,7 @@ test.describe('TC-WMS-033: warehouse undo keeps one primary warehouse per organi
       for (const id of created) {
         await deleteGeneralEntityIfExists(request, token, WAREHOUSES_PATH, id)
       }
-      if (token && originalPrimaryIds[0]) {
-        await apiRequest(request, 'PUT', WAREHOUSES_PATH, { token, data: { id: originalPrimaryIds[0], isPrimary: true } })
-      }
+      if (token) await restoreOriginalPrimary(request, token, originalPrimaryIds)
     }
   })
 
@@ -153,27 +164,28 @@ test.describe('TC-WMS-033: warehouse undo keeps one primary warehouse per organi
       for (const id of created) {
         await deleteGeneralEntityIfExists(request, token, WAREHOUSES_PATH, id)
       }
-      if (token && originalPrimaryIds[0]) {
-        await apiRequest(request, 'PUT', WAREHOUSES_PATH, { token, data: { id: originalPrimaryIds[0], isPrimary: true } })
-      }
+      if (token) await restoreOriginalPrimary(request, token, originalPrimaryIds)
     }
   })
+
   test('undo from the operation banner restores a deactivated primary warehouse', async ({ page, request }) => {
     test.slow()
     const stamp = randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
-    const restoreAdminAcl = await ensureRoleFeatures(
-      request,
-      superadminToken,
-      getTokenScope(adminToken).tenantId,
-      'admin',
-      ['wms.view', 'wms.manage_warehouses'],
-    )
-    const originalPrimaryIds = await primaryWarehouseIds(request, adminToken)
+    let restoreAdminAcl: (() => Promise<void>) | null = null
+    let originalPrimaryIds: string[] = []
     const created: string[] = []
 
     try {
+      restoreAdminAcl = await ensureRoleFeatures(
+        request,
+        superadminToken,
+        getTokenScope(adminToken).tenantId,
+        'admin',
+        ['wms.view', 'wms.manage_warehouses'],
+      )
+      originalPrimaryIds = await primaryWarehouseIds(request, adminToken)
       const first = await createWarehouse(request, adminToken, stamp, 'A', true)
       created.push(first)
       const second = await createWarehouse(request, adminToken, stamp, 'B', false)
@@ -225,13 +237,8 @@ test.describe('TC-WMS-033: warehouse undo keeps one primary warehouse per organi
       for (const id of created) {
         await deleteGeneralEntityIfExists(request, adminToken, WAREHOUSES_PATH, id)
       }
-      if (originalPrimaryIds[0]) {
-        await apiRequest(request, 'PUT', WAREHOUSES_PATH, {
-          token: adminToken,
-          data: { id: originalPrimaryIds[0], isPrimary: true },
-        })
-      }
-      await restoreAdminAcl()
+      await restoreOriginalPrimary(request, adminToken, originalPrimaryIds)
+      await restoreAdminAcl?.()
     }
   })
 })

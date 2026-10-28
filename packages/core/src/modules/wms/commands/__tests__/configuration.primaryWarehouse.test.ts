@@ -659,6 +659,39 @@ describe('WMS warehouse primary enforcement', () => {
       expect(primaryIds(store)).toEqual([THIRD_ID])
     })
 
+    it('undo of an update that did not change the primary flag keeps the warehouse promoted since', async () => {
+      const before = warehouseRecord(PRIMARY_ID, { isPrimary: true, name: 'Before name' })
+      const store = createWarehouseStore([
+        { ...before, name: 'After name', isPrimary: false },
+        warehouseRecord(SECONDARY_ID, { isPrimary: true }),
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, name: 'After name' }),
+      })
+
+      expect(store.records.get(PRIMARY_ID)?.name).toBe('Before name')
+      expect(primaryIds(store)).toEqual([SECONDARY_ID])
+    })
+
+    it('undo of a primary swap does not make a deleted sibling primary', async () => {
+      const before = warehouseRecord(SECONDARY_ID)
+      const store = createWarehouseStore([
+        warehouseRecord(PRIMARY_ID, { deletedAt: new Date('2026-04-20T00:00:00.000Z') }),
+        { ...before, isPrimary: true },
+      ])
+
+      await runUndo('wms.warehouses.update', store, {
+        before: snapshotOf(before),
+        after: snapshotOf({ ...before, isPrimary: true }),
+        demotedPrimariesBefore: [{ id: PRIMARY_ID, isPrimary: true }],
+      })
+
+      expect(store.records.get(PRIMARY_ID)?.isPrimary).toBe(false)
+      expect(primaryIds(store)).toEqual([])
+    })
+
     it('undo of a primary swap does not make an inactive sibling primary', async () => {
       const before = warehouseRecord(SECONDARY_ID)
       const store = createWarehouseStore([
