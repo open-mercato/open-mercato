@@ -895,7 +895,14 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
             </div>
           </div>
 
-          <DialogFooter className="flex flex-row items-center justify-between border-t border-border/70 bg-muted/30 px-6 py-4 sm:flex-row sm:justify-between">
+          {/* `bordered={false}`: the primitive's default rule ships `-mx-6` to escape the
+              usual `p-6` DialogContent padding. This host is `p-0` + `overflow-hidden`, so
+              those margins pushed the footer 24px past both edges and the clipped overflow
+              swallowed its own `px-6` inset (#7495). The separator is drawn here instead. */}
+          <DialogFooter
+            bordered={false}
+            className="flex flex-row items-center justify-between border-t border-border/70 bg-muted/30 px-6 py-4 sm:flex-row sm:justify-between"
+          >
             <div className="text-xs text-muted-foreground">{selectedCountLabel}</div>
             <div className="flex items-center gap-3">
               <Button
