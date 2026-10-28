@@ -11,6 +11,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () =>
 
 jest.mock('@open-mercato/shared/modules/events', () => ({
   isPortalBroadcastEvent: (...args: [string]) => mockIsPortalBroadcastEvent(...args),
+  isPrivateCrossProcessBroadcastEvent: () => false,
 }))
 
 jest.mock('@open-mercato/events/bus', () => ({

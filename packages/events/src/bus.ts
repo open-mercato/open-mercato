@@ -9,6 +9,8 @@ import {
   isBroadcastEvent,
   isCoalescedBroadcastEvent,
   isCrossProcessBroadcastEvent,
+  isPortalBroadcastEvent,
+  isPrivateCrossProcessBroadcastEvent,
   isPrivateCrossProcessEventEmitter,
 } from '@open-mercato/shared/modules/events'
 import {
@@ -76,17 +78,27 @@ function normalizePayloadScope(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+function isBrowserBroadcastEvent(event: string): boolean {
+  return isBroadcastEvent(event) || isPortalBroadcastEvent(event)
+}
+
+/** Relayed over the bridge: both browser audiences plus private coordination; each consumer filters by its own flag. */
+function shouldPublishCrossProcess(event: string): boolean {
+  return isCrossProcessBroadcastEvent(event) || isPortalBroadcastEvent(event)
+}
+
 function resolveCrossProcessEmitOptions(
   event: string,
   payload: EventPayload,
   options?: EmitOptions,
 ): EmitOptions | undefined {
   if (hasTrustedTenantScope(options)) return options
-  // Preserve the public raw EventBus contract for legacy clientBroadcast
-  // emitters. These callers are trusted server code and historically supplied
-  // their scope in the typed payload. Tenant-managed workflow execution passes
-  // scope in options, while private cross-process events never take this path.
-  if (!isBroadcastEvent(event)) return options
+  // Preserve the public raw EventBus contract for legacy clientBroadcast and
+  // portalBroadcast emitters. These callers are trusted server code and
+  // historically supplied their scope in the typed payload. Tenant-managed
+  // workflow execution passes scope in options, while private cross-process
+  // events never take this path.
+  if (!isBrowserBroadcastEvent(event) || isPrivateCrossProcessBroadcastEvent(event)) return options
   const tenantId = normalizePayloadScope((payload as Record<string, unknown>)?.tenantId)
   if (!tenantId) return options
   const organizationId = normalizePayloadScope((payload as Record<string, unknown>)?.organizationId)
@@ -605,7 +617,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     const publishToOtherProcesses = async (): Promise<void> => {
       const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
       if (
-        !isCrossProcessBroadcastEvent(event)
+        !shouldPublishCrossProcess(event)
         || !hasTrustedTenantScope(crossProcessOptions)
         || !isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
       ) return

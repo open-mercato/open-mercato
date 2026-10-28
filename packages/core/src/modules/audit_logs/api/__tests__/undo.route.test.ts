@@ -2,6 +2,7 @@
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/undo/route'
 import { buildActionLogQueryHarness } from '@open-mercato/core/modules/audit_logs/services/__tests__/actionLogServiceQueryHarness'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import * as i18nServer from '@open-mercato/shared/lib/i18n/server'
 
 const mockReplayEm = {
   find: jest.fn(async () => []),
@@ -471,6 +472,23 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       const res = await POST(makeRequest({ undoToken: 'token-1' }))
       expect(res.status).toBe(400)
       await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
+    })
+
+    it('translates the generic failure message for the caller locale', async () => {
+      await authorizeUndo()
+      mockCommandBus.undo.mockRejectedValue(new Error('duplicate key value violates unique constraint'))
+      const translateSpy = jest.spyOn(i18nServer, 'resolveTranslations').mockResolvedValue({
+        translate: (key: string, fallback?: string) =>
+          key === 'audit_logs.error.undo_failed' ? 'Nie udało się cofnąć operacji' : fallback ?? key,
+      } as Awaited<ReturnType<typeof i18nServer.resolveTranslations>>)
+
+      try {
+        const res = await POST(makeRequest({ undoToken: 'token-1' }))
+        expect(res.status).toBe(400)
+        await expect(res.json()).resolves.toEqual({ error: 'Nie udało się cofnąć operacji' })
+      } finally {
+        translateSpy.mockRestore()
+      }
     })
 
     it('keeps the generic 400 for an unrelated undo failure', async () => {
