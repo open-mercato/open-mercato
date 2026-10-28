@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -18,7 +19,6 @@ import { capturePayment, createPaymentSession, getTransactionDetails } from './h
 test.describe('TC-PGWY-026: Cancel with captured funds', () => {
   test('refuses to cancel a partially captured payment and keeps it refundable', async ({ request }) => {
     const token = await getAuthToken(request)
-    const suffix = `${Date.now()}`
     let transactionId: string | null = null
 
     try {
@@ -43,7 +43,7 @@ test.describe('TC-PGWY-026: Cancel with captured funds', () => {
 
       const cancel = await apiRequest(request, 'POST', '/api/payment_gateways/cancel', {
         token,
-        data: { transactionId: session.transactionId, reason: 'buyer cancelled', operationId: `cancel-${suffix}` },
+        data: { transactionId: session.transactionId, reason: 'buyer cancelled', operationId: randomUUID() },
       })
       expect(cancel.status()).toBe(409)
       const cancelBody = await cancel.json()
@@ -51,12 +51,22 @@ test.describe('TC-PGWY-026: Cancel with captured funds', () => {
       expect(typeof cancelBody.error).toBe('string')
       expect(cancelBody.error).not.toContain('payment_gateways.errors')
 
+      const polishCancel = await apiRequest(request, 'POST', '/api/payment_gateways/cancel', {
+        token,
+        headers: { 'Accept-Language': 'pl' },
+        data: { transactionId: session.transactionId, reason: 'buyer cancelled', operationId: randomUUID() },
+      })
+      expect(polishCancel.status()).toBe(409)
+      const polishBody = await polishCancel.json()
+      expect(polishBody.code).toBe('payment_cancel_captured_funds')
+      expect(polishBody.error).toContain('nie można jej anulować')
+
       const afterCancel = await getTransactionDetails(request, token, session.transactionId)
       expect(afterCancel.transaction.unifiedStatus).toBe('partially_captured')
 
       const refund = await apiRequest(request, 'POST', '/api/payment_gateways/refund', {
         token,
-        data: { transactionId: session.transactionId, amount: 40.00, reason: 'buyer cancelled', operationId: `refund-${suffix}` },
+        data: { transactionId: session.transactionId, amount: 40.00, reason: 'buyer cancelled', operationId: randomUUID() },
       })
       expect(refund.ok()).toBe(true)
       expect((await refund.json()).status).toBe('refunded')

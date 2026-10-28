@@ -651,9 +651,13 @@ describe('payment gateway service — cancel with captured funds', () => {
   it('refuses the cancel when a capture lands after the transaction was first read', async () => {
     const transaction = makeTransaction('authorized')
     const { service, cancelFn, em } = buildService(transaction, {})
-    em.fork.mockImplementation(() => {
-      Object.assign(transaction, { unifiedStatus: 'partially_captured', capturedAmount: '30.0000' })
-      return em
+    const forkedEm = { fork: em.fork }
+    const committedRow = { ...transaction, unifiedStatus: 'partially_captured', capturedAmount: '30.0000' }
+    const sharedLookup = findOneMock.getMockImplementation()
+    em.fork.mockImplementation(() => forkedEm)
+    findOneMock.mockImplementation(async (...args) => {
+      if (args[0] === forkedEm) return committedRow as never
+      return sharedLookup ? sharedLookup(...args) : null
     })
 
     await expect(service.cancelPayment(transaction.id, undefined, scope)).rejects.toMatchObject({
@@ -662,7 +666,8 @@ describe('payment gateway service — cancel with captured funds', () => {
     })
 
     expect(cancelFn).not.toHaveBeenCalled()
-    expect(transaction.unifiedStatus).toBe('partially_captured')
+    expect(transaction.unifiedStatus).toBe('authorized')
+    expect(transaction.capturedAmount).toBe('0.0000')
   })
 
   it('refuses a retried cancel operation once funds were captured after its failed attempt', async () => {

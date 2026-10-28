@@ -211,7 +211,7 @@ export function assertNothingCapturedBeforeCancel(
     'payment_cancel_captured_funds',
     translate(
       'payment_gateways.errors.cancelCapturedFunds',
-      'This payment already has captured funds or a capture in progress, so it cannot be cancelled. Refund the captured amount instead.',
+      'This payment already has captured funds or a capture in progress, so it cannot be cancelled. To return the captured amount to the customer, refund it.',
     ),
   )
 }

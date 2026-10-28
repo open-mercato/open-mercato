@@ -2,7 +2,7 @@
   "payment_gateways.captureMethod.automatic": "Automatic",
   "payment_gateways.captureMethod.manual": "Manual",
   "payment_gateways.column.gatewayStatus": "Gateway status",
-  "payment_gateways.errors.cancelCapturedFunds": "This payment already has captured funds or a capture in progress, so it cannot be cancelled. Refund the captured amount instead.",
+  "payment_gateways.errors.cancelCapturedFunds": "This payment already has captured funds or a capture in progress, so it cannot be cancelled. To return the captured amount to the customer, refund it.",
   "payment_gateways.errors.sessionAmountMismatch": "Payment session amount {amount} does not match the amount due for order {orderId}",
   "payment_gateways.errors.sessionCurrencyMismatch": "Payment session currency {currencyCode} does not match the currency of order {orderId}",
   "payment_gateways.errors.sessionOrderNotFound": "Order {orderId} was not found in the current scope",

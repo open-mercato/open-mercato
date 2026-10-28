@@ -2,7 +2,7 @@
   "payment_gateways.captureMethod.automatic": "Automatica",
   "payment_gateways.captureMethod.manual": "Manual",
   "payment_gateways.column.gatewayStatus": "Estado de la pasarela",
-  "payment_gateways.errors.cancelCapturedFunds": "Este pago ya tiene fondos capturados o una captura en curso, por lo que no se puede cancelar. Reembolsa el importe capturado en su lugar.",
+  "payment_gateways.errors.cancelCapturedFunds": "Este pago ya tiene fondos capturados o una captura en curso, por lo que no se puede cancelar. Para devolver el importe capturado al cliente, reembólsalo.",
   "payment_gateways.errors.sessionAmountMismatch": "El importe de la sesión de pago {amount} no coincide con el importe pendiente del pedido {orderId}",
   "payment_gateways.errors.sessionCurrencyMismatch": "La moneda de la sesión de pago {currencyCode} no coincide con la moneda del pedido {orderId}",
   "payment_gateways.errors.sessionOrderNotFound": "No se encontró el pedido {orderId} en el ámbito actual",

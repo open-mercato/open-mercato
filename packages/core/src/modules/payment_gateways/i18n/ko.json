@@ -2,7 +2,7 @@
   "payment_gateways.captureMethod.automatic": "자동",
   "payment_gateways.captureMethod.manual": "수동",
   "payment_gateways.column.gatewayStatus": "게이트웨이 상태",
-  "payment_gateways.errors.cancelCapturedFunds": "이 결제에는 이미 청구된 금액이 있거나 청구가 진행 중이므로 취소할 수 없습니다. 대신 청구된 금액을 환불하세요.",
+  "payment_gateways.errors.cancelCapturedFunds": "이 결제에는 이미 청구된 금액이 있거나 청구가 진행 중이므로 취소할 수 없습니다. 청구된 금액을 고객에게 돌려주려면 환불하세요.",
   "payment_gateways.errors.sessionAmountMismatch": "결제 세션 금액 {amount}가 주문 {orderId}에 대한 금액과 일치하지 않습니다.",
   "payment_gateways.errors.sessionCurrencyMismatch": "결제 세션 통화 {currencyCode}가 주문 통화 {orderId}와 일치하지 않습니다.",
   "payment_gateways.errors.sessionOrderNotFound": "현재 범위에서 {orderId} 주문을 찾을 수 없습니다.",
