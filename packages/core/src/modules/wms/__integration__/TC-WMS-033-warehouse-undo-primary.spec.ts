@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import {
+  deleteGeneralEntityIfExists,
+  getTokenScope,
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/generalFixtures'
+import { fillControlledInput, waitForApiMutation } from '@open-mercato/core/helpers/integration/ui'
 import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
-import { createCrudFixture } from './helpers/wmsFixtures'
+import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'audit_logs'],
@@ -18,6 +24,9 @@ export const integrationMeta = {
  *   that became primary since;
  * - a sibling demoted by the undone change is re-promoted only while no other
  *   warehouse has taken the primary flag since.
+ *
+ * The last case drives the same flow from the warehouse edit dialog and the
+ * operation banner's Undo button.
  *
  * Self-contained: creates its own warehouses, deletes them in finally and
  * re-promotes the organization's original primary warehouse.
@@ -147,6 +156,82 @@ test.describe('TC-WMS-033: warehouse undo keeps one primary warehouse per organi
       if (token && originalPrimaryIds[0]) {
         await apiRequest(request, 'PUT', WAREHOUSES_PATH, { token, data: { id: originalPrimaryIds[0], isPrimary: true } })
       }
+    }
+  })
+  test('undo from the operation banner restores a deactivated primary warehouse', async ({ page, request }) => {
+    test.slow()
+    const stamp = randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const restoreAdminAcl = await ensureRoleFeatures(
+      request,
+      superadminToken,
+      getTokenScope(adminToken).tenantId,
+      'admin',
+      ['wms.view', 'wms.manage_warehouses'],
+    )
+    const originalPrimaryIds = await primaryWarehouseIds(request, adminToken)
+    const created: string[] = []
+
+    try {
+      const first = await createWarehouse(request, adminToken, stamp, 'A', true)
+      created.push(first)
+      const second = await createWarehouse(request, adminToken, stamp, 'B', false)
+      created.push(second)
+
+      await login(page, 'admin')
+      await page.goto('/backend/wms/warehouses')
+      await fillControlledInput(page.getByPlaceholder('Search warehouses').first(), `QAUP-A-${stamp}`)
+      const row = page.getByRole('row').filter({ hasText: `QAUP-A-${stamp}` })
+      await expect(row).toBeVisible({ timeout: 15_000 })
+
+      const actionsButton = row.getByRole('button', { name: 'Open actions' })
+      await actionsButton.focus()
+      await actionsButton.press('Enter')
+      await page.getByRole('menuitem', { name: /^Edit$/i }).click()
+      const editDialog = page.getByRole('dialog').filter({ hasText: /Edit warehouse/i }).first()
+      await expect(editDialog).toBeVisible()
+      await editDialog.locator('[data-crud-field-id="isPrimary"]').getByRole('checkbox').uncheck()
+      await editDialog.locator('[data-crud-field-id="isActive"]').getByRole('checkbox').uncheck()
+      const updateResponse = await waitForApiMutation(
+        page,
+        '/api/wms/warehouses',
+        async () => {
+          await editDialog.getByRole('button', { name: /^Save$/i }).click()
+        },
+        'PUT',
+        20_000,
+      )
+      expect(updateResponse.ok()).toBeTruthy()
+      expect(await primaryWarehouseIds(request, adminToken)).toEqual([])
+
+      await updateWarehouse(request, adminToken, { id: second, isPrimary: true })
+      expect(await primaryWarehouseIds(request, adminToken)).toEqual([second])
+
+      const undoButton = page.getByRole('button', { name: /^Undo(?: last action)?$/ })
+      await expect(undoButton).toBeVisible()
+      const undoResponse = await waitForApiMutation(
+        page,
+        '/api/audit_logs/audit-logs/actions/undo',
+        async () => {
+          await undoButton.click()
+        },
+        'POST',
+        20_000,
+      )
+      expect(undoResponse.status(), 'banner undo succeeds').toBe(200)
+      await expect.poll(async () => primaryWarehouseIds(request, adminToken), { timeout: 10_000 }).toEqual([first])
+    } finally {
+      for (const id of created) {
+        await deleteGeneralEntityIfExists(request, adminToken, WAREHOUSES_PATH, id)
+      }
+      if (originalPrimaryIds[0]) {
+        await apiRequest(request, 'PUT', WAREHOUSES_PATH, {
+          token: adminToken,
+          data: { id: originalPrimaryIds[0], isPrimary: true },
+        })
+      }
+      await restoreAdminAcl()
     }
   })
 })
