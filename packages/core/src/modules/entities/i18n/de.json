@@ -196,6 +196,7 @@
   "entities.nav.systemEntities": "Systementitäten",
   "entities.nav.userEntities": "Benutzerentitäten",
   "entities.nav.userEntities.create": "Entität erstellen",
+  "entities.records.errors.alreadyExists": "Ein Datensatz mit dieser ID existiert bereits. Verwenden Sie PUT, um ihn zu aktualisieren.",
   "entities.settings.description": "Globale Konfigurationen für benutzerdefinierte Entitäten verwalten.",
   "entities.settings.errors.conflict": "Die Einstellungen wurden von einem anderen Benutzer geändert. Bitte neu laden.",
   "entities.settings.errors.loadFailed": "Laden der Einstellungen fehlgeschlagen",

@@ -196,6 +196,7 @@
   "entities.nav.systemEntities": "Entidades del sistema",
   "entities.nav.userEntities": "Entidades de usuario",
   "entities.nav.userEntities.create": "Crear entidad",
+  "entities.records.errors.alreadyExists": "Ya existe un registro con este ID. Utilice PUT para actualizarlo.",
   "entities.settings.description": "Administrar configuraciones globales de entidades personalizadas.",
   "entities.settings.errors.conflict": "La configuración fue modificada por otro usuario. Por favor recarga.",
   "entities.settings.errors.loadFailed": "Error al cargar la configuración",
