@@ -757,4 +757,10 @@ test('parsePickerIndex strips control characters from catalog text before it rea
   assert.equal(parsed.title, 'Shipment [2K Tracking')
   assert.equal(parsed.warning, 'Adds a route. 31m')
   assert.deepEqual(parsed.installByLine, { '0.8': `${SHIPMENT} ` })
+
+  const keyed = fixture() as { modules: Record<string, unknown>[] }
+  const entry = keyed.modules.find((item) => item.id === 'shipment_tracking') as Record<string, unknown>
+  entry.installByLine = { '0.8\u0007': SHIPMENT }
+  const parsedKeys = (parsePickerIndex(keyed) as PickerIndex).modules.find((item) => item.id === 'shipment_tracking')!
+  assert.deepEqual(parsedKeys.installByLine, { '0.8 ': SHIPMENT })
 })

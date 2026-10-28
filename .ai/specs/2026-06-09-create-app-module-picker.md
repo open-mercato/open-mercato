@@ -207,7 +207,9 @@ Fetch contract (`fetch-catalog.ts`):
   next steps. It applies to a `classic` app on a line whose app registers a module named in `conflictsWith` (the
   catalog entry of that module, `inPresets`; shown when the catalog does not list it), and to another preset only
   when that preset registers such a module. Modules without the field print exactly what they printed before.
-- Catalog strings lose control characters before they are printed, so catalog text cannot rewrite the terminal.
+- Catalog strings and keys lose control characters (a newline or tab becomes a space) before they are printed,
+  so catalog text cannot rewrite the terminal. The warning text is the catalog's own; for a preset other than
+  `classic` it still names the lines of a new classic app.
 - Without anything to plan (`--module-picker` without a terminal and no `--modules` items) the catalog is not
   fetched.
 - Requests the catalog cannot plan get one of three notes: a module listed in the catalog but not verified on

@@ -28,7 +28,7 @@ const printableText = (text: string) => text.replace(CONTROL_CHARACTERS, ' ')
 function printable(value: unknown): unknown {
   if (isString(value)) return printableText(value)
   if (Array.isArray(value)) return value.map(printable)
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, printable(item)]))
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [printableText(key), printable(item)]))
   return value
 }
 

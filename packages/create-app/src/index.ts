@@ -510,7 +510,7 @@ async function maybeRunAgenticSetup(
   }
 }
 
-function printCatalogNextSteps(catalogCommands: string[], commandWarnings: Record<string, string> = {}): void {
+export function printCatalogNextSteps(catalogCommands: string[], commandWarnings: Record<string, string> = {}): void {
   if (catalogCommands.length === 0) return
   console.log(pc.green('Modules you planned from the catalog:'))
   console.log(pc.dim('  # After yarn install, in this order (each command runs yarn generate for you):'))
