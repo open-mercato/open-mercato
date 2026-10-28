@@ -20,9 +20,13 @@ Replay authorization locks include the bound owner's user, membership, ACL, and 
 
 Key-cache invalidation tags use the resolved tenant and organization, including when a caller leaves the tenant unset and RBAC infers it from the key.
 
+The optional Directory organization-scope cache also tags API-key scope entries with the authenticated owner ID. Owner ACL invalidation therefore evicts both the RBAC ceiling and the derived organization filter. API-key scope keys use a new namespace so previous entries without the owner dependency cannot survive an upgrade; exported invalidation-tag formats stay unchanged. Independently administered creator-backed keys may be evicted with their creator's scope cache, without changing their role authority.
+
 ## Data Models and API Contracts
 
 No schema migration is required. `CreateApiKeyInput` gains optional `sessionUserId`; `mcp-key` supplies the authenticated user ID. Session issuance already stores that binding. Ordinary machine-key issuance does not set it. Existing routes, response fields, token formats, feature IDs, and DI names remain stable.
+
+The existing user-ACL API clears the override when its feature list is empty, restoring role inheritance. Revocation integration fixtures retain an unrelated feature so they test a persisted restrictive override rather than the reset path.
 
 ## Migration & Backward Compatibility
 
@@ -32,7 +36,7 @@ Authorization narrows intentionally for bound keys; a role grant cannot bypass a
 
 1. Bind MCP issuance and cap the three RBAC projections with owner-tagged, versioned caches.
 2. Regress broad roles with narrow `UserAcl` on cold/warm caches, owner invalidation, transaction parity, deleted/foreign owners, and unbound machine keys.
-3. Integration coverage: mint through `POST /api/ai_assistant/mcp-key` and `POST /api/ai_assistant/session-key`; verify granted and denied features and organization-scoped customer reads against the user's ACL, then change the ACL and repeat while caches are warm. Create people in allowed/excluded organizations and assert the owner and key both read only the allowed record. The directory options endpoint lists tenant metadata and is not the data-isolation boundary. All fixtures are created and cleaned up by the test.
+3. Integration coverage: mint through `POST /api/ai_assistant/mcp-key` and `POST /api/ai_assistant/session-key`; verify granted and denied features and organization-scoped customer reads against the user's ACL, then change the ACL and repeat while caches are warm. Create people in allowed/excluded organizations and assert the owner and key both read only the allowed record. Include a tenant-wide MCP key for a floating user, change only the owner's organization allowlist, and verify both switch to the newly allowed record while keeping view permission. The directory options endpoint lists tenant metadata and is not the data-isolation boundary. All fixtures are created and cleaned up by the test.
 4. Run the configured gate and record any environmental limitations.
 
 ## Risks & Impact Review
@@ -48,3 +52,4 @@ Tenant-bound owner lookups, existing schema, no cross-module ORM relations, shar
 - 2026-10-27: Defined the delegated-key ceiling and explicit legacy-key rotation procedure for #7825.
 - 2026-10-27: Added a failing-then-passing regression for role-ACL invalidation when the key tenant is inferred.
 - 2026-10-28: Corrected integration organization checks to exercise customer-data scoping instead of tenant directory options.
+- 2026-10-28: Added owner-dependent invalidation for the optional organization-scope cache, with a regression for a floating delegated principal.

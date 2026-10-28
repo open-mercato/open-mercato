@@ -7,13 +7,17 @@ import {
   setRoleAclFeatures, setUserAclVisibility,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import {
-  createOrganizationInDb, deleteOrganizationInDb, deleteUserAclInDb, withClient,
+  clearUserHomeOrganization, createOrganizationInDb, deleteOrganizationInDb, deleteUserAclInDb, withClient,
 } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteEntityByBody } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
-for (const keyKind of ['mcp', 'session'] as const) {
-  test(`${keyKind} key preserves the owner UserAcl on cold and warm requests`, async ({ request }) => {
+for (const { keyKind, floating } of [
+  { keyKind: 'mcp', floating: false },
+  { keyKind: 'session', floating: false },
+  { keyKind: 'mcp', floating: true },
+] as const) {
+  test(`${floating ? 'tenant-wide ' : ''}${keyKind} key preserves the owner UserAcl on cold and warm requests`, async ({ request }) => {
     const adminToken = await getAuthToken(request, 'superadmin')
     const { tenantId } = getTokenScope(adminToken)
     const stamp = randomUUID()
@@ -44,6 +48,7 @@ for (const keyKind of ['mcp', 'session'] as const) {
       })
       userId = await createUserFixture(request, adminToken, { email, password, organizationId, roles: [roleId] })
       await setUserAclVisibility(request, adminToken, { userId, features, organizations: [organizationId] })
+      if (floating) await clearUserHomeOrganization(userId)
       const ownerToken = await getAuthToken(request, email, password)
       const issued = await apiRequest(request, 'POST', `/api/ai_assistant/${keyKind}-key`, {
         token: ownerToken, data: {},
@@ -71,17 +76,20 @@ for (const keyKind of ['mcp', 'session'] as const) {
         const result = await readJsonSafe<{ granted: string[] }>(response)
         expect(result?.granted).toEqual(expected)
       }
+      const checkPeople = async (token: string, expectedId: string) => {
+        const people = await apiRequest(request, 'GET', `/api/customers/people?ids=${personIds.join(',')}&pageSize=100`, {
+          token,
+          headers: { Cookie: 'om_selected_org=__all__', ...(token.startsWith('omk_') ? { 'x-api-key': token } : {}) },
+        })
+        expect(people.status()).toBe(200)
+        const result = await readJsonSafe<{ items: Array<{ id: string }> }>(people)
+        expect(result?.items.map((item) => item.id)).toEqual([expectedId])
+      }
       for (let attempt = 0; attempt < 2; attempt += 1) {
         await checkFeatures(ownerToken, ['customers.people.view'])
         await checkFeatures(secret!, ['customers.people.view'])
         for (const token of [ownerToken, secret!]) {
-          const people = await apiRequest(request, 'GET', `/api/customers/people?ids=${personIds.join(',')}&pageSize=100`, {
-            token,
-            headers: { Cookie: 'om_selected_org=__all__', ...(token.startsWith('omk_') ? { 'x-api-key': token } : {}) },
-          })
-          expect(people.status()).toBe(200)
-          const result = await readJsonSafe<{ items: Array<{ id: string }> }>(people)
-          expect(result?.items.map((item) => item.id)).toEqual([personIds[0]])
+          await checkPeople(token, personIds[0])
           const denied = await apiRequest(request, 'PUT', '/api/customers/people', {
             token,
             headers: token.startsWith('omk_') ? { 'x-api-key': token } : {},
@@ -90,7 +98,18 @@ for (const keyKind of ['mcp', 'session'] as const) {
           expect(denied.status()).toBe(403)
         }
       }
-      await setUserAclVisibility(request, adminToken, { userId, features: [], organizations: [] })
+      if (floating) {
+        await setUserAclVisibility(request, adminToken, { userId, features, organizations: [foreignOrganizationId] })
+        for (const token of [ownerToken, secret!]) {
+          await checkFeatures(token, ['customers.people.view'])
+          await checkPeople(token, personIds[1])
+        }
+      }
+      await setUserAclVisibility(request, adminToken, { userId, features: ['ai_assistant.view'], organizations: [] })
+      const persistedAcl = await apiRequest(request, 'GET', `/api/auth/users/acl?userId=${userId}`, { token: adminToken })
+      expect(persistedAcl.status()).toBe(200)
+      const acl = await readJsonSafe<{ hasCustomAcl: boolean; features: string[]; organizations: string[] }>(persistedAcl)
+      expect(acl).toMatchObject({ hasCustomAcl: true, features: ['ai_assistant.view'], organizations: [] })
       await checkFeatures(ownerToken, [])
       await checkFeatures(secret!, [])
     } finally {
