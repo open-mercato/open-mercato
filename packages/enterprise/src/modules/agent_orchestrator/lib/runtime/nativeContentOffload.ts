@@ -8,7 +8,11 @@ import {
   type ArtifactScope,
 } from '../trace/artifactStore'
 import { buildLlmRequestArtifact, buildLlmResponseArtifact, type ContentRedaction } from '../trace/contentCapture'
-import type { NativeModelCallContentOutcome, NativeModelCallRecord } from './nativeModelCallRecorder'
+import type {
+  NativeModelCallContent,
+  NativeModelCallContentOutcome,
+  NativeModelCallRecord,
+} from './nativeModelCallRecorder'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-content-offload' })
 
@@ -50,11 +54,14 @@ function mergeRedactions(groups: ContentRedaction[][]): ContentRedaction[] {
     .map(([rule, count]) => ({ rule, count }))
 }
 
-function prepareCall(call: NativeModelCallRecord, options: ContentOffloadOptions): PreparedCall | null {
-  if (!call.content) return null
+function prepareContent(
+  content: NativeModelCallContent,
+  label: string,
+  options: ContentOffloadOptions,
+): PreparedCall | null {
   try {
-    const request = buildLlmRequestArtifact(call.content.request, { redactPii: options.redactPii })
-    const response = buildLlmResponseArtifact(call.content.response, { redactPii: options.redactPii })
+    const request = buildLlmRequestArtifact(content.request, { redactPii: options.redactPii })
+    const response = buildLlmResponseArtifact(content.response, { redactPii: options.redactPii })
     return {
       request: { ref: ARTIFACT_REFS.llmRequest, payload: request.payload },
       response: { ref: ARTIFACT_REFS.llmResponse, payload: response.payload },
@@ -63,7 +70,7 @@ function prepareCall(call: NativeModelCallRecord, options: ContentOffloadOptions
     }
   } catch (error) {
     logger.warn('llm content artifact build failed', {
-      callId: call.callId,
+      callId: label,
       error: error instanceof Error ? error.message : String(error),
     })
     return null
@@ -94,20 +101,21 @@ async function uploadTask(
   }
 }
 
+export type LlmContentEntry = { label: string; content: NativeModelCallContent } | null
+
 /**
- * Builds the redacted, capped request/response artifacts of every model call
- * that retained content, uploads them to the trace content namespace with
- * bounded concurrency and returns the calls without their content, each with
- * the offload outcome. Never throws: a failed upload yields
- * `storage_unavailable` for that call.
+ * Builds the redacted, capped request/response artifacts of every entry,
+ * uploads them to the trace content namespace with bounded concurrency and
+ * returns one offload outcome per entry (`null` for a `null` entry). Never
+ * throws: a failed build or upload yields `storage_unavailable`.
  */
-export async function offloadModelCallContent(
+export async function offloadLlmContentEntries(
   container: MinimalContainer,
   scope: ArtifactScope,
-  calls: NativeModelCallRecord[],
+  entries: LlmContentEntry[],
   options: ContentOffloadOptions,
-): Promise<NativeModelCallRecord[]> {
-  const prepared = calls.map((call) => prepareCall(call, options))
+): Promise<Array<NativeModelCallContentOutcome | null>> {
+  const prepared = entries.map((entry) => (entry ? prepareContent(entry.content, entry.label, options) : null))
   const tasks: UploadTask[] = []
   prepared.forEach((entry, callIndex) => {
     if (!entry) return
@@ -123,12 +131,33 @@ export async function offloadModelCallContent(
     entry[task.part] = keys[index]
     keysByCall.set(task.callIndex, entry)
   })
-  return calls.map((call, callIndex) => {
-    if (!call.content) return call
+  return entries.map((entry, callIndex) => {
+    if (!entry) return null
     const callKeys = keysByCall.get(callIndex) ?? { request: null, response: null }
-    return {
-      ...withoutContent(call),
-      contentOutcome: resolveOutcome(prepared[callIndex], callKeys.request, callKeys.response),
-    }
+    return resolveOutcome(prepared[callIndex], callKeys.request, callKeys.response)
+  })
+}
+
+/**
+ * Offloads the content of every model call that retained it and returns the
+ * calls without their content, each with the offload outcome. Never throws: a
+ * failed upload yields `storage_unavailable` for that call.
+ */
+export async function offloadModelCallContent(
+  container: MinimalContainer,
+  scope: ArtifactScope,
+  calls: NativeModelCallRecord[],
+  options: ContentOffloadOptions,
+): Promise<NativeModelCallRecord[]> {
+  const outcomes = await offloadLlmContentEntries(
+    container,
+    scope,
+    calls.map((call) => (call.content ? { label: call.callId, content: call.content } : null)),
+    options,
+  )
+  return calls.map((call, callIndex) => {
+    const outcome = outcomes[callIndex]
+    if (!call.content || !outcome) return call
+    return { ...withoutContent(call), contentOutcome: outcome }
   })
 }

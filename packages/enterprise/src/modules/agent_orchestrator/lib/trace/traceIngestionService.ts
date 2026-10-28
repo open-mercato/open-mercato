@@ -13,6 +13,19 @@ import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } fro
 import { computeCostMinor } from '../runtime/modelPricing'
 import { redactSecrets } from './redactToolSummary'
 import { hasGenAiVocabularyKey, normalizeGenAiAttributes } from './genAiAttributes'
+import type { RunManifestCapture } from './runManifest'
+import type {
+  NativeModelCallContent,
+  NativeModelCallContentOutcome,
+} from '../runtime/nativeModelCallRecorder'
+import {
+  buildIngestContentAttributes,
+  buildIngestLlmContent,
+  buildIngestLlmMetadataAttributes,
+  buildIngestManifestSpan,
+  fitIngestLlmAttributes,
+  mergeIngestLlmAttributes,
+} from './ingestLlmAttributes'
 
 export type IngestScope = { tenantId: string; organizationId: string }
 
@@ -25,6 +38,20 @@ export type IngestTraceOptions = {
    * pure over the EntityManager.
    */
   offloadArtifact?: ArtifactOffloader
+  /**
+   * The capture resolved for the ingested run. Decides whether span `llm`
+   * request/response bodies are offloaded (`full`) or dropped, and is written
+   * as `om.capture` on a `run.manifest` span. Absent → bodies are dropped and
+   * the manifest carries no `om.capture`.
+   */
+  capture?: RunManifestCapture
+  /**
+   * Offloads the `llm` bodies of freshly appended spans at `full`, returning
+   * one outcome per entry. Absent at `full` → `storage_unavailable`.
+   */
+  offloadLlmContent?: (
+    contents: NativeModelCallContent[],
+  ) => Promise<Array<NativeModelCallContentOutcome | null>>
 }
 
 export type IngestTraceResult = {
@@ -64,6 +91,52 @@ function capSummary(value: unknown): unknown {
 function normalizeLlmSpanAttributes(span: TraceSpanIngest): unknown {
   if (span.kind !== 'llm' || !hasGenAiVocabularyKey(span.attributes)) return span.attributes
   return normalizeGenAiAttributes(span.attributes)
+}
+
+type LlmContentOutcomes = Map<TraceSpanIngest, NativeModelCallContentOutcome | null>
+
+async function offloadFreshLlmContent(
+  spans: TraceSpanIngest[],
+  options: IngestTraceOptions,
+): Promise<LlmContentOutcomes> {
+  const outcomes: LlmContentOutcomes = new Map()
+  if (options.capture?.level !== 'full' || !options.offloadLlmContent) return outcomes
+  const pending: Array<{ span: TraceSpanIngest; content: NativeModelCallContent }> = []
+  for (const span of spans) {
+    const content = span.llm && span.kind === 'llm' ? buildIngestLlmContent(span.llm) : null
+    if (content) pending.push({ span, content })
+  }
+  if (pending.length === 0) return outcomes
+  try {
+    const results = await options.offloadLlmContent(pending.map((entry) => entry.content))
+    pending.forEach((entry, index) => outcomes.set(entry.span, results[index] ?? null))
+  } catch {
+    return outcomes
+  }
+  return outcomes
+}
+
+function buildSpanAttributes(
+  span: TraceSpanIngest,
+  options: IngestTraceOptions,
+  outcomes: LlmContentOutcomes,
+): unknown {
+  if (!span.llm || span.kind !== 'llm') return capSummary(normalizeLlmSpanAttributes(span))
+  const merged = mergeIngestLlmAttributes(
+    span.attributes,
+    buildIngestLlmMetadataAttributes(span.llm),
+    buildIngestContentAttributes(span.llm, options.capture?.level ?? 'metadata', outcomes.get(span) ?? null),
+  )
+  return capSummary(fitIngestLlmAttributes(normalizeGenAiAttributes(merged), SUMMARY_CHAR_LIMIT))
+}
+
+function resolveManifestPlacement(spans: TraceSpanIngest[]): { sequence: number; recordedAt: string } {
+  if (spans.length === 0) return { sequence: 0, recordedAt: new Date().toISOString() }
+  const sequence = Math.max(...spans.map((span) => span.sequence)) + 1
+  const recordedAt = spans
+    .map((span) => span.startedAt)
+    .reduce((earliest, current) => (Date.parse(current) < Date.parse(earliest) ? current : earliest))
+  return { sequence, recordedAt }
 }
 
 /**
@@ -161,7 +234,26 @@ export async function ingestTrace(
   const existingSpans = await em.find(AgentSpan, { agentRunId: run.id })
   const spansByExternal = new Map<string, AgentSpan>(existingSpans.map((s) => [s.externalSpanId, s]))
   const freshSpans: Array<{ span: AgentSpan; payloadSpan: TraceSpanIngest }> = []
-  for (const spanPayload of payload.spans ?? []) {
+  const payloadSpans = [...(payload.spans ?? [])]
+  if (payload.manifest) {
+    payloadSpans.push(
+      buildIngestManifestSpan({
+        runId: run.id,
+        agentId: payload.agentId,
+        manifest: payload.manifest,
+        capture: options.capture ?? null,
+        ...resolveManifestPlacement(payload.spans ?? []),
+      }),
+    )
+  }
+  const seenExternalIds = new Set(spansByExternal.keys())
+  const freshPayloadSpans = payloadSpans.filter((spanPayload) => {
+    if (seenExternalIds.has(spanPayload.externalSpanId)) return false
+    seenExternalIds.add(spanPayload.externalSpanId)
+    return true
+  })
+  const llmContentOutcomes = await offloadFreshLlmContent(freshPayloadSpans, options)
+  for (const spanPayload of payloadSpans) {
     if (spansByExternal.has(spanPayload.externalSpanId)) continue
     const span = em.create(AgentSpan, {
       tenantId,
@@ -175,7 +267,7 @@ export async function ingestTrace(
       endedAt: spanPayload.endedAt ? new Date(spanPayload.endedAt) : null,
       durationMs: spanPayload.durationMs ?? null,
       status: (spanPayload.status ?? 'ok') as AgentSpanStatus,
-      attributes: capSummary(normalizeLlmSpanAttributes(spanPayload)),
+      attributes: buildSpanAttributes(spanPayload, options, llmContentOutcomes),
     })
     em.persist(span)
     spansByExternal.set(spanPayload.externalSpanId, span)

@@ -441,6 +441,117 @@ export const traceToolCallIngestSchema = z.object({
 })
 export type TraceToolCallIngest = z.infer<typeof traceToolCallIngestSchema>
 
+export const TRACE_INGEST_LLM_BODY_MAX_BYTES = 8 * 1024 * 1024
+export const TRACE_INGEST_LLM_ITEMS_MAX = 10_000
+export const TRACE_INGEST_LLM_TOOLS_MAX = 1_000
+export const TRACE_INGEST_STOP_SEQUENCES_MAX = 64
+export const TRACE_INGEST_MANIFEST_LIST_MAX = 1_000
+export const TRACE_INGEST_MANIFEST_KNOWLEDGE_MAX = 50
+
+function ingestJsonByteLength(value: unknown): number {
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized === undefined ? 0 : new TextEncoder().encode(serialized).length
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+function boundedIngestBody<TSchema extends z.ZodTypeAny>(schema: TSchema) {
+  return schema.refine((value) => ingestJsonByteLength(value) <= TRACE_INGEST_LLM_BODY_MAX_BYTES, {
+    message: `[internal] trace llm body exceeds ${TRACE_INGEST_LLM_BODY_MAX_BYTES} bytes`,
+  })
+}
+
+const ingestLabel = z.string().min(1).max(200)
+const ingestSha256 = z.string().regex(/^(sha256:)?[0-9a-f]{64}$/)
+const ingestCount = z.number().int().nonnegative()
+
+export const traceLlmParamsIngestSchema = z.object({
+  temperature: z.number().finite().optional(),
+  topP: z.number().finite().optional(),
+  topK: ingestCount.optional(),
+  maxTokens: ingestCount.optional(),
+  seed: z.number().int().optional(),
+  stopSequences: z.array(z.string().max(1_000)).max(TRACE_INGEST_STOP_SEQUENCES_MAX).optional(),
+  presencePenalty: z.number().finite().optional(),
+  frequencyPenalty: z.number().finite().optional(),
+})
+export type TraceLlmParamsIngest = z.infer<typeof traceLlmParamsIngestSchema>
+
+export const traceLlmUsageIngestSchema = z.object({
+  inputTokens: ingestCount.optional(),
+  outputTokens: ingestCount.optional(),
+  cachedInputTokens: ingestCount.optional(),
+  reasoningTokens: ingestCount.optional(),
+})
+export type TraceLlmUsageIngest = z.infer<typeof traceLlmUsageIngestSchema>
+
+/** The request the model received. Stored only at capture level `full`, after redaction. */
+export const traceLlmRequestIngestSchema = boundedIngestBody(
+  z.object({
+    system: z.string().optional(),
+    messages: z.array(z.unknown()).max(TRACE_INGEST_LLM_ITEMS_MAX).optional(),
+    tools: z.array(z.record(z.string(), z.unknown())).max(TRACE_INGEST_LLM_TOOLS_MAX).optional(),
+    responseFormat: z.unknown().optional(),
+  }),
+)
+export type TraceLlmRequestIngest = z.infer<typeof traceLlmRequestIngestSchema>
+
+/** The model's response. Stored only at capture level `full`, after redaction. */
+export const traceLlmResponseIngestSchema = boundedIngestBody(
+  z.object({
+    finishReason: ingestLabel.optional(),
+    content: z.array(z.unknown()).max(TRACE_INGEST_LLM_ITEMS_MAX).optional(),
+    object: z.unknown().optional(),
+    providerMetadata: z.record(z.string(), z.unknown()).optional(),
+  }),
+)
+export type TraceLlmResponseIngest = z.infer<typeof traceLlmResponseIngestSchema>
+
+/** Per-llm-span model call facts an external adapter reports; mapped to `gen_ai.*` / `om.*` keys. */
+export const traceLlmIngestSchema = z.object({
+  provider: ingestLabel.optional(),
+  requestModel: ingestLabel.optional(),
+  responseModel: ingestLabel.optional(),
+  params: traceLlmParamsIngestSchema.optional(),
+  usage: traceLlmUsageIngestSchema.optional(),
+  request: traceLlmRequestIngestSchema.optional(),
+  response: traceLlmResponseIngestSchema.optional(),
+})
+export type TraceLlmIngest = z.infer<typeof traceLlmIngestSchema>
+
+/**
+ * Run manifest facts an external adapter reports. Identity (invoker, entry
+ * point, channel, principal) and the capture level are never taken from the
+ * body: the invoker is the HMAC-verified integration, the capture comes from
+ * the tenant policy.
+ */
+export const traceManifestIngestSchema = z.object({
+  definitionHash: ingestSha256.optional(),
+  agentSource: z.enum(['code', 'file', 'ui']).optional(),
+  promptOverride: z.object({ id: ingestLabel, version: ingestCount }).optional(),
+  systemPromptSha256: ingestSha256.optional(),
+  skills: z
+    .array(z.object({ id: ingestLabel, sha256: ingestSha256 }))
+    .max(TRACE_INGEST_MANIFEST_LIST_MAX)
+    .optional(),
+  toolsSha256: ingestSha256.optional(),
+  toolNames: z.array(ingestLabel).max(TRACE_INGEST_MANIFEST_LIST_MAX).optional(),
+  modelDeclared: ingestLabel.optional(),
+  modelResolved: ingestLabel.optional(),
+  provider: ingestLabel.optional(),
+  knowledge: z
+    .record(ingestLabel, ingestLabel)
+    .refine((value) => Object.keys(value).length <= TRACE_INGEST_MANIFEST_KNOWLEDGE_MAX, {
+      message: `[internal] trace manifest knowledge exceeds ${TRACE_INGEST_MANIFEST_KNOWLEDGE_MAX} keys`,
+    })
+    .optional(),
+  correlationId: ingestLabel.optional(),
+  traceparent: ingestLabel.optional(),
+})
+export type TraceManifestIngest = z.infer<typeof traceManifestIngestSchema>
+
 /** One execution-trace span. `externalSpanId` links children regardless of arrival order. */
 export const traceSpanIngestSchema = z.object({
   externalSpanId: z.string().min(1),
@@ -454,6 +565,7 @@ export const traceSpanIngestSchema = z.object({
   status: z.enum(['ok', 'error']).default('ok'),
   attributes: z.unknown().optional(),
   toolCalls: z.array(traceToolCallIngestSchema).optional(),
+  llm: traceLlmIngestSchema.optional(),
 })
 export type TraceSpanIngest = z.infer<typeof traceSpanIngestSchema>
 
@@ -479,6 +591,7 @@ export const traceIngestSchema = z.object({
   outputSummary: z.unknown().optional(),
   contextRouting: z.unknown().optional(),
   spans: z.array(traceSpanIngestSchema).optional(),
+  manifest: traceManifestIngestSchema.optional(),
 })
 export type TraceIngest = z.infer<typeof traceIngestSchema>
 
