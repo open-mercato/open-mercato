@@ -646,6 +646,7 @@ Manual capture, refund, and cancel are protected by a durable `gateway_payment_o
 - Intentional equal partial refunds use distinct caller-supplied operation IDs. Retrying the same logical refund reuses its original ID.
 - `CaptureInput`, `RefundInput`, and `CancelInput` add the optional `idempotencyKey` field. Provider packages that support native idempotency pass it to their SDK; Stripe does so for every supported API version and derives partial-refund status from the charge's cumulative refunded amount.
 - Provider success and the local transaction/operation result finalize in one database transaction. Failed or abandoned attempts are reclaimable and always reuse the same provider key.
+- Cancel voids a payment before capture only. A transaction that is `partially_captured` or has a `capturedAmount` above zero (including an outstanding capture reservation) is refused with `409 payment_cancel_captured_funds` on the first attempt and again, on a fresh read, before the provider call of a retried operation ID, so the captured amount stays refundable.
 
 Integration coverage: `TC-PGWY-021` verifies completed replay, payload-conflict rejection, and distinct equal partial refunds through the authenticated API routes. Unit coverage uses a barrier-controlled concurrent refund to prove that only one adapter call occurs.
 
@@ -1949,6 +1950,7 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 | Refund (partial) | POST | `/api/payment-gateways/refund` | refundedAmount updated, status → partially_refunded |
 | Refund (full) | POST | `/api/payment-gateways/refund` | status → refunded |
 | Cancel | POST | `/api/payment-gateways/cancel` | status → cancelled |
+| Cancel with captured funds (TC-PGWY-026) | POST | `/api/payment-gateways/cancel` on a partially captured payment | 409 `payment_cancel_captured_funds`, status unchanged, refund still succeeds |
 | Invalid transition | POST | `/api/payment-gateways/capture` on captured payment | 422 |
 | Webhook — valid signature | POST | `/api/payment-gateways/webhook/mock` | Status synced |
 | Webhook — invalid signature | POST | `/api/payment-gateways/webhook/mock` | 401 |
@@ -1989,3 +1991,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.generated.ts` bootstrap imports, and shared browser renderer registry lookup. |
 | 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, redirect sessions, and widget-aligned renderer bootstrap entrypoints under `widgets/payments/client.ts(x)`. |
 | 2026-07-25 | Added §16.5 Amount Integrity: payment-session amounts are reconciled against the authoritative order amount due through the optional `PaymentOrderTotalResolver` contract (#4488), alongside the existing capture-amount guard (#4486). |
+| 2026-10-29 | Cancel refuses a transaction with captured funds (`409 payment_cancel_captured_funds`, §6.4.1) instead of moving it to the terminal `cancelled` status with no refund path. It no longer releases the uncaptured remainder of a partially captured authorization. |

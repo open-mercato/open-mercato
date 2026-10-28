@@ -77,6 +77,7 @@ test.describe('TC-PGWY-026: Cancel with captured funds', () => {
       if (transactionId) {
         const id = transactionId
         await withClient(async (client) => {
+          await client.query("delete from integration_logs where scope_entity_type = 'payment_transaction' and scope_entity_id = $1", [id])
           await client.query('delete from gateway_payment_operations where transaction_id = $1', [id])
           await client.query('delete from gateway_transactions where id = $1', [id])
         })
