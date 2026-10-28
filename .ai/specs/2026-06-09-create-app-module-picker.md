@@ -203,9 +203,13 @@ Fetch contract (`fetch-catalog.ts`):
   the catalog's `presetNote` (classic, latest line) or `Nothing to install: <a new app | the preset> already
   registers <id> in src/modules.ts.` instead of a command.
 - A module with a catalog `warning` is still offered and planned, since `yarn generate` decides, but the warning
-  is printed under its picker row and under its line in the plan (`Warning: <warning>`). It applies to a
-  `classic` app, and to another preset only when that preset registers a module named in `conflictsWith`.
-  Modules without the field print exactly what they printed before.
+  is printed under its picker row, under its line in the plan (`Warning: <warning>`) and above its command in the
+  next steps. It applies to a `classic` app on a line whose app registers a module named in `conflictsWith` (the
+  catalog entry of that module, `inPresets`; shown when the catalog does not list it), and to another preset only
+  when that preset registers such a module. Modules without the field print exactly what they printed before.
+- Catalog strings lose control characters before they are printed, so catalog text cannot rewrite the terminal.
+- Without anything to plan (`--module-picker` without a terminal and no `--modules` items) the catalog is not
+  fetched.
 - Requests the catalog cannot plan get one of three notes: a module listed in the catalog but not verified on
   the line (`Not verified on <line>: <request> is in the module catalog, ...`), a name the catalog does not have
   with the closest module ID or npm name (`Not in the module catalog: ksef_direct. Did you mean
