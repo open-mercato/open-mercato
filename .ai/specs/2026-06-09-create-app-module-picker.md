@@ -166,6 +166,10 @@ export type CatalogModule = {
                                    // [] when the catalog omits the field
   presetNote: string | null        // the catalog's sentence for such a module on the latest line, e.g.
                                    // 'Nothing to install: a new app already registers gateway_stripe in src/modules.ts.'
+  conflictsWith: string[]          // module IDs of a new app (classic preset) whose backend route this module adds
+                                   // too, so `yarn generate` refuses it there; [] when the catalog omits the field
+  warning: string | null           // the catalog's one sentence about that clash, e.g. 'Adds the backend route
+                                   // /backend/webhooks, which a new app on 0.8, 0.9 and next already has from ...'
 }
 
 export type PickerIndex = { schemaVersion: 1; generatedAt: string; lines: string[]; modules: CatalogModule[] }
@@ -198,6 +202,10 @@ Fetch contract (`fetch-catalog.ts`):
   (`Not listed: <n> catalog modules the app already registers in src/modules.ts.`) and `--modules` answers with
   the catalog's `presetNote` (classic, latest line) or `Nothing to install: <a new app | the preset> already
   registers <id> in src/modules.ts.` instead of a command.
+- A module with a catalog `warning` is still offered and planned, since `yarn generate` decides, but the warning
+  is printed under its picker row and under its line in the plan (`Warning: <warning>`). It applies to a
+  `classic` app, and to another preset only when that preset registers a module named in `conflictsWith`.
+  Modules without the field print exactly what they printed before.
 - Requests the catalog cannot plan get one of three notes: a module listed in the catalog but not verified on
   the line (`Not verified on <line>: <request> is in the module catalog, ...`), a name the catalog does not have
   with the closest module ID or npm name (`Not in the module catalog: ksef_direct. Did you mean
@@ -410,7 +418,9 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
   level shown and an invalid answer re-asked; no TTY skips the picker but keeps `--modules`; a develop build
   plans the `next` version; a module without a command for a line other than latest is left out with a notice;
   a module a new classic app or the chosen preset already registers is neither offered nor planned; unknown names
-  are told apart from listed but unverified modules, with the closest name suggested.
+  are told apart from listed but unverified modules, with the closest name suggested; a module with a route
+  collision (`conflictsWith` / `warning`) shows the catalog warning in the picker and the plan, only where the
+  preset has a conflicting module, and modules without it print no warning.
 
 ### Integration tests (`yarn test:create-app:integration`, planned with Phase 1 follow-up)
 
@@ -472,3 +482,5 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
 - 2026-10-25: `<npm name>:<module id>` picks one module of a multi-module package whose module ID another
   package also publishes; the ambiguity notice suggests, per candidate, an item that matches it alone, so the
   advice can no longer send the user between the module ID and the npm name.
+- 2026-10-28: The picker and the plan show the catalog's route-collision warning (`conflictsWith` / `warning`,
+  for example `shipment_tracking` next to the built-in `webhooks` route). Entries without it print as before.
