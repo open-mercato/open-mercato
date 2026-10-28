@@ -110,13 +110,32 @@ async function readRunEventGate(
   }
 }
 
+async function enqueueBestEffort(
+  job: OtelExportJobPayload,
+  delayMs: number,
+  tenantId: string,
+  enqueue: EnqueueOtelExport,
+): Promise<boolean> {
+  try {
+    await enqueue(job, { delayMs })
+    return true
+  } catch (error) {
+    logger.warn('otel export enqueue failed', {
+      runId: job.runId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportExportError(error, OTEL_EXPORT_ERROR_CODES.enqueueFailed, { runId: job.runId, tenantId })
+    return false
+  }
+}
+
 /**
  * Subscriber gate for `run.completed` / `run.ingested`: deployment switch
  * (env only) → tenant settings (+ agent allowlist when the event names the
  * agent) → enqueue `{ runId, attempt: 0 }` delayed by the deployment delay.
  * The run source is only on the row, so the worker re-checks the full gate.
- * A failed enqueue is reported and rethrown so the persistent subscriber's
- * queue retry redelivers the event; every other failure is swallowed.
+ * Best-effort: a failed enqueue is reported, never rethrown, so the event's
+ * other persistent subscribers are not re-run; every other failure is swallowed.
  */
 export async function enqueueOtelExportForRunEvent(
   payload: unknown,
@@ -125,17 +144,71 @@ export async function enqueueOtelExportForRunEvent(
 ): Promise<boolean> {
   const gate = await readRunEventGate(payload, container, deps.env ?? process.env)
   if (!gate) return false
+  return enqueueBestEffort({ runId: gate.runId, attempt: 0 }, gate.delayMs, gate.tenantId, deps.enqueue)
+}
+
+export type FinishedProcessScope = {
+  tenantId: string
+  organizationId: string
+  workflowInstanceId: string
+}
+
+export type ExportableTopLevelRunFilter = FinishedProcessScope & {
+  sources: string[]
+  agentAllowlist: string[] | null
+}
+
+export type EnqueueOtelExportForFinishedProcessDeps = EnqueueOtelExportForRunEventDeps & {
+  findLatestTopLevelRunId: (filter: ExportableTopLevelRunFilter) => Promise<string | null>
+}
+
+function readFinishedProcessScope(payload: unknown): FinishedProcessScope | null {
+  if (!payload || typeof payload !== 'object') return null
+  const record = payload as Record<string, unknown>
+  const { tenantId, organizationId, workflowInstanceId } = record
+  if (typeof tenantId !== 'string' || tenantId === '') return null
+  if (typeof organizationId !== 'string' || organizationId === '') return null
+  if (typeof workflowInstanceId !== 'string' || workflowInstanceId === '') return null
+  return { tenantId, organizationId, workflowInstanceId }
+}
+
+/**
+ * Re-export trigger for a process that reached a terminal status. The
+ * `invoke_workflow` root is only emitted once the process is terminal, and a
+ * process can finish after its last run was exported, so this enqueues ONE
+ * top-level run of the execution (the latest exportable one, tenant and
+ * organization scoped) whose re-export now carries the root. Ids are
+ * deterministic, so the repeated run spans merge. No exportable run → no-op.
+ * Best-effort like {@link enqueueOtelExportForRunEvent}; the worker re-checks the gate.
+ */
+export async function enqueueOtelExportForFinishedProcess(
+  payload: unknown,
+  container: OtelExportContainer,
+  deps: EnqueueOtelExportForFinishedProcessDeps,
+): Promise<boolean> {
+  let target: { runId: string; tenantId: string; delayMs: number } | null = null
   try {
-    await deps.enqueue({ runId: gate.runId, attempt: 0 }, { delayMs: gate.delayMs })
-    return true
+    const deployment = resolveOtelExportDeployment(deps.env ?? process.env)
+    if (!deployment.enabled) return false
+    const scope = readFinishedProcessScope(payload)
+    if (!scope) return false
+    const { settings } = await readOtelExportSettings(container, scope.tenantId)
+    if (!settings.enabled) return false
+    const runId = await deps.findLatestTopLevelRunId({
+      ...scope,
+      sources: deployment.sources,
+      agentAllowlist: settings.agentAllowlist ?? null,
+    })
+    if (!runId) return false
+    target = { runId, tenantId: scope.tenantId, delayMs: deployment.delayMs }
   } catch (error) {
-    logger.warn('otel export enqueue failed', {
-      runId: gate.runId,
+    logger.warn('otel export finished-process gate failed', {
       error: error instanceof Error ? error.message : String(error),
     })
-    reportExportError(error, OTEL_EXPORT_ERROR_CODES.enqueueFailed, { runId: gate.runId, tenantId: gate.tenantId })
-    throw error
+    reportExportError(error, OTEL_EXPORT_ERROR_CODES.enqueueFailed, {})
+    return false
   }
+  return enqueueBestEffort({ runId: target.runId, attempt: 0 }, target.delayMs, target.tenantId, deps.enqueue)
 }
 
 export type OtelExportJobOutcome =

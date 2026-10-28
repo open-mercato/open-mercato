@@ -44,3 +44,6 @@
 
 ## 2026-10-27T21:10:39Z — final gate
 - Validation gate green after 5.2-review-fix (core guard registrations); integration 2954 passed, 12 failed (all pre-existing, load-only or flaky — classified in final-gate-checks.md), 3 flaky; DS lint clean.
+
+## 2026-10-28T02:38:18Z — 5.2-review-fix-4 trigger choice
+- `agent_orchestrator.process.execution.completed` is declared but never emitted, and `process.execution.failed` is only emitted before a workflow instance exists (no runs), so subscribing to them would not fix N1. The re-export is instead enqueued by the existing persistent terminal subscribers (`workflows.instance.completed|failed|cancelled` → `process-workflow-*`) right after the projection row turns terminal, which also guarantees the worker sees the terminal status. No new subscriber, so `yarn generate` produced no change.

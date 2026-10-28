@@ -15,6 +15,7 @@ import {
   OTEL_EXPORT_BACKOFF_MAX_MS,
   OTEL_EXPORT_ERROR_CODES,
   OTEL_EXPORT_RETRY_AFTER_MAX_MS,
+  enqueueOtelExportForFinishedProcess,
   enqueueOtelExportForRunEvent,
   otelExportBackoffMs,
   processOtelExportJob,
@@ -23,6 +24,7 @@ import {
 import type { RunExportBundle, RunExportRun, RunExportSpan } from '../lib/trace/otel/loadRunExportBundle'
 import type { OtlpExportResult, PostOtlpTracesInput } from '../lib/trace/otel/otlpHttpClient'
 import type { OtelExportJobPayload } from '../lib/queue'
+import type { ExportableTopLevelRunFilter } from '../lib/trace/otel/exportJob'
 import { metadata as workerMetadata } from '../workers/otel-export'
 import { metadata as completedMetadata } from '../subscribers/otel-export-run-completed'
 import { metadata as ingestedMetadata } from '../subscribers/otel-export-run-ingested'
@@ -225,12 +227,12 @@ describe('enqueueOtelExportForRunEvent', () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  test('reports and rethrows a failed enqueue so the persistent subscriber retries', async () => {
+  test('reports a failed enqueue without rethrowing so the other persistent subscribers are not re-run', async () => {
     const { container } = makeContainer({ enabled: true })
     const enqueue = jest.fn(async () => {
       throw new Error('redis down')
     })
-    await expect(enqueueOtelExportForRunEvent(event, container, { enqueue, env: ENABLED_ENV })).rejects.toThrow('redis down')
+    await expect(enqueueOtelExportForRunEvent(event, container, { enqueue, env: ENABLED_ENV })).resolves.toBe(false)
     expect(reportError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.enqueueFailed }),
@@ -443,5 +445,93 @@ describe('export job helpers', () => {
         OTEL_RESOURCE_ATTRIBUTES: 'deployment.environment=legacy,deployment.environment.name=current',
       }),
     ).toBe('current')
+  })
+})
+
+describe('enqueueOtelExportForFinishedProcess', () => {
+  const WORKFLOW_INSTANCE_ID = '55555555-5555-4555-8555-555555555555'
+  const finished = { id: WORKFLOW_INSTANCE_ID, workflowInstanceId: WORKFLOW_INSTANCE_ID, tenantId: TENANT_ID, organizationId: ORG_ID }
+
+  function makeFinder(runId: string | null) {
+    return jest.fn(async (_filter: ExportableTopLevelRunFilter) => runId)
+  }
+
+  test('skips without reading settings or runs when the deployment switch is off', async () => {
+    const { container, getRecord } = makeContainer({ enabled: true })
+    const enqueue = jest.fn(async () => 'job-id')
+    const findLatestTopLevelRunId = makeFinder(RUN_ID)
+    expect(await enqueueOtelExportForFinishedProcess(finished, container, { enqueue, findLatestTopLevelRunId, env: {} })).toBe(false)
+    expect(getRecord).not.toHaveBeenCalled()
+    expect(findLatestTopLevelRunId).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test('skips when the tenant has not opted in', async () => {
+    const { container } = makeContainer(null)
+    const enqueue = jest.fn(async () => 'job-id')
+    const findLatestTopLevelRunId = makeFinder(RUN_ID)
+    expect(await enqueueOtelExportForFinishedProcess(finished, container, { enqueue, findLatestTopLevelRunId, env: ENABLED_ENV })).toBe(false)
+    expect(findLatestTopLevelRunId).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test('ignores a payload without tenant, organization or workflow instance', async () => {
+    const { container } = makeContainer({ enabled: true })
+    const enqueue = jest.fn(async () => 'job-id')
+    const findLatestTopLevelRunId = makeFinder(RUN_ID)
+    const deps = { enqueue, findLatestTopLevelRunId, env: ENABLED_ENV }
+    expect(await enqueueOtelExportForFinishedProcess({ ...finished, organizationId: undefined }, container, deps)).toBe(false)
+    expect(await enqueueOtelExportForFinishedProcess({ ...finished, tenantId: '' }, container, deps)).toBe(false)
+    expect(await enqueueOtelExportForFinishedProcess({ ...finished, workflowInstanceId: null }, container, deps)).toBe(false)
+    expect(await enqueueOtelExportForFinishedProcess(null, container, deps)).toBe(false)
+    expect(findLatestTopLevelRunId).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test('selects the latest exportable top-level run in the event scope and enqueues it once', async () => {
+    const { container } = makeContainer({ enabled: true, agentAllowlist: ['sales.quote_drafter'] })
+    const enqueue = jest.fn(async (_payload: OtelExportJobPayload, _options?: { delayMs?: number }) => 'job-id')
+    const findLatestTopLevelRunId = makeFinder(RUN_ID)
+    expect(await enqueueOtelExportForFinishedProcess(finished, container, { enqueue, findLatestTopLevelRunId, env: ENABLED_ENV })).toBe(true)
+    expect(findLatestTopLevelRunId).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      workflowInstanceId: WORKFLOW_INSTANCE_ID,
+      sources: expect.arrayContaining(['runtime']),
+      agentAllowlist: ['sales.quote_drafter'],
+    })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({ runId: RUN_ID, attempt: 0 }, { delayMs: 1500 })
+  })
+
+  test('does nothing when the process has no exportable agent run', async () => {
+    const { container } = makeContainer({ enabled: true })
+    const enqueue = jest.fn(async () => 'job-id')
+    expect(
+      await enqueueOtelExportForFinishedProcess(finished, container, { enqueue, findLatestTopLevelRunId: makeFinder(null), env: ENABLED_ENV }),
+    ).toBe(false)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test('reports a failed run lookup or enqueue without throwing', async () => {
+    const { container } = makeContainer({ enabled: true })
+    const failingFinder = jest.fn(async (_filter: ExportableTopLevelRunFilter): Promise<string | null> => {
+      throw new Error('db down')
+    })
+    const enqueue = jest.fn(async () => 'job-id')
+    await expect(
+      enqueueOtelExportForFinishedProcess(finished, container, { enqueue, findLatestTopLevelRunId: failingFinder, env: ENABLED_ENV }),
+    ).resolves.toBe(false)
+    expect(enqueue).not.toHaveBeenCalled()
+    const failingEnqueue = jest.fn(async () => {
+      throw new Error('redis down')
+    })
+    await expect(
+      enqueueOtelExportForFinishedProcess(finished, container, { enqueue: failingEnqueue, findLatestTopLevelRunId: makeFinder(RUN_ID), env: ENABLED_ENV }),
+    ).resolves.toBe(false)
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.enqueueFailed }),
+    )
   })
 })

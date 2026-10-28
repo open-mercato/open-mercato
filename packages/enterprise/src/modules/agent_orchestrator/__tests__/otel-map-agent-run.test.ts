@@ -3,6 +3,7 @@ import { GEN_AI_SEMCONV_VERSION } from '../lib/trace/genAiAttributes'
 import { agentSpanId, dispositionSpanId, runSpanId, traceIdFor, workflowSpanId } from '../lib/trace/otel/ids'
 import type {
   RunExportBundle,
+  RunExportProcessInstance,
   RunExportRun,
   RunExportSpan,
 } from '../lib/trace/otel/loadRunExportBundle'
@@ -430,6 +431,34 @@ describe('mapAgentRunToOtlp', () => {
     expectExportSafe(output)
     expect(allSpans(output).some((span) => span.name.startsWith('invoke_workflow'))).toBe(false)
     expect(spanByName(output, 'invoke_agent sales.quote_drafter').parentSpanId).toBe(workflowSpanId(WORKFLOW_INSTANCE_ID))
+  })
+
+  test('re-exporting the same run after its process turns terminal adds the workflow root with stable ids', () => {
+    const run = buildRun({ workflowInstanceId: WORKFLOW_INSTANCE_ID, stepId: 'review' })
+    const runningProcess: RunExportProcessInstance = {
+      id: PROCESS_ID,
+      workflowInstanceId: WORKFLOW_INSTANCE_ID,
+      processDefinitionId: null,
+      workflowId: 'order_review',
+      status: 'waiting_on_you',
+      subjectType: null,
+      createdAt: at(-1000),
+      completedAt: null,
+    }
+    const first = mapAgentRunToOtlp(buildBundle({ run, processInstance: runningProcess }), OPTIONS)
+    const reExport = mapAgentRunToOtlp(
+      buildBundle({ run, processInstance: { ...runningProcess, status: 'completed', completedAt: at(60_000) } }),
+      OPTIONS,
+    )
+    expect(allSpans(first).some((span) => span.name.startsWith('invoke_workflow'))).toBe(false)
+    const root = spanByName(reExport, 'invoke_workflow order_review')
+    expect(root.spanId).toBe(workflowSpanId(WORKFLOW_INSTANCE_ID))
+    const firstAgent = spanByName(first, 'invoke_agent sales.quote_drafter')
+    const reExportedAgent = spanByName(reExport, 'invoke_agent sales.quote_drafter')
+    expect(reExportedAgent.spanId).toBe(firstAgent.spanId)
+    expect(reExportedAgent.traceId).toBe(firstAgent.traceId)
+    expect(root.traceId).toBe(firstAgent.traceId)
+    expect(reExportedAgent.parentSpanId).toBe(root.spanId)
   })
 
   test('nested delegation parents the run to its parent run span and never emits a duplicate workflow root', () => {

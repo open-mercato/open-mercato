@@ -64,9 +64,9 @@ A persistent subscriber on `agent_orchestrator.run.completed` and `agent_orchest
 - Unexpected failures inside the worker (loading the run, reading settings, the database or the queue): retried with the same backoff and attempt limit.
 - Any other status: dropped and reported as an error.
 
-Failures are reported through the error reporter and recorded as export health; they never fail the run. If the subscriber cannot enqueue the job, it reports the error and fails so the event queue redelivers the event.
+Failures are reported through the error reporter and recorded as export health; they never fail the run. Enqueueing is best-effort: if a subscriber cannot enqueue the job, it reports the error and carries on without failing the event, so other subscribers of the same event are not re-run. A queue outage at that moment can therefore drop an export; backfill the window with `otel:export`.
 
-The `invoke_workflow` root span is built only from the process instance, so every run of the execution exports the same span. It is sent once the process reaches a terminal status; runs exported earlier already point to its span id.
+The `invoke_workflow` root span is built only from the process instance, so every run of the execution exports the same span. It is included only once the process reaches a terminal status; runs exported earlier already point to its span id. Because a process can finish after its last run was exported (a user task, an approval or a non-agent step at the end), the subscribers that mark a workflow instance completed, failed or cancelled also enqueue a re-export of the latest exportable top-level run of that execution, scoped to its tenant and organization. Ids are deterministic, so the repeated run spans merge and the export now carries the root. A process without agent runs exports nothing.
 
 ## Health and test span
 

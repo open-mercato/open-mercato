@@ -45,7 +45,7 @@
 | 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | 9a0f3c245 |
 | 5 | 5.2-review-fix-2 | Harden the OTel export after review | dispatch:capable | done | 8c4a57933 |
 | 5 | 5.2-review-fix-3 | Fix the trace capture review findings | dispatch | done | aaba7d05f |
-| 5 | 5.2-review-fix-4 | Export the workflow root when a process finishes | dispatch:capable | todo | — |
+| 5 | 5.2-review-fix-4 | Export the workflow root when a process finishes | dispatch:capable | done | pending |
 
 ## Goal
 
