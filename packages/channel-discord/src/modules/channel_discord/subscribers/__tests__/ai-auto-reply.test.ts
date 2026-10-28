@@ -41,6 +41,7 @@ type ResolveMap = {
   aiPresent?: boolean
   threadAssignee?: string | null
   alreadyHandled?: boolean
+  countError?: Error
 }
 
 function makeCtx(map: ResolveMap) {
@@ -48,7 +49,10 @@ function makeCtx(map: ResolveMap) {
     findOne: jest.fn(async () =>
       map.threadAssignee ? { assignedUserId: map.threadAssignee } : null,
     ),
-    count: jest.fn(async () => (map.alreadyHandled ? 1 : 0)),
+    count: jest.fn(async () => {
+      if (map.countError) throw map.countError
+      return map.alreadyHandled ? 1 : 0
+    }),
   }
   const em = { fork: () => forked }
   const commandBus =
@@ -307,7 +311,7 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
-  it('(retry) keys the auto-send compose on the inbound message so a re-run cannot post twice', async () => {
+  it('(retry) passes the same inbound-derived idempotency key to every auto-send compose', async () => {
     const { ctx, commandBus } = makeCtx({ aiPresent: true })
     for (let attempt = 0; attempt < 2; attempt += 1) {
       findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
@@ -337,7 +341,7 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
           organizationId: 'o-1',
           sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
           sourceEntityId: 'm-1',
-          senderUserId: 'system-user-id',
+          senderUserId: { $in: ['system-user-id', '00000000-0000-0000-0000-000000000000'] },
         },
       ],
     })
@@ -349,6 +353,16 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1', alreadyHandled: true })
 
     await handler(basePayload, ctx)
+
+    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('(retry check fails) degrades to a no-op — no model call, no send', async () => {
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, countError: new Error('db down') })
+
+    await expect(handler(basePayload, ctx)).resolves.toBeUndefined()
 
     expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
     expect(commandBus.execute).not.toHaveBeenCalled()

@@ -4,7 +4,10 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
 import { Message } from '@open-mercato/core/modules/messages/data/entities'
-import { resolveCommunicationChannelsSystemUserId } from '@open-mercato/core/modules/communication_channels/lib/system-user'
+import {
+  COMMUNICATION_CHANNELS_SYSTEM_USER_ID,
+  resolveCommunicationChannelsSystemUserId,
+} from '@open-mercato/core/modules/communication_channels/lib/system-user'
 import {
   CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID,
   discordAutoReplyOutputSchema,
@@ -297,7 +300,9 @@ async function draftAndRoute(args: {
  * fails, re-running the ones that already succeeded. A retry must neither post
  * the reply again nor file a second proposal, so an inbound message that already
  * has this subscriber's reply or proposal is left alone — soft-deleted ones
- * included, because undoing the stored row cannot recall what was posted.
+ * included, because undoing the stored row cannot recall what was posted. The
+ * bot sender is matched with its sentinel fallback too, since the bot-user
+ * lookup degrades to the sentinel on a transient error.
  */
 async function wasAlreadyHandled(params: {
   em: EntityManager
@@ -316,7 +321,7 @@ async function wasAlreadyHandled(params: {
         organizationId: scope.organizationId,
         sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
         sourceEntityId: inboundMessageId,
-        senderUserId: botUserId,
+        senderUserId: { $in: [botUserId, COMMUNICATION_CHANNELS_SYSTEM_USER_ID] },
       },
     ],
   })
