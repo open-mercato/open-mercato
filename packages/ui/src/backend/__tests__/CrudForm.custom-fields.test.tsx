@@ -151,6 +151,7 @@ describe('CrudForm custom field loading', () => {
     const { rerender } = renderWithProviders(
       <I18nProvider locale={locale} dict={dict}>{form}</I18nProvider>,
     )
+    await act(() => Promise.resolve())
     const label = locale === 'pl' ? 'Termin realizacji' : 'Delivery timeline'
     await screen.findByText(label)
     const input = screen.getByDisplayValue('Tomorrow')
