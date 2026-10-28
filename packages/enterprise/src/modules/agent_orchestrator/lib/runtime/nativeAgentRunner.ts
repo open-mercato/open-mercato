@@ -63,12 +63,12 @@ import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSu
 import {
   AgentGuardrailBlockedError,
   AgentOutputInvalidError,
+  AgentPrincipalMissingError,
   AgentRunTimeoutError,
 } from './errors'
 import {
   type AgentRunCtx,
   buildCommandContext,
-  resolveCallerAcl,
   createRun,
   completeRun,
   failRun,
@@ -76,6 +76,7 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveEffectiveToolAcl } from '../identity/resolveEffectiveToolAcl'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
@@ -246,12 +247,21 @@ export class NativeAgentRunner {
       }
     }
 
-    // Load the caller's effective ACL so the agent's read-only tools (e.g.
+    // Load the effective tool ACL so the agent's read-only tools (e.g.
     // customers.get_deal, gated by customers.deals.view) pass their feature
-    // check under the caller's own scope — never escalated. Defensive: if the
-    // RBAC service is unavailable, fall back to no features (tool calls then
-    // fail closed rather than running unauthorized).
-    const acl = await resolveCallerAcl(this.container, ctx)
+    // check under the caller's own scope — never escalated. In `intersect` mode
+    // the agent principal's grants narrow it further. Defensive: if the RBAC
+    // service is unavailable, fall back to no features (tool calls then fail
+    // closed rather than running unauthorized).
+    let acl: Awaited<ReturnType<typeof resolveEffectiveToolAcl>>
+    try {
+      acl = await resolveEffectiveToolAcl(this.container, agentId, entry, ctx)
+    } catch (aclError) {
+      if (aclError instanceof AgentPrincipalMissingError) {
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: aclError.message })
+      }
+      throw aclError
+    }
     const authContext: AiChatRequestContext = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,

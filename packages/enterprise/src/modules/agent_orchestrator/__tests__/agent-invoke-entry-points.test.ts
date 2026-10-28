@@ -51,7 +51,7 @@ import {
   AGENT_PRINCIPAL_MISSING_CODE,
 } from '../lib/runtime/errors'
 import { invokerFromAuth } from '../lib/access/invokeDenial'
-import { AgentEvalCase, AgentEvalCaseRun, AgentEvalSuiteRun, AgentRun } from '../data/entities'
+import { AgentEvalCase, AgentEvalCaseRun, AgentEvalSuiteRun, AgentPrincipal, AgentRun } from '../data/entities'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -59,6 +59,7 @@ const USER = '44444444-4444-4444-8444-444444444444'
 const KEY_ID = '77777777-7777-4777-8777-777777777777'
 const KEY_OWNER = '88888888-8888-4888-8888-888888888888'
 const SOURCE_RUN_ID = '55555555-5555-4555-8555-555555555555'
+const AGENT_PRINCIPAL_USER = '99999999-9999-4999-8999-999999999999'
 const AGENT_ID = 'test.invoke_gated'
 const SECRET_FEATURE = 'secret_module.secret_feature'
 
@@ -207,7 +208,7 @@ async function viaWorkflowBridge(): Promise<AdapterOutcome> {
   throw new Error('[internal] expected the workflow bridge to reject')
 }
 
-async function viaEvalReplay(): Promise<AdapterOutcome> {
+async function viaEvalReplay(principalRows: Row[] = []): Promise<AdapterOutcome> {
   const runtime = deniedRuntime()
   const caseRun: Row = {
     id: 'case-run-1',
@@ -225,6 +226,7 @@ async function viaEvalReplay(): Promise<AdapterOutcome> {
         AgentEvalCase,
         [{ id: 'case-1', tenantId: TENANT, organizationId: ORG, agentDefinitionId: AGENT_ID, input: { question: 'q' }, deletedAt: null }],
       ],
+      [AgentPrincipal, principalRows],
     ]),
   )
   const container = {
@@ -319,6 +321,23 @@ describe('non-HTTP entry points', () => {
     expect(outcome.ctx.invoker).toEqual({ kind: 'user', userId: USER })
     expect(outcome.ctx.entryPoint).toBe('eval')
     expect(outcome.ctx.source).toBe('eval')
+  })
+
+  it("eval replay runs as the operator with the agent's principal bound through runAs", async () => {
+    const outcome = await viaEvalReplay([
+      {
+        id: 'principal-1',
+        tenantId: TENANT,
+        organizationId: ORG,
+        agentDefinitionId: AGENT_ID,
+        userId: AGENT_PRINCIPAL_USER,
+        enabled: true,
+        deletedAt: null,
+      },
+    ])
+    expect(outcome.ctx.userId).toBe(USER)
+    expect(outcome.ctx.runAs).toEqual({ agentUserId: AGENT_PRINCIPAL_USER, onBehalfOfUserId: USER })
+    expect(outcome.ctx.invoker).toEqual({ kind: 'user', userId: USER })
   })
 })
 

@@ -78,6 +78,7 @@ const AGENT_USER = '44444444-4444-4444-8444-444444444444'
 const PARENT_AGENT_USER = '55555555-5555-4555-8555-555555555555'
 const AGENT_ID = 'runas_test.grounded_researcher'
 const REQUIRED_AGENT_ID = 'runas_test.required_principal_researcher'
+const INTERSECT_AGENT_ID = 'runas_test.intersect_researcher'
 const INTEGRITY_AGENT_ID = 'runas_test.integrity_researcher'
 const SUBJECT_ENTITY = 'runas_test:subject'
 const SUBJECT_ID = 'subject-1'
@@ -281,8 +282,12 @@ function createQueryEngine(): QueryEngine {
   }
 }
 
-function createService(orm: FakeOrm, commandRunAs: CommandRunAs[] = []): AgentRuntimeService {
-  const registrations: Record<string, unknown> = { em: orm.em, queryEngine: createQueryEngine() }
+function createService(
+  orm: FakeOrm,
+  commandRunAs: CommandRunAs[] = [],
+  extraRegistrations: Record<string, unknown> = {},
+): AgentRuntimeService {
+  const registrations: Record<string, unknown> = { em: orm.em, queryEngine: createQueryEngine(), ...extraRegistrations }
   const container = {
     resolve(name: string) {
       if (name in registrations) return registrations[name]
@@ -721,5 +726,66 @@ describe('native run under runAs (agent principal on behalf of a human)', () => 
     await expect(attempt).rejects.toThrow('entity=DomainDeal')
     expect(orm.rows(DomainDeal)).toHaveLength(0)
     expect(orm.rows(AgentGuardrailCheck)).toHaveLength(0)
+  })
+})
+
+describe('effective tool ACL (identity spec Phase 3)', () => {
+  const callerGrants = { features: ['customers.deals.view', 'customers.people.view'], isSuperAdmin: false }
+  const principalGrants = { features: ['customers.deals.*'], isSuperAdmin: false }
+
+  function createRbac() {
+    const loadAcl = jest.fn(async (userId: string, _scope: { tenantId: string | null; organizationId: string | null }) =>
+      userId === AGENT_USER ? principalGrants : callerGrants,
+    )
+    return { loadAcl }
+  }
+
+  function toolAuthContext(): Record<string, unknown> {
+    expect(runAiAgentObjectMock).toHaveBeenCalledTimes(1)
+    return runAiAgentObjectMock.mock.calls[0][0].authContext as Record<string, unknown>
+  }
+
+  afterEach(() => {
+    delete process.env.OM_AGENT_TOOL_ACL_MODE
+  })
+
+  it("caller mode hands the tools the caller's ACL even when a principal is bound", async () => {
+    const orm = createFakeOrm()
+    seedPrincipal(orm, AGENT_ID)
+    const rbac = createRbac()
+
+    await createService(orm, [], { rbacService: rbac }).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(1)
+    expect(rbac.loadAcl).toHaveBeenCalledWith(HUMAN, { tenantId: TENANT, organizationId: ORG })
+    expect(toolAuthContext()).toEqual({
+      tenantId: TENANT,
+      organizationId: ORG,
+      userId: HUMAN,
+      features: callerGrants.features,
+      isSuperAdmin: false,
+    })
+  })
+
+  it('a declared intersect mode narrows the tools to the principal and caller grants', async () => {
+    registerResearcherVariant(INTERSECT_AGENT_ID, { principal: { roleFeatures: ['customers.deals.*'], toolAcl: 'intersect' } })
+    const orm = createFakeOrm()
+    seedPrincipal(orm, INTERSECT_AGENT_ID)
+    const rbac = createRbac()
+
+    await createService(orm, [], { rbacService: rbac }).run(INTERSECT_AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    expect(rbac.loadAcl).toHaveBeenCalledWith(AGENT_USER, { tenantId: TENANT, organizationId: ORG })
+    expect(toolAuthContext()).toMatchObject({ userId: HUMAN, features: ['customers.deals.view'], isSuperAdmin: false })
+  })
+
+  it('OM_AGENT_TOOL_ACL_MODE=intersect applies to an agent that declares no mode', async () => {
+    process.env.OM_AGENT_TOOL_ACL_MODE = 'intersect'
+    const orm = createFakeOrm()
+    seedPrincipal(orm, AGENT_ID)
+
+    await createService(orm, [], { rbacService: createRbac() }).run(AGENT_ID, { subjectId: SUBJECT_ID }, baseCtx)
+
+    expect(toolAuthContext()).toMatchObject({ features: ['customers.deals.view'], isSuperAdmin: false })
   })
 })

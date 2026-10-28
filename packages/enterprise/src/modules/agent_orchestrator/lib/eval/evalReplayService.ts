@@ -319,10 +319,10 @@ async function runCase(
   const runtime = container.resolve('agentRuntime') as AgentRuntimeLike
 
   try {
-    // Run under the AGENT'S OWN principal, exactly as production does. Replaying
-    // under the operator's identity would give the agent a different tool surface
-    // and a different write guard than the configuration being measured, which
-    // would quietly invalidate the regression signal.
+    // Run as the operator who started the replay with the agent's own principal
+    // bound through `runAs`, exactly as production does: writes are attributed to
+    // the agent on behalf of the operator, and the tool ACL follows the agent's
+    // mode (`caller` = the operator's grants, `intersect` = principal ∩ operator).
     const runAs = await resolveRunAsForAgent(
       container,
       {
@@ -334,10 +334,9 @@ async function runCase(
     await runtime.run(agentDefinitionId, sourceInput(source), {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      userId: runAs?.agentUserId ?? userId,
-      // No principal provisioned yet (legacy/playground agents): fall back to the
-      // operator's identity rather than refusing to run, and leave `runAs` unset
-      // so nothing is misattributed to an agent that has none.
+      userId,
+      // No principal provisioned yet (legacy/playground agents): leave `runAs`
+      // unset so nothing is misattributed to an agent that has none.
       ...(runAs ? { runAs } : {}),
       // Tags THIS run and its proposal at creation, closing the window in which a
       // replay proposal would otherwise be broadcast and rendered as operator work.
