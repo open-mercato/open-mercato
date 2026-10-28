@@ -70,9 +70,19 @@ Both codes are exported from `@open-mercato/shared/modules/notifications/types` 
 
 **Client migration.** Create command-backed notifications from server code via `notificationService`, using an action declared on the type with `requiredFeatures` matching the route that normally runs the command. Branch on the two exported codes rather than on `error` text.
 
-**Operator migration.** Upgrade all app and worker processes together. Pending rows with an undeclared command are refused automatically. A row created through the API before the upgrade that exactly copies a declared action stays executable for a recipient holding the declared features; review pending command actions with the query in [`UPGRADE_NOTES.md`](../../UPGRADE_NOTES.md#notification-action-commands). No database migration is needed.
+**Operator migration.** Upgrade all app and worker processes together. Pending rows with an undeclared command are refused automatically. A row created through the API before the upgrade that exactly copies a declared action stays executable for a recipient holding the declared features; review pending command actions with:
 
-**Exception bookkeeping.** `UPGRADE_NOTES.md` 0.9.0 → 0.9.1 carries the client and operator notes; `BACKWARD_COMPATIBILITY.md` has a dated entry linking to it; the PR carries the `security` label and needs a named human maintainer approval acknowledging the waiver.
+```sql
+select id, type, recipient_user_id, created_at
+from notifications
+where action_data::text like '%commandId%'
+  and actioned_at is null
+  and status <> 'dismissed';
+```
+
+No database migration is needed.
+
+**Exception bookkeeping.** The PR description's "Upgrade notes" section carries the client and operator notes for the release notes (maintainers asked to keep new entries out of `UPGRADE_NOTES.md`); `BACKWARD_COMPATIBILITY.md` has a dated one-line entry naming the PR; the PR carries the `security` label and needs a named human maintainer approval acknowledging the waiver.
 
 ## Testing
 
@@ -86,7 +96,7 @@ Both codes are exported from `@open-mercato/shared/modules/notifications/types` 
 
 | Risk | Severity | Mitigation | Residual |
 |---|---|---|---|
-| Third-party producers attach undeclared command actions | Medium | Documented in `UPGRADE_NOTES.md`; the fix is a declaration in the module's own `notifications.ts` | Their buttons answer 403 until declared |
+| Third-party producers attach undeclared command actions | Medium | Documented in the release upgrade notes; the fix is a declaration in the module's own `notifications.ts` | Their buttons answer 403 until declared |
 | Pre-upgrade API-planted rows that copy a declared action | Medium | Still gated by the declared `requiredFeatures`; operator query provided | Executable by a recipient who already holds the features |
 | RBAC outage blocks every command action | Low | Fail-closed by design; error reported | Buttons refuse until RBAC recovers |
 | Workflow one-click completion breaks | Low | Declared from the producer's own builder; contract test pins the match | None found |
@@ -95,8 +105,9 @@ Both codes are exported from `@open-mercato/shared/modules/notifications/types` 
 
 - Tenant scoping unchanged; the feature check uses the notification service context's tenant and organization.
 - No new raw `em.find`/`em.findOne`; i18n keys added in all five locales; errors carry `code`.
-- Emergency Security Exception: qualifying argument and narrowest-removal argument above; `UPGRADE_NOTES.md` client and operator notes; dated `BACKWARD_COMPATIBILITY.md` entry; maintainer sign-off pending on the PR.
+- Emergency Security Exception: qualifying argument and narrowest-removal argument above; client and operator upgrade notes in the PR description; dated `BACKWARD_COMPATIBILITY.md` entry; maintainer sign-off pending on the PR.
 
 ## Changelog
 
 - 2026-10-20 — Spec written for #7215 to record the Migration & Backward Compatibility rationale of the shipped fix.
+- 2026-10-28 — Upgrade notes moved from `UPGRADE_NOTES.md` to the PR description; operator query inlined; the `BACKWARD_COMPATIBILITY.md` entry shortened to one line to fit the context budget.
