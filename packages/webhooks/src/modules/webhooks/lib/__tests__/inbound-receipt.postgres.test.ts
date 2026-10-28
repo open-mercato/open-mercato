@@ -56,8 +56,12 @@ describePostgres.each([1, 8])('inbound receipt PostgreSQL transactions with pool
 
   afterAll(async () => {
     if (!orm) return
-    await orm.schema.drop()
-    await orm.close(true)
+    try {
+      await orm.schema.drop()
+      await orm.schema.execute(`drop schema if exists "${schema}"`)
+    } finally {
+      await orm.close(true)
+    }
   })
 
   beforeEach(async () => {
