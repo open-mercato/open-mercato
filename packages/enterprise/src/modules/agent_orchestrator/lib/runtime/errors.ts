@@ -76,15 +76,22 @@ export class AgentGuardrailBlockedError extends AgentOutputInvalidError {
   readonly phase: GuardrailPhaseInput
   readonly kind: GuardrailKindInput
   readonly guardrailSetVersion: string
+  readonly ruleId: string | null
   constructor(
     agentId: string,
     detail: string,
-    reason: { phase: GuardrailPhaseInput; kind: GuardrailKindInput; guardrailSetVersion: string },
+    reason: {
+      phase: GuardrailPhaseInput
+      kind: GuardrailKindInput
+      guardrailSetVersion: string
+      ruleId?: string | null
+    },
   ) {
     super(agentId, detail)
     this.name = 'AgentGuardrailBlockedError'
     this.phase = reason.phase
     this.kind = reason.kind
     this.guardrailSetVersion = reason.guardrailSetVersion
+    this.ruleId = reason.ruleId ?? null
   }
 }

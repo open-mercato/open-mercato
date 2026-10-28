@@ -51,6 +51,7 @@ import {
   collectEnforcedToolSets,
 } from '../guardrails/integrity/rules/toolConsulted'
 import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { readCheckRuleId } from '../guardrails/integrity/summary'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { getCurrentRunToolCallSink, withRunContext, type RunToolCallSink } from './runContext'
@@ -240,11 +241,12 @@ export class NativeAgentRunner {
       if (inputVerdict.result === 'block' && inputVerdict.blockedReason) {
         const detail = '[internal] pre-call guardrail block (prompt_injection)'
         await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+        const blockingInputCheck = inputVerdict.checks.find((check) => check.result === 'block')
         throw new AgentGuardrailBlockedError(agentId, detail, {
           phase: inputVerdict.blockedReason.phase,
           kind: inputVerdict.blockedReason.kind,
-          guardrailSetVersion:
-            inputVerdict.checks.find((check) => check.result === 'block')?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+          guardrailSetVersion: blockingInputCheck?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+          ruleId: readCheckRuleId(blockingInputCheck?.evidence),
         })
       }
     }
@@ -680,11 +682,12 @@ export class NativeAgentRunner {
       await captureTrace()
       const blocked = verdict.blockedReason
       if (blocked) {
+        const blockingCheck = verdict.checks.find((check) => check.result === 'block')
         throw new AgentGuardrailBlockedError(agentId, detail, {
           phase: blocked.phase,
           kind: blocked.kind,
-          guardrailSetVersion:
-            verdict.checks.find((check) => check.result === 'block')?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+          guardrailSetVersion: blockingCheck?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+          ruleId: readCheckRuleId(blockingCheck?.evidence),
         })
       }
       throw new AgentOutputInvalidError(agentId, detail)

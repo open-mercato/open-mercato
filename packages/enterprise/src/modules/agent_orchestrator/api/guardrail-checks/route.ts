@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { AgentGuardrailCheck } from '../../data/entities'
 import { guardrailCheckListQuerySchema } from '../../data/validators'
+import { readCheckRuleId } from '../../lib/guardrails/integrity/summary'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -48,6 +49,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof guardrailCheckListQueryS
       result: 'result',
       createdAt: 'created_at',
     },
+    transformItem: (item: Record<string, unknown>) => ({ ...item, ruleId: readCheckRuleId(item.evidence) }),
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
@@ -76,6 +78,7 @@ const guardrailCheckListItemSchema = z.object({
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
+  ruleId: z.string().nullable().optional(),
 })
 
 export const openApi = createAgentOrchestratorCrudOpenApi({

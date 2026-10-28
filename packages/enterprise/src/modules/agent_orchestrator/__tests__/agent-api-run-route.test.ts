@@ -202,6 +202,7 @@ describe('POST /agent-api/agents/:id/run', () => {
       proposal: { summary: 'ok' },
       runId: RUN_ID,
       proposalId: PROPOSAL_ID,
+      integrity: null,
     })
     expect(run).toHaveBeenCalledTimes(1)
     const [agentId, input, ctx] = run.mock.calls[0]

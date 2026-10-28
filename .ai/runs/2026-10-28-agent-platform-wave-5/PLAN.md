@@ -26,7 +26,7 @@
 | 1 | 1.4 | Emit agent_orchestrator.run.review_requested | dispatch:cheap | done | pending |
 | 1 | 1.5 | Declare and screen untrusted agent inputs | dispatch | done | pending |
 | 1 | 1.6 | Delimit untrusted input fields in the model prompt | dispatch:capable | done | pending |
-| 1 | 1.7 | Return the integrity summary and raw output key from the run APIs | dispatch | todo | — |
+| 1 | 1.7 | Return the integrity summary and raw output key from the run APIs | dispatch | done | pending |
 | 1 | 1.8 | Show integrity rules and holds in the trace, caseload and agent UI | dispatch | todo | — |
 | 1 | 1.9 | Add the guardrail_check eval scorer | dispatch | todo | — |
 | 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | todo | — |

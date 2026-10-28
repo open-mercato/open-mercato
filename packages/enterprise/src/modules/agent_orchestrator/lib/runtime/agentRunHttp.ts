@@ -15,6 +15,7 @@ import {
 import { isAgentInvokeDeniedError } from './errors'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from './admission'
 import { invokeDeniedBody } from '../access/invokeDenial'
+import { integritySummarySchema, loadRunIntegritySummary, type IntegritySummary } from '../guardrails/integrity/summary'
 
 /**
  * The request/response/error contract shared by every HTTP door that runs one
@@ -32,6 +33,7 @@ export const guardrailBlockedErrorSchema = agentRunErrorSchema.extend({
   kind: guardrailKind,
   phase: guardrailPhase,
   guardrailSetVersion: z.string().nullable(),
+  ruleId: z.string().nullable().optional(),
 })
 
 /** 500 body for a failure this route could not classify — it names itself. */
@@ -46,7 +48,11 @@ export const modelUnavailableErrorSchema = agentRunErrorSchema.extend({
 })
 
 export const agentRunSuccessResponseSchema = baseAgentResultSchema.and(
-  z.object({ runId: z.string().uuid().nullable(), proposalId: z.string().uuid().nullable() }),
+  z.object({
+    runId: z.string().uuid().nullable(),
+    proposalId: z.string().uuid().nullable(),
+    integrity: integritySummarySchema.nullable(),
+  }),
 )
 
 /**
@@ -163,6 +169,7 @@ export function agentRunErrorResponse(
         kind: err.kind,
         phase: err.phase,
         guardrailSetVersion: err.guardrailSetVersion ?? null,
+        ruleId: err.ruleId ?? null,
       },
       { status: 422 },
     )
@@ -239,7 +246,8 @@ export function agentRunErrorResponse(
 
 /**
  * The success body: the typed result plus additive sibling fields (navigation
- * spec §1). The `AgentResult` union never defines `runId`/`proposalId`, so
+ * spec §1) and the run's integrity summary (null for agents without integrity
+ * rules), derived from its persisted check rows. The `AgentResult` union never defines `runId`/`proposalId`, so
  * spreading is collision-free. Id-only projection — no encrypted proposal
  * columns are fetched.
  */
@@ -250,15 +258,20 @@ export async function agentRunSuccessResponse(
   scope: { tenantId: string; organizationId: string },
 ): Promise<NextResponse> {
   let proposalId: string | null = null
+  let integrity: IntegritySummary | null = null
   if (runId) {
     const em = (container.resolve('em') as EntityManager).fork()
-    const proposals = await em.find(
-      AgentProposal,
-      { runId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
-      { orderBy: { createdAt: 'desc' }, limit: 1, fields: ['id'] },
-    )
+    const [proposals, summary] = await Promise.all([
+      em.find(
+        AgentProposal,
+        { runId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+        { orderBy: { createdAt: 'desc' }, limit: 1, fields: ['id'] },
+      ),
+      loadRunIntegritySummary(em, runId, scope),
+    ])
     proposalId = proposals[0]?.id ?? null
+    integrity = summary
   }
   const resultRecord = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>
-  return NextResponse.json({ ...resultRecord, runId, proposalId })
+  return NextResponse.json({ ...resultRecord, runId, proposalId, integrity })
 }

@@ -41,6 +41,7 @@ const guardrailBlockedErrorSchema = errorSchema.extend({
   kind: guardrailKind,
   phase: guardrailPhase,
   guardrailSetVersion: z.string().nullable(),
+  ruleId: z.string().nullable().optional(),
 })
 
 type RouteContext = { params: Promise<{ id: string }> }
@@ -127,6 +128,7 @@ export async function POST(req: Request, ctx: RouteContext) {
           kind: err.kind,
           phase: err.phase,
           guardrailSetVersion: err.guardrailSetVersion ?? null,
+          ruleId: err.ruleId ?? null,
         },
         { status: 422 },
       )

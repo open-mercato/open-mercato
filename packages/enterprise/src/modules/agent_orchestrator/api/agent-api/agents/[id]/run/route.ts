@@ -169,7 +169,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         {
           status: 200,
-          description: 'Typed AgentResult + { runId, proposalId }',
+          description: 'Typed AgentResult + { runId, proposalId, integrity }',
           schema: agentRunSuccessResponseSchema,
         },
       ],
@@ -189,7 +189,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input, invalid model output, run wall-clock timeout, or a runtime guardrail block (`code: "guardrail_blocked"`)',
+            'Invalid input, invalid model output, run wall-clock timeout, or a runtime guardrail block (`code: "guardrail_blocked"`, with `kind`/`phase`/`guardrailSetVersion` and the blocking integrity `ruleId` or null)',
           schema: z.union([agentRunErrorSchema, guardrailBlockedErrorSchema]),
         },
         {

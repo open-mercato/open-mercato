@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentGuardrailCheck, AgentRun, AgentToolCall } from '../../../../data/entities'
 import { ARTIFACT_REFS, getArtifact, type ArtifactEncryptionRef } from '../../../../lib/trace/artifactStore'
+import { readRawOutputKey } from '../../../../lib/guardrails/integrity/summary'
 import { agentOrchestratorTag } from '../../../openapi'
 
 /**
@@ -27,14 +28,6 @@ const querySchema = z.object({
   key: z.string().min(1).max(500),
   kind: z.enum(['output', 'tool_request', 'tool_response', 'raw_output']),
 })
-
-function readRawOutputKey(evidence: unknown): string | null {
-  if (!evidence || typeof evidence !== 'object') return null
-  const rawOutput = (evidence as Record<string, unknown>).rawOutput
-  if (!rawOutput || typeof rawOutput !== 'object') return null
-  const key = (rawOutput as Record<string, unknown>).key
-  return typeof key === 'string' ? key : null
-}
 
 type RouteContext = { params: Promise<{ id: string }> }
 

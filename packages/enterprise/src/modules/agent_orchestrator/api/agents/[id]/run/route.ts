@@ -118,7 +118,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Run one agent directly (Playground, evals, diagnostics)',
       description:
-        'An ENGINEERING primitive, not a business-orchestration one. It runs a single agent synchronously and returns what it produced; it has no retry, no wait states, no signals, no cancellation and no durable business lifecycle, because an AgentRun records an agent execution rather than a business process. Use it for the Playground, development, evals, diagnostics and sub-agent invocation. To start durable business work — from an integration, a schedule, an event or by hand — call POST /processes/{id}/executions and observe agent_orchestrator.process.execution.* instead; a caller coupled to an agent id cannot be refactored around. Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for researcher runs).',
+        'An ENGINEERING primitive, not a business-orchestration one. It runs a single agent synchronously and returns what it produced; it has no retry, no wait states, no signals, no cancellation and no durable business lifecycle, because an AgentRun records an agent execution rather than a business process. Use it for the Playground, development, evals, diagnostics and sub-agent invocation. To start durable business work — from an integration, a schedule, an event or by hand — call POST /processes/{id}/executions and observe agent_orchestrator.process.execution.* instead; a caller coupled to an agent id cannot be refactored around. Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) `proposalId` (the newest AgentProposal created by the run, null for researcher runs) and `integrity` (the output-integrity summary derived from the run\'s guardrail check rows — `outcome` plus one `{ ruleId, kind, result, dropped, repaired }` entry per integrity rule — null for agents without integrity rules).',
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,
@@ -127,7 +127,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         {
           status: 200,
-          description: 'Typed AgentResult + { runId, proposalId }',
+          description: 'Typed AgentResult + { runId, proposalId, integrity }',
           schema: agentRunSuccessResponseSchema,
         },
       ],
@@ -144,7 +144,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input, invalid model output, run wall-clock timeout — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason',
+            'Invalid input, invalid model output, run wall-clock timeout — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
           schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
