@@ -5,11 +5,23 @@ export type OrganizationScopeChangedDetail = {
   tenantId: string | null
 }
 
-// Module-level state to track current scope and version
-let currentScope: OrganizationScopeChangedDetail = { 
-  organizationId: null, 
-  tenantId: null 
+function readPersistedScope(): OrganizationScopeChangedDetail {
+  if (typeof document === 'undefined') return { organizationId: null, tenantId: null }
+  const cookies = document.cookie.split(';').map((entry) => entry.trim())
+  const readSelection = (name: string): string | null => {
+    const entry = cookies.find((cookie) => cookie.startsWith(`${name}=`))
+    const raw = entry?.slice(name.length + 1)
+    if (!raw) return null
+    try { return decodeURIComponent(raw) || null } catch { return raw }
+  }
+  const organizationId = readSelection('om_selected_org')
+  return {
+    organizationId: organizationId === '__all__' ? null : organizationId,
+    tenantId: readSelection('om_selected_tenant'),
+  }
 }
+
+let currentScope = readPersistedScope()
 let currentVersion = 0
 let hasEmitted = false
 

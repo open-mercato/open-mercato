@@ -219,6 +219,9 @@ export default function CustomersDealsPage() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs([E.customers.customer_deal], {
+    keyExtras: [scopeVersion],
+  })
   const queryClient = useQueryClient()
 
   const [rows, setRows] = React.useState<DealRow[]>([])
@@ -466,8 +469,9 @@ export default function CustomersDealsPage() {
       invalidateCustomerDictionary(queryClient, 'deal-statuses'),
       invalidateCustomerDictionary(queryClient, 'pipeline-stages'),
     ])
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [queryClient])
+  }, [queryClient, refetchCustomFieldDefs])
 
   const bulkMutationContextId = 'customers-deals-list:bulk-delete'
   const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
@@ -777,9 +781,6 @@ export default function CustomersDealsPage() {
     return succeeded.length > 0
   }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
-  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading } = useCustomFieldDefs([E.customers.customer_deal], {
-    keyExtras: [scopeVersion, reloadToken],
-  })
   const currentUserId = useCurrentUserId()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])

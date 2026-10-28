@@ -2,14 +2,17 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { waitFor } from '@testing-library/react'
+import { act, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import CustomersPeoplePage from '../people/page'
 import CustomersCompaniesPage from '../companies/page'
 import CustomersDealsPage from '../deals/page'
 import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import ProductsDataTable from '@open-mercato/core/modules/catalog/components/products/ProductsDataTable'
+import { QueryClient } from '@tanstack/react-query'
 
 const apiCallMock = jest.fn()
+const readDefinitionsMock = jest.fn()
 const replaceMock = jest.fn()
 const pushMock = jest.fn()
 const dataTablePropsCapture: { current: Record<string, unknown> | null } = { current: null }
@@ -24,6 +27,10 @@ let activePathname = '/backend/customers/people'
 let activeQuery = 'search=Harborview'
 let mockCustomFieldDefs: CustomFieldDefDto[] = []
 let mockCustomFieldDefsLoading = false
+let mockUseRealCustomFields = false
+let mockScopeVersion = 1
+let mockProductEvent: (() => void) | undefined
+const columnSnapshots: string[][] = []
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -56,6 +63,7 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: Record<string, unknown>) => {
     dataTablePropsCapture.current = props
+    columnSnapshots.push((props.columns as Array<{ accessorKey?: string; id?: string }>).map((column) => column.accessorKey ?? column.id ?? ''))
     return <div data-testid="data-table" />
   },
   withDataTableNamespaces: <T,>(row: T) => row,
@@ -72,6 +80,7 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
   apiCallOrThrow: jest.fn(),
+  readApiResultOrThrow: (url: string) => url.startsWith('/api/entities/definitions?') ? readDefinitionsMock(url) : Promise.resolve({ items: [] }),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -106,11 +115,12 @@ jest.mock('#generated/entities.ids.generated', () => ({
       customer_company_profile: 'customers.customer_company_profile',
       customer_deal: 'customers.customer_deal',
     },
+    catalog: { catalog_product: 'catalog.catalog_product' },
   },
 }), { virtual: true })
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeVersion: () => 1,
+  useOrganizationScopeVersion: () => mockScopeVersion,
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -123,14 +133,25 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(async () => true), ConfirmDialogElement: null }),
 }))
 
-jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
-  useCustomFieldDefs: () => ({ data: mockCustomFieldDefs, isLoading: mockCustomFieldDefsLoading }),
+jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => {
+  const actual = jest.requireActual<typeof import('@open-mercato/ui/backend/utils/customFieldDefs')>('@open-mercato/ui/backend/utils/customFieldDefs')
+  return {
+    ...actual,
+    useCustomFieldDefs: (...args: Parameters<typeof actual.useCustomFieldDefs>) => mockUseRealCustomFields
+      ? actual.useCustomFieldDefs(...args)
+      : { data: mockCustomFieldDefs, isLoading: mockCustomFieldDefsLoading, refetch: jest.fn(async () => ({})) },
+  }
+})
+
+jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
+  useAppEvent: (_event: string, handler: () => void) => { mockProductEvent = handler },
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldColumns', () => ({
   mapCustomFieldKindToFilterType: jest.fn(() => 'text'),
   normalizeCustomFieldFilterOptions: jest.fn(() => []),
   supportsCustomFieldColumn: jest.fn(() => true),
+  applyCustomFieldVisibility: jest.requireActual<typeof import('@open-mercato/ui/backend/utils/customFieldColumns')>('@open-mercato/ui/backend/utils/customFieldColumns').applyCustomFieldVisibility,
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/useAutoDiscoveredFields', () => ({
@@ -178,6 +199,7 @@ jest.mock('../../../lib/dictionaries', () => ({
 }))
 
 jest.mock('../../../components/detail/hooks/useCustomerDictionary', () => ({
+  invalidateCustomerDictionary: jest.fn(async () => {}),
   ensureCustomerDictionary: jest.fn(async () => ({ map: {}, entries: [] })),
 }))
 
@@ -227,6 +249,11 @@ describe('customer list URL search state', () => {
     dataTablePropsCapture.current = null
     mockCustomFieldDefs = []
     mockCustomFieldDefsLoading = false
+    mockUseRealCustomFields = false
+    mockScopeVersion = 1
+    mockProductEvent = undefined
+    columnSnapshots.length = 0
+    readDefinitionsMock.mockReset()
     apiCallMock.mockReset()
     replaceMock.mockReset()
     pushMock.mockReset()
@@ -235,6 +262,84 @@ describe('customer list URL search state', () => {
       result: { items: [], total: 0, page: 1, totalPages: 1 },
       cacheStatus: null,
     })
+  })
+
+  it.each([
+    ['people', CustomersPeoplePage],
+    ['companies', CustomersCompaniesPage],
+    ['deals', CustomersDealsPage],
+    ['products', ProductsDataTable],
+  ] as const)('retains %s custom columns throughout a pending definitions refresh', async (_listName, ListPage) => {
+    mockUseRealCustomFields = true
+    readDefinitionsMock.mockResolvedValueOnce({ items: [{ key: 'priority', kind: 'text', label: 'Priority' }] })
+    let finishRefresh!: (value: { items: CustomFieldDefDto[] }) => void
+    readDefinitionsMock.mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve }))
+    renderWithProviders(<ListPage />)
+    await waitFor(() => expect(columnSnapshots.at(-1)).toContain('cf_priority'))
+    columnSnapshots.length = 0
+
+    await act(async () => {
+      const refresh = dataTablePropsCapture.current?.refreshButton as { onRefresh: () => void }
+      refresh.onRefresh()
+    })
+    await waitFor(() => expect(readDefinitionsMock).toHaveBeenCalledTimes(2))
+    expect(columnSnapshots.length).toBeGreaterThan(0)
+    expect(columnSnapshots.every((columns) => columns.includes('cf_priority'))).toBe(true)
+
+    await act(async () => { finishRefresh({ items: [{ key: 'priority', kind: 'text', label: 'Updated priority' }] }) })
+    await waitFor(() => expect(dataTablePropsCapture.current?.columns).toEqual(expect.arrayContaining([
+      expect.objectContaining({ accessorKey: 'cf_priority', header: 'Updated priority' }),
+    ])))
+  })
+
+  it('does not reuse the previous scope definitions while a different scope loads', async () => {
+    mockUseRealCustomFields = true
+    readDefinitionsMock.mockResolvedValueOnce({ items: [{ key: 'private_scope_one', kind: 'text', label: 'Scope one' }] })
+    let finishScopeChange!: (value: { items: CustomFieldDefDto[] }) => void
+    readDefinitionsMock.mockImplementationOnce(() => new Promise((resolve) => { finishScopeChange = resolve }))
+    const { rerender } = renderWithProviders(<CustomersCompaniesPage />)
+    await waitFor(() => expect(columnSnapshots.at(-1)).toContain('cf_private_scope_one'))
+
+    mockScopeVersion = 2
+    rerender(<CustomersCompaniesPage />)
+    await waitFor(() => expect(readDefinitionsMock).toHaveBeenCalledTimes(2))
+    expect(columnSnapshots.at(-1)).not.toContain('cf_private_scope_one')
+    expect(dataTablePropsCapture.current?.isLoading).toBe(true)
+    await act(async () => { finishScopeChange({ items: [{ key: 'scope_two', kind: 'text', label: 'Scope two' }] }) })
+    await waitFor(() => expect(columnSnapshots.at(-1)).toContain('cf_scope_two'))
+  })
+
+  it('retains product columns when a product event refreshes rows', async () => {
+    mockUseRealCustomFields = true
+    readDefinitionsMock.mockResolvedValueOnce({ items: [{ key: 'priority', kind: 'text', label: 'Priority' }] })
+    readDefinitionsMock.mockImplementationOnce(() => new Promise(() => {}))
+    renderWithProviders(<ProductsDataTable />)
+    await waitFor(() => expect(columnSnapshots.at(-1)).toContain('cf_priority'))
+    columnSnapshots.length = 0
+
+    await act(async () => { mockProductEvent?.() })
+    expect(columnSnapshots.length).toBeGreaterThan(0)
+    expect(columnSnapshots.every((columns) => columns.includes('cf_priority'))).toBe(true)
+    expect(readDefinitionsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains established columns when refreshing definitions fails', async () => {
+    mockUseRealCustomFields = true
+    readDefinitionsMock.mockResolvedValueOnce({ items: [{ key: 'priority', kind: 'text', label: 'Priority' }] })
+    readDefinitionsMock.mockRejectedValueOnce(new Error('Definitions unavailable'))
+    renderWithProviders(<CustomersCompaniesPage />, {
+      queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    })
+    await waitFor(() => expect(columnSnapshots.at(-1)).toContain('cf_priority'))
+    columnSnapshots.length = 0
+
+    await act(async () => {
+      const refresh = dataTablePropsCapture.current?.refreshButton as { onRefresh: () => void }
+      refresh.onRefresh()
+    })
+    await waitFor(() => expect(readDefinitionsMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(dataTablePropsCapture.current?.isLoading).toBe(false))
+    expect(columnSnapshots.every((columns) => columns.includes('cf_priority'))).toBe(true)
   })
 
   it('hydrates the people list search from the URL before loading data', async () => {
@@ -268,6 +373,7 @@ describe('customer list URL search state', () => {
     ['people', CustomersPeoplePage],
     ['companies', CustomersCompaniesPage],
     ['deals', CustomersDealsPage],
+    ['products', ProductsDataTable],
   ] as const)('keeps the %s list loading until custom-field columns resolve', async (listName, CustomersListPage) => {
     activePathname = `/backend/customers/${listName}`
     activeQuery = ''

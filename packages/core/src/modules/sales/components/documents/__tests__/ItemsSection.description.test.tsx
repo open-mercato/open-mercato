@@ -5,8 +5,11 @@
 import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import { SalesDocumentItemsSection } from '../ItemsSection'
+import type { InjectionColumnDefinition } from '@open-mercato/shared/modules/widgets/injection'
 
 const mockApiCall = jest.fn()
+let mockColumnWidgets: Array<{ columns: InjectionColumnDefinition[] }> = []
+let mockColumnsLoading = false
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
@@ -46,7 +49,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
-  useInjectionDataWidgets: () => ({ widgets: [] }),
+  useInjectionDataWidgets: () => ({ widgets: mockColumnWidgets, isLoading: mockColumnsLoading }),
 }))
 
 jest.mock('../LineItemDialog', () => ({
@@ -109,6 +112,8 @@ function renderSection() {
 describe('SalesDocumentItemsSection line description', () => {
   beforeEach(() => {
     mockApiCall.mockReset()
+    mockColumnWidgets = []
+    mockColumnsLoading = false
   })
 
   it('renders the line description under the product name', async () => {
@@ -145,5 +150,41 @@ describe('SalesDocumentItemsSection line description', () => {
 
     await waitFor(() => expect(screen.getByText('Widget')).toBeInTheDocument())
     expect(container.querySelector('tbody .min-w-0')?.childElementCount).toBe(1)
+  })
+
+  it('waits for injected order columns before exposing its first header', async () => {
+    const onItemsChange = jest.fn()
+    mockColumnsLoading = true
+    mockApiCall.mockImplementation(async (url: string) => url.startsWith('/api/sales/order-lines')
+      ? lineResponse(null) : { ok: true, result: { items: [] } })
+    const section = () => <SalesDocumentItemsSection documentId="order-one" kind="order" currencyCode="PLN" onItemsChange={onItemsChange} />
+    const { rerender } = render(section())
+    await waitFor(() => expect(onItemsChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: '11111111-1111-1111-1111-111111111111' }),
+    ])))
+    expect(screen.queryByRole('columnheader')).not.toBeInTheDocument()
+
+    mockColumnWidgets = [{ columns: [{ id: 'stock', header: 'Stock level', accessorKey: '_stock.available' }] }]
+    mockColumnsLoading = false
+    rerender(section())
+    expect(screen.getByRole('columnheader', { name: 'Stock level' })).toBeInTheDocument()
+    expect(screen.getByText('Widget')).toBeInTheDocument()
+  })
+
+  it('renders order headers after an empty optional column load settles', async () => {
+    mockApiCall.mockImplementation(async (url: string) => url.startsWith('/api/sales/order-lines')
+      ? lineResponse(null) : { ok: true, result: { items: [] } })
+    renderSection()
+    expect(await screen.findByRole('columnheader', { name: 'Product' })).toBeInTheDocument()
+    expect(screen.getByText('Widget')).toBeInTheDocument()
+  })
+
+  it('does not hold quote headers for order-only column loading', async () => {
+    mockColumnsLoading = true
+    mockApiCall.mockImplementation(async (url: string) => url.startsWith('/api/sales/quote-lines')
+      ? lineResponse(null) : { ok: true, result: { items: [] } })
+    render(<SalesDocumentItemsSection documentId="quote-one" kind="quote" currencyCode="PLN" />)
+    expect(await screen.findByRole('columnheader', { name: 'Product' })).toBeInTheDocument()
+    expect(screen.getByText('Widget')).toBeInTheDocument()
   })
 })

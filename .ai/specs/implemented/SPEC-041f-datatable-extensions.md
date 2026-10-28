@@ -502,6 +502,7 @@ export default {
 ## Changelog
 
 - 2026-10-15: Initial table rendering waits for registry registration, parent column definitions, and injected columns. Hidden defaults and injected placement settle before paint, while subsequent row refreshes retain the header (#7436). Customers People, Companies, and Deals include custom-field definition loading in the existing `isLoading` prop.
+- 2026-10-29: Keep People, Companies, Deals, and Products definition queries stable during same-scope refreshes, refetching existing entries instead of replacing them. Seed the private frontend scope snapshot from persisted selection cookies so switcher hydration does not falsely reset the same scope. Real tenant/organization changes still invalidate definitions. Order Items waits for injected columns before its first header; quotes and settled empty/failed optional widgets remain usable. Existing props, scope events, and widget IDs are unchanged. Added executed refresh, scope-isolation, bootstrap, and Items readiness regressions; live-screen QA remains required after the earlier NO-GO.
 
 ## Implementation Status
 

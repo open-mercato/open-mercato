@@ -62,6 +62,8 @@ Then forward `initialPerspective` to `DataTable`:
 
 On the initial load, `DataTable` shows its loading state until `isLoading` clears and injected columns finish loading. If the host builds columns from asynchronous custom-field definitions, include that query's loading state in `isLoading` alongside the row request. Hidden defaults and injected-column placement are applied before the header appears; later data refreshes retain the header.
 
+Keep definition-query identity tied to the organization scope, rather than a row-reload counter. Refetch the existing definitions so established columns remain available while the request runs. A real tenant or organization change must use a separate query identity and must not reuse the previous scope's definitions.
+
 ## What the client stores locally
 
 The `DataTable` component keeps a lightweight snapshot in `localStorage` so subsequent navigations reapply the last view even before React Query has revalidated against the API. The snapshot is invalidated automatically when a perspective is deleted or a role default is cleared.

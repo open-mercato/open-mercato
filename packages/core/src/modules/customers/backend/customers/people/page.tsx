@@ -334,9 +334,9 @@ export default function CustomersPeoplePage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_person_profile],
-    { keyExtras: [scopeVersion, reloadToken] },
+    { keyExtras: [scopeVersion] },
   )
   const currentUserId = useCurrentUserId()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -455,8 +455,9 @@ export default function CustomersPeoplePage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const handleDelete = React.useCallback(async (person: PersonRow) => {
     if (!person?.id) return

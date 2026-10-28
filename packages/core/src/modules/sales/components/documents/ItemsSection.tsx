@@ -188,7 +188,7 @@ export function SalesDocumentItemsSection({
     kind !== "order",
   );
 
-  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+  const { widgets: allColumnWidgets, isLoading: injectedColumnsLoading } = useInjectionDataWidgets(
     extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
@@ -711,7 +711,7 @@ export function SalesDocumentItemsSection({
   return (
     <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
-      {loading ? (
+      {loading || (kind === "order" && injectedColumnsLoading) ? (
         <LoadingMessage
           label={t("sales.documents.items.loading", "Loading items…")}
           className="border-0 bg-transparent p-0 py-8 justify-center"
