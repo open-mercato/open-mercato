@@ -86,8 +86,15 @@ async function pickStatus(page: Page, statusName: string): Promise<number | null
       { timeout: 15_000 },
     )
     .catch(() => null);
-  await drawer.getByTestId('task-drawer-status-select').click();
-  await page.getByRole('option', { name: statusName, exact: true }).click();
+  const select = drawer.getByTestId('task-drawer-status-select');
+  const option = page.getByRole('option', { name: statusName, exact: true });
+  await expect(select).toBeEnabled({ timeout: 30_000 });
+  // A click that lands while the drawer is still hydrating does not open the list.
+  await expect(async () => {
+    if (!(await option.isVisible())) await select.click();
+    await expect(option).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+  await option.click();
   const status = await save;
   if (status === 200) await lockRefreshed;
   await expect(drawer.getByTestId('task-drawer-status-select')).toBeEnabled({ timeout: 15_000 });
@@ -163,6 +170,9 @@ test.describe('TC-LOCK-STAFF-time-task: record locks on the time-tracking task d
       const context = await browser.newContext();
       cleanup.add(() => context.close());
       const page = await context.newPage();
+      // The editor has not received the other user's change yet: without the live
+      // event stream the drawer cannot refresh itself before the stale save.
+      await page.route('**/api/events/stream', (route) => route.abort());
       await loginStaffInBrowser(page, editor);
       await openDrawer(page, project.id, taskId);
 
