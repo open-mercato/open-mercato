@@ -144,15 +144,29 @@ function createHandle({ lockDirectory, owner, ownsLock, role }) {
       if (released) return
       released = true
       clearInterval(heartbeat)
-      for (const member of trackedMembers.values()) {
-        fs.rmSync(member.memberPath, { force: true })
+      for (const [pid, member] of trackedMembers) {
+        if (pid === process.pid || !isProcessAlive(pid)) {
+          fs.rmSync(member.memberPath, { force: true })
+        }
       }
       trackedMembers.clear()
-      if (!ownsLock) return
-      const currentOwner = readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME))
-      if (currentOwner?.token === owner.token) {
-        fs.rmSync(lockDirectory, { recursive: true, force: true })
+      const ownerPath = path.join(lockDirectory, OWNER_FILE_NAME)
+      const currentOwner = readJsonFile(ownerPath)
+      const canFinalizeOwnership = currentOwner?.token === owner.token
+        && (ownsLock || (currentOwner.transferredAt && currentOwner.pid === process.pid))
+      if (!canFinalizeOwnership) return
+
+      const survivingMember = findLiveMember(lockDirectory, null)
+      if (survivingMember) {
+        writeJsonAtomically(ownerPath, {
+          ...currentOwner,
+          pid: survivingMember.pid,
+          role: survivingMember.role,
+          transferredAt: new Date().toISOString(),
+        })
+        return
       }
+      fs.rmSync(lockDirectory, { recursive: true, force: true })
     },
   }
 }

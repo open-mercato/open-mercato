@@ -164,6 +164,33 @@ test('acquireDevSession keeps ownership while a recorded child remains alive', (
   }
 })
 
+test('owner release transfers workspace protection to a surviving managed child', async () => {
+  const workspaceRoot = createWorkspace()
+  const owner = acquireDevSession({ workspaceRoot, mode: 'dev' })
+  const child = spawn(process.execPath, ['--eval', 'setInterval(() => {}, 1_000)'], {
+    stdio: 'ignore',
+  })
+  owner.registerChild(child, 'app-runtime')
+
+  try {
+    owner.release()
+    assert.throws(
+      () => acquireDevSession({ workspaceRoot, mode: 'greenfield' }),
+      DevSessionConflictError,
+    )
+
+    const childClosed = new Promise((resolve) => child.once('close', resolve))
+    child.kill('SIGTERM')
+    await childClosed
+
+    const recovered = acquireDevSession({ workspaceRoot, mode: 'greenfield' })
+    recovered.release()
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
 test('a rejected launch preserves active runtime manifests and compiler cache', () => {
   const workspaceRoot = createWorkspace()
   const routeManifest = path.join(workspaceRoot, 'apps', 'mercato', '.mercato', 'next', 'dev', 'routes-manifest.json')
