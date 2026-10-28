@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -168,7 +169,6 @@ describe('enableOfficialModule', () => {
       enableOfficialModule(resolver, '@open-mercato/multi', 'alpha'),
     ).resolves.toMatchObject({ moduleId: 'alpha', registrationChanged: false })
 
-    // beta is not yet enabled — it is registered, even if generators fail afterwards
     try {
       await enableOfficialModule(resolver, '@open-mercato/multi', 'beta')
     } catch (error) {
@@ -328,10 +328,11 @@ describe('addOfficialModule', () => {
 
   function simulateYarnAdd(appDir: string, packageName: string): void {
     mockedSpawn.mockImplementation(() => {
-      const { EventEmitter } = jest.requireActual<typeof import('node:events')>('node:events')
       const child = new EventEmitter()
       const packageJsonPath = path.join(appDir, 'package.json')
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+        dependencies?: Record<string, string>
+      }
       packageJson.dependencies = { ...packageJson.dependencies, [packageName]: '0.1.0' }
       fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson))
       setImmediate(() => child.emit('exit', 0))
@@ -385,6 +386,27 @@ describe('addOfficialModule', () => {
     await expect(failure).rejects.toThrow('has no modules in src/modules/ or dist/modules/.')
     await expect(failure).rejects.toThrow(
       'The package "@open-mercato/no-modules" stayed in package.json. To remove it, run: yarn remove @open-mercato/no-modules',
+    )
+  })
+
+  it('names the app workspace in the remove command inside a monorepo', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'apps', 'mercato')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir)
+    const resolver = {
+      ...buildResolver(appDir, packageRoot, 'export const enabledModules = []\n'),
+      isMonorepo: () => true,
+      getRootDir: () => tmpDir,
+    } as PackageResolver
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    await expect(addOfficialModule(resolver, '@open-mercato/no-modules', false)).rejects.toThrow(
+      'To remove it, run: yarn workspace test-app remove @open-mercato/no-modules',
     )
   })
 

@@ -39,6 +39,7 @@ import {
   type GenerateWatcherMode,
 } from './lib/in-process-generate-watcher-mode'
 import { parseModuleInstallArgs } from './lib/module-install-args'
+import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
@@ -678,10 +679,7 @@ function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   )
 }
 
-function printModuleCommandResult(
-  result: { moduleId: string; from: string; registrationChanged: boolean },
-  alreadyEnabledNote?: string,
-): void {
+function printModuleCommandResult(result: ModuleCommandResult, alreadyEnabledNote?: string): void {
   if (!result.registrationChanged) {
     console.log(`\nℹ️  Module "${result.moduleId}" from "${result.from}" is already enabled in modules.ts. Nothing to change.`)
     if (alreadyEnabledNote) {
@@ -1488,7 +1486,7 @@ export async function run(argv = process.argv) {
         }
 
         const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
-        printModuleCommandResult(result, 'The package itself was installed or updated by yarn add.')
+        printModuleCommandResult(result, 'If yarn add changed the package version, run "yarn mercato generate" to refresh generated files.')
         return 0
       }
 

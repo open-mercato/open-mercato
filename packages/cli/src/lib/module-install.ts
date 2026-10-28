@@ -12,7 +12,7 @@ import { ensureModuleRegistration } from './modules-config'
 import type { PackageResolver } from './resolver'
 import { resolveSpawnCommand } from './spawn'
 
-type ModuleCommandResult = {
+export type ModuleCommandResult = {
   moduleId: string
   packageName: string
   from: string
@@ -97,8 +97,15 @@ function isDeclaredAppDependency(appDir: string, packageName: string): boolean {
     return false
   }
 
-  const packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>
-  return ['dependencies', 'devDependencies', 'optionalDependencies'].some((field) => {
+  let packageJson: Record<string, unknown>
+  try {
+    packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`App package.json at ${path.join(appDir, 'package.json')} is not valid JSON. ${message}`)
+  }
+
+  return ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].some((field) => {
     const dependencies = packageJson[field]
     return typeof dependencies === 'object' && dependencies !== null && packageName in dependencies
   })
