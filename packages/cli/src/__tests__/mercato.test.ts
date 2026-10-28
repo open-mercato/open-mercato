@@ -1096,13 +1096,17 @@ describe('init command failure output', () => {
 })
 
 describe('module command secret output', () => {
+  const originalEnv = process.env
+
   beforeEach(() => {
     jest.resetModules()
+    process.env = { ...originalEnv }
     jest.spyOn(console, 'log').mockImplementation()
     jest.spyOn(console, 'error').mockImplementation()
   })
 
   afterEach(() => {
+    process.env = originalEnv
     jest.restoreAllMocks()
   })
 
@@ -1124,6 +1128,39 @@ describe('module command secret output', () => {
       expect(output).not.toContain(secret)
     }
     if (fails) expect(output).toContain('Rejected **** **** **** ****')
+  })
+
+  it('preserves ordinary module banner and failure values with token-related environment settings', async () => {
+    Object.assign(process.env, {
+      OM_SEARCH_STORE_RAW_TOKENS: 'false',
+      OM_SEARCH_MAX_TOKENS_PER_FIELD: '5000',
+      OM_SEARCH_TOKEN_PRESENCE_CACHE_MS: '30000',
+    })
+    const args = ['--max-tokens', '5000', '--batch-size=5000', '--dry-run=false']
+    const handler = jest.fn().mockRejectedValue(new Error('Query timed out after 30000ms; expected true, got false'))
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'fixture', cli: [{ command: 'execute', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'fixture', 'execute', ...args])).toBe(1)
+    expect(handler).toHaveBeenCalledWith(args)
+    expect(jest.mocked(console.log).mock.calls.flat().join('\n'))
+      .toContain('🚀 Running fixture:execute --max-tokens 5000 --batch-size=5000 --dry-run=false')
+    expect(jest.mocked(console.error).mock.calls.flat().join('\n'))
+      .toContain('Query timed out after 30000ms; expected true, got false')
+  })
+
+  it('keeps environment values out of banner replacement while sanitizing positional URI credentials', async () => {
+    process.env.OM_INIT_ADMIN_PASSWORD = '1'
+    const args = ['--count', '1', 'postgres://owner:fixture-uri-password@db/app']
+    const handler = jest.fn().mockResolvedValue(undefined)
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'fixture', cli: [{ command: 'execute', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'fixture', 'execute', ...args])).toBe(0)
+    expect(handler).toHaveBeenCalledWith(args)
+    const output = jest.mocked(console.log).mock.calls.flat().join('\n')
+    expect(output).toContain('🚀 Running fixture:execute --count 1 postgres://owner:****@db/app')
+    expect(output).not.toContain('fixture-uri-password')
   })
 })
 

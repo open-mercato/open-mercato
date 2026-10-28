@@ -24,6 +24,37 @@ describe('CLI output redaction', () => {
       .toEqual(['--tenant', 'tenant-1', '--count=10', 'positional'])
   })
 
+  it('preserves token counts, presence-cache settings and credential-related configuration', () => {
+    const args = ['--max-tokens', '5000', '--token-cache-ms=30000', '--dry-run=false', '--password-mode', 'required']
+    const env = {
+      OM_SEARCH_STORE_RAW_TOKENS: 'false',
+      OM_SEARCH_MAX_TOKENS_PER_FIELD: '5000',
+      OM_SEARCH_MAX_TOKENS_PER_RECORD: '10000',
+      OM_SEARCH_TOKEN_PRESENCE_CACHE_MS: '30000',
+      RATE_LIMIT_KEY_PREFIX: 'rate-limit',
+    }
+    const text = 'Query timed out after 30000ms; expected true, got false; max 5000/10000; rate-limit'
+
+    expect(redactCliArgs(args)).toEqual(args)
+    expect(redactCliText(text, args, env)).toBe(text)
+  })
+
+  it.each(['1', 'false', 'a'])('still redacts the actual short credential %s', (credential) => {
+    expect(redactCliArgs(['--password', credential, `--token=${credential}`]))
+      .toEqual(['--password', '****', '--token=****'])
+    expect(redactCliText(`[${credential}]`, [], { OM_INIT_ADMIN_PASSWORD: credential }))
+      .toBe('[****]')
+    expect(redactCliText(`[${credential}]`, ['--token', credential], {}))
+      .toBe('[****]')
+  })
+
+  it('redacts versioned and fallback credential keys', () => {
+    expect(redactCliText('Rejected fixture-versioned-secret fixture-fallback-key', [], {
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: 'fixture-versioned-secret',
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'fixture-fallback-key',
+    })).toBe('Rejected **** ****')
+  })
+
   it('redacts known CLI and environment credentials from exception messages', () => {
     const env = {
       OM_INIT_SUPERADMIN_PASSWORD: 'fixture-owner-password',

@@ -2781,7 +2781,7 @@ export async function run(argv = process.argv) {
   console.log('')
   const started = Date.now()
   const loggedArgs = redactCliArgs(rest)
-  console.log(`🚀 Running ${modName}:${cmdName} ${redactCliText(loggedArgs.join(' '), rest)}`)
+  console.log(`🚀 Running ${modName}:${cmdName} ${redactCliText(loggedArgs.join(' '), [], {})}`)
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)

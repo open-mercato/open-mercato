@@ -603,12 +603,6 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
-## Bootstrap Credential Output (2026-10-27)
+## Init success banner stdout (2026-10-27, #7822)
 
-#7822 changes CLI output (§13, STABLE): init no longer prints passwords; command
-banners/errors redact secrets. The output is the disclosure, so a bridge would
-retain the exploit. Named human maintainer waiver is pending on the security PR.
-
-Clients stop scraping passwords. Operators use `OM_INIT_*_PASSWORD` or password
-reset and rotate credentials exposed in old logs. See [migration](UPGRADE_NOTES.md)
-and [spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md#migration--backward-compatibility).
+STABLE CLI presentation: plaintext passwords are the disclosure; retaining them preserves it. Client/operator migration: [notes](UPGRADE_NOTES.md). Named human waiver pending.
