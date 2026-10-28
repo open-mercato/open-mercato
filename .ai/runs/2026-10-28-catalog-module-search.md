@@ -48,5 +48,13 @@ merge-ready.
 
 ### Phase 2: Merge-ready
 
-- [ ] 2.1 Full validation gate
+- [x] 2.1 Full validation gate — b654198707
 - [ ] 2.2 Drive the PR with om-auto-fix-pr 8117 --no-ui
+
+## Validation notes
+
+Gate at b654198707, local Linux, Node 24.21.0, no compose `app` container: `build:packages`, `generate`,
+`build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` and `build:app` passed. `test`: 47 of 49 turbo
+tasks passed (`@open-mercato/cli` 2218 of 2218). Two failures do not come from this branch:
+`scripts/__tests__/check-lessons.test.mjs` (`.ai/lessons.md` lesson count, also red on `main` at 9a501a4b0c) and the
+`create-mercato-app` "does not pack" checks, which fail only in this worktree and pass in CI.
