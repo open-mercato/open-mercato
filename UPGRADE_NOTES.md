@@ -24,12 +24,6 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### Cart line contention returns retryable 503 (#8072)
-
-`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
-
-**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
-
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
@@ -704,6 +698,26 @@ The bulk delete is also recorded in the action log under that user.
 and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
 without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
 needed if you only use the API.
+
+### Customer portal password-reset and magic-link requests now send email (#5959)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to mint a single-use token and emit `customer_accounts.password_reset.requested` /
+`customer_accounts.magic_link.requested` without ever delivering it — no subscriber consumed those
+events, and the raw token was discarded. Both routes now email the link directly through `sendEmail`
+(the same path portal invitations use): password reset links to `/<orgSlug>/portal/reset-password`,
+and magic links to a new `/<orgSlug>/portal/magic-link` page that redeems the token when the user
+clicks "Sign in". Responses stay `200 { ok: true }` in every case, and the events are still emitted
+with unchanged payloads.
+
+**Action for operators:** configure an email sender (`NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM` or
+`ADMIN_EMAIL`) and transport if portal customers should receive these messages; without one the send
+fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
+`customer_accounts.magic_link_email_failed`), and the request still answers `200`.
+
+**Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
+proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
+customers will receive two emails per request.
 
 ### Redoing an `auth.users.create` no longer restores the account's password
 
