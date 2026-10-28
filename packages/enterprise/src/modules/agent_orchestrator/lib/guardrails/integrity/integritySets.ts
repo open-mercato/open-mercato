@@ -2,13 +2,18 @@ import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AgentGuardrailSet } from '../../../data/entities'
-import { integritySetBodySchema, type IntegrityRule, type IntegritySetBody } from '../../../data/validators'
+import {
+  integritySetBodySchema,
+  type IntegrityRule,
+  type IntegritySetBody,
+  type UntrustedInputDecl,
+} from '../../../data/validators'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'integrity-sets' })
 
 export const AGENT_INTEGRITY_ENV = 'OM_AGENT_INTEGRITY'
 
-export type IntegritySetSource = { id: string; integrity?: IntegrityRule[] }
+export type IntegritySetSource = { id: string; integrity?: IntegrityRule[]; untrustedInputs?: UntrustedInputDecl[] }
 
 export type ResolvedIntegritySet = { body: IntegritySetBody; version: string }
 
@@ -39,29 +44,36 @@ export function integritySetVersionFor(body: IntegritySetBody): string {
   return `i1-${createHash('sha256').update(canonical).digest('hex').slice(0, 24)}`
 }
 
-export function integritySetBodyFor(entry: IntegritySetSource & { integrity: IntegrityRule[] }): IntegritySetBody {
+export function integritySetBodyFor(entry: IntegritySetSource): IntegritySetBody {
   return integritySetBodySchema.parse({
     kind: 'integrity',
     capability: entry.id,
-    rules: entry.integrity,
-    untrustedInputs: [],
+    rules: entry.integrity ?? [],
+    untrustedInputs: entry.untrustedInputs ?? [],
   })
 }
 
-const resolvedCache = new WeakMap<IntegrityRule[], ResolvedIntegritySet>()
+type CachedIntegritySet = { resolved: ResolvedIntegritySet; untrustedInputs: UntrustedInputDecl[] | undefined }
+
+const resolvedCache = new WeakMap<object, CachedIntegritySet>()
 
 /**
- * The integrity set of an agent registry entry, or null when it declares no
- * rules. Pure and cached per declared rule list, so the hash is computed once.
+ * The integrity set of an agent registry entry, or null when it declares neither
+ * rules nor untrusted inputs. Pure and cached per declaration, so the hash is
+ * computed once.
  */
 export function resolveIntegritySet(entry: IntegritySetSource): ResolvedIntegritySet | null {
-  const rules = entry.integrity
-  if (!rules || rules.length === 0) return null
-  const cached = resolvedCache.get(rules)
-  if (cached && cached.body.capability === entry.id) return cached
-  const body = integritySetBodyFor({ id: entry.id, integrity: rules })
+  const rules = entry.integrity?.length ? entry.integrity : undefined
+  const untrustedInputs = entry.untrustedInputs?.length ? entry.untrustedInputs : undefined
+  const cacheKey = rules ?? untrustedInputs
+  if (!cacheKey) return null
+  const cached = resolvedCache.get(cacheKey)
+  if (cached && cached.resolved.body.capability === entry.id && cached.untrustedInputs === untrustedInputs) {
+    return cached.resolved
+  }
+  const body = integritySetBodyFor({ id: entry.id, integrity: rules, untrustedInputs })
   const resolved = { body, version: integritySetVersionFor(body) }
-  resolvedCache.set(rules, resolved)
+  resolvedCache.set(cacheKey, { resolved, untrustedInputs })
   return resolved
 }
 

@@ -6,8 +6,15 @@ import {
 import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { normalizeAgentRequiredFeatures, type AgentType, type IntegrityRuleInput, type IntegrityRule } from '../../data/validators'
-import { parseAgentIntegrityRules } from '../guardrails/integrity/declaration'
+import {
+  normalizeAgentRequiredFeatures,
+  type AgentType,
+  type IntegrityRuleInput,
+  type IntegrityRule,
+  type UntrustedInputDecl,
+  type UntrustedInputDeclInput,
+} from '../../data/validators'
+import { parseAgentIntegrityRules, parseAgentUntrustedInputs } from '../guardrails/integrity/declaration'
 import { getSkillEntry } from './defineSkill'
 export {
   registerIntegrityChecker,
@@ -150,6 +157,15 @@ export interface DefineAgentInput {
    * Additive/BC-safe: omitted means no integrity checks.
    */
   integrity?: IntegrityRuleInput[]
+  /**
+   * Run-input fields that carry untrusted content (spec
+   * `2026-10-21-output-integrity-guardrails` → Untrusted inputs): each declared
+   * string field is screened for prompt injection before the model call and the
+   * flag mapped through its `injection` action (`warn` default, `block`, `off`).
+   * Labels and paths must be unique; stored parsed on
+   * `AgentRegistryEntry.untrustedInputs`. Additive/BC-safe: omitted means no screen.
+   */
+  untrustedInputs?: UntrustedInputDeclInput[]
 }
 
 /**
@@ -219,6 +235,8 @@ export interface AgentRegistryEntry {
   requiredFeatures?: string[]
   /** Parsed integrity rules (see DefineAgentInput); undefined when the agent declares none. */
   integrity?: IntegrityRule[]
+  /** Parsed untrusted input declarations (see DefineAgentInput); undefined when the agent declares none. */
+  untrustedInputs?: UntrustedInputDecl[]
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
@@ -266,6 +284,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
   const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
   const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
+  const untrustedInputs = parseAgentUntrustedInputs(input.id, input.untrustedInputs)
 
   registry.set(input.id, {
     id: input.id,
@@ -291,6 +310,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     facts: input.facts,
     requiredFeatures,
     integrity,
+    untrustedInputs,
   })
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,

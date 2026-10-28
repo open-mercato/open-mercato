@@ -726,13 +726,15 @@ export type GuardResults = z.infer<typeof guardResultsSchema>
  * Wave-2 ContextResolver assembles.
  */
 export const untrustedSpanSchema = z.object({
-  sourceKind: z.enum(['document', 'retrieval']),
+  sourceKind: z.enum(['document', 'retrieval', 'input']),
   /** Source attachment id / retrieval ref — a pointer, never the content. */
   sourceRef: z.string().min(1),
   /** `page:N[#bbox]` (document) or the retrieval locator — a pointer into the artifact. */
   locator: z.string().min(1),
   /** The raw untrusted text. Screened in-memory; never written to evidence. */
   text: z.string(),
+  /** `input` spans only: the declared field's action when the screen flags the span. */
+  injection: z.enum(['warn', 'block']).optional(),
 })
 export type UntrustedSpan = z.infer<typeof untrustedSpanSchema>
 
@@ -1259,16 +1261,49 @@ export const integrityEvidenceSchema = guardrailEvidenceSchema.extend({
 export type IntegrityEvidence = z.infer<typeof integrityEvidenceSchema>
 
 /**
+ * One declared UNTRUSTED input field (spec `2026-10-21-output-integrity-guardrails`
+ * → Untrusted inputs): `path` addresses string values in the run input (a `[*]`
+ * segment addresses every array item), `label` names the field in evidence and in
+ * the delimited prompt block, and `injection` is the action taken when the
+ * prompt-injection screen flags the field (`off` skips screening).
+ */
+export const untrustedInputDeclSchema = z.object({
+  path: z.string().min(1).max(500).refine(isValidIntegrityPath, { message: 'Invalid untrusted input path' }),
+  label: integrityRuleIdSchema,
+  injection: z.enum(['warn', 'block', 'off']).default('warn'),
+})
+export type UntrustedInputDecl = z.infer<typeof untrustedInputDeclSchema>
+export type UntrustedInputDeclInput = z.input<typeof untrustedInputDeclSchema>
+
+export const untrustedInputDeclsSchema = z
+  .array(untrustedInputDeclSchema)
+  .max(50)
+  .superRefine((decls, ctx) => {
+    const labels = new Set<string>()
+    const paths = new Set<string>()
+    decls.forEach((decl, index) => {
+      if (labels.has(decl.label)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'label'], message: `Duplicate untrusted input label "${decl.label}"` })
+      }
+      if (paths.has(decl.path)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'path'], message: `Duplicate untrusted input path "${decl.path}"` })
+      }
+      labels.add(decl.label)
+      paths.add(decl.path)
+    })
+  })
+
+/**
  * An integrity guardrail SET body (spec `2026-10-21-output-integrity-guardrails`
- * → Declaration): the parsed rules an agent declares, content-hashed to an
- * `i1-…` version that every integrity check row pins. `capability` is the agent
- * id. `untrustedInputs` is reserved for a later phase and synced as `[]`.
+ * → Declaration): the parsed rules and untrusted input declarations an agent
+ * declares, content-hashed to an `i1-…` version that every integrity and
+ * untrusted-input check row pins. `capability` is the agent id.
  */
 export const integritySetBodySchema = z.object({
   kind: z.literal('integrity'),
   capability: z.string().min(1),
   rules: integrityRulesSchema,
-  untrustedInputs: z.array(z.unknown()).default([]),
+  untrustedInputs: untrustedInputDeclsSchema.default([]),
 })
 export type IntegritySetBody = z.infer<typeof integritySetBodySchema>
 

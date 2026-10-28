@@ -1,9 +1,11 @@
 import { z, type ZodTypeAny } from 'zod'
 import {
   integrityRulesSchema,
+  untrustedInputDeclsSchema,
   type AbstainOrReviewRule,
   type AbstainOrReviewSignal,
   type IntegrityRule,
+  type UntrustedInputDecl,
 } from '../../../data/validators'
 import { validatePathAgainstSchema } from './paths'
 import { normalizeToolName } from './pipeline'
@@ -164,6 +166,61 @@ export function parseAgentIntegrityRules(
   for (const rule of parsed.data) {
     validateRulePaths(agentId, rule, schema)
     if (options.effectiveTools) validatePrepareStepTools(agentId, rule, options.effectiveTools)
+  }
+  return parsed.data.length > 0 ? parsed.data : undefined
+}
+
+function untrustedInputError(agentId: string, label: string | null, detail: string): Error {
+  const labelText = label ? ` "${label}"` : ''
+  return new Error(`[internal] agent "${agentId}" untrusted input${labelText}: ${detail}`)
+}
+
+function acceptsText(leaf: ZodTypeAny): boolean {
+  return leaf instanceof z.ZodString || leaf instanceof z.ZodUnknown || leaf instanceof z.ZodAny
+}
+
+export type ParseAgentUntrustedInputsOptions = {
+  /** The agent's run-input schema, when it has one: every declared path must address a string in it. */
+  inputSchema?: ZodTypeAny
+}
+
+/**
+ * Parses an agent's `untrustedInputs` declaration (defaults applied, labels and
+ * paths unique). When the agent has an input schema, every path must be able to
+ * exist in it and address a string; without one, paths are syntax-checked only.
+ * Fails loud with an `[internal]` error naming the agent and field; returns
+ * undefined for no declarations.
+ */
+export function parseAgentUntrustedInputs(
+  agentId: string,
+  declared: unknown,
+  options: ParseAgentUntrustedInputsOptions = {},
+): UntrustedInputDecl[] | undefined {
+  if (declared === undefined || declared === null) return undefined
+  const parsed = untrustedInputDeclsSchema.safeParse(declared)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    const declIndex = typeof issue?.path[0] === 'number' ? issue.path[0] : null
+    const declaredItems = Array.isArray(declared) ? declared : []
+    const candidate: unknown = declIndex === null ? null : declaredItems[declIndex]
+    const label =
+      candidate && typeof candidate === 'object' && 'label' in candidate && typeof candidate.label === 'string'
+        ? candidate.label
+        : null
+    const location = issue ? issue.path.join('.') : ''
+    throw untrustedInputError(agentId, label, `invalid declaration${location ? ` at "${location}"` : ''}: ${issue?.message ?? 'unknown error'}`)
+  }
+  const inputSchema = options.inputSchema
+  if (inputSchema) {
+    for (const decl of parsed.data) {
+      const check = validatePathAgainstSchema(inputSchema, decl.path)
+      if (!check.ok) {
+        throw untrustedInputError(agentId, decl.label, `path "${decl.path}" cannot exist in the input schema (at "${check.segment}")`)
+      }
+      if (!check.leaves.some(acceptsText)) {
+        throw untrustedInputError(agentId, decl.label, `path "${decl.path}" must address a string in the input schema`)
+      }
+    }
   }
   return parsed.data.length > 0 ? parsed.data : undefined
 }

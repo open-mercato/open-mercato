@@ -88,6 +88,8 @@ export type {
   GuardrailSetBody,
   GroundingSetBody,
   IntegritySetBody,
+  UntrustedInputDecl,
+  UntrustedInputDeclInput,
   AgentGuardrailSetBody,
   GroundingClaim,
   GroundingCitation,

@@ -39,6 +39,7 @@ import {
   resolveIntegritySet,
   syncIntegritySets,
 } from '../guardrails/integrity/integritySets'
+import { buildUntrustedInputSpans } from '../guardrails/integrity/untrustedInput'
 import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import {
@@ -210,8 +211,19 @@ export class NativeAgentRunner {
     // `guardrail.tripped`, then fails the step with a typed reason (never reaches
     // disposition); a `warn`/`pass` records the audit rows and proceeds. The
     // always-on output tool-scope backstop holds even if this layer is evaded.
+    const integritySet = resolveIntegritySet(entry)
+    const untrustedInputSpans = buildUntrustedInputSpans(input, entry.untrustedInputs)
+    let integritySetSynced = false
+    if (integritySet && entry.untrustedInputs?.length) {
+      await this.ensureIntegritySetSynced(ctx, entry)
+      integritySetSynced = true
+    }
     const inputGuardrail = new GuardrailService(this.container)
-    const inputVerdict = await inputGuardrail.checkInput({ capability: agentId, untrustedSpans })
+    const inputVerdict = await inputGuardrail.checkInput({
+      capability: agentId,
+      untrustedSpans: [...untrustedSpans, ...untrustedInputSpans],
+      ...(integritySet && untrustedInputSpans.length > 0 ? { untrustedInputSetVersion: integritySet.version } : {}),
+    })
     if (inputVerdict.checks.length > 0) {
       const inputGuardEm = (this.container.resolve('em') as EntityManager).fork()
       const inputScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
@@ -227,7 +239,8 @@ export class NativeAgentRunner {
         throw new AgentGuardrailBlockedError(agentId, detail, {
           phase: inputVerdict.blockedReason.phase,
           kind: inputVerdict.blockedReason.kind,
-          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          guardrailSetVersion:
+            inputVerdict.checks.find((check) => check.result === 'block')?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
         })
       }
     }
@@ -587,8 +600,7 @@ export class NativeAgentRunner {
       })
     }
 
-    const integritySet = integrityRules ? resolveIntegritySet(entry) : null
-    if (integritySet) await this.ensureIntegritySetSynced(ctx, entry)
+    if (integrityRules && integritySet && !integritySetSynced) await this.ensureIntegritySetSynced(ctx, entry)
 
     const failRunAfterUnexpectedError = async (err: unknown): Promise<void> => {
       const message = err instanceof Error ? err.message : String(err)
