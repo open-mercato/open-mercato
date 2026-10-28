@@ -713,22 +713,34 @@ stores its scalar `ingestionId`. Both receipt and source ingestion are created a
 and that transaction commits before enqueueing so independently running workers can read
 the ingestion.
 
-Each destination runs in a separate transaction holding a tenant/organization-scoped
-receipt row lock. Queue dispatch commits `dispatchQueued` only after enqueue succeeds;
-local worker startup occurs after the dispatch checkpoint commits, releasing its database
-connection before a worker reads the ingestion. The persistent `webhooks.inbound.received`
-publication independently commits
-`receivedEventPublished` after publishing succeeds. A failed stage remains retryable.
-Concurrent signed retries serialize on the receipt, reuse the original ingestion, and
-skip stages already completed. A retry after queue success and event publication failure
-publishes only the event. A pending source receipt retried through a legacy adapter
-remains retryable until its source dispatch can resume. The existing HTTP 200 `{ ok: true, duplicate: true }` response
-is returned when the request finds no unfinished stage.
+Each unfinished destination first acquires a fenced claim in a short transaction holding
+only the tenant/organization-scoped receipt row lock. The nullable claim token, stage
+(`dispatch` or `received_event`) and expiry are committed before external publication.
+No enqueue, event emission or worker startup runs inside a receipt transaction. The
+claim lease lasts 30 seconds; an owner that exits becomes retryable after expiry.
+Concurrent signed retries wait outside a transaction for at most the remaining 5-second
+publication budget, then return a retryable error rather than acknowledging unfinished work.
 
-A process exit or database failure after external publication but before its checkpoint
-commit can still cause repeated delivery. This preserves the existing at-least-once
-worker/subscriber contract; handlers must remain idempotent. No transaction spans both
-external destinations, and no ingestion lock is held during queue startup.
+Dispatch uses `webhook-receipt-<receipt UUID>-dispatch`; persistent event publication uses
+`webhook-receipt-<receipt UUID>-received_event`. Both queue strategies deduplicate a stable
+ID while the job is queued/active (or retained by the backend). A second short transaction
+sets the checkpoint and clears the claim only when the token/stage still match and its
+lease has not expired. A stale owner cannot complete or clear a successor's claim.
+Publication failure clears only the owner's live claim; deadline expiry reports an
+uncertain publication outcome and does not cancel a late backend write. Retries reuse
+the same job ID. Local worker startup follows the committed dispatch checkpoint.
+
+A retry after queue success and event publication failure publishes only the event.
+A pending source receipt retried through a legacy adapter remains retryable until its
+source dispatch can resume. Existing completed receipts return HTTP 200
+`{ ok: true, duplicate: true }`; a request that completes an unfinished stage returns
+`{ ok: true }`. The overall delivery contract remains at least once: process exit or
+checkpoint failure can repeat inline/event effects, and a late transport write after job
+removal can create a later job. The inbound worker skips a processed ingestion and
+previously successful handlers; handlers and subscribers must remain idempotent. This
+change does not promise global exactly-once delivery or change inline subscriber defaults.
+An uncertain timeout can repeat inline callbacks on retry; stable queue IDs deduplicate
+persistent queue work and do not deduplicate those inline callbacks.
 
 ### 10.4 Replay Protection
 
@@ -821,9 +833,17 @@ in `api/inbound/[endpointId]/__tests__/route*.test.ts`: enqueue failure, persist
 failure, same signed message retry, partial success, and completed duplicates. The
 `lib/__tests__/inbound-receipt.postgres.test.ts` suite exercises actual transaction rollback,
 committed ingestion visibility, concurrent source/legacy retries, historical receipts,
-and cross-tenant receipt collisions against an isolated PostgreSQL schema. Set
+cross-tenant receipt collisions, pool-size-1 availability during blocked destinations,
+deadline/late completion and expired-owner fencing against an isolated PostgreSQL schema. Set
 `OM_WEBHOOKS_TEST_DATABASE_URL` to a disposable PostgreSQL database to run that suite;
-ordinary unit runs skip it when no database is configured.
+ordinary unit runs skip it when no database is configured. With `OM_QUEUE_TEST_REDIS_URL`
+also set, the suite pauses writes on that disposable Redis instance, sends twenty deliveries,
+reconnects/retries and asserts one active production handler and no handler rerun after
+completion. The queue `publication.test.ts` runs local identity/late-write cases by default
+and the same cases against Redis when that variable is set. These opt-in tests require
+isolated test services, including `redis-cli`, never a developer or production database.
+Manual async outage QA rows 7–8 from PR #7609's prior NO-GO still require reviewer sign-off;
+automated recovery tests do not grant QA approval.
 
 ### Phase 4 Tests (Inbox Ops Refactoring)
 
@@ -995,7 +1015,19 @@ with `true` defaults. Existing receipts retain their completed-duplicate behavio
 intake explicitly initializes its required stages as unfinished. Existing route URLs,
 signature formats, event IDs/payloads, and successful response shapes are unchanged.
 No migration is applied to a developer database as part of implementation. Deploy the
-migration before the new application code. Historical receipts do not distinguish
+migration before the new application code. `Migration20261028234000_webhooks` separately
+adds nullable `delivery_claim_token` (UUID), `delivery_claim_stage` (text), and
+`delivery_claim_expires_at` (timestamp) without rewriting historical receipts. Both
+migrations must precede this application version. Existing queue calls keep random IDs
+and unbounded producer waiting unless the caller opts into the new options.
+
+The approved additive queue surface is `EnqueueOptions.jobId?: string` and
+`timeoutMs?: number`; optional `EmitOptions.enqueue` carries the same two fields in
+shared module emitters and the events bus. Job IDs allow letters/digits/underscores/hyphens,
+excluding empty or integer-only IDs, consistently across both strategies. Timeouts are
+positive integer timer durations up to 2^31−1 milliseconds. Their expiry never means the
+backend write was cancelled. No event ID, trusted scope, payload or inline delivery
+default changes. Historical receipts do not distinguish
 success from earlier lost dispatches, so this migration cannot infer or automatically
 recover those pre-existing failures. Reverting to older code restores the original
 receipt-existence deduplication behavior, including suppression of pending retries.
@@ -1090,7 +1122,7 @@ by `WebhookSourceConfig` + the handler convention. They MUST follow the deprecat
 | 2026-06-17 | Applied pre-implement analysis remediation: unify inbound on the existing `[endpointId]` route (resolves BC#1 route collision); add a concrete `WebhookEndpointAdapter` deprecation-bridge subsection (§14); correct the Phase 4 `inbox_ops` baseline (encrypted per-tenant secret + Svix already exist); fix dedup cache TTL to milliseconds and clarify the receipt-table durable dedup source of truth (§10.3); add optional `credentialFields` to `WebhookSourceConfig` for the admin UI; clarify credential encryption reuses the integrations map and `WebhookIngestion.payload`/`headers` are encrypted via the webhooks map (§10.1). Phase 1 implementation started. |
 | 2026-06-17 | Phase 1 progress: shared inbound types; `WebhookIngestion`/`InboundEndpointConfig` entities + migration + encryption map; `inbound.processed`/`handler_failed` events; globalThis-backed source/handler registries + wildcard resolution; queue-backed `webhook-inbound-dispatch` worker. **Auto-discovery convention chosen:** implemented via the sanctioned `generators.ts` plugin mechanism (`webhooks/generators.ts`: `webhooks.sources` + `webhooks.handlers` plugins with `bootstrapRegistration`) rather than forking the two core generators. Consequently handlers are declared in a module-root **`webhook-handlers.ts`** barrel (impl files under `webhook-handlers/`) instead of a pure `webhook-handlers/*.ts` folder scan — lower blast-radius, zero `bootstrap.ts`/template edits (§3.2, §6). |
 | 2026-10-18 | Fixed #7601: atomic receipt/ingestion intake, independent row-locked dispatch/publication checkpoints, retry recovery without repeating completed stages, additive migration preserving historical receipts, and route plus PostgreSQL concurrency regressions. |
-| 2026-10-28 | Restored PR scope to webhook receipt retries and current-main contents; #7979 remains blocking pending a reviewed fenced-claim/queue-publication design. No queue/event contract expansion is published by this scope cleanup. |
+| 2026-10-28 | Removed unrelated carried changes; implemented the user-approved #7979 durability design: committed scoped fenced claims, external publication outside transactions, stable queue IDs and bounded publication deadlines, nullable claim migration, real PostgreSQL pool/fencing and Redis outage/reconnect regressions. Delivery remains at least once; manual async QA and fresh review remain gates. |
 
 ---
 

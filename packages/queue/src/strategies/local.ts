@@ -5,6 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import { publishWithTimeout, validateEnqueueOptions } from '../publication'
 
 const packageLogger = createLogger('queue')
 
@@ -445,12 +446,17 @@ export function createLocalQueue<T = unknown>(
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
+    validateEnqueueOptions(options)
+    return publishWithTimeout(() => publish(data, options), options?.timeoutMs)
+  }
+
+  async function publish(data: T, options?: EnqueueOptions): Promise<string> {
     const availableAt = options?.delayMs && options.delayMs > 0
       ? new Date(Date.now() + options.delayMs).toISOString()
       : undefined
     const metadata = attachTraceMetadata(undefined)
     const job: StoredJob<T> = {
-      id: generateId(),
+      id: options?.jobId ?? generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(availableAt ? { availableAt } : {}),
@@ -458,6 +464,7 @@ export function createLocalQueue<T = unknown>(
     }
     await withFileLock(async () => {
       const jobs = await readQueue()
+      if (options?.jobId && jobs.some((existing) => existing.id === job.id)) return
       jobs.push(job)
       await writeQueue(jobs)
     })

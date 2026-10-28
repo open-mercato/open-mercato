@@ -117,10 +117,12 @@ export async function ensureLocalInboundQueueWorkerStarted(): Promise<void> {
 
 export async function enqueueInboundDispatch(
   job: InboundDispatchJob,
-  options?: { startLocalWorker?: boolean },
+  options?: { startLocalWorker?: boolean; jobId?: string; timeoutMs?: number },
 ): Promise<string> {
   const queue = getInboundDispatchQueue()
-  const jobId = await queue.enqueue(job)
+  const jobId = options?.jobId !== undefined || options?.timeoutMs !== undefined
+    ? await queue.enqueue(job, { jobId: options.jobId, timeoutMs: options.timeoutMs })
+    : await queue.enqueue(job)
   if (options?.startLocalWorker !== false) await ensureLocalInboundQueueWorkerStarted()
   return jobId
 }

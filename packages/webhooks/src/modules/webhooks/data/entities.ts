@@ -185,6 +185,15 @@ export class WebhookInboundReceiptEntity {
   @Property({ name: 'received_event_published', type: 'boolean', default: true })
   receivedEventPublished: boolean = true
 
+  @Property({ name: 'delivery_claim_token', type: 'uuid', nullable: true })
+  deliveryClaimToken?: string | null
+
+  @Property({ name: 'delivery_claim_stage', type: 'text', nullable: true })
+  deliveryClaimStage?: 'dispatch' | 'received_event' | null
+
+  @Property({ name: 'delivery_claim_expires_at', type: Date, nullable: true })
+  deliveryClaimExpiresAt?: Date | null
+
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 

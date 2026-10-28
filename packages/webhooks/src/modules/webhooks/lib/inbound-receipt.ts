@@ -65,63 +65,121 @@ export async function receiveInboundWebhook(em: EntityManager, input: InboundRec
     if (!isUniqueViolation(error)) throw error
   }
 
+  const deadline = Date.now() + 5_000
   let duplicate = true
-  if (sourceKey) {
-    const dispatch = await em.fork().transactional(async (transaction) => {
-      const receipt = await findOneWithDecryption(transaction, WebhookInboundReceiptEntity, receiptWhere, {
-        lockMode: LockMode.PESSIMISTIC_WRITE,
+  for (const stage of ['dispatch', 'received_event'] as const) {
+    while (true) {
+      const claim = await em.fork().transactional(async (transaction) => {
+        const receipt = await findOneWithDecryption(transaction, WebhookInboundReceiptEntity, receiptWhere, {
+          lockMode: LockMode.PESSIMISTIC_WRITE,
+        })
+        if (!receipt) throw new Error('[internal] Inbound receipt not found in verified scope')
+        if (stage === 'dispatch' ? receipt.dispatchQueued : receipt.receivedEventPublished) {
+          return { state: 'complete', startWorker: stage === 'dispatch' && Boolean(sourceKey) && !receipt.receivedEventPublished } as const
+        }
+        if (stage === 'dispatch' && !sourceKey) {
+          throw new Error('[internal] Inbound receipt dispatch is not queued')
+        }
+        if (stage === 'received_event' && !receipt.dispatchQueued) {
+          throw new Error('[internal] Inbound receipt dispatch is not queued')
+        }
+        if (receipt.deliveryClaimToken && receipt.deliveryClaimExpiresAt
+          && receipt.deliveryClaimExpiresAt.getTime() > Date.now()) {
+          return { state: 'waiting' } as const
+        }
+        const ingestion = receipt.ingestionId
+          ? await findOneWithDecryption(transaction, WebhookIngestionEntity, {
+            id: receipt.ingestionId,
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+          })
+          : null
+        if (receipt.ingestionId && !ingestion) {
+          throw new Error('[internal] Inbound ingestion not found in verified scope')
+        }
+        if (stage === 'dispatch' && (!receipt.ingestionId || !input.tenantId || !input.organizationId)) {
+          throw new Error('[internal] Inbound receipt has no scoped ingestion')
+        }
+        const token = randomUUID()
+        receipt.deliveryClaimToken = token
+        receipt.deliveryClaimStage = stage
+        receipt.deliveryClaimExpiresAt = new Date(Date.now() + 30_000)
+        return {
+          state: 'owned', token, receiptId: receipt.id, ingestionId: receipt.ingestionId,
+          providerKey: receipt.providerKey, eventType: receipt.eventType ?? input.eventType,
+          payload: ingestion?.payload ?? input.payload,
+        } as const
       })
-      if (!receipt) throw new Error('[internal] Inbound receipt not found in verified scope')
-      if (receipt.dispatchQueued) return receipt.receivedEventPublished ? 'complete' : 'pending'
-      if (!receipt.ingestionId || !input.tenantId || !input.organizationId) {
-        throw new Error('[internal] Inbound receipt has no scoped ingestion')
+      if (claim.state === 'complete') {
+        if (claim.startWorker) await ensureLocalInboundQueueWorkerStarted()
+        break
       }
-      await enqueueInboundDispatch({
-        ingestionId: receipt.ingestionId,
-        sourceKey,
-        eventType: receipt.eventType ?? input.eventType,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      }, { startLocalWorker: false })
-      receipt.dispatchQueued = true
-      return 'queued'
-    })
-    if (dispatch === 'complete') return true
-    duplicate = dispatch !== 'queued'
-    await ensureLocalInboundQueueWorkerStarted()
-  }
+      const remainingMs = deadline - Date.now()
+      if (claim.state === 'waiting') {
+        if (remainingMs <= 0) throw new Error('[internal] Inbound receipt publication is still pending; retry delivery')
+        await new Promise((resolve) => setTimeout(resolve, Math.min(25, remainingMs)))
+        continue
+      }
 
-  const published = await em.fork().transactional(async (transaction) => {
-    const receipt = await findOneWithDecryption(transaction, WebhookInboundReceiptEntity, receiptWhere, {
-      lockMode: LockMode.PESSIMISTIC_WRITE,
-    })
-    if (!receipt) throw new Error('[internal] Inbound receipt not found in verified scope')
-    if (!receipt.dispatchQueued) throw new Error('[internal] Inbound receipt dispatch is not queued')
-    if (receipt.receivedEventPublished) return false
-    const ingestion = receipt.ingestionId
-      ? await findOneWithDecryption(transaction, WebhookIngestionEntity, {
-        id: receipt.ingestionId,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
+      const checkpoint = async (completed: boolean): Promise<boolean> => em.fork().transactional(async (transaction) => {
+        const receipt = await findOneWithDecryption(transaction, WebhookInboundReceiptEntity, {
+          ...receiptWhere, deliveryClaimToken: claim.token, deliveryClaimStage: stage,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (!receipt || !receipt.deliveryClaimExpiresAt || receipt.deliveryClaimExpiresAt.getTime() <= Date.now()) return false
+        if (completed) {
+          if (stage === 'dispatch') receipt.dispatchQueued = true
+          else receipt.receivedEventPublished = true
+        }
+        receipt.deliveryClaimToken = null
+        receipt.deliveryClaimStage = null
+        receipt.deliveryClaimExpiresAt = null
+        return true
       })
-      : null
-    if (receipt.ingestionId && !ingestion) {
-      throw new Error('[internal] Inbound ingestion not found in verified scope')
-    }
-    await emitWebhooksEvent('webhooks.inbound.received', {
-      providerKey: receipt.providerKey,
-      endpointId: input.endpointId,
-      messageId: input.messageId,
-      eventType: receipt.eventType ?? input.eventType,
-      payload: ingestion?.payload ?? input.payload,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    }, { persistent: true })
-    receipt.receivedEventPublished = true
-    return true
-  })
 
-  return duplicate && !published
+      try {
+        if (remainingMs <= 0) throw new Error('[internal] Inbound receipt publication deadline exceeded; retry delivery')
+        await publishBeforeDeadline(async () => {
+          const jobId = `webhook-receipt-${claim.receiptId}-${stage}`
+          if (stage === 'dispatch') {
+            await enqueueInboundDispatch({
+              ingestionId: claim.ingestionId!, sourceKey: sourceKey!, eventType: claim.eventType,
+              tenantId: input.tenantId!, organizationId: input.organizationId!,
+            }, { startLocalWorker: false, jobId, timeoutMs: remainingMs })
+          } else {
+            await emitWebhooksEvent('webhooks.inbound.received', {
+              providerKey: claim.providerKey, endpointId: input.endpointId, messageId: input.messageId,
+              eventType: claim.eventType, payload: claim.payload,
+              tenantId: input.tenantId, organizationId: input.organizationId,
+            }, { persistent: true, enqueue: { jobId, timeoutMs: remainingMs } })
+          }
+        }, remainingMs)
+        if (!await checkpoint(true)) {
+          throw new Error('[internal] Inbound receipt publication claim expired; retry delivery')
+        }
+        duplicate = false
+      } catch (error) {
+        await checkpoint(false)
+        throw error
+      }
+      if (stage === 'dispatch') await ensureLocalInboundQueueWorkerStarted()
+      break
+    }
+  }
+  return duplicate
+}
+
+async function publishBeforeDeadline(operation: () => Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      operation(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('[internal] Inbound publication timed out; outcome is uncertain; retry delivery')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function isUniqueViolation(error: unknown): boolean {

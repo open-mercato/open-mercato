@@ -22,7 +22,7 @@ const mockPersistedEntities: MockRecord[] = []
 
 const mockRouteEm: MockEntityManager = {
   fork: () => mockRouteEm,
-  create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+  create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'receipt-1', ...data })),
   persist: jest.fn((entity: MockRecord) => {
     if (entity.endpointId && mockPersistedEntities.some((record) => (
       record.endpointId === entity.endpointId && record.messageId === entity.messageId
@@ -342,7 +342,7 @@ describe('POST', () => {
         tenantId: null,
         organizationId: null,
       }),
-      { persistent: true },
+      { persistent: true, enqueue: { jobId: expect.stringMatching(/^webhook-receipt-.+-received_event$/), timeoutMs: expect.any(Number) } },
     )
   })
 
@@ -406,7 +406,7 @@ describe('POST', () => {
         tenantId: 'tenant-1',
         organizationId: 'org-1',
       }),
-      { persistent: true },
+      { persistent: true, enqueue: { jobId: expect.stringMatching(/^webhook-receipt-.+-received_event$/), timeoutMs: expect.any(Number) } },
     )
   })
 
@@ -423,7 +423,10 @@ describe('POST', () => {
     await expect(retried.json()).resolves.toEqual({ ok: true })
     expect(pendingReceipt).toEqual(expect.objectContaining({ receivedEventPublished: false }))
     expect(mockEmitWebhooksEvent).toHaveBeenCalledTimes(2)
-    expect(mockEmitWebhooksEvent.mock.calls[1]).toEqual(mockEmitWebhooksEvent.mock.calls[0])
+    expect(mockEmitWebhooksEvent.mock.calls[1]).toEqual([
+    ...mockEmitWebhooksEvent.mock.calls[0].slice(0, 2),
+    { persistent: true, enqueue: { jobId: 'webhook-receipt-receipt-1-received_event', timeoutMs: expect.any(Number) } },
+  ])
     expect(signed.adapter.verifyWebhook).toHaveBeenCalledTimes(2)
     expect(mockPersistedEntities).toHaveLength(1)
     expect(mockPersistedEntities[0]).toEqual(expect.objectContaining({ receivedEventPublished: true }))

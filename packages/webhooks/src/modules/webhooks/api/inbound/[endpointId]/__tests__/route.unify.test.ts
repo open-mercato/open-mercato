@@ -150,12 +150,12 @@ it('accepts a valid source webhook: records ingestion, enqueues dispatch, emits 
   await expect(res.json()).resolves.toEqual({ ok: true })
   expect(enqueueInboundDispatch).toHaveBeenCalledWith(
     expect.objectContaining({ ingestionId: expect.any(String), sourceKey: 'stripe', eventType: 'payment_intent.succeeded', tenantId: 't1', organizationId: 'o1' }),
-    { startLocalWorker: false },
+    { startLocalWorker: false, jobId: 'webhook-receipt-ing-1-dispatch', timeoutMs: expect.any(Number) },
   )
   expect(emitWebhooksEvent).toHaveBeenCalledWith(
     'webhooks.inbound.received',
     expect.objectContaining({ endpointId: 'stripe', eventType: 'payment_intent.succeeded' }),
-    { persistent: true },
+    { persistent: true, enqueue: { jobId: expect.stringMatching(/^webhook-receipt-.+-received_event$/), timeoutMs: expect.any(Number) } },
   )
 })
 
@@ -263,7 +263,10 @@ it('retries source publication without reenqueuing a dispatch that already succe
   expect(pendingReceipt).toEqual(expect.objectContaining({ dispatchQueued: true, receivedEventPublished: false }))
   expect(enqueueInboundDispatch).toHaveBeenCalledTimes(1)
   expect(emitWebhooksEvent).toHaveBeenCalledTimes(2)
-  expect(emitWebhooksEvent.mock.calls[1]).toEqual(emitWebhooksEvent.mock.calls[0])
+  expect(emitWebhooksEvent.mock.calls[1]).toEqual([
+    ...emitWebhooksEvent.mock.calls[0].slice(0, 2),
+    { persistent: true, enqueue: { jobId: 'webhook-receipt-ing-1-received_event', timeoutMs: expect.any(Number) } },
+  ])
   expect(signed.verifier).toHaveBeenCalledTimes(2)
   expect(records).toHaveLength(2)
 
@@ -332,4 +335,25 @@ it('rejects a source receipt collision from another scope without creating an or
   expect(records[0]).toEqual(expect.objectContaining({ tenantId: 'another-tenant', dispatchQueued: false }))
   expect(enqueueInboundDispatch).not.toHaveBeenCalled()
   expect(emitWebhooksEvent).not.toHaveBeenCalled()
+})
+
+
+
+it('does not retain a receipt transaction while enqueueing source dispatch (#7979)', async () => {
+  const signed = signedSourceWebhook()
+  enqueueInboundDispatch.mockImplementationOnce(async () => {
+    expect(transactionOpen).toBe(false)
+    return 'job-1'
+  })
+
+  await expect(signed.post()).resolves.toMatchObject({ status: 200 })
+})
+
+it('does not retain a receipt transaction while publishing the received event (#7979)', async () => {
+  const signed = signedSourceWebhook()
+  emitWebhooksEvent.mockImplementationOnce(async () => {
+    expect(transactionOpen).toBe(false)
+  })
+
+  await expect(signed.post()).resolves.toMatchObject({ status: 200 })
 })
