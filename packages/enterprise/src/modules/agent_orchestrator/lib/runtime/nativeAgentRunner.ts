@@ -45,6 +45,7 @@ import {
   buildToolConsultedPrepareStep,
   collectEnforcedToolSets,
 } from '../guardrails/integrity/rules/toolConsulted'
+import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { getCurrentRunToolCallSink, withRunContext, type RunToolCallSink } from './runContext'
@@ -715,6 +716,15 @@ export class NativeAgentRunner {
         guardResults,
       })
     }
+
+    await emitRunReviewRequested({
+      agentRunId: runId,
+      agentId,
+      workflowInstanceId: ctx.workflowInstanceId ?? null,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      reviewRequest: integrityOutcome?.reviewRequest,
+    })
 
     // Span persistence, after the audited persistence tail so a capture failure
     // changes nothing about the run. Awaited: the caller disposes the proposal

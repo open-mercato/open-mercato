@@ -23,7 +23,7 @@
 | 1 | 1.1 | Declare the abstain_or_review integrity rule | dispatch | done | pending |
 | 1 | 1.2 | Evaluate abstain_or_review after grounding | dispatch:capable | done | pending |
 | 1 | 1.3 | Hold auto-approval on integrity warnings that request it | dispatch | done | pending |
-| 1 | 1.4 | Emit agent_orchestrator.run.review_requested | dispatch:cheap | todo | — |
+| 1 | 1.4 | Emit agent_orchestrator.run.review_requested | dispatch:cheap | done | pending |
 | 1 | 1.5 | Declare and screen untrusted agent inputs | dispatch | todo | — |
 | 1 | 1.6 | Delimit untrusted input fields in the model prompt | dispatch:capable | todo | — |
 | 1 | 1.7 | Return the integrity summary and raw output key from the run APIs | dispatch | todo | — |
