@@ -121,6 +121,8 @@ export type RunView = {
   contextRouting: unknown
   /** FK id → workflows process instance (drives "Open process"). */
   workflowInstanceId: string | null
+  /** The run this one re-ran (`agent_runs.rerun_of_run_id`); null for original runs. */
+  rerunOfRunId?: string | null
 }
 
 export type SpanView = {
@@ -541,6 +543,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     flaggedAt: asString(item.flagged_at) ?? asString(item.flaggedAt),
     contextRouting: item.context_routing ?? item.contextRouting ?? null,
     workflowInstanceId: asString(item.workflow_instance_id) ?? asString(item.workflowInstanceId),
+    rerunOfRunId: asString(item.rerun_of_run_id) ?? asString(item.rerunOfRunId),
   }
 }
 

@@ -271,6 +271,8 @@ export const runListQuerySchema = z
     agentType: agentTypeSchema.optional(),
     /** Only runs carrying the operator triage flag (`flagged_at` set). */
     flagged: z.coerce.boolean().optional(),
+    /** Only runs created strictly before this instant (ISO 8601) — the "previous run" lookup. */
+    createdBefore: z.string().datetime({ offset: true }).optional(),
     // Trace facets + window (trace-eval overlay).
     filter: runFilterFacet.optional(),
     window: runWindow.optional(),

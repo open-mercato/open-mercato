@@ -24,7 +24,7 @@ function PanelsLoading() {
 
 const LlmStepPanels = dynamic(() => import('./LlmStepPanels'), { ssr: false, loading: () => <PanelsLoading /> })
 
-function useCanViewContent(): boolean | null {
+export function useCanViewContent(): boolean | null {
   const { payload } = useBackendChrome()
   const granted = payload?.grantedFeatures
   if (!Array.isArray(granted)) return null

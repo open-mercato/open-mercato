@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, Inbox, ClipboardCheck } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, Inbox, ClipboardCheck, GitCompare } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -42,7 +43,8 @@ import { EmptyArt } from '../../../components/EmptyArt'
 import { RunManifestCard } from '../../../components/RunManifestCard'
 import { InspectorCard } from '../../../components/trace/InspectorCard'
 import { GuardrailsCard } from '../../../components/trace/GuardrailsCard'
-import { LlmStepMetadataCard } from '../../../components/trace/LlmStepMetadataCard'
+import { LlmStepMetadataCard, useCanViewContent } from '../../../components/trace/LlmStepMetadataCard'
+import { RunCopyMenu } from '../../../components/trace/RunCopyMenu'
 import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
 import { RunActionsCard } from '../../../components/trace/RunActionsCard'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
@@ -54,6 +56,8 @@ const SPAN_KIND_BAR: Record<string, string> = {
   tool: 'bg-accent-indigo',
   system: 'bg-muted-foreground',
 }
+
+const RunCompareDialog = dynamic(() => import('../../../components/trace/RunCompareDialog'), { ssr: false })
 
 function spanBarClass(kind: string): string {
   return SPAN_KIND_BAR[kind] ?? 'bg-muted-foreground'
@@ -618,6 +622,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   const [inEvalSet, setInEvalSet] = React.useState(false)
   const [flagging, setFlagging] = React.useState(false)
   const [rerunning, setRerunning] = React.useState(false)
+  const [compareOpen, setCompareOpen] = React.useState(false)
+  const canViewContent = useCanViewContent()
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.traces',
@@ -955,6 +961,17 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </Button>
                         </SimpleTooltip>
                       )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCompareOpen(true)}
+                        data-testid="run-compare-open"
+                      >
+                        <GitCompare className="size-4" />
+                        {t('agent_orchestrator.trace.compareWith')}
+                      </Button>
+                      <RunCopyMenu run={run} spans={detail.spans} canViewContent={canViewContent} />
                       <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.actionRerunTooltip', 'Re-run this agent with the same input')}>
                         <Button
                           variant="outline"
@@ -982,6 +999,9 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     </div>
                   </div>
 
+                  {compareOpen ? (
+                    <RunCompareDialog open={compareOpen} onOpenChange={setCompareOpen} run={run} spans={detail.spans} />
+                  ) : null}
                   {run.errorMessage ? (
                     <div className="mt-4 rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
                       <span className="font-medium">{t('agent_orchestrator.traces.detail.runError')}:</span>{' '}
