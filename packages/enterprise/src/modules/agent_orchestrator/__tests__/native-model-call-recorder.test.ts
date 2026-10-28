@@ -88,6 +88,37 @@ describe('createNativeModelCallCollector', () => {
     expect(serialized).not.toContain('properties')
   })
 
+  it('retains the request and response content only when asked, with the same hashes', () => {
+    const plain = createNativeModelCallCollector()
+    const retaining = createNativeModelCallCollector({ retainContent: true })
+    for (const collector of [plain, retaining]) {
+      collector.observer.onModelCallStart(startEvent())
+      collector.observer.onModelCallEnd(endEvent({ providerMetadata: { testProvider: { cached: true } } }))
+    }
+    const [plainRecord] = plain.records()
+    const [retained] = retaining.records()
+    expect(plainRecord.content).toBeUndefined()
+    expect(retained.requestSha256).toBe(plainRecord.requestSha256)
+    expect(retained.responseSha256).toBe(plainRecord.responseSha256)
+    expect(retained.content).toEqual({
+      request: {
+        provider: 'test-provider',
+        modelId: 'model-a',
+        system: SECRET_SYSTEM,
+        messages: [{ role: 'user', content: SECRET_MESSAGE }],
+        tools: startEvent().tools,
+        responseFormat: { type: 'json', name: 'Thing' },
+        callSettings: startEvent().callSettings,
+      },
+      response: {
+        finishReason: 'stop',
+        content: [{ type: 'text', text: SECRET_RESPONSE }],
+        usage: { inputTokens: 10, outputTokens: 5, cachedInputTokens: 4, reasoningTokens: 2 },
+        providerMetadata: { testProvider: { cached: true } },
+      },
+    })
+  })
+
   it('hashes the tool set independently of tool order and tracks content changes', () => {
     const first = createNativeModelCallCollector()
     first.observer.onModelCallStart(startEvent())

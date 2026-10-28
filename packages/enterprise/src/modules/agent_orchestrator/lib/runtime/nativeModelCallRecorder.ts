@@ -7,8 +7,26 @@ import type {
   AiAgentModelCallUsage,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { computeManifestSha256 } from '../trace/runManifest'
+import type { ContentRedaction, LlmRequestCallInput, LlmResponseCallInput } from '../trace/contentCapture'
+import type { ContentStatus } from '../trace/genAiAttributes'
 
 export type NativeModelCallFidelity = 'exact' | 'reconstructed'
+
+export type NativeModelCallContent = {
+  request: LlmRequestCallInput
+  response: LlmResponseCallInput
+}
+
+export type NativeModelCallContentOutcome = {
+  status: Exclude<ContentStatus, 'disabled'>
+  requestKey: string | null
+  responseKey: string | null
+  redactions: ContentRedaction[]
+}
+
+export type NativeModelCallCollectorOptions = {
+  retainContent?: boolean
+}
 
 export type NativeModelCallRecord = {
   callId: string
@@ -33,12 +51,23 @@ export type NativeModelCallRecord = {
   toolsSha256: string | null
   toolCount: number
   messageCount: number
+  content?: NativeModelCallContent
+  contentOutcome?: NativeModelCallContentOutcome
 }
 
 type PendingModelCall = Omit<
   NativeModelCallRecord,
-  'responseModel' | 'responseId' | 'finishReason' | 'usage' | 'latencyMs' | 'endedAtMs' | 'responseSha256' | 'responseBytes'
->
+  | 'responseModel'
+  | 'responseId'
+  | 'finishReason'
+  | 'usage'
+  | 'latencyMs'
+  | 'endedAtMs'
+  | 'responseSha256'
+  | 'responseBytes'
+  | 'content'
+  | 'contentOutcome'
+> & { requestContent?: LlmRequestCallInput }
 
 export type NativeModelCallCollector = {
   observer: Required<Pick<AiAgentCallObserver, 'onModelCallStart' | 'onModelCallEnd'>>
@@ -71,7 +100,28 @@ function stripProviderOptions(settings: AiAgentCallSettings): Omit<AiAgentCallSe
   return Object.fromEntries(entries) as Omit<AiAgentCallSettings, 'providerOptions'>
 }
 
-function buildPendingCall(event: AiAgentModelCallStartEvent): PendingModelCall {
+function buildRequestContent(event: AiAgentModelCallStartEvent): LlmRequestCallInput {
+  return {
+    provider: event.provider,
+    modelId: event.modelId,
+    system: event.system,
+    messages: Array.isArray(event.messages) ? [...event.messages] : [],
+    tools: event.tools ? [...event.tools] : undefined,
+    responseFormat: event.responseFormat,
+    callSettings: event.callSettings,
+  }
+}
+
+function buildResponseContent(event: AiAgentModelCallEndEvent): LlmResponseCallInput {
+  return {
+    finishReason: event.finishReason,
+    content: Array.isArray(event.content) ? [...event.content] : [],
+    usage: { ...event.usage },
+    ...(event.providerMetadata !== undefined ? { providerMetadata: event.providerMetadata } : {}),
+  }
+}
+
+function buildPendingCall(event: AiAgentModelCallStartEvent, retainContent: boolean): PendingModelCall {
   const callSettings = event.callSettings ?? {}
   const request = hashCanonical({
     system: event.system,
@@ -95,24 +145,29 @@ function buildPendingCall(event: AiAgentModelCallStartEvent): PendingModelCall {
     toolsSha256: hashTools(event.tools),
     toolCount: event.tools?.length ?? 0,
     messageCount: Array.isArray(event.messages) ? event.messages.length : 0,
+    ...(retainContent ? { requestContent: buildRequestContent(event) } : {}),
   }
 }
 
-export function createNativeModelCallCollector(): NativeModelCallCollector {
+export function createNativeModelCallCollector(
+  options: NativeModelCallCollectorOptions = {},
+): NativeModelCallCollector {
+  const retainContent = options.retainContent === true
   const pending = new Map<string, PendingModelCall>()
   const completed: NativeModelCallRecord[] = []
   return {
     observer: {
       onModelCallStart(event: AiAgentModelCallStartEvent): void {
-        pending.set(event.callId, buildPendingCall(event))
+        pending.set(event.callId, buildPendingCall(event, retainContent))
       },
       onModelCallEnd(event: AiAgentModelCallEndEvent): void {
         const started = pending.get(event.callId)
         if (!started) return
         pending.delete(event.callId)
+        const { requestContent, ...startedRecord } = started
         const response = hashCanonical({ finishReason: event.finishReason, content: event.content })
         completed.push({
-          ...started,
+          ...startedRecord,
           responseModel: event.responseModelId,
           responseId: event.responseId,
           finishReason: event.finishReason,
@@ -121,6 +176,7 @@ export function createNativeModelCallCollector(): NativeModelCallCollector {
           endedAtMs: event.endedAtMs,
           responseSha256: response.sha256,
           responseBytes: response.bytes,
+          ...(requestContent ? { content: { request: requestContent, response: buildResponseContent(event) } } : {}),
         })
       },
     },

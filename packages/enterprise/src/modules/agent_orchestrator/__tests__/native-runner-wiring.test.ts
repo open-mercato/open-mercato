@@ -605,6 +605,41 @@ describe('post-run trace capture', () => {
     expect(evalInput.manifest?.capture).toEqual({ level: 'off', source: 'tenant', retentionDays: 14, redactPii: true })
   })
 
+  it('retains model-call content for the capture only at the full level', async () => {
+    registerNativeAgent('native.capture_full_agent')
+    registerNativeAgent('native.capture_metadata_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const observe = args.observe as ModelCallObserverArg
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> }
+      await observe.onModelCallStart?.(modelCallStart('call-1', 0))
+      await observe.onModelCallEnd?.(modelCallEnd('call-1', 'stop'))
+      await loop.onStepFinish?.({ toolCalls: [], finishReason: 'stop', usage: { inputTokens: 5, outputTokens: 2 } })
+      return VALID_MODEL_OUTPUT
+    })
+    const service = makeService({
+      capturePolicy: {
+        level: 'metadata',
+        redactPii: true,
+        perAgent: { 'native.capture_full_agent': { level: 'full' } },
+      },
+    })
+
+    await service.run('native.capture_full_agent', {}, runCtx)
+    await service.run('native.capture_metadata_agent', {}, runCtx)
+
+    const fullInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(fullInput.captureLevel).toBe('full')
+    expect(fullInput.redactPii).toBe(true)
+    expect(fullInput.steps[0].call?.content).toMatchObject({
+      request: { system: 'secret system prompt', messages: [{ role: 'user', content: 'secret user message' }] },
+      response: { finishReason: 'stop', content: [{ type: 'text', text: 'secret model answer' }] },
+    })
+    const metadataInput = captureNativeRunTraceMock.mock.calls[1][2] as NativeTraceInput
+    expect(metadataInput.captureLevel).toBe('metadata')
+    expect(metadataInput.steps[0].call?.content).toBeUndefined()
+    expect(JSON.stringify(metadataInput)).not.toContain('secret')
+  })
+
   it('capture level off skips the model-call handlers but keeps the prompt observer', async () => {
     registerNativeAgent('native.capture_level_off_agent')
     runAiAgentObjectMock.mockImplementation(async (args) => {

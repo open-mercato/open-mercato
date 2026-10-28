@@ -217,7 +217,7 @@ describe('buildNativeTracePayload llm span metadata', () => {
     })
   })
 
-  it('treats full as metadata with content disabled in this release', () => {
+  it('keeps content disabled at full when the call carries no offload outcome', () => {
     const payload = buildNativeTracePayload({
       ...baseInput(),
       steps: stepsWithCall(buildCall()),
@@ -226,6 +226,55 @@ describe('buildNativeTracePayload llm span metadata', () => {
     const attributes = (payload.spans ?? [])[0].attributes as Record<string, unknown>
     expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('disabled')
     expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBeUndefined()
+  })
+
+  it('writes the content keys, status and redactions of an offloaded call at full', () => {
+    const call = buildCall({
+      contentOutcome: {
+        status: 'stored',
+        requestKey: 'agent-trace-content/request-1.json',
+        responseKey: 'agent-trace-content/response-1.json',
+        redactions: [{ rule: 'email', count: 2 }],
+      },
+    })
+    const payload = buildNativeTracePayload({ ...baseInput(), steps: stepsWithCall(call), captureLevel: 'full' })
+    const attributes = (payload.spans ?? [])[0].attributes as Record<string, unknown>
+    expect(attributes).toMatchObject({
+      [OM_LLM_ATTRIBUTES.contentRequestKey]: 'agent-trace-content/request-1.json',
+      [OM_LLM_ATTRIBUTES.contentResponseKey]: 'agent-trace-content/response-1.json',
+      [OM_LLM_ATTRIBUTES.contentStatus]: 'stored',
+      [OM_LLM_ATTRIBUTES.contentRedactions]: [{ rule: 'email', count: 2 }],
+      [OM_LLM_ATTRIBUTES.contentRequestSha256]: call.requestSha256,
+      [OM_LLM_ATTRIBUTES.contentResponseBytes]: 256,
+    })
+    expect(readLlmSpanMetadata(attributes)).toMatchObject({
+      contentRequestKey: 'agent-trace-content/request-1.json',
+      contentResponseKey: 'agent-trace-content/response-1.json',
+      contentStatus: 'stored',
+    })
+  })
+
+  it('ignores an offload outcome below the full level', () => {
+    const call = buildCall({
+      contentOutcome: { status: 'stored', requestKey: 'req', responseKey: 'res', redactions: [] },
+    })
+    const payload = buildNativeTracePayload({ ...baseInput(), steps: stepsWithCall(call), captureLevel: 'metadata' })
+    const attributes = (payload.spans ?? [])[0].attributes as Record<string, unknown>
+    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('disabled')
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBeUndefined()
+    expect(attributes[OM_LLM_ATTRIBUTES.contentResponseKey]).toBeUndefined()
+  })
+
+  it('records storage_unavailable with whichever key was stored', () => {
+    const call = buildCall({
+      contentOutcome: { status: 'storage_unavailable', requestKey: 'req', responseKey: null, redactions: [] },
+    })
+    const payload = buildNativeTracePayload({ ...baseInput(), steps: stepsWithCall(call), captureLevel: 'full' })
+    const attributes = (payload.spans ?? [])[0].attributes as Record<string, unknown>
+    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('storage_unavailable')
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBe('req')
+    expect(attributes[OM_LLM_ATTRIBUTES.contentResponseKey]).toBeUndefined()
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRedactions]).toBeUndefined()
   })
 
   it('writes the fallback call onto the synthetic span of a toolless run', () => {
@@ -277,6 +326,68 @@ describe('buildNativeTracePayload llm span metadata', () => {
       inputTokens: 100,
       outputTokens: 20,
       finishReason: 'tool-calls',
+    })
+  })
+})
+
+describe('buildNativeTracePayload span attribute cap with offloaded content', () => {
+  const outcome = {
+    status: 'over_cap_truncated' as const,
+    requestKey: 'agent-trace-content/request-cap.json',
+    responseKey: 'agent-trace-content/response-cap.json',
+    redactions: Array.from({ length: 60 }, (_, index) => ({ rule: `rule_${index}_${'x'.repeat(20)}`, count: index + 1 })),
+  }
+
+  function attributesFor(overrides: Partial<NativeModelCallRecord>) {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: stepsWithCall(buildCall({ contentOutcome: outcome, ...overrides })),
+      captureLevel: 'full',
+    })
+    return (payload.spans ?? [])[0].attributes as Record<string, unknown>
+  }
+
+  it('drops stop sequences first, then redactions, keeping the content keys and status', () => {
+    const longStops = Array.from({ length: 10 }, (_, index) => `${index}`.padEnd(100, 's'))
+    const attributes = attributesFor({ callSettings: { temperature: 0.2, stopSequences: longStops } })
+    expect(JSON.stringify(attributes).length).toBeLessThanOrEqual(4000)
+    expect(attributes[GEN_AI_ATTRIBUTES.requestStopSequences]).toBeUndefined()
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRedactions]).toBeUndefined()
+    expect(attributes[GEN_AI_ATTRIBUTES.requestTemperature]).toBe(0.2)
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBe(outcome.requestKey)
+    expect(attributes[OM_LLM_ATTRIBUTES.contentResponseKey]).toBe(outcome.responseKey)
+    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('over_cap_truncated')
+  })
+
+  it('keeps redactions when dropping stop sequences is enough', () => {
+    const smallOutcome = { ...outcome, redactions: [{ rule: 'email', count: 1 }] }
+    const longStops = Array.from({ length: 10 }, (_, index) => `${index}`.padEnd(100, 's'))
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: stepsWithCall(
+        buildCall({ contentOutcome: smallOutcome, callSettings: { stopSequences: longStops }, responseId: 'r'.repeat(2500) }),
+      ),
+      captureLevel: 'full',
+    })
+    const attributes = (payload.spans ?? [])[0].attributes as Record<string, unknown>
+    expect(attributes[GEN_AI_ATTRIBUTES.requestStopSequences]).toBeUndefined()
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRedactions]).toEqual([{ rule: 'email', count: 1 }])
+  })
+
+  it('falls back to the legacy keys plus the content references, never dropping keys or status', () => {
+    const call = buildCall({ contentOutcome: outcome, responseId: 'r'.repeat(5000) })
+    const attributes = attributesFor({ responseId: 'r'.repeat(5000) })
+    expect(attributes).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      finishReason: 'tool-calls',
+      [OM_LLM_ATTRIBUTES.contentRequestKey]: outcome.requestKey,
+      [OM_LLM_ATTRIBUTES.contentRequestSha256]: call.requestSha256,
+      [OM_LLM_ATTRIBUTES.contentRequestBytes]: 2048,
+      [OM_LLM_ATTRIBUTES.contentResponseKey]: outcome.responseKey,
+      [OM_LLM_ATTRIBUTES.contentResponseSha256]: call.responseSha256,
+      [OM_LLM_ATTRIBUTES.contentResponseBytes]: 256,
+      [OM_LLM_ATTRIBUTES.contentStatus]: 'over_cap_truncated',
     })
   })
 })

@@ -314,12 +314,12 @@ export default function TraceCaptureSettingsPage() {
           {formRequestsFullCapture(form) ? (
             <Alert status="information" style="light">
               <AlertTitle>
-                {t('agent_orchestrator.settings.traceCapture.fullNoticeTitle', 'Content capture is not available yet')}
+                {t('agent_orchestrator.settings.traceCapture.fullNoticeTitle', 'Full capture stores prompts and responses')}
               </AlertTitle>
               <AlertDescription>
                 {t(
                   'agent_orchestrator.settings.traceCapture.fullNotice',
-                  'Recording prompts and responses arrives with a later release. Until then, runs set to full record metadata only.',
+                  'Runs at the full level store their prompts and responses encrypted in file storage. Without file storage configured for this tenant, those runs record metadata only.',
                 )}
               </AlertDescription>
             </Alert>
@@ -342,7 +342,7 @@ export default function TraceCaptureSettingsPage() {
               <CardDescription>
                 {t(
                   'agent_orchestrator.settings.traceCapture.policyHint',
-                  'Metadata records models, parameters, token usage, cost and content hashes — never the prompts or responses themselves.',
+                  'Metadata records models, parameters, token usage, cost and content hashes. Full also stores the prompts and responses themselves, encrypted.',
                 )}
               </CardDescription>
             </CardHeader>
@@ -380,13 +380,14 @@ export default function TraceCaptureSettingsPage() {
                     min={RETENTION_DAYS_MIN}
                     max={RETENTION_DAYS_MAX}
                     value={form.retentionDays}
-                    disabled
+                    disabled={!canManage}
+                    onChange={(event) => update({ retentionDays: event.target.value })}
                     aria-describedby="trace-capture-retention-hint"
                   />
                   <p id="trace-capture-retention-hint" className="text-xs text-muted-foreground">
                     {t(
                       'agent_orchestrator.settings.traceCapture.retentionDaysHint',
-                      'Not available yet: takes effect together with content capture.',
+                      'Stored prompts and responses are deleted after this many days.',
                     )}
                   </p>
                   {showErrors && errors.retentionDays ? (
@@ -403,7 +404,8 @@ export default function TraceCaptureSettingsPage() {
               <div className="flex items-start gap-3">
                 <Switch
                   checked={form.redactPii}
-                  disabled
+                  disabled={!canManage}
+                  onCheckedChange={(next) => update({ redactPii: next })}
                   aria-label={t('agent_orchestrator.settings.traceCapture.redactPii', 'Redact personal data')}
                 />
                 <div className="min-w-0">
@@ -411,7 +413,7 @@ export default function TraceCaptureSettingsPage() {
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {t(
                       'agent_orchestrator.settings.traceCapture.redactPiiHint',
-                      'Not available yet: arrives together with content capture, and will then mask email addresses and secrets before captured content is stored.',
+                      'Masks email addresses, phone numbers, bank account and card numbers in captured content before it is stored. Secrets are always masked.',
                     )}
                   </p>
                 </div>
@@ -426,7 +428,7 @@ export default function TraceCaptureSettingsPage() {
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     {t(
                       'agent_orchestrator.settings.traceCapture.includeProviderBodyHint',
-                      'Not available yet: arrives together with content capture.',
+                      'Not available yet: raw provider bodies are not exposed to trace capture.',
                     )}
                   </p>
                 </div>

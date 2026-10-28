@@ -72,19 +72,40 @@ describe('trace capture settings page', () => {
     renderWithProviders(<TraceCaptureSettingsPage />)
     expect(await screen.findByText(/You can see this policy but not change it/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
-    expect(screen.getByText('Content capture is not available yet')).toBeTruthy()
+    expect(screen.getByText('Full capture stores prompts and responses')).toBeTruthy()
+    expect(screen.queryByText(/record metadata only until|takes effect together with content capture/)).toBeNull()
+    const retention = screen.getByLabelText('Retention (days)') as HTMLInputElement
+    expect(retention.disabled).toBe(true)
+    const redact = screen.getByRole('switch', { name: 'Redact personal data' })
+    expect(redact.hasAttribute('disabled')).toBe(true)
   })
 
-  it('shows retention and redaction as not available yet, read-only even for a manager', async () => {
+  it('lets a manager edit retention and redaction, keeping raw provider bodies disabled', async () => {
     grant(['agent_orchestrator.*'])
     renderWithProviders(<TraceCaptureSettingsPage />)
     const retention = (await screen.findByLabelText('Retention (days)')) as HTMLInputElement
-    expect(retention.disabled).toBe(true)
+    expect(retention.disabled).toBe(false)
     expect(retention.value).toBe('45')
+    expect(screen.getByText('Stored prompts and responses are deleted after this many days.')).toBeTruthy()
     const redact = screen.getByRole('switch', { name: 'Redact personal data' })
-    expect(redact.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByText('Not available yet: takes effect together with content capture.')).toBeTruthy()
-    expect(screen.queryByText(/Masks email addresses/)).toBeNull()
+    expect(redact.hasAttribute('disabled')).toBe(false)
+    expect(screen.getByText(/Masks email addresses/)).toBeTruthy()
+    const providerBody = screen.getAllByRole('switch').find((element) => element !== redact)
+    expect(providerBody?.hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByText(/Content capture is not available yet/)).toBeNull()
+  })
+
+  it('saves edited retention and redaction', async () => {
+    grant(['agent_orchestrator.*'])
+    readApiResultMock.mockResolvedValue(SETTINGS)
+    renderWithProviders(<TraceCaptureSettingsPage />)
+    const retention = (await screen.findByLabelText('Retention (days)')) as HTMLInputElement
+    fireEvent.change(retention, { target: { value: '7' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Redact personal data' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(readApiResultMock).toHaveBeenCalledTimes(1))
+    const [, init] = readApiResultMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toMatchObject({ retentionDays: 7, redactPii: false })
   })
 
   it('saves the edited policy with the optimistic-lock version from GET, keeping stored retention and redaction', async () => {

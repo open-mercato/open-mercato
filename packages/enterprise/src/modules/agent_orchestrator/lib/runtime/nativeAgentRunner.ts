@@ -294,7 +294,7 @@ export class NativeAgentRunner {
       ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
       : null
     let promptResolved: AiAgentPromptResolvedEvent | null = null
-    const modelCalls = createNativeModelCallCollector()
+    const modelCalls = createNativeModelCallCollector({ retainContent: runCapture?.level === 'full' })
     const promptObserver = {
       onPromptResolved(event: AiAgentPromptResolvedEvent): void {
         promptResolved = event
@@ -497,7 +497,7 @@ export class NativeAgentRunner {
           fallbackModel: entry.defaultModel ?? null,
           fallbackCall: attached.fallbackCall,
           manifest: buildManifest(),
-          ...(runCapture ? { captureLevel: runCapture.level } : {}),
+          ...(runCapture ? { captureLevel: runCapture.level, redactPii: runCapture.redactPii } : {}),
         },
       ).catch((err: unknown) => {
         logger.warn('native trace capture rejected for run', {

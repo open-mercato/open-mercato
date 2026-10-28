@@ -25,6 +25,7 @@ import {
 } from '../trace/genAiAttributes'
 import { computeCostMicros } from './modelPricing'
 import type { NativeModelCallRecord } from './nativeModelCallRecorder'
+import { offloadModelCallContent, withoutContent } from './nativeContentOffload'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
@@ -79,6 +80,8 @@ export type NativeTraceInput = {
   manifest?: RunManifestInput | null
   /** Per-step metadata level; `off` keeps the legacy llm span attributes only. Defaults to `metadata`. */
   captureLevel?: RunManifestCaptureLevel
+  /** At `full`, also mask personal data in the offloaded request/response content. */
+  redactPii?: boolean
 }
 
 /**
@@ -161,8 +164,13 @@ function buildRequestParameterAttributes(call: NativeModelCallRecord): SpanAttri
   return params
 }
 
+function contentOutcomeFor(call: NativeModelCallRecord, captureLevel: RunManifestCaptureLevel) {
+  return captureLevel === 'full' ? call.contentOutcome ?? null : null
+}
+
 function buildCallMetadataAttributes(
   call: NativeModelCallRecord,
+  captureLevel: RunManifestCaptureLevel,
   fallbackUsage: { inputTokens?: number; outputTokens?: number } | null | undefined,
 ): SpanAttributes {
   const attributes: SpanAttributes = {
@@ -198,20 +206,44 @@ function buildCallMetadataAttributes(
   assignNumber(attributes, OM_LLM_ATTRIBUTES.contentRequestBytes, call.requestBytes)
   assignText(attributes, OM_LLM_ATTRIBUTES.contentResponseSha256, call.responseSha256)
   assignNumber(attributes, OM_LLM_ATTRIBUTES.contentResponseBytes, call.responseBytes)
-  attributes[OM_LLM_ATTRIBUTES.contentStatus] = 'disabled'
+  const outcome = contentOutcomeFor(call, captureLevel)
+  assignText(attributes, OM_LLM_ATTRIBUTES.contentRequestKey, outcome?.requestKey)
+  assignText(attributes, OM_LLM_ATTRIBUTES.contentResponseKey, outcome?.responseKey)
+  attributes[OM_LLM_ATTRIBUTES.contentStatus] = outcome?.status ?? 'disabled'
+  if (outcome && outcome.redactions.length > 0) attributes[OM_LLM_ATTRIBUTES.contentRedactions] = outcome.redactions
   attributes[OM_LLM_ATTRIBUTES.captureFidelity] = call.fidelity
   return attributes
 }
+
+const CONTENT_REFERENCE_KEYS: readonly string[] = [
+  OM_LLM_ATTRIBUTES.contentRequestKey,
+  OM_LLM_ATTRIBUTES.contentRequestSha256,
+  OM_LLM_ATTRIBUTES.contentRequestBytes,
+  OM_LLM_ATTRIBUTES.contentResponseKey,
+  OM_LLM_ATTRIBUTES.contentResponseSha256,
+  OM_LLM_ATTRIBUTES.contentResponseBytes,
+  OM_LLM_ATTRIBUTES.contentStatus,
+]
 
 function fitsSpanAttributeCap(attributes: SpanAttributes): boolean {
   return JSON.stringify(attributes).length <= SUMMARY_CHAR_LIMIT
 }
 
+function withoutKey(attributes: SpanAttributes, key: string): SpanAttributes {
+  return Object.fromEntries(Object.entries(attributes).filter(([entryKey]) => entryKey !== key))
+}
+
+function pickContentReferences(attributes: SpanAttributes): SpanAttributes {
+  return Object.fromEntries(Object.entries(attributes).filter(([key]) => CONTENT_REFERENCE_KEYS.includes(key)))
+}
+
 /**
  * Llm span attributes for one model call: the legacy keys always, plus the
  * gen_ai / om metadata keys when a call record exists and the capture level is
- * not `off`. The result always fits the ingest attribute cap — stop sequences
- * are dropped first, then the metadata keys, so the span is never truncated.
+ * not `off`. The result fits the ingest attribute cap — stop sequences are
+ * dropped first, then the content redaction counts, then the metadata keys.
+ * Offloaded content keys and the content status are never dropped: the trace
+ * cannot lose its pointer to stored content.
  */
 function buildLlmSpanAttributes(
   legacy: SpanAttributes | null,
@@ -220,14 +252,15 @@ function buildLlmSpanAttributes(
   fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null,
 ): SpanAttributes | null {
   if (captureLevel === 'off' || !call) return legacy
-  const metadata = buildCallMetadataAttributes(call, fallbackUsage)
+  const metadata = buildCallMetadataAttributes(call, captureLevel, fallbackUsage)
   const combined = { ...(legacy ?? {}), ...metadata }
   if (fitsSpanAttributeCap(combined)) return combined
-  const withoutStopSequences = Object.fromEntries(
-    Object.entries(combined).filter(([key]) => key !== GEN_AI_ATTRIBUTES.requestStopSequences),
-  )
+  const withoutStopSequences = withoutKey(combined, GEN_AI_ATTRIBUTES.requestStopSequences)
   if (fitsSpanAttributeCap(withoutStopSequences)) return withoutStopSequences
-  return legacy
+  const withoutRedactions = withoutKey(withoutStopSequences, OM_LLM_ATTRIBUTES.contentRedactions)
+  if (fitsSpanAttributeCap(withoutRedactions)) return withoutRedactions
+  if (!contentOutcomeFor(call, captureLevel)) return legacy
+  return { ...(legacy ?? {}), ...pickContentReferences(withoutRedactions) }
 }
 
 /**
@@ -359,6 +392,38 @@ type MinimalContainer = {
   hasRegistration?: (name: string) => boolean
 }
 
+function collectCalls(input: NativeTraceInput): NativeModelCallRecord[] {
+  const calls = input.steps
+    .map((step) => step.call)
+    .filter((call): call is NativeModelCallRecord => call !== undefined)
+  if (input.fallbackCall) calls.push(input.fallbackCall)
+  return calls
+}
+
+/**
+ * Offloads retained model-call content at the `full` capture level and returns
+ * the trace input with every call stripped of its content (carrying the
+ * offload outcome instead), so the payload builder never sees raw content.
+ */
+export async function offloadNativeTraceContent(
+  container: MinimalContainer,
+  scope: { tenantId: string; organizationId: string },
+  input: NativeTraceInput,
+): Promise<NativeTraceInput> {
+  const calls = collectCalls(input)
+  if (calls.length === 0) return input
+  const replaced =
+    input.captureLevel === 'full'
+      ? await offloadModelCallContent(container, scope, calls, { redactPii: input.redactPii === true })
+      : calls.map(withoutContent)
+  const replacements = new Map(calls.map((call, index) => [call, replaced[index]]))
+  return {
+    ...input,
+    steps: input.steps.map((step) => (step.call ? { ...step, call: replacements.get(step.call) ?? step.call } : step)),
+    fallbackCall: input.fallbackCall ? replacements.get(input.fallbackCall) ?? input.fallbackCall : input.fallbackCall,
+  }
+}
+
 /**
  * Post-run, best-effort persistence of a native run's trace. Never throws —
  * a capture failure logs and the run outcome is unaffected (the run row was
@@ -372,8 +437,9 @@ export async function captureNativeRunTrace(
   if (!isNativeTraceCaptureEnabled()) return
   try {
     const em = (container.resolve('em') as EntityManager).fork()
+    const prepared = await offloadNativeTraceContent(container, scope, input)
     const result = await withRuntimeAuditWrite(() =>
-      ingestTrace(em, scope, buildNativeTracePayload(input), {
+      ingestTrace(em, scope, buildNativeTracePayload(prepared), {
         offloadArtifact: createArtifactOffloader(container, scope),
       }),
     )
