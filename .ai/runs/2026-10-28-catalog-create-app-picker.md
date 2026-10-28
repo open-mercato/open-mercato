@@ -55,4 +55,4 @@ Ship the opt-in `--modules` / `--module-picker` flags of `create-mercato-app`, i
 ### Phase 3: Merge-ready
 
 - [x] 3.1 Validation gate — 9956495c0c
-- [ ] 3.2 om-auto-fix-pr --no-ui loop (review, CI)
+- [x] 3.2 om-auto-fix-pr --no-ui loop (review, CI) — 2dd8d2c756
