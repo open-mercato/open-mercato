@@ -419,7 +419,7 @@ export const guardrailCheck: ScorerDefinition<GuardrailCheckConfig> = {
       return skipped(SKIP_REASON.invalidConfig, { reason: 'guardrail_check needs a kind or a ruleId' })
     }
     const target = { kind: config.kind ?? null, ruleId: config.ruleId ?? null }
-    const matching = run.guardrailChecks.filter(
+    const matching = (run.guardrailChecks ?? []).filter(
       (check) =>
         (!config.kind || check.kind === config.kind) && (!config.ruleId || check.ruleId === config.ruleId),
     )

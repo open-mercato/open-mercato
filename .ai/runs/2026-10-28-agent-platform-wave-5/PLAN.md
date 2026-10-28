@@ -29,6 +29,7 @@
 | 1 | 1.7 | Return the integrity summary and raw output key from the run APIs | dispatch | done | pending |
 | 1 | 1.8 | Show integrity rules and holds in the trace, caseload and agent UI | dispatch | done | pending |
 | 1 | 1.9 | Add the guardrail_check eval scorer | dispatch | done | pending |
+| 1 | 1.9-review-fix | Keep ScorerRunView.guardrailChecks optional | inline | done | pending |
 | 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | todo | — |
 | 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | todo | — |
 | 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | todo | — |
@@ -127,6 +128,9 @@ See the two research files (verified on `2d407b96f`). Key cross-cutting rules fo
 - Implements **I5.2** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 1.9 Add the guardrail_check eval scorer
 - Implements **I5.3** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
+#### 1.9-review-fix Keep ScorerRunView.guardrailChecks optional
+- `lib/eval/types.ts` is importable through the package's `./*` export, so a new required field would break external run-view builders; the field is optional and the scorer treats it as `[]`.
+
 #### 1.10 Run the output pipeline in the OpenCode runner
 - Implements **I5.4** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 1.11 Cover integrity review and untrusted inputs with integration tests

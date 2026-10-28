@@ -35,6 +35,12 @@ describe('guardrail_check scorer', () => {
     expect(definition?.fields.map((field) => field.name)).toEqual(['kind', 'ruleId', 'expect'])
   })
 
+  it('treats a run view without guardrailChecks as having no checks', () => {
+    const { guardrailChecks: _omitted, ...legacyView } = runView([])
+    const verdict = runScorer('guardrail_check', legacyView, null, { ruleId: 'quotes', expect: 'pass' })
+    expect(verdict).toMatchObject({ passed: false })
+  })
+
   it('passes when the target check result matches the expectation', () => {
     const verdict = runScorer('guardrail_check', runView([check()]), null, { ruleId: 'quotes', expect: 'pass' })
     expect(verdict).toMatchObject({ passed: true, score: 1 })

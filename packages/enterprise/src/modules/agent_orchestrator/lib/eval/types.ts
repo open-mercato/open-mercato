@@ -35,7 +35,7 @@ export type ScorerRunView = {
   stepCount: number
   disposition: string | null
   /** The run's persisted guardrail verdicts, projected without evidence beyond the rule id and outcome. */
-  guardrailChecks: ReadonlyArray<ScorerGuardrailCheckView>
+  guardrailChecks?: ReadonlyArray<ScorerGuardrailCheckView>
 }
 
 export type ScorerGuardrailCheckView = {
