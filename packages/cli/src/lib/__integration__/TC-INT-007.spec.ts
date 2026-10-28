@@ -65,6 +65,17 @@ function createCoreWorkspacePackage(rootDir: string, relativeDir: string): strin
   return coreDir
 }
 
+const commentedModulesSource = [
+  '// Central place to enable modules.',
+  'export const enabledModules = [',
+  '  // customer_groups stays disabled by default.',
+  "  // { id: 'customer_groups', from: '@open-mercato/core' },",
+  '',
+  '  /* Block comment kept by module add. */',
+  ']',
+  '',
+].join('\n')
+
 function createMonorepoFixture(rootDir: string): string {
   writeFile(
     path.join(rootDir, 'package.json'),
@@ -97,7 +108,7 @@ function createMonorepoFixture(rootDir: string): string {
       2,
     ),
   )
-  writeFile(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  writeFile(path.join(appDir, 'src', 'modules.ts'), commentedModulesSource)
   return appDir
 }
 
@@ -152,7 +163,12 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
         dependencies?: Record<string, string>
       }
 
-      expect(modulesSource).toContain("{ id: 'test_package', from: '@open-mercato/test-package' }")
+      expect(modulesSource).toBe(
+        commentedModulesSource.replace(
+          '  /* Block comment kept by module add. */\n',
+          "  /* Block comment kept by module add. */\n  { id: 'test_package', from: '@open-mercato/test-package' },\n",
+        ),
+      )
       expect(cssSource).toContain('node_modules/@open-mercato/test-package/src/**/*.{ts,tsx}')
       expect(appPackageJson.dependencies?.['@open-mercato/test-package']).toBeTruthy()
     } finally {
