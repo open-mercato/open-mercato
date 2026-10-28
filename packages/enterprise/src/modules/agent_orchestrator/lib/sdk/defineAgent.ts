@@ -15,6 +15,7 @@ import {
   type UntrustedInputDeclInput,
 } from '../../data/validators'
 import { parseAgentIntegrityRules, parseAgentUntrustedInputs } from '../guardrails/integrity/declaration'
+import { buildUntrustedInputInstruction } from '../guardrails/integrity/untrustedInput'
 import { getSkillEntry } from './defineSkill'
 export {
   registerIntegrityChecker,
@@ -318,8 +319,13 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const subAgentSection = subAgents.length
     ? `## Sub-agents\nYou may delegate independent sub-tasks to these agents by calling the \`${DELEGATE_TOOL_ID}\` tool with { agentId, input }. When several sub-tasks are independent, issue multiple delegate calls in the SAME step so they run in parallel, then combine their results. Available sub-agents: ${subAgents.join(', ')}.`
     : null
-  const systemPrompt = [input.instructions, ...skillSections, ...(subAgentSection ? [subAgentSection] : [])]
-    .join('\n\n')
+  const untrustedInputSection = buildUntrustedInputInstruction(untrustedInputs)
+  const systemPrompt = [
+    input.instructions,
+    ...skillSections,
+    ...(subAgentSection ? [subAgentSection] : []),
+    ...(untrustedInputSection ? [untrustedInputSection] : []),
+  ].join('\n\n')
   const aiDefinition = defineAiAgent({
     id: input.id,
     moduleId: input.moduleId,

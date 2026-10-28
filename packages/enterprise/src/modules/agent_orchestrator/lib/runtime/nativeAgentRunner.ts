@@ -39,7 +39,11 @@ import {
   resolveIntegritySet,
   syncIntegritySets,
 } from '../guardrails/integrity/integritySets'
-import { buildUntrustedInputSpans } from '../guardrails/integrity/untrustedInput'
+import {
+  buildUntrustedInputSpans,
+  createUntrustedInputNonce,
+  renderUntrustedModelInput,
+} from '../guardrails/integrity/untrustedInput'
 import { ARTIFACT_REFS, putArtifact } from '../trace/artifactStore'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
 import {
@@ -501,7 +505,7 @@ export class NativeAgentRunner {
             runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
               const objectResult = await runAiAgentObject({
                 agentId,
-                input: typeof input === 'string' ? input : JSON.stringify(input),
+                input: renderUntrustedModelInput(input, entry.untrustedInputs, createUntrustedInputNonce()),
                 authContext,
                 container: this.container,
                 output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
