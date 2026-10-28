@@ -419,6 +419,20 @@ describe(`planner availability writes (host TZ=${process.env.TZ ?? 'unset'})`, (
       windows: [{ weekday: SUNDAY, start: '00:00', end: '08:00' }],
     }
 
+    it('preserves both requested wall times when the upcoming window lies entirely inside a gap', async () => {
+      const gapWindow = {
+        ...weeklyInput('Europe/Warsaw'),
+        windows: [{ weekday: SUNDAY, start: '02:00', end: '02:30' }],
+      }
+      const [duringTransitionWeek] = await persistedWeeklyRrulesAt('2026-03-25T10:00:00Z', gapWindow)
+      const [weekAfter] = await persistedWeeklyRrulesAt('2026-04-01T10:00:00Z', gapWindow)
+      const range = { start: '2026-04-04T22:00:00Z', end: '2026-04-06T00:00:00Z' }
+
+      expect(dtStartOf(duringTransitionWeek)).toBe('20260322T010000Z')
+      expect(warsawWindows(duringTransitionWeek, range)).toEqual(['2026-04-05 02:00 – 2026-04-05 02:30'])
+      expect(warsawWindows(duringTransitionWeek, range)).toEqual(warsawWindows(weekAfter, range))
+    })
+
     it('does not let an anchor week spanning the autumn fallback stretch every week to 9 hours', async () => {
       // Saved on Wednesday 2026-10-21: the upcoming Sunday 00:00–08:00 spans
       // the 2026-10-25 fallback (03:00 CEST → 02:00 CET) and lasts 9 hours,

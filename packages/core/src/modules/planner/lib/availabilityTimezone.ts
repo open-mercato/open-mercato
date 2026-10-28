@@ -199,8 +199,8 @@ export function nextWeekdayDateKey(weekday: number, timeZone: string, from: Date
  * applies to every week. An anchor that spans a DST transition (Europe/Warsaw
  * Sunday 00:00–08:00 on 2026-10-25 lasts 9 hours) or starts in a gap would
  * therefore misstate the window for all ordinary weeks, so the upcoming
- * occurrence is used only when its exact length matches the requested local
- * length; otherwise the previous week's occurrence anchors the series. Taking
+ * occurrence is used only when both local endpoints and its exact length match
+ * the request; otherwise the previous week's occurrence anchors the series. Taking
  * the earlier week keeps the upcoming occurrence inside the series for readers
  * that expand forward from `DTSTART`.
  *
@@ -218,16 +218,23 @@ export function zonedWeeklyAnchor(
   const startClock = parseTimeOfDay(startTime)
   const endClock = parseTimeOfDay(endTime)
   if (!startClock || !endClock) return null
-  const localLengthMs = ((endClock.hours - startClock.hours) * 60 + endClock.minutes - startClock.minutes) * MINUTE_MS
+  const zone = resolveTimeZone(timeZone)
+  const startMinutes = startClock.hours * 60 + startClock.minutes
+  const endMinutes = endClock.hours * 60 + endClock.minutes
+  const localLengthMs = (endMinutes - startMinutes) * MINUTE_MS
   const upcoming = parseDateKey(nextWeekdayDateKey(weekday, timeZone, from))
   if (!upcoming) return null
   const upcomingMidnight = Date.UTC(upcoming.year, upcoming.month - 1, upcoming.day)
   let fallback: { start: Date; end: Date } | null = null
   for (const weekOffset of [0, -1]) {
-    const dateKey = formatUtcDateKey(upcomingMidnight + weekOffset * 7 * DAY_MS)
+    const midnight = upcomingMidnight + weekOffset * 7 * DAY_MS
+    const dateKey = formatUtcDateKey(midnight)
     const start = zonedWallTimeToInstant(dateKey, startTime, timeZone)
     const end = zonedWallTimeToInstant(dateKey, endTime, timeZone)
     if (!start || !end) return null
+    const startWall = wallClockAsUtc(zonedWallClock(start.getTime(), zone))
+    const endWall = wallClockAsUtc(zonedWallClock(end.getTime(), zone))
+    if (startWall !== midnight + startMinutes * MINUTE_MS || endWall !== midnight + endMinutes * MINUTE_MS) continue
     if (end.getTime() - start.getTime() === localLengthMs) return { start, end }
     fallback ??= { start, end }
   }
