@@ -48,7 +48,7 @@
 | 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | done | pending |
 | 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | done | pending |
 | 3 | 3.1 | Add the trace content namespace and tri-state artifact reads | dispatch:cheap | done | pending |
-| 3 | 3.2 | Build redacted and capped LLM request and response artifacts | dispatch:capable | todo | — |
+| 3 | 3.2 | Build redacted and capped LLM request and response artifacts | dispatch:capable | done | pending |
 | 3 | 3.3 | Offload LLM content at the full capture level | dispatch:capable | todo | — |
 | 3 | 3.4 | Offload the packed context payload | dispatch:capable | todo | — |
 | 3 | 3.5 | Serve content artifacts with view_content, 410 and access logs | dispatch | todo | — |

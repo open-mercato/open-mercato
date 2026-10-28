@@ -19,15 +19,145 @@ export function redactEmails(text: string): string {
   }
 }
 
-export function redactSecretStrings(text: string): string {
+export type StringRedactionCounts = Record<string, number>
+
+export type CountedRedaction = { text: string; counts: StringRedactionCounts }
+
+type CountedRule = {
+  rule: string
+  pattern: RegExp
+  replace: (match: string, groups: string[]) => string | null
+}
+
+function applyCountedRules(text: string, rules: CountedRule[]): CountedRedaction {
+  const counts: StringRedactionCounts = {}
+  let current = text
+  for (const { rule, pattern, replace } of rules) {
+    current = current.replace(pattern, (match: string, ...rest: unknown[]) => {
+      const offsetIndex = rest.findIndex((entry) => typeof entry === 'number')
+      const captured = offsetIndex < 0 ? [] : rest.slice(0, offsetIndex)
+      const groups = captured.map((entry) => (typeof entry === 'string' ? entry : ''))
+      const replacement = replace(match, groups)
+      if (replacement === null) return match
+      counts[rule] = (counts[rule] ?? 0) + 1
+      return replacement
+    })
+  }
+  return { text: current, counts }
+}
+
+const SECRET_STRING_RULES: CountedRule[] = [
+  {
+    rule: 'session_authorization',
+    pattern: SESSION_AUTHORIZATION_RE,
+    replace: (_match, [prefix]) => `${prefix}${REDACTED_PLACEHOLDER}`,
+  },
+  {
+    rule: 'session_token_field',
+    pattern: SESSION_TOKEN_FIELD_RE,
+    replace: (_match, [prefix, suffix]) => `${prefix}${REDACTED_PLACEHOLDER}${suffix}`,
+  },
+  {
+    rule: 'secret_header',
+    pattern: SECRET_HEADER_RE,
+    replace: (_match, [name, separator]) => `${name}${separator}${REDACTED_PLACEHOLDER}`,
+  },
+  {
+    rule: 'auth_scheme',
+    pattern: AUTH_SCHEME_RE,
+    replace: (_match, [scheme]) => `${scheme} ${REDACTED_PLACEHOLDER}`,
+  },
+]
+
+/** Fails closed: an internal error yields the placeholder, never the unredacted input. */
+export function redactSecretStringsCounted(text: string): CountedRedaction {
   try {
-    return text
-      .replace(SESSION_AUTHORIZATION_RE, (_match, prefix: string) => `${prefix}${REDACTED_PLACEHOLDER}`)
-      .replace(SESSION_TOKEN_FIELD_RE, (_match, prefix: string, suffix: string) => `${prefix}${REDACTED_PLACEHOLDER}${suffix}`)
-      .replace(SECRET_HEADER_RE, (_match, name: string, separator: string) => `${name}${separator}${REDACTED_PLACEHOLDER}`)
-      .replace(AUTH_SCHEME_RE, (_match, scheme: string) => `${scheme} ${REDACTED_PLACEHOLDER}`)
+    return applyCountedRules(text, SECRET_STRING_RULES)
   } catch {
-    return REDACTED_PLACEHOLDER
+    return { text: REDACTED_PLACEHOLDER, counts: { redaction_error: 1 } }
+  }
+}
+
+export function redactSecretStrings(text: string): string {
+  return redactSecretStringsCounted(text).text
+}
+
+export const REDACTED_PHONE_PLACEHOLDER = '[redacted-phone]'
+export const REDACTED_IBAN_PLACEHOLDER = '[redacted-iban]'
+export const REDACTED_CARD_PLACEHOLDER = '[redacted-card]'
+
+const IBAN_RE = /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/g
+const CARD_RE = /(?<![\d-])\d(?:[ -]?\d){12,18}(?![\d-])/g
+const PHONE_RE = /(?<![\w+])\+\d{1,3}(?:[ .-]?\(\d{1,4}\))?(?:[ .-]?\d{2,4}){2,5}(?!\d)/g
+
+function digitsOnly(text: string): string {
+  return text.replace(/\D/g, '')
+}
+
+export function passesLuhn(digits: string): boolean {
+  if (!/^\d+$/.test(digits)) return false
+  let sum = 0
+  let doubleNext = false
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    let digit = digits.charCodeAt(index) - 48
+    if (doubleNext) {
+      digit *= 2
+      if (digit > 9) digit -= 9
+    }
+    sum += digit
+    doubleNext = !doubleNext
+  }
+  return sum % 10 === 0
+}
+
+export function passesIbanChecksum(candidate: string): boolean {
+  const compact = candidate.replace(/ /g, '')
+  if (compact.length < 15 || compact.length > 34) return false
+  const rearranged = `${compact.slice(4)}${compact.slice(0, 4)}`
+  let remainder = 0
+  for (const character of rearranged) {
+    const code = character.charCodeAt(0)
+    const value = code >= 65 ? String(code - 55) : character
+    for (const digit of value) remainder = (remainder * 10 + (digit.charCodeAt(0) - 48)) % 97
+  }
+  return remainder === 1
+}
+
+const PII_STRING_RULES: CountedRule[] = [
+  { rule: 'email', pattern: EMAIL_RE, replace: () => REDACTED_EMAIL_PLACEHOLDER },
+  {
+    rule: 'iban',
+    pattern: IBAN_RE,
+    replace: (match) => (passesIbanChecksum(match) ? REDACTED_IBAN_PLACEHOLDER : null),
+  },
+  {
+    rule: 'card',
+    pattern: CARD_RE,
+    replace: (match) => {
+      const digits = digitsOnly(match)
+      return digits.length >= 13 && digits.length <= 19 && passesLuhn(digits) ? REDACTED_CARD_PLACEHOLDER : null
+    },
+  },
+  {
+    rule: 'phone',
+    pattern: PHONE_RE,
+    replace: (match) => {
+      const length = digitsOnly(match).length
+      return length >= 8 && length <= 15 ? REDACTED_PHONE_PLACEHOLDER : null
+    },
+  },
+]
+
+/**
+ * Conservative PII pass for free text: emails, IBANs (mod-97 checked), card
+ * numbers (Luhn checked) and international `+`-prefixed phone numbers.
+ * Fails closed like the secret pass.
+ */
+export function redactPiiStrings(text: string): CountedRedaction {
+  try {
+    return applyCountedRules(text, PII_STRING_RULES)
+  } catch {
+    return { text: REDACTED_PLACEHOLDER, counts: { redaction_error: 1 } }
   }
 }
 
