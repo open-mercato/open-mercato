@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAgentEntry, ensureAgentsLoaded } from '../../../lib/sdk/defineAgent'
+import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../../../lib/sdk/defineAgent'
 import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
 import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
 import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
@@ -13,6 +13,16 @@ import { normalizeAgentTags } from '../../../data/agentTags'
 import { agentTypeSchema } from '../../../data/validators'
 import { integrityRuleListItemSchema, listIntegrityRules } from '../../../lib/guardrails/integrity/ruleList'
 import { resolveIntegritySet } from '../../../lib/guardrails/integrity/integritySets'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { loadInvokerAcl } from '../../../lib/access/agentInvokeAccess'
+import { invokerFromAuth } from '../../../lib/access/invokeDenial'
+import {
+  agentPrincipalSummarySchema,
+  loadAgentPrincipalStates,
+  summarizeAgentPrincipal,
+  type AgentPrincipalSummary,
+} from '../../../lib/identity/agentPrincipalSummary'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -69,11 +79,35 @@ const agentDetailSchema = z.object({
   // integrity set's content-hash version (null when the agent declares none).
   integrityRules: z.array(integrityRuleListItemSchema),
   integritySetVersion: z.string().nullable(),
+  // The agent's principal summary (see the list route) — agents.manage holders
+  // only; null when the agent has no principal.
+  principal: agentPrincipalSummarySchema.optional(),
 })
 
 const errorSchema = z.object({ error: z.string() })
 
+const AGENTS_MANAGE_FEATURE = 'agent_orchestrator.agents.manage'
+
 type RouteContext = { params: Promise<{ id: string }> }
+
+type RequestAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
+
+async function loadPrincipalForManager(
+  req: Request,
+  auth: RequestAuth,
+  entry: Pick<AgentRegistryEntry, 'id' | 'principal'>,
+): Promise<AgentPrincipalSummary | undefined> {
+  const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope?.selectedId ?? null
+  const acl = await loadInvokerAcl(container, invokerFromAuth(auth), { tenantId: auth.tenantId ?? null, organizationId })
+  if (!authorizeFeatures([AGENTS_MANAGE_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })) {
+    return undefined
+  }
+  const em = (container.resolve('em') as EntityManager).fork()
+  const states = await loadAgentPrincipalStates(em, { tenantId: auth.tenantId ?? null, organizationId }, [entry.id])
+  return summarizeAgentPrincipal(entry, states.get(entry.id))
+}
 
 export async function GET(req: Request, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
@@ -104,6 +138,7 @@ export async function GET(req: Request, ctx: RouteContext) {
       iconUpdatedAt = null
     }
   }
+  const principal = await loadPrincipalForManager(req, auth, entry)
   const skillDetails = entry.skills.map((skillId) => {
     const skill = getSkillEntry(skillId)
     if (skill) {
@@ -150,6 +185,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     tokenUsage: entry.tokenUsage ?? null,
     integrityRules: listIntegrityRules(entry.integrity),
     integritySetVersion: resolveIntegritySet(entry)?.version ?? null,
+    ...(principal !== undefined ? { principal } : {}),
   })
 }
 
@@ -160,7 +196,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get the full definition of a registered agent',
       description:
-        'Returns the full in-module agent definition (id, module, result kind, tools, skills, instructions, provider/model, loop, declared integrity rules and integrity set version) for an agent declared via defineAgent. Gated by agent_orchestrator.agents.view.',
+        'Returns the full in-module agent definition (id, module, result kind, tools, skills, instructions, provider/model, loop, declared integrity rules and integrity set version) for an agent declared via defineAgent. Callers holding agent_orchestrator.agents.manage also receive the principal summary (declared, provisioned and enabled in the selected organization, tool ACL mode, required flag, declared role features; null when the agent has no principal). Gated by agent_orchestrator.agents.view.',
       responses: [
         { status: 200, description: 'Agent definition', schema: agentDetailSchema },
       ],

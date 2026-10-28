@@ -265,11 +265,26 @@ export type AgentView = {
   tools: string[]
   skills: string[]
   requiredFeatures: string[]
+  /**
+   * The agent's principal summary. Undefined when the caller may not see it
+   * (non-managers); null when the agent has no principal.
+   */
+  principal?: AgentPrincipalView | null
   invocable: boolean
   /** Optional example input for the Playground "Insert sample" button. */
   sampleInput?: unknown
   /** Optional declared Caseload facts (from the agent's FACTS.json / defineAgent). */
   facts?: AgentFactView[]
+}
+
+export type AgentPrincipalView = {
+  declared: boolean
+  provisioned: boolean
+  enabled: boolean
+  toolAcl: 'caller' | 'intersect'
+  required: boolean
+  /** Declared role features; undefined when the principal is not declared. */
+  roleFeatures?: string[]
 }
 
 export type AgentFactView = {
@@ -731,9 +746,25 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     requiredFeatures: Array.isArray(item.requiredFeatures)
       ? item.requiredFeatures.filter((feature): feature is string => typeof feature === 'string')
       : [],
+    ...(item.principal !== undefined ? { principal: mapAgentPrincipal(item.principal) } : {}),
     invocable: item.invocable !== false,
     sampleInput: item.sampleInput,
     facts: mapAgentFacts(item.facts),
+  }
+}
+
+export function mapAgentPrincipal(raw: unknown): AgentPrincipalView | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  return {
+    declared: record.declared === true,
+    provisioned: record.provisioned === true,
+    enabled: record.enabled === true,
+    toolAcl: record.toolAcl === 'intersect' ? 'intersect' : 'caller',
+    required: record.required === true,
+    ...(Array.isArray(record.roleFeatures)
+      ? { roleFeatures: record.roleFeatures.filter((feature): feature is string => typeof feature === 'string') }
+      : {}),
   }
 }
 

@@ -10,6 +10,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatNumber, type AgentDetailView, type SkillDetailView } from '../../../../components/types'
 import { TokenUsageCard } from './workspacePrimitives'
+import { AgentAccessSection } from './AgentAccessSection'
 import { guardrailKindLabelKey } from '../../../../components/guardrailEvidence'
 import type { RuntimeTokenUsage } from './workspaceShared'
 
@@ -145,6 +146,8 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
             </div>
           </section>
         ) : null}
+
+        <AgentAccessSection principal={agent.principal} />
 
         <section className="space-y-2">
           <SectionHeader title={t('agent_orchestrator.agentDetail.tokens.runtimeTitle', 'Token usage')} />

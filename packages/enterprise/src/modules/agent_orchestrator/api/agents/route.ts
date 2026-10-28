@@ -18,6 +18,12 @@ import {
   type InvokerAcl,
 } from '../../lib/access/agentInvokeAccess'
 import { invokerFromAuth } from '../../lib/access/invokeDenial'
+import {
+  agentPrincipalSummarySchema,
+  loadAgentPrincipalStates,
+  summarizeAgentPrincipal,
+  type AgentPrincipalState,
+} from '../../lib/identity/agentPrincipalSummary'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -39,6 +45,10 @@ const agentItemSchema = z.object({
   // Declared invoke features — returned to agents.manage holders only; feature
   // names are never echoed to other callers.
   requiredFeatures: z.array(z.string()).optional(),
+  // The agent's principal (declared, provisioned and enabled in the selected
+  // organization, tool ACL mode, fail-closed flag, declared role features) —
+  // returned to agents.manage holders only; null when the agent has none.
+  principal: agentPrincipalSummarySchema.optional(),
   invocable: z.boolean(),
   label: z.string(),
   description: z.string(),
@@ -101,18 +111,29 @@ export async function GET(req: Request) {
   }
 
   const entries = listAgentEntries()
-  const needsAcl = entries.some((entry) => (entry.requiredFeatures ?? []).length > 0)
+  const needsAcl = entries.some((entry) => (entry.requiredFeatures ?? []).length > 0 || Boolean(entry.principal))
   let acl: InvokerAcl | null = null
+  let isManager = false
+  let principalStates: Map<string, AgentPrincipalState> | null = null
   if (needsAcl) {
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const organizationId = scope?.selectedId ?? null
     acl = await loadInvokerAcl(container, invokerFromAuth(auth), {
       tenantId: auth.tenantId ?? null,
-      organizationId: scope?.selectedId ?? null,
+      organizationId,
     })
+    isManager = authorizeFeatures([AGENTS_MANAGE_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
+    if (isManager) {
+      const em = (container.resolve('em') as EntityManager).fork()
+      principalStates = await loadAgentPrincipalStates(
+        em,
+        { tenantId: auth.tenantId ?? null, organizationId },
+        entries.map((entry) => entry.id),
+      )
+    }
   }
   const enforcementEnabled = isAgentInvokeEnforcementEnabled()
-  const isManager = acl !== null && authorizeFeatures([AGENTS_MANAGE_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
 
   const items = entries
     .map((entry) => ({ entry, invocable: !enforcementEnabled || isAgentInvocable(entry, acl) }))
@@ -126,6 +147,7 @@ export async function GET(req: Request) {
       tools: entry.tools,
       skills: entry.skills,
       ...(isManager ? { requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : [] } : {}),
+      ...(principalStates ? { principal: summarizeAgentPrincipal(entry, principalStates.get(entry.id)) } : {}),
       invocable,
       label: entry.label,
       description: entry.description,
@@ -145,7 +167,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags). Each item carries whether the caller may invoke it; callers holding agent_orchestrator.agents.manage also receive the declared requiredFeatures of each agent, while other callers only receive the agents they may invoke and never the feature names.',
+        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags). Each item carries whether the caller may invoke it; callers holding agent_orchestrator.agents.manage also receive the declared requiredFeatures and the principal summary (declared, provisioned and enabled in the selected organization, tool ACL mode, required flag, declared role features; null when the agent has no principal) of each agent, while other callers only receive the agents they may invoke and never the feature names or principals. The ACL (and so the manager-only fields) is only loaded when some agent declares requiredFeatures or a principal.',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],
