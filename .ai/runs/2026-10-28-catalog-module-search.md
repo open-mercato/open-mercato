@@ -49,7 +49,7 @@ merge-ready.
 ### Phase 2: Merge-ready
 
 - [x] 2.1 Full validation gate — b654198707
-- [ ] 2.2 Drive the PR with om-auto-fix-pr 8117 --no-ui
+- [x] 2.2 Drive the PR with om-auto-fix-pr 8117 --no-ui — ea19435c81
 
 ## Validation notes
 
@@ -58,3 +58,9 @@ Gate at b654198707, local Linux, Node 24.21.0, no compose `app` container: `buil
 tasks passed (`@open-mercato/cli` 2218 of 2218). Two failures do not come from this branch:
 `scripts/__tests__/check-lessons.test.mjs` (`.ai/lessons.md` lesson count, also red on `main` at 9a501a4b0c) and the
 `create-mercato-app` "does not pack" checks, which fail only in this worktree and pass in CI.
+
+## Outcome
+
+Review with autofix: approvable, fixes in ea19435c81, follow-ups in #8124. CI on ea19435c81: every check green except
+the required `test`, which fails only on the `.ai/lessons.md` count, red on `main` as well and fixed by #8123. Next:
+once #8123 lands, merge `main` into this branch and let CI rerun; a review from another account is needed.
