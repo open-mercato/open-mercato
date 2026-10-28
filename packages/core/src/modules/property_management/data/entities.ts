@@ -357,3 +357,438 @@ export class ProductUse {
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+export type LeaseStatus = 'proposed' | 'pending_order' | 'active' | 'declined' | 'withdrawn' | 'expired' | 'ended'
+export type LeaseVersionEvent = 'activated' | 'corrected' | 'extended' | 'rescheduled'
+export type LeaseVersionState = 'pending' | 'in_force' | 'reverted'
+export type LeaseProposalKind = 'new' | 'extension'
+export type LeaseProposalStatus = 'sending' | 'sent' | 'approved' | 'declined' | 'withdrawn' | 'expired'
+export type LeaseChangeKind = 'end' | 'delete' | 'correction' | 'reschedule'
+export type SalesOperationKind =
+  | 'quote'
+  | 'quote_status'
+  | 'lease_order'
+  | 'extension_order'
+  | 'booking_order'
+  | 'order_status'
+  | 'recurrence_cancel'
+  | 'recurrence_replace'
+export type SalesOperationStatus = 'pending' | 'done' | 'refused' | 'compensating' | 'compensated' | 'failed'
+export type SalesOperationTargetType = 'lease' | 'lease_version' | 'lease_proposal' | 'booking'
+
+export type LeasePendingChange = {
+  kind: LeaseChangeKind
+  changeId: string
+  previous: {
+    endsOn: string
+    startsOn: string
+    status: LeaseStatus
+    termMonths: number
+    currentVersionId: string | null
+  }
+  operationIds: string[]
+}
+
+export type LeaseBillingRefusal = {
+  changeId: string
+  kind: LeaseChangeKind | 'activation' | 'proposal'
+  code: string | null
+  message: string | null
+  at: string
+  restored: { endsOn: string; startsOn: string; status: LeaseStatus } | null
+}
+
+@Entity({ tableName: 'property_management_leases' })
+@Index({ name: 'property_management_leases_unit_status_idx', properties: ['organizationId', 'unitId', 'status'] })
+@Index({ name: 'property_management_leases_building_idx', properties: ['organizationId', 'buildingId'] })
+@Index({ name: 'property_management_leases_company_idx', properties: ['organizationId', 'customerCompanyId'] })
+@Unique({ name: 'property_management_leases_reference_unique', properties: ['organizationId', 'reference'] })
+export class Lease {
+  [OptionalProps]?:
+    | ScopedOptionalProps
+    | 'primaryContactPersonId'
+    | 'currentVersionId'
+    | 'holdToken'
+    | 'salesOrderId'
+    | 'pendingChange'
+    | 'billingAttention'
+    | 'lastBillingRefusal'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  reference!: string
+
+  @Property({ name: 'building_id', type: 'uuid' })
+  buildingId!: string
+
+  @Property({ name: 'unit_id', type: 'uuid' })
+  unitId!: string
+
+  @Property({ name: 'customer_company_id', type: 'uuid' })
+  customerCompanyId!: string
+
+  @Property({ name: 'primary_contact_person_id', type: 'uuid', nullable: true })
+  primaryContactPersonId?: string | null
+
+  @Property({ type: 'text' })
+  status!: LeaseStatus
+
+  @Property({ name: 'starts_on', type: 'date' })
+  startsOn!: string
+
+  @Property({ name: 'term_months', type: 'int' })
+  termMonths!: number
+
+  @Property({ name: 'ends_on', type: 'date' })
+  endsOn!: string
+
+  @Property({ name: 'current_version_id', type: 'uuid', nullable: true })
+  currentVersionId?: string | null
+
+  @Property({ name: 'hold_token', type: 'uuid', nullable: true })
+  holdToken?: string | null
+
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'pending_change', type: 'jsonb', nullable: true })
+  pendingChange?: LeasePendingChange | null
+
+  @Property({ name: 'billing_attention', type: 'boolean', default: false })
+  billingAttention: boolean = false
+
+  @Property({ name: 'last_billing_refusal', type: 'jsonb', nullable: true })
+  lastBillingRefusal?: LeaseBillingRefusal | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'property_management_lease_versions' })
+@Index({ name: 'property_management_lease_versions_lease_idx', properties: ['organizationId', 'leaseId', 'versionNo'] })
+@Unique({ name: 'property_management_lease_versions_number_unique', properties: ['leaseId', 'versionNo'] })
+export class LeaseVersion {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'salesOrderId' | 'salesOrderLineId' | 'holdToken' | 'currencyCode'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'lease_id', type: 'uuid' })
+  leaseId!: string
+
+  @Property({ name: 'version_no', type: 'int' })
+  versionNo!: number
+
+  @Property({ type: 'text' })
+  event!: LeaseVersionEvent
+
+  @Property({ type: 'text' })
+  state!: LeaseVersionState
+
+  @Property({ name: 'catalog_product_id', type: 'uuid' })
+  catalogProductId!: string
+
+  @Property({ name: 'product_name', type: 'text' })
+  productName!: string
+
+  @Property({ name: 'monthly_rate', type: 'numeric', precision: 16, scale: 4 })
+  monthlyRate!: string
+
+  @Property({ name: 'currency_code', type: 'text', nullable: true })
+  currencyCode?: string | null
+
+  @Property({ name: 'starts_on', type: 'date' })
+  startsOn!: string
+
+  @Property({ name: 'ends_on', type: 'date' })
+  endsOn!: string
+
+  @Property({ name: 'months', type: 'int' })
+  months!: number
+
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'sales_order_line_id', type: 'uuid', nullable: true })
+  salesOrderLineId?: string | null
+
+  @Property({ name: 'hold_token', type: 'uuid', nullable: true })
+  holdToken?: string | null
+
+  @Property({ name: 'effective_from', type: 'date' })
+  effectiveFrom!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'property_management_lease_proposals' })
+@Index({ name: 'property_management_lease_proposals_lease_idx', properties: ['organizationId', 'leaseId'] })
+@Index({ name: 'property_management_lease_proposals_status_idx', properties: ['organizationId', 'status', 'respondBy'] })
+@Index({
+  name: 'property_management_lease_proposals_open_unique',
+  expression:
+    `create unique index "property_management_lease_proposals_open_unique" on "property_management_lease_proposals" ("lease_id") where "status" in ('sending', 'sent', 'declined')`,
+})
+export class LeaseProposal {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'salesQuoteId'
+    | 'salesOrderId'
+    | 'message'
+    | 'answeredAt'
+    | 'answeredByCustomerUserId'
+    | 'remindedAt'
+    | 'holdToken'
+    | 'currencyCode'
+    | 'versionId'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'lease_id', type: 'uuid' })
+  leaseId!: string
+
+  @Property({ name: 'version_id', type: 'uuid', nullable: true })
+  versionId?: string | null
+
+  @Property({ type: 'text' })
+  kind!: LeaseProposalKind
+
+  @Property({ name: 'sales_quote_id', type: 'uuid', nullable: true })
+  salesQuoteId?: string | null
+
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'starts_on', type: 'date' })
+  startsOn!: string
+
+  @Property({ name: 'ends_on', type: 'date' })
+  endsOn!: string
+
+  @Property({ name: 'months', type: 'int' })
+  months!: number
+
+  @Property({ name: 'monthly_rate', type: 'numeric', precision: 16, scale: 4 })
+  monthlyRate!: string
+
+  @Property({ name: 'currency_code', type: 'text', nullable: true })
+  currencyCode?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  message?: string | null
+
+  @Property({ name: 'expires_in_days', type: 'int' })
+  expiresInDays!: number
+
+  @Property({ name: 'respond_by', type: 'date' })
+  respondBy!: string
+
+  @Property({ type: 'text' })
+  status!: LeaseProposalStatus
+
+  @Property({ name: 'hold_token', type: 'uuid', nullable: true })
+  holdToken?: string | null
+
+  @Property({ name: 'answered_at', type: Date, nullable: true })
+  answeredAt?: Date | null
+
+  @Property({ name: 'answered_by_customer_user_id', type: 'uuid', nullable: true })
+  answeredByCustomerUserId?: string | null
+
+  @Property({ name: 'reminded_at', type: Date, nullable: true })
+  remindedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'property_management_lease_reference_counters' })
+@Unique({ name: 'property_management_lease_reference_counters_scope_unique', properties: ['organizationId', 'tenantId'] })
+export class LeaseReferenceCounter {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'int' })
+  year!: number
+
+  @Property({ name: 'last_number', type: 'int' })
+  lastNumber!: number
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'property_management_sales_operations' })
+@Unique({ name: 'property_management_sales_operations_subject_unique', properties: ['organizationId', 'subjectKey'] })
+@Index({ name: 'property_management_sales_operations_status_idx', properties: ['organizationId', 'status'] })
+@Index({ name: 'property_management_sales_operations_change_idx', properties: ['organizationId', 'changeId', 'sequence'] })
+@Index({ name: 'property_management_sales_operations_target_idx', properties: ['organizationId', 'targetType', 'targetId'] })
+export class SalesOperation {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'changeId'
+    | 'sequence'
+    | 'allowCredit'
+    | 'salesDocumentType'
+    | 'salesDocumentId'
+    | 'salesDocumentLineId'
+    | 'attempts'
+    | 'lastError'
+    | 'leaseId'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  kind!: SalesOperationKind
+
+  @Property({ name: 'subject_key', type: 'text' })
+  subjectKey!: string
+
+  @Property({ name: 'payload_hash', type: 'text' })
+  payloadHash!: string
+
+  @Property({ type: 'jsonb' })
+  payload!: Record<string, unknown>
+
+  @Property({ name: 'change_id', type: 'uuid', nullable: true })
+  changeId?: string | null
+
+  @Property({ type: 'int', default: 1 })
+  sequence: number = 1
+
+  @Property({ name: 'target_type', type: 'text' })
+  targetType!: SalesOperationTargetType
+
+  @Property({ name: 'target_id', type: 'uuid' })
+  targetId!: string
+
+  @Property({ name: 'lease_id', type: 'uuid', nullable: true })
+  leaseId?: string | null
+
+  @Property({ type: 'text' })
+  status!: SalesOperationStatus
+
+  @Property({ type: 'uuid' })
+  token!: string
+
+  @Property({ name: 'allow_credit', type: 'boolean', nullable: true })
+  allowCredit?: boolean | null
+
+  @Property({ name: 'sales_document_type', type: 'text', nullable: true })
+  salesDocumentType?: 'order' | 'quote' | null
+
+  @Property({ name: 'sales_document_id', type: 'uuid', nullable: true })
+  salesDocumentId?: string | null
+
+  @Property({ name: 'sales_document_line_id', type: 'uuid', nullable: true })
+  salesDocumentLineId?: string | null
+
+  @Property({ type: 'int', default: 0 })
+  attempts: number = 0
+
+  @Property({ name: 'last_error', type: 'jsonb', nullable: true })
+  lastError?: { code: string | null; message: string | null; status: number | null } | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'property_management_settings' })
+@Unique({ name: 'property_management_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
+export class PropertyManagementSettings {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'billingChannelId'
+    | 'cancelledOrderStatusEntryId'
+    | 'leaseEndingThresholdDays'
+    | 'bookingReminderMinutes'
+    | 'proposalExpiryDays'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'billing_channel_id', type: 'uuid', nullable: true })
+  billingChannelId?: string | null
+
+  @Property({ name: 'cancelled_order_status_entry_id', type: 'uuid', nullable: true })
+  cancelledOrderStatusEntryId?: string | null
+
+  @Property({ name: 'lease_ending_threshold_days', type: 'int', default: 60 })
+  leaseEndingThresholdDays: number = 60
+
+  @Property({ name: 'booking_reminder_minutes', type: 'int', default: 60 })
+  bookingReminderMinutes: number = 60
+
+  @Property({ name: 'proposal_expiry_days', type: 'int', default: 14 })
+  proposalExpiryDays: number = 14
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}

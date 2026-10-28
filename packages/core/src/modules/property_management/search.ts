@@ -50,6 +50,11 @@ function unitUrl(record: Record<string, unknown>): string | null {
   return id ? `/backend/property_management/units/${id}` : null
 }
 
+function leaseUrl(record: Record<string, unknown>): string | null {
+  const id = readString(record, 'id')
+  return id ? `/backend/property_management/leases/${id}` : null
+}
+
 function buildingPresenter(record: Record<string, unknown>): SearchResultPresenter {
   return {
     title: readString(record, 'name') ?? 'Building',
@@ -124,6 +129,44 @@ export const searchConfig: SearchModuleConfig = {
         searchable: ['name'],
         hashOnly: ['building_id', 'floor_id', 'space_id', 'catalog_product_id', 'catalog_category_id'],
         excluded: ['tenant_id', 'organization_id', 'deleted_at'],
+      },
+      aclFeatures: [MANAGE_ALL_BUILDINGS_FEATURE],
+    },
+    {
+      entityId: E.property_management.lease,
+      enabled: true,
+      priority: 20,
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        const record = ctx.record
+        const reference = readString(record, 'reference')
+        if (!reference) return null
+        const [companyName, unitName] = await Promise.all([
+          loadName(ctx, E.customers.customer_entity, readString(record, 'customer_company_id', 'customerCompanyId'), 'display_name'),
+          loadName(ctx, E.property_management.unit, readString(record, 'unit_id', 'unitId'), 'name'),
+        ])
+        const lines = [reference, companyName, unitName].filter((line): line is string => Boolean(line))
+        const presenter: SearchResultPresenter = {
+          title: reference,
+          subtitle: [companyName, unitName].filter(Boolean).join(' · ') || undefined,
+          icon: 'file-signature',
+          badge: readString(record, 'status') ?? undefined,
+        }
+        return {
+          text: lines,
+          presenter,
+          links: linksFor(leaseUrl(record), reference),
+          checksumSource: { record, companyName, unitName },
+        }
+      },
+      formatResult: (ctx: SearchBuildContext) => ({
+        title: readString(ctx.record, 'reference') ?? 'Lease',
+        icon: 'file-signature',
+      }),
+      resolveUrl: (ctx: SearchBuildContext) => leaseUrl(ctx.record),
+      fieldPolicy: {
+        searchable: ['reference'],
+        hashOnly: ['unit_id', 'building_id', 'customer_company_id', 'primary_contact_person_id', 'sales_order_id'],
+        excluded: ['tenant_id', 'organization_id', 'deleted_at', 'pending_change', 'last_billing_refusal', 'hold_token'],
       },
       aclFeatures: [MANAGE_ALL_BUILDINGS_FEATURE],
     },

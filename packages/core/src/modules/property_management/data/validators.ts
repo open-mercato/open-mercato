@@ -193,3 +193,89 @@ export type UnitProductChangeInput = z.infer<typeof unitProductChangeSchema>
 export type CommonAreaCreateInput = z.infer<typeof commonAreaCreateSchema>
 export type CommonAreaUpdateInput = z.infer<typeof commonAreaUpdateSchema>
 export type ProductUseSetInput = z.infer<typeof productUseSetSchema>
+
+export const MAX_LEASE_TERM_MONTHS = 600
+export const MIN_PROPOSAL_EXPIRY_DAYS = 1
+export const MAX_PROPOSAL_EXPIRY_DAYS = 90
+export const CANCEL_SETTLEMENT_VALUES = ['prorate', 'credit_full', 'keep'] as const
+
+const isoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'property_management.errors.dateInvalid')
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number)
+    const date = new Date(Date.UTC(year, month - 1, day))
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  }, 'property_management.errors.dateInvalid')
+
+const moneyAmount = z.coerce
+  .number()
+  .finite()
+  .gt(0, 'property_management.errors.rateInvalid')
+  .max(999_999_999, 'property_management.errors.rateInvalid')
+const termMonths = z.coerce.number().int().min(1, 'property_management.errors.termInvalid').max(MAX_LEASE_TERM_MONTHS, 'property_management.errors.termInvalid')
+const expiresInDays = z.coerce.number().int().min(MIN_PROPOSAL_EXPIRY_DAYS).max(MAX_PROPOSAL_EXPIRY_DAYS)
+const messageSchema = z.string().trim().max(4000)
+
+export const cancelSettlementSchema = z.enum(CANCEL_SETTLEMENT_VALUES)
+
+export const leaseCreateSchema = scopedSchema.extend({
+  unitId: uuid(),
+  customerCompanyId: uuid(),
+  primaryContactPersonId: uuid().nullable().optional(),
+  startsOn: isoDate,
+  termMonths,
+  monthlyRate: moneyAmount,
+  asProposal: z.boolean().default(false),
+  expiresInDays: expiresInDays.optional(),
+  message: messageSchema.nullable().optional(),
+})
+
+export const leaseUpdateSchema = scopedSchema.extend({
+  id: uuid(),
+  primaryContactPersonId: uuid().nullable().optional(),
+})
+
+export const leaseIdSchema = scopedSchema.extend({ id: uuid() })
+
+export const leaseEndSchema = scopedSchema.extend({
+  id: uuid(),
+  endsOn: isoDate,
+  settlement: cancelSettlementSchema.optional(),
+})
+
+export const leaseExtensionSchema = scopedSchema.extend({
+  id: uuid(),
+  months: termMonths,
+  monthlyRate: moneyAmount,
+  asProposal: z.boolean().default(false),
+  expiresInDays: expiresInDays.optional(),
+  message: messageSchema.nullable().optional(),
+})
+
+export const leaseProposalIdSchema = scopedSchema.extend({
+  id: uuid(),
+  leaseId: uuid().optional(),
+})
+
+export const settingsSaveSchema = scopedSchema.extend({
+  billingChannelId: uuid().nullable(),
+  cancelledOrderStatusEntryId: uuid().nullable(),
+  leaseEndingThresholdDays: z.coerce.number().int().min(1).max(365),
+  bookingReminderMinutes: z.coerce.number().int().min(5).max(1440),
+  proposalExpiryDays: z.coerce.number().int().min(MIN_PROPOSAL_EXPIRY_DAYS).max(MAX_PROPOSAL_EXPIRY_DAYS),
+})
+
+export const leaseCreateBodySchema = leaseCreateSchema.omit({ organizationId: true, tenantId: true })
+export const leaseEndBodySchema = leaseEndSchema.omit({ organizationId: true, tenantId: true, id: true })
+export const leaseExtensionBodySchema = leaseExtensionSchema.omit({ organizationId: true, tenantId: true, id: true })
+export const settingsBodySchema = settingsSaveSchema.omit({ organizationId: true, tenantId: true })
+
+export type LeaseCreateInput = z.infer<typeof leaseCreateSchema>
+export type LeaseUpdateInput = z.infer<typeof leaseUpdateSchema>
+export type LeaseIdInput = z.infer<typeof leaseIdSchema>
+export type LeaseEndInput = z.infer<typeof leaseEndSchema>
+export type LeaseExtensionInput = z.infer<typeof leaseExtensionSchema>
+export type LeaseProposalIdInput = z.infer<typeof leaseProposalIdSchema>
+export type SettingsSaveInput = z.infer<typeof settingsSaveSchema>
