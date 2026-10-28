@@ -166,6 +166,45 @@ export function normalizeAgentRequiredFeatures(
   return parsed.data.length > 0 ? parsed.data : undefined
 }
 
+export const agentPrincipalToolAclModeSchema = z.enum(['caller', 'intersect'])
+export type AgentPrincipalToolAclMode = z.infer<typeof agentPrincipalToolAclModeSchema>
+
+/**
+ * Declarative agent principal (`defineAgent({ principal })`): the features the
+ * agent's own identity may use, kept authoritative per organization by
+ * `syncAgentPrincipals`. `roleFeatures` is trimmed, deduplicated and sorted; a
+ * malformed feature id fails validation. `toolAcl` and `required` are read by the
+ * runtime (tool ACL composition, fail-closed binding) and never by the sync.
+ */
+export const agentPrincipalDeclarationSchema = z
+  .object({
+    roleFeatures: agentRequiredFeaturesSchema.transform((features) =>
+      [...features].sort((left, right) => left.localeCompare(right)),
+    ),
+    displayName: z.string().trim().min(1).max(200).optional(),
+    toolAcl: agentPrincipalToolAclModeSchema.optional(),
+    required: z.boolean().optional(),
+  })
+  .strict()
+export type AgentPrincipalDeclarationInput = z.input<typeof agentPrincipalDeclarationSchema>
+export type AgentPrincipalDeclaration = z.output<typeof agentPrincipalDeclarationSchema>
+
+/**
+ * Parse a declared `principal`; `undefined` when nothing is declared. Throws
+ * `[internal]` on a malformed declaration so a typo never silently widens access.
+ */
+export function normalizeAgentPrincipalDeclaration(
+  agentId: string,
+  declaration: unknown,
+): AgentPrincipalDeclaration | undefined {
+  if (declaration === undefined || declaration === null) return undefined
+  const parsed = agentPrincipalDeclarationSchema.safeParse(declaration)
+  if (!parsed.success) {
+    throw new Error(`[internal] agent "${agentId}" declares an invalid principal`)
+  }
+  return parsed.data
+}
+
 /**
  * Trace-list filter facets (trace-eval overlay). `needs-review` is the union
  * facet the traces list tabs use: failed eval OR low confidence.

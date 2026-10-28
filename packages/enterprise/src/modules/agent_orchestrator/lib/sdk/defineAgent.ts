@@ -7,7 +7,10 @@ import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/a
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
+  normalizeAgentPrincipalDeclaration,
   normalizeAgentRequiredFeatures,
+  type AgentPrincipalDeclaration,
+  type AgentPrincipalDeclarationInput,
   type AgentType,
   type IntegrityRuleInput,
   type IntegrityRule,
@@ -150,6 +153,14 @@ export interface DefineAgentInput {
    */
   requiredFeatures?: string[]
   /**
+   * The agent's own identity: a login-less `kind='agent'` user plus a per-org role
+   * holding exactly `roleFeatures`, provisioned and kept authoritative by
+   * `syncAgentPrincipals` (unknown feature ids dropped with a warning, never
+   * super-admin). Validated at registration and stored parsed on
+   * `AgentRegistryEntry.principal`. Additive/BC-safe: omitted means no declared principal.
+   */
+  principal?: AgentPrincipalDeclarationInput
+  /**
    * Output-integrity rules (spec `2026-10-21-output-integrity-guardrails`): quotes
    * that must appear in the source, references that must resolve, citations that
    * must come from a consulted tool, custom checkers. Validated at registration —
@@ -234,6 +245,8 @@ export interface AgentRegistryEntry {
   facts?: AgentFact[]
   /** Normalised invoker features (see DefineAgentInput); undefined when the agent declares none. */
   requiredFeatures?: string[]
+  /** Parsed principal declaration (see DefineAgentInput); undefined when the agent declares none. */
+  principal?: AgentPrincipalDeclaration
   /** Parsed integrity rules (see DefineAgentInput); undefined when the agent declares none. */
   integrity?: IntegrityRule[]
   /** Parsed untrusted input declarations (see DefineAgentInput); undefined when the agent declares none. */
@@ -284,6 +297,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
   const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
+  const principal = normalizeAgentPrincipalDeclaration(input.id, input.principal)
   const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
   const untrustedInputs = parseAgentUntrustedInputs(input.id, input.untrustedInputs)
 
@@ -310,6 +324,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     sampleInput: input.sampleInput,
     facts: input.facts,
     requiredFeatures,
+    principal,
     integrity,
     untrustedInputs,
   })
