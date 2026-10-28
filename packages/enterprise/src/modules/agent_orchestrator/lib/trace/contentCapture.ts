@@ -34,6 +34,7 @@ export type ContentCaptureOptions = {
 }
 
 export type LlmRequestCallInput = {
+  reconstructed?: boolean
   provider: string
   modelId: string
   system: string | undefined
@@ -59,6 +60,7 @@ export type TruncationMarker = { _truncated: true; originalBytes: number }
 
 export type LlmRequestArtifact = {
   schema: typeof LLM_REQUEST_ARTIFACT_SCHEMA
+  reconstructed?: true
   provider: string
   modelId: string
   system: unknown
@@ -308,6 +310,7 @@ export function buildLlmRequestArtifact(
     responseFormat: sanitizeValue(call.responseFormat ?? null, state, false, 0) ?? null,
     params: sanitizeValue(call.callSettings ?? {}, state, true, 0) ?? {},
   }
+  if (call.reconstructed) payload.reconstructed = true
   const holder = payload as unknown as Record<string, unknown>
   const capped = capPayload(
     payload,

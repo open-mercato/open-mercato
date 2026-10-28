@@ -50,7 +50,16 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
-import type { TraceSpanIngest } from '../../data/validators'
+import type { TraceLlmRequestIngest, TraceSpanIngest } from '../../data/validators'
+import {
+  buildOpenCodeMessageSpans,
+  buildReconstructedRequest,
+  createOpenCodeMessageCollector,
+  mergeMessageAndToolSpans,
+  resolveObservedModel,
+  type OpenCodeAssistantMessage,
+  type OpenCodeMessageCollector,
+} from './openCodeMessageTrace'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
@@ -69,6 +78,7 @@ type CapturedToolCall = {
   status: 'ok' | 'error'
   startedAt: string
   endedAt?: string
+  messageId?: string
 }
 
 /**
@@ -194,6 +204,7 @@ export class OpenCodeAgentRunner {
     const runCapture = traceCaptureEnabled
       ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
       : null
+    const messageCollector = runCapture && runCapture.level !== 'off' ? createOpenCodeMessageCollector() : null
 
     const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
@@ -307,6 +318,7 @@ export class OpenCodeAgentRunner {
     // exact evidence needed to see WHERE it broke.
     let startedAtMs: number | null = null
     let integrityRawOutputKey: string | null = null
+    let reconstructedRequest: TraceLlmRequestIngest | null = null
 
     try {
       if (filesEnabled) {
@@ -344,6 +356,9 @@ export class OpenCodeAgentRunner {
       }
 
       const message = this.buildMessage(sessionToken, businessInput, workspace, stagedInputs)
+      if (runCapture?.level === 'full') {
+        reconstructedRequest = buildReconstructedRequest({ system: entry.instructions, message })
+      }
 
       startedAtMs = Date.now()
       const capturedOutcome = await this.driveSession({
@@ -354,6 +369,7 @@ export class OpenCodeAgentRunner {
         store,
         toolCallSink: capturedToolCalls,
         onProgress: emitProgress,
+        messageSink: messageCollector,
         runTimeoutMs: resolveRunTimeoutMs(ctx.runTimeoutMs),
       })
 
@@ -453,8 +469,18 @@ export class OpenCodeAgentRunner {
       // so this can never turn a completed run into a failed one.
       if (startedAtMs != null) {
         const endedAtMs = Date.now()
+        const observedMessages = messageCollector?.assistantMessages() ?? []
         const manifestSpan = traceCaptureEnabled
-          ? this.buildManifestSpan(runId, entry, ctx, traceparent, startedAtMs, runCapture, integrityRawOutputKey)
+          ? this.buildManifestSpan(
+              runId,
+              entry,
+              ctx,
+              traceparent,
+              startedAtMs,
+              runCapture,
+              integrityRawOutputKey,
+              observedMessages,
+            )
           : null
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
@@ -466,6 +492,9 @@ export class OpenCodeAgentRunner {
           endedAtMs,
           latencyMs: Math.max(0, Math.round(endedAtMs - startedAtMs)),
           manifestSpan,
+          messages: observedMessages,
+          reconstructedRequest,
+          includeResponses: runCapture?.level === 'full',
         })
       }
 
@@ -600,18 +629,23 @@ export class OpenCodeAgentRunner {
     startedAtMs: number,
     capture: RunManifestCapture | null,
     integrityRawOutputKey: string | null,
+    observedMessages: readonly OpenCodeAssistantMessage[] = [],
   ): TraceSpanIngest | null {
     try {
+      const manifest = buildAgentRunManifestInput({
+        entry,
+        ctx,
+        runtime: 'opencode',
+        traceparent,
+        capture,
+        integrityRawOutputKey,
+      })
+      const observedModel = resolveObservedModel(observedMessages)
+      if (observedModel?.modelResolved) manifest.modelResolved = observedModel.modelResolved
+      if (observedModel?.provider) manifest.provider = observedModel.provider
       return buildRunManifestSpan({
         runId,
-        manifest: buildAgentRunManifestInput({
-          entry,
-          ctx,
-          runtime: 'opencode',
-          traceparent,
-          capture,
-          integrityRawOutputKey,
-        }),
+        manifest,
         sequence: 0,
         recordedAtMs: startedAtMs,
       })
@@ -651,11 +685,14 @@ export class OpenCodeAgentRunner {
       endedAtMs?: number | null
       latencyMs?: number | null
       manifestSpan?: TraceSpanIngest | null
+      messages?: readonly OpenCodeAssistantMessage[]
+      reconstructedRequest?: TraceLlmRequestIngest | null
+      includeResponses?: boolean
     },
   ): Promise<void> {
     if (args.toolCalls.length === 0 && args.latencyMs == null) return
     try {
-      const spans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
+      const toolSpans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
         externalSpanId: `${toolCall.id}-${index}`,
         sequence: index,
         name: toolCall.toolName,
@@ -672,6 +709,20 @@ export class OpenCodeAgentRunner {
           },
         ],
       }))
+      const messageSpans = buildOpenCodeMessageSpans({
+        externalRunId: args.externalRunId,
+        messages: args.messages ?? [],
+        request: args.reconstructedRequest ?? null,
+        includeResponses: args.includeResponses ?? false,
+      })
+      const spans =
+        messageSpans.length > 0
+          ? mergeMessageAndToolSpans(
+              messageSpans,
+              toolSpans.map((span, index) => ({ span, messageId: args.toolCalls[index].messageId ?? null })),
+              args.externalRunId,
+            )
+          : toolSpans
       // A run that called no tool still has to leave a trace. Spans here are
       // derived 1:1 from tool calls, so a pure reasoning run produced NONE — and
       // a run with no span is unauditable, which `dispositionService` reads as
@@ -767,10 +818,11 @@ export class OpenCodeAgentRunner {
     store: AgentRunSessionStore
     toolCallSink: CapturedToolCall[]
     onProgress?: (transition: CapturedTransition) => void
+    messageSink?: OpenCodeMessageCollector | null
     /** Wall-clock budget for this run (already resolved by the caller). */
     runTimeoutMs: number
   }): Promise<unknown | typeof NO_OUTCOME> {
-    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress)
+    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress, args.messageSink)
     const deadline = createDeadline(args.runTimeoutMs)
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
@@ -854,6 +906,7 @@ export class OpenCodeAgentRunner {
     sessionId: string,
     toolCallSink: CapturedToolCall[],
     onTransition?: (transition: CapturedTransition) => void,
+    messageSink?: OpenCodeMessageCollector | null,
   ): {
     nextIdle: () => Promise<void>
     unsubscribe: () => void
@@ -887,6 +940,7 @@ export class OpenCodeAgentRunner {
           (properties.session as { id?: string } | undefined)?.id ||
           (properties.status as { sessionID?: string } | undefined)?.sessionID
         if (eventSessionId && eventSessionId !== sessionId) return
+        messageSink?.observe(type, properties)
         // Capture MCP tool/skill calls for the trace (#3628). The same SSE stream
         // that signals idle also carries the tool_use/tool_result parts; the chat
         // path parses them identically (opencode-handlers `message.part.updated`).
@@ -1005,7 +1059,9 @@ function toIntegrityToolCalls(
 function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTransition | null {
   const update = normalizeOpenCodeToolPart(rawPart)
   if (!update) return null
+  const messageId = readPartMessageId(rawPart)
   const existing = sink.find((call) => call.id === update.callId)
+  if (existing && !existing.messageId && messageId) existing.messageId = messageId
   if (update.phase === 'progress') {
     if (existing) {
       // Mid-flight arg refinement for an already-open call — no new transition.
@@ -1018,6 +1074,7 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTr
       args: update.input,
       status: 'ok',
       startedAt: new Date().toISOString(),
+      ...(messageId ? { messageId } : {}),
     })
     return { callId: update.callId, toolName: update.toolName, phase: 'started', status: 'ok', input: update.input }
   }
@@ -1036,6 +1093,7 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTr
       status: update.status,
       startedAt: now,
       endedAt: now,
+      ...(messageId ? { messageId } : {}),
     })
   }
   return {
@@ -1045,6 +1103,12 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTr
     status: update.status,
     input: update.input,
   }
+}
+
+function readPartMessageId(rawPart: unknown): string | null {
+  if (!rawPart || typeof rawPart !== 'object') return null
+  const messageId = (rawPart as { messageID?: unknown }).messageID
+  return typeof messageId === 'string' && messageId.length > 0 ? messageId : null
 }
 
 /**

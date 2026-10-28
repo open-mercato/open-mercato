@@ -490,6 +490,7 @@ export type TraceLlmUsageIngest = z.infer<typeof traceLlmUsageIngestSchema>
 /** The request the model received. Stored only at capture level `full`, after redaction. */
 export const traceLlmRequestIngestSchema = boundedIngestBody(
   z.object({
+    reconstructed: z.boolean().optional(),
     system: z.string().optional(),
     messages: z.array(z.unknown()).max(TRACE_INGEST_LLM_ITEMS_MAX).optional(),
     tools: z.array(z.record(z.string(), z.unknown())).max(TRACE_INGEST_LLM_TOOLS_MAX).optional(),

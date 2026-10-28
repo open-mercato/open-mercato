@@ -160,6 +160,7 @@ export function buildIngestLlmContent(llm: TraceLlmIngest): NativeModelCallConte
   const response = llm.response ?? {}
   return {
     request: {
+      ...(request.reconstructed ? { reconstructed: true } : {}),
       provider: llm.provider ?? '',
       modelId: llm.requestModel ?? llm.responseModel ?? '',
       system: request.system,

@@ -20,6 +20,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 import type { PricingSource } from '../trace/genAiAttributes'
 
+type TablePricingSource = Exclude<PricingSource, 'unknown' | 'reported'>
+
 const logger = createLogger('agent_orchestrator').child({ component: 'model-pricing' })
 
 export type ModelPrice = {
@@ -171,12 +173,12 @@ export function computeCostMinor(
 export function computeCostMicros(
   model: string | null | undefined,
   usage: { inputTokens?: number | null; outputTokens?: number | null },
-): { micros: number; currency: string; pricingSource: Exclude<PricingSource, 'unknown'> } | null {
+): { micros: number; currency: string; pricingSource: TablePricingSource } | null {
   if (!model) return null
   const resolved = resolveModelPriceWithSource(model)
   if (!resolved) return null
   const inTok = usage.inputTokens ?? 0
   const outTok = usage.outputTokens ?? 0
   const micros = Math.round(inTok * resolved.price.inputPer1M + outTok * resolved.price.outputPer1M)
-  return { micros, currency: resolved.price.currency, pricingSource: resolved.source as Exclude<PricingSource, 'unknown'> }
+  return { micros, currency: resolved.price.currency, pricingSource: resolved.source as TablePricingSource }
 }
