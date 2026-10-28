@@ -31,6 +31,7 @@ import { CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID } from '../../ai-agents'
 import { DISCORD_CHANNEL_TYPE } from '../../lib/channel-identity'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
 import { hasDiscordProposalOrigin } from '../../lib/ai-proposal-origin'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../../lib/ai-proposal-contract'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
 const aiMod = jest.requireMock('@open-mercato/ai-assistant') as { runAiAgentObject: jest.Mock }
@@ -39,6 +40,7 @@ type ResolveMap = {
   commandBus?: { execute: jest.Mock }
   aiPresent?: boolean
   threadAssignee?: string | null
+  alreadyHandled?: boolean
 }
 
 function makeCtx(map: ResolveMap) {
@@ -46,6 +48,7 @@ function makeCtx(map: ResolveMap) {
     findOne: jest.fn(async () =>
       map.threadAssignee ? { assignedUserId: map.threadAssignee } : null,
     ),
+    count: jest.fn(async () => (map.alreadyHandled ? 1 : 0)),
   }
   const em = { fork: () => forked }
   const commandBus =
@@ -301,6 +304,53 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     await handler(basePayload, ctx)
 
     expect(findOne).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('(retry) keys the auto-send compose on the inbound message so a re-run cannot post twice', async () => {
+    const { ctx, commandBus } = makeCtx({ aiPresent: true })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+      await handler(basePayload, ctx)
+    }
+
+    expect(commandBus.execute).toHaveBeenCalledTimes(2)
+    const keys = commandBus.execute.mock.calls.map(([, args]) => args.input.idempotencyKey)
+    expect(keys).toEqual(['channel_discord:ai-auto-reply:m-1', 'channel_discord:ai-auto-reply:m-1'])
+  })
+
+  it('(retry) skips the model and the send when this inbound message was already answered or proposed', async () => {
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, commandBus, forked } = makeCtx({ aiPresent: true, alreadyHandled: true })
+
+    await handler(basePayload, ctx)
+
+    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    const [, where] = forked.count.mock.calls[0]
+    expect(where).toEqual({
+      tenantId: 't-1',
+      $or: [
+        { idempotencyKey: 'channel_discord:ai-auto-reply:m-1' },
+        {
+          type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+          organizationId: 'o-1',
+          sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+          sourceEntityId: 'm-1',
+          senderUserId: 'system-user-id',
+        },
+      ],
+    })
+    expect(JSON.stringify(where)).not.toContain('deletedAt')
+  })
+
+  it('(retry) files no second proposal for an inbound message that already has one', async () => {
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('I want a refund on my order'))
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1', alreadyHandled: true })
+
+    await handler(basePayload, ctx)
+
+    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 

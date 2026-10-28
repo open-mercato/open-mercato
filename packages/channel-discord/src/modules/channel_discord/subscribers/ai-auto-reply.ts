@@ -20,6 +20,8 @@ import {
 } from '../lib/ai-reply'
 import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
 import { fileDiscordReplyProposal } from '../lib/ai-proposal'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../lib/ai-proposal-contract'
+import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
 import { resolveDiscordAiPrincipal, type DiscordAiPrincipal } from '../lib/ai-service-principal'
 import { recordDiscordAutoReplyOutcome } from '../lib/channel-state-store'
 import { describeAgentFailure } from '../lib/failure-reason'
@@ -68,6 +70,8 @@ export const metadata = {
  * is much higher than the cost of a human glancing at a proposal.
  */
 export const AUTO_SEND_MIN_CONFIDENCE = 0.6
+
+const CHANNEL_DISCORD_AUTO_REPLY_IDEMPOTENCY_PREFIX = 'channel_discord:ai-auto-reply:'
 
 type MessageReceivedPayload = {
   messageId?: string
@@ -212,6 +216,10 @@ async function draftAndRoute(args: {
 }): Promise<void> {
   const { ctx, em, message, channelId, conversationId, agentId, body, scope, tier, classificationReason } = args
 
+  const botUserId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
+  const autoReplyKey = `${CHANNEL_DISCORD_AUTO_REPLY_IDEMPOTENCY_PREFIX}${message.id}`
+  if (await wasAlreadyHandled({ em, scope, inboundMessageId: message.id, autoReplyKey, botUserId })) return
+
   const principal = await resolveDiscordAiPrincipal({ em, resolver: { resolve: (name) => resolveFromCtx(ctx, name) }, scope })
 
   const draft = await runAutoReplyAgent({ ctx, agentId, body, principal, sessionId: message.threadId ?? message.id })
@@ -230,7 +238,6 @@ async function draftAndRoute(args: {
     selectedOrganizationId: scope.organizationId,
     organizationIds: scope.organizationId ? [scope.organizationId] : null,
   }
-  const botUserId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
 
   if (!autoSend) {
     const reason = draft.requiresHuman
@@ -279,9 +286,41 @@ async function draftAndRoute(args: {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       userId: botUserId,
+      idempotencyKey: autoReplyKey,
     },
     ctx: containerCtx as never,
   })
+}
+
+/**
+ * The events worker retries a job when ANY persistent subscriber on the event
+ * fails, re-running the ones that already succeeded. A retry must neither post
+ * the reply again nor file a second proposal, so an inbound message that already
+ * has this subscriber's reply or proposal is left alone — soft-deleted ones
+ * included, because undoing the stored row cannot recall what was posted.
+ */
+async function wasAlreadyHandled(params: {
+  em: EntityManager
+  scope: { tenantId: string; organizationId: string | null }
+  inboundMessageId: string
+  autoReplyKey: string
+  botUserId: string
+}): Promise<boolean> {
+  const { em, scope, inboundMessageId, autoReplyKey, botUserId } = params
+  const existing = await em.count(Message, {
+    tenantId: scope.tenantId,
+    $or: [
+      { idempotencyKey: autoReplyKey },
+      {
+        type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+        organizationId: scope.organizationId,
+        sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+        sourceEntityId: inboundMessageId,
+        senderUserId: botUserId,
+      },
+    ],
+  })
+  return existing > 0
 }
 
 async function runAutoReplyAgent(args: {
