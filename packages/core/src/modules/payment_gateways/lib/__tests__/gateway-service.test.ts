@@ -115,6 +115,7 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
     }),
     flush,
     transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(em)),
+    fork: jest.fn((): unknown => em),
   }
   const integrationCredentialsService = { resolve: jest.fn(async () => ({})) } as never
 
@@ -129,7 +130,7 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
   })
 
   const service = createPaymentGatewayService({ em: em as never, integrationCredentialsService })
-  return { service, captureFn, refundFn, cancelFn, flush }
+  return { service, captureFn, refundFn, cancelFn, flush, em }
 }
 
 function refundWithOperation(
@@ -582,5 +583,137 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
     }
 
     expect(transaction.capturedAmount).toBe('0.3000')
+  })
+})
+
+describe('payment gateway service — cancel with captured funds', () => {
+  beforeAll(() => {
+    setGlobalEventBus({ emit: async () => {} })
+  })
+
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+  })
+
+  afterEach(() => {
+    clearGatewayAdapters()
+  })
+
+  it('refuses to cancel a partially captured transaction and keeps the captured funds refundable', async () => {
+    const transaction = makeTransaction('partially_captured', '40.0000')
+    const { service, cancelFn, refundFn } = buildService(transaction, {
+      refund: { status: 'refunded', refundedAmount: 40, refundId: 're_captured' },
+    })
+
+    await expect(service.cancelPayment(transaction.id, 'buyer cancelled', scope)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('partially_captured')
+    expect(transaction.capturedAmount).toBe('40.0000')
+
+    await expect(refundWithOperation(service, transaction.id, 40, 'buyer cancelled', 'refund-captured'))
+      .resolves.toMatchObject({ status: 'refunded' })
+    expect(refundFn).toHaveBeenCalledTimes(1)
+    expect(transaction.unifiedStatus).toBe('refunded')
+  })
+
+  it('refuses to cancel a partially captured transaction whose ledger has not recorded the capture', async () => {
+    const transaction = makeTransaction('partially_captured', '0.0000')
+    const { service, cancelFn } = buildService(transaction, {})
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('partially_captured')
+  })
+
+  it('refuses to cancel an authorized transaction that holds a capture reservation', async () => {
+    const transaction = makeTransaction('authorized', '25.0000')
+    const { service, cancelFn } = buildService(transaction, {})
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('authorized')
+    expect(transaction.capturedAmount).toBe('25.0000')
+  })
+
+  it('refuses the cancel when a capture lands after the transaction was first read', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn, em } = buildService(transaction, {})
+    em.fork.mockImplementation(() => {
+      Object.assign(transaction, { unifiedStatus: 'partially_captured', capturedAmount: '30.0000' })
+      return em
+    })
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('partially_captured')
+  })
+
+  it('refuses a retried cancel operation once funds were captured after its failed attempt', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn } = buildService(transaction, {})
+    cancelFn.mockRejectedValueOnce(new Error('provider unavailable'))
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, 'cancel-retry')).rejects.toThrow('provider unavailable')
+    Object.assign(transaction, { unifiedStatus: 'partially_captured', capturedAmount: '40.0000' })
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, 'cancel-retry')).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(cancelFn).toHaveBeenCalledTimes(1)
+    expect(transaction.unifiedStatus).toBe('partially_captured')
+  })
+
+  it('keeps refusing a repeated cancel without an operation id', async () => {
+    const transaction = makeTransaction('partially_captured', '40.0000')
+    const { service, cancelFn } = buildService(transaction, {})
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(service.cancelPayment(transaction.id, undefined, scope)).rejects.toMatchObject({
+        status: 409,
+        body: { code: 'payment_cancel_captured_funds' },
+      })
+    }
+
+    expect(cancelFn).not.toHaveBeenCalled()
+  })
+
+  it('replays a completed cancel for a repeated operation id', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn } = buildService(transaction, {})
+
+    const first = await service.cancelPayment(transaction.id, undefined, scope, 'cancel-replay')
+    const second = await service.cancelPayment(transaction.id, undefined, scope, 'cancel-replay')
+
+    expect(second).toEqual(first)
+    expect(cancelFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('still cancels an authorized transaction with nothing captured', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn } = buildService(transaction, {})
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope)).resolves.toMatchObject({ status: 'cancelled' })
+
+    expect(cancelFn).toHaveBeenCalledTimes(1)
+    expect(transaction.unifiedStatus).toBe('cancelled')
   })
 })

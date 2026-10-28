@@ -308,6 +308,10 @@ curl -X POST "$BASE_URL/payment_gateways/cancel" \
 }
 ```
 
+| Status | `code` | Meaning |
+|--------|--------|---------|
+| 409 | `payment_cancel_captured_funds` | Part of the payment is already captured (`partially_captured`) or a capture is holding a reservation. Refund the captured amount instead; cancelling would leave it with no refund path. |
+
 ## Get transaction status — `GET /payment_gateways/status`
 
 **Feature:** `payment_gateways.view`

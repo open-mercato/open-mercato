@@ -1,8 +1,10 @@
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import type { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
 import {
   alignCapturedAmountWithStatus,
   assertCaptureWithinRemaining,
+  assertNothingCapturedBeforeCancel,
   formatAmountUnits,
   parseAmountUnits,
   releaseCaptureAmount,
@@ -244,5 +246,30 @@ describe('releaseCaptureAmount', () => {
     })).resolves.toBe(false)
 
     expect(operation.reservedAmount).toBe('60.0000')
+  })
+})
+
+describe('assertNothingCapturedBeforeCancel', () => {
+  const translate = createFallbackTranslator({})
+
+  function withStatus(status: string, capturedAmount: string): GatewayTransaction {
+    return Object.assign(makeTransaction('100.0000', capturedAmount), { unifiedStatus: status })
+  }
+
+  it.each([
+    ['authorized', '0.0000'],
+    ['pending', '0'],
+  ])('allows cancelling a %s transaction with nothing captured', (status, capturedAmount) => {
+    expect(() => assertNothingCapturedBeforeCancel(withStatus(status, capturedAmount), translate)).not.toThrow()
+  })
+
+  it.each([
+    ['partially_captured', '40.0000'],
+    ['partially_captured', '0.0000'],
+    ['authorized', '0.0001'],
+  ])('refuses cancelling a %s transaction with %s captured', (status, capturedAmount) => {
+    expect(() => assertNothingCapturedBeforeCancel(withStatus(status, capturedAmount), translate)).toThrow(
+      expect.objectContaining({ status: 409, body: expect.objectContaining({ code: 'payment_cancel_captured_funds' }) }),
+    )
   })
 })
