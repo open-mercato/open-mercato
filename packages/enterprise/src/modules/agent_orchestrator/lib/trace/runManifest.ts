@@ -5,6 +5,7 @@ import { DEFINITION_HASH_PREFIX } from './definitionHash'
 export const RUN_MANIFEST_SPAN_NAME = 'run.manifest'
 export const RUN_MANIFEST_VERSION = 1
 export const RUN_MANIFEST_MAX_CHARS = 4000
+export const RUN_MANIFEST_TOOL_ACL_DENIED_MAX = 25
 
 export type RunManifestRuntime = 'native' | 'opencode' | 'external'
 export type RunManifestAgentSource = 'code' | 'file' | 'ui'
@@ -42,6 +43,17 @@ export type RunManifestCapture = {
   redactPii: boolean
 }
 
+export type RunManifestToolAclInput = {
+  mode: 'intersect'
+  deniedByPrincipal: readonly string[]
+}
+
+export type RunManifestToolAcl = {
+  mode: 'intersect'
+  denied_by_principal: string[]
+  denied_count: number
+}
+
 export type RunManifestSkill = {
   id: string
   sha256: string
@@ -70,6 +82,7 @@ export type RunManifestInput = {
   capture?: Partial<RunManifestCapture> | null
   traceparent?: string | null
   integrityRawOutputKey?: string | null
+  toolAcl?: RunManifestToolAclInput | null
 }
 
 export type RunManifestAttributes = {
@@ -99,6 +112,7 @@ export type RunManifestAttributes = {
   'om.capture'?: RunManifestCapture
   'om.platform_trace'?: { traceparent: string }
   'om.integrity.raw_output_key'?: string
+  'om.tool_acl'?: RunManifestToolAcl
   'om.manifest.truncated'?: true
 }
 
@@ -163,6 +177,15 @@ function resolveToolNames(input: RunManifestInput): string[] {
   return Array.from(new Set(input.toolNames ?? [])).sort(compareCodePoints)
 }
 
+function resolveToolAcl(toolAcl: RunManifestToolAclInput): RunManifestToolAcl {
+  const denied = Array.from(new Set(toolAcl.deniedByPrincipal)).sort(compareCodePoints)
+  return {
+    mode: toolAcl.mode,
+    denied_by_principal: denied.slice(0, RUN_MANIFEST_TOOL_ACL_DENIED_MAX),
+    denied_count: denied.length,
+  }
+}
+
 function buildUntrimmed(input: RunManifestInput): RunManifestAttributes {
   const attributes: RunManifestAttributes = {
     'om.manifest.version': RUN_MANIFEST_VERSION,
@@ -200,6 +223,7 @@ function buildUntrimmed(input: RunManifestInput): RunManifestAttributes {
   }
   if (input.traceparent) attributes['om.platform_trace'] = { traceparent: input.traceparent }
   if (input.integrityRawOutputKey) attributes['om.integrity.raw_output_key'] = input.integrityRawOutputKey
+  if (input.toolAcl?.mode === 'intersect') attributes['om.tool_acl'] = resolveToolAcl(input.toolAcl)
   return attributes
 }
 
@@ -221,5 +245,7 @@ export function buildRunManifestAttributes(input: RunManifestInput): RunManifest
   }
   const skills = attributes['om.skills']
   while (skills.length > 0 && !fits(attributes)) skills.pop()
+  const deniedByPrincipal = attributes['om.tool_acl']?.denied_by_principal ?? []
+  while (deniedByPrincipal.length > 0 && !fits(attributes)) deniedByPrincipal.pop()
   return attributes
 }

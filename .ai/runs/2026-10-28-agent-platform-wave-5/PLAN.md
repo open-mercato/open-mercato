@@ -41,7 +41,7 @@
 | 2 | 2.6 | Add intersectFeatureGrants to shared | dispatch:cheap | done | 2fd788317 |
 | 2 | 2.7 | Resolve the effective tool ACL with an intersect mode | dispatch:capable | done | 97bdeae71 |
 | 2 | 2.7-review-fix | Satisfy the core authorization guards for principals and tool ACL | inline | done | 70928a467 |
-| 2 | 2.8 | Record tools denied by the principal | dispatch | todo | — |
+| 2 | 2.8 | Record tools denied by the principal | dispatch | done | pending |
 | 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | todo | — |
 | 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | todo | — |
 | 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | todo | — |

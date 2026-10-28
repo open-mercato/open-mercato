@@ -15,6 +15,7 @@ export type EffectiveToolAcl = {
   features: string[]
   isSuperAdmin: boolean
   mode: AgentPrincipalToolAclMode
+  callerAcl?: FeatureGrantSet
 }
 
 type RbacAclLoader = {
@@ -83,7 +84,8 @@ async function loadPrincipalAcl(
  * principal (`ctx.runAs`) and the caller hold; a super-admin caller collapses to
  * the principal's grants. Without a principal `intersect` uses the caller's ACL,
  * or refuses with {@link AgentPrincipalMissingError} when the agent declares
- * `principal.required: true`.
+ * `principal.required: true`. When the principal narrowed the ACL, `callerAcl`
+ * carries the caller's own grants so principal-denied tools can be recorded.
  */
 export async function resolveEffectiveToolAcl(
   container: AwilixContainer,
@@ -100,5 +102,5 @@ export async function resolveEffectiveToolAcl(
   }
   const principalAcl = await loadPrincipalAcl(container, agentId, ctx.runAs.agentUserId, ctx)
   const effective = intersectToolAclGrants(principalAcl, callerAcl)
-  return { features: [...effective.features], isSuperAdmin: effective.isSuperAdmin, mode }
+  return { features: [...effective.features], isSuperAdmin: effective.isSuperAdmin, mode, callerAcl }
 }

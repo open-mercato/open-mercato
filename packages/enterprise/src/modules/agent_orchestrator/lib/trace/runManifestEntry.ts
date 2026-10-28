@@ -19,6 +19,7 @@ import {
   type RunManifestInvoker,
   type RunManifestRuntime,
   type RunManifestSkill,
+  type RunManifestToolAclInput,
 } from './runManifest'
 
 export type AgentRunManifestOptions = {
@@ -30,6 +31,7 @@ export type AgentRunManifestOptions = {
   traceparent?: string | null
   integrityRawOutputKey?: string | null
   capture?: RunManifestCapture | null
+  toolAcl?: RunManifestToolAclInput | null
 }
 
 function compareCodePoints(left: string, right: string): number {
@@ -137,6 +139,7 @@ export function buildAgentRunManifestInput(options: AgentRunManifestOptions): Ru
     traceparent: options.traceparent ?? null,
     ...(options.integrityRawOutputKey ? { integrityRawOutputKey: options.integrityRawOutputKey } : {}),
     ...(options.capture ? { capture: options.capture } : {}),
+    ...(options.toolAcl ? { toolAcl: options.toolAcl } : {}),
   }
 }
 

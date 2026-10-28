@@ -18,3 +18,6 @@
 ## 2026-10-28T04:42:57Z — checkpoint 2 + safety stop
 - Steps 2.1–2.7 verified after 2.7-review-fix (core guard violations). Integration 14 passed / 2 skipped; build:app pass.
 - Paused for user review after ~20 consecutive Steps (skill safety stop).
+
+## 2026-10-28T05:23:44Z — resumed
+- User: "Auto continue" — proceed without further 20-Step safety pauses; checkpoints every 10+ Steps continue.

@@ -32,6 +32,14 @@ export const runManifestViewSchema = z.object({
     .optional()
     .catch(undefined),
   'om.capture': z.object({ level: z.string() }).passthrough().optional().catch(undefined),
+  'om.tool_acl': z
+    .object({
+      mode: z.string(),
+      denied_by_principal: z.array(z.string()).catch([]),
+      denied_count: z.number().int().nonnegative().optional().catch(undefined),
+    })
+    .optional()
+    .catch(undefined),
   'om.platform_trace': z.object({ traceparent: z.string().min(1) }).optional().catch(undefined),
   'om.manifest.truncated': z.boolean().optional().catch(undefined),
 })

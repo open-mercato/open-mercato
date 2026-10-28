@@ -96,7 +96,12 @@ describe('resolveEffectiveToolAcl', () => {
 
     const acl = await resolveEffectiveToolAcl(container, AGENT_ID, intersectEntry, boundCtx)
 
-    expect(acl).toEqual({ features: ['customers.deals.view'], isSuperAdmin: false, mode: 'intersect' })
+    expect(acl).toEqual({
+      features: ['customers.deals.view'],
+      isSuperAdmin: false,
+      mode: 'intersect',
+      callerAcl: callerGrants,
+    })
     expect(loadAcl).toHaveBeenCalledWith(AGENT_USER, { tenantId: TENANT, organizationId: ORG })
   })
 
@@ -108,7 +113,12 @@ describe('resolveEffectiveToolAcl', () => {
 
     const acl = await resolveEffectiveToolAcl(container, AGENT_ID, intersectEntry, boundCtx)
 
-    expect(acl).toEqual({ features: ['customers.deals.*', 'sales.orders.view'], isSuperAdmin: false, mode: 'intersect' })
+    expect(acl).toEqual({
+      features: ['customers.deals.*', 'sales.orders.view'],
+      isSuperAdmin: false,
+      mode: 'intersect',
+      callerAcl: { features: [], isSuperAdmin: true },
+    })
   })
 
   it("fails closed when the principal's ACL cannot be loaded", async () => {
@@ -116,7 +126,7 @@ describe('resolveEffectiveToolAcl', () => {
 
     const acl = await resolveEffectiveToolAcl(container, AGENT_ID, intersectEntry, boundCtx)
 
-    expect(acl).toEqual({ features: [], isSuperAdmin: false, mode: 'intersect' })
+    expect(acl).toEqual({ features: [], isSuperAdmin: false, mode: 'intersect', callerAcl: callerGrants })
   })
 
   it("uses the caller's ACL when no principal is bound", async () => {

@@ -151,6 +151,43 @@ function buildRows(
       ]),
     )
   }
+  const toolAcl = manifest['om.tool_acl']
+  if (toolAcl) {
+    const deniedTools = toolAcl.denied_by_principal
+    const deniedCount = Math.max(toolAcl.denied_count ?? deniedTools.length, deniedTools.length)
+    const hiddenCount = deniedCount - deniedTools.length
+    push(
+      'agent_orchestrator.traces.detail.manifest.toolAcl',
+      <span className="block min-w-0 space-y-1" data-testid="run-manifest-tool-acl">
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
+          <MonoValue>{toolAcl.mode}</MonoValue>
+          {deniedCount > 0 ? (
+            <StatusBadge variant="warning">
+              {t('agent_orchestrator.traces.detail.manifest.toolAclDenied', undefined, { count: deniedCount })}
+            </StatusBadge>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {t('agent_orchestrator.traces.detail.manifest.toolAclNoneDenied')}
+            </span>
+          )}
+        </span>
+        {deniedTools.length > 0 ? (
+          <ul className="space-y-0.5">
+            {deniedTools.map((toolName) => (
+              <li key={toolName} className="break-all font-mono text-xs text-foreground">
+                {toolName}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {hiddenCount > 0 ? (
+          <span className="block text-xs text-muted-foreground">
+            {t('agent_orchestrator.traces.detail.manifest.toolAclMore', undefined, { count: hiddenCount })}
+          </span>
+        ) : null}
+      </span>,
+    )
+  }
   push('agent_orchestrator.traces.detail.manifest.capture', manifest['om.capture'] ? <MonoValue>{manifest['om.capture'].level}</MonoValue> : null)
   push(
     'agent_orchestrator.traces.detail.manifest.truncated',

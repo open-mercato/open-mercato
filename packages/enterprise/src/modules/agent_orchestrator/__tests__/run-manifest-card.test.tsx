@@ -74,8 +74,54 @@ describe('RunManifestCard', () => {
     expect(screen.getByText('agent_orchestrator.traces.detail.manifest.promptOverrideValue')).not.toBeNull()
     expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.channel')).toBeNull()
     expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.principal')).toBeNull()
+    expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.toolAcl')).toBeNull()
     expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.notRecorded')).toBeNull()
     expect(screen.getAllByRole('button', { name: 'agent_orchestrator.traces.detail.manifest.copy' })).toHaveLength(2)
+  })
+
+  it('lists the tools the agent principal denied in intersect mode', () => {
+    renderWithProviders(
+      <RunManifestCard
+        spans={[
+          span({
+            attributes: {
+              ...MANIFEST_ATTRIBUTES,
+              'om.tool_acl': {
+                mode: 'intersect',
+                denied_by_principal: ['customers.update_deal', 'sales.update_order'],
+                denied_count: 5,
+              },
+            },
+          }),
+        ]}
+        agentVersion="4"
+      />,
+    )
+    expect(screen.getByText('agent_orchestrator.traces.detail.manifest.toolAcl')).not.toBeNull()
+    expect(screen.getByText('intersect')).not.toBeNull()
+    expect(screen.getByText('agent_orchestrator.traces.detail.manifest.toolAclDenied')).not.toBeNull()
+    expect(screen.getByText('customers.update_deal')).not.toBeNull()
+    expect(screen.getByText('sales.update_order')).not.toBeNull()
+    expect(screen.getByText('agent_orchestrator.traces.detail.manifest.toolAclMore')).not.toBeNull()
+    expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.toolAclNoneDenied')).toBeNull()
+  })
+
+  it('states that the principal denied nothing when the intersect list is empty', () => {
+    renderWithProviders(
+      <RunManifestCard
+        spans={[
+          span({
+            attributes: {
+              ...MANIFEST_ATTRIBUTES,
+              'om.tool_acl': { mode: 'intersect', denied_by_principal: [], denied_count: 0 },
+            },
+          }),
+        ]}
+        agentVersion="4"
+      />,
+    )
+    expect(screen.getByText('agent_orchestrator.traces.detail.manifest.toolAclNoneDenied')).not.toBeNull()
+    expect(screen.queryByText('agent_orchestrator.traces.detail.manifest.toolAclDenied')).toBeNull()
   })
 
   it('hides the capture row when the manifest carries no capture policy', () => {

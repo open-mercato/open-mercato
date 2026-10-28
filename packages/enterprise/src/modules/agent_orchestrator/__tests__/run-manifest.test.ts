@@ -1,5 +1,6 @@
 import {
   RUN_MANIFEST_MAX_CHARS,
+  RUN_MANIFEST_TOOL_ACL_DENIED_MAX,
   RUN_MANIFEST_SPAN_NAME,
   buildRunManifestAttributes,
   computeManifestSha256,
@@ -181,6 +182,47 @@ describe('run manifest builder', () => {
     expect(measureRunManifest(attributes)).toBeLessThanOrEqual(RUN_MANIFEST_MAX_CHARS)
     expect(attributes['om.manifest.truncated']).toBe(true)
     expect(attributes['om.integrity.raw_output_key']).toBe('agent-trace-artifacts/raw-output.json')
+  })
+
+  it('records principal-denied tools only in intersect mode', () => {
+    const withAcl = buildRunManifestAttributes(
+      codeAgentInput({
+        toolAcl: { mode: 'intersect', deniedByPrincipal: ['sales.update_order', 'customers.update_deal', 'sales.update_order'] },
+      }),
+    )
+    expect(withAcl['om.tool_acl']).toEqual({
+      mode: 'intersect',
+      denied_by_principal: ['customers.update_deal', 'sales.update_order'],
+      denied_count: 2,
+    })
+    expect(
+      buildRunManifestAttributes(codeAgentInput({ toolAcl: { mode: 'intersect', deniedByPrincipal: [] } }))['om.tool_acl'],
+    ).toEqual({ mode: 'intersect', denied_by_principal: [], denied_count: 0 })
+    expect(buildRunManifestAttributes(codeAgentInput())).not.toHaveProperty('om.tool_acl')
+    expect(buildRunManifestAttributes(codeAgentInput({ toolAcl: null }))).not.toHaveProperty('om.tool_acl')
+  })
+
+  it('caps the principal-denied tool list and keeps the full count', () => {
+    const deniedByPrincipal = Array.from({ length: 60 }, (_entry, index) => `module.tool_${String(index).padStart(2, '0')}`)
+    const attributes = buildRunManifestAttributes(codeAgentInput({ toolAcl: { mode: 'intersect', deniedByPrincipal } }))
+    expect(attributes['om.tool_acl']?.denied_by_principal).toHaveLength(RUN_MANIFEST_TOOL_ACL_DENIED_MAX)
+    expect(attributes['om.tool_acl']?.denied_by_principal[0]).toBe('module.tool_00')
+    expect(attributes['om.tool_acl']?.denied_count).toBe(60)
+  })
+
+  it('trims the principal-denied list last to stay within the size cap', () => {
+    const longName = (index: number) => `module_${index}.${'x'.repeat(300)}`
+    const deniedByPrincipal = Array.from({ length: 20 }, (_entry, index) => longName(index))
+    const toolNames = Array.from({ length: 300 }, (_entry, index) => `module_${index}.tool_with_a_long_name_${index}`)
+    const attributes = buildRunManifestAttributes(
+      codeAgentInput({ toolNames, toolAcl: { mode: 'intersect', deniedByPrincipal } }),
+    )
+    expect(measureRunManifest(attributes)).toBeLessThanOrEqual(RUN_MANIFEST_MAX_CHARS)
+    expect(attributes['om.manifest.truncated']).toBe(true)
+    expect(attributes['om.tools.names']).toHaveLength(0)
+    expect(attributes['om.skills']).toHaveLength(0)
+    expect(attributes['om.tool_acl']?.denied_by_principal.length).toBeLessThan(20)
+    expect(attributes['om.tool_acl']?.denied_count).toBe(20)
   })
 
   it('produces deterministic output for the same input', () => {

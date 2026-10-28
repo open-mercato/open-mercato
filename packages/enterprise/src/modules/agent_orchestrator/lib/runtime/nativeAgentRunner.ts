@@ -77,6 +77,7 @@ import {
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveEffectiveToolAcl } from '../identity/resolveEffectiveToolAcl'
+import { resolvePrincipalToolAclRecord } from '../identity/principalDeniedTools'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
@@ -262,6 +263,7 @@ export class NativeAgentRunner {
       }
       throw aclError
     }
+    const toolAclRecord = resolvePrincipalToolAclRecord(entry, acl)
     const authContext: AiChatRequestContext = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -449,6 +451,7 @@ export class NativeAgentRunner {
           traceparent,
           integrityRawOutputKey,
           capture: runCapture,
+          toolAcl: toolAclRecord,
         })
       } catch (err) {
         logger.warn('native run manifest build failed', {
