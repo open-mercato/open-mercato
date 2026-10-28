@@ -28,6 +28,74 @@ function dailySeries(): ReturnType<typeof makeCalendarItem> {
 }
 
 describe('findEditorConflictItems', () => {
+  describe.each(['all', 'mine'] as const)('cross-role editor conflicts in scope %s', (scope) => {
+    it.each([true, false])('matches either editor role (draft owns shared user: %s)', (draftOwnsUser) => {
+      const other = makeCalendarItem({
+        id: 'other',
+        start: at(9, 30),
+        end: at(10, 30),
+        ownerUserId: draftOwnsUser ? 'other-owner' : 'shared-user',
+        participants: draftOwnsUser ? [{ userId: 'shared-user', name: 'Alex' }] : [],
+      })
+      const draft = {
+        start: at(9),
+        end: at(10),
+        ownerUserId: draftOwnsUser ? 'shared-user' : null,
+        participants: draftOwnsUser ? [] : [{ userId: 'shared-user', name: 'Alex' }],
+      }
+      const options = { scope, currentUserId: 'shared-user' }
+      const result = findEditorConflicts(draft, [other], null, options)
+      const gridDraft = makeCalendarItem({ id: 'draft', ...draft })
+
+      expect(result).toEqual([{
+        item: other,
+        shared: [{ kind: 'person', key: 'user:shared-user', label: 'Alex' }],
+      }])
+      expect(findEditorConflictItems(draft, [other], null, options)).toEqual([other])
+      expect(findConflicts([gridDraft, other], options).get('draft')).toEqual(['other'])
+      expect(findEditorConflicts(draft, [other], 'other', options)).toEqual([])
+    })
+  })
+
+  it('reports an actor once across owner and participant roles and preserves a participant label', () => {
+    const other = makeCalendarItem({
+      id: 'other',
+      start: at(9, 30),
+      end: at(10, 30),
+      ownerUserId: 'shared-user',
+      participants: [{ userId: 'shared-user', email: 'alex@example.org' }],
+    })
+    const [conflict] = findEditorConflicts(
+      {
+        start: at(9),
+        end: at(10),
+        ownerUserId: 'shared-user',
+        participants: [{ userId: 'shared-user', name: 'Alex' }, { userId: 'shared-user', name: 'Duplicate' }],
+        ownerLabel: 'Assignee fallback',
+      },
+      [other],
+      null,
+    )
+
+    expect(conflict?.shared).toEqual([{ kind: 'person', key: 'user:shared-user', label: 'Alex' }])
+  })
+
+  it('uses the editor owner label when a cross-role participant has no label', () => {
+    const other = makeCalendarItem({
+      id: 'other',
+      start: at(9, 30),
+      end: at(10, 30),
+      participants: [{ userId: 'shared-user' }],
+    })
+    const [conflict] = findEditorConflicts(
+      { start: at(9), end: at(10), ownerUserId: 'shared-user', participants: [], ownerLabel: 'Alex Assignee' },
+      [other],
+      null,
+    )
+
+    expect(conflict?.shared).toEqual([{ kind: 'person', key: 'user:shared-user', label: 'Alex Assignee' }])
+  })
+
   it('flags an overlapping item that shares the owner', () => {
     const others = [makeCalendarItem({ id: 'a', start: at(9, 30), end: at(10, 30), ownerUserId: 'owner-1' })]
     const result = findEditorConflictItems(

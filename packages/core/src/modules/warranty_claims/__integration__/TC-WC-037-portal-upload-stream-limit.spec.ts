@@ -4,6 +4,7 @@ import { request as httpsRequest } from 'node:https'
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { resolveAttachmentMultipartMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -18,7 +19,6 @@ import { uniqueLabel } from './helpers'
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const UPLOAD_PATH = '/api/warranty_claims/portal/attachments'
 const BOUNDARY = '----om-tc-wc-037'
-const OVERSIZED_FILE_BYTES = 40 * 1024 * 1024
 
 type UploadResult = { status: number; body: string }
 
@@ -38,6 +38,8 @@ function sendChunkedUpload(method: 'POST' | 'PUT', cookieHeader: string, claimId
     fields.push(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="attachmentId"\r\n\r\n${randomUUID()}\r\n`)
   }
   fields.push(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="tc-wc-037.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`)
+  const prefix = Buffer.from(fields.join(''), 'utf8')
+  const oversizedBodyBytes = resolveAttachmentMultipartMaxBytes() + 1
   return new Promise((resolve, reject) => {
     let settled = false
     let responded = false
@@ -57,6 +59,7 @@ function sendChunkedUpload(method: 'POST' | 'PUT', cookieHeader: string, claimId
       res.on('end', () => {
         settled = true
         resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
+        req.destroy()
       })
     })
     req.on('error', (error: NodeJS.ErrnoException) => {
@@ -66,19 +69,18 @@ function sendChunkedUpload(method: 'POST' | 'PUT', cookieHeader: string, claimId
     req.on('close', () => {
       if (!responded) reject(new Error('[internal] connection closed before a response arrived'))
     })
-    req.write(fields.join(''))
-    const chunk = Buffer.alloc(256 * 1024, 0x41)
-    let sent = 0
+    req.write(prefix)
+    let sent = prefix.length
     const writeMore = () => {
-      while (sent < OVERSIZED_FILE_BYTES) {
+      while (sent < oversizedBodyBytes) {
         if (req.destroyed) return
+        const chunk = Buffer.alloc(Math.min(256 * 1024, oversizedBodyBytes - sent), 0x41)
         sent += chunk.length
         if (!req.write(chunk)) {
           req.once('drain', writeMore)
           return
         }
       }
-      req.end(`\r\n--${BOUNDARY}--\r\n`)
     }
     writeMore()
   })
