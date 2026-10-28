@@ -185,6 +185,10 @@ export class NativeAgentRunner {
     // capabilities that declare a ContextModule get a bundle; the rest are a safe
     // no-op so existing toolless agents are unaffected. Best-effort: an assembly
     // failure must not abort the run (the bundle is evidence, not a gate in P1).
+    const traceEnabled = isNativeTraceCaptureEnabled()
+    const runCapture: RunManifestCapture | null = traceEnabled
+      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
+      : null
     let untrustedSpans: UntrustedSpan[] = []
     let citableSources: CitableSource[] = []
     if (resolveContextModule(agentId)) {
@@ -199,6 +203,7 @@ export class NativeAgentRunner {
           stepId: ctx.stepId ?? null,
           capability: agentId,
           budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
+          ...(runCapture ? { contentCapture: { level: runCapture.level, redactPii: runCapture.redactPii } } : {}),
         })
         untrustedSpans = assembled.untrustedSpans
         citableSources = assembled.citableSources
@@ -286,13 +291,9 @@ export class NativeAgentRunner {
     // Per-step trace recording (Phase 1): the object-mode `loop.onStepFinish`
     // hook (forwarded by the additive ai-assistant change) records one entry per
     // AI SDK step as it happens, so partial traces survive even a failed run.
-    const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
     const traceparent = traceEnabled ? captureManifestTraceparent() : null
     const runObservation = createRunObservationCollector()
-    const runCapture: RunManifestCapture | null = traceEnabled
-      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
-      : null
     let promptResolved: AiAgentPromptResolvedEvent | null = null
     const modelCalls = createNativeModelCallCollector({ retainContent: runCapture?.level === 'full' })
     const promptObserver = {

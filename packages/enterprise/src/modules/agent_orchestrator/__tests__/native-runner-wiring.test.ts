@@ -96,6 +96,8 @@ import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
 import { buildNativeTracePayload, type NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
 import { RUN_MANIFEST_SPAN_NAME, computeManifestSha256 } from '../lib/trace/runManifest'
 import { reportKnowledgeVersion } from '@open-mercato/shared/lib/ai/run-observation'
+import { ContextResolverImpl } from '../lib/context/contextResolver'
+import { entityProvenance, registerContextModule } from '../lib/context/registry'
 
 function registerNativeAgent(id: string): AgentRegistryEntry {
   const existing = getAgentEntry(id)
@@ -638,6 +640,37 @@ describe('post-run trace capture', () => {
     expect(metadataInput.captureLevel).toBe('metadata')
     expect(metadataInput.steps[0].call?.content).toBeUndefined()
     expect(JSON.stringify(metadataInput)).not.toContain('secret')
+  })
+
+  it('resolves the capture policy before context assembly and passes the level to assemble', async () => {
+    const agentId = 'native.capture_context_agent'
+    registerNativeAgent(agentId)
+    registerContextModule({
+      capability: agentId,
+      sources: [
+        {
+          kind: 'entity',
+          tier: 'mandatory',
+          entityType: 'test:capture_subject',
+          priority: 0,
+          fields: ['id'],
+          provenance: entityProvenance('test:capture_subject'),
+        },
+      ],
+    })
+    const assembleSpy = jest
+      .spyOn(ContextResolverImpl.prototype, 'assemble')
+      .mockResolvedValue({ bundle: {} as never, payloadRef: null, untrustedSpans: [], citableSources: [] })
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    try {
+      await makeService({
+        capturePolicy: { level: 'metadata', redactPii: false, perAgent: { [agentId]: { level: 'full' } } },
+      }).run(agentId, {}, runCtx)
+      expect(assembleSpy).toHaveBeenCalledTimes(1)
+      expect(assembleSpy.mock.calls[0][1].contentCapture).toEqual({ level: 'full', redactPii: false })
+    } finally {
+      assembleSpy.mockRestore()
+    }
   })
 
   it('capture level off skips the model-call handlers but keeps the prompt observer', async () => {

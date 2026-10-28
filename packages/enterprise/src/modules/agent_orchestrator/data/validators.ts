@@ -860,6 +860,13 @@ export const contextRoutedSourceSchema = z.object({
   locator: z.string().optional(),
   tokens: z.number().int().nonnegative(),
   score: z.number().optional(),
+  retrieval: z
+    .object({
+      queryHash: z.string().min(1),
+      rank: z.number().int().positive(),
+      k: z.number().int().positive(),
+    })
+    .optional(),
 })
 export type ContextRoutedSource = z.infer<typeof contextRoutedSourceSchema>
 

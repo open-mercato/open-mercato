@@ -347,3 +347,70 @@ export function buildLlmResponseArtifact(
   )
   return { ...capped, redactions: toRedactionList(state.counts) }
 }
+
+export const CONTEXT_PAYLOAD_ARTIFACT_SCHEMA = 'om.context_payload.v1'
+
+export type ContextPayloadRecordInput = {
+  kind: string
+  ref: string
+  locator?: string
+  score?: number
+  record: Record<string, unknown>
+}
+
+export type ContextPayloadSpanInput = {
+  sourceKind: string
+  sourceRef: string
+  locator: string
+  text: string
+}
+
+export type ContextPayloadRetrievalInput = {
+  query: string
+  queryHash: string
+  k: number
+}
+
+export type ContextPayloadInput = {
+  capability: string
+  records: ContextPayloadRecordInput[]
+  untrustedSpans: ContextPayloadSpanInput[]
+  retrieval: ContextPayloadRetrievalInput[]
+}
+
+export type ContextPayloadArtifact = {
+  schema: typeof CONTEXT_PAYLOAD_ARTIFACT_SCHEMA
+  capability: string
+  records: unknown[]
+  untrustedSpans: unknown[]
+  retrieval: unknown[]
+}
+
+export function buildContextPayloadArtifact(
+  input: ContextPayloadInput,
+  options: ContentCaptureOptions,
+): ContentArtifact<ContextPayloadArtifact | (Pick<ContextPayloadArtifact, 'schema'> & TruncationMarker)> {
+  const state = newState(options)
+  const records = sanitizeValue(input.records, state, true, 0) as unknown[]
+  const untrustedSpans = sanitizeValue(input.untrustedSpans, state, false, 0) as unknown[]
+  const retrieval = sanitizeValue(input.retrieval, state, false, 0) as unknown[]
+  const payload: ContextPayloadArtifact = {
+    schema: CONTEXT_PAYLOAD_ARTIFACT_SCHEMA,
+    capability: sanitizeString(input.capability, state),
+    records,
+    untrustedSpans,
+    retrieval,
+  }
+  const recordSlots = records.map((entry, index) =>
+    isPlainObject(entry) && 'record' in entry ? slot(entry, 'record') : slot(records, index),
+  )
+  const spanSlots = untrustedSpans.map((entry, index) =>
+    isPlainObject(entry) && 'text' in entry ? slot(entry, 'text') : slot(untrustedSpans, index),
+  )
+  const capped = capPayload(
+    payload,
+    [[...recordSlots, ...spanSlots], retrieval.map((_entry, index) => slot(retrieval, index))],
+    resolveMaxBytes(options),
+  )
+  return { ...capped, redactions: toRedactionList(state.counts) }
+}

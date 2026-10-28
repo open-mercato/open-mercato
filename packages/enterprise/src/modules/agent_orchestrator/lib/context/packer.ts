@@ -110,5 +110,6 @@ function toRouted(candidate: PackCandidate): ContextRoutedSource {
     tokens: candidate.tokens,
     ...(candidate.hit.locator ? { locator: candidate.hit.locator } : {}),
     ...(candidate.hit.score !== undefined ? { score: candidate.hit.score } : {}),
+    ...(candidate.hit.retrieval ? { retrieval: candidate.hit.retrieval } : {}),
   }
 }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
@@ -17,7 +18,7 @@ import {
   type ContextSourceHit,
 } from './registry'
 import { estimateTokens, packCandidates, type PackCandidate } from './packer'
-import { readRetrievalSource } from './retrievalSource'
+import { DEFAULT_RETRIEVAL_LIMIT, readRetrievalSource } from './retrievalSource'
 import type { DocumentExtraction } from '../../data/validators'
 import type { ContextRedactionApplied, UntrustedSpan, CitableSource } from '../../data/validators'
 import {
@@ -29,6 +30,42 @@ import type { DocumentIngestInput, DocumentIngestService } from './documentInges
 import { redactRecord, staticEncryptedFieldNames } from './redactor'
 import { defaultEncryptionMaps } from '../../encryption'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import {
+  AGENT_TRACE_CONTENT_NAMESPACE,
+  ARTIFACT_REFS,
+  putArtifact,
+  type ArtifactScope,
+} from '../trace/artifactStore'
+import {
+  buildContextPayloadArtifact,
+  type ContextPayloadRecordInput,
+  type ContextPayloadRetrievalInput,
+} from '../trace/contentCapture'
+import type { RunManifestCaptureLevel } from '../trace/runManifest'
+
+const logger = createLogger('agent_orchestrator').child({ component: 'context-resolver' })
+
+/** `agent_context_bundles.payload_ref` is a varchar(500); a longer key is never stored. */
+export const CONTEXT_PAYLOAD_REF_MAX_LENGTH = 500
+
+type ContentCaptureContainer = {
+  resolve<T = unknown>(name: string): T
+  hasRegistration?: (name: string) => boolean
+}
+
+/**
+ * Trace content capture for the assembled context. At `full` the packed records,
+ * the routed untrusted span text and the retrieval queries are offloaded
+ * (redacted and capped) to the trace content namespace and the storage key is
+ * stored as the bundle's `payloadRef`; any other level stores nothing.
+ */
+export type AssembleContentCapture = {
+  level: RunManifestCaptureLevel
+  redactPii: boolean
+  container?: ContentCaptureContainer
+}
 
 /**
  * Minimal slice of `TenantDataEncryptionService` the redactor consults — only the
@@ -76,6 +113,8 @@ export type AssembleInput = z.infer<typeof assembleInputSchema> & {
   documentExtractions?: DocumentExtraction[]
   /** Facts below this confidence are excluded from routing (default 0.5). */
   documentMinConfidence?: number
+  /** Trace content capture; the packed payload is offloaded only at the `full` level. */
+  contentCapture?: AssembleContentCapture
 }
 
 export type AssembleResult = {
@@ -232,7 +271,7 @@ export class ContextResolverImpl implements ContextResolver {
     const module = resolveContextModule(parsed.capability)
     if (!module) throw new ContextModuleNotFoundError(parsed.capability)
 
-    const { candidates, redactions } = await this.collectCandidates(module, parsed)
+    const { candidates, redactions, retrievalQueries } = await this.collectCandidates(module, parsed)
     const packed = packCandidates(candidates, parsed.budget)
 
     // Surface the UNTRUSTED (document/retrieval) spans that were actually ROUTED so
@@ -275,6 +314,14 @@ export class ContextResolverImpl implements ContextResolver {
     const sources = contextBundleSourcesSchema.parse(packed.sources)
     const redactionApplied = contextBundleRedactionAppliedSchema.parse(redactions)
 
+    const payloadRef = await this.offloadContextPayload(input.contentCapture, parsed, {
+      records: candidates
+        .filter((candidate) => routedKeys.has(`${candidate.kind}:${candidate.hit.ref}`))
+        .map((candidate) => toPayloadRecord(candidate)),
+      untrustedSpans,
+      retrieval: retrievalQueries,
+    })
+
     const bundle = em.create(AgentContextBundle, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
@@ -291,13 +338,58 @@ export class ContextResolverImpl implements ContextResolver {
       // Encrypted/PII values are removed from every routed record; this records
       // exactly what was withheld for the trace inspector + compliance lineage.
       redactionApplied: redactionApplied.length ? redactionApplied : null,
-      // P4 offloads the packed payload to storage-s3 and stores the ref here.
-      payloadRef: null,
+      payloadRef,
     })
     em.persist(bundle)
     await withRuntimeAuditWrite(() => em.flush())
 
     return { bundle, payloadRef: bundle.payloadRef ?? null, untrustedSpans, citableSources }
+  }
+
+  private async offloadContextPayload(
+    capture: AssembleContentCapture | undefined,
+    input: AssembleInput,
+    content: {
+      records: ContextPayloadRecordInput[]
+      untrustedSpans: UntrustedSpan[]
+      retrieval: ContextPayloadRetrievalInput[]
+    },
+  ): Promise<string | null> {
+    if (!capture || capture.level !== 'full') return null
+    const scope: ArtifactScope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    try {
+      const artifact = buildContextPayloadArtifact(
+        { capability: input.capability, ...content },
+        { redactPii: capture.redactPii === true },
+      )
+      const key = await putArtifact(
+        capture.container ?? this.container,
+        scope,
+        ARTIFACT_REFS.contextPayload,
+        artifact.payload,
+        AGENT_TRACE_CONTENT_NAMESPACE,
+      )
+      if (!key) return null
+      if (key.length > CONTEXT_PAYLOAD_REF_MAX_LENGTH) {
+        logger.warn('context payload key exceeds the payload_ref column; not stored', {
+          capability: input.capability,
+          keyLength: key.length,
+        })
+        return null
+      }
+      return key
+    } catch (error) {
+      logger.warn('context payload offload failed; assembling without payloadRef', {
+        capability: input.capability,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'agent_orchestrator',
+        code: 'context_payload_offload_failed',
+        attributes: { capability: input.capability },
+      })
+      return null
+    }
   }
 
   /**
@@ -372,7 +464,11 @@ export class ContextResolverImpl implements ContextResolver {
   private async collectCandidates(
     module: ContextModule,
     input: AssembleInput,
-  ): Promise<{ candidates: PackCandidate[]; redactions: ContextRedactionApplied[] }> {
+  ): Promise<{
+    candidates: PackCandidate[]
+    redactions: ContextRedactionApplied[]
+    retrievalQueries: ContextPayloadRetrievalInput[]
+  }> {
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const candidates: PackCandidate[] = []
     const redactionByField = new Map<string, ContextRedactionApplied>()
@@ -416,13 +512,23 @@ export class ContextResolverImpl implements ContextResolver {
     // Retrieval records are PII-redacted by name (no per-entity encryption map is
     // known for a fused snippet) so a sensitive field can't ride in via search.
     const retrievalQuery = buildRetrievalQuery(candidates, input.capability)
+    const retrievalQueryHash = createHash('sha256').update(retrievalQuery).digest('hex')
+    const retrievalQueries: ContextPayloadRetrievalInput[] = []
     for (const source of ordered) {
       if (source.kind !== 'retrieval') continue
+      const requestedK = source.limit ?? DEFAULT_RETRIEVAL_LIMIT
+      if (retrievalQuery) {
+        retrievalQueries.push({ query: retrievalQuery, queryHash: retrievalQueryHash, k: requestedK })
+      }
       const hits = await readRetrievalSource(this.container, source, retrievalQuery, scope)
-      for (const hit of hits) {
+      for (const [index, hit] of hits.entries()) {
         const { record, redactions } = redactRecord(hit.record, [])
         recordRedactions(redactions)
-        const redactedHit = { ...hit, record }
+        const redactedHit = {
+          ...hit,
+          record,
+          retrieval: { queryHash: retrievalQueryHash, rank: index + 1, k: Math.max(requestedK, hits.length) },
+        }
         const provenance: ContextProvenance = source.provenance(redactedHit)
         candidates.push({
           kind: source.kind,
@@ -457,7 +563,7 @@ export class ContextResolverImpl implements ContextResolver {
       }
     }
 
-    return { candidates, redactions: [...redactionByField.values()] }
+    return { candidates, redactions: [...redactionByField.values()], retrievalQueries }
   }
 
   /**
@@ -504,6 +610,16 @@ export class ContextResolverImpl implements ContextResolver {
       ref: String((record as { id?: unknown }).id ?? ''),
       record,
     }))
+  }
+}
+
+function toPayloadRecord(candidate: PackCandidate): ContextPayloadRecordInput {
+  return {
+    kind: candidate.kind,
+    ref: candidate.hit.ref,
+    ...(candidate.hit.locator ? { locator: candidate.hit.locator } : {}),
+    ...(candidate.hit.score !== undefined ? { score: candidate.hit.score } : {}),
+    record: candidate.hit.record,
   }
 }
 
