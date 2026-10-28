@@ -170,7 +170,7 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
       </div>
 
       {localError ? (
-        <ConfirmationErrorAlert error={localError} />
+        <ConfirmationErrorAlert error={localError} records={effectiveAction?.records ?? null} />
       ) : null}
 
       <div className="mt-3 flex items-center justify-end gap-2">
@@ -196,18 +196,40 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
   )
 }
 
-function ConfirmationErrorAlert({
+function readStaleRecordIds(extra: Record<string, unknown> | undefined): string[] {
+  if (!extra) return []
+  const ids: string[] = []
+  const push = (value: unknown) => {
+    if (typeof value === 'string' && value.length > 0 && !ids.includes(value)) ids.push(value)
+  }
+  if (Array.isArray(extra.failedRecords)) {
+    for (const entry of extra.failedRecords) {
+      push(entry && typeof entry === 'object' ? (entry as { recordId?: unknown }).recordId : null)
+    }
+  }
+  if (Array.isArray(extra.staleRecords)) {
+    for (const entry of extra.staleRecords) push(entry)
+  }
+  push(extra.recordId)
+  return ids
+}
+
+export function ConfirmationErrorAlert({
   error,
+  records,
 }: {
   error: { code?: string; message: string; extra?: Record<string, unknown> }
+  records?: AiPendingActionCardAction['records']
 }) {
   const t = useT()
   const code = error.code ?? 'unknown'
 
   if (code === 'stale_version') {
-    const failedRecords = Array.isArray(error.extra?.failedRecords)
-      ? (error.extra?.failedRecords as Array<{ recordId?: string }>)
-      : []
+    const labelById = new Map<string, string>()
+    for (const record of records ?? []) {
+      if (record?.recordId && record.label) labelById.set(record.recordId, record.label)
+    }
+    const staleRecordIds = readStaleRecordIds(error.extra)
     return (
       <Alert
         status="warning"
@@ -227,16 +249,17 @@ function ConfirmationErrorAlert({
               'One or more records changed since this preview was generated. Ask the assistant to re-propose the change.',
             )}
           </p>
-          {failedRecords.length > 0 ? (
+          {staleRecordIds.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-xs">
-              {failedRecords.map((record, idx) => (
-                <li
-                  key={`${record.recordId ?? idx}`}
-                  data-ai-confirmation-stale-record={record.recordId ?? ''}
-                >
-                  <span className="font-mono">{record.recordId ?? '—'}</span>
-                </li>
-              ))}
+              {staleRecordIds.map((recordId) => {
+                const label = labelById.get(recordId)
+                return (
+                  <li key={recordId} data-ai-confirmation-stale-record={recordId}>
+                    {label ? <span className="mr-1">{label}</span> : null}
+                    <span className="font-mono">{recordId}</span>
+                  </li>
+                )
+              })}
             </ul>
           ) : null}
         </AlertDescription>
