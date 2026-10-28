@@ -32,6 +32,7 @@
 | 1 | 1.9-review-fix | Keep ScorerRunView.guardrailChecks optional | inline | done | pending |
 | 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | done | pending |
 | 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | done | pending |
+| 1 | 1.11-review-fix | Wrap guardrail check rows in narrow cards | inline | done | pending |
 | 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | todo | — |
 | 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | todo | — |
 | 2 | 2.3 | Run principal sync in setup and the CLI | dispatch | todo | — |
@@ -135,6 +136,9 @@ See the two research files (verified on `2d407b96f`). Key cross-cutting rules fo
 - Implements **I5.4** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
 #### 1.11 Cover integrity review and untrusted inputs with integration tests
 - Implements **I5.5** in `research-integrity-identity-eval.md` (scope bullets, code facts, defaults and risks there are binding for this Step).
+
+#### 1.11-review-fix Wrap guardrail check rows in narrow cards
+- Found in the checkpoint-1 screenshot: in the three-column trace layout the output-integrity row squeezed the kind label to one character and pushed the result badge out of the card. Rows now wrap; the label keeps a minimum width.
 
 ### Phase 2 — Identity P2–P4
 #### 2.1 Close the agent identity route and tenant-scope follow-ups

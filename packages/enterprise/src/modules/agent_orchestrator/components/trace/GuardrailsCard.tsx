@@ -180,7 +180,7 @@ export function GuardrailsCard({
                   aria-expanded={expandable ? open : undefined}
                   onClick={() => setOpenId(open ? null : check.id)}
                   disabled={!expandable}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors enabled:hover:bg-muted/40"
+                  className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left transition-colors enabled:hover:bg-muted/40"
                 >
                   {check.result === 'pass' ? (
                     <ShieldCheck className="size-4 shrink-0 text-status-success-text" />
@@ -189,7 +189,7 @@ export function GuardrailsCard({
                       className={`size-4 shrink-0 ${check.result === 'block' ? 'text-status-error-text' : 'text-status-warning-text'}`}
                     />
                   )}
-                  <span className="truncate text-xs font-medium text-foreground" title={check.kind}>
+                  <span className="min-w-24 flex-1 truncate text-xs font-medium text-foreground" title={check.kind}>
                     {t(guardrailKindLabelKey(check.kind), check.kind)}
                   </span>
                   {check.ruleId ? (
@@ -203,7 +203,6 @@ export function GuardrailsCard({
                   <span className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                     {t(`agent_orchestrator.traces.detail.guardrailPhase.${check.phase}`, check.phase)}
                   </span>
-                  <span className="min-w-0 flex-1" />
                   {check.holdsAutoApproval ? (
                     <StatusBadge variant="warning">{t('agent_orchestrator.traces.detail.integrity.holdsApproval')}</StatusBadge>
                   ) : null}
