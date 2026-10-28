@@ -10,6 +10,7 @@
   "gateway_autopay.errors.captureUnsupported": "Autopay does not support capturing a payment separately — it settles immediately when the payer completes the redirect.",
   "gateway_autopay.errors.customerEmailRequired": "Autopay requires a customer email address for every payment session.",
   "gateway_autopay.errors.plnOnly": "Autopay only supports PLN payments in this integration.",
+  "gateway_autopay.errors.refundNotSettled": "Autopay cannot refund session {sessionId}: no captured transaction was found (current status: {status}).",
   "gateway_autopay.errors.refundPending": "The refund request was accepted by Autopay and is being processed. Check back shortly to confirm it completed.",
   "gateway_autopay.feature.configure": "Configure Autopay settings",
   "gateway_autopay.feature.view": "View Autopay configuration",

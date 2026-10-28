@@ -10,6 +10,7 @@
   "gateway_autopay.errors.captureUnsupported": "Autopay nie obsługuje osobnego zatwierdzania płatności — rozliczenie następuje natychmiast po zakończeniu przekierowania przez płatnika.",
   "gateway_autopay.errors.customerEmailRequired": "Autopay wymaga adresu e-mail klienta dla każdej sesji płatności.",
   "gateway_autopay.errors.plnOnly": "Ta integracja Autopay obsługuje wyłącznie płatności w PLN.",
+  "gateway_autopay.errors.refundNotSettled": "Autopay nie może zwrócić płatności {sessionId}: nie znaleziono rozliczonej transakcji (aktualny status: {status}).",
   "gateway_autopay.errors.refundPending": "Zlecenie zwrotu zostało przyjęte przez Autopay i jest przetwarzane. Sprawdź status ponownie za chwilę.",
   "gateway_autopay.feature.configure": "Konfiguracja ustawień Autopay",
   "gateway_autopay.feature.view": "Podgląd konfiguracji Autopay",

@@ -50,9 +50,8 @@ function resolveCredentials(raw: Record<string, unknown>): AutopayCredentials {
  * `CreateSessionInput` has no dedicated customer-email field, but Autopay's
  * documented parameter table marks CustomerEmail as required (position 7).
  * This adapter reads it from `input.metadata.customerEmail` — callers of
- * `createSession` for the `autopay` provider MUST populate that key. The
- * stock checkout submit route does not populate it yet (see the spec);
- * fixing that caller is tracked separately from this adapter.
+ * `createSession` for the `autopay` provider MUST populate that key, as the
+ * stock checkout submit route does.
  */
 function readCustomerEmail(metadata: Record<string, unknown> | undefined): string {
   const value = metadata?.customerEmail
@@ -95,9 +94,12 @@ async function resolveRefundRemoteId(
 
   const interpretation = await resolveStatusInterpretation(credentials, input.sessionId)
   if (interpretation.status !== 'captured' || !interpretation.matchedRemoteId) {
-    throw new Error(
-      `Autopay cannot refund session ${input.sessionId}: no captured transaction was found (current status: ${interpretation.status})`,
-    )
+    const { t } = await resolveTranslations()
+    throw new Error(t(
+      'gateway_autopay.errors.refundNotSettled',
+      'Autopay cannot refund session {sessionId}: no captured transaction was found (current status: {status}).',
+      { sessionId: input.sessionId, status: interpretation.status },
+    ))
   }
   return interpretation.matchedRemoteId
 }
@@ -114,7 +116,11 @@ export const autopayAdapterV1: GatewayAdapter = {
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     if (input.currencyCode !== AUTOPAY_CURRENCY) {
-      throw new Error('Autopay integration in this package only supports PLN sessions')
+      const { t } = await resolveTranslations()
+      throw new Error(t(
+        'gateway_autopay.errors.plnOnly',
+        'Autopay only supports PLN payments in this integration.',
+      ))
     }
     const credentials = resolveCredentials(input.credentials)
     const customerEmail = readCustomerEmail(input.metadata)
@@ -171,7 +177,7 @@ export const autopayAdapterV1: GatewayAdapter = {
       refundedAmount: input.amount ?? 0,
       providerData: {
         acknowledged: result.acknowledged,
-        note: 'Autopay refunds are processed asynchronously; call getStatus to confirm the final outcome.',
+        note: 'Autopay processes refunds asynchronously and getStatus does not report refund outcomes, so this adapter cannot confirm the final result.',
       },
     }
   },
