@@ -16,7 +16,7 @@ import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromePr
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
-import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildCrudExportUrl, createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { groupBulkDeleteFailures, runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { coalesceLastOperations } from '@open-mercato/ui/backend/operations/store'
@@ -76,6 +76,7 @@ import { UserCircle2 } from 'lucide-react'
 import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
 import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
 import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
+import { buildDealDuplicatePayload } from '../../../lib/duplicateDeal'
 
 const logger = createLogger('customers')
 
@@ -234,6 +235,7 @@ export default function CustomersDealsPage() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
+  const [pendingDuplicateId, setPendingDuplicateId] = React.useState<string | null>(null)
   const [needsAttentionOnly, setNeedsAttentionOnly] = React.useState(() => searchParams?.get('needsAttention') === 'true')
   // One-shot URL hydration used as the hook's initial value. The hook is the
   // single source of truth from this point on — the page MUST NOT keep a
@@ -539,6 +541,54 @@ export default function CustomersDealsPage() {
       }
     },
     [confirm, handleRefresh, pendingDeleteId, retrySingleMutation, rows, runSingleMutation, singleMutationContextId, t],
+  )
+
+  const duplicateMutationContextId = 'customers-deals-list:duplicate'
+  const { runMutation: runDuplicateMutation, retryLastMutation: retryDuplicateMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: duplicateMutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+
+  const handleDuplicateDeal = React.useCallback(
+    async (row: DealRow) => {
+      if (pendingDuplicateId) return
+      const payload = buildDealDuplicatePayload(
+        row,
+        t('customers.deals.list.duplicateTitle', '{title} (copy)', { title: row.title }),
+      )
+      setPendingDuplicateId(row.id)
+      try {
+        await runDuplicateMutation({
+          operation: async () => {
+            await createCrud('customers/deals', payload, {
+              errorMessage: t('customers.deals.list.duplicateError', 'Failed to duplicate deal.'),
+            })
+          },
+          context: {
+            formId: duplicateMutationContextId,
+            resourceKind: 'customers.deal',
+            resourceId: row.id,
+            retryLastMutation: retryDuplicateMutation,
+          },
+        })
+        flash(t('customers.deals.list.duplicateSuccess', 'Deal duplicated.'), 'success')
+        handleRefresh()
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('customers.deals.list.duplicateError', 'Failed to duplicate deal.')
+        flash(message, 'error')
+      } finally {
+        setPendingDuplicateId(null)
+      }
+    },
+    [handleRefresh, pendingDuplicateId, retryDuplicateMutation, runDuplicateMutation, t],
   )
 
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -1215,6 +1265,7 @@ export default function CustomersDealsPage() {
           }}
           rowActions={(row) => {
             const isDeleting = pendingDeleteId === row.id
+            const isDuplicating = pendingDuplicateId === row.id
             return (
               <RowActions
                 items={[
@@ -1231,6 +1282,13 @@ export default function CustomersDealsPage() {
                         window.open(`/backend/customers/deals/${row.id}`, '_blank', 'noopener')
                       }
                     },
+                  },
+                  {
+                    id: 'duplicate',
+                    label: isDuplicating
+                      ? t('customers.deals.list.actions.duplicating', 'Duplicating…')
+                      : t('customers.deals.list.actions.duplicate', 'Duplicate'),
+                    onSelect: () => { void handleDuplicateDeal(row) },
                   },
                   {
                     id: 'delete',

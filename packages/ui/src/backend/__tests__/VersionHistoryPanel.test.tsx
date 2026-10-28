@@ -1,11 +1,17 @@
 /**
  * @jest-environment jsdom
  */
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { VersionHistoryPanel } from '../version-history/VersionHistoryPanel'
 import type { VersionHistoryEntry } from '../version-history/types'
+
+const apiCallOrThrowMock = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
+}))
 
 const t = (key: string, fallbackOrParams?: string | Record<string, string | number>, params?: Record<string, string | number>) => {
   const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : key
@@ -105,5 +111,79 @@ describe('VersionHistoryPanel', () => {
     fireEvent.click(rowTrigger)
 
     expect(screen.getByText('Undo update company')).toBeInTheDocument()
+  })
+
+  describe('refused undo and redo', () => {
+    const buildEntry = (overrides: Partial<VersionHistoryEntry>): VersionHistoryEntry => ({
+      id: 'log-currency-1',
+      commandId: 'currencies.currencies.update',
+      actionLabel: 'Update currency',
+      executionState: 'done',
+      actorUserId: 'user-1',
+      actorUserName: 'admin@acme.com',
+      resourceKind: 'currencies.currency',
+      resourceId: 'currency-1',
+      parentResourceKind: null,
+      parentResourceId: null,
+      undoToken: 'undo-token-1',
+      createdAt: '2026-10-13T10:00:00.000Z',
+      updatedAt: '2026-10-13T10:00:00.000Z',
+      snapshotBefore: null,
+      snapshotAfter: null,
+      changes: null,
+      context: null,
+      ...overrides,
+    })
+
+    const renderPanel = (entry: VersionHistoryEntry) => renderWithProviders(
+      <VersionHistoryPanel
+        open
+        onOpenChange={() => undefined}
+        entries={[entry]}
+        isLoading={false}
+        error={null}
+        hasMore={false}
+        onLoadMore={() => undefined}
+        t={t}
+        canUndoRedo
+        autoCheckAcl={false}
+      />,
+    )
+
+    beforeEach(() => {
+      apiCallOrThrowMock.mockReset()
+    })
+
+    it('shows the server reason when the undo is refused', async () => {
+      const refusal = Object.assign(new Error('This change can\'t be undone because it would leave the organization without a base currency.'), { status: 409 })
+      apiCallOrThrowMock.mockRejectedValueOnce(refusal)
+
+      renderPanel(buildEntry({}))
+      fireEvent.click(screen.getByRole('button', { name: 'audit_logs.actions.undo' }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('This change can\'t be undone because it would leave the organization without a base currency.')
+      await waitFor(() => expect(screen.getByRole('button', { name: 'audit_logs.actions.undo' })).not.toBeDisabled())
+    })
+
+    it('falls back to the generic undo message when the request never reached the server', async () => {
+      apiCallOrThrowMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      renderPanel(buildEntry({}))
+      fireEvent.click(screen.getByRole('button', { name: 'audit_logs.actions.undo' }))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('audit_logs.error.undo')
+      expect(alert).not.toHaveTextContent('Failed to fetch')
+    })
+
+    it('shows the server reason when the redo is refused', async () => {
+      apiCallOrThrowMock.mockRejectedValueOnce(Object.assign(new Error('Redo refused by the server.'), { status: 409 }))
+
+      renderPanel(buildEntry({ executionState: 'undone', undoToken: null }))
+      fireEvent.click(screen.getByRole('button', { name: 'audit_logs.actions.redo' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Redo refused by the server.')
+    })
   })
 })

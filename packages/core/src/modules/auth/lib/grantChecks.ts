@@ -32,7 +32,7 @@ type RoleTokenGrantCheckInput = GrantCheckContext & {
 
 type UserDestinationRolesInput = {
   em: EntityManager
-  targetUserId: string
+  targetUserId?: string | null
   destinationTenantId: string | null | undefined
   roleTokens: unknown
 }
@@ -82,6 +82,7 @@ export async function resolveUserDestinationRoles(input: UserDestinationRolesInp
   if (Array.isArray(input.roleTokens)) {
     return resolveRolesForGrant(input.em, normalizeStringList(input.roleTokens), destinationTenantId)
   }
+  if (!input.targetUserId) return []
 
   const links = await findWithDecryption(
     input.em,
