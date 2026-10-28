@@ -3,6 +3,7 @@ import path from 'node:path'
 import { describe, expect, test } from '@jest/globals'
 import {
   encodeAnyValue,
+  OTLP_DOUBLE_ATTRIBUTE_KEYS,
   encodeAttributes,
   encodeOtlpSpan,
   encodeOtlpTraceRequest,
@@ -143,6 +144,45 @@ describe('encodeAnyValue', () => {
         values: [{ key: 'outer', value: { kvlistValue: { values: [{ key: 'inner', value: { doubleValue: 0.5 } }] } } }],
       },
     })
+  })
+})
+
+describe('double-typed attributes', () => {
+  test('encodes whole-number values of double keys as doubleValue', () => {
+    expect(
+      encodeAttributes({
+        'gen_ai.request.temperature': 1,
+        'gen_ai.request.top_p': 1,
+        'gen_ai.request.presence_penalty': 0,
+        'gen_ai.request.frequency_penalty': -1,
+        'gen_ai.evaluation.score.value': 0,
+        'om.run.confidence': 1,
+        'gen_ai.request.max_tokens': 256,
+      }),
+    ).toEqual([
+      { key: 'gen_ai.request.temperature', value: { doubleValue: 1 } },
+      { key: 'gen_ai.request.top_p', value: { doubleValue: 1 } },
+      { key: 'gen_ai.request.presence_penalty', value: { doubleValue: 0 } },
+      { key: 'gen_ai.request.frequency_penalty', value: { doubleValue: -1 } },
+      { key: 'gen_ai.evaluation.score.value', value: { doubleValue: 0 } },
+      { key: 'om.run.confidence', value: { doubleValue: 1 } },
+      { key: 'gen_ai.request.max_tokens', value: { intValue: '256' } },
+    ])
+  })
+
+  test('drops a non-finite double value', () => {
+    expect(encodeAttributes({ 'gen_ai.request.temperature': Number.NaN })).toEqual([])
+  })
+
+  test('lists the double keys', () => {
+    expect([...OTLP_DOUBLE_ATTRIBUTE_KEYS].sort()).toEqual([
+      'gen_ai.evaluation.score.value',
+      'gen_ai.request.frequency_penalty',
+      'gen_ai.request.presence_penalty',
+      'gen_ai.request.temperature',
+      'gen_ai.request.top_p',
+      'om.run.confidence',
+    ])
   })
 })
 

@@ -35,6 +35,17 @@ import {
  *   runner sets), in which case the spec records a note; the 429 path is
  *   covered by `__tests__/otel-export-settings-api.test.ts`.
  *
+ * Local-only delivery cases: they run only when the app under test is started
+ * with `OM_AGENT_OTEL_EXPORT=on` and
+ * `OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4319/v1/traces`, and skip
+ * with an explicit reason otherwise (CI does not set them), for example:
+ *
+ *   OM_AGENT_OTEL_EXPORT=on \
+ *   OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4319/v1/traces \
+ *   OM_AGENT_OTEL_EXPORT_DELAY_MS=0 \
+ *   OM_AGENT_OTEL_TRACE_URL_TEMPLATE='http://127.0.0.1:16686/trace/{traceId}' \
+ *   yarn test:integration:ephemeral:start
+ *
  * The tenant's previous settings are written back in `finally`; when the tenant
  * had none, that leaves a tenant row equal to the disabled default (there is no
  * DELETE route). A screenshot of the settings page is attached as evidence.
@@ -52,7 +63,7 @@ test.describe('TC-AGENT-OTEL-001: OTel export settings and test span', () => {
     let restricted: ScopedAgentUser | null = null
 
     try {
-      expect(['tenant', 'default']).toContain(initial.source)
+      expect(['tenant', 'instance', 'default']).toContain(initial.source)
       expect(typeof initial.deployment?.enabled).toBe('boolean')
       expect(typeof initial.deployment?.endpointConfigured).toBe('boolean')
       expect(typeof initial.deployment?.traceLinkConfigured).toBe('boolean')

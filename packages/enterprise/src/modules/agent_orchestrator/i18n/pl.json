@@ -1281,6 +1281,7 @@
   "agent_orchestrator.settings.otelExport.settings": "Ustawienia najemcy",
   "agent_orchestrator.settings.otelExport.settingsHint": "Eksportowane ślady zawierają modele, czasy, zużycie tokenów, koszt i wyniki — nigdy prompty ani odpowiedzi.",
   "agent_orchestrator.settings.otelExport.sourceDefault": "Odziedziczona wartość domyślna",
+  "agent_orchestrator.settings.otelExport.sourceInstance": "Odziedziczone z instalacji",
   "agent_orchestrator.settings.otelExport.sourceTenant": "Zapisane dla tego najemcy",
   "agent_orchestrator.settings.otelExport.test.disabled": "Eksport OTel nie jest włączony w tej instalacji.",
   "agent_orchestrator.settings.otelExport.test.error": "Nie udało się wysłać spanu testowego.",

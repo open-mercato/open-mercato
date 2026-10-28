@@ -81,9 +81,13 @@ function makeConfigStore(initial?: unknown) {
   if (initial !== undefined) {
     rows.set(rowKey(OTEL_EXPORT_CONFIG_NAME, TENANT), { value: initial, updatedAt: nextStamp() })
   }
+  const cached = new Map<string, StoredRow>()
   const getRecord = jest.fn(async (_module: string, name: string, scope?: { tenantId?: string | null }) => {
-    const row = rows.get(rowKey(name, scope?.tenantId))
+    const row = cached.get(rowKey(name, scope?.tenantId)) ?? rows.get(rowKey(name, scope?.tenantId))
     return row ? { value: row.value, source: 'tenant', updatedAt: row.updatedAt } : null
+  })
+  const invalidate = jest.fn(async (_module: string, name?: string, scope?: { tenantId?: string | null }) => {
+    if (name) cached.delete(rowKey(name, scope?.tenantId))
   })
   const setValue = jest.fn(
     async (_module: string, name: string, value: unknown, scope?: { tenantId?: string | null }) => {
@@ -94,7 +98,7 @@ function makeConfigStore(initial?: unknown) {
   )
   const settingsRow = () => rows.get(rowKey(OTEL_EXPORT_CONFIG_NAME, TENANT))
   const healthRow = () => rows.get(rowKey(OTEL_EXPORT_HEALTH_CONFIG_NAME, TENANT))
-  return { rows, getRecord, setValue, settingsRow, healthRow }
+  return { rows, cached, getRecord, setValue, invalidate, settingsRow, healthRow }
 }
 
 function makeContainer(options: {
@@ -116,7 +120,9 @@ function makeContainer(options: {
   const container = {
     hasRegistration: (token: string) => token === 'rateLimiterService',
     resolve: (token: string) => {
-      if (token === 'moduleConfigService') return { getRecord: store.getRecord, setValue: store.setValue }
+      if (token === 'moduleConfigService') {
+        return { getRecord: store.getRecord, setValue: store.setValue, invalidate: store.invalidate }
+      }
       if (token === 'rbacService') return { loadAcl }
       if (token === 'commandBus') return { execute }
       if (token === 'rateLimiterService') return { consume, trustProxyDepth: 0 }
@@ -436,6 +442,25 @@ describe('agent_orchestrator.otelExportSettings.update', () => {
     expect(isCrudHttpError(failure)).toBe(true)
     expect(failure).toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
     expect(store.setValue).not.toHaveBeenCalled()
+  })
+
+  test('a stale cached version does not pass the lock and the undo snapshot is the stored row', async () => {
+    const store = makeConfigStore({ enabled: true })
+    const staleStamp = '2026-10-27T09:00:00.000Z'
+    const settingsKey = rowKey(OTEL_EXPORT_CONFIG_NAME, TENANT)
+    store.cached.set(settingsKey, { value: { enabled: false }, updatedAt: staleStamp })
+    const { container } = makeContainer({ store })
+    const request = putRequest({}, { [OPTIMISTIC_LOCK_HEADER_NAME]: staleStamp })
+
+    const failure = await runUpdate(container, { enabled: false }, { request }).catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(store.invalidate).toHaveBeenCalledWith(OTEL_EXPORT_CONFIG_MODULE, OTEL_EXPORT_CONFIG_NAME, { tenantId: TENANT })
+    expect(store.setValue).not.toHaveBeenCalled()
+
+    store.cached.set(settingsKey, { value: { enabled: false }, updatedAt: staleStamp })
+    const { log } = await runUpdate(container, { enabled: false })
+    expect(log?.snapshotBefore).toEqual({ enabled: true })
   })
 
   test('refuses content export even when called directly', async () => {

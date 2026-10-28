@@ -1281,6 +1281,7 @@
   "agent_orchestrator.settings.otelExport.settings": "테넌트 설정",
   "agent_orchestrator.settings.otelExport.settingsHint": "내보낸 트레이스에는 모델, 소요 시간, 토큰 사용량, 비용, 결과가 담기며 프롬프트나 응답은 절대 포함되지 않습니다.",
   "agent_orchestrator.settings.otelExport.sourceDefault": "상속된 기본값",
+  "agent_orchestrator.settings.otelExport.sourceInstance": "설치 환경에서 상속됨",
   "agent_orchestrator.settings.otelExport.sourceTenant": "이 테넌트용으로 저장됨",
   "agent_orchestrator.settings.otelExport.test.disabled": "이 설치에서는 OTel 내보내기가 활성화되지 않았습니다.",
   "agent_orchestrator.settings.otelExport.test.error": "테스트 스팬을 보내지 못했습니다.",

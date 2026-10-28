@@ -14,6 +14,7 @@ jest.mock('../lib/trace/otel/exportHealth', () => ({
 import {
   OTEL_EXPORT_BACKOFF_MAX_MS,
   OTEL_EXPORT_ERROR_CODES,
+  OTEL_EXPORT_RETRY_AFTER_MAX_MS,
   enqueueOtelExportForRunEvent,
   otelExportBackoffMs,
   processOtelExportJob,
@@ -134,11 +135,15 @@ function makeJobDeps(options: {
   bundle?: RunExportBundle | null
   results?: OtlpExportResult[]
   loadRejects?: boolean
+  enqueueRejects?: boolean
 }) {
   const { container, getRecord } = makeContainer(options.settings ?? { enabled: true })
   const queued = [...(options.results ?? [result('ok', { httpStatus: 200 })])]
   const post = jest.fn(async (_input: PostOtlpTracesInput) => (queued.length > 1 ? queued.shift() : queued[0]) as OtlpExportResult)
-  const enqueue = jest.fn(async (_payload: OtelExportJobPayload, _options?: { delayMs?: number }) => 'job-id')
+  const enqueue = jest.fn(async (_payload: OtelExportJobPayload, _options?: { delayMs?: number }) => {
+    if (options.enqueueRejects) throw new Error('redis down')
+    return 'job-id'
+  })
   const loadBundle = jest.fn(async (_runId: string) => {
     if (options.loadRejects) throw new Error('db down')
     return options.bundle === undefined ? buildBundle() : options.bundle
@@ -220,16 +225,26 @@ describe('enqueueOtelExportForRunEvent', () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  test('never throws when enqueueing fails and reports the error', async () => {
+  test('reports and rethrows a failed enqueue so the persistent subscriber retries', async () => {
     const { container } = makeContainer({ enabled: true })
     const enqueue = jest.fn(async () => {
       throw new Error('redis down')
     })
-    await expect(enqueueOtelExportForRunEvent(event, container, { enqueue, env: ENABLED_ENV })).resolves.toBe(false)
+    await expect(enqueueOtelExportForRunEvent(event, container, { enqueue, env: ENABLED_ENV })).rejects.toThrow('redis down')
     expect(reportError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.enqueueFailed }),
     )
+  })
+
+  test('swallows a settings read failure without enqueueing', async () => {
+    const getRecord = jest.fn(async () => {
+      throw new Error('db down')
+    })
+    const container = { resolve: () => ({ getRecord }) }
+    const enqueue = jest.fn(async () => 'job-id')
+    await expect(enqueueOtelExportForRunEvent(event, container, { enqueue, env: ENABLED_ENV })).resolves.toBe(false)
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })
 
@@ -351,13 +366,58 @@ describe('processOtelExportJob', () => {
     expect(harness.post).toHaveBeenCalledTimes(2)
   })
 
-  test('catches unexpected failures without rethrowing', async () => {
+  test('re-enqueues an unexpected failure with the next attempt and backoff', async () => {
     const harness = makeJobDeps({ loadRejects: true })
-    await expect(processOtelExportJob(payload, harness.deps)).resolves.toBe('error')
+    await expect(processOtelExportJob({ runId: RUN_ID, attempt: 1 }, harness.deps)).resolves.toBe('retry_scheduled')
+    expect(harness.enqueue).toHaveBeenCalledWith({ runId: RUN_ID, attempt: 2 }, { delayMs: otelExportBackoffMs(1) })
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  test('gives up on an unexpected failure after the fifth attempt and reports it', async () => {
+    const harness = makeJobDeps({ loadRejects: true })
+    await expect(processOtelExportJob({ runId: RUN_ID, attempt: 4 }, harness.deps)).resolves.toBe('error')
+    expect(harness.enqueue).not.toHaveBeenCalled()
     expect(reportError).toHaveBeenCalledWith(
       expect.any(Error),
       expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.unexpected }),
     )
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.failed }),
+    )
+  })
+
+  test('records the health error when an unexpected post failure exhausts the attempts', async () => {
+    const harness = makeJobDeps({})
+    const post = async () => {
+      throw new Error('encoder crashed')
+    }
+    const outcome = await processOtelExportJob({ runId: RUN_ID, attempt: 4 }, { ...harness.deps, post })
+    expect(outcome).toBe('error')
+    expect(recordOtelExportHealth).toHaveBeenCalledWith(expect.anything(), TENANT_ID, {
+      outcome: 'error',
+      errorCode: 'unexpected',
+    })
+  })
+
+  test('reports and gives up when re-enqueueing an unexpected failure throws', async () => {
+    const harness = makeJobDeps({ loadRejects: true, enqueueRejects: true })
+    await expect(processOtelExportJob(payload, harness.deps)).resolves.toBe('error')
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.enqueueFailed }),
+    )
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: OTEL_EXPORT_ERROR_CODES.unexpected }),
+    )
+  })
+
+  test('caps a huge Retry-After at one hour', async () => {
+    const harness = makeJobDeps({ results: [result('retry', { httpStatus: 503, retryAfterMs: 7 * 24 * 3600 * 1000 })] })
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('retry_scheduled')
+    expect(OTEL_EXPORT_RETRY_AFTER_MAX_MS).toBe(3_600_000)
+    expect(harness.enqueue).toHaveBeenCalledWith({ runId: RUN_ID, attempt: 1 }, { delayMs: OTEL_EXPORT_RETRY_AFTER_MAX_MS })
   })
 
   test('ignores a payload without a run id', async () => {

@@ -43,7 +43,7 @@
 | 5 | 5.1 | Document trace capture and OTel export and mirror env vars | dispatch:cheap | done | f4b704570, 8f5ff20aa |
 | 5 | 5.2 | Update the specs, roadmap and upgrade notes for wave 4 | inline | done | bd6c75aa8 |
 | 5 | 5.2-review-fix | Register the wave 4 commands and ACL feature with the core guards | inline | done | 9a0f3c245 |
-| 5 | 5.2-review-fix-2 | Harden the OTel export after review | dispatch:capable | todo | — |
+| 5 | 5.2-review-fix-2 | Harden the OTel export after review | dispatch:capable | done | pending |
 | 5 | 5.2-review-fix-3 | Fix the trace capture review findings | dispatch | todo | — |
 
 ## Goal

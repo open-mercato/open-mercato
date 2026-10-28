@@ -60,10 +60,13 @@ Delivery is **at-least-once**. The queue has no job-id deduplication, so a retry
 A persistent subscriber on `agent_orchestrator.run.completed` and `agent_orchestrator.run.ingested` enqueues a job on the `agent-orchestrator-otel-export` queue, delayed by `OM_AGENT_OTEL_EXPORT_DELAY_MS`. The worker re-checks the gate, builds the payload and sends it:
 
 - `2xx`: success.
-- `429`, `502`, `503`, `504`, timeouts and network errors: retried with exponential backoff (5 s, 10 s, 20 s, up to 5 minutes), honoring `Retry-After`, for at most 5 attempts.
+- `429`, `502`, `503`, `504`, timeouts and network errors: retried with exponential backoff (5 s, 10 s, 20 s, up to 5 minutes), honoring `Retry-After` up to one hour, for at most 5 attempts.
+- Unexpected failures inside the worker (loading the run, reading settings, the database or the queue): retried with the same backoff and attempt limit.
 - Any other status: dropped and reported as an error.
 
-Failures are reported through the error reporter and recorded as export health; they never fail the run.
+Failures are reported through the error reporter and recorded as export health; they never fail the run. If the subscriber cannot enqueue the job, it reports the error and fails so the event queue redelivers the event.
+
+The `invoke_workflow` root span is built only from the process instance, so every run of the execution exports the same span. It is sent once the process reaches a terminal status; runs exported earlier already point to its span id.
 
 ## Health and test span
 
@@ -73,7 +76,7 @@ Use **Send test span** (`POST /api/agent_orchestrator/otel-export/test`) to send
 
 ## Trace link
 
-Set `OM_AGENT_OTEL_TRACE_URL_TEMPLATE` to your backend's trace URL with the `{traceId}` token, for example `http://127.0.0.1:16686/trace/{traceId}`. When the deployment and tenant both export, the run page shows the trace id and an Open in tracing backend link. Templates that do not resolve to an http(s) URL are ignored.
+Set `OM_AGENT_OTEL_TRACE_URL_TEMPLATE` to your backend's trace URL with the `{traceId}` token, for example `http://127.0.0.1:16686/trace/{traceId}`. When the run passes the same gate as the exporter (deployment switch, tenant opt-in, agent allowlist and run source), the run page shows the trace id and an Open in tracing backend link. Templates that do not resolve to an http(s) URL are ignored.
 
 ## Backfill CLI
 
@@ -106,6 +109,18 @@ OM_AGENT_OTEL_TRACE_URL_TEMPLATE=http://127.0.0.1:16686/trace/{traceId}
 ```
 
 Open the Jaeger UI at `http://127.0.0.1:16686`.
+
+## Integration tests
+
+`TC-AGENT-OTEL-001` and `TC-AGENT-OTEL-002` contain delivery cases that need a fake OTLP receiver on port 4319. They run only when the app under test is started with export on and pointed at that port, and skip with a reason otherwise. CI does not set these variables, so the delivery cases run locally:
+
+```bash
+OM_AGENT_OTEL_EXPORT=on \
+OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4319/v1/traces \
+OM_AGENT_OTEL_EXPORT_DELAY_MS=0 \
+OM_AGENT_OTEL_TRACE_URL_TEMPLATE='http://127.0.0.1:16686/trace/{traceId}' \
+yarn test:integration:ephemeral:start
+```
 
 ## Not included yet
 

@@ -68,6 +68,7 @@ type ModuleConfigServiceLike = {
     value: unknown,
     scope?: { tenantId?: string | null },
   ): Promise<ModuleConfigRecordLike | null>
+  invalidate(moduleId: string, name?: string, scope?: { tenantId?: string | null }): Promise<void>
 }
 
 function resolveModuleConfig(container: AwilixContainer): ModuleConfigServiceLike {
@@ -78,10 +79,15 @@ function resolveModuleConfig(container: AwilixContainer): ModuleConfigServiceLik
   }
 }
 
+/**
+ * The tenant row read past the module-config cache, so the optimistic-lock
+ * version and the undo snapshot always reflect the stored row.
+ */
 async function readTenantRecord(
   service: ModuleConfigServiceLike,
   tenantId: string,
 ): Promise<ModuleConfigRecordLike | null> {
+  await service.invalidate(OTEL_EXPORT_CONFIG_MODULE, OTEL_EXPORT_CONFIG_NAME, { tenantId })
   const record = await service.getRecord(OTEL_EXPORT_CONFIG_MODULE, OTEL_EXPORT_CONFIG_NAME, { tenantId })
   if (!record || record.source === 'instance') return null
   return record

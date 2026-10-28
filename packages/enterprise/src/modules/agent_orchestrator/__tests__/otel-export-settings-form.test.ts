@@ -33,6 +33,7 @@ describe('otel export settings form mapping', () => {
     expect(parsed?.deployment.protocol).toBe('http/json')
     expect(parseOtelExportSettingsResponse({ ...RESPONSE, deployment: null })).toBeNull()
     expect(parseOtelExportSettingsResponse({ ...RESPONSE, updatedAt: undefined })?.updatedAt).toBeNull()
+    expect(parseOtelExportSettingsResponse({ ...RESPONSE, source: 'instance' })?.source).toBe('instance')
   })
 
   it('round-trips settings through the form with a sorted allowlist', () => {

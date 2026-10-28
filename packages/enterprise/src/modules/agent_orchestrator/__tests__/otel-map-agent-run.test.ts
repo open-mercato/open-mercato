@@ -372,7 +372,64 @@ describe('mapAgentRunToOtlp', () => {
     const root = spanByName(output, `invoke_workflow ${WORKFLOW_INSTANCE_ID}`)
     expect(root.status).toEqual({ code: 'error' })
     expect(attr(root, 'error.type')).toBe('_OTHER')
-    expect(root.endTime).toEqual(at(5000))
+    expect(root.endTime).toEqual(at(-1000))
+  })
+
+  test('the workflow root does not depend on which run exports it', () => {
+    const processInstance = {
+      id: PROCESS_ID,
+      workflowInstanceId: WORKFLOW_INSTANCE_ID,
+      processDefinitionId: null,
+      workflowId: 'order_review',
+      status: 'cancelled' as const,
+      subjectType: null,
+      createdAt: at(-1000),
+      completedAt: null,
+    }
+    const early = mapAgentRunToOtlp(
+      buildBundle({ run: buildRun({ workflowInstanceId: WORKFLOW_INSTANCE_ID, status: 'ok' }), processInstance }),
+      OPTIONS,
+    )
+    const late = mapAgentRunToOtlp(
+      buildBundle({
+        run: buildRun({
+          id: SIBLING_RUN_ID,
+          workflowInstanceId: WORKFLOW_INSTANCE_ID,
+          status: 'error',
+          createdAt: at(30000),
+          completedAt: at(90000),
+        }),
+        rootRunId: SIBLING_RUN_ID,
+        processInstance,
+      }),
+      OPTIONS,
+    )
+    const earlyRoot = spanByName(early, 'invoke_workflow order_review')
+    expect(earlyRoot).toEqual(spanByName(late, 'invoke_workflow order_review'))
+    expect(earlyRoot).toMatchObject({ startTime: at(-1000), endTime: at(-1000), status: { code: 'error' } })
+    expect(attr(earlyRoot, 'error.type')).toBe('cancelled')
+  })
+
+  test('a running process emits no workflow root while its runs still parent to the workflow span id', () => {
+    const output = mapAgentRunToOtlp(
+      buildBundle({
+        run: buildRun({ workflowInstanceId: WORKFLOW_INSTANCE_ID }),
+        processInstance: {
+          id: PROCESS_ID,
+          workflowInstanceId: WORKFLOW_INSTANCE_ID,
+          processDefinitionId: null,
+          workflowId: 'order_review',
+          status: 'waiting_on_you',
+          subjectType: null,
+          createdAt: at(-1000),
+          completedAt: null,
+        },
+      }),
+      OPTIONS,
+    )
+    expectExportSafe(output)
+    expect(allSpans(output).some((span) => span.name.startsWith('invoke_workflow'))).toBe(false)
+    expect(spanByName(output, 'invoke_agent sales.quote_drafter').parentSpanId).toBe(workflowSpanId(WORKFLOW_INSTANCE_ID))
   })
 
   test('nested delegation parents the run to its parent run span and never emits a duplicate workflow root', () => {
@@ -669,6 +726,25 @@ describe('mapAgentRunToOtlp', () => {
     const runSpan = spanByName(output, 'invoke_agent sales.quote_drafter')
     expect(attr(runSpan, 'om.channel')).toBe('[redacted-email]')
     expect(attr(runSpan, 'om.knowledge.token_source')).toBe('Bearer [redacted]')
+  })
+
+  test('tool and system span names are redacted before they become OTLP span names', () => {
+    const output = mapAgentRunToOtlp(
+      buildBundle({
+        spans: [
+          buildSpan({ id: TOOL_SPAN_ID, kind: 'tool', name: 'lookup ops@example.com', status: 'ok' }),
+          buildSpan({ id: SYSTEM_SPAN_ID, kind: 'system', name: 'auth Bearer abc.def.ghi', status: 'ok' }),
+        ],
+      }),
+      OPTIONS,
+    )
+    expectExportSafe(output)
+    const names = allSpans(output).map((span) => span.name)
+    expect(names).toContain('execute_tool lookup [redacted-email]')
+    expect(names).toContain('om.auth Bearer [redacted]')
+    const serialized = JSON.stringify(encodeOtlpTraceRequest(output))
+    expect(serialized).not.toContain('ops@example.com')
+    expect(serialized).not.toContain('abc.def.ghi')
   })
 
   test('runs above 1000 spans are chunked into resource spans of 512 sharing one resource', () => {

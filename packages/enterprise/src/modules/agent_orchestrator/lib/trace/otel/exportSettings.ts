@@ -237,7 +237,7 @@ function resolveModuleConfig(container: OtelExportContainer): ModuleConfigServic
   }
 }
 
-export type OtelExportSettingsSource = 'tenant' | 'default'
+export type OtelExportSettingsSource = 'tenant' | 'instance' | 'default'
 
 export type StoredOtelExportSettings = {
   settings: OtelExportSettings
@@ -272,7 +272,7 @@ export async function readOtelExportSettings(
       logger.warn('stored otel export settings are malformed; export disabled for the tenant', { tenantId })
       return fallback(updatedAt)
     }
-    return { settings: parsed.data, source: 'tenant', updatedAt }
+    return { settings: parsed.data, source: record.source === 'instance' ? 'instance' : 'tenant', updatedAt }
   } catch (error) {
     logger.warn('otel export settings unreadable; export disabled for the tenant', {
       tenantId,

@@ -146,7 +146,7 @@ const settingsResponseSchema = z.object({
     exportUserIds: z.boolean(),
     agentAllowlist: z.array(z.string()).optional(),
   }),
-  source: z.enum(['tenant', 'default']),
+  source: z.enum(['tenant', 'instance', 'default']),
   updatedAt: z.string().nullable(),
   deployment: z.object({
     enabled: z.boolean(),

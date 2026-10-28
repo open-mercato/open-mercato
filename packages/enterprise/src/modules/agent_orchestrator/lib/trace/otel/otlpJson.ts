@@ -1,3 +1,6 @@
+import { GEN_AI_ATTRIBUTES } from '../genAiAttributes'
+import { OM_OTEL_RUN_ATTRIBUTES } from './otelAttributes'
+
 export type OtlpAttributeValue =
   | string
   | number
@@ -139,6 +142,20 @@ export type OtlpExportTraceServiceRequest = {
   resourceSpans: OtlpEncodedResourceSpans[]
 }
 
+/**
+ * Keys whose semantic-convention type is double: a whole number (temperature
+ * 1, score 0) is still sent as `doubleValue` so backends never see the key
+ * flip between int and double across spans.
+ */
+export const OTLP_DOUBLE_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
+  GEN_AI_ATTRIBUTES.requestTemperature,
+  GEN_AI_ATTRIBUTES.requestTopP,
+  GEN_AI_ATTRIBUTES.requestPresencePenalty,
+  GEN_AI_ATTRIBUTES.requestFrequencyPenalty,
+  GEN_AI_ATTRIBUTES.evaluationScoreValue,
+  OM_OTEL_RUN_ATTRIBUTES.confidence,
+])
+
 const NANOS_PER_MILLI = BigInt(1_000_000)
 const TRACE_ID_HEX_RE = /^[0-9a-f]{32}$/
 const SPAN_ID_HEX_RE = /^[0-9a-f]{16}$/
@@ -207,7 +224,12 @@ export function encodeAttributes(attributes: OtlpAttributes | undefined): OtlpKe
   const encoded: OtlpKeyValue[] = []
   for (const [key, value] of Object.entries(attributes)) {
     if (key.length === 0) continue
-    const anyValue = encodeAnyValue(value)
+    const anyValue =
+      typeof value === 'number' && OTLP_DOUBLE_ATTRIBUTE_KEYS.has(key)
+        ? Number.isFinite(value)
+          ? { doubleValue: value }
+          : null
+        : encodeAnyValue(value)
     if (anyValue) encoded.push({ key, value: anyValue })
   }
   return encoded

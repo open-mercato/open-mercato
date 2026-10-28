@@ -51,13 +51,13 @@ function respond(result: unknown, status = 200) {
   return { ok: status < 400, status, result, response: {}, cacheStatus: null }
 }
 
-function mockApi(testResponse: { result: unknown; status?: number }) {
+function mockApi(testResponse: { result: unknown; status?: number }, settings: unknown = SETTINGS) {
   apiCallMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.includes('/agents')) return respond({ items: [{ id: 'claims.assess', label: 'Assess claims' }] })
     if (url.includes('/otel-export/test') && init?.method === 'POST') {
       return respond(testResponse.result, testResponse.status ?? 200)
     }
-    return respond(SETTINGS)
+    return respond(settings)
   })
 }
 
@@ -81,6 +81,14 @@ describe('OTel export settings page', () => {
     expect(screen.getByText('http/json')).toBeTruthy()
     expect(screen.getByText(/http_503/)).toBeTruthy()
     expect(screen.queryByText(/collector/)).toBeNull()
+  })
+
+  it('labels settings inherited from the installation row', async () => {
+    mockApi({ result: { ok: true, httpStatus: 200, latencyMs: 42, errorCode: null } }, { ...SETTINGS, source: 'instance', updatedAt: null })
+    grant(['agent_orchestrator.trace.view'])
+    renderWithProviders(<OtelExportSettingsPage />)
+    expect(await screen.findByText('Inherited from the installation')).toBeTruthy()
+    expect(screen.queryByText('Saved for this tenant')).toBeNull()
   })
 
   it('shows the test-span result inline', async () => {

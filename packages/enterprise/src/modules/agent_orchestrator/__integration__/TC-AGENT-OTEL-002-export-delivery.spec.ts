@@ -24,11 +24,19 @@ import {
 /**
  * TC-AGENT-OTEL-002: an ingested agent run is exported to an OTLP receiver.
  *
- * Requires the app under test to run with `OM_AGENT_OTEL_EXPORT=on`,
- * `OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4319/v1/traces`,
- * `OM_AGENT_OTEL_EXPORT_DELAY_MS=0` and a trace URL template
- * (`OM_AGENT_OTEL_TRACE_URL_TEMPLATE`); the capability is probed up front from
- * `GET /otel-export/settings` → `deployment.enabled`, and the case skips with
+ * Local-only delivery cases: they run only when the app under test is started
+ * with `OM_AGENT_OTEL_EXPORT=on` and
+ * `OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4319/v1/traces`, and skip
+ * with an explicit reason otherwise (CI does not set them), for example:
+ *
+ *   OM_AGENT_OTEL_EXPORT=on \
+ *   OM_AGENT_OTEL_EXPORT_ENDPOINT=http://127.0.0.1:4319/v1/traces \
+ *   OM_AGENT_OTEL_EXPORT_DELAY_MS=0 \
+ *   OM_AGENT_OTEL_TRACE_URL_TEMPLATE='http://127.0.0.1:16686/trace/{traceId}' \
+ *   yarn test:integration:ephemeral:start
+ *
+ * The delay and the trace URL template are needed too. The capability is
+ * probed up front from `GET /otel-export/settings` → `deployment.enabled`, and the case skips with
  * an explicit reason otherwise, when port 4319 is taken, or when the test
  * process cannot sign ingests for the app (different `JWT_SECRET`). Delivery
  * goes through the persistent subscriber and the export queue worker, which the

@@ -39,7 +39,7 @@ const healthSchema = z.object({
 
 const settingsResponseSchema = z.object({
   settings: otelExportSettingsSchema,
-  source: z.enum(['tenant', 'default']),
+  source: z.enum(['tenant', 'instance', 'default']),
   updatedAt: z.string().nullable().optional(),
   deployment: deploymentSchema,
   health: healthSchema,
@@ -50,7 +50,7 @@ export type OtelExportHealthView = z.infer<typeof healthSchema>
 
 export type OtelExportSettingsResponse = {
   settings: OtelExportSettings
-  source: 'tenant' | 'default'
+  source: 'tenant' | 'instance' | 'default'
   updatedAt: string | null
   deployment: OtelExportDeploymentView
   health: OtelExportHealthView

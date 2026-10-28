@@ -1,5 +1,5 @@
 import { redactPii, redactAttributes } from '../../../../../telemetry/src/facade/redact'
-import { redactAttributeValues, redactEmails, redactSecretStrings } from '../lib/trace/redactStrings'
+import { redactAttributeValues, redactEmails, redactSecretStrings, redactString } from '../lib/trace/redactStrings'
 
 const SAMPLES = [
   'Error: no user for jan.kowalski@example.com',
@@ -54,9 +54,37 @@ describe('redactStrings', () => {
     expect(input.list[0]).toBe('mail me@x.org')
   })
 
-  it('never throws on cyclic input', () => {
+  it('never throws on cyclic input and masks what lies past the depth cap', () => {
     const cyclic: Record<string, unknown> = { a: 'x' }
     cyclic.self = cyclic
     expect(() => redactAttributeValues(cyclic)).not.toThrow()
+    let cursor = redactAttributeValues(cyclic) as Record<string, unknown>
+    let depth = 0
+    while (typeof cursor.self === 'object' && cursor.self !== null) {
+      cursor = cursor.self as Record<string, unknown>
+      depth += 1
+    }
+    expect(cursor.self).toBe('[redacted]')
+    expect(depth).toBeLessThan(20)
+  })
+
+  it('masks a nested value past the depth cap instead of returning it raw', () => {
+    let nested: Record<string, unknown> = { leak: 'mail me@x.org' }
+    for (let level = 0; level < 20; level += 1) nested = { child: nested }
+    expect(JSON.stringify(redactAttributeValues(nested))).not.toContain('me@x.org')
+  })
+
+  it('fails closed with an empty bag when scrubbing throws', () => {
+    const hostile = {
+      get boom(): string {
+        throw new Error('getter exploded')
+      },
+      note: 'mail me@x.org',
+    }
+    expect(redactAttributeValues(hostile)).toEqual({})
+  })
+
+  it('redactString applies both secret and email redaction', () => {
+    expect(redactString('Bearer abc for me@x.org')).toBe('Bearer [redacted] for [redacted-email]')
   })
 })

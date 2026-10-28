@@ -11,12 +11,11 @@ const SECRET_KEY_RE =
 export const REDACTED_EMAIL_PLACEHOLDER = '[redacted-email]'
 const MAX_DEPTH = 16
 
-
 export function redactEmails(text: string): string {
   try {
     return text.replace(EMAIL_RE, REDACTED_EMAIL_PLACEHOLDER)
   } catch {
-    return text
+    return REDACTED_PLACEHOLDER
   }
 }
 
@@ -28,8 +27,12 @@ export function redactSecretStrings(text: string): string {
       .replace(SECRET_HEADER_RE, (_match, name: string, separator: string) => `${name}${separator}${REDACTED_PLACEHOLDER}`)
       .replace(AUTH_SCHEME_RE, (_match, scheme: string) => `${scheme} ${REDACTED_PLACEHOLDER}`)
   } catch {
-    return text
+    return REDACTED_PLACEHOLDER
   }
+}
+
+export function redactString(text: string): string {
+  return redactEmails(redactSecretStrings(text))
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -39,8 +42,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function scrubValue(value: unknown, depth: number): unknown {
-  if (typeof value === 'string') return redactEmails(redactSecretStrings(value))
-  if (depth >= MAX_DEPTH) return value
+  if (typeof value === 'string') return redactString(value)
+  if (depth >= MAX_DEPTH) return isPlainObject(value) || Array.isArray(value) ? REDACTED_PLACEHOLDER : value
   if (Array.isArray(value)) return value.map((entry) => scrubValue(entry, depth + 1))
   if (isPlainObject(value)) return scrubObject(value, depth + 1)
   return value
@@ -54,10 +57,11 @@ function scrubObject(source: Record<string, unknown>, depth: number): Record<str
   return result
 }
 
+/** Fails closed: an internal error yields an empty bag, never the unredacted input. */
 export function redactAttributeValues<T extends Record<string, unknown>>(attributes: T): T {
   try {
     return scrubObject(attributes, 0) as T
   } catch {
-    return { ...attributes }
+    return {} as T
   }
 }

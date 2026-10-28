@@ -50,6 +50,7 @@ import {
   type OtelExportDeploymentView,
   type OtelExportHealthView,
   type OtelExportSettingsForm,
+  type OtelExportSettingsResponse,
 } from '../../../lib/trace/otel/exportSettingsForm'
 
 const SETTINGS_URL = '/api/agent_orchestrator/otel-export/settings'
@@ -78,7 +79,7 @@ export default function OtelExportSettingsPage() {
   const locale = useLocale()
   const [form, setForm] = React.useState<OtelExportSettingsForm | null>(null)
   const [baselineSignature, setBaselineSignature] = React.useState<string>('')
-  const [source, setSource] = React.useState<'tenant' | 'default'>('default')
+  const [source, setSource] = React.useState<OtelExportSettingsResponse['source']>('default')
   const [deployment, setDeployment] = React.useState<OtelExportDeploymentView | null>(null)
   const [health, setHealth] = React.useState<OtelExportHealthView | null>(null)
   const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
@@ -254,6 +255,10 @@ export default function OtelExportSettingsPage() {
           ) : source === 'tenant' ? (
             <StatusBadge variant="info" dot>
               {t('agent_orchestrator.settings.otelExport.sourceTenant', 'Saved for this tenant')}
+            </StatusBadge>
+          ) : source === 'instance' ? (
+            <StatusBadge variant="neutral" dot>
+              {t('agent_orchestrator.settings.otelExport.sourceInstance', 'Inherited from the installation')}
             </StatusBadge>
           ) : (
             <StatusBadge variant="neutral" dot>

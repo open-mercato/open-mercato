@@ -209,7 +209,7 @@ describe('readOtelExportSettings', () => {
         makeContainer({ value: { enabled: true }, source: 'instance', updatedAt: 'x' }).container as never,
         TENANT_ID,
       ),
-    ).toMatchObject({ source: 'tenant', updatedAt: null })
+    ).toMatchObject({ source: 'instance', updatedAt: null })
   })
 })
 

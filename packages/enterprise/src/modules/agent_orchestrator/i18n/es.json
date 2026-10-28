@@ -1281,6 +1281,7 @@
   "agent_orchestrator.settings.otelExport.settings": "Ajustes del inquilino",
   "agent_orchestrator.settings.otelExport.settingsHint": "Las trazas exportadas incluyen modelos, tiempos, uso de tokens, coste y resultados, nunca prompts ni respuestas.",
   "agent_orchestrator.settings.otelExport.sourceDefault": "Valor predeterminado heredado",
+  "agent_orchestrator.settings.otelExport.sourceInstance": "Heredado de la instalación",
   "agent_orchestrator.settings.otelExport.sourceTenant": "Guardado para este inquilino",
   "agent_orchestrator.settings.otelExport.test.disabled": "La exportación OTel no está activada en esta instalación.",
   "agent_orchestrator.settings.otelExport.test.error": "No se pudo enviar el span de prueba.",

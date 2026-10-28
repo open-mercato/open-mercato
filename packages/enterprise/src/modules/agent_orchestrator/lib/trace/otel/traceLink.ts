@@ -3,6 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { traceIdFor } from './ids'
 import { resolveRootRunId } from './loadRunExportBundle'
 import {
+  isExportEnabledFor,
   readOtelExportSettings,
   resolveOtelExportDeployment,
   type OtelExportContainer,
@@ -19,6 +20,8 @@ export type RunOtelLinkRun = {
   id: string
   tenantId: string
   organizationId: string
+  agentId: string
+  source?: string | null
   workflowInstanceId?: string | null
   parentRunId?: string | null
 }
@@ -49,15 +52,21 @@ export type ResolveRunOtelLinkInput = {
 
 /**
  * The run's exported trace id and its link in the tracing backend, or `null`
- * unless the deployment exports, the tenant exports and a trace URL template
- * is configured. The template is read server-side only. Never throws.
+ * unless the run passes the exporter's own gate (deployment, tenant opt-in,
+ * agent allowlist, run source) and a trace URL template is configured. The template is read server-side only. Never throws.
  */
 export async function resolveRunOtelLink(input: ResolveRunOtelLinkInput): Promise<RunOtelLink | null> {
   const deployment = input.deployment ?? resolveOtelExportDeployment()
   if (!deployment.enabled || !deployment.traceUrlTemplate) return null
   try {
     const { settings } = await readOtelExportSettings(input.container, input.run.tenantId)
-    if (!settings.enabled) return null
+    const exported = isExportEnabledFor({
+      deployment,
+      tenant: settings,
+      agentId: input.run.agentId,
+      runSource: input.run.source ?? null,
+    })
+    if (!exported) return null
     const workflowInstanceId = input.run.workflowInstanceId ?? null
     const rootRunId = workflowInstanceId
       ? input.run.id

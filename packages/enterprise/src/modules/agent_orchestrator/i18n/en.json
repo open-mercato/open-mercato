@@ -1281,6 +1281,7 @@
   "agent_orchestrator.settings.otelExport.settings": "Tenant settings",
   "agent_orchestrator.settings.otelExport.settingsHint": "Exported traces carry models, timings, token usage, cost and outcomes — never prompts or responses.",
   "agent_orchestrator.settings.otelExport.sourceDefault": "Inherited default",
+  "agent_orchestrator.settings.otelExport.sourceInstance": "Inherited from the installation",
   "agent_orchestrator.settings.otelExport.sourceTenant": "Saved for this tenant",
   "agent_orchestrator.settings.otelExport.test.disabled": "OTel export is not enabled for this installation.",
   "agent_orchestrator.settings.otelExport.test.error": "Could not send the test span.",

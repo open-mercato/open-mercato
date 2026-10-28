@@ -44,9 +44,13 @@ function makeConfigStore(initial?: unknown) {
   let tick = 0
   const nextStamp = () => new Date(Date.UTC(2026, 9, 27, 10, 0, tick++)).toISOString()
   if (initial !== undefined) rows.set(TENANT, { value: initial, updatedAt: nextStamp() })
+  const cached = new Map<string, StoredRow>()
   const getRecord = jest.fn(async (_module: string, _name: string, scope?: { tenantId?: string | null }) => {
-    const row = rows.get(scope?.tenantId ?? '')
+    const row = cached.get(scope?.tenantId ?? '') ?? rows.get(scope?.tenantId ?? '')
     return row ? { value: row.value, source: 'tenant', updatedAt: row.updatedAt } : null
+  })
+  const invalidate = jest.fn(async (_module: string, _name?: string, scope?: { tenantId?: string | null }) => {
+    cached.delete(scope?.tenantId ?? '')
   })
   const setValue = jest.fn(
     async (_module: string, _name: string, value: unknown, scope?: { tenantId?: string | null }) => {
@@ -55,7 +59,7 @@ function makeConfigStore(initial?: unknown) {
       return { value: row.value, source: 'tenant', updatedAt: row.updatedAt }
     },
   )
-  return { rows, getRecord, setValue }
+  return { rows, cached, getRecord, setValue, invalidate }
 }
 
 function makeContainer(options: {
@@ -73,7 +77,9 @@ function makeContainer(options: {
   const execute = options.execute ?? jest.fn()
   const container = {
     resolve: (token: string) => {
-      if (token === 'moduleConfigService') return { getRecord: store.getRecord, setValue: store.setValue }
+      if (token === 'moduleConfigService') {
+        return { getRecord: store.getRecord, setValue: store.setValue, invalidate: store.invalidate }
+      }
       if (token === 'rbacService') return { loadAcl }
       if (token === 'commandBus') return { execute }
       throw new Error(`Unexpected DI token in test: ${token}`)
@@ -334,6 +340,24 @@ describe('agent_orchestrator.traceCapturePolicy.update', () => {
     expect(isCrudHttpError(failure)).toBe(true)
     expect(failure).toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
     expect(store.setValue).not.toHaveBeenCalled()
+  })
+
+  test('a stale cached version does not pass the lock and the undo snapshot is the stored row', async () => {
+    const store = makeConfigStore({ level: 'full' })
+    const staleStamp = '2026-10-27T09:00:00.000Z'
+    store.cached.set(TENANT, { value: { level: 'metadata' }, updatedAt: staleStamp })
+    const { container } = makeContainer({ store })
+    const request = putRequest({}, { [OPTIMISTIC_LOCK_HEADER_NAME]: staleStamp })
+
+    const failure = await runUpdate(container, { level: 'off' }, { request }).catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(store.invalidate).toHaveBeenCalledWith(TRACE_CAPTURE_CONFIG_MODULE, TRACE_CAPTURE_CONFIG_NAME, { tenantId: TENANT })
+    expect(store.setValue).not.toHaveBeenCalled()
+
+    store.cached.set(TENANT, { value: { level: 'metadata' }, updatedAt: staleStamp })
+    const { log } = await runUpdate(container, { level: 'off' })
+    expect(log?.snapshotBefore).toEqual({ level: 'full' })
   })
 
   test('a matching lock version saves', async () => {

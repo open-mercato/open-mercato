@@ -1281,6 +1281,7 @@
   "agent_orchestrator.settings.otelExport.settings": "Mandanteneinstellungen",
   "agent_orchestrator.settings.otelExport.settingsHint": "Exportierte Traces enthalten Modelle, Zeiten, Tokenverbrauch, Kosten und Ergebnisse — nie Prompts oder Antworten.",
   "agent_orchestrator.settings.otelExport.sourceDefault": "Geerbter Standard",
+  "agent_orchestrator.settings.otelExport.sourceInstance": "Von der Installation geerbt",
   "agent_orchestrator.settings.otelExport.sourceTenant": "Für diesen Mandanten gespeichert",
   "agent_orchestrator.settings.otelExport.test.disabled": "Der OTel-Export ist für diese Installation nicht aktiviert.",
   "agent_orchestrator.settings.otelExport.test.error": "Der Test-Span konnte nicht gesendet werden.",

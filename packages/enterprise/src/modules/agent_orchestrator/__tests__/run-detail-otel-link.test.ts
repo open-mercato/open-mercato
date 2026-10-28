@@ -60,6 +60,7 @@ async function setup(options: {
   ;(findOneWithDecryption as jest.Mock).mockResolvedValue({
     id: RUN_ID,
     agentId: 'deals.health_check',
+    source: 'runtime',
     tenantId: TENANT,
     organizationId: ORG,
     workflowInstanceId: null,
@@ -120,6 +121,28 @@ describe('GET /api/agent_orchestrator/runs/:id — otel trace link', () => {
     await setup({ tenantSettings: { enabled: false } })
     const body = await (await GET(makeRequest(), { params })).json()
     expect(body.otel).toBeNull()
+  })
+
+  it('is null for an agent outside the tenant allowlist', async () => {
+    setDeployment({ switchOn: true, template: TEMPLATE })
+    await setup({ tenantSettings: { enabled: true, agentAllowlist: ['other.agent'] } })
+    const body = await (await GET(makeRequest(), { params })).json()
+    expect(body.otel).toBeNull()
+  })
+
+  it('is null for a run source the deployment does not export', async () => {
+    setDeployment({ switchOn: true, template: TEMPLATE })
+    await setup({ tenantSettings: { enabled: true }, run: { source: 'ingest' } })
+    const body = await (await GET(makeRequest(), { params })).json()
+    expect(body.otel).toBeNull()
+  })
+
+  it('links an allowlisted agent from an exported source', async () => {
+    setDeployment({ switchOn: true, template: TEMPLATE })
+    await setup({ tenantSettings: { enabled: true, agentAllowlist: ['deals.health_check'] } })
+    const body = await (await GET(makeRequest(), { params })).json()
+    const traceId = traceIdFor({ tenantId: TENANT, workflowInstanceId: null, rootRunId: RUN_ID })
+    expect(body.otel?.traceId).toBe(traceId)
   })
 
   it('anchors the trace on the workflow instance when the run has one', async () => {

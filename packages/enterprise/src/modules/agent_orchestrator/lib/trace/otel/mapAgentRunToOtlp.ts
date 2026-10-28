@@ -7,7 +7,7 @@ import {
   OM_LLM_ATTRIBUTES,
   readLlmSpanMetadata,
 } from '../genAiAttributes'
-import { redactAttributeValues } from '../redactStrings'
+import { redactAttributeValues, redactString } from '../redactStrings'
 import { agentSpanId, dispositionSpanId, runSpanId, traceIdFor, workflowSpanId } from './ids'
 import type {
   RunExportBundle,
@@ -65,6 +65,8 @@ const TRACEPARENT_RE = /^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/
 const ZERO_ID_RE = /^0+$/
 const TRACE_ID_RE = /^[0-9a-f]{32}$/
 
+const TERMINAL_PROCESS_STATUSES: ReadonlySet<string> = new Set(['auto_completed', 'completed', 'failed', 'cancelled'])
+
 const effectorAttributesSchema = z.object({
   [OM_OTEL_EFFECTOR_ATTRIBUTES.ok]: z.boolean().optional().catch(undefined),
   [OM_OTEL_EFFECTOR_ATTRIBUTES.commandIds]: z.array(z.string()).optional().catch(undefined),
@@ -104,16 +106,22 @@ export function parseTraceparent(value: unknown): { traceId: string; spanId: str
   return { traceId, spanId }
 }
 
-function workflowName(bundle: MapAgentRunBundle): string | null {
-  const processInstance = bundle.processInstance
-  return processInstance?.workflowId ?? processInstance?.processDefinitionId ?? bundle.run.workflowInstanceId
+function workflowName(processInstance: NonNullable<MapAgentRunBundle['processInstance']>, workflowInstanceId: string): string {
+  return processInstance.workflowId ?? processInstance.processDefinitionId ?? processInstance.workflowInstanceId ?? workflowInstanceId
 }
 
+/**
+ * The `invoke_workflow` root, built only from the process instance so every
+ * top-level run of the execution exports an identical span. It is emitted
+ * once the process is terminal; until then runs still parent to its id and
+ * the first export after completion fills it in.
+ */
 function buildWorkflowSpan(bundle: MapAgentRunBundle, traceId: string): OtlpSpanInput | null {
   const workflowInstanceId = bundle.run.workflowInstanceId
   const processInstance = bundle.processInstance
   if (!workflowInstanceId || !processInstance || bundle.run.parentRunId) return null
-  const name = workflowName(bundle)
+  if (!TERMINAL_PROCESS_STATUSES.has(processInstance.status)) return null
+  const name = workflowName(processInstance, workflowInstanceId)
   const attributes: MutableAttributes = {}
   setAttribute(attributes, GEN_AI_ATTRIBUTES.operationName, GEN_AI_OPERATIONS.invokeWorkflow)
   setAttribute(attributes, GEN_AI_ATTRIBUTES.workflowName, name)
@@ -123,14 +131,14 @@ function buildWorkflowSpan(bundle: MapAgentRunBundle, traceId: string): OtlpSpan
   setAttribute(attributes, OM_OTEL_PROCESS_ATTRIBUTES.subjectType, processInstance.subjectType)
   const { status, errorType } = statusFor(processInstance.status === 'failed' ? 'error' : processInstance.status)
   setAttribute(attributes, OTEL_STANDARD_ATTRIBUTES.errorType, errorType)
-  const runEnd = bundle.run.completedAt ?? bundle.run.createdAt
+  const completedAt = processInstance.completedAt
   return {
     traceId,
     spanId: workflowSpanId(workflowInstanceId),
-    name: name ? `${GEN_AI_OPERATIONS.invokeWorkflow} ${name}` : GEN_AI_OPERATIONS.invokeWorkflow,
+    name: `${GEN_AI_OPERATIONS.invokeWorkflow} ${name}`,
     kind: 'internal',
     startTime: processInstance.createdAt,
-    endTime: processInstance.completedAt ?? (runEnd > processInstance.createdAt ? runEnd : processInstance.createdAt),
+    endTime: completedAt && completedAt > processInstance.createdAt ? completedAt : processInstance.createdAt,
     attributes: finalizeAttributes(attributes),
     status,
   }
@@ -328,7 +336,7 @@ function buildToolSpan(
     traceId,
     spanId: agentSpanId(span.id),
     parentSpanId,
-    name: `${GEN_AI_OPERATIONS.executeTool} ${toolName}`,
+    name: `${GEN_AI_OPERATIONS.executeTool} ${redactString(toolName)}`,
     kind: 'internal',
     startTime: span.startedAt,
     endTime: endTimeFor(span.startedAt, span.endedAt, span.durationMs),
@@ -346,7 +354,7 @@ function buildSystemSpan(span: RunExportSpan, traceId: string, parentSpanId: str
     traceId,
     spanId: agentSpanId(span.id),
     parentSpanId,
-    name: `${OM_OTEL_SPAN_NAMES.systemPrefix}${span.name}`,
+    name: `${OM_OTEL_SPAN_NAMES.systemPrefix}${redactString(span.name)}`,
     kind: 'internal',
     startTime: span.startedAt,
     endTime: endTimeFor(span.startedAt, span.endedAt, span.durationMs),

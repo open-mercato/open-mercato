@@ -21,6 +21,7 @@ const logger = createLogger('agent_orchestrator').child({ component: 'otel-expor
 export const OTEL_EXPORT_MAX_ATTEMPTS = 5
 export const OTEL_EXPORT_BACKOFF_BASE_MS = 5_000
 export const OTEL_EXPORT_BACKOFF_MAX_MS = 5 * 60 * 1000
+export const OTEL_EXPORT_RETRY_AFTER_MAX_MS = OTEL_EXPORT_BACKOFF_MAX_MS * 12
 
 export const OTEL_EXPORT_ERROR_CODES = {
   failed: 'agent_orchestrator.otel_export_failed',
@@ -37,6 +38,12 @@ type EnqueueOtelExport = (payload: OtelExportJobPayload, options?: EnqueueOption
 export function otelExportBackoffMs(attempt: number): number {
   const exponent = Math.max(0, Math.min(attempt, 20))
   return Math.min(OTEL_EXPORT_BACKOFF_MAX_MS, OTEL_EXPORT_BACKOFF_BASE_MS * 2 ** exponent)
+}
+
+/** Delay before the next attempt: the backend's Retry-After (capped at 1 h) or the backoff, whichever is longer. */
+export function otelExportRetryDelayMs(attempt: number, retryAfterMs: number | null | undefined): number {
+  const requested = typeof retryAfterMs === 'number' && Number.isFinite(retryAfterMs) ? Math.max(0, retryAfterMs) : 0
+  return Math.max(Math.min(requested, OTEL_EXPORT_RETRY_AFTER_MAX_MS), otelExportBackoffMs(attempt))
 }
 
 /**
@@ -80,34 +87,54 @@ export type EnqueueOtelExportForRunEventDeps = {
   env?: EnvLike
 }
 
+async function readRunEventGate(
+  payload: unknown,
+  container: OtelExportContainer,
+  env: EnvLike,
+): Promise<{ runId: string; tenantId: string; delayMs: number } | null> {
+  try {
+    const deployment = resolveOtelExportDeployment(env)
+    if (!deployment.enabled) return null
+    const event = readRunEventPayload(payload)
+    if (!event) return null
+    const { settings } = await readOtelExportSettings(container, event.tenantId)
+    if (!settings.enabled) return null
+    if (event.agentId && settings.agentAllowlist && !settings.agentAllowlist.includes(event.agentId)) return null
+    return { runId: event.runId, tenantId: event.tenantId, delayMs: deployment.delayMs }
+  } catch (error) {
+    logger.warn('otel export subscriber gate failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    reportExportError(error, OTEL_EXPORT_ERROR_CODES.enqueueFailed, {})
+    return null
+  }
+}
+
 /**
  * Subscriber gate for `run.completed` / `run.ingested`: deployment switch
  * (env only) → tenant settings (+ agent allowlist when the event names the
  * agent) → enqueue `{ runId, attempt: 0 }` delayed by the deployment delay.
  * The run source is only on the row, so the worker re-checks the full gate.
- * Never throws.
+ * A failed enqueue is reported and rethrown so the persistent subscriber's
+ * queue retry redelivers the event; every other failure is swallowed.
  */
 export async function enqueueOtelExportForRunEvent(
   payload: unknown,
   container: OtelExportContainer,
   deps: EnqueueOtelExportForRunEventDeps,
 ): Promise<boolean> {
+  const gate = await readRunEventGate(payload, container, deps.env ?? process.env)
+  if (!gate) return false
   try {
-    const deployment = resolveOtelExportDeployment(deps.env ?? process.env)
-    if (!deployment.enabled) return false
-    const event = readRunEventPayload(payload)
-    if (!event) return false
-    const { settings } = await readOtelExportSettings(container, event.tenantId)
-    if (!settings.enabled) return false
-    if (event.agentId && settings.agentAllowlist && !settings.agentAllowlist.includes(event.agentId)) return false
-    await deps.enqueue({ runId: event.runId, attempt: 0 }, { delayMs: deployment.delayMs })
+    await deps.enqueue({ runId: gate.runId, attempt: 0 }, { delayMs: gate.delayMs })
     return true
   } catch (error) {
     logger.warn('otel export enqueue failed', {
+      runId: gate.runId,
       error: error instanceof Error ? error.message : String(error),
     })
-    reportExportError(error, OTEL_EXPORT_ERROR_CODES.enqueueFailed, {})
-    return false
+    reportExportError(error, OTEL_EXPORT_ERROR_CODES.enqueueFailed, { runId: gate.runId, tenantId: gate.tenantId })
+    throw error
   }
 }
 
@@ -165,12 +192,49 @@ async function postAllChunks(
   return null
 }
 
+async function handleUnexpectedJobFailure(
+  error: unknown,
+  job: OtelExportJobPayload,
+  tenantId: string | null,
+  deps: ProcessOtelExportJobDeps,
+): Promise<OtelExportJobOutcome> {
+  const attributes = { runId: job.runId, tenantId: tenantId ?? undefined, attempt: job.attempt }
+  logger.warn('otel export job failed unexpectedly', {
+    ...attributes,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  if (job.attempt + 1 < OTEL_EXPORT_MAX_ATTEMPTS) {
+    try {
+      await deps.enqueue({ runId: job.runId, attempt: job.attempt + 1 }, { delayMs: otelExportBackoffMs(job.attempt) })
+      return 'retry_scheduled'
+    } catch (enqueueError) {
+      reportExportError(enqueueError, OTEL_EXPORT_ERROR_CODES.enqueueFailed, attributes)
+    }
+  }
+  reportExportError(error, OTEL_EXPORT_ERROR_CODES.unexpected, attributes)
+  if (job.attempt + 1 >= OTEL_EXPORT_MAX_ATTEMPTS) {
+    reportExportError(new Error('[internal] otel export failed'), OTEL_EXPORT_ERROR_CODES.failed, attributes)
+  }
+  if (tenantId) {
+    try {
+      await recordOtelExportHealth(deps.container, tenantId, { outcome: 'error', errorCode: 'unexpected' })
+    } catch (healthError) {
+      logger.warn('could not record the otel export health', {
+        runId: job.runId,
+        error: healthError instanceof Error ? healthError.message : String(healthError),
+      })
+    }
+  }
+  return 'error'
+}
+
 /**
  * One OTel export job. Only `runId` is trusted from the payload: the run row
  * gives the tenant, agent and source, and the tenant settings are re-read here
  * so a revoked opt-in stops queued jobs. Expected failures never throw (the
- * queue's own retry would duplicate the backoff): `retry` re-enqueues with
- * `attempt + 1` (Retry-After honored, max 5 attempts), `drop` is reported.
+ * queue's own retry would duplicate the backoff): `retry` and unexpected
+ * failures (loader, settings, DB, queue) re-enqueue with `attempt + 1`
+ * (Retry-After honored up to 1 h, max 5 attempts), `drop` is reported.
  */
 export async function processOtelExportJob(
   payload: unknown,
@@ -205,7 +269,7 @@ export async function processOtelExportJob(
     const errorCode = failure.errorCode ?? (failure.httpStatus ? `http_${failure.httpStatus}` : 'unknown')
     const attributes = { tenantId, runId: job.runId, attempt: job.attempt, httpStatus: failure.httpStatus ?? undefined, errorCode }
     if (failure.outcome === 'retry' && job.attempt + 1 < OTEL_EXPORT_MAX_ATTEMPTS) {
-      const delayMs = Math.max(failure.retryAfterMs ?? 0, otelExportBackoffMs(job.attempt))
+      const delayMs = otelExportRetryDelayMs(job.attempt, failure.retryAfterMs)
       await deps.enqueue({ runId: job.runId, attempt: job.attempt + 1 }, { delayMs })
       return 'retry_scheduled'
     }
@@ -215,12 +279,6 @@ export async function processOtelExportJob(
     await recordOtelExportHealth(deps.container, tenantId, { outcome: 'error', errorCode })
     return failure.outcome === 'retry' ? 'failed' : 'rejected'
   } catch (error) {
-    logger.warn('otel export job failed unexpectedly', {
-      runId: job.runId,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    reportExportError(error, OTEL_EXPORT_ERROR_CODES.unexpected, { runId: job.runId, tenantId: tenantId ?? undefined })
-    if (tenantId) await recordOtelExportHealth(deps.container, tenantId, { outcome: 'error', errorCode: 'unexpected' })
-    return 'error'
+    return handleUnexpectedJobFailure(error, job, tenantId, deps)
   }
 }
